@@ -561,11 +561,11 @@ extension AnnotationTableDrawerView {
         guard row < displayedAnnotations.count else { return nil }
         let annotation = displayedAnnotations[row]
 
-        let cellView: NSTableCellView
-        if let existing = tableView.makeView(withIdentifier: identifier, owner: nil) as? NSTableCellView {
+        let cellView: SelectionAwareTextCellView
+        if let existing = tableView.makeView(withIdentifier: identifier, owner: nil) as? SelectionAwareTextCellView {
             cellView = existing
         } else {
-            cellView = NSTableCellView()
+            cellView = SelectionAwareTextCellView()
             cellView.identifier = identifier
             let tf = NSTextField(labelWithString: "")
             tf.font = .systemFont(ofSize: 11)
@@ -584,6 +584,7 @@ extension AnnotationTableDrawerView {
         tf.alignment = .left  // Reset default alignment
         tf.font = .systemFont(ofSize: 11)  // Reset default font
         tf.toolTip = nil
+        cellView.accentTextColor = nil
 
         switch identifier {
         // Annotation columns
@@ -630,7 +631,7 @@ extension AnnotationTableDrawerView {
         case Self.variantTypeColumn:
             tf.stringValue = annotation.type
             tf.font = .systemFont(ofSize: 11)
-            tf.textColor = variantTypeColor(annotation.type)
+            cellView.accentTextColor = variantTypeColor(annotation.type)
         case Self.variantChromColumn:
             tf.stringValue = annotation.chromosome
         case Self.positionColumn:

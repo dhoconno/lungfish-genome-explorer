@@ -105,6 +105,12 @@ struct AssembleCommand: AsyncParsableCommand {
     var profile: String?
 
     @Option(
+        name: .customLong("profile-basis"),
+        help: "Why --profile was chosen, recorded in provenance (the app passes its read-quality preselection)"
+    )
+    var profileBasis: String?
+
+    @Option(
         name: .customLong("extra-args"),
         parsing: .unconditional,
         help: "Additional assembler options, written exactly as they should be passed to the underlying tool"
@@ -264,6 +270,7 @@ struct AssembleCommand: AsyncParsableCommand {
         let resolvedProfile = await Self.resolveProfile(
             tool: tool,
             explicitProfile: profile,
+            explicitProfileBasis: profileBasis,
             inputURL: inputURLs.first
         )
 
@@ -400,7 +407,9 @@ struct AssembleCommand: AsyncParsableCommand {
 
     /// The profile the run uses and, when the CLI chose it, why.
     ///
-    /// An explicit `--profile` always wins and carries no basis. Without one,
+    /// An explicit `--profile` always wins; it carries the basis only when
+    /// `--profile-basis` gives one (the app passes the read-quality
+    /// preselection its sheet made, so a window run records it too). Without one,
     /// Flye takes the same read-quality preselection the app's sheet makes
     /// (Nano Raw under Q10, Nano HQ otherwise), measured on the ORIGINAL
     /// input so an imported bundle's persisted statistics are used before
@@ -408,10 +417,12 @@ struct AssembleCommand: AsyncParsableCommand {
     static func resolveProfile(
         tool: AssemblyTool,
         explicitProfile: String?,
+        explicitProfileBasis: String? = nil,
         inputURL: URL?
     ) async -> (profileID: String?, basis: String?) {
         if let explicitProfile {
-            return (explicitProfile, nil)
+            let basis = explicitProfileBasis?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (explicitProfile, basis?.isEmpty == false ? basis : nil)
         }
         guard tool == .flye, let inputURL else {
             return (nil, nil)

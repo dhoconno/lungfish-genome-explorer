@@ -51,6 +51,29 @@ final class AssemblyInterleavedPairingTests: XCTestCase {
         XCTAssertFalse(auto.arguments.contains("--read-layout"))
     }
 
+    // The sheet's Flye profile preselection reached the CLI without its
+    // basis, so window runs recorded no Profile Basis.
+    func testInvocationPassesTheProfileBasisWithTheProfile() throws {
+        let request = AssemblyRunRequest(
+            tool: .flye,
+            readType: .ontReads,
+            inputURLs: [URL(fileURLWithPath: "/tmp/ont.lungfishfastq/ont.fastq")],
+            projectName: "ont",
+            outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+            pairedEnd: false,
+            threads: 4,
+            selectedProfileID: "nano-raw",
+            profileSelectionBasis: "Nano Raw preselected: median read quality Q8 is below Q10"
+        )
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: .assemble(request: request, outputMode: .perInput))
+        let arguments = invocation.arguments
+        let profileIndex = try XCTUnwrap(arguments.firstIndex(of: "--profile"))
+        XCTAssertEqual(arguments[profileIndex + 1], "nano-raw")
+        let basisIndex = try XCTUnwrap(arguments.firstIndex(of: "--profile-basis"))
+        XCTAssertEqual(arguments[basisIndex + 1], "Nano Raw preselected: median read quality Q8 is below Q10")
+    }
+
     func testReadLayoutCaptionNamesAnInterleavedBundle() {
         let empty: (forward: [URL], reverse: [URL], unpaired: [URL]) = ([], [], [URL(fileURLWithPath: "/tmp/a.lungfishfastq")])
         XCTAssertEqual(

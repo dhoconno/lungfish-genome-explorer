@@ -1,4 +1,5 @@
 import XCTest
+import ViewInspector
 @testable import LungfishApp
 import LungfishKit
 @testable import LungfishWorkflow
@@ -41,6 +42,20 @@ final class AssemblyWizardSheetTests: XCTestCase {
     func testAssemblySheetUsesExtraArgumentsWording() {
         XCTAssertEqual(AssemblyWizardSheet.advancedDisclosureTitle, "Curated extra arguments")
         XCTAssertEqual(AssemblyWizardSheet.extraArgumentsFieldTitle, "Extra arguments")
+    }
+
+    // The advanced disclosure listed catalog entries (SPAdes Mode, Careful
+    // Mode, Coverage Cutoff, PHRED Offset, and the other assemblers' rows) as
+    // headings and captions with no control under them.
+    func testAdvancedSettingsListOnlyOptionsWithControls() throws {
+        let inspected = try AssemblyWizardSheet(inputFiles: [], outputDirectory: nil).inspect()
+        XCTAssertNoThrow(try inspected.find(text: AssemblyWizardSheet.extraArgumentsFieldTitle))
+        for tool in AssemblyTool.allCases {
+            for option in AssemblyOptionCatalog.sections(for: tool).advanced {
+                XCTAssertThrowsError(try inspected.find(text: option.title),
+                                     "\(option.title) is a heading with no control")
+            }
+        }
     }
 
     func testHifiasmProfilesDefaultToDiploidAndExposeHaploidViral() {

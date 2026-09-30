@@ -103,6 +103,61 @@ final class OperationRoutingTests: XCTestCase {
         )
     }
 
+    // Found capturing on 9.59: every mapping and assembly run left an empty
+    // Downloads folder in the project. Their results are already in the
+    // project and are kept in place, but the folder was created first.
+    func testImportingABundleAlreadyInTheProjectDoesNotCreateDownloads() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProvenanceRoute-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let projectURL = temp.appendingPathComponent("Shared.lungfish", isDirectory: true)
+        _ = try DocumentManager.shared.createProject(at: projectURL, name: "Shared")
+        let snapshot = ProjectWindowSnapshot(
+            id: UUID(),
+            projectURL: projectURL,
+            windowOrdinal: 1,
+            windowOrder: 0,
+            windowTitleSuffix: "[1]",
+            frame: nil,
+            isFullScreen: false,
+            selectedSidebarURL: nil,
+            expandedSidebarURLs: [],
+            sidebarSearchText: nil,
+            activeContent: nil,
+            inspectorTab: nil,
+            sidebarCollapsed: false,
+            inspectorCollapsed: false,
+            sidebarWidth: nil,
+            inspectorWidth: nil,
+            operationsPanelFilter: nil,
+            operationsPanelVisible: false
+        )
+        let restored = try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: [snapshot]))
+        XCTAssertTrue(restored)
+        await delegate.testingWaitForProjectRestoration()
+        let controller = try XCTUnwrap(delegate.testingMainWindowControllers.first)
+        defer { controller.close() }
+        let analysis = projectURL
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("minimap2-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: analysis, withIntermediateDirectories: true)
+
+        delegate.importReadyBundles(
+            [analysis],
+            routeContext: OperationRouteContext(
+                projectURL: projectURL,
+                windowStateScope: controller.projectSession.windowStateScope
+            )
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: projectURL.appendingPathComponent("Downloads", isDirectory: true).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: analysis.path))
+    }
+
     func testCopiedBundleImportRehydratesProvenancePathsToFinalProjectLocation() async throws {
         let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory

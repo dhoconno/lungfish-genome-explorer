@@ -2,12 +2,12 @@ import AppKit
 import SwiftUI
 import LungfishWorkflow
 
-private final class PrimerAnalysisHostingController: NSHostingController<PrimerAnalysisViewerView> {
+final class PrimerAnalysisHostingController: NSHostingController<PrimerAnalysisViewerView> {
     var installationID = UUID()
     var onDismiss: (@MainActor () -> Void)?
 }
 
-private final class PrimerOrderHostingController: NSHostingController<PrimerOrderResultView> {
+final class PrimerOrderHostingController: NSHostingController<PrimerOrderResultView> {
     var installationID = UUID()
     var onDismiss: (@MainActor () -> Void)?
 }
@@ -36,6 +36,12 @@ extension ViewerViewController {
             }))
         controller.installationID = installationID
         controller.onDismiss = onDismiss
+        // The viewport sizes the content, never the reverse. With the default
+        // sizing options the hosting view turned SwiftUI's ideal width (long
+        // captions measured as one line) into constraints that outranked the
+        // window's own size, so opening an analysis widened a 1400pt window
+        // to 1535pt.
+        controller.sizingOptions = []
         addChild(controller)
         let resultsView = controller.view
         resultsView.translatesAutoresizingMaskIntoConstraints = false
@@ -69,6 +75,12 @@ extension ViewerViewController {
             }))
         controller.installationID = installationID
         controller.onDismiss = onDismiss
+        // The viewport sizes the content, never the reverse. With the default
+        // sizing options the hosting view turned SwiftUI's ideal width (long
+        // captions measured as one line) into constraints that outranked the
+        // window's own size, so opening an analysis widened a 1400pt window
+        // to 1535pt.
+        controller.sizingOptions = []
         addChild(controller)
         let resultsView = controller.view
         resultsView.translatesAutoresizingMaskIntoConstraints = false

@@ -67,6 +67,34 @@ final class AssemblyDocumentSectionTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: sidecar), originalData)
     }
 
+    // A window Flye run records the profile and why it was chosen, but the
+    // Inspector's Assembly Context never showed either row.
+    func testAssemblyContextShowsTheRecordedProfileAndItsBasis() throws {
+        let result = try makeAssemblyResult()
+        defer { try? FileManager.default.removeItem(at: result.outputDirectory) }
+        let envelope = ProvenanceEnvelope(
+            workflowName: "assemble", toolName: "lungfish-cli", toolVersion: "2026.9.61",
+            argv: ["lungfish-cli", "assemble"],
+            options: ProvenanceOptions(explicit: [
+                "profile": .string("nano-raw"),
+                "profileBasis": .string("Nano Raw preselected: median read quality Q8 is below Q10"),
+            ]),
+            exitStatus: 0
+        )
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+        let rows = inspector.assemblyContextRows(result: result, provenance: nil, scientificProvenance: envelope)
+        XCTAssertTrue(rows.contains { $0.0 == "Profile" && $0.1 == "nano-raw" })
+        XCTAssertTrue(rows.contains { $0.0 == "Profile Basis" && $0.1.contains("Q8") })
+
+        let defaultEnvelope = ProvenanceEnvelope(
+            workflowName: "assemble", toolName: "lungfish-cli", toolVersion: "2026.9.61",
+            options: ProvenanceOptions(explicit: ["profile": .string("default"), "profileBasis": .null])
+        )
+        let defaultRows = inspector.assemblyContextRows(result: result, provenance: nil, scientificProvenance: defaultEnvelope)
+        XCTAssertFalse(defaultRows.contains { $0.0 == "Profile" || $0.0 == "Profile Basis" })
+    }
+
     func testInspectorUpdateAssemblyDocumentBuildsArtifactsAndSourceRows() throws {
         let projectURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("assembly-doc-inspector-\(UUID().uuidString)", isDirectory: true)

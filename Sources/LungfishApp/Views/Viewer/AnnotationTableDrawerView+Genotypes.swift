@@ -497,12 +497,12 @@ extension AnnotationTableDrawerView {
     func genotypeView(for column: NSTableColumn, row: Int) -> NSView {
         let identifier = column.identifier
         let cellId = NSUserInterfaceItemIdentifier("GenotypeCell_\(identifier.rawValue)")
-        let cellView: NSTableCellView
+        let cellView: SelectionAwareTextCellView
 
-        if let reused = tableView.makeView(withIdentifier: cellId, owner: self) as? NSTableCellView {
+        if let reused = tableView.makeView(withIdentifier: cellId, owner: self) as? SelectionAwareTextCellView {
             cellView = reused
         } else {
-            cellView = NSTableCellView()
+            cellView = SelectionAwareTextCellView()
             cellView.identifier = cellId
             let textField = NSTextField(labelWithString: "")
             textField.lineBreakMode = .byTruncatingTail
@@ -532,9 +532,9 @@ extension AnnotationTableDrawerView {
         if (identifier == Self.gtGenotypeColumn || identifier == Self.gtZygosityColumn),
            row < displayedGenotypes.count {
             let gt = displayedGenotypes[row]
-            cellView.textField?.textColor = genotypeColor(for: gt.zygosity)
+            cellView.accentTextColor = genotypeColor(for: gt.zygosity)
         } else {
-            cellView.textField?.textColor = .labelColor
+            cellView.accentTextColor = nil
         }
 
         return cellView

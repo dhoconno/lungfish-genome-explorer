@@ -19,7 +19,7 @@ shots:
   - id: primer3-dialog-msa-template
     caption: "The PCR Primer Design dialog on the twelve-allele alignment, with the Template row picker set to row 1 and the conserved binding sites switch turned on."
   - id: primer3-binding-inspection
-    caption: "The Binding inspection view of the single-allele analysis compared against the twelve-allele alignment, showing the rows that mismatch the forward primer of Pair 1 and the mismatch table beneath."
+    caption: "The Binding inspection view of the conserved analysis, with the forward primer of Pair 1 compared against all twelve rows of the alignment and every row showing zero mismatches."
 illustrations: []
 glossary_refs: [primer, pcr, amplicon, exon, intron, allele, mhc, ipd-mhc, msa, alignment-column, gc-content, melting-temperature, oligo, paralog, fasta, reference-bundle, plugin-pack, operations-panel, sidebar, inspector, provenance]
 features_refs: [primer-design.primer3]
@@ -145,7 +145,7 @@ Read the pair line carefully, because it is easy to misread. Primer3 builds pair
 
 Check that each pair's product holds the whole target, with the forward primer ending before the target start and the reverse primer starting after the target end. Check that the two primers are within about 2 °C of each other, so one annealing temperature serves both. Both pairs above are within 0.2 °C.
 
-Check the pair against every sequence it must amplify. Binding inspection compares one primer with every row of the alignment and reports the rows that mismatch, and [Inspect binding against the alignment](05-reviewing-and-ordering-primers.md#inspect-binding-against-the-alignment) works through it. For the conserved design every row should show zero mismatches. Twelve alleles are a teaching size, and a working assay includes every allele the colony carries.
+Check the pair against every sequence it must amplify. Binding inspection compares one primer with every row of the alignment and reports the rows that mismatch, and [Inspect binding against the alignment](05-reviewing-and-ordering-primers.md#inspect-binding-against-the-alignment) works through it. For the conserved design every row should show zero mismatches. The single-allele analysis has no alignment behind it, so its Binding inspection only explains that there is nothing to compare. Twelve alleles are a teaching size, and a working assay includes every allele the colony carries.
 
 <!-- SHOT: primer3-binding-inspection -->
 

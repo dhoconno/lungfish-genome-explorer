@@ -634,16 +634,6 @@ struct AssemblyWizardSheet: View {
                         EmptyView()
                     }
 
-                    ForEach(AssemblyOptionCatalog.sections(for: selectedTool).advanced, id: \.id) { option in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(option.title)
-                                .font(.subheadline.weight(.medium))
-                            Text(option.summary)
-                                .font(.caption)
-                                .foregroundStyle(Color.lungfishSecondaryText)
-                        }
-                    }
-
                     VStack(alignment: .leading, spacing: 6) {
                         Text(Self.extraArgumentsFieldTitle)
                             .font(.subheadline.weight(.medium))

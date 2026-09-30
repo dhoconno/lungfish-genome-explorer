@@ -2544,13 +2544,21 @@ extension AppDelegate {
             destinationDirectory = downloadsURL.appendingPathComponent("Lungfish Downloads", isDirectory: true)
         }
 
-        // Create destination directory
-        do {
-            try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-        } catch {
-            debugLog("handleMultipleDownloadsSync: Failed to create directory - \(error)")
-            activityIndicator?.hide()
-            return
+        // Created only before the first file is written into it. Results that
+        // already live in the project (mapping, assembly and every other
+        // in-project analysis) are kept in place, and creating the folder up
+        // front left an empty Downloads folder in the project after each run.
+        var destinationDirectoryReady = false
+        func ensureDestinationDirectory() -> Bool {
+            if destinationDirectoryReady { return true }
+            do {
+                try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+                destinationDirectoryReady = true
+                return true
+            } catch {
+                debugLog("handleMultipleDownloadsSync: Failed to create directory - \(error)")
+                return false
+            }
         }
 
         var copiedURLs: [URL] = []
@@ -2604,6 +2612,8 @@ extension AppDelegate {
 
             let cleanFilename = "\(baseName).\(fileExtension)"
             activityIndicator?.updateMessage("Copying \(cleanFilename) (\(index + 1)/\(totalCount))...")
+
+            guard ensureDestinationDirectory() else { continue }
 
             // FASTQ imports are stored as package bundles so the FASTQ payload,
             // index, and metadata always travel together.
