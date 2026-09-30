@@ -2,8 +2,8 @@
 # App state: Preview build 4673. Completed native fastp trim operation on public HG002 reads.
 id: operations-panel-right-click-menu
 chapter: 01-foundations/06-the-lungfish-project
-caption: The right-click menu on a completed trim operation, showing Copy CLI Command, Copy Log, View
-  Log, Reveal Log in Finder, and Clear.
+caption: The right-click menu on a completed trim operation, showing Reveal Output Files, Copy CLI Command,
+  Copy Log, View Log, Reveal Log in Finder, and Clear.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

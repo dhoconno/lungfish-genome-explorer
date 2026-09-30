@@ -1,0 +1,31 @@
+# Captured from Lungfish Preview 2026.9.64 (2026-09-30 recapture).
+# App state: Mapping viewport at 2,078 zoomed to reads, a stretch selected along the Consensus row, context menu open.
+id: extract-reads-region-menu
+chapter: 04-alignments/02-reading-an-alignment
+caption: The context menu over a selected stretch of the alignment track, with Extract Reads in Selected
+  Region... showing beneath Copy Visible Region, Copy Visible Region as FASTA, and Extract Visible Region...
+viewport_class: alignment
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: Open the minimap2 result, Focus, Cmd-L 2078, zoom in
+  # PROSE-ONLY: Drag along the Consensus row, right-click inside the selection
+  # PROSE-ONLY: Screen-region capture of the menu
+crop:
+  mode: region
+post:
+  retina: true
+  format: png

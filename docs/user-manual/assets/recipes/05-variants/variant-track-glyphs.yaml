@@ -1,0 +1,29 @@
+# Captured from Lungfish Preview 2026.9.64 (2026-09-30 recapture).
+# App state: Mapping viewport focused at chr20_10.0-10.5Mb:250527, zoomed so the call has width.
+id: variant-track-glyphs
+chapter: 05-variants/02-reading-the-variant-browser
+caption: The HG002 bcftools variant track in the genome viewport at position 250,527, a heterozygous 0/1
+  call drawn as a blue genotype cell, with the summary bar of variant types above the genotype row.
+viewport_class: variant
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: Open the minimap2 result, Focus, Cmd-L chr20_10.0-10.5Mb:250527, Up arrow x7
+crop:
+  mode: region
+post:
+  retina: true
+  format: png

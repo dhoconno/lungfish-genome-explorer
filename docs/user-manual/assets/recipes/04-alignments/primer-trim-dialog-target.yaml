@@ -2,9 +2,9 @@
 # App state: Preview build 4673. Unconfigured human alignment target, no scheme selected, Output Track Name empty.
 id: primer-trim-dialog-target
 chapter: 04-alignments/03-primer-trimming
-caption: The Primer Trim dialog opened on the human demo alignment before choosing a matching scheme,
-  showing the Alignment Track menu, empty Output Track Name field, and note that reads without matching
-  primers are retained.
+caption: The Primer Trim dialog on the SRR36291587 alignment with the QIAseq Direct scheme chosen, showing
+  the Alignment Track menu, the Output Track Name field filled with the source track name and the scheme,
+  and the note that reads without matching primers are retained.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

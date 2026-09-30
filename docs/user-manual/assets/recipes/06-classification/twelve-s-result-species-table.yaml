@@ -2,7 +2,10 @@
 # App state: HG002-12S Targets view,1 sample and110 exact human matches, all nine columns visible. Sidebar and Inspector hidden.
 id: twelve-s-result-species-table
 chapter: 06-classification/10-twelve-s-metabarcoding
-caption: "The 12S viewport on its Targets view for the HG002 reads, showing one Homo sapiens row with 110 exact reads and 100.0% of Sample under the Sample, Scientific Name, Common Names, Group, Tax ID, Exact Reads, % of Sample, Refs, and Alternates columns."
+caption: The 12S viewport on its Targets view for the SIMULATED-12S-mixture-oriented reads, showing three
+  rows, Homo sapiens with 1,235 exact reads and 68.0% of Sample, Macaca mulatta with 491 and 27.0% and
+  Alternates 1, and Macaca fascicularis with 91 and 5.0%, under the Sample, Scientific Name, Common Names,
+  Group, Tax ID, Exact Reads, % of Sample, Refs, and Alternates columns.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

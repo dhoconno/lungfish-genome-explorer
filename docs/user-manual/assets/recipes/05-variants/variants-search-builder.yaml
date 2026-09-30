@@ -2,8 +2,7 @@
 # App state: The Variant Query Builder sheet with two rules and Match All selected.
 id: variants-search-builder
 chapter: 05-variants/02-reading-the-variant-browser
-caption: The Variant Query Builder sheet with two rules, one on Call Quality and one on an INFO field,
-  combined with Match All.
+caption: The Variant Query Builder sheet with two rules, one on Location and one on an INFO field.
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'

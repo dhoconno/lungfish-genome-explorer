@@ -2,7 +2,11 @@
 # App state: FASTQ/FASTA Operations sheet on the TaxTriage pane with both bundles selected, two Clinical Sample rows, Kraken2 Database Standard-16, Sequencing Platform Illumina, Skip assembly (faster) ticked, Exclude host taxa 9606, Advanced Settings collapsed
 id: taxtriage-dialog
 chapter: 06-classification/04-running-taxtriage
-caption: "The FASTQ/FASTA Operations dialog opened from Tools > Classification > TaxTriage... with SRR12486983 and SRR12486989 selected, showing both samples as Clinical Sample rows, the Kraken2 Database picker on Standard-16, Sequencing Platform on Illumina, Skip assembly (faster) ticked, the Exclude host taxa field holding 9606, and Advanced Settings collapsed."
+caption: The FASTQ/FASTA Operations dialog opened from Tools > Classification > TaxTriage... with SRR12486983
+  and SRR12486989 selected, showing both samples as Clinical Sample rows, the Prerequisites row with its
+  Nextflow and Docker Desktop indicators, the Kraken2 Database picker on Standard-16, Sequencing Platform
+  on Illumina, Skip assembly (faster) ticked, the Exclude host taxa field holding 9606, and Advanced Settings
+  collapsed.
 viewport_class: none
 app_state:
   fixture: kraken-protocol-cornea

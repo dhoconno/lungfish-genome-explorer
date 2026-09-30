@@ -4,9 +4,9 @@ id: taxtriage-batch-overview
 chapter: 06-classification/04-running-taxtriage
 caption: The TaxTriage viewport with both samples ticked and Kocuria typed in the Filter organisms...
   field, showing SRR12486983's Kocuria rows first, from Kocuria sp. BT304 at 0.920 High down to Kocuria
-  rosea at 0.080 Low, then SRR12486989's, starting with Kocuria sp. BT304 at 0.980 High, under the Sample,
-  Organism, TASS Score, Reads, Unique Reads, and Confidence columns. No row is selected, so the alignment
-  pane is empty.
+  sp. MNB10 at 0.380 Low, then SRR12486989's, starting with Kocuria sp. BT304 at 0.980 High, under the
+  Sample, Organism, TASS Score, Reads, Unique Reads, and Confidence columns. No row is selected, so the
+  alignment pane is empty.
 viewport_class: taxonomy
 app_state:
   fixture: kraken-protocol-cornea

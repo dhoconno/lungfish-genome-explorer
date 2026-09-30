@@ -2,8 +2,8 @@
 # App state: barcode01 selected inside top-level ont-run folder after GUI import with recipe toggled on then off. Stored crop is in window points,not display points.
 id: sidebar-after-ont-import
 chapter: 03-reads/07-ont-runs
-caption: The sidebar after importing the HG002 long reads as a run folder, showing the unprocessed barcode01
-  bundle inside the top-level ont-run folder.
+caption: The sidebar after importing the NRG1 run folder, showing the six barcode bundles, barcode85 to
+  barcode91, inside the ont-run folder under Imports.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

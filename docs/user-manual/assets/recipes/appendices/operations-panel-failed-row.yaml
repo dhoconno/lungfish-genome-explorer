@@ -2,8 +2,8 @@
 # App state: Preview build 4673. Actual simulated MHC GUI run failed during workbook creation because imported reference allele metadata was unresolved.
 id: operations-panel-failed-row
 chapter: appendices/troubleshooting
-caption: A failed row in the Operations Panel expanded to show its command and log, with the right-click
-  menu open on Copy Failure Report.
+caption: A failed row in the Operations Panel and its Issue button, with its details pane open on the
+  command and log, and the right-click menu open on Copy Failure Report.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

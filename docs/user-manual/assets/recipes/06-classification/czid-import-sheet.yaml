@@ -4,7 +4,7 @@ id: czid-import-sheet
 chapter: 06-classification/08-importing-cz-id-results
 caption: The CZ-ID Import sheet scrolled after a successful scan, showing the Preview panel with Sample,
   Project, Rows, Source, Report, Pipeline, NT DB, NR DB, and Top taxa, followed by the Project Destination
-  readout and Cancel and Run buttons.
+  readout naming Classifications/Sample-CZ-001.lungfishtax, and Cancel and Run buttons.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

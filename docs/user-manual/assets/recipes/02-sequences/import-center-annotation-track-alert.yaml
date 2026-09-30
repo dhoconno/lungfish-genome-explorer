@@ -1,0 +1,31 @@
+# Captured from Lungfish Preview 2026.9.67 (2026-09-30 recapture).
+# App state: Import Annotation Track alert for a BED file, Reference set to the project's GRCh38 slice.
+id: import-center-annotation-track-alert
+chapter: 02-sequences/01-importing-and-viewing
+caption: The Import Annotation Track alert, showing the Reference popup above the Track Name and Track
+  ID fields.
+viewport_class: none
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: File > Import Center, Reference Sequences tab, Annotation Track card Import...
+  # PROSE-ONLY: Choose a BED file; choose Reference Sequences/GRCh38.chr20.10.0-10.5Mb in the Reference menu
+  # PROSE-ONLY: Screen-region capture of the alert
+crop:
+  mode: region
+post:
+  retina: true
+  format: png

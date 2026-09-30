@@ -4,7 +4,7 @@ id: taxtriage-result-table
 chapter: 06-classification/04-running-taxtriage
 caption: The TaxTriage viewport for the two-sample corneal run in the List Over Detail layout, with both
   samples ticked in the Inspector's Sample Filter and the cards reading Batch TaxTriage, Samples 2, and
-  Organisms 322. The Human alphaherpesvirus 1 row of SRR12486983 is selected in the table on top, showing
+  Organisms 193. The Human alphaherpesvirus 1 row of SRR12486983 is selected in the table on top, showing
   TASS Score 0.930, Reads 2.0M, Unique Reads 1.6M, and High, and the alignment pane below shows the coverage
   track across the 152,222-base HSV-1 reference NC_001806.2, zoomed out, with its prompt to zoom in to
   view individual mapped reads. The Inspector shows its Panel Layout control and the run's Operation Details.

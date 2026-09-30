@@ -2,7 +2,9 @@
 # App state: Demo project, Imports/HG002 selected, Tools > Genotyping > miSeq amplicon MHC genotyping...; the Workflow Operations window at the top of its settings (Overview, Inputs with the Project Reference picker, Primary Settings), with the workflow list at the left including a linked Hello World Nextflow package marked Enable in Library.
 id: workflow-operations-runner
 chapter: 08-workflows/03-running-external-workflows
-caption: "The Workflow Operations window opened from a Tools category submenu, with the enabled workflows listed down the left, a linked package marked Enable in Library, and the Overview, Inputs, and Primary Settings sections on the right."
+caption: The Workflow Operations window opened from Tools > Workflows, with the enabled workflows listed
+  down the left, the linked Hello World Nextflow package selected, and the Overview, Inputs, and Primary
+  Settings sections on the right.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

@@ -1,0 +1,30 @@
+# Captured from Lungfish Preview 2026.9.64 (2026-09-30 recapture).
+# App state: Finished Viral Recon run on SRR36291587 (QIAseq Direct), Inspector Bundle tab listing Consensus, Lineage, and Quality outputs.
+id: viral-recon-inspector-outputs
+chapter: 04-alignments/05-viral-recon-wizard
+caption: The Inspector after a finished run, headed by the sample name and listing the Consensus, Lineage,
+  and Quality sections with one row per output file.
+viewport_class: alignment
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: Select SRR36291587, Tools > Mapping > Viral Recon..., scheme QIAseq Direct, Run
+  # PROSE-ONLY: Open viralrecon-<timestamp>, crop to the Inspector column
+crop:
+  mode: region
+post:
+  retina: true
+  format: png

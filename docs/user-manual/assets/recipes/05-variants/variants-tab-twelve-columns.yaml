@@ -2,8 +2,8 @@
 # App state: The chr20 bundle open with its table drawer on the Variants tab, both the HG002 bcftools and HG002 LoFreq tracks loaded, 1,918 variants, columns ID through Source visible.
 id: variants-tab-twelve-columns
 chapter: 05-variants/02-reading-the-variant-browser
-caption: The Variants tab of the table drawer inside the reference bundle viewport, with the twelve fixed
-  columns from ID through AA Change and both caller tracks loaded.
+caption: The Variants tab of the table drawer inside the reference bundle viewport, with the fixed columns
+  from Variant Track through AA Change and both caller tracks loaded.
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'
