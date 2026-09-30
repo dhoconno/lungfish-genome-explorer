@@ -275,6 +275,9 @@ struct ProvenanceCoverageMonitor {
         return allFileDescriptors(in: envelope).filter { descriptor in
             let path = descriptor.path.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !path.isEmpty, !descriptorLooksLikeDirectory(descriptor) else { return false }
+            // A stream between two piped steps (`pipe:stdout:bcftools-mpileup`)
+            // is not a file, so it has no checksum or size to record.
+            guard !path.hasPrefix("pipe:") else { return false }
             guard descriptor.checksumSHA256 == nil || descriptor.fileSize == nil else { return false }
             if failedOutputPaths.contains(descriptor.path),
                !FileManager.default.fileExists(atPath: descriptor.path) {

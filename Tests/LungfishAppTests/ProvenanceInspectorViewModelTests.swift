@@ -461,6 +461,48 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: resultDirectory))
     }
 
+    /// Capture on 9.64: the HG002 bcftools track's record read "Incomplete"
+    /// because the stream bcftools mpileup pipes into bcftools call has no
+    /// checksum or size. A pipe is not a file, so it cannot have either.
+    func testPipedStreamDescriptorIsNotReportedAsMissingFileMetadata() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let input = dir.appendingPathComponent("aln.bam")
+        let output = dir.appendingPathComponent("calls.vcf.gz")
+        try Data("bam".utf8).write(to: input)
+        try Data("vcf".utf8).write(to: output)
+        let inputDescriptor = ProvenanceFileDescriptor(
+            path: input.path, checksumSHA256: String(repeating: "a", count: 64), fileSize: 3,
+            format: .bam, role: .input)
+        let outputDescriptor = ProvenanceFileDescriptor(
+            path: output.path, checksumSHA256: String(repeating: "b", count: 64), fileSize: 3,
+            format: .vcf, role: .output)
+        let pipeDescriptor = ProvenanceFileDescriptor(
+            path: "pipe:stdout:bcftools-mpileup", format: .bcf, role: .output)
+        let mpileup = ProvenanceStep(
+            toolName: "bcftools", toolVersion: "1.24", argv: ["bcftools", "mpileup", input.path],
+            inputs: [inputDescriptor], outputs: [pipeDescriptor], exitStatus: 0, wallTimeSeconds: 1, stderr: "")
+        let call = ProvenanceStep(
+            toolName: "bcftools", toolVersion: "1.24", argv: ["bcftools", "call", "-o", output.path],
+            inputs: [pipeDescriptor], outputs: [outputDescriptor], exitStatus: 0, wallTimeSeconds: 1, stderr: "")
+        let envelope = ProvenanceEnvelope(
+            workflowName: "lungfish variants call", workflowVersion: "2026.9.64",
+            toolName: "bcftools", toolVersion: "1.24", argv: ["bcftools", "call"],
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            files: [inputDescriptor, outputDescriptor], output: outputDescriptor, outputs: [outputDescriptor],
+            steps: [mpileup, call], wallTimeSeconds: 2, exitStatus: 0, stderr: "")
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: dir)
+
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(item: ProvenanceInspectableItem(
+            url: dir, sidebarType: .classificationResult, contentMode: .metagenomics, displayName: "bcftools"))
+        try await waitUntilLoadCompletes(viewModel)
+
+        XCTAssertFalse(viewModel.warnings.contains { $0.title == "File metadata incomplete" }, "\(viewModel.warnings)")
+        XCTAssertNotEqual(viewModel.audit.status, .incomplete)
+    }
+
     func testMissingFileMetadataWarningsAreAggregated() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
