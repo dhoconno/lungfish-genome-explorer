@@ -1,10 +1,10 @@
 {
   "repo": "https://github.com/dhoconno/lungfish-manual-media",
-  "tag": "manual-v2026.9.44",
-  "commit": "054561ca407c32780941bff9548c1ed71db9103e",
+  "tag": "manual-v2026.9.65",
+  "commit": "3b98c9670a82d2121b18a8e0c16447fde57b5dc0",
   "publicArchive": {
-    "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/manual-media/manual-media-v2026.9.44.tar.gz",
-    "sha256": "a42d6a78b6ca0196c1d0548ce8e4fd3484273e1f344abb0e6ab0ea821c05c415",
+    "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/manual-media/manual-media-v2026.9.65.tar.gz",
+    "sha256": "ead0973481cd6b9c27f1ea58e604b2fe8ccd30fe601558d7943c30391a909c82",
     "prefixes": [
       "user-manual/assets/"
     ]
@@ -142,13 +142,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/bam-viewport-coverage-and-pileup.png",
-      "sha256": "301b5ba936ff8bd0e570e33b0326dae284db91d9ae75d068839ef8b67454bd20",
-      "size": 674781
+      "sha256": "234519a9bb5d6e3d6e73754d3aa95be86aa841c9f41cde6286c12e5e8a2011ca",
+      "size": 494725
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/empty-project-window.png",
-      "sha256": "f074615b3035495f4284a1239b39f1787c10d862fbbb8783ee24e27d591b8d9c",
-      "size": 533396
+      "sha256": "ba19a6ebc692aa4f97c21dd873d6960788212473d93a948091fee9cf8949aed4",
+      "size": 567634
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/file-export-menu.png",
@@ -162,18 +162,18 @@
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/inspector-fastq-detail.png",
-      "sha256": "52533f41089ab54805574d95a377a51d231d8c6e3b8dadff97fe566facb617be",
-      "size": 257053
+      "sha256": "105d143cc7c4ea1f3435d996f3eb24ac86149a16512146213f2144e384ebf358",
+      "size": 134997
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/inspector-fastq-selected.png",
-      "sha256": "2b6f1e822fb10255bfb866fce69c4d3ab153683758ffaeb9d3c86106f6bf7135",
-      "size": 1089331
+      "sha256": "7df1e70fb54f748ef12f3f9db8add5d0e61162ec6ec9c42ed7575761eada59fc",
+      "size": 847805
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/inspector-provenance-section.png",
-      "sha256": "ee342a5f5b86589e8adb5711be57873458c73a18c2455532314df52914c5b826",
-      "size": 521310
+      "sha256": "b965dcf01340bb9dcbb7293dbd01531ba86dafcad68702217caf939b06484bd5",
+      "size": 356296
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/operations-panel-right-click-menu.png",
@@ -182,8 +182,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/operations-panel-row.png",
-      "sha256": "a46d85b2612ccf80efa5e4f84e565d3068c1758accf7144e08ede0d48b00a04f",
-      "size": 91694
+      "sha256": "9141d7e82ef453ddc28d3a6cf98bed1cb5a6276a68444990108b6c8a02ef1d55",
+      "size": 181998
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/plugin-manager-databases-tab.png",
@@ -222,23 +222,23 @@
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/settings-advanced-experimental.png",
-      "sha256": "47bf4a181270952bc7d08f8edade305d4375c407a9372898df6935ba315b3593",
-      "size": 163960
+      "sha256": "358c349b66bc05d9703ff889f9dfe0d30d452558bb0e2c454a7c0e922a89c871",
+      "size": 102763
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/sidebar-folder-conventions.png",
-      "sha256": "02d563a49feadb0d4a35a1a1fb815147df88e16397fc4848249d6977da8bc791",
-      "size": 558497
+      "sha256": "016523f74c8216af0433ed77bf850218ece4568d59c50eb63c023de54f8f3b40",
+      "size": 68335
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/variants-tab-hg002-bcftools.png",
-      "sha256": "6869540639b4e1e211745197517fcb6716b343cf207716a20d7bad30212ba56d",
-      "size": 502363
+      "sha256": "fad5063a27e2b39d324e2c3ae912dd0631a6590371161f9aca2b4adda6774cca",
+      "size": 541939
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/welcome-window.png",
-      "sha256": "0abc9916dc37440bc098d76e93ac1b4d67112904a7c5e1954fc3c9f7c076d074",
-      "size": 251333
+      "sha256": "124e2e120d3bdf8dfd657ebf9f6d13989eaa5e737f13b4108c9f5e297b3359dd",
+      "size": 247455
     },
     {
       "path": "user-manual/assets/screenshots/02-sequences/alignment-viewport-primate-mito.png",
@@ -297,18 +297,18 @@
     },
     {
       "path": "user-manual/assets/screenshots/02-sequences/ncbi-bundle-in-sidebar.png",
-      "sha256": "d2c631fd2c1ff8efabe80014d4cfb5c4c813b80c644e7dcc022c1212513dfd33",
-      "size": 526094
+      "sha256": "72bb7e37d002c5a3336c5fbd3a5ff06acce188efadf72ac223338959ab19136c",
+      "size": 408575
     },
     {
       "path": "user-manual/assets/screenshots/02-sequences/ncbi-results-download-selected.png",
-      "sha256": "bbeb76d06febcf4471bb132688603d0e392402bbeaab54085a2f96a18554975f",
-      "size": 281682
+      "sha256": "ba5c2661be12519b735b4cb515470c19c7ff152037783837f5a2b2998ad3f759",
+      "size": 282765
     },
     {
       "path": "user-manual/assets/screenshots/02-sequences/ncbi-search-dialog.png",
-      "sha256": "4320b745c214b7ee770c441d013d25358dc775d2378922c8d197f4ca852c07b3",
-      "size": 276201
+      "sha256": "e1ac8b5dc1d9293ad3de257305538f4d810849c4083e1e50ff084dac9684f8bd",
+      "size": 276927
     },
     {
       "path": "user-manual/assets/screenshots/02-sequences/pathoplexus-pane.png",
@@ -327,8 +327,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/demultiplex-barcodes-pane.png",
-      "sha256": "5d27dd7d29fafc4b9777cad1abf776bfc5f617941395aa17f8524da408d84a4b",
-      "size": 377482
+      "sha256": "105849e3b78b8f469f0138fc835b23b938aed48bc54dcf7f47b18fde3566759c",
+      "size": 372059
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/fastq-sparkline-popover.png",
@@ -337,13 +337,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/fastq-viewport-reads-tab.png",
-      "sha256": "bbaf786e2ecf19a654d7c061df5a9e375bf6cda098b15a8cd096ee944de37bec",
-      "size": 859919
+      "sha256": "f0bd406d09bcaf095488948f180827e3e7bfeb9cb25f9d271579bc7b1b7d6f92",
+      "size": 642041
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/fastq-viewport-summary-cards.png",
-      "sha256": "2a5028553cd9aac3f2bfa3717206f790de84262bd693673ace6a6363de70bf6c",
-      "size": 1094478
+      "sha256": "fbe8d1e589803df6b7a09702dda50fd720c8eed7d24d98416677973d950b6609",
+      "size": 838495
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/human-scrub-dialog.png",
@@ -427,8 +427,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/sidebar-after-merge.png",
-      "sha256": "473e400c1f1664590cadbee346bb15470269095143ad681e8cb9211de7e60d8a",
-      "size": 107457
+      "sha256": "0e1c41c310fdd6ab25cc278794b2de563a2488b57f0509dbb19af1dc17db3c40",
+      "size": 93084
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/sidebar-after-ont-import.png",
@@ -437,13 +437,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/sra-bundle-in-sidebar.png",
-      "sha256": "a80cb7382ab32848e4ea4c9cf46343abb441b720b7193a525885eb46399bc9c3",
-      "size": 754279
+      "sha256": "b3664a9bd6b808fa5ee99c2f8e75a44c6bea312ae9e22e1bcb148b053f694e7c",
+      "size": 662776
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/sra-results-download-selected.png",
-      "sha256": "b28fb23270380500bc15201348becf0a1dada9b1c51972cb876a530f20837527",
-      "size": 332912
+      "sha256": "1d1ebd01615de781ab71b3a843b6fd7ccd5f1ba740f6a58e39dc2733a469525c",
+      "size": 233898
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/sra-runs-pane.png",
@@ -462,8 +462,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/alignment-inspector-stats.png",
-      "sha256": "095b2ea9e46a7f1d2c4329cb2d7b2ff44a48306919cd06ee4eede2525af595c9",
-      "size": 49269
+      "sha256": "8f4d8c673ac3d9ebdc250333e1415cb239105e8a5d4433ca649f2176c629bba8",
+      "size": 41001
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/analysis-export-tab.png",
@@ -477,8 +477,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/bam-viewport-overview.png",
-      "sha256": "536e5943414762791d80012ad142300567996e0541f863ce90ac1354c5f66ad6",
-      "size": 688681
+      "sha256": "9027052700172eda51e5ac854d582a5bd0a4f4db7d7cb9ff1681e1d7c6354c54",
+      "size": 475501
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/filter-panel-controls.png",
@@ -492,8 +492,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/mapping-wizard-overview.png",
-      "sha256": "f5f41ba9c91d77ea532ee71d03fc0864fbbaac4cf094eff537f22585ffff6d24",
-      "size": 271574
+      "sha256": "79cb92c0422bb8ffc6d57e0e6828ed21ef26be40ee79b310cabee87ddb972e44",
+      "size": 312315
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/pileup-zoom.png",
@@ -537,18 +537,18 @@
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/viral-recon-wizard-overview.png",
-      "sha256": "8118bc95b0d457658ce9606ed6cedac9c3210f0ddd07557a30f661f03029e58f",
-      "size": 304354
+      "sha256": "fc4335c714a3f34bd45141b8c931a816edba5819a2617c817a3291edea3d5794",
+      "size": 316763
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/analysis-consensus-tab.png",
-      "sha256": "8a7ac8a47d90aeded150fc036e4dea6ae61ece0993c8b28300ed9bbf5737689c",
-      "size": 210655
+      "sha256": "8bada54a2adab4700b189adcacbe3c0e523aac90c58aa07b2497a90f5ea1e03b",
+      "size": 130453
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/call-variants-dialog-bcftools.png",
-      "sha256": "ad7c2dad5c0fac869838daf34d0eba09c723e25d24ca2f6387a08304d2c16def",
-      "size": 317664
+      "sha256": "c734a2b80b2441289c73cd192f726da0e91be2c38402f834317994c9b6f34548",
+      "size": 305098
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/call-variants-dialog-ivar.png",
@@ -557,8 +557,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/call-variants-dialog-medaka.png",
-      "sha256": "c1d6ca7f3a1d101817b861aa09307f50dbec4bc15ac21abce7bc01654cd891a0",
-      "size": 277174
+      "sha256": "28208b40bec79c6a23ac60970ce45e6a2da79770af876c48510705100cef2404",
+      "size": 281469
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/consensus-destination-dialog.png",
@@ -567,8 +567,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/consensus-masking-sliders.png",
-      "sha256": "30c6f494b1e4a48208786dcfdbe0fd97668c0be499898377b9c42696c2b11711",
-      "size": 203186
+      "sha256": "0a59b6d9e7a0f490584db2375db0f9eeb2b8a9cbf993c77c7b1e71c95256289f",
+      "size": 52515
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/import-center-vcf-card.png",
@@ -576,9 +576,14 @@
       "size": 222618
     },
     {
+      "path": "user-manual/assets/screenshots/05-variants/imported-benchmark-in-variants-tab.png",
+      "sha256": "6a5ad9f2b3f96b1629450f9030c570c9aff65143868c4a20bed258a084928564",
+      "size": 543355
+    },
+    {
       "path": "user-manual/assets/screenshots/05-variants/medaka-model-field.png",
-      "sha256": "28184d5bb7e81b551068bc74d3424bead36dd3fe0a3ed1c4687cd3eeeb6b509d",
-      "size": 281530
+      "sha256": "791b3cd7e1d24096041fe53bfa2789c251ed075819dfcbf909b78ba42f853469",
+      "size": 324884
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/tools-mapping-submenu.png",
@@ -587,13 +592,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/variants-inspector-row.png",
-      "sha256": "b7ebfc7321a15fc6a24012e59d584efc92b8caff46c3d1052a975c437881c010",
-      "size": 64873
+      "sha256": "c0bce6a6887fa6afb658d6159e5fe421de1b8dbbec845c404274c25400a06805",
+      "size": 99442
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/variants-preset-chips.png",
-      "sha256": "f1942a03ff4b6181792baf9f04c069e0ec99ef279acd236752780c1daed5964e",
-      "size": 47179
+      "sha256": "40901c8aa2f93110b8c59648cf0c762b16a9dab9c54c2d4d93ceb13e57b3bc1a",
+      "size": 68823
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/variants-search-builder.png",
@@ -602,8 +607,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/variants-source-column.png",
-      "sha256": "aa974ab00a349e04a73824bd8d49c4f8c4ecbbcbf9d1fa3a29e559b8f3e89d7b",
-      "size": 164108
+      "sha256": "835174c8eb8e0ea315f36d77530c50458af36f3ec748b0b87b076d63d3ffcf11",
+      "size": 341499
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/variants-tab-twelve-columns.png",
@@ -612,8 +617,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/variants-tab-two-callers.png",
-      "sha256": "3c7861f45b6c7d7a6dee52f2575078b3033021ae34bbd76ec549d9c7f5614005",
-      "size": 208884
+      "sha256": "9c2369eb82f24892a0b922ec157b26210129745073de278899a1be2b8e9daac0",
+      "size": 357320
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/blast-results-drawer.png",
@@ -687,8 +692,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/kraken2-advanced-settings.png",
-      "sha256": "e03ba908bbac00faa067434cd46b243309e21bb2ca4a44164117d354bdedfe2a",
-      "size": 256369
+      "sha256": "c322a4d85ed6442bf8deea64543da071b3498b0ee071d4b729085320ceeef800",
+      "size": 225648
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/kraken2-dialog.png",
@@ -807,8 +812,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-human-germline-variants/call-variants-dialog-gatk.png",
-      "sha256": "62c95762fbc621f7de2200f4b8ac703a423f32f683580e1697b340b717ba9b3d",
-      "size": 301140
+      "sha256": "be5409a436bd6dc6c7064eccc2e5225598e474ea8da38481f14e694cbec0d124",
+      "size": 284241
     },
     {
       "path": "user-manual/assets/screenshots/06-human-germline-variants/plugin-manager-gatk-packs.png",
@@ -817,13 +822,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/07-assembly/assembly-advanced-settings.png",
-      "sha256": "5e5dc28a7e4dc706a04ca3fecf9d78ae1cf0353719ac5e6824b133b9bf6e2034",
-      "size": 99858
+      "sha256": "bfc857eebb93e56a67df57b4f80262e2296ab8725f98c77ee72fc455a8e91cfb",
+      "size": 281220
     },
     {
       "path": "user-manual/assets/screenshots/07-assembly/assembly-bundle-in-analyses.png",
-      "sha256": "eafb94e8fe9b0b83ed4fb5605cbf2914156a1fc1611879b828cdffc8aca43957",
-      "size": 298857
+      "sha256": "5873c9c68ec19ec40f47ba9ecdb1825160538083b48ec78344cda3edbf26b62c",
+      "size": 296219
     },
     {
       "path": "user-manual/assets/screenshots/07-assembly/assembly-sheet-assembler-picker.png",
@@ -837,8 +842,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/07-assembly/assembly-sheet-flye.png",
-      "sha256": "d5e40ee4decafce47840313a62e036e726c9d923e426a7b425b47f26d6ffcc81",
-      "size": 271625
+      "sha256": "2e332d4db573dec2546560bbadcd8e8b4838ca7c101f666d81a8b5b4410a7f50",
+      "size": 259403
     },
     {
       "path": "user-manual/assets/screenshots/07-assembly/assembly-sheet-hifiasm.png",
@@ -852,13 +857,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/07-assembly/assembly-viewport.png",
-      "sha256": "eafb94e8fe9b0b83ed4fb5605cbf2914156a1fc1611879b828cdffc8aca43957",
-      "size": 298857
+      "sha256": "5873c9c68ec19ec40f47ba9ecdb1825160538083b48ec78344cda3edbf26b62c",
+      "size": 296219
     },
     {
       "path": "user-manual/assets/screenshots/07-assembly/assembly-wizard-spades.png",
-      "sha256": "7fa876c39cde51925f61227f37e606ec9d956ee2be15623f0233dfac4bb367ba",
-      "size": 327485
+      "sha256": "63bfccfd2b3bc2098b13054fe755ab8c9780ec0b18dbf530c4b184ce99389b33",
+      "size": 287197
     },
     {
       "path": "user-manual/assets/screenshots/07-assembly/contig-context-menu.png",
@@ -877,13 +882,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/07-assembly/derived-bundle-in-sidebar.png",
-      "sha256": "2c4cf2b61726c5496bb16b1a4787a4853d5d91d6db20994a28a2d8de72e77696",
-      "size": 65198
+      "sha256": "1d64b71a9b99a0be95749dd64a7c525266688165299214739a8b937f87d38a65",
+      "size": 108938
     },
     {
       "path": "user-manual/assets/screenshots/07-assembly/flye-contig-table.png",
-      "sha256": "797f652d8896c5d6d7fcb7bb3e1d1150bd976bec41ed8e1ccc7c79dbeb1b14f9",
-      "size": 452784
+      "sha256": "97017342160824a2700c5b80b23d09aba81783938fa5de391bb8f9516efc8c09",
+      "size": 304570
     },
     {
       "path": "user-manual/assets/screenshots/08-workflows/export-provenance-complete-alert.png",
@@ -892,8 +897,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/08-workflows/export-provenance-save-panel.png",
-      "sha256": "60b0dd3615b8527e5973c8114f13cdeef32375a65be2e9691e9c9d7e5261b3d9",
-      "size": 54651
+      "sha256": "302faac8e2833f1f9ff55690fbf1062151694a516b86be2d7c019c9d6ed6e9a2",
+      "size": 44922
     },
     {
       "path": "user-manual/assets/screenshots/08-workflows/export-provenance-submenu.png",
@@ -902,13 +907,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/08-workflows/nextflow-export-main-nf.png",
-      "sha256": "93c3a7a7b7a7e0662c1ca0091f84d2a9baeea62f15f140d27a2efe83274b83ea",
-      "size": 305812
+      "sha256": "a9d065d9ed3ae60bc85afffeb3a1ba265c9cb34ecad8756b5cdafaea7ff472a4",
+      "size": 434535
     },
     {
       "path": "user-manual/assets/screenshots/08-workflows/provenance-export-folder.png",
-      "sha256": "33ba4935258ce3180a65a017d4cbcc4e5bbb0f2654784fbe7093bdc5db2fc9d3",
-      "size": 172457
+      "sha256": "affd75e1b75d187f094a16668921199af78fb32147f98ef7a395977080916e65",
+      "size": 102965
     },
     {
       "path": "user-manual/assets/screenshots/08-workflows/workflow-library-linked-package.png",
@@ -922,8 +927,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-call-evidence.png",
-      "sha256": "538ae98f4e922831d2c2414108a9ffd9e30f5cafb744efe00a43b1bf31f9b56f",
-      "size": 546371
+      "sha256": "f91734b3f49c734eb66a971dbe80f06e796cfccc2311340317fee49d6e8a3ba6",
+      "size": 474352
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-export-save-panel.png",
@@ -932,8 +937,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-inspector-display.png",
-      "sha256": "aec9943ddb4614536faf6208e0128081c41deee8a4ffb63e0631140dafe5e179",
-      "size": 116003
+      "sha256": "62d689c9d8a4e69a70589348320b395181d578a91066f522a9bafcc1f4dec672",
+      "size": 99667
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-inspector-export.png",
@@ -942,8 +947,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-matrix-reading.png",
-      "sha256": "b7ff36e6cdeb0a382f755449d0c8d16448cb7886d258de6eadac000a1c2e6da8",
-      "size": 531332
+      "sha256": "2a5c1bccf4e08c82df5da501b44d88da3fd235b6c2d91c84a9e88c794f157bb4",
+      "size": 404563
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-pivot-workbook.png",
@@ -952,28 +957,88 @@
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotyping-advanced-options.png",
-      "sha256": "c5a6a5930fdc7a3c2460cae853a1b0c19e786b937c0b5e92096f2e65117d4b01",
-      "size": 461791
+      "sha256": "acaea7fe7f96603f240f80d1b1403ec04ef51c128e83ad8bf98bb59096daba7a",
+      "size": 427822
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotyping-analysis-mode.png",
-      "sha256": "7eaa7e4e7f266b0d6b1af0e65285a0c7078aa5b5757f10e3f8f822faa504ff50",
-      "size": 33638
+      "sha256": "0282d0f4223736c9f81819e119eeaf51632af3d184e4abea970e0e14f2931650",
+      "size": 43841
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotyping-full-length-dialog.png",
-      "sha256": "e9dbd6467fc63f79d18b79cc262f0299d8dea00dea031fccccb507d0916df6ad",
-      "size": 396182
+      "sha256": "4e25201d834f605a8999e51181f9a7d35fb87e701b6fccc6f6c284ebb8f86902",
+      "size": 406301
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotyping-run-dialog.png",
-      "sha256": "cb1ae9639ba991e845e1b757644491a6707f319ecc1c3e0d335200c388320370",
-      "size": 412959
+      "sha256": "e7db2789103e7fdb167f89b9f78990787a86641e2b8ff65a01a254a4cb3df9ef",
+      "size": 425004
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotyping-submenu.png",
       "sha256": "748e6557886d3f370bec258ec875f43621588baf3451a56eb08774113dc8d047",
       "size": 995262
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/primer-review-binding-inspection.png",
+      "sha256": "22247e686e94999b9690e888ab78875093a2fefe85b85b845bcaee6c254e9a5a",
+      "size": 546357
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/primer-review-inspector-view.png",
+      "sha256": "de67a911df29d411a33e29cc052e056e9325f3b055947f5ccfebd4f6a09e1dac",
+      "size": 91695
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/primer-review-order-sheet.png",
+      "sha256": "d47868fb836f5898a7c0a2efea9150ecc068e23b7c1ac9c95b88304abaf3a7a7",
+      "size": 183253
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/primer-review-overview-varvamp.png",
+      "sha256": "b61732e5885e325a59c3dc12251cc809af7215dd5405944d47646fb562b1af4c",
+      "size": 273894
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/primer-review-primer3-results.png",
+      "sha256": "1a908604cef12e9c61cbcb9b30433ce012a435927a7a6ac16a907f41d980792b",
+      "size": 326649
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/primer-review-save-scheme.png",
+      "sha256": "4feeace4ac545981a4f0f2240e9945a076c6956a39ad1119ff1b9acb519d9ab0",
+      "size": 122182
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/primer3-binding-inspection.png",
+      "sha256": "f4d793b9298b699643792b37a39c2c044c2c3c00c1e9e727662f612afb2ae77f",
+      "size": 547939
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/primer3-results-single-record.png",
+      "sha256": "d7e48a64bd8a1d9430c4b2880bf588d4f1f1c1bb1d6f87dcc50913b7e793ae97",
+      "size": 314542
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/qpcr-varvamp-overview.png",
+      "sha256": "c7f949e9a3b9b18d3bcb13ea965f277518934b795b7dea25bbcb69095f0905b0",
+      "size": 294899
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/tiled-primalscheme-overview.png",
+      "sha256": "be70054840e85ab558f406e854c63ac30953e2e7e5b54cd7b8c1c9b15583a8ef",
+      "size": 268007
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/tiled-save-scheme-sheet.png",
+      "sha256": "4c2fb90588d41702e828d4e9b6b02a4a34346367149a6e45ec2b2eefec6320da",
+      "size": 105478
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/tiled-varvamp-advisory.png",
+      "sha256": "f98f0a00cc78fd9f4862a64b3328fd3d0fecb3b10abc235b86560472dbe3ca64",
+      "size": 277609
     },
     {
       "path": "user-manual/assets/screenshots/appendices/ai-assistant-azure-endpoint.png",
