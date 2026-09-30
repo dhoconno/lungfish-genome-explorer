@@ -220,9 +220,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
         publicationLock.release()
         retryScheduler.fireScheduledActions()
-        for _ in 0..<100 where promptCount == 0 {
-            await Task.yield()
-        }
+        await waitUntil { promptCount != 0 }
         await controller.testingWaitForManualHaplotypeTransitions()
 
         XCTAssertEqual(promptCount, 1)

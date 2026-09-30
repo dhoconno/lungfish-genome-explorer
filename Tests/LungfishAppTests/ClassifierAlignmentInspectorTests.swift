@@ -5,6 +5,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishKit
 import LungfishWorkflow
+import LungfishTestSupport
 
 @MainActor
 final class ClassifierAlignmentInspectorTests: XCTestCase {
@@ -34,7 +35,7 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         state.minMapQ = 31; state.showDuplicates = true; state.selectedReadGroups = ["rg1"]
         state.onSettingsChanged?()
         await gate.release()
-        for _ in 0..<100 where controller.status != .available(referenceStrength: "not provided", reason: nil) { await Task.yield() }
+        await waitUntil { controller.status == .available(referenceStrength: "not provided", reason: nil) }
         XCTAssertEqual(state.minMapQ, 31)
         XCTAssertTrue(state.showDuplicates)
         XCTAssertEqual(state.selectedReadGroups, ["rg1"])
@@ -123,9 +124,7 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         controller.display(request)
         XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.status, .loading)
         XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.referenceValidation, .unavailable("Reference validation is pending."))
-        for _ in 0..<200 where inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.status != .available(referenceStrength: "structurally validated", reason: nil) {
-            try await Task.sleep(nanoseconds: 5_000_000)
-        }
+        await waitUntil { inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.status == .available(referenceStrength: "structurally validated", reason: nil) }
         XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.referenceValidation, .structural)
         XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.availability(of: .referenceMismatch), .available)
         XCTAssertEqual(inspector.readStyleSectionViewModel.selectedVisibleAlignmentTrackID, "classifier:S1")
@@ -176,7 +175,7 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
             applySettings: { _ in }
         )
         XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.url, validURL)
-        for _ in 0..<250 where inspector.viewModel.provenanceSectionViewModel.isLoading { try await Task.sleep(nanoseconds: 10_000_000) }
+        await waitUntil { !inspector.viewModel.provenanceSectionViewModel.isLoading }
         XCTAssertNotNil(inspector.viewModel.provenanceSectionViewModel.resolvedEnvelope)
         inspector.updateClassifierAlignmentInspector(
             capabilities: .detachedEvidence(workflow: "TaxTriage", result: "Classifier", sample: "S1", contig: "virus", bamPath: "/tmp/final.bam", indexPath: "/tmp/final.bam.bai", referenceValidation: .absent, readGroups: [], status: .available(referenceStrength: "not provided", reason: nil), provenanceSourceURL: missingURL),
@@ -220,7 +219,7 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         controller.bindInspector(inspector)
 
         controller.display(request)
-        for _ in 0..<100 where inspector.readStyleSectionViewModel.classifierEvidenceCapabilities == nil { await Task.yield() }
+        await waitUntil { inspector.readStyleSectionViewModel.classifierEvidenceCapabilities != nil }
 
         XCTAssertEqual(inspector.readStyleSectionViewModel.trackNames, ["S1"])
         XCTAssertEqual(inspector.viewModel.contentMode, .metagenomics)
@@ -267,9 +266,7 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         controller.bindInspector(inspector)
 
         controller.display(request)
-        for _ in 0..<500 where controller.status == .loading {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil { controller.status != .loading }
         XCTAssertEqual(controller.status, .available(referenceStrength: "not provided", reason: nil), controller.visibleStatusText)
         XCTAssertNotNil(controller.viewer.alignmentActionContext, String(describing: controller.availability))
 
@@ -294,9 +291,7 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         controller.bindInspector(inspector)
         controller.viewer.alignmentConsensusScope = .selectedRegion
         controller.display(request)
-        for _ in 0..<500 where controller.status == .loading {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil { controller.status != .loading }
         XCTAssertEqual(controller.status, .available(referenceStrength: "not provided", reason: nil), controller.visibleStatusText)
         XCTAssertNotNil(controller.viewer.alignmentActionContext, String(describing: controller.availability))
 
@@ -429,7 +424,7 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         let controller = ClassifierAlignmentEvidenceViewportController(validator: validator)
 
         controller.display(request)
-        for _ in 0..<100 where controller.inspectorCapabilities?.status != .available(referenceStrength: "not provided", reason: nil) { await Task.yield() }
+        await waitUntil { controller.inspectorCapabilities?.status == .available(referenceStrength: "not provided", reason: nil) }
 
         let inventory = try XCTUnwrap(controller.inspectorCapabilities)
         XCTAssertEqual(inventory.status, .available(referenceStrength: "not provided", reason: nil))

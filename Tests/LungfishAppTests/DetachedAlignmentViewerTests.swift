@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishKit
 @testable import LungfishIO
+import LungfishTestSupport
 
 @MainActor
 final class DetachedAlignmentViewerTests: XCTestCase {
@@ -70,9 +71,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
 
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<3000 where viewer.viewerView.testCachedAlignedReads.count != 2 {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil(timeout: .seconds(30)) { viewer.viewerView.testCachedAlignedReads.count == 2 }
         let frame = try XCTUnwrap(viewer.referenceFrame)
         preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
         let initiallyPacked = viewer.viewerView.testCachedPackedReads
@@ -83,9 +82,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         viewer.updateDetachedAlignmentSettings(minMapQ: 1, excludeFlags: 0xD04)
         viewer.updateDetachedAlignmentSettings(minMapQ: 2, excludeFlags: 0xD04)
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<3000 where viewer.viewerView.testCachedAlignedReads.count != 2 {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil(timeout: .seconds(30)) { viewer.viewerView.testCachedAlignedReads.count == 2 }
         preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
 
         let reparsedPacked = viewer.viewerView.testCachedPackedReads
@@ -135,9 +132,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         let frame = try XCTUnwrap(viewer.referenceFrame)
 
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<3000 where viewer.viewerView.testCachedAlignedReads.count != 1 {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil(timeout: .seconds(30)) { viewer.viewerView.testCachedAlignedReads.count == 1 }
         preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
         let selected = try XCTUnwrap(viewer.viewerView.testCachedPackedReads.first?.1)
         viewer.viewerView.testSetSelectedReadIDs([selected.id])
@@ -148,9 +143,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         viewer.updateDetachedAlignmentSettings(minMapQ: 1, excludeFlags: 0xD04)
         viewer.updateDetachedAlignmentSettings(minMapQ: 2, excludeFlags: 0xD04)
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<3000 where viewer.viewerView.testIsFetchingReads || !viewer.viewerView.testCachedAlignedReads.isEmpty {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil(timeout: .seconds(30)) { !(viewer.viewerView.testIsFetchingReads || !viewer.viewerView.testCachedAlignedReads.isEmpty) }
 
         XCTAssertTrue(viewer.viewerView.testSelectedReadIDs.isEmpty)
         XCTAssertNil(inspector.readStyleSectionViewModel.selectedRead)
@@ -185,9 +178,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         viewer.displayDetachedAlignment(source)
         let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<3000 where viewer.viewerView.testCachedAlignedReads.count != 1 {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil(timeout: .seconds(30)) { viewer.viewerView.testCachedAlignedReads.count == 1 }
         return (viewer, source, region)
     }
 
@@ -349,10 +340,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         await gate.release(request.bamURL)
         // Validation re-hashes the BAM off the main actor, so a fixed number
         // of yields was not enough under the parallel unit gate.
-        let deadline = Date().addingTimeInterval(5)
-        while controller.status == .loading, Date() < deadline {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil { controller.status != .loading }
 
         let reason = "Classifier alignment evidence changed on disk: installation-race.bam."
         XCTAssertNil(controller.viewer.viewerView.testDetachedAlignmentSource)
@@ -436,7 +424,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertEqual(controller.status, .idle)
         XCTAssertNil(controller.inspectorCapabilities)
         await gate.release(request.bamURL)
-        for _ in 0..<20 { await Task.yield() }
+        await waitUntil { await gate.cancelledURLs() == [request.bamURL] }
 
         let cancelled = await gate.cancelledURLs()
         XCTAssertEqual(cancelled, [request.bamURL])
@@ -529,9 +517,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
 
         view.selectedReadGroupsSetting = []
         view.fetchDetachedDepth(source: source, region: .init(chromosome: "chr1", start: 0, end: 1))
-        for _ in 0..<250 where view.testCachedDepthPoints.isEmpty {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil { !view.testCachedDepthPoints.isEmpty }
         XCTAssertEqual(view.testCachedDepthPoints.first?.depth, 5)
     }
 
@@ -563,16 +549,12 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         let region = GenomicRegion(chromosome: "chr1", start: 0, end: 1)
 
         view.fetchDetachedDepth(source: source, region: region)
-        for _ in 0..<250 where view.testDetachedEvidenceFetchMessage == nil {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil { view.testDetachedEvidenceFetchMessage != nil }
         XCTAssertTrue(view.testDetachedEvidenceFetchMessage?.hasPrefix("Coverage evidence could not be fetched:") == true)
 
         try "success".write(to: mode, atomically: true, encoding: .utf8)
         view.fetchDetachedDepth(source: source, region: region)
-        for _ in 0..<250 where view.testCachedDepthPoints.isEmpty {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil { !view.testCachedDepthPoints.isEmpty }
         XCTAssertEqual(view.testCachedDepthPoints.first?.depth, 5)
         XCTAssertNil(view.testDetachedEvidenceFetchMessage)
     }
@@ -620,12 +602,12 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         view.setDetachedAlignmentSource(source)
         let region = GenomicRegion(chromosome: "chr1", start: 0, end: 1)
         view.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<200 where view.testDetachedEvidenceFetchMessage == nil { await Task.yield() }
+        await waitUntil { view.testDetachedEvidenceFetchMessage != nil }
         XCTAssertTrue(view.testDetachedEvidenceFetchMessage?.hasPrefix("Read evidence could not be fetched:") == true)
 
         view.detachedEvidenceFetchMessage = nil
         view.fetchDetachedDepth(source: source, region: region)
-        for _ in 0..<200 where view.testDetachedEvidenceFetchMessage == nil { await Task.yield() }
+        await waitUntil { view.testDetachedEvidenceFetchMessage != nil }
         XCTAssertTrue(view.testDetachedEvidenceFetchMessage?.hasPrefix("Coverage evidence could not be fetched:") == true)
     }
 
@@ -738,9 +720,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
     }
 
     private func waitForCancellation(_ read: CancellationProbe, _ depth: CancellationProbe) async {
-        for _ in 0..<200 where !(read.cancelled && depth.cancelled) {
-            await Task.yield()
-        }
+        await waitUntil { read.cancelled && depth.cancelled }
     }
 
     private func makeSource(_ suffix: String) -> SequenceViewerView.DetachedAlignmentSource {

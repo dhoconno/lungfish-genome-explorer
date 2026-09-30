@@ -4,6 +4,7 @@ import Foundation
 import LungfishIO
 import XCTest
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class ProjectStorageCleanupExecutorTests: XCTestCase {
     private var root: URL!
@@ -3594,9 +3595,7 @@ final class ProjectStorageCleanupExecutorTests: XCTestCase {
             _ = await cancelled.result
             cancelledCompleted.set()
         }
-        for _ in 0..<200 where !cancelledCompleted.value {
-            try await Task.sleep(for: .milliseconds(1))
-        }
+        await waitUntil { cancelledCompleted.value }
         XCTAssertTrue(
             cancelledCompleted.value,
             "A cancelled identity-gate waiter must finish before the holder releases."

@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishKit
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 /// Test-only counter box for asserting on values mutated inside `Validator`
 /// closures. `Validator` is `@Sendable async`, but the coordinator always
@@ -441,9 +442,7 @@ private final class TestMutableBox<Value>: @unchecked Sendable {
                 viewer.extractSelectedReads([read])
             }
 
-            for _ in 0..<10 where presenter.callCount == 0 {
-                await Task.yield()
-            }
+            await waitUntil { presenter.callCount != 0 }
 
             XCTAssertEqual(presenter.callCount, 1, route)
             XCTAssertNil(viewer.activeSelectedReadsExtractionTask, route)

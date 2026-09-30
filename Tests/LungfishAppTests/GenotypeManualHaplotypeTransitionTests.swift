@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
@@ -857,9 +858,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
             },
             .terminateLater
         )
-        for _ in 0..<100 where !(await secondGate.isPending) {
-            await Task.yield()
-        }
+        await waitUntil { await secondGate.isPending }
 
         XCTAssertEqual(firstPromptCount, 1)
         XCTAssertEqual(secondPromptCount, 1)

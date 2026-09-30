@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 private actor SequencedWelcomeStorageStatusProvider: PluginPackStatusProviding {
     private let sequences: [[PluginPackStatus]]
@@ -383,9 +384,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
         viewModel.updatePendingStorageSelection(newRoot)
 
         let applyTask = Task { await viewModel.applyPendingStorageSelection() }
-        for _ in 0..<20 where !gate.hasPendingWaiter() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { gate.hasPendingWaiter() }
 
         XCTAssertTrue(gate.hasPendingWaiter())
         XCTAssertTrue(viewModel.isApplyingStorageSelection)
@@ -461,9 +460,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
         let applied = await viewModel.applyPendingStorageSelection()
 
-        for _ in 0..<20 where !provider.hasPendingInstall() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingInstall() }
 
         XCTAssertTrue(applied)
         XCTAssertTrue(provider.hasPendingInstall())
@@ -484,14 +481,10 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
         await viewModel.refreshSetup()
         viewModel.installRequiredSetup()
-        for _ in 0..<20 where !provider.hasPendingInstall() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingInstall() }
 
         XCTAssertTrue(provider.hasPendingInstall())
-        for _ in 0..<10 where viewModel.requiredSetupItemProgress.isEmpty {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { !viewModel.requiredSetupItemProgress.isEmpty }
         XCTAssertFalse(viewModel.requiredSetupItemProgress.isEmpty)
 
         provider.releaseInstall()
@@ -516,9 +509,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
         XCTAssertTrue(viewModel.canConfirmStorageSelection)
 
         viewModel.installRequiredSetup()
-        for _ in 0..<20 where !provider.hasPendingInstall() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingInstall() }
 
         XCTAssertTrue(provider.hasPendingInstall())
         XCTAssertTrue(viewModel.isInstallingRequiredSetup)
@@ -537,9 +528,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
         let viewModel = WelcomeViewModel(statusProvider: provider)
 
         let refreshTask = Task { await viewModel.refreshSetup() }
-        for _ in 0..<20 where !provider.hasPendingRefresh() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingRefresh() }
 
         XCTAssertTrue(provider.hasPendingRefresh())
         XCTAssertTrue(viewModel.isRefreshingSetup)

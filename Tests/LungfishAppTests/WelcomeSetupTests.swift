@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 private actor StubWelcomePackStatusProvider: PluginPackStatusProviding {
     var statuses: [PluginPackStatus]
@@ -643,9 +644,7 @@ final class WelcomeSetupTests: XCTestCase {
         let viewModel = WelcomeViewModel(statusProvider: provider)
 
         let refreshTask = Task { await viewModel.refreshSetup() }
-        for _ in 0..<20 where !provider.hasPendingStatusRequest() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingStatusRequest() }
 
         XCTAssertTrue(provider.hasPendingStatusRequest())
         XCTAssertTrue(viewModel.isRefreshingSetup)
@@ -684,9 +683,7 @@ final class WelcomeSetupTests: XCTestCase {
         let viewModel = WelcomeViewModel(statusProvider: provider)
 
         let refreshTask = Task { await viewModel.refreshSetup() }
-        for _ in 0..<20 where !provider.hasPendingVisibleStatusesRequest() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingVisibleStatusesRequest() }
 
         XCTAssertTrue(provider.hasPendingVisibleStatusesRequest())
         XCTAssertEqual(provider.recordedStatusCallCount(), 1)
@@ -762,9 +759,7 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "variant-calling", "assembly", "metagenomics"])
 
         let refreshTask = Task { await viewModel.refreshSetup() }
-        for _ in 0..<20 where !provider.hasPendingVisibleStatusesRequest() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingVisibleStatusesRequest() }
 
         XCTAssertTrue(provider.hasPendingVisibleStatusesRequest())
         XCTAssertTrue(viewModel.isRefreshingSetup)
@@ -806,9 +801,7 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .needsInstall)
 
         center.post(name: .managedResourcesDidChange, object: nil)
-        for _ in 0..<20 where !provider.hasPendingVisibleStatusesRequest() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingVisibleStatusesRequest() }
         XCTAssertTrue(provider.hasPendingVisibleStatusesRequest())
         XCTAssertTrue(viewModel.isRefreshingSetup)
         provider.release()
@@ -836,9 +829,7 @@ final class WelcomeSetupTests: XCTestCase {
         )
 
         center.post(name: .managedResourcesDidChange, object: nil)
-        for _ in 0..<20 where !provider.hasPendingStatusRequest() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingStatusRequest() }
 
         XCTAssertTrue(provider.hasPendingStatusRequest())
         XCTAssertEqual(provider.recordedStatusCallCount(), 1)
@@ -846,17 +837,13 @@ final class WelcomeSetupTests: XCTestCase {
         center.post(name: .managedResourcesDidChange, object: nil)
         center.post(name: .managedResourcesDidChange, object: nil)
         provider.releaseStatus()
-        for _ in 0..<20 where provider.recordedStatusCallCount() < 2 || !provider.hasPendingStatusRequest() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { !(provider.recordedStatusCallCount() < 2 || !provider.hasPendingStatusRequest()) }
 
         XCTAssertTrue(provider.hasPendingStatusRequest())
         XCTAssertEqual(provider.recordedStatusCallCount(), 2)
 
         provider.releaseStatus()
-        for _ in 0..<20 where viewModel.isRefreshingSetup {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { !viewModel.isRefreshingSetup }
 
         XCTAssertEqual(provider.recordedStatusCallCount(), 2)
         XCTAssertEqual(provider.recordedVisibleStatusesCallCount(), 2)
@@ -886,9 +873,7 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertTrue(viewModel.canLaunch)
 
         let refreshTask = Task { await viewModel.refreshSetup() }
-        for _ in 0..<20 where !provider.hasPendingStatusRequest() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingStatusRequest() }
 
         XCTAssertTrue(provider.hasPendingStatusRequest())
         XCTAssertNil(viewModel.requiredSetupStatus)
@@ -939,9 +924,7 @@ final class WelcomeSetupTests: XCTestCase {
 
         viewModel.installRequiredSetup()
         await fulfillment(of: [notification], timeout: 2)
-        for _ in 0..<20 where viewModel.isInstallingRequiredSetup || viewModel.isRefreshingSetup {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { !(viewModel.isInstallingRequiredSetup || viewModel.isRefreshingSetup) }
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
     }
@@ -972,9 +955,7 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .needsInstall)
 
         viewModel.installRequiredSetup()
-        for _ in 0..<20 where viewModel.isInstallingRequiredSetup || viewModel.requiredSetupStatus?.state != .ready {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { !(viewModel.isInstallingRequiredSetup || viewModel.requiredSetupStatus?.state != .ready) }
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
         XCTAssertNil(viewModel.requiredSetupProgress)
@@ -1015,9 +996,7 @@ final class WelcomeSetupTests: XCTestCase {
         )
 
         let refreshTask = Task { await viewModel.refreshSetup() }
-        for _ in 0..<20 where !provider.hasPendingVisibleStatusesRequest() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingVisibleStatusesRequest() }
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .needsInstall)
         XCTAssertTrue(viewModel.isRefreshingOptionalPacks)
@@ -1025,9 +1004,7 @@ final class WelcomeSetupTests: XCTestCase {
         viewModel.installRequiredSetup()
         provider.releaseVisibleStatuses()
         await refreshTask.value
-        for _ in 0..<20 where viewModel.isInstallingRequiredSetup || viewModel.isRefreshingSetup {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { !(viewModel.isInstallingRequiredSetup || viewModel.isRefreshingSetup) }
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
         XCTAssertTrue(viewModel.canLaunch)
@@ -1054,9 +1031,7 @@ final class WelcomeSetupTests: XCTestCase {
         let viewModel = WelcomeViewModel(statusProvider: provider)
 
         let firstRefresh = Task { await viewModel.refreshSetup() }
-        for _ in 0..<20 where !provider.hasPendingFirstRequest() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil { provider.hasPendingFirstRequest() }
         XCTAssertTrue(provider.hasPendingFirstRequest())
 
         let secondRefresh = Task { await viewModel.refreshSetup() }

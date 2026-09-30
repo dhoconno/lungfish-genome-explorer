@@ -3,6 +3,7 @@ import XCTest
 import LungfishKit
 import LungfishWorkflow
 @testable import LungfishApp
+import LungfishTestSupport
 
 @MainActor
 final class PrimerDesignOperationTests: XCTestCase {
@@ -37,10 +38,7 @@ final class PrimerDesignOperationTests: XCTestCase {
         for await _ in gate.stream { break }
         return output
       }, onResultSaved: { _ in })
-    for _ in 0..<100 {
-      if center.items.first?.progress == 0.25 { break }
-      try await Task.sleep(for: .milliseconds(2))
-    }
+    await waitUntil { center.items.first?.progress == 0.25 }
     XCTAssertEqual(center.items.first?.state, .running)
     XCTAssertEqual(center.items.first?.progress, 0.25)
     XCTAssertEqual(center.items.first?.detail, "Preparing saved alignment")
@@ -61,10 +59,7 @@ final class PrimerDesignOperationTests: XCTestCase {
         for await _ in gate.stream { break }
         return output
       }, onResultSaved: { _ in })
-    for _ in 0..<100 {
-      if center.items.first?.logEntries.contains(where: { $0.message == "Native progress on stderr" }) == true { break }
-      try await Task.sleep(for: .milliseconds(2))
-    }
+    await waitUntil { center.items.first?.logEntries.contains(where: { $0.message == "Native progress on stderr" }) == true }
     XCTAssertEqual(center.items.first?.state, .running)
     XCTAssertEqual(center.items.first?.cliCommand, ["/path with spaces/python", "adapter.py"].map(shellEscape).joined(separator: " "))
     XCTAssertTrue(center.items.first?.logEntries.contains(where: { $0.message == "Live native output" }) == true)
