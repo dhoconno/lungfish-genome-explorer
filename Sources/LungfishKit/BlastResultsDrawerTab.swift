@@ -451,7 +451,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         if result.errorCount > 0 {
             text += ", \(result.errorCount) with no BLAST result"
         }
-        return text + " (\(result.totalReads) reads)"
+        return text + " (\(result.totalReads) \(result.totalReads == 1 ? "read" : "reads"))"
     }
 
     public func showResults(_ result: BlastVerificationResult) {

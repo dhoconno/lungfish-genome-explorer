@@ -41,4 +41,21 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
         XCTAssertEqual(envelope.output?.path, outputURL.path)
         XCTAssertNotNil(envelope.output?.checksumSHA256)
     }
+
+    /// Capture on 9.70: an NVD contig's verification read "(1 reads)".
+    func testVerificationSummaryCountsOneReadInTheSingular() {
+        var result = makeResult()
+        XCTAssertTrue(BlastResultsDrawerTab.verificationSummary(for: result).hasSuffix("(0 reads)"))
+        result = BlastVerificationResult(
+            taxonName: "SARS-CoV-2",
+            taxId: 2697049,
+            readResults: [BlastReadResult(id: "NODE_1", verdict: .verified)],
+            submittedAt: Date(),
+            completedAt: Date(),
+            rid: "TEST-RID",
+            blastProgram: "blastn",
+            database: "core_nt"
+        )
+        XCTAssertTrue(BlastResultsDrawerTab.verificationSummary(for: result).hasSuffix("(1 read)"))
+    }
 }
