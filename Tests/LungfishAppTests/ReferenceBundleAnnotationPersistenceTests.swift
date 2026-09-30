@@ -442,7 +442,16 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
         try await waitFor {
             let dbURL = bundleURL.appendingPathComponent("annotations/\(trackID).db")
             guard FileManager.default.fileExists(atPath: dbURL.path) else { return expected == 0 }
-            return try AnnotationDatabase(url: dbURL).queryForTable(limit: 10).count == expected
+            // Deleting a track's last row removes its database file, which can happen
+            // between the existence check above and this open; an atomic restore also
+            // swaps the file in place. Either way the open can fail transiently, so
+            // re-check on the next poll instead of failing the test.
+            do {
+                return try AnnotationDatabase(url: dbURL).queryForTable(limit: 10).count == expected
+            } catch {
+                if !FileManager.default.fileExists(atPath: dbURL.path) { return expected == 0 }
+                return false
+            }
         }
     }
 
