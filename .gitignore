@@ -31,6 +31,8 @@
 !scripts/**
 scripts/**/__pycache__/
 scripts/**/*.py[cod]
+!screencasts/**
+screencasts/**/__pycache__/
 .codex/skills/**/__pycache__/
 .codex/skills/**/*.py[cod]
 !sign-cli.sh

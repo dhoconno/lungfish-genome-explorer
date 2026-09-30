@@ -1,0 +1,32 @@
+{
+  "_note": "Design tokens for every LGE quick video. Accent is the app's runtime orange (owner decision 2026-09-30), not the collaborative's Creamsicle.",
+  "colors": {
+    "accent": "#D47B3A",
+    "peach": "#F6B088",
+    "ink": "#1F1A17",
+    "cream": "#FAF4EA",
+    "grey": "#8A847A"
+  },
+  "fonts": {
+    "display": "SpaceGrotesk.ttf",
+    "body": "Inter.ttf",
+    "mono": "IBMPlexMono-Regular.ttf"
+  },
+  "canvas": {
+    "wide": [1920, 1080],
+    "square": [1080, 1080],
+    "fps": 60,
+    "background": "cream",
+    "footage_margin": 72,
+    "footage_radius": 14
+  },
+  "timing": {
+    "card_fade": 0.4,
+    "crossfade": 0.3,
+    "caption_in": 0.3,
+    "caption_out": 0.25,
+    "caption_lead": 0.4,
+    "min_caption_hold": 1.0,
+    "words_per_second": 3.0
+  }
+}

@@ -1,0 +1,83 @@
+# Quick video 01: what LGE records for you.
+# Render: python3 screencasts/render.py screencasts/01-lge-overview/video.yaml
+# A take whose file is missing renders as a labelled placeholder, so the cut can be timed before capture.
+
+slug: 01-lge-overview
+app: Lungfish Preview 2026.9.71
+project: ~/Desktop/lge-docs/screencast/HG002 chr20.lungfish
+window_points: [1440, 810]
+trim_top: 52          # hide the title bar (and the Debug build name) in every take
+outputs: [wide, square]
+
+beats:
+  - kind: card
+    id: title
+    duration: 2.8
+    icon: true
+    title: Lungfish Genome Explorer
+    sub: Sequence analysis, native to the Mac
+    transition: fade
+
+  - kind: take
+    id: viewer
+    take: takes/viewer.mov
+    in: 1.6
+    duration: 9.0
+    caption: Reads, alignments and variants in one window
+    kicker: HG002 · chr20
+    placeholder: chr20 read pileup. Click a row in the variant table and the view recentres on it.
+    square_focus: [0.22, 0.05, 0.56, 1.0]
+
+  - kind: take
+    id: folder
+    take: takes/folder.mov
+    in: 0
+    duration: 6.5
+    caption: Your project is a folder of standard files
+    kicker: BAM · VCF · FASTQ
+    placeholder: Finder beside LGE, Analyses/minimap2 folder open on HG002.sorted.bam and its index.
+    square_focus: [0.0, 0.0, 0.56, 1.0]
+
+  - kind: take
+    id: provenance
+    take: takes/provenance.mov
+    in: 0
+    duration: 8.5
+    caption: Each result records its tool, version and command
+    kicker: Inspector · Provenance
+    placeholder: Variant track selected. Inspector Provenance lineage with the bcftools step expanded to its command and conda build.
+    square_focus: [0.44, 0.0, 0.56, 1.0]
+
+  - kind: take
+    id: export
+    take: takes/export.mov
+    in: 0
+    duration: 7.0
+    caption: Export the history as a script or methods text
+    kicker: File · Export · Provenance
+    placeholder: Methods Section paragraph, then the Snakemake workflow it exports.
+    square_focus: [0.22, 0.0, 0.56, 1.0]
+
+  - kind: take
+    id: cli
+    take: takes/cli.mov
+    in: 0
+    duration: 6.5
+    caption: The same analysis from the app or terminal
+    kicker: lungfish-cli
+    placeholder: Operations panel row, Copy CLI Command, then the same command in Terminal.
+    square_focus: [0.22, 0.0, 0.56, 1.0]
+    transition: fade
+
+  - kind: card
+    id: end
+    duration: 4.5
+    icon: true
+    title: Lungfish Genome Explorer
+    lines:
+      - text: Free and open source, MIT license
+      - text: For Apple Silicon Macs running macOS 26
+      - text: github.com/dhoconno/lungfish-genome-explorer
+        style: url
+      - text: lungfish-genome-explorer.readthedocs.io
+        style: url

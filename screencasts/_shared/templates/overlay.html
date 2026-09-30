@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "Space Grotesk"; src: url("../fonts/SpaceGrotesk.ttf"); font-weight: 300 700; }
+  @font-face { font-family: "Inter"; src: url("../fonts/Inter.ttf"); font-weight: 100 900; }
+  @font-face { font-family: "IBM Plex Mono"; src: url("../fonts/IBMPlexMono-Regular.ttf"); font-weight: 400; }
+  :root {
+    --accent: #D47B3A; --peach: #F6B088; --ink: #1F1A17; --cream: #FAF4EA; --grey: #8A847A;
+    --u: 1px; /* scale unit, set from JS so wide and square share one template */
+  }
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  body { width: 100vw; height: 100vh; position: relative; -webkit-font-smoothing: antialiased; }
+
+  /* Title and end cards: full-bleed Deep Ink, left-aligned stack. */
+  .card { position: absolute; inset: 0; background: var(--ink); display: flex; flex-direction: column;
+          justify-content: center; padding: 0 calc(160 * var(--u)); box-sizing: border-box; }
+  .card .icon { width: calc(96 * var(--u)); height: calc(96 * var(--u)); margin-bottom: calc(40 * var(--u)); border-radius: 50%; }
+  .card h1 { font-family: "Space Grotesk"; font-weight: 700; color: var(--cream); margin: 0;
+             font-size: calc(76 * var(--u)); letter-spacing: -0.01em; line-height: 1.05; }
+  .card .bar { width: calc(120 * var(--u)); height: calc(6 * var(--u)); background: var(--accent); margin: calc(28 * var(--u)) 0; }
+  .card .sub { font-family: "Inter"; font-weight: 400; color: var(--grey); font-size: calc(34 * var(--u)); margin: 0; }
+  .card .line { font-family: "Inter"; font-weight: 500; color: var(--cream); font-size: calc(32 * var(--u)); margin: calc(6 * var(--u)) 0; }
+  .card .url { font-family: "IBM Plex Mono"; color: var(--peach); font-size: calc(28 * var(--u)); margin: calc(6 * var(--u)) 0; }
+  .card .fine { font-family: "Inter"; color: var(--grey); font-size: calc(22 * var(--u)); margin-top: calc(36 * var(--u)); }
+
+  /* Lower third: Deep Ink panel with an accent edge, one line of Inter SemiBold. */
+  .lower { position: absolute; left: calc(var(--lx) * var(--u)); bottom: calc(var(--ly) * var(--u));
+           background: rgba(31, 26, 23, 0.94); border-radius: calc(14 * var(--u));
+           padding: calc(18 * var(--u)) calc(30 * var(--u)) calc(18 * var(--u)) calc(34 * var(--u));
+           box-shadow: 0 calc(8 * var(--u)) calc(28 * var(--u)) rgba(31, 26, 23, 0.25); overflow: hidden; max-width: 86%; }
+  .lower::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: calc(5 * var(--u)); background: var(--accent); }
+  .lower .kicker { font-family: "IBM Plex Mono"; color: var(--peach); font-size: calc(19 * var(--u));
+                   letter-spacing: 0.04em; margin-bottom: calc(6 * var(--u)); }
+  .lower .text { font-family: "Inter"; font-weight: 600; color: var(--cream); font-size: calc(34 * var(--u)); line-height: 1.2; }
+
+  /* Click ring drawn at logged click points (synthetic cursor). */
+  .ring { position: absolute; width: calc(28 * var(--u)); height: calc(28 * var(--u)); margin: calc(-14 * var(--u)) 0 0 calc(-14 * var(--u));
+          border: calc(3 * var(--u)) solid var(--accent); border-radius: 50%; box-sizing: border-box; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  // render.py calls window.render(spec) and then screenshots the page with a transparent background.
+  window.render = (spec) => {
+    document.documentElement.style.setProperty("--u", spec.unit + "px");
+    const root = document.getElementById("root");
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    if (spec.kind === "card") {
+      const icon = spec.icon ? `<img class="icon" src="${esc(spec.icon)}">` : "";
+      const lines = (spec.lines || []).map((l) => `<p class="${l.style || "line"}">${esc(l.text)}</p>`).join("");
+      root.innerHTML = `<div class="card">${icon}<h1>${esc(spec.title)}</h1><div class="bar"></div>${spec.sub ? `<p class="sub">${esc(spec.sub)}</p>` : ""}${lines}</div>`;
+    } else if (spec.kind === "caption") {
+      document.documentElement.style.setProperty("--lx", String(spec.left));
+      document.documentElement.style.setProperty("--ly", String(spec.bottom));
+      const k = spec.kicker ? `<div class="kicker">${esc(spec.kicker)}</div>` : "";
+      root.innerHTML = `<div class="lower">${k}<div class="text">${esc(spec.text)}</div></div>`;
+    } else if (spec.kind === "placeholder") {
+      // Stand-in for a take that has not been captured yet, sized like the app window.
+      root.innerHTML = `<div style="position:absolute;inset:0;background:#EFE7DA;border:calc(2*var(--u)) dashed var(--grey);box-sizing:border-box;
+        display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:0 12%">
+        <div style="font-family:'IBM Plex Mono';color:var(--accent);font-size:calc(26*var(--u));margin-bottom:calc(18*var(--u))">take · ${esc(spec.id)}</div>
+        <div style="font-family:'Inter';color:var(--ink);font-size:calc(34*var(--u));line-height:1.35">${esc(spec.text)}</div></div>`;
+    } else if (spec.kind === "ring") {
+      root.innerHTML = `<div class="ring" style="left:${spec.x}px;top:${spec.y}px"></div>`;
+    }
+    return document.fonts.ready.then(() => true);
+  };
+</script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+[{"value": {"role": "AXTextField", "title": "Position", "text": "chr20_10.0-10.5Mb:1-500001"}},
+ {"confirm": {"role": "AXTextField", "title": "Position"}}, {"wait": 6}]
