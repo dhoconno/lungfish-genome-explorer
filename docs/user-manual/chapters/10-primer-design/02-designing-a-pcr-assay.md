@@ -19,7 +19,7 @@ shots:
   - id: primer3-dialog-msa-template
     caption: "The PCR Primer Design dialog on the twelve-allele alignment, with the Template row picker set to row 1 and the conserved binding sites switch turned on."
   - id: primer3-binding-inspection
-    caption: "The Binding inspection view of the conserved analysis, with the forward primer of Pair 1 compared against all twelve rows of the alignment and every row showing zero mismatches."
+    caption: "The Binding inspection view of the conserved analysis, with the forward primer of Candidate 1 compared against all twelve rows of the alignment and every row showing zero mismatches."
 illustrations: []
 glossary_refs: [primer, pcr, amplicon, exon, intron, allele, mhc, ipd-mhc, msa, alignment-column, gc-content, melting-temperature, oligo, paralog, fasta, reference-bundle, plugin-pack, operations-panel, sidebar, inspector, provenance]
 features_refs: [primer-design.primer3]
