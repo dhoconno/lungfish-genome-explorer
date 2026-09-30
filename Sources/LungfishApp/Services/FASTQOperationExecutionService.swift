@@ -39,25 +39,45 @@ private final class FASTQCLIStderrCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var capturedData = Data()
     private var framer = ProcessOutputLineFramer()
+    private var plainLines: [String] = []
+    private var failure: String?
 
     func append(_ data: Data) -> [CLIEvent] {
         guard !data.isEmpty else { return [] }
         lock.lock()
         defer { lock.unlock() }
         capturedData.append(data)
-        return framer.append(data).compactMap { try? CLIEventLineDecoder().decode(line: $0) }
+        return decode(framer.append(data))
     }
 
     func finish() -> [CLIEvent] {
         lock.lock()
         defer { lock.unlock() }
-        return framer.finish().compactMap { try? CLIEventLineDecoder().decode(line: $0) }
+        return decode(framer.finish())
     }
 
-    var data: Data {
+    /// What a failed run should report: the CLI's own `failed` event when it
+    /// sent one, else any stderr lines that were not JSON events. stderr also
+    /// carries the whole event stream, which is not an error message.
+    var failureSummary: String {
         lock.lock()
         defer { lock.unlock() }
-        return capturedData
+        if let failure { return failure }
+        let plain = plainLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return plain.isEmpty ? (String(data: capturedData, encoding: .utf8) ?? "") : plain
+    }
+
+    private func decode(_ lines: [String]) -> [CLIEvent] {
+        lines.compactMap { line in
+            guard let event = try? CLIEventLineDecoder().decode(line: line) else {
+                plainLines.append(line)
+                return nil
+            }
+            if case let .failed(message, detail) = event {
+                failure = detail.map { $0.isEmpty ? message : "\(message): \($0)" } ?? message
+            }
+            return event
+        }
     }
 }
 
@@ -866,7 +886,6 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
         stdout.fileHandleForWriting.closeFile()
         stderr.fileHandleForWriting.closeFile()
         await stderrTask.value
-        let stderrData = stderrCapture.data
         let stdoutData = await stdoutTask.value
         _ = stdoutData
         if wasCancelled || Task.isCancelled {
@@ -874,13 +893,9 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
         }
 
         if terminationStatus != 0 {
-            let stderrText = String(
-                data: stderrData,
-                encoding: .utf8
-            ) ?? ""
             throw LungfishCLIRunner.RunError.nonZeroExit(
                 status: terminationStatus,
-                stderr: stderrText
+                stderr: stderrCapture.failureSummary
             )
         }
 

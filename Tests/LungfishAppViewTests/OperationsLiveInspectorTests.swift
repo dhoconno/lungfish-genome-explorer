@@ -328,6 +328,31 @@ final class OperationsLiveInspectorTests: XCTestCase {
         XCTAssertEqual(detail.textColor, .lungfishDanger)
     }
 
+    /// Capture on 9.64: a failed SPAdes row's error held several lines, and the
+    /// subtitle drew all of them over the row's latest-log line. Row labels stay
+    /// on one line, and the whole message remains in the tooltip.
+    func testMultiLineFailureStaysOnOneRowLine() throws {
+        let message = "tool exited with status 64: first line\nsecond line\nthird line"
+        let failed = OperationCenter.shared.start(
+            title: "Multi-line failure fixture", detail: "Preparing...", operationType: .assembly)
+        _ = OperationCenter.shared.fail(id: failed, detail: "failed", errorMessage: message)
+        defer { OperationCenter.shared.clearItem(id: failed) }
+
+        let (controller, _, table) = try panel(id: failed)
+        defer { controller.close() }
+        let row = try XCTUnwrap(OperationCenter.shared.items.firstIndex { $0.id == failed })
+        let titleColumn = try XCTUnwrap(table.tableColumns.firstIndex { $0.identifier.rawValue == "title" })
+        let cell = try XCTUnwrap(table.view(atColumn: titleColumn, row: row, makeIfNecessary: true) as? NSTableCellView)
+        let detail = try XCTUnwrap(cell.viewWithTag(101) as? NSTextField)
+        let latest = try XCTUnwrap(cell.viewWithTag(103) as? NSTextField)
+        cell.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(detail.toolTip, message)
+        XCTAssertFalse(detail.stringValue.contains("\n"), "the subtitle shows one line")
+        XCTAssertLessThanOrEqual(detail.intrinsicContentSize.height, latest.intrinsicContentSize.height + 0.5,
+            "the subtitle must be one line tall")
+    }
+
     /// Capture on 9.58 at a 1200x650 panel showed a failed run's details
     /// drawer running down under the "Clear Completed" footer. The drawer and
     /// everything drawn in it must end at the footer's top edge.

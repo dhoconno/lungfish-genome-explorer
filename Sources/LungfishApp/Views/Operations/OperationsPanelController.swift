@@ -939,9 +939,13 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         title.toolTip = "\(item.operationType.rawValue): \(item.title)"
         title.setAccessibilityIdentifier("operations-title-\(accessibilitySlug(for: item.title))")
         let detail = rowLabel(in: cell, tag: 101, top: 23, size: 11)
-        detail.stringValue = item.state == .failed ? (item.errorMessage ?? item.detail) : item.detail
+        let detailText = item.state == .failed ? (item.errorMessage ?? item.detail) : item.detail
+        // The row has one line for this text. A multi-line error drew every
+        // line over the latest-log line below, so show it on one line and
+        // keep the whole message in the tooltip and the log.
+        detail.stringValue = detailText.split(whereSeparator: \.isNewline).joined(separator: " ")
         (cell as? OperationsRowCellView)?.showsFailureDetail = item.state == .failed
-        detail.toolTip = detail.stringValue
+        detail.toolTip = detailText
         detail.setAccessibilityIdentifier("operations-detail-\(accessibilitySlug(for: item.title))")
         let latest = rowLabel(in: cell, tag: 103, top: 42, size: 11)
         latest.stringValue = OperationsLogInspector.latestLine(for: item)
@@ -977,6 +981,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         label.tag = tag
         label.font = .systemFont(ofSize: size, weight: weight)
         label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(label)
         NSLayoutConstraint.activate([
