@@ -11,7 +11,7 @@ entry_points: []
 parameters_refs: []
 shots:
   - id: variants-tab-hg002-bcftools
-    caption: "The HG002 bcftools variant track as a table, one row per VCF row, with the Chrom, Position, Ref, Alt, Quality, and Filter columns taken straight from the file."
+    caption: "The HG002 bcftools variant track as a table, one row per VCF row, with the Variant Track and Caller Settings columns LGE adds ahead of the Chrom, Position, Ref, Alt, Quality, and Filter columns taken straight from the file."
 illustrations:
   - id: vcf-row-anatomy
     brief: "One real bcftools VCF row from the HG002 fixture laid out as a table with the ten columns labelled CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO, FORMAT, HG002. The data row reads chr20_10.0-10.5Mb, 250527, ., C, T, 222.235, ., an abbreviated INFO string ending DP4=8,12,16,17;MQ=59, the FORMAT keys GT:PL:AD, and the sample payload 0/1:255,0,255:20,33. Below each column header, a short caption explaining what it means. Use Lungfish Creamsicle for column headers, IBM Plex Mono for the data row, Deep Ink for the captions."

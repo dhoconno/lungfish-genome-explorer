@@ -3,7 +3,7 @@
 # App state: BLAST Results drawer after a 20-read verification of Simplexvirus humanalpha1 in the Kraken2 Viral result for SRR12486983, under the sunburst drilled down to Orthoherpesviridae, Detail | List layout. Summary bar: 20 supporting, 0 contradicting, ten filled circles, Supported, 1 with conflicting organisms. Rows: top hit Human alphaherpesvirus 1, Identity 100.0%, E-value 1e-29 or 4e-29, Bit Score 140 or 141
 id: blast-results-drawer
 chapter: 06-classification/06-blast-verification
-caption: "The BLAST Results drawer under the sunburst, drilled down to Orthoherpesviridae, of the SRR12486983 Viral result in the Detail | List layout, with the summary bar reading 20 supporting, 0 contradicting, ten filled circles, the word Supported, and 1 with conflicting organisms, above per-read rows whose top hit is Human alphaherpesvirus 1 at 100.0% identity."
+caption: "The BLAST Results drawer under the sunburst, drilled down to Orthoherpesviridae, of the SRR12486983 Viral result in the Detail | List layout, with the summary bar reading 20 supporting, 0 contradicting, ten filled circles, the verdict Supported, and 1 with conflicting organisms, above per-read rows whose top hit is Human alphaherpesvirus 1 at 100.0% identity."
 viewport_class: taxonomy
 app_state:
   fixture: kraken-protocol-cornea

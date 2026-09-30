@@ -10,7 +10,7 @@ tools: []
 entry_points: []
 shots:
   - id: operations-panel-failed-row
-    caption: "A failed row in the Operations Panel with its details pane open on the command and log, and the right-click menu open on Copy Failure Report."
+    caption: "A failed row in the Operations Panel and its Issue button, with its details pane open on the command and log, and the right-click menu open on Copy Failure Report."
 illustrations: []
 glossary_refs: [accession, advisory-lock, bundle, cohort, conda, container, dependency-set, docker, environment-variable, exit-status, failure-report, fastq, kraken2, nextflow, operations-panel, plugin-pack, project, project-lock, project-store, provenance, provenance-sidecar, read-classification, symlink, working-directory, workflow-library]
 features_refs: [containers.run]

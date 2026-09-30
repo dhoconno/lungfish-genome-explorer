@@ -19,11 +19,11 @@ shots:
   - id: tools-mapping-submenu
     caption: "The Tools menu with its Mapping submenu open, listing the minimap2, BWA-MEM2, Bowtie2, BBMap, and Viral Recon items."
   - id: mapping-wizard-overview
-    caption: "The FASTQ/FASTA Operations dialog with minimap2 chosen in the tool list, the chr20_10.0-10.5Mb reference and the Short-read preset selected, HG002 minimap2 typed into the Output Track section's Track name field, the Input Compatibility readout reporting Ready, and the Read Group and Advanced Settings disclosures collapsed."
+    caption: "The FASTQ/FASTA Operations dialog with minimap2 chosen in the tool list, the chr20_10.0-10.5Mb reference and the Short-read preset selected, HG002 minimap2 typed into the Output Track section's Track name (--track-name) field, the Input Compatibility readout reporting Ready, and the Read Group and Advanced Settings disclosures collapsed."
   - id: mapping-wizard-advanced
     caption: "The Advanced Settings disclosure of the mapping wizard, expanded to show the Threads, Secondary alignments, Supplementary, Min mapping quality, and Extra arguments controls."
   - id: alignment-inspector-stats
-    caption: "The Inspector Alignment Summary for the HG002 minimap2 track, showing Total Mapped, Total Unmapped, Mapped %, Chromosomes, and Est. Coverage above the collapsed Read Groups and Flag Statistics sections."
+    caption: "The Inspector Alignment Summary for the HG002 minimap2 track, showing the Track row, Total Mapped 91.0K, Total Unmapped 213, Mapped % 99.8%, Chromosomes 1, and Est. Coverage 27.3x above the collapsed Read Groups (1) and Flag Statistics sections."
 illustrations: []
 glossary_refs: [bam, mapping, alignment, mapper, mapq, soft-clip, cigar, supplementary-alignment, secondary-alignment, primary-alignment, read-group, flagstat, properly-paired, depth, coverage-breadth, mapping-preset, paired-end, contig, mark-duplicates, plugin-pack, required-setup-pack, reference-bundle, import-center, inspector, provenance, checksum, minimizer, read-merging, interleaved-fastq]
 features_refs: [map]
@@ -216,6 +216,7 @@ The Alignment Summary counts records. The Inspector rounds any count of 1,000 or
 
 | Label | What it counts | Fixture value |
 |---|---|---|
+| Track | The alignment track the counts describe | HG002 minimap2 |
 | Total Mapped | Records placed on the reference, supplementary records included | 91.0K, which is 90,990 |
 | Total Unmapped | Records the mapper could not place | 213 |
 | Mapped % | Total Mapped as a share of all records, drawn as a bar beneath | 99.8% |

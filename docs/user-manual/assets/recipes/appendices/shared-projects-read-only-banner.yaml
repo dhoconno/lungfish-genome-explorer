@@ -4,7 +4,7 @@
 # and creation time 2026-09-08T02:25:32Z. No yellow banner appeared.
 id: shared-projects-read-only-banner
 chapter: appendices/shared-projects
-caption: "The copied demo project opened with Open Read-Only after the lock alert, with (Read Only) after the project name in the window title. This Preview shows no yellow banner."
+caption: "A copy of a demo project opened with Open Read-Only after the lock alert, with (Read Only) after the project name in the window title and no banner."
 viewport_class: none
 app_state:
   fixture: '/Users/dho/Desktop/lge-docs/LGE Manual Demo Copy.lungfish'
