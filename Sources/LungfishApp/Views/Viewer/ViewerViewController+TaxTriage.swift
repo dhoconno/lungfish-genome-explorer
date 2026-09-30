@@ -151,13 +151,7 @@ extension ViewerViewController {
                         throw BlastServiceError.noSequences
                     }
 
-                    let request = BlastVerificationRequest(
-                        taxonName: taxonName,
-                        taxId: organism.taxId ?? 0,
-                        sequences: subsampled,
-                        database: "core_nt",
-                        entrezQuery: nil
-                    )
+                    let request = organism.blastVerificationRequest(sequences: subsampled)
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
