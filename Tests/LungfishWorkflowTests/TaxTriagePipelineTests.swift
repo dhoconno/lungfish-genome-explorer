@@ -685,6 +685,9 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertTrue(args.contains("--outdir"))
         XCTAssertTrue(args.contains("--skip_assembly"))
         XCTAssertFalse(args.contains("--skip_krona"))
+        // Capture on 9.68: FastQC hung for 48 minutes on fastp output with
+        // 4,843 empty gzip members, holding the whole run.
+        XCTAssertTrue(args.contains("--skip_plots"))
     }
 
     func testNextflowArgumentsWithDatabase() {

@@ -332,6 +332,12 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
             args.append("--skip_krona")
         }
 
+        // Upfront QC plots. FastQC and NanoPlot only feed the MultiQC report,
+        // which LGE does not read. FastQC also recurses once per gzip member
+        // and overflows its stack on the thousands of empty members fastp can
+        // write. The JVM then never exits and the run waits forever.
+        args.append("--skip_plots")
+
         // Host taxa removal
         if let effectiveRemoveTaxids {
             args += ["--remove_taxids", effectiveRemoveTaxids]
