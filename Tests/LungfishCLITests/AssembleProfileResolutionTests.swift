@@ -31,6 +31,19 @@ final class AssembleProfileResolutionTests: XCTestCase {
         XCTAssertNil(resolved.basis)
     }
 
+    // A window run passes the profile the sheet preselected together with
+    // its basis; the basis used to be dropped, so the Inspector had no
+    // Profile Basis row for runs started from the window.
+    func testExplicitProfileKeepsTheBasisTheAppPassed() async throws {
+        let url = try writeFASTQ(qualityCharacter: "(")
+        let resolved = await AssembleCommand.resolveProfile(
+            tool: .flye, explicitProfile: "nano-raw",
+            explicitProfileBasis: "Nano Raw preselected: median read quality Q8 is below Q10",
+            inputURL: url)
+        XCTAssertEqual(resolved.profileID, "nano-raw")
+        XCTAssertEqual(resolved.basis, "Nano Raw preselected: median read quality Q8 is below Q10")
+    }
+
     func testFlyeWithoutProfileAppliesTheReadQualityRule() async throws {
         let rawURL = try writeFASTQ(qualityCharacter: "(")
         let raw = await AssembleCommand.resolveProfile(tool: .flye, explicitProfile: nil, inputURL: rawURL)

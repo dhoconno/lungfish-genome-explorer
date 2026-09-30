@@ -343,6 +343,18 @@ extension InspectorViewController {
         if let version = provenance?.assemblerVersion ?? result.assemblerVersion, !version.isEmpty {
             rows.append(("Version", version))
         }
+        if let options = scientificProvenance?.options {
+            // Recorded by `lungfish-cli assemble` for every run; "default"
+            // means no curated profile was applied.
+            let profile = (options.explicit["profile"] ?? options.resolvedDefaults["profile"])?.stringValue
+            if let profile, !profile.isEmpty, profile != "default" {
+                rows.append(("Profile", profile))
+            }
+            let basis = (options.explicit["profileBasis"] ?? options.resolvedDefaults["profileBasis"])?.stringValue
+            if let basis, !basis.isEmpty {
+                rows.append(("Profile Basis", basis))
+            }
+        }
         if let provenance {
             rows.append(("Execution Backend", provenance.executionBackend.rawValue))
             if let managedEnvironment = provenance.managedEnvironment, !managedEnvironment.isEmpty {

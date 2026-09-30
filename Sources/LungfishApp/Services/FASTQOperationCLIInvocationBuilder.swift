@@ -196,6 +196,12 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             }
             if let selectedProfileID = executionRequest.selectedProfileID {
                 arguments += ["--profile", selectedProfileID]
+                // Without the basis the CLI records an explicit profile with
+                // no reason, so a window run lost the read-quality
+                // preselection the sheet showed.
+                if let basis = executionRequest.profileSelectionBasis, !basis.isEmpty {
+                    arguments += ["--profile-basis", basis]
+                }
             }
             if !executionRequest.extraArguments.isEmpty {
                 arguments += ["--extra-args", AdvancedCommandLineOptions.join(executionRequest.extraArguments)]
