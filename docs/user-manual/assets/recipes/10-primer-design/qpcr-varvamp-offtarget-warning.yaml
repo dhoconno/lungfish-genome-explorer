@@ -1,0 +1,30 @@
+# Captured from Lungfish Preview 2026.9.68 (2026-09-30 recapture).
+# App state: Mamu-A1 001 qPCR varVAMP designed with off-target screening against mamu-class-i-exclusion, Overview card with five off-target warnings.
+id: qpcr-varvamp-offtarget-warning
+chapter: 10-primer-design/04-designing-qpcr-and-dpcr-assays
+caption: The Overview card of the varVAMP qPCR analysis run against the exclusion set, showing an orange
+  warning for each of the five assays, from varVAMP_0 to varVAMP_4, that it could produce off-targets.
+viewport_class: none
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: Run varVAMP qPCR on mamu-a1-001-lineage, threshold 0.99, screening against Reference Sequences/mamu-class-i-exclusion
+  # PROSE-ONLY: Open the analysis, Overview, crop to the alignment card
+crop:
+  mode: region
+post:
+  retina: true
+  format: png

@@ -1,0 +1,33 @@
+# Captured from Lungfish Preview 2026.9.68 (2026-09-30 recapture).
+# App state: mamu-a1-001-lineage MSA after Find Discriminating Sites with exclusions from mamu-class-i-exclusion, Inspector scrolled to the result and site table.
+id: qpcr-discriminating-sites
+chapter: 10-primer-design/04-designing-qpcr-and-dpcr-assays
+caption: The MSA viewport on the four-row lineage alignment with gutter names prefixed Target and the
+  orange discriminating-sites legend at the end of the toolbar, beside the Inspector's Discriminating
+  Sites section, whose summary reads 4 targets, 18 exclusions, and 11 discriminating columns above its
+  site table.
+viewport_class: alignment
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1780
+  - 1000
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1780
+  - 1000
+  # PROSE-ONLY: Select mamu-a1-001-lineage, Inspector Bundle tab, expand Discriminating Sites
+  # PROSE-ONLY: Exclusions: Sequences from a file, choose mamu-class-i-exclusion, Find Discriminating Sites
+  # PROSE-ONLY: Scroll the Inspector to the summary and site table
+crop:
+  mode: window
+post:
+  retina: true
+  format: png

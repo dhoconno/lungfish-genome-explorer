@@ -24,9 +24,9 @@ shots:
   - id: qpcr-varvamp-overview
     caption: "The Overview tab of the Mamu-A1 001 qPCR varVAMP analysis, showing the five reported assays in their unpooled lanes with forward primers, reverse primers and purple probes."
   - id: qpcr-varvamp-offtarget-warning
-    caption: "The Overview card of the varVAMP qPCR analysis run against the exclusion set, showing the orange warning that varVAMP_0 could produce off-targets."
+    caption: "The Overview card of the varVAMP qPCR analysis run against the exclusion set, showing an orange warning for each of the five assays, from varVAMP_0 to varVAMP_4, that it could produce off-targets."
   - id: qpcr-discriminating-sites
-    caption: "The MSA viewport on the four-row lineage alignment with the eleven discriminating columns tinted, gutter names prefixed Target, and the legend Discriminating sites 11 columns, Target rows 4, Exclusion sequences 18 from mamu-class-i-exclusion above the rows, beside the Inspector's Discriminating Sites section and its site table."
+    caption: "The MSA viewport on the four-row lineage alignment with gutter names prefixed Target and the orange discriminating-sites legend at the end of the toolbar, beside the Inspector's Discriminating Sites section, whose summary reads 4 targets, 18 exclusions, and 11 discriminating columns above its site table."
   - id: qpcr-primer3-fixed-oligo
     caption: "The Keep these oligos group of the Primer3 dialog, with the anchored reverse primer typed into Reverse primer (as ordered) and the GC clamp field set to 0."
 illustrations:
