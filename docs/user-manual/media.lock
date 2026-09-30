@@ -1,10 +1,10 @@
 {
   "repo": "https://github.com/dhoconno/lungfish-manual-media",
-  "tag": "manual-v2026.9.65",
-  "commit": "3b98c9670a82d2121b18a8e0c16447fde57b5dc0",
+  "tag": "manual-v2026.9.69",
+  "commit": "189f716a5a6e5d0173723cb1b07caf2b29199d36",
   "publicArchive": {
-    "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/manual-media/manual-media-v2026.9.65.tar.gz",
-    "sha256": "ead0973481cd6b9c27f1ea58e604b2fe8ccd30fe601558d7943c30391a909c82",
+    "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/manual-media/manual-media-v2026.9.69.tar.gz",
+    "sha256": "1cfbab400ccae5e4252d252112153fb55624e435861c28c764ee9969913d5342",
     "prefixes": [
       "user-manual/assets/"
     ]
@@ -177,8 +177,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/operations-panel-right-click-menu.png",
-      "sha256": "e6f65ca14750515dc7954422d11c3b8c8b6464cca5bc24ab578b6f283f341802",
-      "size": 65503
+      "sha256": "51bf1e4aebf4162142ee20c0d0163e0b9949b5386178733b93a67bcde6ce9518",
+      "size": 66093
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/operations-panel-row.png",
@@ -212,8 +212,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/provenance-lineage-step-expanded.png",
-      "sha256": "a3aaa6dde35e15e33d21232d35e458c44b0269482eef68cfb95db8580295f10c",
-      "size": 572849
+      "sha256": "361bf7d9462996579e3976edc3994560a190a87ce0365391eb7e4b16c719ce59",
+      "size": 530357
     },
     {
       "path": "user-manual/assets/screenshots/01-foundations/provenance-signing-settings.png",
@@ -276,14 +276,19 @@
       "size": 572391
     },
     {
+      "path": "user-manual/assets/screenshots/02-sequences/import-center-annotation-track-alert.png",
+      "sha256": "1d55be785832aa54fb79fc2435b77795cd66a5df0af9bbb2b9bd4a1a6ab1e0dd",
+      "size": 91578
+    },
+    {
       "path": "user-manual/assets/screenshots/02-sequences/import-center-reference-card.png",
       "sha256": "688dcc9d723093b6dfed429db7a1a2670c208f04bd3072f9bd5494af2288c66f",
       "size": 384592
     },
     {
       "path": "user-manual/assets/screenshots/02-sequences/iqtree-dialog.png",
-      "sha256": "112f49a363c3c38db2907fbcae8f0817ad0783022bd1ba665eedf965a2b0f6d5",
-      "size": 354017
+      "sha256": "6bde594f6aaf69a712a0ce19e01c075d19eb2413ab212266790e41fa356f1b69",
+      "size": 331227
     },
     {
       "path": "user-manual/assets/screenshots/02-sequences/mafft-dialog.png",
@@ -327,8 +332,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/demultiplex-barcodes-pane.png",
-      "sha256": "105849e3b78b8f469f0138fc835b23b938aed48bc54dcf7f47b18fde3566759c",
-      "size": 372059
+      "sha256": "1908530437e8bcebfb1c32d28e625bb52139df3bfca7138b7d57870bbbec7c04",
+      "size": 373831
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/fastq-sparkline-popover.png",
@@ -357,8 +362,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/import-fastq-configuration-sheet.png",
-      "sha256": "088363cd1487728845cf22985dd2d73e507d5cc337461feead7f9310f4d5ac2e",
-      "size": 110460
+      "sha256": "31600f3c91ba77b96b24533a0e47c396f0eb970bdb0494088fe0f018157aa1b0",
+      "size": 78845
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/length-filter-readiness.png",
@@ -432,8 +437,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/sidebar-after-ont-import.png",
-      "sha256": "354400a0c19fe0d97a311334170ca30cb50608b33deee649f607a32ff730b692",
-      "size": 113127
+      "sha256": "59e562af5c00bb24e731a250d96cfe4d934df975e5fe399db8ea7468a04a9d64",
+      "size": 104881
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/sra-bundle-in-sidebar.png",
@@ -447,8 +452,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/sra-runs-pane.png",
-      "sha256": "71adccf9360681a5c06971e01ff7c7e9cbc31ccf81e6d7d8d68440850b0de238",
-      "size": 302566
+      "sha256": "865cf80198b823aefcc5c55e3e6f17fc20f0e7fd1506a1dcb7cddc0bb36642e4",
+      "size": 265444
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/subsample-by-count-pane.png",
@@ -481,6 +486,11 @@
       "size": 475501
     },
     {
+      "path": "user-manual/assets/screenshots/04-alignments/extract-reads-region-menu.png",
+      "sha256": "afaa8390ed22155619e9111d7504828e9e5f54bb11c3f2222448db06ab0cef5d",
+      "size": 334115
+    },
+    {
       "path": "user-manual/assets/screenshots/04-alignments/filter-panel-controls.png",
       "sha256": "da24dccd7766092e6be8d077f72b4b916a39af01394464302b66008e73e4e055",
       "size": 116724
@@ -502,8 +512,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/primer-trim-dialog-target.png",
-      "sha256": "f5283af17ad06a47c4879d0aa5ce071a4aa9b58b1c0ea38f0ad6101856e14233",
-      "size": 99858
+      "sha256": "f67cc71ad1663f18128d9ae29542770f10a0bd9141636d80dd08276bfc3192da",
+      "size": 94296
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/primer-trim-scheme-menu.png",
@@ -511,9 +521,14 @@
       "size": 257566
     },
     {
+      "path": "user-manual/assets/screenshots/04-alignments/primer-trim-track-result.png",
+      "sha256": "3765aec3d9756455585aa873c4f19250e18bc74393099ba7187b646e2ec58c29",
+      "size": 48647
+    },
+    {
       "path": "user-manual/assets/screenshots/04-alignments/tools-mapping-submenu.png",
-      "sha256": "8b3bf8121a9948ecff1ef52328b6890268d023451ce4bb7f150897419450e719",
-      "size": 602137
+      "sha256": "0a283b7fca413658c8f2ca40120cb50128713ca9a079a741047acb5efa7799cf",
+      "size": 590657
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/view-settings-alignment-tab.png",
@@ -529,6 +544,11 @@
       "path": "user-manual/assets/screenshots/04-alignments/viral-recon-advanced-open.png",
       "sha256": "a0c553c3ae70d019a4980397035f67fe252c5aa5494e0c95b47d45a74aa9ecd0",
       "size": 355136
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/viral-recon-inspector-outputs.png",
+      "sha256": "2b38b4e3a26af7abbd49169a8478bb88d9f95d9160e39f0de6883697ea014ad1",
+      "size": 155429
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/viral-recon-menu-item.png",
@@ -586,9 +606,19 @@
       "size": 324884
     },
     {
+      "path": "user-manual/assets/screenshots/05-variants/name-imported-variant-bundle.png",
+      "sha256": "76398bed08bfec7be2ef6213419b85f741a19bc834c27fce1568054b06265d3e",
+      "size": 152939
+    },
+    {
       "path": "user-manual/assets/screenshots/05-variants/tools-mapping-submenu.png",
-      "sha256": "8b3bf8121a9948ecff1ef52328b6890268d023451ce4bb7f150897419450e719",
-      "size": 602137
+      "sha256": "0a283b7fca413658c8f2ca40120cb50128713ca9a079a741047acb5efa7799cf",
+      "size": 590657
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/variant-track-glyphs.png",
+      "sha256": "d493e5ed38c34e756facb614d0c3ac75766b843dd0e860dd9b36d172cbdc36f2",
+      "size": 166111
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/variants-inspector-row.png",
@@ -602,8 +632,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/variants-search-builder.png",
-      "sha256": "b22d12dfed43286f62ca83175ed8f55ea31881a3acef0ec0d282d0b8ba98f32b",
-      "size": 85372
+      "sha256": "ec27d5c091eb0cd85e9d244ddb8fca2d915a0e9fe96fb65ea8d0cf28d2fb83db",
+      "size": 69222
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/variants-source-column.png",
@@ -647,8 +677,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/czid-import-sheet.png",
-      "sha256": "703839688a88789c2063379689397c57d98f5175a8b749cbab6bf5635d305397",
-      "size": 128421
+      "sha256": "4737b6d706da014e4f729bce3582da35efeed1301931f506e94a3824a52ac784",
+      "size": 100115
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/czid-provenance-popover.png",
@@ -657,8 +687,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/czid-result-viewport.png",
-      "sha256": "a62e6d61f457121d3ae47c6528d12bf12fcbb590cae8a79d499d011dd9738925",
-      "size": 379820
+      "sha256": "a222856a08b275de39b3854785cb8490671676bacc87175d13c79dbdf9c8458a",
+      "size": 197616
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/esviritu-advanced-settings.png",
@@ -727,13 +757,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/nao-mgs-result-viewport.png",
-      "sha256": "41c4b1f9e9f8e06265a4d4b4822f0015759b6af8c6aed685adf11338b5f5c39a",
-      "size": 345711
+      "sha256": "393d980eeeb1d689d22c0b5b73ba508ac9c5ee5128c7ac55cfd1289f7c152547",
+      "size": 199453
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/nao-mgs-taxon-detail.png",
-      "sha256": "8335fdacfb664cfacb4d23e87f4b1665fd4448c35d9c7b77374a2157545fb2b5",
-      "size": 377742
+      "sha256": "c25fd1e182f8f182590bce8f57ccc727e45d521ad68cd44e49e696bd09a8a48f",
+      "size": 104994
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/nvd-column-menu.png",
@@ -767,8 +797,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/taxtriage-dialog.png",
-      "sha256": "f7dd74a49f62baa2580d3795da610ef8ca2d456f14a805a6d8cc48ea585fa58f",
-      "size": 387262
+      "sha256": "bda325371755adf4526d9a180ae03f69d78d61c33627d02e2033d8561e12bcee",
+      "size": 296652
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/taxtriage-result-table.png",
@@ -777,18 +807,18 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/twelve-s-blast-review.png",
-      "sha256": "cf95f6118232200a143d2820cda686aa4c20fc1ed012c40b0749c6ef82a9dacd",
-      "size": 451313
+      "sha256": "4ba041d7c507dd481204b5517dad9528bd31b6c6583dcafd00fddc3838a9672d",
+      "size": 418685
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/twelve-s-dialog-inputs.png",
-      "sha256": "27985cd92ad858a642c357f9170da6f157847ad89dc6cfcbea55c750bfb5bd29",
-      "size": 459298
+      "sha256": "da56a9e76e3bcb21c1371177469dd395c08ffd74bcfe24b7f88dac35c6f44732",
+      "size": 464390
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/twelve-s-dialog-options.png",
-      "sha256": "3e9cfff9a127d21ec6694c126fa0c68f8d47a0d0419ee3ad3639fec4d00af2a3",
-      "size": 490000
+      "sha256": "368bc085d047df4c63e28dcef6804ccdbbc4d59d923c3a66301d529ac6edd394",
+      "size": 470159
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/twelve-s-export.png",
@@ -797,13 +827,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/twelve-s-result-species-table.png",
-      "sha256": "6e798175c327db41f6960c1a9b4cf0072e69c33a6d5b4a503be15ea457af7916",
-      "size": 117172
+      "sha256": "2159eb92e97f92db630a980a7971b5bb40c90c7fe74a76f129b80b0a23f62d3b",
+      "size": 177210
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/twelve-s-unresolved-clusters.png",
-      "sha256": "620f7ef55a433276cd4524193d7a5ae2bebce34088c4abdf6b670687f2bcba2d",
-      "size": 476622
+      "sha256": "a03009eaa3211b0fef79b653a472ef9d4aae77b7e98c8e22fcf7f4b0ce961554",
+      "size": 461929
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/twelve-s-workflow-library.png",
@@ -917,13 +947,13 @@
     },
     {
       "path": "user-manual/assets/screenshots/08-workflows/workflow-library-linked-package.png",
-      "sha256": "66ceb8a108c9c3549a84ed082a57410e67c48cf385af87cad3472030f16ac271",
-      "size": 123216
+      "sha256": "4b8d9deaef06f2dc0e8ffee7586640b858c3e3d9961e84bb41d017f133451118",
+      "size": 96514
     },
     {
       "path": "user-manual/assets/screenshots/08-workflows/workflow-operations-runner.png",
-      "sha256": "680a2dd9db94fdcbf2336f0412e88380539bd175a02613aea27d6e8b0ff81ad8",
-      "size": 447758
+      "sha256": "841155409797850b5cc78e315f2d878d03fa87f8bd0043c7cd216856f265a57c",
+      "size": 464370
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-call-evidence.png",
@@ -932,8 +962,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-export-save-panel.png",
-      "sha256": "eb4681582555b96d266fe7cd824ec65a469d3a3e157de4c4921c3f31c5cf7dd7",
-      "size": 52088
+      "sha256": "b70fff5a6ffaf8a3a003d177ab22e4583136b36850d65f1b24149b9f70d712b4",
+      "size": 64987
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-inspector-display.png",
@@ -1021,9 +1051,24 @@
       "size": 314542
     },
     {
+      "path": "user-manual/assets/screenshots/10-primer-design/qpcr-discriminating-sites.png",
+      "sha256": "8a31b9129eb4b5c87dd3223f712a3a676539f64d00fcc0232810124dbb8e0224",
+      "size": 470830
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/qpcr-varvamp-offtarget-warning.png",
+      "sha256": "9fbbffc079293d7ce7039b910dcf66a27b009545cc03cfe2550cd4edb034498f",
+      "size": 99484
+    },
+    {
       "path": "user-manual/assets/screenshots/10-primer-design/qpcr-varvamp-overview.png",
       "sha256": "c7f949e9a3b9b18d3bcb13ea965f277518934b795b7dea25bbcb69095f0905b0",
       "size": 294899
+    },
+    {
+      "path": "user-manual/assets/screenshots/10-primer-design/qpcr-varvamp-screening.png",
+      "sha256": "a006d47e94d8bf4c7062586ad27ee52606df9433919eaf746918efab683e1d89",
+      "size": 37535
     },
     {
       "path": "user-manual/assets/screenshots/10-primer-design/tiled-primalscheme-overview.png",
@@ -1057,8 +1102,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/appendices/operations-panel-failed-row.png",
-      "sha256": "910661d9096c783dde105fdb0b6d2983a36f80a0a2907168ff88d7bd91b84edb",
-      "size": 365473
+      "sha256": "07c9bf2e33387e9da9505a0b91f54929610da12881c9fcdfeeb37ae1e32a17bc",
+      "size": 559209
     },
     {
       "path": "user-manual/assets/screenshots/appendices/primer-scheme-import-card.png",
