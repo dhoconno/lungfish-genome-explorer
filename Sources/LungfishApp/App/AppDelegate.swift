@@ -425,6 +425,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             ?? mainWindowController
     }
 
+    /// The open window an operation started from, found by its window scope
+    /// alone. Used when a route context names a window but no project, so the
+    /// result still goes to that window's project and never to whichever
+    /// project `workingDirectoryURL` last pointed at.
+    internal func mainWindowController(forWindowStateScopeID scopeID: UUID?) -> MainWindowController? {
+        guard let scopeID else { return nil }
+        return mainWindowControllers.first { $0.projectSession.windowStateScope.id == scopeID }
+    }
+
     internal func currentOperationRouteContext(for controller: MainWindowController? = nil) -> OperationRouteContext? {
         guard let controller = controller ?? activeMainWindowController() else { return nil }
         return OperationRouteContext(

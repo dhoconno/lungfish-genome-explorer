@@ -2515,7 +2515,13 @@ extension AppDelegate {
         debugLog("handleMultipleDownloadsSync: Starting with \(tempFileURLs.count) files")
 
         // Get UI controllers
-        let targetController = targetMainWindowController(routeContext: routeContext)
+        // A context that names its window but not a project still belongs to
+        // that window. Falling back to `workingDirectoryURL` instead sent
+        // results into whichever project it last pointed at, including a
+        // project whose window had been closed.
+        let scopedController = mainWindowController(forWindowStateScopeID: routeContext?.windowStateScopeID)
+        let targetController = targetMainWindowController(routeContext: routeContext) ?? scopedController
+        let workingDirectoryURL = routeContext?.windowStateScopeID == nil ? self.workingDirectoryURL : nil
         let activityIndicator = targetController?.mainSplitViewController?.activityIndicator
         let viewerController = targetController?.mainSplitViewController?.viewerController
         let sidebarController = targetController?.mainSplitViewController?.sidebarController

@@ -106,6 +106,70 @@ final class OperationRoutingTests: XCTestCase {
     // Found capturing on 9.59: every mapping and assembly run left an empty
     // Downloads folder in the project. Their results are already in the
     // project and are kept in place, but the folder was created first.
+    // Found capturing on 9.61: with a second project window restored and
+    // closed, Create Bundle on an assembly result sent a context naming its
+    // window but no project. The finished bundle was copied into the other
+    // project's Downloads (the stale working directory) and the sidebar
+    // switched to that project.
+    func testWindowScopedContextWithoutProjectStaysInItsWindowsProject() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProvenanceRoute-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let projectURL = temp.appendingPathComponent("Shared.lungfish", isDirectory: true)
+        _ = try DocumentManager.shared.createProject(at: projectURL, name: "Shared")
+        let snapshot = ProjectWindowSnapshot(
+            id: UUID(),
+            projectURL: projectURL,
+            windowOrdinal: 1,
+            windowOrder: 0,
+            windowTitleSuffix: "[1]",
+            frame: nil,
+            isFullScreen: false,
+            selectedSidebarURL: nil,
+            expandedSidebarURLs: [],
+            sidebarSearchText: nil,
+            activeContent: nil,
+            inspectorTab: nil,
+            sidebarCollapsed: false,
+            inspectorCollapsed: false,
+            sidebarWidth: nil,
+            inspectorWidth: nil,
+            operationsPanelFilter: nil,
+            operationsPanelVisible: false
+        )
+        let restored = try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: [snapshot]))
+        XCTAssertTrue(restored)
+        await delegate.testingWaitForProjectRestoration()
+        let controller = try XCTUnwrap(delegate.testingMainWindowControllers.first)
+        defer { controller.close() }
+        let otherProject = temp.appendingPathComponent("Other.lungfish", isDirectory: true)
+        _ = try DocumentManager.shared.createProject(at: otherProject, name: "Other")
+        delegate.workingDirectoryURL = otherProject
+
+        let bundle = projectURL
+            .appendingPathComponent("Reference Sequences", isDirectory: true)
+            .appendingPathComponent("contig.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+
+        delegate.importReadyBundles(
+            [bundle],
+            routeContext: OperationRouteContext(
+                projectURL: nil,
+                windowStateScope: controller.projectSession.windowStateScope
+            )
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: otherProject.appendingPathComponent("Downloads", isDirectory: true).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.path))
+        XCTAssertEqual(
+            controller.mainSplitViewController?.sidebarController?.currentProjectURL?.standardizedFileURL,
+            projectURL.standardizedFileURL)
+    }
+
     func testImportingABundleAlreadyInTheProjectDoesNotCreateDownloads() async throws {
         let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
