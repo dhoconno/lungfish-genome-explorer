@@ -529,7 +529,7 @@ struct MSADiscriminatingSitesSection: View {
                     Text(source.rawValue).tag(source)
                 }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.radioGroup)
             .labelsHidden()
             .font(LungfishInspectorStyle.controlFont)
             .accessibilityIdentifier("msa-discriminating-sites-exclusion-source")
@@ -805,7 +805,7 @@ struct MSADiscriminatingSitesSection: View {
                             .help(site.exclusionNames)
                     }
                 }
-                .frame(minHeight: 120, idealHeight: min(320, CGFloat(model.sites.count + 1) * 24 + 8), maxHeight: 320)
+                .frame(minHeight: 120, idealHeight: max(120, min(320, CGFloat(model.sites.count + 1) * 24 + 8)), maxHeight: 320)
                 .accessibilityIdentifier("msa-discriminating-sites-table")
             }
 
@@ -836,27 +836,22 @@ struct MSADiscriminatingSitesSection: View {
                             .lineLimit(1)
                     }
                 }
-                .frame(minHeight: 72, idealHeight: min(200, CGFloat(model.windows.count + 1) * 24 + 8), maxHeight: 200)
+                .frame(minHeight: 72, idealHeight: max(72, min(200, CGFloat(model.windows.count + 1) * 24 + 8)), maxHeight: 200)
                 .accessibilityIdentifier("msa-discriminating-sites-windows-table")
             }
 
-            HStack(spacing: 8) {
-                Button("Copy TSV") { model.copyTSV() }
-                    .font(LungfishInspectorStyle.controlFont)
-                    .disabled(model.siteTSV == nil)
-                    .help("Copy the per-column table as tab-separated text, in the layout lungfish-cli msa discriminating-sites writes")
-                    .accessibilityIdentifier("msa-discriminating-sites-copy")
-                Spacer(minLength: 0)
-                Button("Export TSV…") { model.requestExport(.tsv) }
-                    .font(LungfishInspectorStyle.controlFont)
-                    .disabled(model.onExportRequested == nil)
-                    .help("Write the per-column and candidate-window tables with a provenance sidecar using lungfish-cli msa discriminating-sites")
-                    .accessibilityIdentifier("msa-discriminating-sites-export-tsv")
-                Button("Export JSON…") { model.requestExport(.json) }
-                    .font(LungfishInspectorStyle.controlFont)
-                    .disabled(model.onExportRequested == nil)
-                    .help("Write the full JSON report with a provenance sidecar using lungfish-cli msa discriminating-sites")
-                    .accessibilityIdentifier("msa-discriminating-sites-export-json")
+            // A narrow Inspector puts the export buttons on their own line
+            // rather than truncating every title.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    copyTSVButton
+                    Spacer(minLength: 0)
+                    exportButtons
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    copyTSVButton
+                    HStack(spacing: 8) { exportButtons }
+                }
             }
             if let outputURL = model.lastOutputURL {
                 Text("Written by lungfish-cli to \(outputURL.path)")
@@ -866,5 +861,27 @@ struct MSADiscriminatingSitesSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private var copyTSVButton: some View {
+        Button("Copy TSV") { model.copyTSV() }
+            .font(LungfishInspectorStyle.controlFont)
+            .disabled(model.siteTSV == nil)
+            .help("Copy the per-column table as tab-separated text, in the layout lungfish-cli msa discriminating-sites writes")
+            .accessibilityIdentifier("msa-discriminating-sites-copy")
+    }
+
+    @ViewBuilder
+    private var exportButtons: some View {
+        Button("Export TSV…") { model.requestExport(.tsv) }
+            .font(LungfishInspectorStyle.controlFont)
+            .disabled(model.onExportRequested == nil)
+            .help("Write the per-column and candidate-window tables with a provenance sidecar using lungfish-cli msa discriminating-sites")
+            .accessibilityIdentifier("msa-discriminating-sites-export-tsv")
+        Button("Export JSON…") { model.requestExport(.json) }
+            .font(LungfishInspectorStyle.controlFont)
+            .disabled(model.onExportRequested == nil)
+            .help("Write the full JSON report with a provenance sidecar using lungfish-cli msa discriminating-sites")
+            .accessibilityIdentifier("msa-discriminating-sites-export-json")
     }
 }

@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
+import SwiftUI
 import XCTest
 import LungfishKit
 import LungfishWorkflow
@@ -400,6 +402,59 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
 
         NotificationCenter.default.post(name: .msaDiscriminatingSitesHighlightChanged, object: nil, userInfo: [:])
         XCTAssertEqual(controller.testingDiscriminatingHighlightedColumns, [])
+    }
+
+    // MARK: - Layout
+
+    // Expanding the section in a 1572x900 window with the Inspector showing
+    // used to widen the whole Inspector scroll content past its column, so the
+    // section's leading text and row names were clipped and its trailing
+    // controls ran off the right edge (Preview 2026.9.66).
+    func testExpandedSectionFitsTheInspectorColumnAtDefaultAndMinimumWidths() throws {
+        let longNames = [
+            "LR699574.1_Mamu-A1_001_01_01_01_Macaca_mulatta_genomic_DNA",
+            "LR699575.1_Mamu-A1_001_01_02_01_Macaca_mulatta_genomic_DNA",
+            "LR699576.1_Mamu-A1_001_02_01_01_Macaca_mulatta_genomic_DNA",
+            "LR699577.1_Mamu-A1_001_03_01_01_Macaca_mulatta_genomic_DNA",
+        ]
+        let exclusionURL = URL(fileURLWithPath: "/project/Reference Sequences/mamu-class-i-exclusion.lungfishref")
+        // The Inspector pads its scroll content by 16pt on each side, so the
+        // section is offered the column width less 32pt.
+        for inspectorWidth in [CGFloat(260), 340] {
+            for (source, withResult) in [(MSADiscriminatingSitesInspectorModel.ExclusionSource.rows, false),
+                                         (.file, false), (.file, true)] {
+                let model = MSADiscriminatingSitesInspectorModel(
+                    bundleURL: URL(fileURLWithPath: "/project/mamu-a1-001-lineage.lungfishmsa"),
+                    rows: longNames.enumerated().map { .init(id: "row-\($0.offset)", name: $0.element) },
+                    projectExclusionOptions: [.init(name: "mamu-class-i-exclusion", url: exclusionURL)]
+                )
+                model.exclusionSource = source
+                if source == .file { model.exclusionFileURL = exclusionURL }
+                model.templateRowID = "row-0"
+                if withResult {
+                    let report = try DiscriminatingSitesAnalysis.analyze(
+                        targets: longNames.map { .init(name: $0, sequence: "ACGTACGTACGT") },
+                        exclusions: [.init(name: "Mamu-B_exclusion_panel_sequence_01", sequence: "GCGTGCGTGCGT")])
+                    model.apply(report: report, outputURL: URL(fileURLWithPath:
+                        "/Users/example/Documents/Primer Design.lungfish/Analyses/Discriminating Sites/mamu-a1-001-lineage-discriminating-sites.tsv"))
+                }
+
+                let offered = inspectorWidth - 32
+                let controller = NSHostingController(rootView: MSADiscriminatingSitesSection(
+                    model: model, isExpanded: .constant(true)))
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: offered, height: 900),
+                                      styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                defer { window.close() }
+                window.contentViewController = controller
+                controller.view.layoutSubtreeIfNeeded()
+
+                let fitted = controller.sizeThatFits(in: CGSize(width: offered, height: 10_000))
+                XCTAssertLessThanOrEqual(
+                    fitted.width, offered + 0.5,
+                    "Discriminating Sites (\(source.rawValue), result \(withResult)) must fit a \(Int(inspectorWidth))pt Inspector")
+            }
+        }
     }
 
     // MARK: - Real run on the demo project
