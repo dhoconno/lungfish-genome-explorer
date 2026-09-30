@@ -531,18 +531,6 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         confirmRemovePartialOutput(for: items[row])
     }
 
-    @objc private func contextRemovePartialOutput(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID,
-              let item = items.first(where: { $0.id == itemID }) else { return }
-        confirmRemovePartialOutput(for: item)
-    }
-
-    @objc private func contextRevealInterruptedRun(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID,
-              let directory = items.first(where: { $0.id == itemID })?.interruptedRunDirectory else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([directory])
-    }
-
     /// Names everything Remove Partial Output deletes, including the
     /// temporary folders the run left in the project's `.tmp/`.
     static func removePartialOutputMessage(for item: OperationCenter.Item, directory: URL) -> String {
@@ -591,77 +579,82 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         openGitHubIssue(for: items[row])
     }
 
-    // MARK: - Context Menu Actions
+    // MARK: - Row Actions
 
-    @objc private func contextRunAgain(_ sender: NSMenuItem) {
-        guard let item = sender.representedObject as? OperationCenter.Item,
-              let source = WorkflowOperationsWindowController.replaySourceBundleURL(for: item) else { return }
-        WorkflowOperationsWindowController.showPreviousRun(at: source, routeContext: item.routeContext)
+    /// The one implementation behind the context menu, the log drawer's
+    /// Actions pull-down, the Operations menu bar items and the row's
+    /// accessibility custom actions.
+    func perform(_ action: OperationRowAction, on item: OperationCenter.Item) {
+        guard action.isAvailable(for: item) else { return }
+        switch action {
+        case .removePartialOutput:
+            confirmRemovePartialOutput(for: item)
+        case .revealInterruptedRun:
+            guard let directory = item.interruptedRunDirectory else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([directory])
+        case .revealOutputs:
+            NSWorkspace.shared.activateFileViewerSelecting(item.outputURLs + item.bundleURLs)
+        case .runAgain:
+            guard let source = WorkflowOperationsWindowController.replaySourceBundleURL(for: item) else { return }
+            WorkflowOperationsWindowController.showPreviousRun(at: source, routeContext: item.routeContext)
+        case .copyCLICommand:
+            guard let cmd = item.cliCommand else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(cmd, forType: .string)
+        case .copyLog:
+            let logText = formatLogEntries(item.logEntries)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(logText, forType: .string)
+        case .viewLog:
+            viewLog(for: item)
+        case .revealLog:
+            revealLog(for: item)
+        case .copyFailureReport:
+            let report = buildFailureReport(for: item)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(report, forType: .string)
+        case .openGitHubIssue:
+            openGitHubIssue(for: item)
+        case .revealFailureReport:
+            guard let reportURL = item.failureReportURL else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([reportURL])
+        case .cancel:
+            OperationCenter.shared.cancel(id: item.id)
+        case .clear:
+            OperationCenter.shared.clearItem(id: item.id)
+        }
     }
 
-    @objc private func contextRevealOutputs(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID,
-              let item = items.first(where: { $0.id == id }) else { return }
-        NSWorkspace.shared.activateFileViewerSelecting(item.outputURLs + item.bundleURLs)
+    /// The item behind the selected row, or nil when nothing is selected.
+    var selectedItem: OperationCenter.Item? {
+        guard tableView.selectedRow >= 0, tableView.selectedRow < items.count else { return nil }
+        return items[tableView.selectedRow]
     }
 
-    @objc private func contextCopyCLICommand(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID,
-              let item = items.first(where: { $0.id == itemID }),
-              let cmd = item.cliCommand else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(cmd, forType: .string)
+    /// Runs a menu bar command against the selected row.
+    func performOnSelectedRow(_ action: OperationRowAction) {
+        guard let item = selectedItem else { return }
+        perform(action, on: item)
     }
 
-    @objc private func contextCopyLog(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID,
-              let item = items.first(where: { $0.id == itemID }) else { return }
-        let logText = formatLogEntries(item.logEntries)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(logText, forType: .string)
+    /// The custom accessibility actions for the row showing `itemID`.
+    ///
+    /// Looked up by id at call time, so a row whose operation has since
+    /// finished reports the commands that apply now.
+    func accessibilityActions(forItemID itemID: UUID) -> [NSAccessibilityCustomAction] {
+        guard let item = items.first(where: { $0.id == itemID }) else { return [] }
+        return OperationRowAction.available(for: item).map { action in
+            AccessibilityActionRowView.makeAction(name: action.title) { [weak self] in
+                guard let self, let current = self.items.first(where: { $0.id == itemID }) else { return }
+                self.perform(action, on: current)
+            }
+        }
     }
 
-    @objc private func contextViewLog(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID,
-              let item = items.first(where: { $0.id == itemID }) else { return }
-        viewLog(for: item)
-    }
-
-    @objc private func contextRevealLog(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID,
-              let item = items.first(where: { $0.id == itemID }) else { return }
-        revealLog(for: item)
-    }
-
-    @objc private func contextCopyFailureReport(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID,
-              let item = items.first(where: { $0.id == itemID }) else { return }
-        let report = buildFailureReport(for: item)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(report, forType: .string)
-    }
-
-    @objc private func contextRevealFailureReport(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID,
-              let item = items.first(where: { $0.id == itemID }),
-              let reportURL = item.failureReportURL else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([reportURL])
-    }
-
-    @objc private func contextOpenGitHubIssue(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID,
-              let item = items.first(where: { $0.id == itemID }) else { return }
-        openGitHubIssue(for: item)
-    }
-
-    @objc private func contextCancel(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID else { return }
-        OperationCenter.shared.cancel(id: itemID)
-    }
-
-    @objc private func contextClear(_ sender: NSMenuItem) {
-        guard let itemID = sender.representedObject as? UUID else { return }
-        OperationCenter.shared.clearItem(id: itemID)
+    @objc private func performRowActionFromMenu(_ sender: NSMenuItem) {
+        guard let request = sender.representedObject as? OperationRowActionRequest,
+              let item = items.first(where: { $0.id == request.itemID }) else { return }
+        perform(request.action, on: item)
     }
 
     // MARK: - Helpers
@@ -732,6 +725,22 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         64
+    }
+
+    /// Every row publishes its commands as accessibility custom actions, so
+    /// VoiceOver and AX-driven automation reach them without a right-click.
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        guard row < items.count else { return nil }
+        let itemID = items[row].id
+        let identifier = NSUserInterfaceItemIdentifier("operations-row")
+        let rowView = tableView.makeView(withIdentifier: identifier, owner: nil) as? AccessibilityActionRowView
+            ?? AccessibilityActionRowView()
+        rowView.identifier = identifier
+        rowView.setAccessibilityIdentifier("operations-row-\(itemID.uuidString)")
+        rowView.actionProvider = { [weak self] in
+            self?.accessibilityActions(forItemID: itemID) ?? []
+        }
+        return rowView
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -1189,97 +1198,55 @@ extension OperationsPanelViewController: NSMenuDelegate {
         populateActions(menu, for: item)
     }
 
+    /// Fills a menu with the commands that apply to `item`. Availability and
+    /// order come from ``OperationRowAction``, and every item routes through
+    /// ``perform(_:on:)``.
     private func populateActions(_ menu: NSMenu, for item: OperationCenter.Item) {
-        if item.state == .interrupted, item.interruptedRunDirectory != nil {
-            let remove = NSMenuItem(title: "Remove Partial Output…", action: #selector(contextRemovePartialOutput(_:)), keyEquivalent: "")
-            remove.target = self
-            remove.representedObject = item.id
-            menu.addItem(remove)
-
-            let reveal = NSMenuItem(title: "Reveal in Finder", action: #selector(contextRevealInterruptedRun(_:)), keyEquivalent: "")
-            reveal.target = self
-            reveal.representedObject = item.id
-            menu.addItem(reveal)
-        }
-        if !item.outputURLs.isEmpty || !item.bundleURLs.isEmpty {
-            let reveal = NSMenuItem(title: "Reveal Output Files", action: #selector(contextRevealOutputs(_:)), keyEquivalent: "")
-            reveal.target = self
-            reveal.representedObject = item.id
-            menu.addItem(reveal)
-        }
-        if WorkflowOperationsWindowController.replaySourceBundleURL(for: item) != nil {
-            let runAgain = NSMenuItem(title: "Run Again…", action: #selector(contextRunAgain(_:)), keyEquivalent: "")
-            runAgain.target = self
-            runAgain.representedObject = item
-            menu.addItem(runAgain)
-        }
-
-        if item.cliCommand != nil {
-            let copyCmd = NSMenuItem(title: "Copy CLI Command", action: #selector(contextCopyCLICommand(_:)), keyEquivalent: "")
-            copyCmd.representedObject = item.id
-            copyCmd.target = self
-            menu.addItem(copyCmd)
-        }
-
-        if !item.logEntries.isEmpty {
-            let copyLog = NSMenuItem(title: "Copy Log", action: #selector(contextCopyLog(_:)), keyEquivalent: "")
-            copyLog.representedObject = item.id
-            copyLog.target = self
-            menu.addItem(copyLog)
-
-            let viewLog = NSMenuItem(title: "View Log", action: #selector(contextViewLog(_:)), keyEquivalent: "")
-            viewLog.representedObject = item.id
-            viewLog.target = self
-            menu.addItem(viewLog)
-
-            let revealLog = NSMenuItem(title: "Reveal Log in Finder", action: #selector(contextRevealLog(_:)), keyEquivalent: "")
-            revealLog.representedObject = item.id
-            revealLog.target = self
-            menu.addItem(revealLog)
-        }
-
-        // Failed operations can be copied as a report or opened as a prefilled
-        // GitHub issue; the user reviews and submits in the browser.
-        if item.state == .failed {
-            let copyReport = NSMenuItem(title: "Copy Failure Report", action: #selector(contextCopyFailureReport(_:)), keyEquivalent: "")
-            copyReport.representedObject = item.id
-            copyReport.target = self
-            menu.addItem(copyReport)
-
-            let openIssue = NSMenuItem(title: "Open GitHub Issue", action: #selector(contextOpenGitHubIssue(_:)), keyEquivalent: "")
-            openIssue.representedObject = item.id
-            openIssue.target = self
-            menu.addItem(openIssue)
-
-            // The report was written automatically when the operation failed,
-            // so this only has to point at it.
-            if item.failureReportURL != nil {
-                let revealReport = NSMenuItem(
-                    title: "Reveal Failure Report in Finder",
-                    action: #selector(contextRevealFailureReport(_:)),
+        var addedSection = false
+        for section in OperationRowAction.menuSections {
+            let available = section.filter { $0.isAvailable(for: item) }
+            guard !available.isEmpty else { continue }
+            if addedSection { menu.addItem(.separator()) }
+            addedSection = true
+            for action in available {
+                let menuItem = NSMenuItem(
+                    title: action.title,
+                    action: #selector(performRowActionFromMenu(_:)),
                     keyEquivalent: ""
                 )
-                revealReport.representedObject = item.id
-                revealReport.target = self
-                menu.addItem(revealReport)
+                menuItem.target = self
+                menuItem.representedObject = OperationRowActionRequest(action: action, itemID: item.id)
+                menuItem.identifier = NSUserInterfaceItemIdentifier("operation-row-action-\(action.identifierSlug)")
+                menu.addItem(menuItem)
             }
         }
+    }
+}
 
-        if item.cliCommand != nil || !item.logEntries.isEmpty || item.state == .failed {
-            menu.addItem(.separator())
-        }
+// MARK: - Menu Bar Actions (Operations > Selected Operation)
 
-        if item.isCancellable {
-            let cancelItem = NSMenuItem(title: "Cancel", action: #selector(contextCancel(_:)), keyEquivalent: "")
-            cancelItem.representedObject = item.id
-            cancelItem.target = self
-            menu.addItem(cancelItem)
-        } else if !item.state.isActive {
-            let clearItem = NSMenuItem(title: "Clear", action: #selector(contextClear(_:)), keyEquivalent: "")
-            clearItem.representedObject = item.id
-            clearItem.target = self
-            menu.addItem(clearItem)
-        }
+extension OperationsPanelViewController: OperationRowMenuActions, NSMenuItemValidation {
+    func removeSelectedOperationPartialOutput(_ sender: Any?) { performOnSelectedRow(.removePartialOutput) }
+    func revealSelectedOperationInterruptedRun(_ sender: Any?) { performOnSelectedRow(.revealInterruptedRun) }
+    func revealSelectedOperationOutputs(_ sender: Any?) { performOnSelectedRow(.revealOutputs) }
+    func runSelectedOperationAgain(_ sender: Any?) { performOnSelectedRow(.runAgain) }
+    func copySelectedOperationCLICommand(_ sender: Any?) { performOnSelectedRow(.copyCLICommand) }
+    func copySelectedOperationLog(_ sender: Any?) { performOnSelectedRow(.copyLog) }
+    func viewSelectedOperationLog(_ sender: Any?) { performOnSelectedRow(.viewLog) }
+    func revealSelectedOperationLog(_ sender: Any?) { performOnSelectedRow(.revealLog) }
+    func copySelectedOperationFailureReport(_ sender: Any?) { performOnSelectedRow(.copyFailureReport) }
+    func openSelectedOperationGitHubIssue(_ sender: Any?) { performOnSelectedRow(.openGitHubIssue) }
+    func revealSelectedOperationFailureReport(_ sender: Any?) { performOnSelectedRow(.revealFailureReport) }
+    func cancelSelectedOperation(_ sender: Any?) { performOnSelectedRow(.cancel) }
+    func clearSelectedOperation(_ sender: Any?) { performOnSelectedRow(.clear) }
+
+    /// Menu bar items are enabled only while a row is selected and the
+    /// command applies to it. Items that are not row commands keep the
+    /// default (enabled) behaviour.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let action = OperationRowAction.action(for: menuItem.action) else { return true }
+        guard let item = selectedItem else { return false }
+        return action.isAvailable(for: item)
     }
 }
 

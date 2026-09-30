@@ -582,7 +582,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     // MARK: - UI Components
 
     let scrollView = NSScrollView()
-    let tableView = NSTableView()
+    let tableView = AnnotationDrawerTableView()
     let annotationFilterField = NSSearchField()
     let variantFilterField = NSSearchField()
     let sampleFilterField = NSSearchField()
@@ -1172,6 +1172,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         tableView.gridStyleMask = []
         tableView.target = self
         tableView.doubleAction = #selector(tableViewDoubleClicked(_:))
+        // Return and Enter do what a double-click does, so the keyboard can
+        // recentre the viewport on the selected annotation or variant.
+        tableView.onActivateSelectedRow = { [weak self] in
+            guard let self else { return }
+            self.activateRow(at: self.tableView.selectedRow)
+        }
         tableView.registerForDraggedTypes([.string])
 
         // Context menu (built dynamically via NSMenuDelegate)
@@ -2329,6 +2335,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     @objc func showInInspectorAction(_ sender: NSMenuItem) {
         guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        showInInspector(result)
+    }
+
+    /// Shows `result` in the Inspector's Selection tab. Shared by the context
+    /// menu and the row's accessibility custom action.
+    func showInInspector(_ result: AnnotationSearchIndex.SearchResult) {
         if result.isVariant {
             let selectedEntries = variantSelectionEntriesForSelectedRows()
             let contextRowIsSelected = selectedEntries.contains {
@@ -5677,4 +5689,33 @@ private func canonicalChromosomeForFiltering(_ raw: String) -> String {
         value = String(value[..<dot])
     }
     return value
+}
+
+// MARK: - Keyboard activation
+
+/// The drawer's table. Return and Enter activate the selected row the way a
+/// double-click does, so keyboard users and AX-driven automation can recentre
+/// the viewport on a variant without a mouse. Everything else is standard
+/// `NSTableView` behaviour, including arrow-key selection.
+@MainActor
+public final class AnnotationDrawerTableView: NSTableView {
+    /// Called when Return or Enter is pressed with a row selected.
+    var onActivateSelectedRow: (() -> Void)?
+
+    /// Whether the key event should activate the selected row.
+    static func activatesSelectedRow(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) -> Bool {
+        let isReturnOrEnter = keyCode == 36 || keyCode == 76
+        let modifiers = modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+        return isReturnOrEnter && modifiers.isEmpty
+    }
+
+    public override func keyDown(with event: NSEvent) {
+        if Self.activatesSelectedRow(keyCode: event.keyCode, modifierFlags: event.modifierFlags),
+           selectedRow >= 0,
+           let onActivateSelectedRow {
+            onActivateSelectedRow()
+            return
+        }
+        super.keyDown(with: event)
+    }
 }

@@ -81,6 +81,49 @@ final class ProvenanceSectionSourceTests: XCTestCase {
         _ = try inspected.find(text: "samtools")
     }
 
+    func testLineageRunsAndStepsAreAccessibleDisclosureButtons() throws {
+        let viewModel = makeViewModel()
+        viewModel.lineageRuns = [
+            ProvenanceLineageRun(
+                id: UUID(),
+                title: "Variant calling",
+                subtitle: "bcftools",
+                steps: [
+                    ProvenanceLineageStep(
+                        id: UUID(), ordinal: 1, toolName: "minimap2", toolVersion: "2.28",
+                        command: "minimap2 -ax map-ont ref.fa reads.fq", inputPaths: [], outputPaths: [],
+                        exitStatus: 0, wallTimeSeconds: nil, stderr: nil, dependsOn: []
+                    ),
+                    ProvenanceLineageStep(
+                        id: UUID(), ordinal: 2, toolName: "bcftools", toolVersion: "1.20",
+                        command: "bcftools mpileup -f ref.fa sample.bam", inputPaths: [], outputPaths: [],
+                        exitStatus: 0, wallTimeSeconds: nil, stderr: nil, dependsOn: []
+                    ),
+                ]
+            ),
+        ]
+        let inspected = try ProvenanceSection(viewModel: viewModel).inspect()
+
+        // Each run and step row is a real button with a stable identifier, so
+        // AXPress, Space and Return can expand it. The lineage stack must not
+        // be lazy, because a LazyVStack hides its children from AX clients.
+        let run = try inspected.find(viewWithAccessibilityIdentifier: "provenance-run-1")
+        XCTAssertNoThrow(try run.button())
+        let step = try inspected.find(viewWithAccessibilityIdentifier: "provenance-run-1-step-2")
+        XCTAssertNoThrow(try step.button())
+        XCTAssertTrue(inspected.findAll(ViewType.LazyVStack.self).isEmpty)
+    }
+
+    func testDisclosureKeyCommandsExpandCollapseAndToggle() {
+        XCTAssertEqual(ProvenanceDisclosureKeyCommand.expansion(after: .rightArrow, isExpanded: false), true)
+        XCTAssertNil(ProvenanceDisclosureKeyCommand.expansion(after: .rightArrow, isExpanded: true))
+        XCTAssertEqual(ProvenanceDisclosureKeyCommand.expansion(after: .leftArrow, isExpanded: true), false)
+        XCTAssertNil(ProvenanceDisclosureKeyCommand.expansion(after: .leftArrow, isExpanded: false))
+        XCTAssertEqual(ProvenanceDisclosureKeyCommand.expansion(after: .return, isExpanded: false), true)
+        XCTAssertEqual(ProvenanceDisclosureKeyCommand.expansion(after: .return, isExpanded: true), false)
+        XCTAssertNil(ProvenanceDisclosureKeyCommand.expansion(after: .space, isExpanded: false), "Space is left to the button itself")
+    }
+
     func testProvenanceSectionUsesInspectorStylingAndExportMenu() throws {
         let viewModel = makeViewModel()
         viewModel.resolvedEnvelope = nil

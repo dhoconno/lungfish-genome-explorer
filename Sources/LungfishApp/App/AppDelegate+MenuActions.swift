@@ -551,6 +551,20 @@ extension AppDelegate {
         )
     }
 
+    /// Shows the Inspector on its Provenance tab for the current selection.
+    @objc func showProvenanceInspector(_ sender: Any?) {
+        guard let splitViewController = activeMainWindowController(sender: sender)?.mainSplitViewController else { return }
+        splitViewController.setInspectorVisible(true, animated: false, source: "AppDelegate.showProvenanceInspector")
+        NotificationCenter.default.post(
+            name: .showInspectorRequested,
+            object: self,
+            userInfo: [
+                NotificationUserInfoKey.inspectorTab: InspectorTab.provenance.rawValue,
+                NotificationUserInfoKey.windowStateScope: splitViewController.projectSession.windowStateScope
+            ]
+        )
+    }
+
     @objc func showAIAssistant(_ sender: Any?) {
         showOrToggleAIAssistant()
     }

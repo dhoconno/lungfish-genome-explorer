@@ -237,6 +237,49 @@ extension AnnotationTableDrawerView {
         activateRow(at: tableView.clickedRow)
     }
 
+    /// The search result a row stands for, resolving genotype rows to their
+    /// variant. Nil on the Samples tab and for out-of-range rows.
+    func searchResult(forRow row: Int) -> AnnotationSearchIndex.SearchResult? {
+        guard row >= 0, activeTab != .samples else { return nil }
+        if activeTab == .variants && activeVariantSubtab == .genotypes {
+            guard row < displayedGenotypes.count else { return nil }
+            let genotype = displayedGenotypes[row]
+            return displayedAnnotations.first {
+                $0.trackId == genotype.trackId && $0.variantRowId == genotype.variantRowId
+            }
+        }
+        guard row < displayedAnnotations.count else { return nil }
+        return displayedAnnotations[row]
+    }
+
+    /// Rows publish "Zoom to Variant" (or "Zoom to Annotation") and "Show in
+    /// Inspector" as accessibility custom actions, so the commands the context
+    /// menu offers are reachable by VoiceOver and by AX-driven automation.
+    public func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let identifier = NSUserInterfaceItemIdentifier("annotation-drawer-row")
+        let rowView = tableView.makeView(withIdentifier: identifier, owner: nil) as? AccessibilityActionRowView
+            ?? AccessibilityActionRowView()
+        rowView.identifier = identifier
+        rowView.actionProvider = { [weak self] in
+            self?.accessibilityActions(forRow: row) ?? []
+        }
+        return rowView
+    }
+
+    func accessibilityActions(forRow row: Int) -> [NSAccessibilityCustomAction] {
+        guard let result = searchResult(forRow: row) else { return [] }
+        let zoomTitle = result.isVariant ? "Zoom to Variant" : "Zoom to Annotation"
+        return [
+            AccessibilityActionRowView.makeAction(name: zoomTitle) { [weak self] in
+                self?.activateRow(at: row)
+            },
+            AccessibilityActionRowView.makeAction(name: "Show in Inspector") { [weak self] in
+                guard let self, let current = self.searchResult(forRow: row) else { return }
+                self.showInInspector(current)
+            },
+        ]
+    }
+
     func activateRow(at row: Int) {
         guard row >= 0 else { return }
         // Samples don't navigate on double-click.

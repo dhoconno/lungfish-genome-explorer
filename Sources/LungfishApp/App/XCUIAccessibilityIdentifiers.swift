@@ -205,6 +205,7 @@ enum MainMenuAccessibilityID {
     static let contentTextSizeLarger = "view-menu-content-text-size-larger"
     static let contentTextSizeSmaller = "view-menu-content-text-size-smaller"
     static let contentTextSizeDefault = "view-menu-content-text-size-default"
+    static let provenanceInspector = "view-menu-provenance-inspector"
 
     static let callVariants = "tools-menu-call-variants"
     static let freyjaDemix = "tools-menu-freyja-demix"
@@ -219,6 +220,12 @@ enum MainMenuAccessibilityID {
     }
     static let pluginManager = "tools-menu-plugin-manager"
     static let showOperationsPanel = "operations-menu-show-panel"
+    static let selectedOperation = "operations-menu-selected-operation"
+
+    /// Operations > Selected Operation item for one row command.
+    static func selectedOperationAction(_ action: OperationRowAction) -> String {
+        "operations-menu-selected-operation-\(action.identifierSlug)"
+    }
     static let newWindowForCurrentProject = "window-menu-new-window-current-project"
     static let setWindowSize = "window-menu-set-size"
 

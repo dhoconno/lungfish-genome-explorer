@@ -103,10 +103,11 @@ The panels that frame the main viewport, plus the zoom commands. These need a pr
 | Focus Viewer | Cmd-Opt-F | LGE's own |
 | Restore Side Panes | Ctrl-Cmd-Opt-F | LGE's own |
 | Document Inspector | Cmd-Opt-D | LGE's own |
+| Provenance Inspector | Cmd-Opt-V | LGE's own |
 | AI Assistant | Cmd-Shift-A | LGE's own |
 | Enter Full Screen | Ctrl-Cmd-F | Standard macOS |
 
-**Focus Viewer** hides both the sidebar and the Inspector so the viewport fills the window, and **Restore Side Panes** brings both back. **AI Assistant** reveals the Inspector's Assistant tab.
+**Focus Viewer** hides both the sidebar and the Inspector so the viewport fills the window, and **Restore Side Panes** brings both back. **AI Assistant** reveals the Inspector's Assistant tab. **Provenance Inspector** reveals the Inspector's Provenance tab, which lists every tool run that produced the selected result. In that tab each run and each step is a button. Press Space or Return on one to open or close it, Right Arrow to open it, and Left Arrow to close it.
 
 The Sidebar and Inspector rows change their own titles as you use them. When the panel is showing, the menu reads **Hide Sidebar** or **Hide Inspector** instead, and the same shortcut does the hiding. The shortcut never changes.
 
@@ -193,8 +194,13 @@ This row works whenever a project window is in front.
 | Action | Shortcut | Origin |
 |---|---|---|
 | Show Operations Panel | Cmd-Shift-P | LGE's own |
+| Selected Operation, Copy CLI Command | Cmd-Opt-C | LGE's own |
+| Selected Operation, View Log | Cmd-Opt-L | LGE's own |
+| Selected Operation, Reveal Output Files | Cmd-Opt-O | LGE's own |
 
 The [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) lists every operation you started. **Clear Completed** and **Cancel All Operations** sit below it without shortcuts, and **Cancel All Operations** stays greyed out until something cancellable is actually running.
+
+The **Selected Operation** submenu carries the same commands as the panel's right-click menu, from **Copy CLI Command** to **Clear Selected Operation**. Its items work only while the Operations window is in front and a row is selected, and each one is greyed out when it does not apply to that row, so **View Log** stays disabled until the operation has written a log line. Three of them have shortcuts. The rest, such as **Copy Log**, **Reveal Log in Finder**, **Run Again...** and **Copy Failure Report**, are chosen from the menu.
 
 ## Window menu
 
@@ -226,6 +232,8 @@ The left and right arrow keys move the view sideways by 100 bases each press, a 
 The Escape key does one of two things, decided by whether the sequencing reads over the view are still being fetched. While they are loading, Escape cancels that load, which is the way out of a region carrying very many reads that is taking a long time. When nothing is loading, Escape clears the current selection instead.
 
 The coordinate ruler above the sequence takes Cmd-0 for zoom to fit and Cmd-1 for the 10 kilobase reset, matching the View menu.
+
+In the annotation table below the sequence, the up and down arrows move the selection and Return or Enter does what a double-click does. On the Annotations tab, selecting a row already recentres the viewport on it. On the Variants tab, selecting a row updates the Inspector and leaves the viewport where it is, so press Return to recentre the viewport on the selected variant.
 
 ## Inside the BAM alignment viewport
 
@@ -319,6 +327,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Shift-A | Select all items in the same folder | Sidebar list |
 | Cmd-Shift-B | Plugin Manager... | Tools menu |
 | Cmd-C | Copy | Edit menu, sequence viewport, MSA viewport |
+| Cmd-Opt-C | Selected Operation, Copy CLI Command | Operations menu |
 | Cmd-Shift-C | Copy Visible Region as FASTA | Sequence menu |
 | Cmd-Opt-D | Document Inspector | View menu |
 | Cmd-Shift-D | Duplicate | Sidebar right-click menu |
@@ -342,12 +351,14 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Shift-I | Import Center... | File menu |
 | Cmd-K | Mark Sample Confirmed | Tools menu, Genotype Review |
 | Cmd-L | Go to Location... | Sequence menu |
+| Cmd-Opt-L | Selected Operation, View Log | Operations menu |
 | Cmd-M | Minimize | Window menu |
 | Cmd-Opt-M | Add or edit a comment | Genotype comparison matrix |
 | Cmd-N | New Project | File menu |
 | Cmd-Opt-N | New Window for Current Project | Window menu |
 | Cmd-Shift-N | New Folder | Sidebar right-click menu |
 | Cmd-O | Open Project Folder... | File menu |
+| Cmd-Opt-O | Selected Operation, Reveal Output Files | Operations menu |
 | Cmd-Shift-O | Sample Detail… | Tools menu, Genotype Review |
 | Cmd-Opt-P | Mark the cell a false positive | Genotype comparison matrix |
 | Cmd-Shift-P | Show Operations Panel | Operations menu |
@@ -359,6 +370,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Shift-T | Translate... | Sequence menu |
 | Cmd-Shift-U | Show as RNA (U instead of T) | View menu |
 | Cmd-V | Paste | Edit menu |
+| Cmd-Opt-V | Provenance Inspector | View menu |
 | Cmd-W | Close | File menu |
 | Cmd-X | Cut | Edit menu |
 | Cmd-Opt-X | Mark the cell a false negative | Genotype comparison matrix |
@@ -374,6 +386,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Shift-slash | Lungfish Genome Explorer Help | Help menu |
 | Arrow keys | Pan sideways, zoom up and down | Sequence and BAM alignment viewports |
 | Arrow keys | Move the selection, Shift extends it | MSA viewport |
+| Return | Recentre the viewport on the selected row | Annotation table |
 | Opt-Right Arrow | Expand the selected row recursively | Taxonomy table |
 | Cmd-Shift-Right Arrow | Expand All | View menu, taxonomy table |
 | Cmd-Shift-Left Arrow | Collapse All | View menu, taxonomy table |

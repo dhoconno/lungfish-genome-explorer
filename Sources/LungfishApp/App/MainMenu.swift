@@ -480,6 +480,19 @@ public final class MainMenu {
         )
         docInspectorItem.keyEquivalentModifierMask = [.command, .option]
 
+        // Provenance Inspector: shows the Inspector on its Provenance tab so
+        // the lineage of the selected result is reachable from the keyboard
+        // and from accessibility clients without clicking the tab picker.
+        let provenanceInspectorItem = viewMenu.addItem(
+            withTitle: "Provenance Inspector",
+            action: #selector(ViewMenuActions.showProvenanceInspector(_:)),
+            keyEquivalent: "v"
+        )
+        provenanceInspectorItem.keyEquivalentModifierMask = [.command, .option]
+        provenanceInspectorItem.identifier = NSUserInterfaceItemIdentifier(
+            MainMenuAccessibilityID.provenanceInspector
+        )
+
         viewMenu.addItem(.separator())
 
         // AI Assistant
@@ -1011,6 +1024,12 @@ public final class MainMenu {
         panelItem.keyEquivalentModifierMask = [.command, .shift]
         panelItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.showOperationsPanel)
 
+        // Selected Operation: the row commands the Operations panel offers in
+        // its context menu, reachable from the menu bar and by shortcut. They
+        // go to the first responder, so they are enabled only while the
+        // Operations window is key and a row is selected.
+        opsMenu.addItem(makeSelectedOperationItem())
+
         opsMenu.addItem(.separator())
 
         // Clear Completed
@@ -1030,6 +1049,33 @@ public final class MainMenu {
 
         opsMenuItem.submenu = opsMenu
         return opsMenuItem
+    }
+
+    private static func makeSelectedOperationItem() -> NSMenuItem {
+        let selectedOperationItem = NSMenuItem(title: "Selected Operation", action: nil, keyEquivalent: "")
+        selectedOperationItem.identifier = NSUserInterfaceItemIdentifier(
+            MainMenuAccessibilityID.selectedOperation
+        )
+        let selectedOperationMenu = NSMenu(title: "Selected Operation")
+        for (index, section) in OperationRowAction.menuSections.enumerated() {
+            if index > 0 { selectedOperationMenu.addItem(.separator()) }
+            for action in section {
+                let item = NSMenuItem(
+                    title: action.menuBarTitle,
+                    action: action.menuSelector,
+                    keyEquivalent: action.keyEquivalent?.key ?? ""
+                )
+                if let keyEquivalent = action.keyEquivalent {
+                    item.keyEquivalentModifierMask = keyEquivalent.modifiers
+                }
+                item.identifier = NSUserInterfaceItemIdentifier(
+                    MainMenuAccessibilityID.selectedOperationAction(action)
+                )
+                selectedOperationMenu.addItem(item)
+            }
+        }
+        selectedOperationItem.submenu = selectedOperationMenu
+        return selectedOperationItem
     }
 
     // MARK: - Window Menu
@@ -1280,6 +1326,7 @@ enum ProvenanceExportMenuModel {
     func resetViewSettingsToDefaults(_ sender: Any?)
     func showAIAssistant(_ sender: Any?)
     func showDocumentInspector(_ sender: Any?)
+    func showProvenanceInspector(_ sender: Any?)
 }
 
 /// Sequence menu action handlers.

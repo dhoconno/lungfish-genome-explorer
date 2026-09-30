@@ -221,18 +221,24 @@ struct ProvenanceSection: View {
         }
     }
 
+    /// A plain VStack, not a LazyVStack. A lazy stack is exposed to the
+    /// accessibility API as an opaque group, which hides the run and step
+    /// rows from VoiceOver and from AX-driven automation.
     private var lineageContent: some View {
-        LazyVStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             if viewModel.lineageRuns.isEmpty {
                 emptyMessage("No workflow steps are available.")
             } else {
-                ForEach(viewModel.lineageRuns) { run in
+                ForEach(Array(viewModel.lineageRuns.enumerated()), id: \.element.id) { index, run in
                     if runMatchesSearch(run) {
-                        DisclosureGroup {
+                        ProvenanceDisclosureRow(
+                            identifier: "provenance-run-\(index + 1)",
+                            accessibilityName: "Run \(index + 1), \(run.title)"
+                        ) {
                             VStack(alignment: .leading, spacing: 8) {
                                 ForEach(run.steps) { step in
                                     if stepMatchesSearch(step) {
-                                        stepDisclosure(step)
+                                        stepDisclosure(step, runOrdinal: index + 1)
                                     }
                                 }
                             }
@@ -263,7 +269,7 @@ struct ProvenanceSection: View {
     }
 
     private var filesContent: some View {
-        LazyVStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             if filteredFiles.isEmpty {
                 emptyMessage("No file descriptors are available.")
             } else {
@@ -340,8 +346,11 @@ struct ProvenanceSection: View {
         .padding(.vertical, 4)
     }
 
-    private func stepDisclosure(_ step: ProvenanceLineageStep) -> some View {
-        DisclosureGroup {
+    private func stepDisclosure(_ step: ProvenanceLineageStep, runOrdinal: Int) -> some View {
+        ProvenanceDisclosureRow(
+            identifier: "provenance-run-\(runOrdinal)-step-\(step.ordinal)",
+            accessibilityName: "Step \(step.ordinal), \(step.toolName)"
+        ) {
             VStack(alignment: .leading, spacing: 6) {
                 if !step.command.isEmpty {
                     summaryRow("Command", value: step.command)
@@ -597,5 +606,73 @@ struct ProvenanceSection: View {
     private func copyToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+// MARK: - Keyboard and accessibility disclosure
+
+/// Decides what a key press does to a disclosure row.
+///
+/// Right Arrow expands, Left Arrow collapses, and Return toggles. Any other
+/// key, or an arrow that would not change the state, returns nil so the
+/// press falls through to the surrounding view.
+enum ProvenanceDisclosureKeyCommand {
+    static func expansion(after key: KeyEquivalent, isExpanded: Bool) -> Bool? {
+        switch key {
+        case .rightArrow:
+            return isExpanded ? nil : true
+        case .leftArrow:
+            return isExpanded ? false : nil
+        case .return:
+            return !isExpanded
+        default:
+            return nil
+        }
+    }
+}
+
+/// A disclosure row whose label is a real button.
+///
+/// SwiftUI's `DisclosureGroup` toggles only from its chevron, which VoiceOver
+/// and AX-driven automation cannot always reach and which the keyboard cannot
+/// reach at all. Here the label is a plain button that toggles the group, so
+/// the row answers AXPress, Space and Return, expands on Right Arrow and
+/// collapses on Left Arrow, and reports its state as an accessibility value.
+struct ProvenanceDisclosureRow<Label: View, Content: View>: View {
+    let identifier: String
+    let accessibilityName: String
+    @ViewBuilder let content: () -> Content
+    @ViewBuilder let label: () -> Label
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            content()
+        } label: {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                label()
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusable()
+            .onKeyPress(keys: [.rightArrow, .leftArrow, .return]) { press in
+                guard let next = ProvenanceDisclosureKeyCommand.expansion(
+                    after: press.key,
+                    isExpanded: isExpanded
+                ) else { return .ignored }
+                isExpanded = next
+                return .handled
+            }
+            .accessibilityLabel(accessibilityName)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityHint("Shows or hides the details for this row.")
+            .accessibilityIdentifier(identifier)
+            .accessibilityAction(named: isExpanded ? "Collapse" : "Expand") {
+                isExpanded.toggle()
+            }
+        }
     }
 }
