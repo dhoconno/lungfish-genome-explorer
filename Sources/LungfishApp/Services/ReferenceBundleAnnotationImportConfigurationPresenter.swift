@@ -59,9 +59,52 @@ enum ReferenceBundleAnnotationImportConfigurationPresenter {
         alert.addButton(withTitle: "Import")
         alert.addButton(withTitle: "Cancel")
 
+        let accessory = makeAccessory(
+            choices: choices.map { (title: $0.displayPath, url: $0.url) },
+            preferredBundleURL: preferredBundleURL,
+            sourceURL: sourceURL
+        )
+        alert.accessoryView = accessory.view
+        let popup = accessory.popup
+        let trackNameField = accessory.trackNameField
+        let trackIDField = accessory.trackIDField
+
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            complete(
+                response: response,
+                selectedBundleURL: popup.selectedItem?.representedObject as? URL,
+                trackID: trackIDField.stringValue,
+                trackName: trackNameField.stringValue,
+                completion: completion
+            )
+        }
+
+        if let presentingWindow = presentationWindow(preferred: presentingWindow) {
+            alert.beginSheetModal(for: presentingWindow, completionHandler: finish)
+        } else {
+            finish(missingPresentationWindowResponse)
+        }
+    }
+
+    struct Accessory {
+        let view: NSView
+        let popup: NSPopUpButton
+        let trackNameField: NSTextField
+        let trackIDField: NSTextField
+    }
+
+    /// NSAlert lays out its accessory view from the view's frame, not its
+    /// constraints. The stack used to have no frame, so the alert kept its
+    /// default size and the three rows drew over the message and past the
+    /// alert's right edge.
+    static func makeAccessory(
+        choices: [(title: String, url: URL)],
+        preferredBundleURL: URL?,
+        sourceURL: URL
+    ) -> Accessory {
         let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 360, height: 28), pullsDown: false)
         for choice in choices {
-            popup.addItem(withTitle: choice.displayPath)
+            popup.addItem(withTitle: choice.title)
             popup.lastItem?.representedObject = choice.url
         }
         if let preferredBundleURL,
@@ -85,7 +128,6 @@ enum ReferenceBundleAnnotationImportConfigurationPresenter {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
 
         func fieldRow(label: String, control: NSView) -> NSView {
             let row = NSStackView()
@@ -104,23 +146,8 @@ enum ReferenceBundleAnnotationImportConfigurationPresenter {
         stack.addArrangedSubview(fieldRow(label: "Reference", control: popup))
         stack.addArrangedSubview(fieldRow(label: "Track Name", control: trackNameField))
         stack.addArrangedSubview(fieldRow(label: "Track ID", control: trackIDField))
-        alert.accessoryView = stack
-
-        let finish: (NSApplication.ModalResponse) -> Void = { response in
-            complete(
-                response: response,
-                selectedBundleURL: popup.selectedItem?.representedObject as? URL,
-                trackID: trackIDField.stringValue,
-                trackName: trackNameField.stringValue,
-                completion: completion
-            )
-        }
-
-        if let presentingWindow = presentationWindow(preferred: presentingWindow) {
-            alert.beginSheetModal(for: presentingWindow, completionHandler: finish)
-        } else {
-            finish(missingPresentationWindowResponse)
-        }
+        stack.frame = NSRect(origin: .zero, size: stack.fittingSize)
+        return Accessory(view: stack, popup: popup, trackNameField: trackNameField, trackIDField: trackIDField)
     }
 
     private static func presentationWindow(preferred window: NSWindow?) -> NSWindow? {
