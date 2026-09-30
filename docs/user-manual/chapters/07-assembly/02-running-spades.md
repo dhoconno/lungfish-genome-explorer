@@ -15,9 +15,9 @@ entry_points:
   - "CLI: lungfish-cli assemble"
 shots:
   - id: assembly-wizard-spades
-    caption: "The assembly sheet opened from Tools > Assembly > SPAdes..., showing the read-only Inputs rows, the Assembler and Read Type controls at the top of Primary Settings, the Isolate profile, and the Threads slider with its number field."
+    caption: "The assembly sheet opened from Tools > Assembly > SPAdes..., showing the read-only Inputs rows, with Read Layout reading Interleaved paired-end Illumina reads, the Assembler and Read Type controls at the top of Primary Settings, the Isolate profile, and the Threads slider with its number field."
   - id: assembly-advanced-settings
-    caption: "The sheet's Advanced Settings section with the Curated extra arguments disclosure expanded, showing the Careful mode and Skip error correction toggles above the Extra arguments field."
+    caption: "The sheet's Advanced Settings section with the Curated extra arguments disclosure expanded, showing the Careful mode toggle disabled for the Isolate profile with its caption, and the Skip error correction toggle, above the Extra arguments field."
   - id: assembly-viewport
     caption: "The assembly result viewport after the HG002 mitochondrial run, with the contig table open and the Inspector's Assembly Context block reporting one contig, 16697 total bp, and an N50 of 16697 bp."
   - id: assembly-bundle-in-analyses

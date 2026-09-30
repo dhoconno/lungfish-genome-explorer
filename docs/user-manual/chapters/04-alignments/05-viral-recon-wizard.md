@@ -15,7 +15,7 @@ shots:
   - id: viral-recon-menu-item
     caption: "The open Tools > Mapping submenu, with Viral Recon... as its fifth item below minimap2, BWA-MEM2, Bowtie2, and BBMap."
   - id: viral-recon-wizard-overview
-    caption: "The Viral Recon sheet, showing the Viral Recon header and its Docker Desktop note above the Inputs, Primer Scheme, Minimum mapped reads, collapsed Advanced, and Readiness sections."
+    caption: "The Viral Recon sheet, showing the Viral Recon header and its Docker Desktop note above the Inputs section with its read-layout caption, the Primer Scheme menu reading Choose a scheme..., Minimum mapped reads, the collapsed Advanced disclosure, and the Readiness section."
   - id: viral-recon-advanced-open
     caption: "The Advanced disclosure expanded, showing the annotation note, the Choose GFF... button, and the Extra parameters field with its schema-checking caption."
   - id: viral-recon-inspector-outputs

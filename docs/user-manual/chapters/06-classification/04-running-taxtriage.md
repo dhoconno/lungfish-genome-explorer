@@ -13,7 +13,7 @@ entry_points:
   - "CLI: lungfish-cli taxtriage run"
 shots:
   - id: taxtriage-dialog
-    caption: "The FASTQ/FASTA Operations dialog opened from Tools > Classification > TaxTriage... with SRR12486983 and SRR12486989 selected, showing both samples as Clinical Sample rows, the Kraken2 Database picker on Standard-16, Sequencing Platform on Illumina, Skip assembly (faster) ticked, the Exclude host taxa field holding 9606, and Advanced Settings collapsed."
+    caption: "The FASTQ/FASTA Operations dialog opened from Tools > Classification > TaxTriage... with SRR12486983 and SRR12486989 selected, showing both samples as Clinical Sample rows, the Prerequisites row with its Nextflow and Docker Desktop indicators, the Kraken2 Database picker on Standard-16, Sequencing Platform on Illumina, Skip assembly (faster) ticked, the Exclude host taxa field holding 9606, and Advanced Settings collapsed."
   - id: taxtriage-advanced-settings
     caption: "The dialog's Advanced Settings disclosure expanded, showing the K2 Confidence slider at 0.20, the Top hits stepper at 10, the Max memory stepper at 16 GB, the Max CPUs stepper at 14, the Skip Krona visualization checkbox, and an empty Extra arguments field, below the Exclude host taxa field holding 9606."
   - id: taxtriage-result-table

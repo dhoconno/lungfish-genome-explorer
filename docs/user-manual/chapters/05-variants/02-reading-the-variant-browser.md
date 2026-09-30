@@ -23,7 +23,7 @@ shots:
   - id: variants-source-column
     caption: "The Variant Track column separating the bcftools rows from the LoFreq rows in the aggregated table, sorted by position."
   - id: variant-track-glyphs
-    caption: "The HG002 bcftools variant track in the genome viewport at position 250,527, a heterozygous 0/1 call drawn as a blue genotype cell, beside position 2,078, a homozygous 1/1 call drawn in indigo, with the summary bar of variant types above the genotype row."
+    caption: "The HG002 bcftools variant track in the genome viewport at position 250,527, a heterozygous 0/1 call drawn as a blue genotype cell, with the summary bar of variant types above the genotype row."
 illustrations:
   - id: lofreq-af-histogram
     brief: "Two histograms side by side on a Cream background, x axis allele frequency from 0 to 1, y axis number of calls. Left, the HG002 LoFreq track's 862 calls, with one peak near 0.5 (heterozygous sites, one changed copy of two) and one near 1.0 (homozygous sites), labelled 'diploid person: two peaks'. Right, a sketch of a viral population's calls spread continuously across the range with most near 1.0 and a long low tail of minority changes, labelled 'virus population: a continuum'. Lungfish Creamsicle bars, Deep Ink axes, IBM Plex Mono labels."
@@ -185,7 +185,7 @@ The genome viewport draws each variant track under the sequence, so a call can b
 
 Each track draws two layers. A thin summary bar at the top stacks the calls under each screen pixel by type, green for single-base substitutions, violet for insertions, and red for deletions, and its label at the left gives the number of calls in the track. Below it, each sample in the track gets a row, and each call is a small block as wide as its reference allele, coloured by genotype. In the default colour theme a heterozygous call such as the `0/1` at 250,527 is blue, a homozygous call such as the `1/1` at 2,078 is deep indigo, a reference call is light grey, and a missing call is near white. A haploid call such as iVar's bare `1` counts as homozygous. Hover a block for the variant and the sample's genotype, spelled out as HET or HOM_ALT, and click it to select the variant, which fills the Inspector's **Selected Item** tab. When more than 5,000 calls are in view, the genotype rows give way to the message "Zoom in to display genotypes" with the count, and only the summary bar is drawn.
 
-Read the colour with the position you already know. At 2,078 every read carried the change, and the block is indigo. At 250,527 about half did, and it is blue. Blue calls in a sample that carries one copy of its genome, or a human track with no blue at all, say the ploidy was set wrongly when the calls were made.
+Read the colour with the position you already know. Position 2,078 lies about 248 kb from 250,527, too far to show in the same view, so go to `chr20_10.0-10.5Mb:2078` with Cmd-L to see it. At 2,078 every read carried the change, and the block is indigo. At 250,527 about half did, and it is blue. Blue calls in a sample that carries one copy of its genome, or a human track with no blue at all, say the ploidy was set wrongly when the calls were made.
 
 ## Settings
 

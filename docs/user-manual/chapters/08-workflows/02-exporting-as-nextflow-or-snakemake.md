@@ -21,9 +21,9 @@ shots:
   - id: export-provenance-complete-alert
     caption: "The Provenance Export Complete alert, with its OK and Show in Finder buttons."
   - id: provenance-export-folder
-    caption: "The exported provenance folder open in Finder, with main.nf, nextflow.config, and the containers folder beside the provenance subdirectory of copied run records."
+    caption: "The exported provenance folder open in a Finder list view, with the containers folder, main.nf, nextflow.config, and the provenance folder of copied run records."
   - id: nextflow-export-main-nf
-    caption: "The generated main.nf of the minimap2 mapping result open in TextEdit, showing the params lines and the process blocks from the reference and read imports through MINIMAP2_6 and the samtools steps."
+    caption: "The top of the generated main.nf of the minimap2 mapping result, showing the header comment with its note that Step 12, the in-app Lungfish.app prepare-mapping-viewer-bundle step, is not replayed, then the params lines and the first process blocks for the reference import and bgzip."
 illustrations: []
 glossary_refs: [bam, checksum, container, methods-export, nextflow, provenance, provenance-sidecar, reproducibility, samtools, snakemake, workflow-engine, demo-project]
 features_refs: []
@@ -139,7 +139,7 @@ Three terms appear in the table. A conda environment is the private folder a too
 
 | File | What it holds on the HG002 mapping result |
 |---|---|
-| `main.nf` | A header naming the run, the LGE version, start time, and host. One `params` line for each file the run started from, named from the file name and declared once. One process per recorded step, here ten, from `LUNGFISH_IMPORT_FASTA_1`, `BGZIP_2`, and `SAMTOOLS_3` for the reference import, through `CLUMPIFYSH_4` and `LUNGFISH_IMPORT_FASTQ_5` for the read import, to `MINIMAP2_6` and `SAMTOOLS_7` to `SAMTOOLS_10` for the mapping. Each carries a comment naming the tool, its version, and the step's duration, then the exact command, then a `stub:` block that only creates empty copies of the step's output files. A closing `workflow` block feeds each process the files it reads, from the earlier process that wrote a file of that name or from a `params` input. |
+| `main.nf` | A header naming the run, the LGE version, start time, and host. One `params` line for each file the run started from, named from the file name and declared once. One process per recorded step, here ten, from `LUNGFISH_IMPORT_FASTA_1`, `BGZIP_2`, and `SAMTOOLS_3` for the reference import, through `CLUMPIFYSH_4` and `LUNGFISH_IMPORT_FASTQ_5` for the read import, to `MINIMAP2_6` and `SAMTOOLS_7` to `SAMTOOLS_10` for the mapping. Each carries a comment naming the tool, its version, and the step's duration, then the exact command, then a `stub:` block that only creates empty copies of the step's output files. A closing `workflow` block feeds each process the files it reads, from the earlier process that wrote a file of that name or from a `params` input. A step that LGE ran inside the app rather than through a tool gets no process, and the header names it as not replayed, such as the final `Lungfish.app prepare-mapping-viewer-bundle` step that builds the mapping viewer. |
 | `nextflow.config` | An `errorStrategy = 'terminate'` line and `docker.enabled = true`, with no cluster settings. |
 | `containers/manifest.json` | The tool, version, image, and image digest for each step that ran in a container. An empty list here, because every tool came from a conda environment. |
 | `Snakefile` | The same header, a usage comment `snakemake --cores 8 --use-singularity`, a `rule all` naming every final output, and one rule per step with its log under `logs/`. A file two steps both recorded, such as a bundle an import wrapper and the tool it ran both wrote, belongs to the earlier rule only, so no two rules claim one output. |
