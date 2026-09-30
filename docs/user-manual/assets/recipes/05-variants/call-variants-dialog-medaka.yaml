@@ -3,7 +3,8 @@
 id: call-variants-dialog-medaka
 chapter: 05-variants/04-nanopore-variant-calling
 caption: The Call Variants dialog with Medaka selected in the tool sidebar, showing the two-column layout
-  and the Medaka Settings section holding its single empty Medaka Model field.
+  and the Medaka Settings section holding its single empty Medaka Model field and the caption beneath
+  it.
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'

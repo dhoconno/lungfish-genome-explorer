@@ -3,7 +3,7 @@
 id: variants-tab-two-callers
 chapter: 05-variants/01-calling-variants-from-amplicons
 caption: The Variants tab of the table drawer with both the bcftools and LoFreq tracks loaded, and the
-  Source column naming which track each row came from.
+  Variant Track column naming which track each row came from.
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'

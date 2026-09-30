@@ -2,8 +2,9 @@
 # App state: Completed native HG002 fastp trim, 7.5 seconds, expanded Operations row.
 id: operations-panel-row
 chapter: 01-foundations/06-the-lungfish-project
-caption: A completed human-read trimming operation, expanded to show the CLI command, log buttons, log
-  output, and elapsed time.
+caption: A completed human-read trimming operation with its latest log line under the title, its Log button
+  clicked so it reads Hide Log, the Results button beside it, the details pane below the list showing
+  the command and the log output, and the time the run took.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

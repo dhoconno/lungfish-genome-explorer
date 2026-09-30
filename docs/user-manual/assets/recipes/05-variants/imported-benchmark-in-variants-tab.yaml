@@ -1,0 +1,30 @@
+# Captured from Lungfish Preview 2026.9.59 with shot.sh (2026-09-29 recapture).
+# App state: HG002 mapping open with the Variants drawer listing all three variant tracks, sorted by Position.
+id: imported-benchmark-in-variants-tab
+chapter: 05-variants/06-importing-existing-vcfs
+caption: The Variants tab of the table drawer after the benchmark import, with the Variant Track column
+  separating the benchmark rows from the bcftools and LoFreq rows.
+viewport_class: variant
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1572
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1572
+  - 900
+  # PROSE-ONLY: Open the HG002 mapping result
+  # PROSE-ONLY: Open the Variants drawer and sort by Position
+crop:
+  mode: window
+post:
+  retina: true
+  format: png

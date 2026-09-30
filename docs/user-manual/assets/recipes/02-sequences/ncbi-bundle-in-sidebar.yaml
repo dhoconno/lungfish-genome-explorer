@@ -2,8 +2,8 @@
 # App state: Public human mitochondrial NC_012920.1 downloaded through NCBI with101features, namedNC_012920.
 id: ncbi-bundle-in-sidebar
 chapter: 02-sequences/02-downloading-from-ncbi
-caption: The downloaded NC_012920 reference bundle under the project's Downloads folder, open with sequence
-  version NC_012920.1 and its NCBI GFF3 Annotations track.
+caption: The downloaded NC_012920.1 reference bundle under the project's Downloads folder, open with its
+  NCBI GFF3 Annotations track drawn below the bases.
 viewport_class: sequence
 app_state:
   fixture: '{demo_project}'

@@ -3,7 +3,8 @@
 id: assembly-advanced-settings
 chapter: 07-assembly/02-running-spades
 caption: The sheet's Advanced Settings section with the Curated extra arguments disclosure expanded, showing
-  the Careful mode and Skip error correction toggles above the Extra arguments field.
+  the Careful mode toggle disabled for the Isolate profile with its caption, and the Skip error correction
+  toggle, above the Extra arguments field.
 viewport_class: fastq
 app_state:
   fixture: '{demo_project}'
@@ -25,13 +26,14 @@ steps:
   # PROSE-ONLY: Select Imports/HG002-chrM in the sidebar
   # PROSE-ONLY: Choose Tools > Assembly > SPAdes...
   # PROSE-ONLY: Scroll down and expand Curated extra arguments
+  # PROSE-ONLY: Scroll to the bottom so the Readiness card shows
 crop:
   mode: region
   region:
-  - 500
-  - 396
-  - 673
-  - 329
+  - 208
+  - 98
+  - 982
+  - 702
 post:
   retina: true
   format: png

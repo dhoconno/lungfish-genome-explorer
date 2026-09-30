@@ -1,0 +1,29 @@
+# Captured from Lungfish Preview 2026.9.59 with shot.sh (2026-09-29 recapture).
+# App state: Mamu-A1 tiled varVAMP open on Overview with its coverage advisory.
+id: tiled-varvamp-advisory
+chapter: 10-primer-design/03-designing-a-tiled-amplicon-scheme
+caption: The Overview tab of the Mamu-A1 tiled varVAMP threshold 0.8 analysis, showing the information
+  advisory that reads 10 of 12 sequences must agree.
+viewport_class: none
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: Select Analyses/Mamu-A1 tiled varVAMP in the sidebar
+crop:
+  mode: window
+post:
+  retina: true
+  format: png

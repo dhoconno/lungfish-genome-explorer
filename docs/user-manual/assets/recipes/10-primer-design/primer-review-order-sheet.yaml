@@ -1,0 +1,31 @@
+# Captured from Lungfish Preview 2026.9.59 with shot.sh (2026-09-29 recapture).
+# App state: The order export sheet for Mamu-A1 exon 2-3 PCR Primer3 conserved.
+id: primer-review-order-sheet
+chapter: 10-primer-design/05-reviewing-and-ordering-primers
+caption: The Export Candidate Pairs sheet for the Mamu-A1 exon 2-3 PCR Primer3 conserved analysis, with
+  the order name field, the optional order details, and the oligo preview.
+viewport_class: none
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: Select Analyses/Mamu-A1 exon 2-3 PCR Primer3 conserved in the sidebar
+  # PROSE-ONLY: Click View in the Inspector, then the order export button
+  # PROSE-ONLY: Crop to the sheet
+crop:
+  mode: region
+post:
+  retina: true
+  format: png

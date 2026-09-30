@@ -2,7 +2,8 @@
 # App state: The Inspector filled with one selected variant row (chr20_10.0-10.5Mb_2244), showing ID, Type, Position, Alleles, Quality, Genotype Summary, and INFO Fields.
 id: variants-inspector-row
 chapter: 05-variants/02-reading-the-variant-browser
-caption: "The Inspector filled with one selected variant row, showing its identity, quality, genotype summary, and every INFO key on its own line."
+caption: The Inspector filled with one selected variant row, showing its identity, quality, track and
+  caller settings, and every INFO key on its own line.
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'

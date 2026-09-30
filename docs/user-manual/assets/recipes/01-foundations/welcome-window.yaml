@@ -3,7 +3,7 @@
 id: welcome-window
 chapter: 01-foundations/06-the-lungfish-project
 caption: The Lungfish Genome Explorer Welcome window, with the Create Project and Open Project cards,
-  the Recent Projects sidebar item, and the Third-Party Tools readiness panel below the cards.
+  the Recent Projects sidebar item, and the Required Setup card with its Install button below the cards.
 viewport_class: none
 app_state:
   fixture: none

@@ -2,8 +2,9 @@
 # App state: Same dialog as call-variants-dialog-medaka with r941_prom_sup_variant_g507 typed into the Medaka Model field; Readiness reads 'Ready to run Medaka with model r941_prom_sup_variant_g507.' and Run is enabled.
 id: medaka-model-field
 chapter: 05-variants/04-nanopore-variant-calling
-caption: The Medaka Model field with a model identifier typed in, the Readiness line naming that model
-  back, and the Run button enabled.
+caption: The Clair3 section of the Call Variants dialog with the Sequencing Platform menu on Automatic
+  (from read groups), r941_prom_sup_g5014 typed into the Clair3 Model field, and the Readiness line naming
+  that model back.
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'

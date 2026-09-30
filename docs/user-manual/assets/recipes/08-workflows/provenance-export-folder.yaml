@@ -2,8 +2,8 @@
 # App state: Exported by Preview build 4673 from chr20 reference import lineage.
 id: provenance-export-folder
 chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
-caption: The exported provenance folder open in Finder, with the primary artifact beside the provenance
-  subdirectory of copied run records.
+caption: The exported provenance folder open in a Finder list view, with the containers folder, main.nf,
+  nextflow.config, and the provenance folder of copied run records.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

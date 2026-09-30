@@ -2,7 +2,7 @@
 # App state: The SRA Runs results list with SRR32909537 ticked; the primary button reads Download Selected instead of Search.
 id: sra-results-download-selected
 chapter: 03-reads/02-downloading-from-sra
-caption: The results list with the SRR32909537 run ticked and the dialog's primary button at the bottom
+caption: The results list with the SRR36291587 run ticked and the dialog's primary button at the bottom
   of the window reading Download Selected instead of Search.
 viewport_class: none
 app_state:

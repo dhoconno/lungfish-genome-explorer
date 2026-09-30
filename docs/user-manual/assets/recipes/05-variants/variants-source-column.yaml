@@ -2,8 +2,8 @@
 # App state: The chr20 bundle framed at chr20_10.0-10.5Mb:250500-250560 with the drawer's Variants tab in Region scope, showing the bcftools row and the LoFreq row for position 250,527 with their Source values.
 id: variants-source-column
 chapter: 05-variants/02-reading-the-variant-browser
-caption: The Source column separating the bcftools rows from the LoFreq rows at one shared coordinate
-  in the aggregated table.
+caption: The Variant Track column separating the bcftools rows from the LoFreq rows in the aggregated
+  table, sorted by position.
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'

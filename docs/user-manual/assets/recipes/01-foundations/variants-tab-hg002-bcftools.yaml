@@ -2,7 +2,9 @@
 # App state: The chr20_10.0-10.5Mb bundle at full width with the Variants tab of the table drawer open, showing the genome track, the HG002 track summary, the Depth coverage, and the variant rows table with bcftools rows (Filter column reading a bare dot).
 id: variants-tab-hg002-bcftools
 chapter: 01-foundations/05-variants-and-vcf
-caption: "The HG002 bcftools variant track as a table, one row per VCF row, with the Chrom, Position, Ref, Alt, Quality, and Filter columns taken straight from the file."
+caption: The HG002 bcftools variant track as a table, one row per VCF row, with the Variant Track and
+  Caller Settings columns LGE adds ahead of the Chrom, Position, Ref, Alt, Quality, and Filter columns
+  taken straight from the file.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

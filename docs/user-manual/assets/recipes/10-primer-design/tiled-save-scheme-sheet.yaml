@@ -1,0 +1,31 @@
+# Captured from Lungfish Preview 2026.9.59 with shot.sh (2026-09-29 recapture).
+# App state: The Save as Primer Scheme sheet for Mamu-A1 tiled PrimalScheme.
+id: tiled-save-scheme-sheet
+chapter: 10-primer-design/03-designing-a-tiled-amplicon-scheme
+caption: The Save as Primer Scheme sheet for the varVAMP threshold 0.8 analysis, showing the summary line,
+  the Coordinate reference name and statement, and the Scheme name field.
+viewport_class: none
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: Select Analyses/Mamu-A1 tiled PrimalScheme in the sidebar
+  # PROSE-ONLY: Click Save as Primer Scheme in the Inspector
+  # PROSE-ONLY: Crop to the sheet
+crop:
+  mode: region
+post:
+  retina: true
+  format: png

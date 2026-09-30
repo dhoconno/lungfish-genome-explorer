@@ -1,0 +1,30 @@
+# Captured from Lungfish Preview 2026.9.59 with shot.sh (2026-09-29 recapture).
+# App state: Mamu-A1 exon 2-3 PCR Primer3 open on Results with Pair 1 selected.
+id: primer3-results-single-record
+chapter: 10-primer-design/02-designing-a-pcr-assay
+caption: The Results view of the single-allele analysis, with Pair 1 selected in the Candidates list and
+  its forward and reverse primer properties beside it.
+viewport_class: none
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: Select Analyses/Mamu-A1 exon 2-3 PCR Primer3 in the sidebar
+  # PROSE-ONLY: Click Results, then Pair 1 in the Candidates list
+crop:
+  mode: window
+post:
+  retina: true
+  format: png

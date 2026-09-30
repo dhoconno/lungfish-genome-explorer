@@ -2,7 +2,9 @@
 # App state: Clicked Reference Sequences/chr20_10.0-10.5Mb and scrolled the Inspector Bundle tab to the Alignment Summary for the HG002 minimap2 track (Total Mapped 91.0K, Total Unmapped 213, Mapped % 99.8%, Chromosomes 1, Est. Coverage 27.3x), with Read Groups and Flag Statistics collapsed below.
 id: alignment-inspector-stats
 chapter: 04-alignments/01-mapping-reads-to-a-reference
-caption: "The Inspector Alignment Summary for the HG002 minimap2 track, showing Total Mapped, Total Unmapped, Mapped %, Chromosomes, and Est. Coverage above the collapsed Read Groups and Flag Statistics sections."
+caption: The Inspector Alignment Summary for the HG002 minimap2 track, showing the Track row, Total Mapped
+  91.0K, Total Unmapped 213, Mapped % 99.8%, Chromosomes 1, and Est. Coverage 27.3x above the collapsed
+  Read Groups (1) and Flag Statistics sections.
 viewport_class: alignment
 app_state:
   fixture: '{demo_project}'

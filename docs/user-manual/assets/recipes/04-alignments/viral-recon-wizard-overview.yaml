@@ -2,8 +2,9 @@
 # App state: the Viral Recon sheet for SRR36291587 with ARTIC SARS-CoV-2 V3 scheme and Readiness reporting Ready to run
 id: viral-recon-wizard-overview
 chapter: 04-alignments/05-viral-recon-wizard
-caption: The Viral Recon sheet, showing the Viral Recon header and its Docker Desktop note above the Inputs,
-  Primer Scheme, Minimum mapped reads, collapsed Advanced, and Readiness sections.
+caption: The Viral Recon sheet, showing the Viral Recon header and its Docker Desktop note above the Inputs
+  section with its read-layout caption, the Primer Scheme menu reading Choose a scheme..., Minimum mapped
+  reads, the collapsed Advanced disclosure, and the Readiness section.
 viewport_class: fastq
 app_state:
   fixture: sarscov2-srr36291587

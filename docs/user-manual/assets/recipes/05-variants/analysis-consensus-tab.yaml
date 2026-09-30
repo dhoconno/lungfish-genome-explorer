@@ -3,8 +3,8 @@
 id: analysis-consensus-tab
 chapter: 05-variants/05-consensus-and-lineage
 caption: The Inspector's Consensus tab, showing Show consensus track in viewer, the Consensus Mode and
-  Consensus scope pickers, the two toggles, the three evidence sliders, and the Extract Consensus... button
-  beneath the divider.
+  Consensus scope pickers, the two toggles, the three evidence sliders with their number fields, and the
+  Extract Consensus... button beneath the divider.
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'

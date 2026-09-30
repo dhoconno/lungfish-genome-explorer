@@ -1,0 +1,30 @@
+# Captured from Lungfish Preview 2026.9.64 with shot.sh (2026-09-29 recapture).
+# App state: Mamu-A1 exon 2-3 PCR Primer3 conserved open on Binding inspection, Candidate 1 forward primer against the twelve-allele alignment.
+id: primer3-binding-inspection
+chapter: 10-primer-design/02-designing-a-pcr-assay
+caption: The Binding inspection view of the conserved analysis, with the forward primer of Candidate 1
+  compared against all twelve rows of the alignment and every row showing zero mismatches.
+viewport_class: alignment
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1468
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1468
+  - 900
+  # PROSE-ONLY: Select Analyses/Mamu-A1 exon 2-3 PCR Primer3 conserved in the sidebar
+  # PROSE-ONLY: Click Binding inspection in the segmented control
+crop:
+  mode: window
+post:
+  retina: true
+  format: png

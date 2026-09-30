@@ -2,8 +2,9 @@
 # App state: Exported by Preview build 4673 from chr20 reference import lineage.
 id: nextflow-export-main-nf
 chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
-caption: The generated main.nf open in TextEdit, showing the process blocks for the selected chr20 reference
-  bundle's import, bgzip, and samtools steps.
+caption: The top of the generated main.nf of the minimap2 mapping result open in TextEdit, showing the
+  header comment with its note that Step 12, the in-app Lungfish.app prepare-mapping-viewer-bundle step,
+  is not replayed, then the params lines and the first process blocks for the reference import and bgzip.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

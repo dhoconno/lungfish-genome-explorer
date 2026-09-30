@@ -2,8 +2,8 @@
 # App state: Preview build 4673. Fresh empty LGE Empty Demo created through File > New Project.
 id: empty-project-window
 chapter: 01-foundations/06-the-lungfish-project
-caption: A new empty project window with the sidebar on the left, an empty viewport in the centre, and
-  the Inspector on the right.
+caption: The Human Mapping and Variants (with results) demo project just opened, with the sidebar on the
+  left, an empty viewport in the centre, and the Inspector on the right.
 viewport_class: none
 app_state:
   fixture: /Users/dho/Desktop/lge-docs/LGE Empty Demo.lungfish

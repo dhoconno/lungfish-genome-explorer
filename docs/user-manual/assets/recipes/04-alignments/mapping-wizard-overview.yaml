@@ -2,7 +2,10 @@
 # App state: Demo project, Imports/HG002 (paired, 91,148 reads) selected, Tools > Mapping > minimap2...: chr20_10.0-10.5Mb reference, Short-read preset, Input Compatibility Ready, Read Group and Advanced Settings collapsed.
 id: mapping-wizard-overview
 chapter: 04-alignments/01-mapping-reads-to-a-reference
-caption: "The FASTQ/FASTA Operations dialog with minimap2 chosen in the tool list, the chr20_10.0-10.5Mb reference and the Short-read preset selected, the Input Compatibility readout reporting Ready, and the Read Group and Advanced Settings disclosures collapsed."
+caption: The FASTQ/FASTA Operations dialog with minimap2 chosen in the tool list, the chr20_10.0-10.5Mb
+  reference and the Short-read preset selected, HG002 minimap2 typed into the Output Track section's Track
+  name (--track-name) field, the Input Compatibility readout reporting Ready, and the Read Group and Advanced
+  Settings disclosures collapsed.
 viewport_class: fastq
 app_state:
   fixture: '{demo_project}'

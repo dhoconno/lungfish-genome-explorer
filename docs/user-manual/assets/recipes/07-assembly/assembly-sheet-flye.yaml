@@ -5,7 +5,8 @@ chapter: 07-assembly/03-running-flye-or-hifiasm
 caption: The assembly sheet opened from Tools > Assembly > Flye..., with the ONT bundle selected in the
   sidebar beforehand, showing the Inputs section reporting ONT reads under Detected, the Assembler picker
   offering Flye beside Hifiasm and nothing else, the locked Read Type row, and the Profile picker on Nano
-  HQ.
+  Raw with the caption beneath it reporting that Nano Raw was preselected from a read quality of Q8 in
+  the bundle's statistics.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

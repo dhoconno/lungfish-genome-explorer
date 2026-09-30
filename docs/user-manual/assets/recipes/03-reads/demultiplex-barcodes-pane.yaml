@@ -2,8 +2,9 @@
 # App state: The Demultiplex Barcodes pane of the FASTQ/FASTA Operations dialog. The demo project has no nanopore bundle, so HG002 (Illumina) is the input; all named controls render the same regardless of platform.
 id: demultiplex-barcodes-pane
 chapter: 03-reads/07-ont-runs
-caption: The Demultiplex Barcodes pane of the FASTQ/FASTA Operations dialog, showing Barcode Source, Built-In
-  Kit, Engine, Location, the two distance fields, Error Rate, and Trim Barcodes, with Output Strategy
+caption: The Demultiplex Barcodes pane of the FASTQ/FASTA Operations dialog with ONT Native Barcoding
+  V14 (SQK-NBD114-96, 96) chosen, showing Barcode Source, Built-In Kit, Engine, the caption that replaces
+  the Location and distance controls for a nanopore kit, Error Rate, and Trim Barcodes, with Output Strategy
   at the foot of the pane.
 viewport_class: fastq
 app_state:

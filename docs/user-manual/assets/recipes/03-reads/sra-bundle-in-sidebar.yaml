@@ -2,7 +2,7 @@
 # App state: Imports/SRR32909537 selected, FASTQ Reads tab open with115776 reads and cached statistics.
 id: sra-bundle-in-sidebar
 chapter: 03-reads/02-downloading-from-sra
-caption: The downloaded SRR32909537 read bundle under the project's Imports folder in the sidebar, open
+caption: The downloaded SRR36291587 read bundle under the project's Imports folder in the sidebar, open
   in the FASTQ viewport.
 viewport_class: none
 app_state:

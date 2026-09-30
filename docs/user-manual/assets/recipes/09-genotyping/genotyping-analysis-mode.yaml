@@ -2,7 +2,8 @@
 # App state: Same dialog as genotyping-run-dialog, scrolled a little to show the Haplotyping group: Analysis Mode segmented picker on Genotyping only, beside Deterministic haplotyping, with the caption 'Report detected alleles and supporting reads without assigning haplotypes.'
 id: genotyping-analysis-mode
 chapter: 09-genotyping/02-running-genotyping
-caption: "The dialog's Haplotyping group with the Analysis Mode segmented picker set to Genotyping only, beside Deterministic haplotyping, and the caption describing the chosen mode."
+caption: The dialog's Haplotyping group with the Analysis Mode segmented picker set to Deterministic haplotyping,
+  and the Haplotype Definition group reading Definitions supplied by the selected reference bundle.
 viewport_class: none
 app_state:
   fixture: '{mhc_cohort_project}'

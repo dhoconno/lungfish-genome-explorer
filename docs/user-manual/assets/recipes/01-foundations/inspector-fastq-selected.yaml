@@ -2,8 +2,8 @@
 # App state: Demo project open, Imports > HG002 (paired, 91,148 reads) selected in the sidebar, the FASTQ operations view in the viewport, the Inspector on the Bundle tab showing Dataset Statistics and Sample Metadata.
 id: inspector-fastq-selected
 chapter: 01-foundations/06-the-lungfish-project
-caption: The demo project with a paired-end FASTQ bundle selected in the sidebar, the FASTQ operations
-  view filling the viewport, and the Inspector showing dataset statistics and sample metadata.
+caption: The HG002.chr20.10.0-10.5Mb read bundle selected in the sidebar, the FASTQ operations view filling
+  the viewport, and the Inspector showing dataset statistics and sample metadata.
 viewport_class: none
 app_state:
   fixture: '{demo_project}'
