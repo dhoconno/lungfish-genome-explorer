@@ -62,14 +62,17 @@ struct WorkflowExportGraph {
     let parameterFilenames: [String]
     private let parameterPaths: [String: String]
 
-    init(run: WorkflowRun) {
+    /// Builds the graph from the steps `including` accepts. Nodes keep the
+    /// step's recorded 1-based number, so a skipped step leaves a gap
+    /// rather than renumbering the steps after it.
+    init(run: WorkflowRun, including: (StepExecution) -> Bool = { _ in true }) {
         var nodes: [Node] = []
         var producedFilenames = Set<String>()
         var parameterFilenames: [String] = []
         var parameterPaths: [String: String] = [:]
         var claimedPaths = Set<String>()
 
-        for (offset, step) in run.steps.enumerated() {
+        for (offset, step) in run.steps.enumerated() where including(step) {
             let inputFilenames = Self.unique(step.inputs.map(\.filename))
             let inputPaths = Self.unique(step.inputs.map(\.path))
             let inputFilenameSet = Set(inputFilenames)

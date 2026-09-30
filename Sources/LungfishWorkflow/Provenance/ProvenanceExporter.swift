@@ -809,7 +809,7 @@ public struct ProvenanceExporter: Sendable {
     private func exportSnakemakeConfig(_ run: WorkflowRun) -> String {
         var s = ""
         s += "outdir: results\n"
-        let graph = WorkflowExportGraph(run: run)
+        let graph = WorkflowExportGraph(run: run, including: isReplayable)
         for name in graph.parameterFilenames {
             guard let path = graph.parameterPath(for: name) else { continue }
             s += "\(graph.parameterName(for: name)): \(pythonDoubleQuoted(path))\n"
@@ -833,6 +833,7 @@ public struct ProvenanceExporter: Sendable {
             s += "# User: \(user)\n"
         }
         s += unresolvedPathNote(run, prefix: "# ")
+        s += inAppStepNote(run, prefix: "# ")
         s += "#\n"
         s += "# This script reproduces the analysis performed in Lungfish.\n"
         s += "# Ensure the required tools are installed or use the container\n"
@@ -860,9 +861,9 @@ public struct ProvenanceExporter: Sendable {
         s += "OUTDIR=\"results\"\n"
         s += "mkdir -p \"$OUTDIR\"\n\n"
 
-        // Each step
-        for (i, step) in run.steps.enumerated() {
-            s += "# Step \(i + 1): \(step.toolName) \(step.toolVersion)\n"
+        // Each replayable step, numbered as recorded
+        for (number, step) in replayableSteps(run) {
+            s += "# Step \(number): \(step.toolName) \(step.toolVersion)\n"
             if let image = step.containerImage {
                 s += "# Container: \(image)\n"
                 if let digest = step.containerDigest {
@@ -904,7 +905,9 @@ public struct ProvenanceExporter: Sendable {
         s += unresolvedPathNote(run, prefix: "")
         s += "\n"
         s += "This script reproduces the analysis performed in Lungfish.\n"
-        s += "\"\"\"\n\n"
+        s += "\"\"\"\n"
+        s += inAppStepNote(run, prefix: "# ")
+        s += "\n"
         s += "import subprocess\n"
         s += "import sys\n"
         s += "import os\n"
@@ -933,9 +936,9 @@ public struct ProvenanceExporter: Sendable {
         s += "        sys.exit(result.returncode)\n"
         s += "    print(f\"  Done ({name})\")\n\n\n"
 
-        // Steps
-        for (i, step) in run.steps.enumerated() {
-            let stepName = "step_\(i + 1)_\(sanitize(step.toolName))"
+        // Replayable steps, numbered as recorded
+        for (number, step) in replayableSteps(run) {
+            let stepName = "step_\(number)_\(sanitize(step.toolName))"
             s += "def \(stepName)():\n"
             s += "    \"\"\"\(step.toolName) \(step.toolVersion)"
             if let image = step.containerImage {
@@ -955,8 +958,8 @@ public struct ProvenanceExporter: Sendable {
         // Main
         s += "if __name__ == \"__main__\":\n"
         s += "    print(\(pythonDoubleQuoted("Reproducing: " + run.name)))\n"
-        for (i, step) in run.steps.enumerated() {
-            let stepName = "step_\(i + 1)_\(sanitize(step.toolName))"
+        for (number, step) in replayableSteps(run) {
+            let stepName = "step_\(number)_\(sanitize(step.toolName))"
             s += "    \(stepName)()\n"
         }
         s += "    print(\"Pipeline complete.\")\n"
@@ -969,14 +972,15 @@ public struct ProvenanceExporter: Sendable {
     /// Generates a Nextflow DSL2 pipeline from the provenance record.
     public func exportNextflow(_ run: WorkflowRun) -> String {
         if let unavailable = unavailableReplayReason(run) { return unavailableReplayScript(unavailable, format: .nextflow) }
-        if !run.steps.isEmpty, run.steps.allSatisfy(isRetainedSelectionReplay) {
+        let replayable = replayableSteps(run).map { $0.step }
+        if !replayable.isEmpty, replayable.allSatisfy(isRetainedSelectionReplay) {
             // These receipts authorize exact byte copies to recorded paths, not
             // reconstruction of an analytical DAG in Nextflow's scratch space.
-            let command = run.steps.map(portableCommand).joined(separator: "\n")
+            let command = replayable.map(portableCommand).joined(separator: "\n")
             return """
             #!/usr/bin/env nextflow
             // Retained-selection snapshot byte replay; does not rerun upstream analysis.
-            nextflow.enable.dsl = 2
+            \(inAppStepNote(run, prefix: "// "))nextflow.enable.dsl = 2
             process REPLAY_RETAINED_SELECTION {
                 cache false
                 script:
@@ -999,6 +1003,7 @@ public struct ProvenanceExporter: Sendable {
             s += " * User: \(user)\n"
         }
         s += unresolvedPathNote(run, prefix: " * ")
+        s += inAppStepNote(run, prefix: " * ")
         s += " */\n\n"
         s += "nextflow.enable.dsl = 2\n\n"
 
@@ -1007,8 +1012,9 @@ public struct ProvenanceExporter: Sendable {
         // from a params channel when no earlier process wrote it. Chaining
         // `.out` positionally (the previous renderer) handed every process
         // exactly one channel, which Nextflow rejects at compile time for
-        // any process with two inputs.
-        let graph = WorkflowExportGraph(run: run)
+        // any process with two inputs. In-app steps are left out; the header
+        // names them.
+        let graph = WorkflowExportGraph(run: run, including: isReplayable)
 
         // Parameters: every file the pipeline reads without an earlier
         // process writing it, once each (a name recorded by several steps
@@ -1099,11 +1105,14 @@ public struct ProvenanceExporter: Sendable {
     /// Generates a Snakefile from the provenance record.
     public func exportSnakemake(_ run: WorkflowRun) -> String {
         if let unavailable = unavailableReplayReason(run) { return unavailableReplayScript(unavailable, format: .snakemake) }
-        if !run.steps.isEmpty, run.steps.allSatisfy(isRetainedSelectionReplay) {
+        let replayable = replayableSteps(run).map { $0.step }
+        if !replayable.isEmpty, replayable.allSatisfy(isRetainedSelectionReplay) {
             // No wildcard declarations: braces and newlines are literal argv.
             // This first rule has no outputs, so replay runs on every invocation.
-            var script = "# Retained-selection snapshot byte replay; does not rerun upstream analysis.\nimport subprocess\n\nrule replay_retained_selection:\n    run:\n"
-            for step in run.steps {
+            var script = "# Retained-selection snapshot byte replay; does not rerun upstream analysis.\n"
+            script += inAppStepNote(run, prefix: "# ")
+            script += "import subprocess\n\nrule replay_retained_selection:\n    run:\n"
+            for step in replayable {
                 let arguments = (replayArguments(step) ?? []).map(pythonDoubleQuoted).joined(separator: ", ")
                 script += "        subprocess.run([\(arguments)], check=True)\n"
             }
@@ -1118,12 +1127,13 @@ public struct ProvenanceExporter: Sendable {
             s += "# User: \(user)\n"
         }
         s += unresolvedPathNote(run, prefix: "# ")
+        s += inAppStepNote(run, prefix: "# ")
         s += "#\n"
         s += "# Usage: snakemake --cores 8 --use-singularity\n\n"
 
         s += "configfile: \"config.yaml\"\n\n"
 
-        let graph = WorkflowExportGraph(run: run)
+        let graph = WorkflowExportGraph(run: run, including: isReplayable)
 
         s += "rule all:\n"
         s += "    input:\n"
@@ -1260,8 +1270,17 @@ public struct ProvenanceExporter: Sendable {
             s += "Retained-selection replay copies the recorded export bytes; the original GUI action remains audit history. "
         }
         s += "This recorded workflow used \(run.appVersion) on \(run.hostOS). "
+        let inAppSteps = self.inAppSteps(run)
         if let unavailable = unavailableReplayReason(run) {
             s += "\(unavailable) A machine-readable audit record is available; no executable reproduction is claimed.\n"
+        } else if !inAppSteps.isEmpty {
+            s += "A machine-readable provenance record is available in the supplementary materials. "
+            s += "The tool steps are available as executable pipeline scripts (Nextflow, Snakemake, and shell). "
+            for (number, step) in inAppSteps {
+                s += "Step \(number) (\(inAppStepLabel(step))) is an in-app action recorded for audit only; "
+                s += "the scripts do not reproduce its outputs. "
+            }
+            s += "\n"
         } else {
             s += "A machine-readable provenance record and executable pipeline scripts "
             s += "(Nextflow, Snakemake, and shell) are available in the supplementary materials.\n"
@@ -1374,8 +1393,47 @@ public struct ProvenanceExporter: Sendable {
         return lines
     }
 
+    private func isReplayable(_ step: StepExecution) -> Bool {
+        replayArguments(step) != nil
+    }
+
+    /// The steps an executable export runs, with their recorded 1-based numbers.
+    private func replayableSteps(_ run: WorkflowRun) -> [(number: Int, step: StepExecution)] {
+        run.steps.enumerated().filter { isReplayable($0.element) }.map { (number: $0.offset + 1, step: $0.element) }
+    }
+
+    /// In-app steps (no executable argv) with their recorded 1-based numbers.
+    /// Executable exports leave them out and say so.
+    private func inAppSteps(_ run: WorkflowRun) -> [(number: Int, step: StepExecution)] {
+        run.steps.enumerated().filter { !isReplayable($0.element) }.map { (number: $0.offset + 1, step: $0.element) }
+    }
+
+    /// Names an in-app step by its tool and recorded action, such as
+    /// `Lungfish.app prepare-mapping-viewer-bundle`.
+    private func inAppStepLabel(_ step: StepExecution) -> String {
+        var args = step.durableReplayArgv ?? step.command
+        if let first = args.first, ["sh", "bash", "zsh"].contains(URL(fileURLWithPath: first).lastPathComponent.lowercased()),
+           args.count >= 3, ["-c", "-lc"].contains(args[1]),
+           let parsed = try? AdvancedCommandLineOptions.parse(args[2]) {
+            args = parsed
+        }
+        guard args.count >= 2, !args[1].hasPrefix("-") else { return step.toolName }
+        return "\(step.toolName) \(args[1])"
+    }
+
+    /// One comment line per in-app step an executable export leaves out.
+    private func inAppStepNote(_ run: WorkflowRun, prefix: String) -> String {
+        inAppSteps(run).map {
+            "\(prefix)Step \($0.number) (\(inAppStepLabel($0.step))) is an in-app action and is not replayed; "
+                + "its outputs are not produced by this script.\n"
+        }.joined()
+    }
+
+    /// Replay is refused only when no recorded step is executable. A run that
+    /// mixes tool steps with in-app actions exports the tool steps and names
+    /// the in-app ones.
     private func unavailableReplayReason(_ run: WorkflowRun) -> String? {
-        guard let step = run.steps.first(where: { replayArguments($0) == nil }) else { return nil }
+        guard let step = run.steps.first, !run.steps.contains(where: isReplayable) else { return nil }
         return "Replay unavailable: \(step.toolName) records a historical GUI action or has no executable argv."
     }
 
