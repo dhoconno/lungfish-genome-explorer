@@ -299,12 +299,12 @@
       ],
       "projectFolderName": "Pathogen Detection.lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-pathogen-detection-2026.9.58.zip",
-        "sha256": "cc3a05bc17bc6fc3ce3ccf550173f6d6cf85f8ef906478ebe65ee093ea12819d",
-        "bytes": 261096102
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-pathogen-detection-2026.9.70.zip",
+        "sha256": "d6a4897db99b229acdab57c53223ec938bde4afe7221a0c6c80c967b8ab5e95d",
+        "bytes": 243656376
       },
-      "version": "2026.9.58",
-      "minimumAppVersion": "2026.9.58"
+      "version": "2026.9.70",
+      "minimumAppVersion": "2026.9.70"
     },
     {
       "id": "mhc-genotyping",
