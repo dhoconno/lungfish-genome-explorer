@@ -1241,6 +1241,56 @@ final class ProvenanceExportCommandTests: XCTestCase {
         XCTAssertFalse(methods.contains("executable pipeline scripts"))
     }
 
+    func testMappingRunWithTrailingInAppStepReplaysToolStepsInEveryExecutableFormat() throws {
+        let run = mappingRunWithTrailingInAppStep()
+        let exporter = ProvenanceExporter(signingProvider: nil)
+        let note = "Step 3 (Lungfish.app prepare-mapping-viewer-bundle) is an in-app action and is not replayed; "
+            + "its outputs are not produced by this script."
+        for format in [ProvenanceExportFormat.shell, .python, .nextflow, .snakemake] {
+            let script = try exporter.export(run, format: format)
+            XCTAssertTrue(script.contains("minimap2"), "\(format.cliToken): \(script)")
+            XCTAssertTrue(script.contains("samtools"), "\(format.cliToken): \(script)")
+            XCTAssertFalse(script.contains("Replay unavailable"), "\(format.cliToken): \(script)")
+            XCTAssertTrue(script.contains(note), "\(format.cliToken): \(script)")
+            XCTAssertFalse(script.contains("--mapping-result"), "\(format.cliToken): \(script)")
+        }
+        XCTAssertTrue(try exporter.export(run, format: .nextflow).contains(" * " + note))
+        for format in [ProvenanceExportFormat.shell, .python, .snakemake] {
+            XCTAssertTrue(try exporter.export(run, format: format).contains("# " + note), format.cliToken)
+        }
+    }
+
+    func testMappingRunWithTrailingInAppStepMethodsSeparateExecutableAndAuditSteps() {
+        let methods = ProvenanceExporter(signingProvider: nil).exportMethods(mappingRunWithTrailingInAppStep())
+        XCTAssertFalse(methods.contains("Replay unavailable"), methods)
+        XCTAssertTrue(methods.contains("The tool steps are available as executable pipeline scripts"), methods)
+        XCTAssertTrue(methods.contains(
+            "Step 3 (Lungfish.app prepare-mapping-viewer-bundle) is an in-app action recorded for audit only"), methods)
+        XCTAssertFalse(methods.contains("A machine-readable provenance record and executable pipeline scripts"), methods)
+    }
+
+    private func mappingRunWithTrailingInAppStep() -> WorkflowRun {
+        let reads = ProvenanceFileDescriptor(path: "@/Imports/reads.fastq.gz", format: .fastq, role: .input)
+        let reference = ProvenanceFileDescriptor(path: "@/Reference/ref.fa", format: .fasta, role: .input)
+        let unsorted = ProvenanceFileDescriptor(path: "@/Analyses/map/unsorted.bam", format: .bam, role: .output)
+        let sorted = ProvenanceFileDescriptor(path: "@/Analyses/map/sorted.bam", format: .bam, role: .output)
+        let minimap2Argv = ["micromamba", "run", "-n", "minimap2", "minimap2", "-ax", "sr",
+                            reference.path, reads.path, "-o", unsorted.path]
+        let steps = [
+            ProvenanceStep(toolName: "minimap2", toolVersion: "2.28", argv: minimap2Argv,
+                inputs: [reference, reads], outputs: [unsorted], exitStatus: 0),
+            ProvenanceStep(toolName: "samtools", toolVersion: "1.21",
+                argv: ["samtools", "sort", "-o", sorted.path, unsorted.path],
+                inputs: [unsorted], outputs: [sorted], exitStatus: 0),
+            ProvenanceStep(toolName: "Lungfish.app", toolVersion: "2026.9.60",
+                argv: ["Lungfish.app", "prepare-mapping-viewer-bundle", "--mapping-result", "@/Analyses/map"],
+                inputs: [sorted], exitStatus: 0),
+        ]
+        let envelope = ProvenanceEnvelope(workflowName: "minimap2 mapping", toolName: "minimap2", toolVersion: "2.28",
+            argv: minimap2Argv, files: [reads, reference], output: sorted, outputs: [sorted], steps: steps, exitStatus: 0)
+        return envelope.legacyWorkflowRun(preferCanonicalSteps: true)
+    }
+
     private func verifyRetainedSelectionRuntimeReplay(format: ProvenanceExportFormat, executable: URL) throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
