@@ -189,9 +189,8 @@ extension InspectorViewController {
                             ?? "Primer trim complete"
                         guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
                         if let self, let split = self.parent as? MainSplitViewController {
-                            split.sidebarController.requestReloadFromFilesystem()
                             do {
-                                try split.viewerController.displayBundle(at: bundleURL)
+                                try split.displayReferenceBundleAfterWorkflow(at: bundleURL)
                             } catch {
                                 self.presentSimpleAlert(
                                     title: "Bundle Reload Failed",
@@ -862,9 +861,8 @@ extension InspectorViewController {
                 detail: "Created \(result.bundleURL.lastPathComponent) from \(trackCount).",
                 bundleURLs: [result.bundleURL]
             ) else { return }
-            split.sidebarController.requestReloadFromFilesystem()
             do {
-                try split.viewerController.displayBundle(at: result.bundleURL)
+                try split.displayReferenceBundleAfterWorkflow(at: result.bundleURL)
                 presentSimpleAlert(
                     title: "Deduplicated Bundle Created",
                     message: "Processed \(trackCount). New bundle: \(result.bundleURL.lastPathComponent)"

@@ -724,6 +724,21 @@ extension MainSplitViewController {
         )
     }
 
+    /// Shows a reference bundle an Inspector workflow has just written, and
+    /// rescans the sidebar so its row (or a new track's row) appears.
+    ///
+    /// The rescan must not re-open the selected sidebar row. A primer trim
+    /// run from a mapping result writes into the bundle inside it while the
+    /// selected row stays the mapping result, and a new deduplicated bundle
+    /// sits beside the selected source bundle. Re-opening the old row put
+    /// its viewport, and its summary in the Inspector, back over the bundle
+    /// shown here. The bundle's row is selected instead when the sidebar
+    /// lists it; a bundle inside a mapping result has no row of its own.
+    func displayReferenceBundleAfterWorkflow(at bundleURL: URL) throws {
+        sidebarController.reloadAndRevealItem(forURL: bundleURL)
+        try displayReferenceBundleFromExternalOpen(at: bundleURL)
+    }
+
     /// Display a direct reference bundle opened outside the project sidebar.
     func displayReferenceBundleFromExternalOpen(at url: URL) throws {
         inspectorController.clearSelection()
