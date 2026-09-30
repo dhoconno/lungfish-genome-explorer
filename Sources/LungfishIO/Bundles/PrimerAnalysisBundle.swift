@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 
 public enum PrimerAnalysisBundleError: Error, LocalizedError, Sendable, Equatable {
   case invalidManifest(String)
@@ -252,10 +253,11 @@ public struct PrimerAnalysisBundle: Sendable {
             let digest = (output["checksumSHA256"] ?? output["sha256"]) as? String,
             let size = (output["fileSize"] ?? output["sizeBytes"]) as? NSNumber
           else { return false }
-          return path
-            == URL(fileURLWithPath: manifest.publishedRootPath).appendingPathComponent(
+          return recordedPath(
+            path,
+            denotes: URL(fileURLWithPath: manifest.publishedRootPath).appendingPathComponent(
               artifact.relativePath
-            ).path && digest.caseInsensitiveCompare(artifact.sha256) == .orderedSame
+            ).path) && digest.caseInsensitiveCompare(artifact.sha256) == .orderedSame
             && size.uint64Value == artifact.byteSize
         })
       else {
@@ -274,7 +276,8 @@ public struct PrimerAnalysisBundle: Sendable {
         guard let artifact = manifest.artifacts.first(where: { $0.relativePath == path }),
           files.contains(where: { descriptor in
             guard (descriptor["role"] as? String) == "input",
-              let sourcePath = descriptor["path"] as? String, sourcePath.hasPrefix("/"),
+              let sourcePath = descriptor["path"] as? String,
+              sourcePath.hasPrefix("/") || isPortableLocalPath(sourcePath),
               let digest = (descriptor["checksumSHA256"] ?? descriptor["sha256"]) as? String,
               let size = (descriptor["fileSize"] ?? descriptor["sizeBytes"]) as? NSNumber
             else { return false }
@@ -287,6 +290,33 @@ public struct PrimerAnalysisBundle: Sendable {
         }
       }
     }
+  }
+
+  /// True when a path recorded in the canonical provenance names `absolutePath`.
+  ///
+  /// The provenance writer rewrites paths inside a `.lungfish` project to the
+  /// project-relative `@/` form (see `PortablePath`), so a bundle published
+  /// into a project records `@/Analyses/<name>.lungfishprimeranalysis/...`
+  /// rather than the absolute path. The expected path is rewritten the same
+  /// way against its own enclosing project, which keeps the binding exact and
+  /// independent of where the project now lives.
+  private static func recordedPath(_ recorded: String, denotes absolutePath: String) -> Bool {
+    if recorded == absolutePath { return true }
+    guard recorded.hasPrefix(PortablePath.projectPrefix),
+      let project = PortablePath.anchors(for: URL(fileURLWithPath: absolutePath)).project
+    else { return false }
+    let context = PortablePath.Context(
+      projectURL: project, temporaryRootURLs: [], accountName: nil)
+    return recorded == PortablePath.sanitize(value: absolutePath, context: context)
+  }
+
+  /// True for a local path the provenance writer recorded in portable form.
+  private static func isPortableLocalPath(_ path: String) -> Bool {
+    [
+      PortablePath.projectPrefix, PortablePath.bundlePlaceholder + "/",
+      PortablePath.workspacePlaceholder + "/", PortablePath.toolRootPlaceholder + "/",
+      PortablePath.storageRootPlaceholder + "/", PortablePath.externalPlaceholder + "/",
+    ].contains(where: { path.hasPrefix($0) && path.count > $0.count })
   }
 
   private static func canonicalStringOption(_ value: Any?) -> String? {

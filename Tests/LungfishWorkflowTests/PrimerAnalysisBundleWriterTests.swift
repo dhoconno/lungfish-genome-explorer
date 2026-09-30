@@ -76,6 +76,116 @@ final class PrimerAnalysisBundleWriterTests: XCTestCase {
     XCTAssertNotNil(envelope?.wallTimeSeconds)
   }
 
+  /// A bundle written inside a `.lungfish` project records project-relative
+  /// (`@/`) paths in its wrapper provenance. The loader must still bind every
+  /// inventoried artifact, including an MSA snapshot's hidden provenance
+  /// sidecar, to its recorded output, and must keep binding after the whole
+  /// project is copied elsewhere.
+  func testBundleWrittenInsideProjectRecordsPortablePathsAndReopens() throws {
+    let root = canonicalTemporaryDirectory().appendingPathComponent(
+      UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let project = root.appendingPathComponent("Primer Design.lungfish", isDirectory: true)
+    let msa = project.appendingPathComponent(
+      "Analyses/Multiple Sequence Alignments/mamu-a1-001-lineage.lungfishmsa", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: msa.appendingPathComponent("alignment"), withIntermediateDirectories: true)
+    let sidecar = msa.appendingPathComponent(".lungfish-provenance.json")
+    try Data("{\"argv\":[\"lungfish-cli\",\"align\",\"mafft\"]}\n".utf8).write(to: sidecar)
+    let alignment = msa.appendingPathComponent("alignment/primary.aligned.fasta")
+    try Data(">a\nACGT\n>b\nACGA\n".utf8).write(to: alignment)
+    let native = project.appendingPathComponent("Analyses/.run/qpcr_primers.tsv")
+    try FileManager.default.createDirectory(
+      at: native.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data("amplicon\tprimer\n".utf8).write(to: native)
+    let bundleName = "Mamu-A1 001 qPCR varVAMP.lungfishprimeranalysis"
+    let destination = project.appendingPathComponent(
+      "Analyses/\(bundleName)", isDirectory: true)
+    let inputID = UUID()
+    let snapshot = "source-inputs/\(inputID.uuidString)/source.lungfishmsa"
+    let request = PrimerAnalysisBundleWriteRequest(
+      analysisID: UUID(), runID: UUID(), grouping: .independent,
+      inputs: [
+        PrimerAnalysisInput(
+          id: inputID,
+          artifactPaths: [
+            "\(snapshot)/.lungfish-provenance.json",
+            "\(snapshot)/alignment/primary.aligned.fasta",
+          ])
+      ],
+      results: [],
+      artifacts: [
+        .init(
+          sourceURL: sidecar, relativePath: "\(snapshot)/.lungfish-provenance.json",
+          role: "input", format: "json"),
+        .init(
+          sourceURL: alignment, relativePath: "\(snapshot)/alignment/primary.aligned.fasta",
+          role: "input", format: "fasta"),
+        .init(
+          sourceURL: native, relativePath: "native/qpcr_primers.tsv", role: "nativeOutput",
+          format: "tsv"),
+      ],
+      destinationURL: destination,
+      invocation: .init(
+        argv: ["storage-test-host", "--case", "project-relative"], callerVersion: "1",
+        explicitOptions: [:], runtimeIdentity: .init()))
+
+    let bundle = try PrimerAnalysisBundleWriter(
+      provenanceWriter: ProvenanceWriter(signingProvider: nil)
+    ).write(request)
+
+    let recorded =
+      try JSONSerialization.jsonObject(
+        with: Data(contentsOf: bundle.artifactURL(forRelativePath: "provenance/wrapper.json")))
+      as! [String: Any]
+    let outputPaths = (recorded["outputs"] as! [[String: Any]]).compactMap {
+      $0["path"] as? String
+    }
+    XCTAssertTrue(
+      outputPaths.contains("@/Analyses/\(bundleName)/\(snapshot)/.lungfish-provenance.json"),
+      "\(outputPaths)")
+    XCTAssertFalse(outputPaths.contains(where: { $0.hasPrefix(root.path) }), "\(outputPaths)")
+
+    let copiedProject = root.appendingPathComponent(
+      "capture work/Primer Design.lungfish", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: copiedProject.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: project, to: copiedProject)
+    let copied = try PrimerAnalysisBundle.load(
+      from: copiedProject.appendingPathComponent("Analyses/\(bundleName)", isDirectory: true))
+    XCTAssertEqual(copied.manifest.analysisID, bundle.manifest.analysisID)
+  }
+
+  /// Project-relative output records still have to name the inventoried
+  /// artifact, so a record that points at another path is rejected.
+  func testProjectRelativeOutputRecordNamingAnotherPathIsRejected() throws {
+    let root = canonicalTemporaryDirectory().appendingPathComponent(
+      UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let project = root.appendingPathComponent("Tamper.lungfish", isDirectory: true)
+    let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
+    try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+    let source = project.appendingPathComponent("source.bin")
+    try Data("opaque input\n".utf8).write(to: source)
+    let destination = analyses.appendingPathComponent("a.lungfishprimeranalysis")
+    _ = try PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil))
+      .write(makeRequest(source: source, destination: destination))
+    try rewriteProvenanceAndInventory(in: destination) { object in
+      var outputs = object["outputs"] as! [[String: Any]]
+      for index in outputs.indices {
+        if let path = outputs[index]["path"] as? String, path.hasSuffix("native/file.bin") {
+          outputs[index]["path"] = "@/Analyses/other.lungfishprimeranalysis/native/file.bin"
+        }
+      }
+      object["outputs"] = outputs
+    }
+    XCTAssertThrowsError(try PrimerAnalysisBundle.load(from: destination)) { error in
+      XCTAssertEqual(
+        error as? PrimerAnalysisBundleError,
+        .invalidProvenance("output inventory does not match native/file.bin"))
+    }
+  }
+
   func testLocalSignerProducesReopenableReferencedSupportInventory() throws {
     let root = canonicalTemporaryDirectory().appendingPathComponent(
       UUID().uuidString, isDirectory: true)
