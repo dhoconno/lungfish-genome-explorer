@@ -1,4 +1,4 @@
-# Captured from Lungfish Preview 2026.9.68 with capture-window.sh (2026-09 campaign).
+# Captured from Lungfish Preview 2026.9.71 with capture-window.sh (2026-09 campaign).
 # App state: A Pathogen Detection demo project copy holding a TaxTriage run made with lungfish-cli taxtriage run on SRR12486983 and SRR12486989 against standard-16 with --remove-taxids 9606, opened in the List Over Detail layout with the Inspector on its Summary tab.
 id: taxtriage-result-table
 chapter: 06-classification/04-running-taxtriage

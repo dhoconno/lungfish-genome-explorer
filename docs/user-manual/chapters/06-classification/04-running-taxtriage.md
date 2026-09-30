@@ -19,7 +19,7 @@ shots:
   - id: taxtriage-result-table
     caption: "The TaxTriage viewport for the two-sample corneal run in the List Over Detail layout, with both samples ticked in the Inspector's Sample Filter and the cards reading Batch TaxTriage, Samples 2, and Organisms 193. The Human alphaherpesvirus 1 row of SRR12486983 is selected in the table on top, showing TASS Score 0.930, Reads 2.0M, Unique Reads 1.6M, and High, and the alignment pane below shows the coverage track across the 152,222-base HSV-1 reference NC_001806.2, zoomed out, with its prompt to zoom in to view individual mapped reads. The Inspector shows its Panel Layout control and the run's Operation Details."
   - id: taxtriage-batch-overview
-    caption: "The TaxTriage viewport with both samples ticked and Kocuria typed in the Filter organisms... field, showing SRR12486983's Kocuria rows first, from Kocuria sp. BT304 at 0.920 High down to Kocuria sp. MNB10 at 0.380 Low, then SRR12486989's, starting with Kocuria sp. BT304 at 0.980 High, under the Sample, Organism, TASS Score, Reads, Unique Reads, and Confidence columns. No row is selected, so the alignment pane is empty."
+    caption: "The TaxTriage viewport with both samples ticked and Kocuria typed in the Filter organisms... field beside the sample buttons, the Organisms card reading 15, and SRR12486983's Kocuria rows first, from Kocuria sp. BT304 at 0.920 High down to Kocuria sp. MNB10 at 0.380 Low, then SRR12486989's, starting with Kocuria sp. BT304 at 0.980 High. The first row is selected, and the alignment pane below shows its coverage track."
 illustrations: []
 glossary_refs: [minimap2, accession, amplicon, bam, blast, bundle, container, docker, coverage-breadth, depth, fastq, inspector, kraken2, k-mer, library-prep, lowest-common-ancestor, mark-duplicates, negative-control, nextflow, paired-end, plugin-pack, read, read-classification, reference-genome, required-setup-pack, samplesheet, shotgun, sra, taxon, taxonomy-id, tass-score, taxtriage, tsv, viewport, mate, unique-reads, confidence-kraken-2, contamination, relative-abundance, false-positive]
 features_refs: []
@@ -172,7 +172,7 @@ The buttons are shortcuts into the [Inspector](../../GLOSSARY.md#inspector), the
 
 That is far more than the ten of Top hits. For SRR12486983 the pipeline downloaded 983 reference sequences, covering many more organisms than its ten top hits, and mapped every read against all of them at once. Its report lists every organism whose genome received reads, and every row in the table was mapped and scored the same way.
 
-The **Filter organisms…** field at the right end of the row of sample buttons keeps only the rows whose organism name contains what you type. With both samples ticked, typing a name such as Kocuria leaves only that genus's rows, all of SRR12486983's first and then all of SRR12486989's, with the Sample column telling them apart.
+The **Filter organisms…** field at the right end of the row of sample buttons keeps only the rows whose organism name contains what you type. With both samples ticked, typing a name such as Kocuria leaves only that genus's rows, all of SRR12486983's first and then all of SRR12486989's, with the Sample column telling them apart. The Organisms card then counts only those rows, 15 for Kocuria, and the first row is selected.
 
 <!-- SHOT: taxtriage-batch-overview -->
 

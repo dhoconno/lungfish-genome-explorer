@@ -1,12 +1,12 @@
-# Captured from Lungfish Preview 2026.9.68 with capture-window.sh (2026-09 campaign).
-# App state: The same TaxTriage run in the List Over Detail layout with both samples ticked and Kocuria typed in the table's Filter organisms field, no row selected.
+# Captured from Lungfish Preview 2026.9.71 with capture-window.sh (2026-09 campaign).
+# App state: The same TaxTriage run in the List Over Detail layout with both samples ticked and Kocuria typed in the Filter organisms field beside the sample buttons, the first row selected by the filter, Inspector on Summary.
 id: taxtriage-batch-overview
 chapter: 06-classification/04-running-taxtriage
 caption: The TaxTriage viewport with both samples ticked and Kocuria typed in the Filter organisms...
-  field, showing SRR12486983's Kocuria rows first, from Kocuria sp. BT304 at 0.920 High down to Kocuria
-  sp. MNB10 at 0.380 Low, then SRR12486989's, starting with Kocuria sp. BT304 at 0.980 High, under the
-  Sample, Organism, TASS Score, Reads, Unique Reads, and Confidence columns. No row is selected, so the
-  alignment pane is empty.
+  field beside the sample buttons, the Organisms card reading 15, and SRR12486983's Kocuria rows first,
+  from Kocuria sp. BT304 at 0.920 High down to Kocuria sp. MNB10 at 0.380 Low, then SRR12486989's, starting
+  with Kocuria sp. BT304 at 0.980 High. The first row is selected, and the alignment pane below shows
+  its coverage track.
 viewport_class: taxonomy
 app_state:
   fixture: kraken-protocol-cornea
@@ -26,7 +26,8 @@ steps:
   - 1400
   - 900
   # PROSE-ONLY: Select the TaxTriage analysis under Analyses
-  # PROSE-ONLY: Type Kocuria in the Filter organisms field above the table
+  # PROSE-ONLY: Type Kocuria in the Filter organisms field beside the sample buttons
+  # PROSE-ONLY: Click Summary in the Inspector
   # PROSE-ONLY: Capture the full window
 crop:
   mode: window
