@@ -94,14 +94,11 @@ extension ViewerViewController {
                         throw BlastServiceError.noSequences
                     }
 
-                    let sequences: [(id: String, sequence: String)] = [(id: hit.qseqid, sequence: trimmedSequence)]
-
-                    let request = BlastVerificationRequest(
+                    // Judge hits against the NVD adjusted tax ID, not just its
+                    // short name, so "SARS-CoV-2" accepts NCBI's scientific name.
+                    let request = hit.blastVerificationRequest(
                         taxonName: classificationName,
-                        taxId: taxIdInt,
-                        sequences: sequences,
-                        database: "core_nt",
-                        entrezQuery: nil  // No entrez filter for NVD
+                        sequence: trimmedSequence
                     )
 
                     DispatchQueue.main.async {
