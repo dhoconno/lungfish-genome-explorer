@@ -87,7 +87,7 @@ The `taxid` column holds the [taxonomy ID](../../GLOSSARY.md#taxonomy-id), the n
 
 Choose **Tools > Genotyping > 12S Amplicon Matching...** again if the dialog closed. The Workflow Operations dialog opens with the workflow selected, laid out as [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 
-1. Under **Reference**, open the **Project Reference** menu and choose the `Primate 12S` bundle you built. The menu lists only reference bundles already saved in the project, and **Choose...** picks a plain FASTA instead.
+1. Under **Reference**, open the **Project Reference** menu and choose the bundle you built. The menu lists it by its path, `Reference Sequences/12S reference.lungfish12sref`, not by the name you typed. It lists only reference bundles already saved in the project, and **Choose...** picks a plain FASTA instead.
 2. Leave **Analysis Metadata** reading "No analysis metadata selected". The fixture does not need it.
 3. Under **FASTQ Bundles**, make sure only the `SIMULATED-12S-mixture-oriented` bundle is listed.
 4. Leave **Read Platform** on **Illumina exact**. **Result Name** arrives filled in from the read bundle's name, and every other field already holds the value this example used.
