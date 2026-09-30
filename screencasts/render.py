@@ -144,14 +144,21 @@ def render_take(beat, cfg, layout, brand, ov: Overlays, video_dir: Path, work: P
         tw, th = probe_size(take)
         inputs += ["-ss", str(beat.get("in", 0)), "-t", str(dur), "-i", str(take)]
         # trim_top drops the window title bar (points, scaled to the take's pixels).
-        top = int(th * beat.get("trim_top", cfg_trim_top) / window_aspect[1]) // 2 * 2
-        th -= top
+        # crop [x, y, w, h] (fractions of the take) keeps part of a window, e.g. a Finder file list.
+        left = 0
+        if beat.get("crop"):
+            cx, cy, cw_, ch_ = beat["crop"]
+            left, top = int(tw * cx) // 2 * 2, int(th * cy) // 2 * 2
+            tw, th = int(tw * cw_) // 2 * 2, int(th * ch_) // 2 * 2
+        else:
+            top = int(th * beat.get("trim_top", cfg_trim_top) / window_aspect[1]) // 2 * 2
+            th -= top
         src_w, src_h = tw, th
-        crop = f"crop={tw}:{th}:0:{top}," if top else ""
+        crop = f"crop={tw}:{th}:{left}:{top}," if (top or left or beat.get("crop")) else ""
         if layout["name"] == "square" and beat.get("square_focus"):
             fx, fy, fw, fh = beat["square_focus"]
             src_w, src_h = int(tw * fw) // 2 * 2, int(th * fh) // 2 * 2
-            crop = f"crop={src_w}:{src_h}:{int(tw * fx)}:{top + int(th * fy)},"
+            crop = f"crop={src_w}:{src_h}:{left + int(tw * fx)}:{top + int(th * fy)},"
         fw_, fh_ = fit(int(cw - 2 * margin), int(ch - 2 * margin), src_w, src_h)
         pre.append(f"[0:v]fps={fps},{crop}scale={fw_}:{fh_}:flags=lanczos,format=rgba[foot]")
     else:
