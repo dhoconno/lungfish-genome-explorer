@@ -75,6 +75,28 @@ final class VariantTableEnhancementTests: XCTestCase {
         XCTAssertEqual(prefs.columns[1].order, 1)
     }
 
+    /// Capture on 9.68: a layout saved before Variant Track existed listed that
+    /// column last in the popover, and the next toggle moved it past every INFO column.
+    func testMergedColumnPreferencesPlacesANewColumnBesideItsTableNeighbour() {
+        let saved = [
+            ColumnPreference(id: "ID", title: "ID", isVisible: false, order: 0),
+            ColumnPreference(id: "Position", title: "Position", isVisible: true, order: 1),
+            ColumnPreference(id: "INFO_DP", title: "DP", isVisible: true, order: 2),
+        ]
+        let merged = AnnotationTableDrawerView.mergedColumnPreferences(
+            saved: saved,
+            tableColumns: [
+                (id: "Track", title: "Variant Track"),
+                (id: "Position", title: "Position"),
+                (id: "Gene", title: "Gene / Protein"),
+                (id: "INFO_DP", title: "DP"),
+            ]
+        )
+        XCTAssertEqual(merged.map(\.id), ["Track", "ID", "Position", "Gene", "INFO_DP"])
+        XCTAssertEqual(merged.map(\.order), [0, 1, 2, 3, 4])
+        XCTAssertEqual(merged.map(\.isVisible), [true, false, true, true, true])
+    }
+
     func testLoadMissingPrefsReturnsNil() {
         let loaded = ColumnPrefsKey.load(tab: "nonexistent_tab_\(UUID().uuidString)")
         XCTAssertNil(loaded)

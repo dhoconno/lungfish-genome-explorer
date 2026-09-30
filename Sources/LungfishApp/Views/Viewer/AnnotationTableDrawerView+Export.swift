@@ -158,43 +158,57 @@ extension AnnotationTableDrawerView {
         let tabName = (activeTab == .variants && activeVariantSubtab == .genotypes)
             ? "variantGenotypes" : activeTab.prefsKey
 
-        // Try loading saved preferences first
-        if let saved = ColumnPrefsKey.load(tab: tabName) {
-            // Merge: keep saved prefs but add any new columns discovered since last save
-            let savedIds = Set(saved.columns.map(\.id))
-            var columns = saved.columns
-            let nextOrder = (columns.map(\.order).max() ?? -1) + 1
+        return Self.mergedColumnPreferences(
+            saved: ColumnPrefsKey.load(tab: tabName)?.columns,
+            tableColumns: tableView.tableColumns.map { (id: $0.identifier.rawValue, title: $0.title) }
+        )
+    }
 
-            // Check current table for any columns not in saved prefs (new INFO/meta columns)
-            for (i, col) in tableView.tableColumns.enumerated() {
-                let colId = col.identifier.rawValue
-                if !savedIds.contains(colId) {
-                    columns.append(ColumnPreference(
-                        id: colId,
-                        title: col.title,
-                        isVisible: true,
-                        order: nextOrder + i
-                    ))
-                }
+    /// Merges saved column preferences with the table's live columns.
+    ///
+    /// A live column the saved list has never seen, such as Variant Track in a
+    /// layout saved before that column existed, goes right after the live column
+    /// before it. Appending it instead put it at the bottom of the popover, and the
+    /// next toggle moved it to the far right of the table.
+    static func mergedColumnPreferences(
+        saved: [ColumnPreference]?,
+        tableColumns: [(id: String, title: String)]
+    ) -> [ColumnPreference] {
+        guard let saved else {
+            return tableColumns.enumerated().map { i, col in
+                ColumnPreference(id: col.id, title: col.title, isVisible: true, order: i)
             }
-            return columns.sorted { $0.order < $1.order }
         }
-
-        // No saved prefs — build from current table columns
-        return tableView.tableColumns.enumerated().map { (i, col) in
-            ColumnPreference(
-                id: col.identifier.rawValue,
-                title: col.title,
-                isVisible: true,
-                order: i
-            )
+        var columns = saved.sorted { $0.order < $1.order }
+        for (i, col) in tableColumns.enumerated() where !columns.contains(where: { $0.id == col.id }) {
+            let insertionIndex: Int
+            if i > 0, let previous = columns.firstIndex(where: { $0.id == tableColumns[i - 1].id }) {
+                insertionIndex = previous + 1
+            } else {
+                insertionIndex = 0
+            }
+            columns.insert(ColumnPreference(id: col.id, title: col.title, isVisible: true, order: 0), at: insertionIndex)
         }
+        for i in columns.indices {
+            columns[i].order = i
+        }
+        return columns
     }
 
     /// Applies column visibility and ordering from preferences.
     private func applyColumnPreferences(_ prefs: [ColumnPreference]) {
         let visiblePrefs = prefs.filter(\.isVisible).sorted { $0.order < $1.order }
         let visibleIds = Set(visiblePrefs.map(\.id))
+
+        // A column shown again is no longer in the table. Rebuild the tab's columns,
+        // which re-adds every column and applies the preferences just saved.
+        let liveIds = Set(tableView.tableColumns.map(\.identifier.rawValue))
+        let tableBuiltFromPreferences = !(activeTab == .variants && activeVariantSubtab == .genotypes)
+        if tableBuiltFromPreferences, !visibleIds.isSubset(of: liveIds) {
+            configureColumnsForTab(activeTab)
+            tableView.reloadData()
+            return
+        }
 
         // Remove columns that should be hidden
         for col in tableView.tableColumns.reversed() {

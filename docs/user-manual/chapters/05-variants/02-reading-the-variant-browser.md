@@ -13,7 +13,7 @@ entry_points:
   - "CLI: lungfish-cli variants query"
 shots:
   - id: variants-tab-twelve-columns
-    caption: "The Variants tab of the table drawer inside the reference bundle viewport, with the fixed columns from Variant Track through AA Change and both caller tracks loaded."
+    caption: "The Variants tab of the table drawer inside the reference bundle viewport, with the columns cut down to Variant Track, the call itself, and three INFO columns, DP, AC, and AN."
   - id: variants-preset-chips
     caption: "The Presets chip strip open above the Variants table, showing the first three groups, Biological Effect, Quality / QC, and Population / Frequency."
   - id: variants-search-builder
@@ -72,7 +72,7 @@ Both tracks load into the one table at once, and the **Variant Track** column na
 
 ### Read the columns
 
-Fifteen fixed columns run across the table, after an unlabelled column for bookmarking a row. Seven are the VCF's own standard columns. `Type` and `Samples` are worked out from each record. The rest are added by LGE.
+Fifteen fixed columns run across the table, after an unlabelled column for bookmarking a row. Seven are the VCF's own standard columns. `Type` and `Samples` are worked out from each record. The rest are added by LGE. The screenshot above shows a narrower table, with the columns this section does not need hidden by the gear button described below.
 
 | Column | Where it comes from | What it holds |
 |---|---|---|
