@@ -98,11 +98,18 @@ final class AnnotationDrawerKeyboardActivationTests: XCTestCase {
         let secondRow = try XCTUnwrap(rows.last)
         let cellNames = AccessibilityRowProbe.cellActionNames(secondRow)
         XCTAssertFalse(cellNames.isEmpty, "The AX row must expose cell children")
+        // The row's enabled context menu commands, Copy submenu flattened,
+        // in menu order. Edit and Delete are disabled without a database row.
+        let expected = [
+            "Copy Name", "Copy Coordinates", "Copy Sequence", "Copy Reverse Complement", "Copy as FASTA",
+            "Extract Sequence\u{2026}", "Add Annotation\u{2026}", "Select Related Gene Features",
+            "Zoom to Annotation", "Show in Inspector",
+        ]
         for names in cellNames {
-            XCTAssertEqual(names, ["Zoom to Annotation", "Show in Inspector"], "Every cell of the row carries the actions")
+            XCTAssertEqual(names, expected, "Every cell of the row carries the actions")
         }
         for served in AccessibilityRowProbe.servedCellActionNames(secondRow) {
-            XCTAssertEqual(served, ["Zoom to Annotation", "Show in Inspector"], "The AX server lists each action once")
+            XCTAssertEqual(served, expected, "The AX server lists each action once")
         }
 
         // Performing the action through the AX element zooms to that row.

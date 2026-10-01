@@ -50,7 +50,7 @@ public final class GeneTabBarView: NSView {
     private var selectedGlobalIndex: Int?
 
     private static let barHeight: CGFloat = 28
-    private static let maxVisibleTabs = 8
+    static let maxVisibleTabs = 8
 
     public override init(frame frameRect: NSRect) {
         let dismissImage = AppSystemSymbolImage.named("xmark", accessibilityDescription: "Close gene tabs")
@@ -237,6 +237,10 @@ public final class GeneTabBarView: NSView {
         for region in geneRegions.dropFirst(visibleRegions.count) {
             overflowPopup.addItem(withTitle: "\(region.name) (\(region.chromosome))")
         }
+        // The overflow pop-up is the only route to these genes from the bar,
+        // so its items are also custom actions on the pop-up. Sequence > Go
+        // to Gene… reaches every gene by name regardless.
+        AccessibilityMenuMirror.install(on: overflowPopup)
     }
 
     private func indexOfVisibleRegion(_ region: GeneRegion) -> Int? {
@@ -281,3 +285,10 @@ public final class GeneTabBarView: NSView {
         NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
     }
 }
+
+#if DEBUG
+extension GeneTabBarView {
+    /// The overflow pop-up, for asserting on its accessibility mirror.
+    var testOverflowPopup: NSPopUpButton { overflowPopup }
+}
+#endif

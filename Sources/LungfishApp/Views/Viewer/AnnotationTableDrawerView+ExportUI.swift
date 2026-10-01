@@ -32,6 +32,15 @@ private enum ScientificTableExportUIState {
 
 extension AnnotationTableDrawerView {
     func showScientificTableExportMenu(_ sender: Any?) {
+        let menu = makeScientificTableExportMenu()
+        let anchor = (sender as? NSView) ?? exportButton
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.height + 2), in: anchor)
+    }
+
+    /// The export menu for the current tab and selection: a scope item per
+    /// row set, each with a format submenu. Also what the export button's
+    /// accessibility actions mirror.
+    func makeScientificTableExportMenu() -> NSMenu {
         let menu = NSMenu(title: "Export")
         menu.addItem(exportScopeMenuItem(
             title: AnnotationTableExportMenuModel.scopeTitle(.allMatching, selectedCount: tableView.selectedRowIndexes.count),
@@ -46,10 +55,7 @@ extension AnnotationTableDrawerView {
         let help = NSMenuItem(title: "All matching rows includes results beyond the table display limit. Current filters and column order are used.", action: nil, keyEquivalent: "")
         help.isEnabled = false
         menu.addItem(help)
-        exportButton.setAccessibilityLabel("Export table")
-        exportButton.setAccessibilityHelp("Export all matching or selected rows as Excel, CSV, TSV, or JSON.")
-        let anchor = (sender as? NSView) ?? exportButton
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.height + 2), in: anchor)
+        return menu
     }
 
     private func exportScopeMenuItem(

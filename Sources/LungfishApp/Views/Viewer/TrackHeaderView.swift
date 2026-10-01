@@ -27,6 +27,15 @@ public protocol TrackHeaderViewDelegate: AnyObject {
 /// - Disclosure triangles for sequences with annotations
 /// - Click-to-expand/collapse annotation tracks
 /// - Visual feedback for expanded/collapsed state
+///
+/// The triangles are mouse targets that only show on hover, so the view also
+/// offers them two other ways. To accessibility clients it is a group whose
+/// children are one disclosure-triangle element per track with annotations
+/// (label the track name, value expanded or collapsed, press toggles). To
+/// the keyboard it is a focusable view: Up and Down move a focus ring
+/// between those tracks and Space or Return toggles the focused one. View >
+/// Toggle Annotations for Selected Track reaches the same toggle from the
+/// menu bar.
 public class TrackHeaderView: NSView {
 
     private var trackNames: [String] = []
@@ -51,7 +60,18 @@ public class TrackHeaderView: NSView {
     /// Size of disclosure triangle
     private let disclosureSize: CGFloat = 10
 
+    /// The track the keyboard focus ring sits on, among the tracks that have
+    /// annotations. Nil until the view takes focus.
+    private(set) var focusedTrackIndex: Int?
+
+    /// One accessibility element per track with annotations.
+    private var disclosureElements: [TrackDisclosureElement] = []
+
     public override var isFlipped: Bool { true }
+
+    public override var acceptsFirstResponder: Bool { !disclosableTrackIndices.isEmpty }
+
+    public override var canBecomeKeyView: Bool { acceptsFirstResponder }
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -64,11 +84,16 @@ public class TrackHeaderView: NSView {
     }
 
     private func setupView() {
+        focusRingType = .exterior
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Track headers")
     }
 
     func setTrackNames(_ names: [String]) {
         self.trackNames = names
         self.stackedSequences = []
+        rebuildDisclosureElements()
         setNeedsDisplay(bounds)
     }
 
@@ -77,7 +102,139 @@ public class TrackHeaderView: NSView {
     func setStackedSequences(_ sequences: [StackedSequenceInfo]) {
         self.stackedSequences = sequences
         self.trackNames = sequences.map { $0.sequence.name }
+        rebuildDisclosureElements()
         setNeedsDisplay(bounds)
+    }
+
+    // MARK: - Tracks with annotations
+
+    /// Indices of the tracks that have a disclosure triangle.
+    var disclosableTrackIndices: [Int] {
+        stackedSequences.indices.filter { !stackedSequences[$0].annotations.isEmpty }
+    }
+
+    /// Whether the track's annotations are shown. Nil when the track has none.
+    func annotationsExpanded(forTrackAt index: Int) -> Bool? {
+        guard stackedSequences.indices.contains(index), !stackedSequences[index].annotations.isEmpty else { return nil }
+        return stackedSequences[index].showAnnotations
+    }
+
+    /// The row rectangle of a track, in the view's (flipped) coordinates.
+    func rowRect(forTrackAt index: Int) -> CGRect {
+        let rowY: CGFloat
+        if index < stackedSequences.count {
+            rowY = stackedSequences[index].yOffset
+        } else {
+            rowY = trackY + CGFloat(index) * (trackHeight + trackSpacing)
+        }
+        return CGRect(x: 0, y: rowY, width: bounds.width, height: trackHeight)
+    }
+
+    /// Toggles the track's annotations through the delegate, exactly as a
+    /// click on its triangle does. Returns false for a track without
+    /// annotations.
+    @discardableResult
+    func toggleAnnotations(forTrackAt index: Int) -> Bool {
+        guard annotationsExpanded(forTrackAt: index) != nil else { return false }
+        delegate?.trackHeaderView(self, didToggleAnnotationsForTrackAt: index)
+        return true
+    }
+
+    // MARK: - Keyboard
+
+    /// Moves the focus ring to the track at `index`, which must have
+    /// annotations, and tells AppKit the ring moved.
+    func focusTrack(at index: Int) {
+        guard disclosableTrackIndices.contains(index), focusedTrackIndex != index else { return }
+        focusedTrackIndex = index
+        noteFocusRingMaskChanged()
+        needsDisplay = true
+    }
+
+    public override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        if focusedTrackIndex.map({ !disclosableTrackIndices.contains($0) }) ?? true {
+            focusedTrackIndex = disclosableTrackIndices.first
+        }
+        noteFocusRingMaskChanged()
+        needsDisplay = true
+        return true
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        guard super.resignFirstResponder() else { return false }
+        noteFocusRingMaskChanged()
+        needsDisplay = true
+        return true
+    }
+
+    public override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+        guard modifiers.isEmpty, let focused = focusedTrackIndex else {
+            super.keyDown(with: event)
+            return
+        }
+        let tracks = disclosableTrackIndices
+        switch event.keyCode {
+        case 126: // Up Arrow
+            if let position = tracks.firstIndex(of: focused), position > 0 {
+                focusTrack(at: tracks[position - 1])
+            }
+        case 125: // Down Arrow
+            if let position = tracks.firstIndex(of: focused), position + 1 < tracks.count {
+                focusTrack(at: tracks[position + 1])
+            }
+        case 49, 36, 76: // Space, Return, Enter
+            toggleAnnotations(forTrackAt: focused)
+        default:
+            super.keyDown(with: event)
+        }
+    }
+
+    /// The focus ring surrounds the focused track's row while the view is
+    /// first responder, and is drawn by AppKit from this mask.
+    public override var focusRingMaskBounds: NSRect {
+        guard window?.firstResponder === self, let focused = focusedTrackIndex else { return .zero }
+        return rowRect(forTrackAt: focused).insetBy(dx: 2, dy: 1)
+    }
+
+    public override func drawFocusRingMask() {
+        let rect = focusRingMaskBounds
+        guard !rect.isEmpty else { return }
+        NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
+    }
+
+    // MARK: - Accessibility
+
+    /// Rebuilds the disclosure elements from the current tracks. Each one
+    /// reads its state from the view when asked, so a toggle needs no
+    /// further bookkeeping than the redraw the delegate already triggers.
+    private func rebuildDisclosureElements() {
+        disclosureElements = disclosableTrackIndices.map { index in
+            let element = TrackDisclosureElement()
+            element.trackIndex = index
+            element.header = self
+            element.setAccessibilityRole(.disclosureTriangle)
+            element.setAccessibilityParent(self)
+            element.setAccessibilityLabel(trackNames[index])
+            element.setAccessibilityHelp("Shows or hides the annotations of the \(trackNames[index]) track")
+            element.setAccessibilityFrameInParentSpace(rowRect(forTrackAt: index))
+            return element
+        }
+        if let focused = focusedTrackIndex, !disclosableTrackIndices.contains(focused) {
+            focusedTrackIndex = disclosableTrackIndices.first
+        }
+    }
+
+    public override func accessibilityChildren() -> [Any]? {
+        disclosureElements
+    }
+
+    public override func layout() {
+        super.layout()
+        for element in disclosureElements {
+            element.setAccessibilityFrameInParentSpace(rowRect(forTrackAt: element.trackIndex))
+        }
     }
 
     public override func updateTrackingAreas() {
@@ -337,10 +494,33 @@ public class TrackHeaderView: NSView {
     }
 }
 
+/// One track's disclosure triangle as an accessibility element. Its value
+/// is 1 when the track's annotations are shown and 0 when they are hidden,
+/// the convention for `AXDisclosureTriangle`, and press toggles them.
+@MainActor
+final class TrackDisclosureElement: NSAccessibilityElement {
+    var trackIndex = 0
+    weak var header: TrackHeaderView?
+
+    override func accessibilityValue() -> Any? {
+        guard let expanded = header?.annotationsExpanded(forTrackAt: trackIndex) else { return nil }
+        return NSNumber(value: expanded ? 1 : 0)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        header?.toggleAnnotations(forTrackAt: trackIndex) ?? false
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+}
+
 #if DEBUG
 extension TrackHeaderView {
     /// Read-back accessor for the current track label strings, for
     /// asserting on `setTrackNames(_:)` content in tests.
     var testTrackNames: [String] { trackNames }
+
+    /// The disclosure elements AX clients see as the view's children.
+    var testDisclosureElements: [TrackDisclosureElement] { disclosureElements }
 }
 #endif

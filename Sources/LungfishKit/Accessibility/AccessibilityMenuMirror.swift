@@ -73,9 +73,33 @@ public enum AccessibilityMenuMirror {
     /// down the responder chain when it has none. Done directly rather than
     /// through `performActionForItem(at:)`, which flashes the item and
     /// delivers the action later.
-    private static func send(_ item: NSMenuItem) {
+    public static func send(_ item: NSMenuItem) {
         guard let action = item.action, item.isEnabled else { return }
         NSApplication.shared.sendAction(action, to: item.target, from: item)
+    }
+
+    /// The items of `menu` that do something when chosen, with one submenu
+    /// level flattened in place: enabled, titled, with an action. Separators,
+    /// disabled items and items that only open a submenu are left out. This
+    /// is the list a row's cell actions are built from when the row's
+    /// context menu is the source of truth.
+    public static func flattenedItems(of menu: NSMenu) -> [NSMenuItem] {
+        if menu.autoenablesItems { menu.update() }
+        var items: [NSMenuItem] = []
+        for item in menu.items where !item.isSeparatorItem && !item.title.isEmpty {
+            if let submenu = item.submenu {
+                if submenu.autoenablesItems { submenu.update() }
+                for child in submenu.items
+                where !child.isSeparatorItem && !child.title.isEmpty && child.isEnabled
+                    && child.submenu == nil && child.action != nil {
+                    items.append(child)
+                }
+                continue
+            }
+            guard item.isEnabled, item.action != nil else { continue }
+            items.append(item)
+        }
+        return items
     }
 
     private static func makeActions(
@@ -108,5 +132,26 @@ public enum AccessibilityMenuMirror {
             })
         }
         return actions
+    }
+}
+
+/// A button that pops a menu on click and lists that menu's items as
+/// accessibility custom actions, computed when an AX client asks.
+///
+/// The menu behind such a button is usually built fresh for every click,
+/// from state that changes with the selection (an export menu whose scope
+/// item counts the selected rows). Rather than reinstalling a snapshot on
+/// every change, the button asks ``menuProvider`` for the current menu
+/// whenever its actions are read, so the list is never stale.
+@MainActor
+public final class MenuMirroringButton: NSButton {
+    /// Builds the menu the button would pop right now. Nil publishes no
+    /// actions.
+    public var menuProvider: (() -> NSMenu?)?
+
+    public override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard let menu = menuProvider?() else { return super.accessibilityCustomActions() }
+        let actions = AccessibilityMenuMirror.actions(for: menu)
+        return actions.isEmpty ? nil : actions
     }
 }

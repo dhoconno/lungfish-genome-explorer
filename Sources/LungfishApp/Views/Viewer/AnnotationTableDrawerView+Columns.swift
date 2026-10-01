@@ -722,6 +722,7 @@ extension AnnotationTableDrawerView {
         case .diploid:
             haploidModeButton.selectItem(at: 2)
         }
+        installPullDownAccessibilityMirrors()
     }
 
     /// Switches to the specified tab, reconfiguring columns, chip bar, and data.

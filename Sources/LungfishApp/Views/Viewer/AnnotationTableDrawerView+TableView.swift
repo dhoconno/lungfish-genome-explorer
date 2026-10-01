@@ -70,6 +70,7 @@ extension AnnotationTableDrawerView {
         let saveItem = NSMenuItem(title: "Save Current as Profile\u{2026}", action: #selector(saveCurrentAsProfile(_:)), keyEquivalent: "")
         saveItem.target = self
         profileButton.menu?.addItem(saveItem)
+        installPullDownAccessibilityMirrors()
     }
 
     @objc func selectFilterProfile(_ sender: NSMenuItem) {
@@ -251,30 +252,6 @@ extension AnnotationTableDrawerView {
         }
         guard row < displayedAnnotations.count else { return nil }
         return displayedAnnotations[row]
-    }
-
-    /// Every cell of a row carries "Zoom to Variant" (or "Zoom to Annotation")
-    /// and "Show in Inspector" as accessibility custom actions, so the commands
-    /// the context menu offers are reachable by VoiceOver and by AX-driven
-    /// automation. Installed from the cell callback so reused cells always
-    /// describe the row they show now.
-    func installAccessibilityActions(on cellView: NSView, row: Int) {
-        guard let result = searchResult(forRow: row) else {
-            AccessibilityCellActions.install([], on: cellView)
-            return
-        }
-        let zoomTitle = result.isVariant ? "Zoom to Variant" : "Zoom to Annotation"
-        AccessibilityCellActions.install([
-            AccessibilityCellActions.makeAction(name: zoomTitle) { [weak self, weak cellView] in
-                guard let self, let cellView, let row = AccessibilityCellActions.currentRow(of: cellView) else { return }
-                self.activateRow(at: row)
-            },
-            AccessibilityCellActions.makeAction(name: "Show in Inspector") { [weak self, weak cellView] in
-                guard let self, let cellView, let row = AccessibilityCellActions.currentRow(of: cellView),
-                      let current = self.searchResult(forRow: row) else { return }
-                self.showInInspector(current)
-            },
-        ], on: cellView)
     }
 
     func activateRow(at row: Int) {

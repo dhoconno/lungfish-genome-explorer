@@ -26,7 +26,8 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "FASTACollect
 /// ``VCFDatasetViewController``.
 @MainActor
 public final class FASTACollectionViewController: NSViewController,
-    NSTableViewDataSource, NSTableViewDelegate, NSSplitViewDelegate, NSMenuDelegate {
+    NSTableViewDataSource, NSTableViewDelegate, NSSplitViewDelegate, NSMenuDelegate,
+    NSMenuItemValidation, ResultRowMenuActions {
 
     // MARK: - Data
 
@@ -113,7 +114,7 @@ public final class FASTACollectionViewController: NSViewController,
     private let collectionSplitView = NSSplitView()
     private let tableContainer = NSView()
     private let scrollView = NSScrollView()
-    private let tableView = NSTableView()
+    private let tableView = RowActivatingTableView()
     private let emptyStateLabel = NSTextField(labelWithString: "")
     private let selectionDetailView = FASTASelectionDetailView()
     private var lastExpandedDetailHeight: CGFloat = 180
@@ -372,6 +373,10 @@ public final class FASTACollectionViewController: NSViewController,
         tableView.style = .plain
         tableView.doubleAction = #selector(tableDoubleClicked(_:))
         tableView.target = self
+        tableView.onActivateSelectedRow = { [weak self] in
+            guard let self else { return }
+            self.open(row: self.tableView.selectedRow)
+        }
         refreshContextMenu()
 
         scrollView.documentView = tableView
@@ -472,9 +477,14 @@ public final class FASTACollectionViewController: NSViewController,
     // MARK: - Actions
 
     @objc private func tableDoubleClicked(_ sender: Any?) {
-        let clickedRow = tableView.clickedRow
-        guard clickedRow >= 0, clickedRow < displayedSequences.count else { return }
-        let seq = displayedSequences[clickedRow]
+        open(row: tableView.clickedRow)
+    }
+
+    /// Opens the sequence at `row` in the viewer, what a double-click,
+    /// Return and Selection > Table Row > Open Row all do.
+    private func open(row: Int) {
+        guard row >= 0, row < displayedSequences.count else { return }
+        let seq = displayedSequences[row]
         let annotations = annotationsBySequence[seq.name] ?? []
         onOpenSequence?(seq, annotations)
     }
@@ -483,12 +493,27 @@ public final class FASTACollectionViewController: NSViewController,
         contextMenu.delegate = self
         rebuildContextMenu(contextMenu)
         tableView.menu = contextMenu
+        reinstallVisibleCellActions()
     }
 
     private func rebuildContextMenu(_ menu: NSMenu) {
         let rebuiltMenu = FASTASequenceActionMenuBuilder.buildMenu(
             selectionCount: tableView.numberOfSelectedRows,
-            handlers: FASTASequenceActionHandlers(
+            handlers: makeActionHandlers()
+        )
+        menu.removeAllItems()
+        let rebuiltItems = rebuiltMenu.items
+        rebuiltItems.forEach { item in
+            rebuiltMenu.removeItem(item)
+            menu.addItem(item)
+        }
+    }
+
+    /// The shared FASTA commands, each acting on the current selection. The
+    /// context menu, the row cell actions and the Selection > Table Row items
+    /// are all built from these so no surface can drift from the others.
+    private func makeActionHandlers() -> FASTASequenceActionHandlers {
+        FASTASequenceActionHandlers(
                 onExtractSequence: onExtractSequenceRequested == nil && onExtractSequenceWithAnnotationsRequested == nil ? nil : { [weak self] in
                     guard let self else { return }
                     let selected = self.selectedSequences()
@@ -533,13 +558,6 @@ public final class FASTACollectionViewController: NSViewController,
                     self.onRunOperationRequested?(self.selectedSequences())
                 }
             )
-        )
-        menu.removeAllItems()
-        let rebuiltItems = rebuiltMenu.items
-        rebuiltItems.forEach { item in
-            rebuiltMenu.removeItem(item)
-            menu.addItem(item)
-        }
     }
 
     public func menuNeedsUpdate(_ menu: NSMenu) {
@@ -552,6 +570,102 @@ public final class FASTACollectionViewController: NSViewController,
               !tableView.selectedRowIndexes.contains(clickedRow) else { return }
         tableView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
         updateSelectionDetail()
+    }
+
+    // MARK: - Accessibility cell actions
+
+    /// The commands every cell of a row publishes to AX clients: the shared
+    /// FASTA action set, titled for the row's part in the selection. A
+    /// selected row offers the selection's commands (plural copy titles,
+    /// Align with MAFFT for two or more), an unselected row offers the
+    /// single-row set, and performing one first makes that row the
+    /// selection, the way a right-click outside the selection does.
+    private func accessibilityActions(for cellView: NSView, row: Int) -> [NSAccessibilityCustomAction] {
+        let isSelected = row >= 0 && tableView.selectedRowIndexes.contains(row)
+        let count = isSelected ? max(1, tableView.numberOfSelectedRows) : 1
+        let base = makeActionHandlers()
+        func targeting(_ handler: (() -> Void)?) -> (() -> Void)? {
+            guard let handler else { return nil }
+            return { [weak self, weak cellView] in
+                guard let self, let cellView,
+                      let current = AccessibilityCellActions.currentRow(of: cellView) else { return }
+                self.reconcileContextMenuSelection(clickedRow: current)
+                handler()
+            }
+        }
+        let handlers = FASTASequenceActionHandlers(
+            onExtractSequence: targeting(base.onExtractSequence),
+            blastMenuTitle: base.blastMenuTitle,
+            onBlast: targeting(base.onBlast),
+            onCopyNames: targeting(base.onCopyNames),
+            onCopySequences: targeting(base.onCopySequences),
+            onCopyFullNames: targeting(base.onCopyFullNames),
+            onCopy: targeting(base.onCopy),
+            onExport: targeting(base.onExport),
+            onCreateBundle: targeting(base.onCreateBundle),
+            onAlignWithMAFFT: targeting(base.onAlignWithMAFFT),
+            onRunOperation: targeting(base.onRunOperation),
+            createBundleMenuTitle: base.createBundleMenuTitle,
+            exportMenuTitle: base.exportMenuTitle
+        )
+        return FASTASequenceActionMenuBuilder.accessibilityActions(selectionCount: count, handlers: handlers)
+    }
+
+    /// Reinstalls the cell actions of the rows on screen, so their titles
+    /// follow the selection without a reload.
+    private func reinstallVisibleCellActions() {
+        guard isViewLoaded, tableView.numberOfRows > 0 else { return }
+        let visible = tableView.rows(in: tableView.visibleRect)
+        guard visible.length > 0 else { return }
+        for row in visible.location..<(visible.location + visible.length) {
+            for column in 0..<tableView.numberOfColumns {
+                guard let cell = tableView.view(atColumn: column, row: row, makeIfNecessary: false) else { continue }
+                AccessibilityCellActions.install(accessibilityActions(for: cell, row: row), on: cell)
+            }
+        }
+    }
+
+    // MARK: - Selection > Table Row (ResultRowMenuActions)
+
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let selected = selectedSequences()
+        switch menuItem.action {
+        case #selector(activateSelectedRow(_:)):
+            return selected.count == 1
+        case #selector(copySelectedRowName(_:)), #selector(copySelectedRowSequence(_:)), #selector(copySelectedRowFASTA(_:)):
+            return !selected.isEmpty
+        case #selector(blastVerifySelectedRow(_:)):
+            return onBlastRequested != nil && !selected.isEmpty && selected.count <= 50
+        case #selector(extractSelectedRowsToNewBundle(_:)):
+            return (onCreateBundleRequested != nil || onCreateBundleWithAnnotationsRequested != nil) && !selected.isEmpty
+        default:
+            return true
+        }
+    }
+
+    @objc public func activateSelectedRow(_ sender: Any?) {
+        guard tableView.numberOfSelectedRows == 1 else { return }
+        open(row: tableView.selectedRow)
+    }
+
+    @objc public func copySelectedRowName(_ sender: Any?) {
+        makeActionHandlers().onCopyNames?()
+    }
+
+    @objc public func copySelectedRowSequence(_ sender: Any?) {
+        makeActionHandlers().onCopySequences?()
+    }
+
+    @objc public func copySelectedRowFASTA(_ sender: Any?) {
+        makeActionHandlers().onCopy?()
+    }
+
+    @objc public func blastVerifySelectedRow(_ sender: Any?) {
+        makeActionHandlers().onBlast?()
+    }
+
+    @objc public func extractSelectedRowsToNewBundle(_ sender: Any?) {
+        makeActionHandlers().onCreateBundle?()
     }
 
     private func selectedSequences() -> [LungfishCore.Sequence] {
@@ -959,6 +1073,7 @@ public final class FASTACollectionViewController: NSViewController,
             textField.stringValue = ""
         }
 
+        AccessibilityCellActions.install(accessibilityActions(for: cell, row: row), on: cell)
         return cell
     }
 
@@ -1018,6 +1133,10 @@ extension FASTACollectionViewController {
     var testContextMenuTitles: [String] {
         contextMenu.items.map(\.title)
     }
+
+    var testContextMenu: NSMenu { contextMenu }
+
+    var testTableView: NSTableView { tableView }
 
     func testSelectRows(_ rows: [Int]) {
         if rows.isEmpty {
