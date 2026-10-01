@@ -42,12 +42,13 @@ beats:
   - kind: take
     id: provenance
     take: takes/provenance.mov
-    in: 0
-    duration: 8.5
+    in: 2.1             # start on the Provenance tab (drive/provenance.json)
+    duration: 8.8
     caption: Each result records its tool, version and command
-    kicker: Inspector · Provenance
+    kicker: Inspector · Provenance · Lineage
+    crop: [0.585, 0.064, 0.41, 0.915]   # the Inspector column only, title bar and window corner dropped
     placeholder: Variant track selected. Inspector Provenance lineage with the bcftools step expanded to its command and conda build.
-    square_focus: [0.44, 0.0, 0.56, 1.0]
+    square_focus: [0.0, 0.0, 1.0, 1.0]
 
   - kind: document
     id: export

@@ -11,6 +11,7 @@
 // steps.json is a list of objects, run in order:
 //   {"wait": 1.5}
 //   {"press": {"role": "AXButton", "title": "Zoom In"}}          first match, depth-first
+//   add "late": true to any step whose element only exists after an earlier step
 //   {"menu": ["View", "Provenance Inspector"]}                    menu bar path
 //   {"row": {"table": 1, "index": 3}}                             select row 3 of the Nth AXTable (1-based)
 //   {"rowAction": {"table": 1, "index": 3, "action": "Zoom to Variant"}}
@@ -173,9 +174,11 @@ func check(_ err: AXError, _ what: String) {
 }
 
 /// Resolves every element the steps name, so the timed pass only performs actions.
+/// Elements that only appear after an earlier step (a disclosure's children, a newly shown tab)
+/// are skipped here and looked up when their step runs; mark such a step with "late": true.
 func prepare(_ app: AXUIElement, _ steps: [[String: Any]]) {
     let win = mainWindow(app)
-    for step in steps {
+    for step in steps where step["late"] as? Bool != true {
         for key in ["press", "focus", "value", "confirm", "elementAction"] { if let s = step[key] as? [String: Any] { _ = element(s, win) } }
         for key in ["row", "rowAction", "focusTable"] { if let s = step[key] as? [String: Any] { _ = table(s, win) } }
     }
