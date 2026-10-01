@@ -102,14 +102,13 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
         (Chord("\r", []), "annotation table: activate row"),
     ]
 
-    /// Cmd-Shift-A is View > AI Assistant in the menu bar and "select all
-    /// siblings" inside the sidebar, which takes precedence while the sidebar
-    /// has focus. Documented in the shortcuts appendix; predates this audit.
-    private static let grandfatheredOverlaps: Set<Chord> = [Chord("a", [.command, .shift])]
-
+    /// No view-local chord is also a menu-bar chord. Cmd-Shift-A used to be
+    /// both (View > AI Assistant and the sidebar's select-siblings monitor);
+    /// Select Siblings is now a Selection > Sidebar Item menu item and AI
+    /// Assistant moved to Cmd-Opt-A, so there are no exceptions left.
     func testMenuBarDoesNotRepurposeViewLocalChords() {
         let bound = Dictionary(grouping: menuBindings(), by: \.chord)
-        for (chord, owner) in Self.viewLocalChords where !Self.grandfatheredOverlaps.contains(chord) {
+        for (chord, owner) in Self.viewLocalChords {
             XCTAssertNil(bound[chord], "\(chord) belongs to \(owner) but the menu bar binds it to \(bound[chord]?.map(\.path) ?? [])")
         }
     }
@@ -191,16 +190,12 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
         (Chord("d", [.command, .option]), "show or hide the Dock"),
     ]
 
-    /// View > Document Inspector has carried Cmd-Opt-D since before this
-    /// audit. macOS reserves that chord for showing and hiding the Dock, so
-    /// the item only works for users who have turned the system shortcut
-    /// off. Listed here so the audit reports anything new, and flagged for
-    /// the owner to rebind.
-    private static let grandfatheredReserved: Set<Chord> = [Chord("d", [.command, .option])]
-
+    /// No exceptions: View > Document Inspector carried Cmd-Opt-D, the
+    /// Dock's chord, until the owner unbound it (2026-09-30). The item stays
+    /// in the menu without a shortcut.
     func testNoMenuItemBindsASystemReservedChord() {
         let bound = Dictionary(grouping: menuBindings(), by: \.chord)
-        for (chord, purpose) in Self.systemReservedChords where !Self.grandfatheredReserved.contains(chord) {
+        for (chord, purpose) in Self.systemReservedChords {
             XCTAssertNil(bound[chord], "\(chord) is the system's \(purpose) chord but the menu bar binds it to \(bound[chord]?.map(\.path) ?? [])")
         }
     }
@@ -214,9 +209,21 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
             (Chord("n", [.command, .shift]), "Selection > Sidebar Item > New Folder"),
             (Chord("d", [.command, .shift]), "Selection > Sidebar Item > Duplicate"),
             (Chord("\u{8}", [.command]), "Selection > Sidebar Item > Move to Trash"),
+            (Chord("a", [.command, .shift]), "Selection > Sidebar Item > Select Siblings"),
+            (Chord("a", [.command, .option]), "View > AI Assistant"),
         ]
         for (chord, path) in expected {
             XCTAssertEqual(bound[chord]?.map(\.path), [path], "\(chord)")
         }
+    }
+
+    /// The owner's two rebinding decisions of 2026-09-30.
+    func testDocumentInspectorIsUnboundAndAIAssistantLeftCmdShiftA() {
+        let bound = Dictionary(grouping: menuBindings(), by: \.chord)
+        XCTAssertNil(bound[Chord("d", [.command, .option])], "Cmd-Opt-D is the Dock's")
+        XCTAssertEqual(bound[Chord("a", [.command, .option])]?.map(\.title), ["AI Assistant"])
+        XCTAssertEqual(bound[Chord("a", [.command, .shift])]?.map(\.title), ["Select Siblings"])
+        let documentInspector = bindings(in: MainMenu.createMainMenu()).first { $0.title == "Document Inspector" }
+        XCTAssertNil(documentInspector, "Document Inspector stays in View, unbound")
     }
 }

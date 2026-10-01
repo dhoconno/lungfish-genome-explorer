@@ -349,8 +349,16 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
     // MARK: - Select All Siblings
 
+    /// True when `item` shares its level with at least one other item, so
+    /// Select Siblings has something to select.
+    func hasSiblings(_ item: SidebarItem) -> Bool {
+        let siblings = findParent(of: item)?.children ?? rootItems
+        return siblings.count > 1
+    }
+
     /// Selects all sibling items of the currently selected item in the outline view.
-    /// Triggered by Cmd+Shift+A. Useful for batch-selecting all barcodes at the same level.
+    /// Selection > Sidebar Item > Select Siblings (Cmd-Shift-A). Useful for
+    /// batch-selecting all barcodes at the same level.
     public func selectAllSiblings() {
         guard let selectedItem = selectedItems().first else { return }
 

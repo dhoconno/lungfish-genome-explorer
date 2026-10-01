@@ -511,22 +511,22 @@ final class OperationRoutingTests: XCTestCase {
         let source = combinedSidebarViewControllerSource()
 
         let sampleImport = try sourceFunctionBody(
-            named: "@objc private func contextMenuImportSampleMetadata",
-            endingBefore: "@objc private func contextMenuEditFolderMetadata",
+            named: "@objc func importSampleMetadataForSelectedSidebarBundle",
+            endingBefore: "@objc func editSelectedSidebarFolderMetadata",
             in: source
         )
         XCTAssertTrue(sampleImport.contains("canWriteSidebarProjectOutputs"))
 
         let folderEdit = try sourceFunctionBody(
-            named: "@objc private func contextMenuEditFolderMetadata",
-            endingBefore: "@objc private func contextMenuExportProjectMetadata",
+            named: "@objc func editSelectedSidebarFolderMetadata",
+            endingBefore: "@objc func exportSelectedSidebarFolderMetadata",
             in: source
         )
         XCTAssertTrue(folderEdit.contains("canWriteSidebarProjectOutputs"))
         XCTAssertTrue(folderEdit.contains("windowStateScope: windowStateScope"))
 
         let projectImport = try sourceFunctionBody(
-            named: "@objc private func contextMenuImportProjectMetadata",
+            named: "@objc func importSelectedSidebarFolderMetadata",
             endingBefore: "/// Checks if a bundle URL has variant tracks",
             in: source
         )
@@ -548,13 +548,13 @@ final class OperationRoutingTests: XCTestCase {
 
         let renameBody = try sourceFunctionBody(
             named: "private func performRename",
-            endingBefore: "@objc private func contextMenuDuplicate",
+            endingBefore: "@objc func duplicateSelectedSidebarItems",
             in: source
         )
         XCTAssertTrue(renameBody.contains("rehydrateScientificProvenance"))
 
         let duplicateBody = try sourceFunctionBody(
-            named: "@objc private func contextMenuDuplicate",
+            named: "@objc func duplicateSelectedSidebarItems",
             endingBefore: "// MARK: - FASTQ Export",
             in: source
         )

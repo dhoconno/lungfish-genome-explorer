@@ -28,6 +28,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
     case rename
     case duplicate
     case moveToTrash
+    case selectSiblings
     case showInFinder
     case copyPath
     case showInInspector
@@ -56,6 +57,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
         case .rename: return "Rename\u{2026}"
         case .duplicate: return "Duplicate"
         case .moveToTrash: return "Move to Trash"
+        case .selectSiblings: return "Select Siblings"
         case .showInFinder: return "Show in Finder"
         case .copyPath: return "Copy Path"
         case .showInInspector: return "Show in Inspector"
@@ -75,6 +77,22 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
         }
     }
 
+    /// The context-menu title for a selection of `selectionCount` items.
+    ///
+    /// Finder counts the items it is about to trash, and the two bundle
+    /// exports count the bundles they will write, so those three read
+    /// "Move 3 Items to Trash", "Export 3 Sequences…" and "Export 3 as
+    /// FASTQ…" for more than one item. Every other command keeps ``title``.
+    func contextTitle(selectionCount: Int) -> String {
+        guard selectionCount > 1 else { return title }
+        switch self {
+        case .moveToTrash: return "Move \(selectionCount) Items to Trash"
+        case .exportSequences: return "Export \(selectionCount) Sequences\u{2026}"
+        case .exportAsFASTQ: return "Export \(selectionCount) as FASTQ\u{2026}"
+        default: return title
+        }
+    }
+
     /// Stable identifier suffix shared by the menu bar item and the AX action.
     var identifierSlug: String {
         switch self {
@@ -86,6 +104,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
         case .rename: return "rename"
         case .duplicate: return "duplicate"
         case .moveToTrash: return "move-to-trash"
+        case .selectSiblings: return "select-siblings"
         case .showInFinder: return "show-in-finder"
         case .copyPath: return "copy-path"
         case .showInInspector: return "show-in-inspector"
@@ -107,12 +126,16 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
 
     /// The hoisted sidebar chords (owner decision, 2026-09-30): the Finder
     /// meanings of Cmd-Shift-N, Cmd-Shift-D and Cmd-Delete, plus Cmd-Opt-S
-    /// for Show in Inspector, the one new chord of this pass.
+    /// for Show in Inspector, the one new chord of this pass. Cmd-Shift-A
+    /// stays with Select Siblings, which the sidebar handled in its own
+    /// key monitor before it became a menu item (View > AI Assistant moved
+    /// to Cmd-Opt-A for it).
     var keyEquivalent: RowCommandKeyEquivalent? {
         switch self {
         case .newFolder: return RowCommandKeyEquivalent("n", [.command, .shift])
         case .duplicate: return RowCommandKeyEquivalent("d", [.command, .shift])
         case .moveToTrash: return RowCommandKeyEquivalent("\u{8}", [.command])
+        case .selectSiblings: return RowCommandKeyEquivalent("a", [.command, .shift])
         case .showInInspector: return RowCommandKeyEquivalent("s", [.command, .option])
         default: return nil
         }
@@ -129,6 +152,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
         case .rename: return #selector(SidebarItemMenuActions.renameSelectedSidebarItem(_:))
         case .duplicate: return #selector(SidebarItemMenuActions.duplicateSelectedSidebarItems(_:))
         case .moveToTrash: return #selector(SidebarItemMenuActions.moveSelectedSidebarItemsToTrash(_:))
+        case .selectSiblings: return #selector(SidebarItemMenuActions.selectSiblingSidebarItems(_:))
         case .showInFinder: return #selector(SidebarItemMenuActions.showSelectedSidebarItemInFinder(_:))
         case .copyPath: return #selector(SidebarItemMenuActions.copySelectedSidebarItemPath(_:))
         case .showInInspector: return #selector(ResultRowMenuActions.showSelectedRowInInspector(_:))
@@ -158,6 +182,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
     static let menuSections: [[SidebarItemAction]] = [
         [.open, .openBundle, .showPackageContents, .getBundleInfo],
         [.newFolder, .rename, .duplicate, .moveToTrash],
+        [.selectSiblings],
         [.showInFinder, .copyPath],
         [.exportAlignment, .exportAsFASTQ, .mergeIntoNewBundle, .reassemble, .deleteVariantTracks],
         [.importSampleMetadata, .cloneMetadataFrom, .copyClassificationCommand],
@@ -181,6 +206,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
     func renameSelectedSidebarItem(_ sender: Any?)
     func duplicateSelectedSidebarItems(_ sender: Any?)
     func moveSelectedSidebarItemsToTrash(_ sender: Any?)
+    func selectSiblingSidebarItems(_ sender: Any?)
     func showSelectedSidebarItemInFinder(_ sender: Any?)
     func copySelectedSidebarItemPath(_ sender: Any?)
     func exportSelectedSidebarAlignment(_ sender: Any?)

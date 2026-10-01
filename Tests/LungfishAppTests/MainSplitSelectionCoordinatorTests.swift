@@ -403,7 +403,7 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(sidebar.selectItem(forURL: fastaURL))
         delegate.selectedItems.removeAll()
 
-        sidebar.perform(NSSelectorFromString("contextMenuOpen:"), with: nil)
+        sidebar.perform(NSSelectorFromString("openSelectedSidebarItem:"), with: nil)
 
         XCTAssertEqual(
             delegate.selectedItems.compactMap { $0.url?.resolvingSymlinksInPath() },
@@ -436,7 +436,7 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        sidebar.perform(NSSelectorFromString("contextMenuShowInInspector:"), with: nil)
+        sidebar.perform(NSSelectorFromString("showSelectedRowInInspector:"), with: nil)
 
         XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope, scope)
     }

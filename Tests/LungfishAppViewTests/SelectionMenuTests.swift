@@ -96,8 +96,12 @@ final class SelectionMenuTests: XCTestCase {
             #selector(ResultRowMenuActions.showSelectedRowInInspector(_:)),
             "the sidebar shares the one Show in Inspector item"
         )
+        XCTAssertEqual(
+            SidebarItemAction.selectSiblings.keyEquivalent, RowCommandKeyEquivalent("a", [.command, .shift]),
+            "Cmd-Shift-A stays with Select Siblings (owner decision, 2026-09-30)"
+        )
         let chorded = SidebarItemAction.allCases.filter { $0.keyEquivalent != nil }
-        XCTAssertEqual(Set(chorded), [.newFolder, .duplicate, .moveToTrash, .showInInspector])
+        XCTAssertEqual(Set(chorded), [.newFolder, .duplicate, .moveToTrash, .selectSiblings, .showInInspector])
     }
 
     func testSidebarItemActionsHaveDistinctSelectorsSlugsAndTitles() {

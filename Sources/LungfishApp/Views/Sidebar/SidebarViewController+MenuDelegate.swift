@@ -39,9 +39,11 @@ extension SidebarViewController: NSMenuDelegate {
 
         // If clicked on empty space with a project open, show New Folder option
         if clickedOnEmptySpace && projectURL != nil {
-            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(contextMenuNewFolder(_:)), keyEquivalent: "N")
-            newFolderItem.keyEquivalentModifierMask = [.command, .shift]
-            newFolderItem.target = self
+            let newFolderItem = SidebarItemAction.newFolder.makeContextMenuItem(
+                target: self,
+                action: SidebarItemAction.newFolder.menuSelector,
+                representedObject: Self.emptySpaceNewFolderMarker
+            )
             menu.addItem(newFolderItem)
             return
         }
@@ -58,311 +60,66 @@ extension SidebarViewController: NSMenuDelegate {
     /// real mouse events and can't be set programmatically. Mirrors the
     /// `FASTACollectionViewController.testUpdateContextMenu` test-seam
     /// pattern used elsewhere in this codebase.
+    ///
+    /// Every command comes from ``SidebarItemAction``, the one list the
+    /// Selection > Sidebar Item menu and the rows' accessibility actions are
+    /// also built from, so the three surfaces offer the same commands under
+    /// the same titles. "Move to" stays a submenu of destinations.
     private func populateContextMenu(_ menu: NSMenu, for items: [SidebarItem]) {
-        // Check what types we have selected
-        let hasFiles = items.contains {
-            $0.type != .group
-                && $0.type != .project
-                && $0.type != .folder
-                && !$0.type.isBundle
-                && $0.type != .batchGroup
+        let sections = availableSidebarItemActions(for: items)
+        for (sectionIndex, section) in sections.enumerated() {
+            if sectionIndex > 0, !menu.items.isEmpty, !(menu.items.last?.isSeparatorItem ?? true) {
+                menu.addItem(.separator())
+            }
+            for action in section {
+                if action == .moveToTrash, let moveTo = moveToSubmenuItem(for: items) {
+                    menu.addItem(moveTo)
+                    menu.addItem(.separator())
+                }
+                menu.addItem(contextMenuItem(for: action, items: items))
+            }
         }
-        let hasFolders = items.contains { $0.type == .folder || $0.type == .project }
+    }
+
+    /// The context-menu item for `action` on `items`: the shared title, with
+    /// the selection count for the commands Finder also counts, sent to
+    /// the same handler the menu bar reaches through the responder chain.
+    private func contextMenuItem(for action: SidebarItemAction, items: [SidebarItem]) -> NSMenuItem {
+        switch action {
+        case .manageProjectStorage:
+            let item = action.makeContextMenuItem(
+                target: self,
+                action: #selector(contextMenuManageProjectStorage(_:))
+            )
+            item.identifier = NSUserInterfaceItemIdentifier(ProjectStorageAccessibilityID.sidebarCommand)
+            item.setAccessibilityLabel("Manage project storage")
+            return item
+        case .exportSequences:
+            // File > Export > Sequences handles it through the responder chain.
+            let item = action.makeContextMenuItem(target: nil, action: action.menuSelector)
+            item.title = action.contextTitle(selectionCount: items.filter { $0.type.bundleCapabilities.canExportSequences }.count)
+            return item
+        case .exportAsFASTQ:
+            let item = action.makeContextMenuItem(target: self, action: action.menuSelector)
+            item.title = action.contextTitle(selectionCount: items.filter { $0.type == .fastqBundle }.count)
+            return item
+        case .moveToTrash:
+            let item = action.makeContextMenuItem(target: self, action: action.menuSelector)
+            item.title = action.contextTitle(selectionCount: items.count)
+            return item
+        default:
+            return action.makeContextMenuItem(target: self, action: action.menuSelector)
+        }
+    }
+
+    private func moveToSubmenuItem(for items: [SidebarItem]) -> NSMenuItem? {
         let hasGroups = items.contains { $0.type == .group }
-        let hasDeletable = items.contains { item in
-            if item.type == .group || item.type == .project { return false }
-            if item.type == .batchGroup { return item.url != nil }
-            return true
-        }
-        let hasBundles = items.contains { $0.type == .referenceBundle }
-        let hasFASTQBundles = items.contains { $0.type == .fastqBundle }
-        let mergeSelectionKind = BundleMergeSelection.detectKind(for: items)
-
-        let ownedProjectURL = (
-            view.window?.windowController as? MainWindowController
-        )?.projectSession.projectURL
-        if Self.canManageProjectStorage(
-            selectedItems: items,
-            currentProjectURL: projectURL,
-            ownedProjectURL: ownedProjectURL
-        ) {
-            let storageItem = NSMenuItem(
-                title: "Manage Project Storage\u{2026}",
-                action: #selector(contextMenuManageProjectStorage(_:)),
-                keyEquivalent: ""
-            )
-            storageItem.target = self
-            storageItem.identifier = NSUserInterfaceItemIdentifier(
-                ProjectStorageAccessibilityID.sidebarCommand
-            )
-            storageItem.setAccessibilityLabel("Manage project storage")
-            menu.addItem(storageItem)
-            menu.addItem(.separator())
-        }
-
-        // Reference-shaped bundle(s) selected (.referenceBundle / .mhcReferenceBundle)
-        // — export sequences. Scoped by SidebarItemType.bundleCapabilities.canExportSequences
-        // rather than a hardcoded `.referenceBundle` check, so MHC reference
-        // bundles also get Export Sequences (task E2 / AS3).
-        let exportableBundleItems = items.filter { $0.type.bundleCapabilities.canExportSequences }
-        if !exportableBundleItems.isEmpty {
-            let bundleCount = exportableBundleItems.count
-            let exportTitle = bundleCount > 1
-                ? "Export \(bundleCount) Sequences\u{2026}"
-                : "Export Sequences\u{2026}"
-            let exportSeqItem = NSMenuItem(title: exportTitle, action: #selector(FileMenuActions.exportFASTA(_:)), keyEquivalent: "")
-            menu.addItem(exportSeqItem)
-
-            // COUPLING NOTE (round-2 hardening, E2 follow-up): "Merge into
-            // New Bundle" is only reachable inside this `!isEmpty` branch,
-            // i.e. gated on `canExportSequences` rather than on its own
-            // capability. That's a COINCIDENCE, not a deliberate rule --
-            // today `.referenceBundle` is the only kind where
-            // `canExportSequences` is true AND `BundleMergeSelection`
-            // recognizes `.reference` as mergeable, so nesting the merge
-            // item here happens to work. If a future bundle kind gets
-            // `canExportSequences: true` without also being merge-capable
-            // (or vice versa), this nesting silently breaks one of the two
-            // actions. `mergeSelectionKind == .reference` is the real gate;
-            // `!exportableBundleItems.isEmpty` is only an accident of
-            // control flow. Should be split into an independent
-            // `if mergeSelectionKind == .reference` block if the two ever
-            // diverge.
-            if mergeSelectionKind == .reference {
-                let mergeItem = NSMenuItem(
-                    title: "Merge into New Bundle\u{2026}",
-                    action: #selector(contextMenuMergeIntoNewBundle(_:)),
-                    keyEquivalent: ""
-                )
-                mergeItem.target = self
-                menu.addItem(mergeItem)
-            }
-
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // Alignment export gets its own block rather than nesting inside the
-        // canExportSequences branch above. The coupling note there explains
-        // why that nesting is an accident to avoid: the two capabilities are
-        // independent, and canExportSequences' loader cannot read a
-        // .lungfishmsa at all.
-        if items.count == 1,
-           let soleAlignment = items.first,
-           soleAlignment.type.bundleCapabilities.canExportAlignment,
-           let alignmentURL = soleAlignment.url {
-            let exportAlignmentItem = NSMenuItem(
-                title: "Export Alignment\u{2026}",
-                action: #selector(contextMenuExportAlignment(_:)),
-                keyEquivalent: ""
-            )
-            exportAlignmentItem.target = self
-            exportAlignmentItem.representedObject = alignmentURL
-            menu.addItem(exportAlignmentItem)
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // Single bundle selected - show the baseline bundle actions every
-        // bundle kind supports (SidebarItemType.bundleCapabilities).
-        if items.count == 1, let soleItem = items.first, soleItem.type.isBundle {
-            let capabilities = soleItem.type.bundleCapabilities
-
-            if capabilities.canOpen {
-                let openItem = NSMenuItem(title: "Open Bundle", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")
-                openItem.target = self
-                menu.addItem(openItem)
-            }
-
-            if capabilities.canShowPackageContents {
-                let showContentsItem = NSMenuItem(title: "Show Package Contents", action: #selector(contextMenuShowBundleContents(_:)), keyEquivalent: "")
-                showContentsItem.target = self
-                menu.addItem(showContentsItem)
-            }
-
-            if capabilities.canGetBundleInfo {
-                let getInfoItem = NSMenuItem(title: "Get Bundle Info", action: #selector(contextMenuGetBundleInfo(_:)), keyEquivalent: "")
-                getInfoItem.target = self
-                menu.addItem(getInfoItem)
-            }
-
-            // Import Sample Metadata stays scoped to .referenceBundle and
-            // .fastqBundle only — that's what contextMenuImportSampleMetadata's
-            // own guard supports (NOT .mhcReferenceBundle or the other
-            // bundle kinds). It is intentionally NOT part of the generic
-            // baseline capability so we never advertise an action the
-            // handler can't perform.
-            if hasBundles || hasFASTQBundles {
-                let importMetadataItem = NSMenuItem(title: "Import Sample Metadata…", action: #selector(contextMenuImportSampleMetadata(_:)), keyEquivalent: "")
-                importMetadataItem.target = self
-                menu.addItem(importMetadataItem)
-            }
-
-            // Delete Variant Tracks — only if bundle has variant tracks
-            if let url = soleItem.url, bundleHasVariantTracks(url) {
-                menu.addItem(NSMenuItem.separator())
-                let deleteVariantsItem = NSMenuItem(title: "Delete Variant Tracks\u{2026}", action: #selector(contextMenuDeleteVariantTracks(_:)), keyEquivalent: "")
-                deleteVariantsItem.target = self
-                menu.addItem(deleteVariantsItem)
-            }
-
-            // Reassemble — only if bundle has assembly provenance
-            if let url = soleItem.url, bundleHasAssemblyProvenance(url) {
-                let reassembleItem = NSMenuItem(title: "Reassemble\u{2026}", action: #selector(contextMenuReassemble(_:)), keyEquivalent: "")
-                reassembleItem.target = self
-                menu.addItem(reassembleItem)
-            }
-
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // FASTQ bundle(s) selected - show FASTQ-specific options.
-        // Open Bundle / Show Package Contents / Get Bundle Info for a single
-        // FASTQ bundle are now added by the generic single-bundle capability
-        // block above (SidebarItemType.bundleCapabilities) — this section
-        // only adds the actions unique to FASTQ bundles.
-        if hasFASTQBundles {
-            let fastqCount = items.filter { $0.type == .fastqBundle }.count
-            let exportTitle = fastqCount > 1
-                ? "Export \(fastqCount) as FASTQ\u{2026}"
-                : "Export as FASTQ\u{2026}"
-            let exportItem = NSMenuItem(title: exportTitle, action: #selector(contextMenuExportFASTQ(_:)), keyEquivalent: "")
-            exportItem.target = self
-            menu.addItem(exportItem)
-
-            if mergeSelectionKind == .fastq {
-                let mergeItem = NSMenuItem(
-                    title: "Merge into New Bundle\u{2026}",
-                    action: #selector(contextMenuMergeIntoNewBundle(_:)),
-                    keyEquivalent: ""
-                )
-                mergeItem.target = self
-                menu.addItem(mergeItem)
-            }
-
-            // Clone Metadata From... — available for FASTQ bundles
-            let cloneItem = NSMenuItem(title: "Clone Metadata From\u{2026}", action: #selector(contextMenuCloneMetadata(_:)), keyEquivalent: "")
-            cloneItem.target = self
-            menu.addItem(cloneItem)
-
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // Classification result selected - show Copy Classification Command
-        if items.count == 1, let item = items.first, item.type == .classificationResult {
-            let copyCommandItem = NSMenuItem(
-                title: "Copy Classification Command",
-                action: #selector(contextMenuCopyClassificationCommand(_:)),
-                keyEquivalent: ""
-            )
-            copyCommandItem.target = self
-            menu.addItem(copyCommandItem)
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // Single item selected - show Open
-        if items.count == 1 && hasFiles {
-            let openItem = NSMenuItem(title: "Open", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")
-            openItem.target = self
-            menu.addItem(openItem)
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // New Folder (when folder or project is selected, or when we have a project open)
-        if (items.count == 1 && hasFolders) || projectURL != nil {
-            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(contextMenuNewFolder(_:)), keyEquivalent: "N")
-            newFolderItem.keyEquivalentModifierMask = [.command, .shift]
-            newFolderItem.target = self
-            menu.addItem(newFolderItem)
-            menu.addItem(NSMenuItem.separator())
-        }
-
-        // Edit / Export / Import Sample Metadata (for folders containing FASTQ bundles)
-        if items.count == 1 && hasFolders, let folderItem = items.first, folderItem.url != nil {
-            let hasFASTQChildren = folderItem.children.contains { $0.type == .fastqBundle }
-            if hasFASTQChildren {
-                let editMetaItem = NSMenuItem(
-                    title: "Edit Sample Metadata\u{2026}",
-                    action: #selector(contextMenuEditFolderMetadata(_:)),
-                    keyEquivalent: ""
-                )
-                editMetaItem.target = self
-                menu.addItem(editMetaItem)
-
-                let exportMetaItem = NSMenuItem(
-                    title: "Export Sample Metadata (CSV)\u{2026}",
-                    action: #selector(contextMenuExportProjectMetadata(_:)),
-                    keyEquivalent: ""
-                )
-                exportMetaItem.target = self
-                menu.addItem(exportMetaItem)
-
-                let importMetaItem = NSMenuItem(
-                    title: "Import Sample Metadata (CSV)\u{2026}",
-                    action: #selector(contextMenuImportProjectMetadata(_:)),
-                    keyEquivalent: ""
-                )
-                importMetaItem.target = self
-                menu.addItem(importMetaItem)
-
-                menu.addItem(NSMenuItem.separator())
-            }
-        }
-
-        // Show in Finder
-        if !hasGroups {
-            let showInFinderItem = NSMenuItem(title: "Show in Finder", action: #selector(contextMenuShowInFinder(_:)), keyEquivalent: "")
-            showInFinderItem.target = self
-            menu.addItem(showInFinderItem)
-        }
-
-        // Copy Path
-        if !hasGroups && items.count == 1 {
-            let copyPathItem = NSMenuItem(title: "Copy Path", action: #selector(contextMenuCopyPath(_:)), keyEquivalent: "")
-            copyPathItem.target = self
-            menu.addItem(copyPathItem)
-        }
-
-        // Show in Inspector (any bundle kind — SidebarItemType.bundleCapabilities)
-        if items.count == 1, let soleItem = items.first, soleItem.type.bundleCapabilities.canShowInInspector {
-            let showInInspectorItem = NSMenuItem(title: "Show in Inspector", action: #selector(contextMenuShowInInspector(_:)), keyEquivalent: "")
-            showInInspectorItem.target = self
-            menu.addItem(showInInspectorItem)
-        }
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Rename (single item only, not groups)
-        if items.count == 1 && !hasGroups {
-            let renameItem = NSMenuItem(title: "Rename...", action: #selector(contextMenuRename(_:)), keyEquivalent: "")
-            renameItem.target = self
-            menu.addItem(renameItem)
-        }
-
-        // Duplicate (files and folders, not groups)
-        if !hasGroups && (hasFiles || hasFolders) {
-            let duplicateItem = NSMenuItem(title: "Duplicate", action: #selector(contextMenuDuplicate(_:)), keyEquivalent: "D")
-            duplicateItem.keyEquivalentModifierMask = .command
-            duplicateItem.target = self
-            menu.addItem(duplicateItem)
-        }
-
-        // Move to... submenu (for files and non-project folders)
-        if !hasGroups && projectURL != nil {
-            let moveToItem = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
-            let moveToSubmenu = buildMoveToSubmenu(for: items)
-            if moveToSubmenu.items.count > 0 {
-                moveToItem.submenu = moveToSubmenu
-                menu.addItem(moveToItem)
-            }
-        }
-
-        // Move to Trash
-        if hasDeletable {
-            menu.addItem(NSMenuItem.separator())
-            let deleteTitle = items.count == 1 ? "Move to Trash" : "Move \(items.count) Items to Trash"
-            let deleteItem = NSMenuItem(title: deleteTitle, action: #selector(deleteSelectedItems), keyEquivalent: "\u{8}")  // Backspace key
-            deleteItem.target = self
-            menu.addItem(deleteItem)
-        }
+        guard !hasGroups, projectURL != nil else { return nil }
+        let submenu = buildMoveToSubmenu(for: items)
+        guard !submenu.items.isEmpty else { return nil }
+        let moveToItem = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
+        moveToItem.submenu = submenu
+        return moveToItem
     }
 
     /// Test-only seam: builds the real context menu for an explicit item
@@ -375,18 +132,26 @@ extension SidebarViewController: NSMenuDelegate {
         return menu.items
     }
 
-    @objc private func contextMenuOpen(_ sender: Any?) {
+    @objc func openSelectedSidebarItem(_ sender: Any?) {
+        openSelectedSidebarItemOrBundle()
+    }
+
+    @objc func openSelectedSidebarBundle(_ sender: Any?) {
+        openSelectedSidebarItemOrBundle()
+    }
+
+    private func openSelectedSidebarItemOrBundle() {
         let items = selectedItems()
         guard let item = items.first, item.type != .group && item.type != .project && item.type != .batchGroup else { return }
 
-        sidebarLogger.info("contextMenuOpen: Opening '\(item.title, privacy: .public)'")
+        sidebarLogger.info("openSelectedSidebarItem: Opening '\(item.title, privacy: .public)'")
         handleSelectionChange(
             [item],
-            source: "contextMenuOpen"
+            source: "openSelectedSidebarItem"
         )
     }
 
-    @objc private func contextMenuManageProjectStorage(_ sender: Any?) {
+    @objc func contextMenuManageProjectStorage(_ sender: Any?) {
         // Forward a view so AppDelegate resolves and permanently captures the
         // exact originating window rather than a mutable global controller.
         (NSApp.delegate as? AppDelegate)?.manageProjectStorage(view)
@@ -440,7 +205,7 @@ extension SidebarViewController: NSMenuDelegate {
         return .resolved(destinationDirectory)
     }
 
-    @objc private func contextMenuMergeIntoNewBundle(_ sender: Any?) {
+    @objc func mergeSelectedSidebarItemsIntoNewBundle(_ sender: Any?) {
         let items = selectedItems()
         guard let mergeKind = BundleMergeSelection.detectKind(for: items) else { return }
 
@@ -530,7 +295,7 @@ extension SidebarViewController: NSMenuDelegate {
     }
 
     /// Shows the internal contents of a bundle in Finder (like "Show Package Contents" in macOS).
-    @objc private func contextMenuShowBundleContents(_ sender: Any?) {
+    @objc func showSelectedSidebarPackageContents(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first, item.type.bundleCapabilities.canShowPackageContents, let url = item.url else { return }
 
@@ -541,7 +306,7 @@ extension SidebarViewController: NSMenuDelegate {
     }
 
     /// Shows bundle metadata info in an alert dialog.
-    @objc private func contextMenuGetBundleInfo(_ sender: Any?) {
+    @objc func getSelectedSidebarBundleInfo(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first, item.type.bundleCapabilities.canGetBundleInfo, let url = item.url else { return }
 
@@ -630,7 +395,7 @@ extension SidebarViewController: NSMenuDelegate {
         }
     }
 
-    @objc private func contextMenuImportSampleMetadata(_ sender: Any?) {
+    @objc func importSampleMetadataForSelectedSidebarBundle(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first,
               (item.type == .referenceBundle || item.type == .fastqBundle),
@@ -648,7 +413,7 @@ extension SidebarViewController: NSMenuDelegate {
         )
     }
 
-    @objc private func contextMenuEditFolderMetadata(_ sender: Any?) {
+    @objc func editSelectedSidebarFolderMetadata(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first,
               (item.type == .folder || item.type == .project),
@@ -665,7 +430,7 @@ extension SidebarViewController: NSMenuDelegate {
         window.contentViewController?.presentAsSheet(editorSheet)
     }
 
-    @objc private func contextMenuExportProjectMetadata(_ sender: Any?) {
+    @objc func exportSelectedSidebarFolderMetadata(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first,
               (item.type == .folder || item.type == .project),
@@ -678,7 +443,7 @@ extension SidebarViewController: NSMenuDelegate {
         window.contentViewController?.presentAsSheet(sheet)
     }
 
-    @objc private func contextMenuImportProjectMetadata(_ sender: Any?) {
+    @objc func importSelectedSidebarFolderMetadata(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first,
               (item.type == .folder || item.type == .project),
@@ -695,7 +460,7 @@ extension SidebarViewController: NSMenuDelegate {
     }
 
     /// Checks if a bundle URL has variant tracks by reading its manifest.
-    private func bundleHasVariantTracks(_ bundleURL: URL) -> Bool {
+    func bundleHasVariantTracks(_ bundleURL: URL) -> Bool {
         let manifestURL = bundleURL.appendingPathComponent("manifest.json")
         guard FileManager.default.fileExists(atPath: manifestURL.path) else { return false }
         guard let data = try? Data(contentsOf: manifestURL),
@@ -703,7 +468,7 @@ extension SidebarViewController: NSMenuDelegate {
         return !manifest.variants.isEmpty
     }
 
-    @objc private func contextMenuDeleteVariantTracks(_ sender: Any?) {
+    @objc func deleteSelectedSidebarVariantTracks(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first, item.type == .referenceBundle, let bundleURL = item.url else { return }
         guard canWriteSidebarProjectOutputs(workflowName: "Variant track deletion", targetURL: bundleURL) else {
@@ -876,12 +641,12 @@ extension SidebarViewController: NSMenuDelegate {
         }
     }
 
-    private func bundleHasAssemblyProvenance(_ bundleURL: URL) -> Bool {
+    func bundleHasAssemblyProvenance(_ bundleURL: URL) -> Bool {
         let provenanceURL = bundleURL.appendingPathComponent("assembly/provenance.json")
         return FileManager.default.fileExists(atPath: provenanceURL.path)
     }
 
-    @objc private func contextMenuReassemble(_ sender: Any?) {
+    @objc func reassembleSelectedSidebarBundle(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first, item.type == .referenceBundle, let bundleURL = item.url else { return }
 
@@ -941,7 +706,7 @@ extension SidebarViewController: NSMenuDelegate {
         )
     }
 
-    @objc private func contextMenuShowInFinder(_ sender: Any?) {
+    @objc func showSelectedSidebarItemInFinder(_ sender: Any?) {
         let items = selectedItems()
         let urls = items.compactMap { $0.url }
 
@@ -951,7 +716,7 @@ extension SidebarViewController: NSMenuDelegate {
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
 
-    @objc private func contextMenuCopyPath(_ sender: Any?) {
+    @objc func copySelectedSidebarItemPath(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first, let url = item.url else { return }
 
@@ -967,7 +732,7 @@ extension SidebarViewController: NSMenuDelegate {
     /// Loads provenance or config from the classification result directory
     /// and builds a shell-ready command string for kraken2 (and bracken,
     /// if profiling was performed).
-    @objc private func contextMenuCopyClassificationCommand(_ sender: Any?) {
+    @objc func copySelectedSidebarClassificationCommand(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first,
               item.type == .classificationResult,
@@ -986,7 +751,7 @@ extension SidebarViewController: NSMenuDelegate {
     }
 
     /// Posts a notification to show the selected bundle in the inspector.
-    @objc private func contextMenuShowInInspector(_ sender: Any?) {
+    @objc func showSelectedRowInInspector(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first else { return }
 
@@ -1004,34 +769,31 @@ extension SidebarViewController: NSMenuDelegate {
         )
     }
 
-    @objc private func contextMenuNewFolder(_ sender: Any?) {
-        // Determine where to create the folder
-        let parentURL: URL
-        let clickedRow = outlineView.clickedRow
+    /// Marks the "New Folder" item of the empty-space context menu, which
+    /// creates at the project root whatever is selected.
+    static let emptySpaceNewFolderMarker = "sidebar-empty-space-new-folder"
 
-        // If clicked on empty space (row == -1), always create at project root
-        if clickedRow < 0 {
-            if let project = projectURL {
-                parentURL = project
-                sidebarLogger.info("contextMenuNewFolder: Clicked on empty space, creating at project root")
-            } else {
-                sidebarLogger.warning("contextMenuNewFolder: No project open")
-                return
-            }
-        } else {
-            // Clicked on a specific item - check if it's a folder/project
-            let items = selectedItems()
-            if let item = items.first, (item.type == .folder || item.type == .project), let url = item.url {
-                // Create inside the selected folder/project
-                parentURL = url
-            } else if let project = projectURL {
-                // Selected item is a file - create at project root
-                parentURL = project
-            } else {
-                sidebarLogger.warning("contextMenuNewFolder: No valid location to create folder")
-                return
-            }
+    /// Where New Folder creates: the project root for the empty-space
+    /// context item, otherwise inside the selected folder or project, or
+    /// the project root when a file is selected. Nil without a project.
+    func newFolderParentURL(clickedEmptySpace: Bool) -> URL? {
+        if clickedEmptySpace {
+            if projectURL == nil { sidebarLogger.warning("contextMenuNewFolder: No project open") }
+            return projectURL
         }
+        if let item = selectedItems().first, item.type == .folder || item.type == .project, let url = item.url {
+            return url
+        }
+        if projectURL == nil { sidebarLogger.warning("contextMenuNewFolder: No valid location to create folder") }
+        return projectURL
+    }
+
+    @objc func newFolderInSidebar(_ sender: Any?) {
+        // From the menu bar or a row's accessibility action there is no
+        // click, so the selection decides; the empty-space context item
+        // marks itself.
+        let clickedEmptySpace = (sender as? NSMenuItem)?.representedObject as? String == Self.emptySpaceNewFolderMarker
+        guard let parentURL = newFolderParentURL(clickedEmptySpace: clickedEmptySpace) else { return }
 
         sidebarLogger.info("contextMenuNewFolder: Creating new folder in '\(parentURL.lastPathComponent, privacy: .public)'")
 
@@ -1095,7 +857,7 @@ extension SidebarViewController: NSMenuDelegate {
         }
     }
 
-    @objc private func contextMenuRename(_ sender: Any?) {
+    @objc func renameSelectedSidebarItem(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first else { return }
 
@@ -1161,7 +923,7 @@ extension SidebarViewController: NSMenuDelegate {
         }
     }
 
-    @objc private func contextMenuDuplicate(_ sender: Any?) {
+    @objc func duplicateSelectedSidebarItems(_ sender: Any?) {
         let items = selectedItems()
         sidebarLogger.info("contextMenuDuplicate: Duplicating \(items.count) items")
         guard canWriteSidebarProjectOutputs(
@@ -1199,21 +961,21 @@ extension SidebarViewController: NSMenuDelegate {
     // MARK: - FASTQ Export
 
     /// Exports a FASTQ bundle to a standalone FASTQ file via NSSavePanel.
-    @objc private func contextMenuExportAlignment(_ sender: Any?) {
-        guard let url = (sender as? NSMenuItem)?.representedObject as? URL else { return }
+    @objc func exportSelectedSidebarAlignment(_ sender: Any?) {
+        guard let url = selectedItems().first(where: { $0.type.bundleCapabilities.canExportAlignment })?.url else { return }
         guard let viewer = (view.window?.windowController as? MainWindowController)?
             .mainSplitViewController?.viewerController else { return }
         viewer.presentMSAAlignmentExportSheet(bundleURL: url)
     }
 
-    @objc private func contextMenuExportFASTQ(_ sender: Any?) {
+    @objc func exportSelectedSidebarItemsAsFASTQ(_ sender: Any?) {
         // Delegate to the AppDelegate's exportFASTQ which handles single and multi-selection
         NSApp.sendAction(#selector(FileMenuActions.exportFASTQ(_:)), to: nil, from: sender)
     }
 
     // MARK: - Clone Metadata
 
-    @objc private func contextMenuCloneMetadata(_ sender: Any?) {
+    @objc func cloneMetadataForSelectedSidebarBundle(_ sender: Any?) {
         let targetItems = selectedItems().filter { $0.type == .fastqBundle }
         guard !targetItems.isEmpty else { return }
         guard canWriteSidebarProjectOutputs(

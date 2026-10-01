@@ -227,7 +227,7 @@ public class SidebarViewController: NSViewController {
     /// Last width recommendation posted to the split-view controller.
     private var lastRecommendedSidebarWidth: CGFloat = 0
 
-    /// Local event monitor for Delete and selection shortcuts.
+    /// Local event monitor for the plain Delete keys.
     private var keyEventMonitor: LocalEventMonitor?
 
     // MARK: - Delegate
@@ -441,12 +441,18 @@ public class SidebarViewController: NSViewController {
             object: nil
         )
 
-        // Set up key event monitoring for Delete key
+        // Plain Delete and Forward Delete move the selection to the Trash
+        // while the outline has focus, as in Finder. The chorded commands
+        // (Cmd-Delete, Cmd-Shift-N, Cmd-Shift-D, Cmd-Shift-A) are menu-bar
+        // items under Selection > Sidebar Item, validated against the
+        // outline's focus, so the monitor leaves anything with Command to
+        // the menu bar.
         keyEventMonitor = LocalEventMonitor(matching: .keyDown) { [weak self] event in
             guard let self = self,
                   let sidebarWindow = self.view.window,
                   event.window === sidebarWindow,  // Ensure event is for THIS window, not sheets
-                  sidebarWindow.firstResponder === self.outlineView else {
+                  sidebarWindow.firstResponder === self.outlineView,
+                  !event.modifierFlags.contains(.command) else {
                 return event
             }
 
@@ -454,13 +460,6 @@ public class SidebarViewController: NSViewController {
             if event.keyCode == 51 || event.keyCode == 117 {  // Backspace (51) or Delete (117)
                 self.deleteSelectedItems()
                 return nil  // Consume the event
-            }
-
-            // Cmd+Shift+A: Select All Siblings
-            if event.modifierFlags.contains([.command, .shift]),
-               event.charactersIgnoringModifiers?.lowercased() == "a" {
-                self.selectAllSiblings()
-                return nil
             }
 
             return event

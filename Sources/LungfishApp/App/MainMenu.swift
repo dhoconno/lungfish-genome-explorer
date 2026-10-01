@@ -489,13 +489,14 @@ public final class MainMenu {
         restorePanesItem.keyEquivalentModifierMask = [.command, .control, .option]
         restorePanesItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.restoreSidePanes)
 
-        // Document Inspector
-        let docInspectorItem = viewMenu.addItem(
+        // Document Inspector. Unbound: macOS reserves Cmd-Opt-D, its
+        // former chord, for showing and hiding the Dock (owner decision,
+        // 2026-09-30).
+        viewMenu.addItem(
             withTitle: "Document Inspector",
             action: #selector(ViewMenuActions.showDocumentInspector(_:)),
-            keyEquivalent: "d"
+            keyEquivalent: ""
         )
-        docInspectorItem.keyEquivalentModifierMask = [.command, .option]
 
         // Provenance Inspector: shows the Inspector on its Provenance tab so
         // the lineage of the selected result is reachable from the keyboard
@@ -512,13 +513,15 @@ public final class MainMenu {
 
         viewMenu.addItem(.separator())
 
-        // AI Assistant
+        // AI Assistant. Cmd-Opt-A, beside the other inspector chords;
+        // Cmd-Shift-A stays with the sidebar's Select Siblings (owner
+        // decision, 2026-09-30).
         let aiItem = viewMenu.addItem(
             withTitle: "AI Assistant",
             action: #selector(ViewMenuActions.showAIAssistant(_:)),
             keyEquivalent: "a"
         )
-        aiItem.keyEquivalentModifierMask = [.command, .shift]
+        aiItem.keyEquivalentModifierMask = [.command, .option]
 
         viewMenu.addItem(.separator())
 

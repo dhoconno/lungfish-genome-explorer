@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -106,6 +107,13 @@ extension SidebarViewController: NSOutlineViewDelegate {
             let detail = sidebarItem.url?.path ?? sidebarItem.title
             cellView?.toolTip = detail
             cellView?.textField?.toolTip = detail
+        }
+
+        // The row's commands as accessibility custom actions, so VoiceOver
+        // and AX-driven automation reach them without a secondary click.
+        // Reinstalled on every configure because cell views are reused.
+        if let cellView {
+            AccessibilityCellActions.install(accessibilityActions(for: sidebarItem, cellView: cellView), on: cellView)
         }
 
         return cellView
