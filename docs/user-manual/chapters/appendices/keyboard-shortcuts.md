@@ -252,6 +252,12 @@ The coordinate ruler above the sequence takes Cmd-0 for zoom to fit and Cmd-1 fo
 
 In the annotation table below the sequence, the up and down arrows move the selection and Return or Enter does what a double-click does. On the Annotations tab, selecting a row already recentres the viewport on it. On the Variants tab, selecting a row updates the Inspector and leaves the viewport where it is, so press Return to recentre the viewport on the selected variant.
 
+Every command the annotation table offers on a right-click also works without the mouse. With a row selected, **Selection > Table Row** holds the copy, extract and open commands for it, **Sequence > Edit Annotation...** and **Sequence > Delete Annotation** act on the selected annotation, and **Selection > Show in Inspector** (Cmd-Opt-S) shows it in the Inspector. VoiceOver lists the same commands as actions on the row, under the names the right-click menu uses, and lists the Profiles, Group Presets, haploid-mode and export buttons' menus as actions on those buttons.
+
+The chromosome list on the left of a reference bundle and the sequence table of a multi-sequence FASTA file follow the same pattern. The up and down arrows move the selection, Return or Enter jumps to the selected chromosome or opens the selected sequence, and **Selection > Table Row** holds the copy and extract commands for the selected rows.
+
+When several sequences are stacked, the track header on the left shows a disclosure triangle beside each sequence that has annotations. Press Tab until the header has focus, which draws a focus ring around a track, then Up Arrow and Down Arrow move the ring between tracks and Space or Return shows or hides that track's annotations. **View > Toggle Annotations for Selected Track** does the same for the focused track, or for the active sequence when the header does not have focus.
+
 ## Inside the BAM alignment viewport
 
 The BAM alignment viewport is the sequence viewport of a reference bundle that carries alignment tracks, such as the reference bundle inside a mapping result that [Reading an Alignment](../04-alignments/02-reading-an-alignment.md) opens. It is the same display, so every key in [Inside the sequence viewport](#inside-the-sequence-viewport) works here too. Click into the display first. The left and right arrows pan by 100 bases, the up and down arrows zoom, Cmd-plus, Cmd-minus, and Cmd-0 zoom in, zoom out, and zoom to fit, and Cmd-C and Cmd-A copy and select. Escape is most useful here, because this is where reads load. While they are being fetched Escape cancels the load, and otherwise it clears the selection.
@@ -276,7 +282,9 @@ The comparison matrix inside that window, where each cell is one allele in one s
 
 ## Inside a classifier result window
 
-The TaxTriage sample shortcuts live in the View menu, listed above. In the taxonomy sunburst, the circular chart of nested organism groups, Escape steps back up one level, from the group you zoomed into to the broader group around it, and Cmd-0 returns to the full chart in one press. Cmd-0 there is **View > Zoom to Fit**, which LGE hands to the chart. Click the chart first.
+The TaxTriage sample shortcuts live in the View menu, listed above. In the taxonomy sunburst, the circular chart of nested organism groups, Escape steps back up one level, from the group you zoomed into to the broader group around it, and Cmd-0 returns to the full chart in one press. Cmd-0 there is **View > Zoom to Fit**, which LGE hands to the chart. Click the chart first. VoiceOver offers the chart a Zoom In action, into the selected group, and a Zoom Out action, one level up, while each applies.
+
+In the taxonomy table, with a row selected, **Selection > Table Row** holds **Extract Reads...**, **Verify with BLAST...**, **Copy Name**, and the NCBI and PubMed links for that taxon, and **View > Expand All** (Cmd-Shift-Right Arrow) and **View > Collapse All** (Cmd-Shift-Left Arrow) open and close the whole tree. VoiceOver lists the row's right-click commands as actions on the row.
 
 ## Inside the sidebar
 
@@ -405,6 +413,10 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Arrow keys | Pan sideways, zoom up and down | Sequence and BAM alignment viewports |
 | Arrow keys | Move the selection, Shift extends it | MSA viewport |
 | Return | Recentre the viewport on the selected row | Annotation table |
+| Return | Jump to the selected chromosome | Chromosome list |
+| Return | Open the selected sequence | FASTA collection table |
+| Space or Return | Show or hide the focused track's annotations | Track header |
+| Up and Down arrows | Move the focus ring between tracks | Track header |
 | Opt-Right Arrow | Expand the selected row recursively | Taxonomy table |
 | Cmd-Shift-Right Arrow | Expand All | View menu, taxonomy table |
 | Cmd-Shift-Left Arrow | Collapse All | View menu, taxonomy table |
