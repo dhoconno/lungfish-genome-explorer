@@ -45,7 +45,7 @@ import LungfishKit
 /// }
 /// ```
 @MainActor
-public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation, ColumnFilterMenuHost {
+public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation, ColumnFilterMenuHost, ResultRowMenuActions, OutlineExpandCollapseActions {
 
     /// Shared column-header sort/filter menu (see `LungfishKit.ColumnHeaderFilterMenu`).
     private lazy var columnHeaderFilterMenuController = ColumnHeaderFilterMenu(host: self)
@@ -881,88 +881,202 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         return items
     }
 
-    // MARK: - Context Menu
+    // MARK: - Row Commands
+
+    /// One command of the row menus: a shared ``ResultRowCommand`` or the
+    /// EsViritu-only Assembly Record lookup. The context menu, Selection >
+    /// Table Row validation and each row's accessibility actions all read
+    /// ``availableRowActions(for:)``, so they list the same commands under
+    /// the same titles.
+    enum RowAction: Hashable {
+        case command(ResultRowCommand)
+        case openAssembly
+
+        var title: String {
+            switch self {
+            case .command(let command): return command.title
+            case .openAssembly: return "Open Assembly Record"
+            }
+        }
+
+        var selector: Selector {
+            switch self {
+            case .command(let command): return command.menuSelector
+            case .openAssembly: return #selector(ViralDetectionTableView.openSelectedRowAssembly(_:))
+            }
+        }
+
+        static func action(for selector: Selector?) -> RowAction? {
+            guard let selector else { return nil }
+            if selector == #selector(ViralDetectionTableView.openSelectedRowAssembly(_:)) { return .openAssembly }
+            return ResultRowCommand.command(for: selector).map(RowAction.command)
+        }
+    }
+
+    /// The commands that apply to `items`, in menu order. Extract Reads takes
+    /// any selection. Every other command acts on exactly one row.
+    func availableRowActions(for items: [Any]) -> [RowAction] {
+        guard !items.isEmpty else { return [] }
+        var actions: [RowAction] = [.command(.extractReads)]
+        guard items.count == 1, let item = items.first, rowSubject(for: item) != nil else { return actions }
+        actions.append(.command(.blastVerify))
+        if genBankAccession(for: item) != nil { actions.append(.command(.openGenBank)) }
+        actions.append(.openAssembly)
+        actions.append(contentsOf: [
+            .command(.searchPubMed), .command(.openTaxonomyOnNCBI),
+            .command(.copyName), .command(.copyAccession), .command(.copyAsTSV),
+        ])
+        return actions
+    }
+
+    private struct RowSubject {
+        let name: String
+        let accession: String
+        let assembly: String
+        let taxonomyName: String
+        let tsvFields: [String]
+    }
+
+    private func rowSubject(for item: Any) -> RowSubject? {
+        if let assemblyItem = item as? ViralAssemblyItem {
+            let a = assemblyItem.assembly
+            return RowSubject(
+                name: a.name,
+                accession: a.assembly,
+                assembly: a.assembly,
+                taxonomyName: a.name,
+                tsvFields: [
+                    a.name, a.assembly, a.family ?? "", a.genus ?? "", a.species ?? "",
+                    "\(a.totalReads)", String(format: "%.2f", a.rpkmf),
+                    String(format: "%.2f", a.meanCoverage), String(format: "%.2f", a.avgReadIdentity),
+                    "\(a.contigs.count) segments", "\(a.assemblyLength)",
+                ]
+            )
+        }
+        if let detectionItem = item as? ViralDetectionItem {
+            let d = detectionItem.detection
+            return RowSubject(
+                name: d.name,
+                accession: d.accession,
+                assembly: d.assembly,
+                taxonomyName: d.species ?? d.name,
+                tsvFields: [
+                    d.name, d.accession, d.family ?? "", d.genus ?? "", d.species ?? "",
+                    "\(d.readCount)", String(format: "%.2f", d.rpkmf),
+                    String(format: "%.2f", d.meanCoverage), String(format: "%.2f", d.avgReadIdentity),
+                    d.segment ?? "", "\(d.length)",
+                ]
+            )
+        }
+        return nil
+    }
+
+    private func genBankAccession(for item: Any) -> String? {
+        if let detectionItem = item as? ViralDetectionItem { return detectionItem.detection.accession }
+        if let assemblyItem = item as? ViralAssemblyItem { return assemblyItem.assembly.contigs.first?.accession }
+        return nil
+    }
+
+    /// The items a menu command acts on. A context-menu command acts on the
+    /// clicked row, or on the whole selection when the clicked row is part of
+    /// it. A menu-bar command or accessibility action acts on the selection,
+    /// because `clickedRow` outlives the click that set it.
+    private func commandTargets(sender: Any?) -> [Any] {
+        let selected = selectedVisibleItemsByIdentity()
+        guard let menuItem = sender as? NSMenuItem,
+              ResultRowMenuValidation.isContextMenuItem(menuItem, in: [outlineView.menu]) else {
+            return selected
+        }
+        let clicked = outlineView.clickedRow
+        guard clicked >= 0, let clickedItem = outlineView.item(atRow: clicked) else { return selected }
+        if outlineView.selectedRowIndexes.contains(clicked), !selected.isEmpty { return selected }
+        return [clickedItem]
+    }
 
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
 
-        menu.addItem(withTitle: "Extract Reads\u{2026}",
-                     action: #selector(contextExtractReads(_:)),
-                     keyEquivalent: "")
+        func add(_ action: RowAction, to target: NSMenu, image: String? = nil) {
+            let item = NSMenuItem(title: action.title, action: action.selector, keyEquivalent: "")
+            item.target = self
+            if let image {
+                item.image = NSImage(systemSymbolName: image, accessibilityDescription: action.title)
+            }
+            target.addItem(item)
+        }
 
+        add(.command(.extractReads), to: menu)
+        menu.addItem(.separator())
+        add(.command(.blastVerify), to: menu, image: "bolt.circle")
         menu.addItem(.separator())
 
-        let blastItem = NSMenuItem(
-            title: "BLAST Verify\u{2026}",
-            action: #selector(contextBlastVerify(_:)),
-            keyEquivalent: ""
-        )
-        blastItem.image = NSImage(systemSymbolName: "bolt.circle", accessibilityDescription: "BLAST")
-        menu.addItem(blastItem)
-
-        menu.addItem(.separator())
-
-        // NCBI links
         let ncbiSubmenu = NSMenu()
-        ncbiSubmenu.addItem(withTitle: "GenBank Accession",
-                            action: #selector(contextOpenGenBank(_:)),
-                            keyEquivalent: "")
-        ncbiSubmenu.addItem(withTitle: "Assembly Record",
-                            action: #selector(contextOpenAssembly(_:)),
-                            keyEquivalent: "")
-        ncbiSubmenu.addItem(withTitle: "PubMed Literature",
-                            action: #selector(contextOpenPubMed(_:)),
-                            keyEquivalent: "")
-        ncbiSubmenu.addItem(withTitle: "Taxonomy Browser",
-                            action: #selector(contextOpenTaxonomy(_:)),
-                            keyEquivalent: "")
+        add(.command(.openGenBank), to: ncbiSubmenu)
+        add(.openAssembly, to: ncbiSubmenu)
+        add(.command(.searchPubMed), to: ncbiSubmenu)
+        add(.command(.openTaxonomyOnNCBI), to: ncbiSubmenu)
         let ncbiItem = NSMenuItem(title: "Look Up on NCBI", action: nil, keyEquivalent: "")
         ncbiItem.submenu = ncbiSubmenu
         ncbiItem.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "NCBI")
         menu.addItem(ncbiItem)
-
         menu.addItem(.separator())
 
-        menu.addItem(withTitle: "Copy Virus Name",
-                     action: #selector(contextCopyName(_:)),
-                     keyEquivalent: "")
-        menu.addItem(withTitle: "Copy Accession",
-                     action: #selector(contextCopyAccession(_:)),
-                     keyEquivalent: "")
-        menu.addItem(withTitle: "Copy Row as TSV",
-                     action: #selector(contextCopyRowTSV(_:)),
-                     keyEquivalent: "")
-
+        add(.command(.copyName), to: menu)
+        add(.command(.copyAccession), to: menu)
+        add(.command(.copyAsTSV), to: menu)
         menu.addItem(.separator())
 
-        menu.addItem(withTitle: "Expand All",
-                     action: #selector(contextExpandAll(_:)),
-                     keyEquivalent: "")
-        menu.addItem(withTitle: "Collapse All",
-                     action: #selector(contextCollapseAll(_:)),
-                     keyEquivalent: "")
-
+        for (title, selector) in [
+            ("Expand All", #selector(OutlineExpandCollapseActions.expandAllOutlineItems(_:))),
+            ("Collapse All", #selector(OutlineExpandCollapseActions.collapseAllOutlineItems(_:))),
+        ] {
+            let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
         return menu
     }
 
     // MARK: - Menu Item Validation
 
+    /// The context menu follows the selection (or the clicked row). The
+    /// menu-bar items, Selection > Table Row and View > Expand All, are
+    /// enabled only while the outline has keyboard focus.
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(contextBlastVerify(_:)) {
-            // BLAST Verify requires exactly one selected row
-            return outlineView.clickedRow >= 0 && selectedVisibleItemsByIdentity().count <= 1
+        guard let action = menuItem.action else { return true }
+        if action == #selector(OutlineExpandCollapseActions.expandAllOutlineItems(_:))
+            || action == #selector(OutlineExpandCollapseActions.collapseAllOutlineItems(_:)) {
+            return ResultRowMenuValidation.isReachable(menuItem, table: outlineView)
         }
-        if menuItem.action == #selector(contextExtractReads(_:)) {
-            // Extract Reads is a no-op on empty selection — disable instead
-            // of presenting a blank dialog.
-            return hasVisibleIdentitySelection() || outlineView.clickedRow >= 0
-        }
-        return true
+        guard let rowAction = RowAction.action(for: action) else { return true }
+        guard ResultRowMenuValidation.isReachable(menuItem, table: outlineView) else { return false }
+        return availableRowActions(for: commandTargets(sender: menuItem)).contains(rowAction)
     }
 
-    // MARK: - Context Menu Actions
+    // MARK: - Row Accessibility Actions
 
-    @objc private func contextExtractReads(_ sender: Any?) {
+    /// The accessibility custom actions of the row showing `item`: every
+    /// single-row command its context menu offers, named the same. The
+    /// handlers resolve the row from `cellView` when they run and select it
+    /// first, so the shared handlers act on it through the selection.
+    private func accessibilityActions(for item: Any, cellView: NSView) -> [NSAccessibilityCustomAction] {
+        availableRowActions(for: [item]).map { rowAction in
+            AccessibilityCellActions.makeAction(name: rowAction.title) { [weak self, weak cellView] in
+                guard let self, let cellView,
+                      let row = AccessibilityCellActions.currentRow(of: cellView) else { return }
+                self.performRowAction(rowAction, onRow: row)
+            }
+        }
+    }
+
+    private func performRowAction(_ rowAction: RowAction, onRow row: Int) {
+        selectClickedRowForContextMenuIfNeeded(row)
+        _ = NSApp.sendAction(rowAction.selector, to: self, from: nil)
+    }
+
+    // MARK: - Menu Handlers
+
+    @objc public func extractReadsForSelectedRows(_ sender: Any?) {
         if !hasVisibleIdentitySelection(), outlineView.clickedRow >= 0 {
             selectClickedRowForContextMenuIfNeeded(outlineView.clickedRow)
         }
@@ -1017,150 +1131,75 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         popover.show(relativeTo: rowRect, of: outlineView, preferredEdge: .maxY)
     }
 
-    @objc private func contextBlastVerify(_ sender: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0 else { return }
-        selectClickedRowForContextMenuIfNeeded(row)
+    @objc public func blastVerifySelectedRow(_ sender: Any?) {
+        let targets = commandTargets(sender: sender)
+        guard targets.count == 1 else { return }
+        if outlineView.selectedRowIndexes.count != 1 || !hasVisibleIdentitySelection() {
+            selectClickedRowForContextMenuIfNeeded(outlineView.clickedRow)
+        }
         showBlastPopoverForSelectedRow()
     }
 
-    @objc private func contextCopyName(_ sender: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0 else { return }
-        let name: String
-        let item = outlineView.item(atRow: row)
-        if let assemblyItem = item as? ViralAssemblyItem {
-            name = assemblyItem.assembly.name
-        } else if let detectionItem = item as? ViralDetectionItem {
-            name = detectionItem.detection.name
-        } else {
-            return
-        }
+    private func writeToPasteboard(_ string: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(name, forType: .string)
+        NSPasteboard.general.setString(string, forType: .string)
     }
 
-    @objc private func contextCopyAccession(_ sender: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0 else { return }
-        let accession: String
-        let item = outlineView.item(atRow: row)
-        if let assemblyItem = item as? ViralAssemblyItem {
-            accession = assemblyItem.assembly.assembly
-        } else if let detectionItem = item as? ViralDetectionItem {
-            accession = detectionItem.detection.accession
-        } else {
-            return
-        }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(accession, forType: .string)
+    private func singleSubject(_ sender: Any?) -> (item: Any, subject: RowSubject)? {
+        let targets = commandTargets(sender: sender)
+        guard targets.count == 1, let item = targets.first, let subject = rowSubject(for: item) else { return nil }
+        return (item, subject)
     }
 
-    @objc private func contextOpenGenBank(_ sender: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0 else { return }
-        let item = outlineView.item(atRow: row)
-        let accession: String
-        if let detectionItem = item as? ViralDetectionItem {
-            accession = detectionItem.detection.accession
-        } else if let assemblyItem = item as? ViralAssemblyItem,
-                  let first = assemblyItem.assembly.contigs.first {
-            accession = first.accession
-        } else {
-            return
-        }
-        if let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(accession)") {
-            NSWorkspace.shared.open(url)
-        }
+    private func open(_ urlString: String) {
+        if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
     }
 
-    @objc private func contextOpenAssembly(_ sender: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0 else { return }
-        let item = outlineView.item(atRow: row)
-        let assembly: String
-        if let assemblyItem = item as? ViralAssemblyItem {
-            assembly = assemblyItem.assembly.assembly
-        } else if let detectionItem = item as? ViralDetectionItem {
-            assembly = detectionItem.detection.assembly
-        } else {
-            return
-        }
-        if let url = URL(string: "https://www.ncbi.nlm.nih.gov/datasets/genome/\(assembly)/") {
-            NSWorkspace.shared.open(url)
-        }
+    private func encoded(_ text: String) -> String {
+        text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
     }
 
-    @objc private func contextOpenPubMed(_ sender: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0 else { return }
-        let item = outlineView.item(atRow: row)
-        let name: String
-        if let assemblyItem = item as? ViralAssemblyItem {
-            name = assemblyItem.assembly.name
-        } else if let detectionItem = item as? ViralDetectionItem {
-            name = detectionItem.detection.name
-        } else {
-            return
-        }
-        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
-        if let url = URL(string: "https://pubmed.ncbi.nlm.nih.gov/?term=\(encoded)") {
-            NSWorkspace.shared.open(url)
-        }
+    @objc public func copySelectedRowName(_ sender: Any?) {
+        guard let (_, subject) = singleSubject(sender) else { return }
+        writeToPasteboard(subject.name)
     }
 
-    @objc private func contextOpenTaxonomy(_ sender: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0 else { return }
-        let item = outlineView.item(atRow: row)
-        let name: String
-        if let assemblyItem = item as? ViralAssemblyItem {
-            name = assemblyItem.assembly.name
-        } else if let detectionItem = item as? ViralDetectionItem {
-            name = detectionItem.detection.species ?? detectionItem.detection.name
-        } else {
-            return
-        }
-        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
-        if let url = URL(string: "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?name=\(encoded)") {
-            NSWorkspace.shared.open(url)
-        }
+    @objc public func copySelectedRowAccession(_ sender: Any?) {
+        guard let (_, subject) = singleSubject(sender) else { return }
+        writeToPasteboard(subject.accession)
     }
 
-    @objc private func contextCopyRowTSV(_ sender: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0 else { return }
-        let item = outlineView.item(atRow: row)
-        let fields: [String]
-        if let assemblyItem = item as? ViralAssemblyItem {
-            let a = assemblyItem.assembly
-            fields = [
-                a.name, a.assembly, a.family ?? "", a.genus ?? "", a.species ?? "",
-                "\(a.totalReads)", String(format: "%.2f", a.rpkmf),
-                String(format: "%.2f", a.meanCoverage), String(format: "%.2f", a.avgReadIdentity),
-                "\(a.contigs.count) segments", "\(a.assemblyLength)",
-            ]
-        } else if let detectionItem = item as? ViralDetectionItem {
-            let d = detectionItem.detection
-            fields = [
-                d.name, d.accession, d.family ?? "", d.genus ?? "", d.species ?? "",
-                "\(d.readCount)", String(format: "%.2f", d.rpkmf),
-                String(format: "%.2f", d.meanCoverage), String(format: "%.2f", d.avgReadIdentity),
-                d.segment ?? "", "\(d.length)",
-            ]
-        } else {
-            return
-        }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(fields.joined(separator: "\t"), forType: .string)
+    @objc public func copySelectedRowAsTSV(_ sender: Any?) {
+        guard let (_, subject) = singleSubject(sender) else { return }
+        writeToPasteboard(subject.tsvFields.joined(separator: "\t"))
     }
 
-    @objc private func contextExpandAll(_ sender: Any?) {
-        outlineView.expandItem(nil, expandChildren: true)
+    @objc public func openSelectedRowGenBank(_ sender: Any?) {
+        guard let (item, _) = singleSubject(sender), let accession = genBankAccession(for: item) else { return }
+        open("https://www.ncbi.nlm.nih.gov/nuccore/\(accession)")
     }
 
-    @objc private func contextCollapseAll(_ sender: Any?) {
-        outlineView.collapseItem(nil, collapseChildren: true)
+    @objc public func openSelectedRowAssembly(_ sender: Any?) {
+        guard let (_, subject) = singleSubject(sender) else { return }
+        open("https://www.ncbi.nlm.nih.gov/datasets/genome/\(subject.assembly)/")
+    }
+
+    @objc public func searchPubMedForSelectedRow(_ sender: Any?) {
+        guard let (_, subject) = singleSubject(sender) else { return }
+        open("https://pubmed.ncbi.nlm.nih.gov/?term=\(encoded(subject.name))")
+    }
+
+    @objc public func openSelectedRowTaxonomyOnNCBI(_ sender: Any?) {
+        guard let (_, subject) = singleSubject(sender) else { return }
+        open("https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?name=\(encoded(subject.taxonomyName))")
+    }
+
+    @objc public func expandAllOutlineItems(_ sender: Any?) {
+        expandAll()
+    }
+
+    @objc public func collapseAllOutlineItems(_ sender: Any?) {
+        collapseAll()
     }
 
     // MARK: - Public Expand/Collapse
@@ -1340,17 +1379,23 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                 in: outlineView,
                 sampleId: rowSampleId ?? metadataColumns.currentSampleId
             ) {
+                AccessibilityCellActions.install(accessibilityActions(for: item, cellView: cell), on: cell)
                 return cell
             }
         }
 
+        let cell: NSView?
         if let assemblyItem = item as? ViralAssemblyItem {
-            return cellForAssembly(assemblyItem.assembly, columnID: colID)
+            cell = cellForAssembly(assemblyItem.assembly, columnID: colID)
+        } else if let detectionItem = item as? ViralDetectionItem {
+            cell = cellForDetection(detectionItem.detection, columnID: colID)
+        } else {
+            cell = nil
         }
-        if let detectionItem = item as? ViralDetectionItem {
-            return cellForDetection(detectionItem.detection, columnID: colID)
+        if let cell {
+            AccessibilityCellActions.install(accessibilityActions(for: item, cellView: cell), on: cell)
         }
-        return nil
+        return cell
     }
 
     public func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -1977,10 +2022,10 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         outlineView.selectRowIndexes(IndexSet(indices), byExtendingSelection: false)
     }
 
-    /// Test-only: fires `contextExtractReads(_:)` directly so I3 tests can
+    /// Test-only: fires `extractReadsForSelectedRows(_:)` directly so I3 tests can
     /// verify the menu-click wiring without synthesizing AppKit events.
     public func simulateContextMenuExtractReads() {
-        contextExtractReads(nil)
+        extractReadsForSelectedRows(nil)
     }
 
     private static var _testingStubKey: UInt8 = 0

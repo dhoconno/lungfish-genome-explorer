@@ -237,7 +237,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishTwelveSUITests",
-            dependencies: ["LungfishTwelveSUI", "LungfishKit"],
+            dependencies: ["LungfishTwelveSUI", "LungfishKit", "LungfishTestSupport"],
             path: "Tests/LungfishTwelveSUITests"
         ),
 
@@ -288,7 +288,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishNvdUITests",
-            dependencies: ["LungfishNvdUI", "LungfishKit"],
+            dependencies: ["LungfishNvdUI", "LungfishKit", "LungfishTestSupport"],
             path: "Tests/LungfishNvdUITests"
         ),
 
@@ -305,7 +305,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishNaoMgsUITests",
-            dependencies: ["LungfishNaoMgsUI", "LungfishKit"],
+            dependencies: ["LungfishNaoMgsUI", "LungfishKit", "LungfishTestSupport"],
             path: "Tests/LungfishNaoMgsUITests"
         ),
 
@@ -322,7 +322,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishTaxTriageUITests",
-            dependencies: ["LungfishTaxTriageUI", "LungfishKit"],
+            dependencies: ["LungfishTaxTriageUI", "LungfishKit", "LungfishTestSupport"],
             path: "Tests/LungfishTaxTriageUITests"
         ),
 
@@ -339,7 +339,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishEsVirituUITests",
-            dependencies: ["LungfishEsVirituUI", "LungfishKit"],
+            dependencies: ["LungfishEsVirituUI", "LungfishKit", "LungfishTestSupport"],
             path: "Tests/LungfishEsVirituUITests"
         ),
 
@@ -373,7 +373,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishPhylogeneticsUITests",
-            dependencies: ["LungfishPhylogeneticsUI", "LungfishKit", "LungfishIO", "LungfishWorkflow"],
+            dependencies: ["LungfishPhylogeneticsUI", "LungfishKit", "LungfishIO", "LungfishWorkflow", "LungfishTestSupport"],
             path: "Tests/LungfishPhylogeneticsUITests"
         ),
 
