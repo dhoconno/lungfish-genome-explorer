@@ -990,6 +990,110 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.copyableText.contains("clumpify.sh"), viewModel.copyableText)
     }
 
+    /// A record a development build wrote under another machine's project
+    /// root, read from a copy of that project: files that still exist here
+    /// read as project-relative, vanished intermediates are named as such,
+    /// an input outside the project shows its name, an index gets a format,
+    /// and the version a dev build stamped reads as a development build.
+    func testForeignRecordPresentsProjectRelativePathsAndDevelopmentBuild() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let project = dir.appendingPathComponent("HG002 chr20.lungfish", isDirectory: true)
+        let imports = project.appendingPathComponent("Imports/reads.lungfishfastq", isDirectory: true)
+        let analysis = project.appendingPathComponent("Analyses/minimap2-1", isDirectory: true)
+        let mapped = analysis.appendingPathComponent("ref.lungfishref/alignments/mapped", isDirectory: true)
+        for folder in [imports, mapped] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        try Data("@r\nACGT\n+\n!!!!\n".utf8).write(to: imports.appendingPathComponent("reads.fastq.gz"))
+        try Data("bam".utf8).write(to: mapped.appendingPathComponent("aln_1.bam"))
+        try Data("bai".utf8).write(to: mapped.appendingPathComponent("aln_1.bam.bai"))
+
+        let foreign = "/tmp/lge-demo-build/projects/Human Mapping.lungfish"
+        let sha = String(repeating: "a", count: 64)
+        func descriptor(_ path: String, _ role: FileRole, _ format: FileFormat?) -> ProvenanceFileDescriptor {
+            ProvenanceFileDescriptor(path: path, checksumSHA256: sha, fileSize: 3, format: format, role: role)
+        }
+        let reads = descriptor("\(foreign)/Imports/reads.lungfishfastq/reads.fastq.gz", .input, .fastq)
+        let external = descriptor("/Volumes/Data/HG002_R1.fastq.gz", .input, .fastq)
+        let rawSAM = descriptor("\(foreign)/Analyses/minimap2-1/reads.raw.sam", .output, .sam)
+        let bam = descriptor("\(foreign)/Analyses/minimap2-1/ref.lungfishref/alignments/mapped/aln_1.bam", .output, .bam)
+        let bai = descriptor("\(foreign)/Analyses/minimap2-1/ref.lungfishref/alignments/mapped/aln_1.bam.bai", .index, .unknown)
+        let envelope = ProvenanceEnvelope(
+            workflowName: "lungfish map",
+            workflowVersion: "Lungfish dev (0)",
+            toolName: "lungfish map",
+            toolVersion: "Lungfish dev (0)",
+            argv: ["minimap2", "-a", reads.path],
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            files: [reads, external, rawSAM, bam, bai],
+            output: bam,
+            outputs: [bam, bai],
+            steps: [
+                ProvenanceStep(
+                    toolName: "minimap2", toolVersion: "2.31", argv: ["minimap2", "-a", reads.path],
+                    inputs: [reads, external], outputs: [rawSAM], exitStatus: 0, wallTimeSeconds: 1
+                ),
+                ProvenanceStep(
+                    toolName: "lungfish map", toolVersion: "Lungfish dev (0)", argv: ["lungfish-internal", "adopt"],
+                    inputs: [rawSAM], outputs: [bam, bai], exitStatus: 0, wallTimeSeconds: 1
+                ),
+            ],
+            wallTimeSeconds: 2, exitStatus: 0, stderr: ""
+        )
+        // Written as bytes, the way records older than the path sanitizer are
+        // on disk: the writer would otherwise rewrite the foreign root.
+        try ProvenanceJSON.encoder.encode(envelope)
+            .write(to: analysis.appendingPathComponent(".lungfish-provenance.json"))
+
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(item: ProvenanceInspectableItem(
+            url: analysis, sidebarType: .analysisResult, contentMode: .mapping, displayName: "minimap2-1"
+        ))
+        try await waitUntilLoadCompletes(viewModel)
+
+        XCTAssertEqual(viewModel.summary.workflowVersion, "Lungfish (development build)")
+        XCTAssertEqual(viewModel.summary.toolVersion, "(development build)")
+        XCTAssertEqual(viewModel.summary.sidecarDisplayPath, "Analyses/minimap2-1/.lungfish-provenance.json")
+        XCTAssertEqual(viewModel.summary.sidecarPath, analysis.appendingPathComponent(".lungfish-provenance.json").path)
+
+        func row(_ suffix: String) throws -> ProvenanceFileRow {
+            try XCTUnwrap(viewModel.fileRows.first { $0.path.hasSuffix(suffix) }, "no row ends with \(suffix): \(viewModel.fileRows.map(\.path))")
+        }
+        // The FASTQ input collapses into its bundle row, shown project-relative.
+        let readsRow = try row("reads.lungfishfastq")
+        XCTAssertEqual(readsRow.displayPath, "Imports/reads.lungfishfastq")
+        XCTAssertNil(readsRow.detail)
+        XCTAssertEqual(readsRow.accessibilityValue, imports.path)
+
+        let samRow = try row("reads.raw.sam")
+        XCTAssertEqual(samRow.displayPath, "Analyses/minimap2-1/reads.raw.sam")
+        XCTAssertEqual(samRow.detail, "intermediate file, not kept")
+        XCTAssertTrue(samRow.accessibilityValue.contains(rawSAM.path), samRow.accessibilityValue)
+        XCTAssertFalse(samRow.displayPath.contains("/tmp/lge-demo-build"))
+
+        let externalRow = try row("HG002_R1.fastq.gz")
+        XCTAssertEqual(externalRow.displayPath, "HG002_R1.fastq.gz")
+        XCTAssertEqual(externalRow.detail, "outside the project")
+        XCTAssertTrue(externalRow.accessibilityValue.contains("/Volumes/Data/HG002_R1.fastq.gz"))
+
+        XCTAssertEqual(try row("aln_1.bam.bai").format, "BAM index")
+        XCTAssertEqual(try row("aln_1.bam").format, "BAM")
+
+        let run = try XCTUnwrap(viewModel.lineageRuns.last)
+        XCTAssertEqual(run.subtitle, "lungfish map (development build)")
+        XCTAssertEqual(run.steps.map(\.toolVersion), ["v2.31", "(development build)"])
+        XCTAssertEqual(run.steps[1].inputPathLabels, ["Analyses/minimap2-1/reads.raw.sam (intermediate file, not kept)"])
+        XCTAssertEqual(run.steps[1].inputPaths, [rawSAM.path])
+        XCTAssertEqual(run.steps[0].inputPathLabels.last, "HG002_R1.fastq.gz (outside the project)")
+        XCTAssertEqual(run.steps[1].outputPathLabels.first, "Analyses/minimap2-1/ref.lungfishref/alignments/mapped/aln_1.bam")
+
+        XCTAssertFalse(viewModel.copyableText.contains("dev (0)"), viewModel.copyableText)
+        XCTAssertTrue(viewModel.copyableText.contains("Lungfish (development build)"), viewModel.copyableText)
+        XCTAssertTrue(viewModel.copyableText.contains("Sidecar: Analyses/minimap2-1/.lungfish-provenance.json"), viewModel.copyableText)
+        XCTAssertTrue(viewModel.copyableText.contains("Format: BAM index"), viewModel.copyableText)
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("provenance-inspector-\(UUID().uuidString)", isDirectory: true)

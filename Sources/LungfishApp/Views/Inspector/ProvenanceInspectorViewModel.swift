@@ -311,7 +311,10 @@ struct ProvenanceRunSummary: Equatable {
     var createdAt: Date?
     var schemaVersion: Int?
     var runID: UUID?
+    /// The sidecar's recorded path, for the copy text, help and accessibility.
     var sidecarPath: String?
+    /// The sidecar's path relative to the project it lies in, for display.
+    var sidecarDisplayPath: String?
     var statusLabel: String = "No provenance required"
     var exitStatus: Int?
     var wallTimeSeconds: TimeInterval?
@@ -334,8 +337,14 @@ struct ProvenanceLineageStep: Identifiable, Equatable {
     var toolName: String
     var toolVersion: String
     var command: String
+    /// Recorded paths, for the copy text, help and accessibility.
     var inputPaths: [String]
     var outputPaths: [String]
+    /// The same paths as the Inspector shows them: project-relative, a file
+    /// name for a file outside the project, with a note on a vanished
+    /// intermediate. Equal in count to `inputPaths` and `outputPaths`.
+    var inputPathLabels: [String] = []
+    var outputPathLabels: [String] = []
     var exitStatus: Int?
     var wallTimeSeconds: TimeInterval?
     var stderr: String?
@@ -345,7 +354,9 @@ struct ProvenanceLineageStep: Identifiable, Equatable {
 struct ProvenanceFileRow: Identifiable, Equatable {
     var id: String { "\(role)|\(path)" }
     var role: String
+    /// The recorded path, kept whole for the copy text, help and accessibility.
     var path: String
+    /// The path as shown: project-relative inside the project, the file name outside it.
     var displayPath: String
     var checksumSHA256: String?
     var fileSize: UInt64?
@@ -355,6 +366,17 @@ struct ProvenanceFileRow: Identifiable, Equatable {
     var sourceProvenancePath: String?
     var searchText: String = ""
     var isCollapsedGroup: Bool = false
+    /// Where the file is when that is not simply "in this project":
+    /// `intermediate file, not kept`, `outside the project`.
+    var detail: String? = nil
+
+    /// The tooltip and accessibility value: the note, then the recorded path.
+    var helpText: String {
+        guard let detail, let first = detail.first else { return path }
+        return "\(first.uppercased())\(detail.dropFirst()). \(path)"
+    }
+
+    var accessibilityValue: String { helpText }
 }
 
 struct ProvenanceOptionRow: Identifiable, Equatable {
@@ -694,6 +716,9 @@ final class ProvenanceInspectorViewModel {
         sidecarURL: URL,
         upstreamRuns: [ProvenanceUpstreamRun] = []
     ) {
+        // Paths are shown relative to the project the sidecar lies in; the
+        // recorded path stays in the copy text, the tooltip and accessibility.
+        let projectURL = PortablePath.anchors(for: sidecarURL).project
         let deduplicatedDescriptors = deduplicatedFileDescriptors(allFileDescriptors(in: envelope))
         let fastqPresentation = ProvenanceFASTQBundlePresentation(
             envelope: envelope,
@@ -701,21 +726,26 @@ final class ProvenanceInspectorViewModel {
         )
         let completeFileRows = buildFileRows(
             deduplicatedDescriptors,
-            fastqPresentation: fastqPresentation
+            fastqPresentation: fastqPresentation,
+            projectURL: projectURL
         )
         let presentationWarnings = largeRecordWarningRows(
             fileRowCount: deduplicatedDescriptors.count,
             envelope: envelope
         )
+        let toolIdentity = ProvenanceToolIdentityText.parse(toolName: envelope.toolName, toolVersion: envelope.toolVersion)
         summary = ProvenanceRunSummary(
             workflowName: envelope.workflowName,
-            workflowVersion: envelope.workflowVersion,
+            workflowVersion: envelope.workflowVersion.isBlankOrUnknown
+                ? envelope.workflowVersion
+                : ProvenanceToolIdentityText.appVersionLabel(envelope.workflowVersion),
             toolName: envelope.toolName,
-            toolVersion: envelope.toolVersion,
+            toolVersion: envelope.toolVersion.isBlankOrUnknown ? "" : toolIdentity.displayVersion,
             createdAt: envelope.createdAt,
             schemaVersion: envelope.schemaVersion,
             runID: envelope.id,
             sidecarPath: sidecarURL.path,
+            sidecarDisplayPath: ProvenancePathPresentation.present(sidecarURL.path, projectURL: projectURL).label,
             statusLabel: audit.status == .present ? "Complete" : audit.status.rawValue.capitalized,
             exitStatus: envelope.exitStatus,
             wallTimeSeconds: envelope.wallTimeSeconds,
@@ -728,8 +758,8 @@ final class ProvenanceInspectorViewModel {
             + stepWarningRows(for: envelope)
             + fastqPresentation.warningRows()
             + presentationWarnings
-        lineageRuns = upstreamRuns.map { lineageRun(for: $0.envelope, fastqPresentation: nil) }
-            + [lineageRun(for: envelope, fastqPresentation: fastqPresentation)]
+        lineageRuns = upstreamRuns.map { lineageRun(for: $0.envelope, fastqPresentation: nil, projectURL: projectURL) }
+            + [lineageRun(for: envelope, fastqPresentation: fastqPresentation, projectURL: projectURL)]
         fileRows = Array(completeFileRows.prefix(Self.maximumDisplayedFileRows))
         optionRows = buildOptionRows(envelope.options)
         runtimeRows = buildRuntimeRows(envelope.runtimeIdentity)
@@ -743,7 +773,8 @@ final class ProvenanceInspectorViewModel {
     /// spelt as a reader should see it (`bcftools v1.24`, never `vLungfish dev (0)`).
     private func lineageRun(
         for envelope: ProvenanceEnvelope,
-        fastqPresentation: ProvenanceFASTQBundlePresentation?
+        fastqPresentation: ProvenanceFASTQBundlePresentation?,
+        projectURL: URL?
     ) -> ProvenanceLineageRun {
         let identity = ProvenanceToolIdentityText.parse(toolName: envelope.toolName, toolVersion: envelope.toolVersion)
         return ProvenanceLineageRun(
@@ -752,16 +783,20 @@ final class ProvenanceInspectorViewModel {
             subtitle: identity.displayLabel,
             steps: envelope.steps.enumerated().map { index, step in
                 let stepIdentity = ProvenanceToolIdentityText.parse(toolName: step.toolName, toolVersion: step.toolVersion)
+                let inputs = fastqPresentation.map {
+                    cappedPresentationPathList(step.inputs, fastqPresentation: $0)
+                } ?? cappedPathList(step.inputs.map(\.path))
+                let outputs = cappedPathList(step.outputs.map(\.path))
                 return ProvenanceLineageStep(
                     id: step.id,
                     ordinal: index + 1,
                     toolName: step.toolName,
                     toolVersion: stepIdentity.displayVersion,
                     command: step.reproducibleCommand,
-                    inputPaths: fastqPresentation.map {
-                        cappedPresentationPathList(step.inputs, fastqPresentation: $0)
-                    } ?? cappedPathList(step.inputs.map(\.path)),
-                    outputPaths: cappedPathList(step.outputs.map(\.path)),
+                    inputPaths: inputs,
+                    outputPaths: outputs,
+                    inputPathLabels: inputs.map { pathLabel($0, projectURL: projectURL) },
+                    outputPathLabels: outputs.map { pathLabel($0, projectURL: projectURL) },
                     exitStatus: step.exitStatus,
                     wallTimeSeconds: step.wallTimeSeconds,
                     stderr: step.stderr?.strippingANSIEscapeSequences(),
@@ -839,9 +874,18 @@ final class ProvenanceInspectorViewModel {
         }
     }
 
+    /// A step path list entry as the Inspector shows it. A collapsed FASTQ
+    /// bundle label and the "... more paths omitted" note are not paths and
+    /// pass through.
+    private func pathLabel(_ entry: String, projectURL: URL?) -> String {
+        guard entry.hasPrefix("/") || entry.hasPrefix("pipe:") || entry.hasPrefix("<") else { return entry }
+        return ProvenancePathPresentation.present(entry, projectURL: projectURL).listLabel
+    }
+
     private func buildFileRows(
         _ descriptors: [ProvenanceFileDescriptor],
-        fastqPresentation: ProvenanceFASTQBundlePresentation
+        fastqPresentation: ProvenanceFASTQBundlePresentation,
+        projectURL: URL?
     ) -> [ProvenanceFileRow] {
         var rows: [ProvenanceFileRow] = []
         var emittedFASTQBundles = Set<String>()
@@ -849,11 +893,12 @@ final class ProvenanceInspectorViewModel {
         for descriptor in descriptors {
             if let group = fastqPresentation.group(for: descriptor) {
                 guard emittedFASTQBundles.insert(group.bundlePath).inserted else { continue }
+                let presentation = ProvenancePathPresentation.present(group.bundlePath, projectURL: projectURL)
                 rows.append(
                     ProvenanceFileRow(
                         role: descriptor.role.displayName,
                         path: group.bundlePath,
-                        displayPath: group.bundleName,
+                        displayPath: presentation.location == .external ? group.bundleName : presentation.label.middleTruncatedPath(),
                         checksumSHA256: nil,
                         fileSize: group.totalBytes,
                         fileSizeLabel: group.fileSizeLabel,
@@ -861,23 +906,27 @@ final class ProvenanceInspectorViewModel {
                         originPath: nil,
                         sourceProvenancePath: nil,
                         searchText: group.searchText,
-                        isCollapsedGroup: true
+                        isCollapsedGroup: true,
+                        detail: presentation.detail
                     )
                 )
                 continue
             }
 
+            let presentation = ProvenancePathPresentation.present(descriptor.path, projectURL: projectURL)
+            let format = descriptor.resolvedFormat
             rows.append(
                 ProvenanceFileRow(
                     role: descriptor.role.displayName,
                     path: descriptor.path,
-                    displayPath: descriptor.path.middleTruncatedPath(),
+                    displayPath: presentation.label.middleTruncatedPath(),
                     checksumSHA256: descriptor.checksumSHA256,
                     fileSize: descriptor.fileSize,
                     fileSizeLabel: descriptor.fileSize.map(LungfishFormatters.formatBytes) ?? "Size not recorded",
-                    format: descriptor.format?.rawValue,
+                    format: format == .unknown ? nil : format.displayName,
                     originPath: descriptor.originPath,
-                    sourceProvenancePath: descriptor.sourceProvenancePath
+                    sourceProvenancePath: descriptor.sourceProvenancePath,
+                    detail: presentation.detail
                 )
             )
         }
@@ -1008,7 +1057,7 @@ final class ProvenanceInspectorViewModel {
                     ("Steps", "\(summary.stepCount)"),
                     ("Inputs", "\(summary.inputCount)"),
                     ("Outputs", "\(summary.outputCount)"),
-                    ("Sidecar", summary.sidecarPath ?? ""),
+                    ("Sidecar", summary.sidecarDisplayPath ?? summary.sidecarPath ?? ""),
                 ]
             )
         )
@@ -1088,6 +1137,9 @@ final class ProvenanceInspectorViewModel {
         var parts = [row.fileSizeLabel]
         if let format = row.format, !format.isEmpty {
             parts.append("Format: \(format)")
+        }
+        if let detail = row.detail, let first = detail.first {
+            parts.append("\(first.uppercased())\(detail.dropFirst())")
         }
         return parts.joined(separator: " | ")
     }

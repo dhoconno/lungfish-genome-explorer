@@ -216,7 +216,9 @@ struct ProvenanceSection: View {
                 summaryRow("Signatures", value: "\(viewModel.summary.signatureCount)")
             }
             if let sidecarPath = viewModel.summary.sidecarPath {
-                summaryRow("Sidecar", value: sidecarPath)
+                summaryRow("Sidecar", value: viewModel.summary.sidecarDisplayPath ?? sidecarPath)
+                    .help(sidecarPath)
+                    .accessibilityValue(sidecarPath)
             }
         }
     }
@@ -356,10 +358,10 @@ struct ProvenanceSection: View {
                     summaryRow("Command", value: step.command)
                 }
                 if !step.inputPaths.isEmpty {
-                    pathList("Inputs", step.inputPaths)
+                    pathList("Inputs", step.inputPathLabels, recorded: step.inputPaths)
                 }
                 if !step.outputPaths.isEmpty {
-                    pathList("Outputs", step.outputPaths)
+                    pathList("Outputs", step.outputPathLabels, recorded: step.outputPaths)
                 }
                 if let exitStatus = step.exitStatus {
                     summaryRow("Exit Status", value: "\(exitStatus)")
@@ -441,8 +443,9 @@ struct ProvenanceSection: View {
             .fixedSize(horizontal: false, vertical: usesGenotypePresentation)
             .textSelection(.enabled)
             .accessibilityIdentifier("provenance-file-path")
+            .accessibilityValue(row.accessibilityValue)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .help(row.path)
+            .help(row.helpText)
     }
 
     @ViewBuilder
@@ -465,11 +468,21 @@ struct ProvenanceSection: View {
         if let format = row.format, !format.isEmpty {
             parts.append("Format: \(format)")
         }
+        if let detail = row.detail, let first = detail.first {
+            parts.append("\(first.uppercased())\(detail.dropFirst())")
+        }
         return parts.joined(separator: " | ")
     }
 
-    private func pathList(_ label: String, _ paths: [String]) -> some View {
-        summaryRow(label, value: paths.joined(separator: "\n"), accessibilityIdentifier: "provenance-path-list-value")
+    /// Step paths as labels, with the recorded paths in the tooltip and the
+    /// accessibility value. A step whose labels were not built (a row made
+    /// by hand) shows the recorded paths.
+    private func pathList(_ label: String, _ labels: [String], recorded: [String]) -> some View {
+        let shown = labels.count == recorded.count ? labels : recorded
+        let recordedText = recorded.joined(separator: "\n")
+        return summaryRow(label, value: shown.joined(separator: "\n"), accessibilityIdentifier: "provenance-path-list-value")
+            .help(recordedText)
+            .accessibilityValue(recordedText)
     }
 
     private func summaryRow(
