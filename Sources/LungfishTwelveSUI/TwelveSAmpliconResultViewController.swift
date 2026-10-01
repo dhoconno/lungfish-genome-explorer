@@ -387,6 +387,29 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         return []
     }
 
+    /// The accessibility actions of the Export button, as an AX client lists them.
+    var testingExportButtonActionNames: [String] {
+        (actionBar.exportButton.accessibilityCustomActions() ?? []).map(\.name)
+    }
+
+    /// The accessibility actions of the Sample Columns button.
+    var testingSampleColumnsActions: [NSAccessibilityCustomAction] {
+        sampleColumnsButton.accessibilityCustomActions() ?? []
+    }
+
+    var testingActiveTableView: NSTableView { activeTableView }
+
+    func testingUnresolvedSequenceID(at row: Int) -> String? {
+        unresolvedTable.displayedRow(at: row)?.sequenceID
+    }
+
+    /// Fills the shared copy context menu as opening it over the current
+    /// selection would, and returns it.
+    func testingPopulatedCopyContextMenu() -> NSMenu {
+        populateCopyContextMenu()
+        return copyContextMenu
+    }
+
     var testingExportMenuTitles: [String] {
         buildExportMenu().items.filter { !$0.isSeparatorItem }.map(\.title)
     }
@@ -568,6 +591,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             store: metadataStore,
             metadataFields: visibleMetadataFields
         )
+        refreshSampleColumnsAccessibilityActions()
         updateActionBar()
     }
 
@@ -656,8 +680,30 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         menu.popUp(positioning: nil, at: point, in: sender)
     }
 
+    /// Lists the Sample Columns menu as the button's accessibility actions:
+    /// Show or Hide for each imported metadata column, and Import Metadata.
+    /// A checkmark cannot be part of an action name, so the verb carries the
+    /// state. The list is rebuilt whenever the columns change.
+    private func refreshSampleColumnsAccessibilityActions() {
+        var actions: [NSAccessibilityCustomAction] = []
+        for field in metadataStore?.columnNames ?? [] {
+            let verb = visibleMetadataFields.contains(field) ? "Hide" : "Show"
+            actions.append(AccessibilityCellActions.makeAction(name: "\(verb) \(field) Column") { [weak self] in
+                self?.toggleMetadataField(named: field)
+            })
+        }
+        actions.append(AccessibilityCellActions.makeAction(name: "Import Metadata\u{2026}") { [weak self] in
+            self?.onMetadataImportRequested?()
+        })
+        sampleColumnsButton.setAccessibilityCustomActions(actions)
+    }
+
     @objc private func toggleMetadataField(_ sender: NSMenuItem) {
         guard let field = sender.representedObject as? String else { return }
+        toggleMetadataField(named: field)
+    }
+
+    private func toggleMetadataField(named field: String) {
         if let idx = visibleMetadataFields.firstIndex(of: field) {
             visibleMetadataFields.remove(at: idx)
         } else {
@@ -1081,6 +1127,13 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         copyContextMenu.delegate = self
         targetTable.tableContextMenu = copyContextMenu
         unresolvedTable.tableContextMenu = copyContextMenu
+
+        targetTable.rowAccessibilityActionsProvider = { [weak self] row, cellView in
+            self?.rowAccessibilityActions(forRow: row, cellView: cellView, mode: .targets) ?? []
+        }
+        unresolvedTable.rowAccessibilityActionsProvider = { [weak self] row, cellView in
+            self?.rowAccessibilityActions(forRow: row, cellView: cellView, mode: .unresolved) ?? []
+        }
     }
 
     /// Repopulates the copy context menu for the active table's current
@@ -1155,6 +1208,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         actionBar.onExport = { [weak self] in
             self?.showExportMenu()
         }
+        // The format menu pops up under a click, so list its items as the
+        // button's accessibility actions too.
+        AccessibilityMenuMirror.install(buildExportMenu(), on: actionBar.exportButton)
         actionBar.onProvenance = { [weak self] sender in
             self?.showProvenancePopover(relativeTo: sender)
         }
@@ -1581,7 +1637,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         let menu = NSMenu()
         for format in TwelveSAmpliconResultExportFormat.allCases {
             let item = NSMenuItem(
-                title: "Export as \(format.displayName)...",
+                title: "Export as \(format.displayName)\u{2026}",
                 action: #selector(exportFormatMenuItemTapped(_:)),
                 keyEquivalent: ""
             )
@@ -1616,6 +1672,113 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             title: "12S Export Failed",
             presenter: exportFailurePresenter
         )
+    }
+}
+
+// MARK: - Keyboard and accessibility routes
+
+extension TwelveSAmpliconResultViewController: ResultRowMenuActions, TwelveSResultMenuActions, NSMenuItemValidation {
+
+    private func openLink(_ url: URL) {
+        if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
+    }
+
+    /// The commands for the rows `rows` of the active table.
+    private func entries(forTargetRows rows: [TwelveSTargetSampleRow]) -> [TwelveSCopyMenuProvider.Entry] {
+        TwelveSCopyMenuProvider.targetEntries(
+            rows: rows, pasteboard: pasteboard, onOpenURL: { [weak self] in self?.openLink($0) }
+        )
+    }
+
+    private func entries(forUnresolvedRows rows: [TwelveSUnresolvedSequence]) -> [TwelveSCopyMenuProvider.Entry] {
+        TwelveSCopyMenuProvider.unresolvedEntries(rows: rows, pasteboard: pasteboard)
+    }
+
+    /// The commands for the active table's selection. Unlike the context
+    /// menu, which falls back to the first row, the menu bar needs a real
+    /// selection.
+    private func selectionEntries() -> [TwelveSCopyMenuProvider.Entry] {
+        switch mode {
+        case .targets: return entries(forTargetRows: targetTable.selectedRowsByIdentity())
+        case .unresolved: return entries(forUnresolvedRows: unresolvedTable.selectedRowsByIdentity())
+        }
+    }
+
+    /// The accessibility custom actions of the row at `row`: every command
+    /// the context menu offers for that row alone, named the same. The
+    /// handlers resolve the row from `cellView` when they run, select it,
+    /// and perform the command at the same position of a fresh list.
+    fileprivate func rowAccessibilityActions(forRow row: Int, cellView: NSView, mode: Mode) -> [NSAccessibilityCustomAction] {
+        func freshEntries(_ row: Int) -> [TwelveSCopyMenuProvider.Entry] {
+            switch mode {
+            case .targets:
+                guard let rowData = targetTable.displayedRow(at: row) else { return [] }
+                return entries(forTargetRows: [rowData])
+            case .unresolved:
+                guard let rowData = unresolvedTable.displayedRow(at: row) else { return [] }
+                return entries(forUnresolvedRows: [rowData])
+            }
+        }
+        return freshEntries(row).enumerated().map { index, entry in
+            AccessibilityCellActions.makeAction(name: entry.title) { [weak self, weak cellView] in
+                guard let self, let cellView,
+                      let current = AccessibilityCellActions.currentRow(of: cellView) else { return }
+                switch mode {
+                case .targets: self.targetTable.selectDisplayedRowForContextMenuIfNeeded(current)
+                case .unresolved: self.unresolvedTable.selectDisplayedRowForContextMenuIfNeeded(current)
+                }
+                let fresh = freshEntries(current)
+                if fresh.indices.contains(index) { fresh[index].perform() }
+            }
+        }
+    }
+
+    /// Selection > Table Row items are enabled only while the active table
+    /// has keyboard focus and its selection supports the command. File >
+    /// Export > 12S Result… is enabled while a result is showing.
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(TwelveSResultMenuActions.exportTwelveSResult(_:)) {
+            return result != nil
+        }
+        guard let command = ResultRowCommand.command(for: menuItem.action) else { return true }
+        guard [.copyName, .copySequence, .copyAsTSV].contains(command),
+              ResultRowMenuValidation.tableHasKeyboardFocus(activeTableView) else { return false }
+        return selectionEntries().contains { $0.command == command }
+    }
+
+    private func performSelection(_ command: ResultRowCommand) {
+        selectionEntries().first { $0.command == command }?.perform()
+    }
+
+    @objc public func copySelectedRowName(_ sender: Any?) { performSelection(.copyName) }
+    @objc public func copySelectedRowSequence(_ sender: Any?) { performSelection(.copySequence) }
+    @objc public func copySelectedRowAsTSV(_ sender: Any?) { performSelection(.copyAsTSV) }
+
+    // MARK: Export
+
+    /// The sheet that asks for the export format: one button per format and
+    /// Cancel. It offers the same choices as the export button's menu.
+    func makeExportFormatAlert() -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Export 12S Result"
+        alert.informativeText = "Choose a format for the result."
+        for format in TwelveSAmpliconResultExportFormat.allCases {
+            alert.addButton(withTitle: format.displayName)
+        }
+        alert.addButton(withTitle: "Cancel")
+        return alert
+    }
+
+    /// File > Export > 12S Result… shows the format choice as a sheet on the
+    /// result's window, then runs the same export the export button does.
+    @objc public func exportTwelveSResult(_ sender: Any?) {
+        guard result != nil, let window = view.window else { return }
+        let formats = TwelveSAmpliconResultExportFormat.allCases
+        makeExportFormatAlert().beginSheetModal(for: window) { [weak self] response in
+            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+            guard formats.indices.contains(index) else { return }
+            self?.presentExport(format: formats[index])
+        }
     }
 }
 

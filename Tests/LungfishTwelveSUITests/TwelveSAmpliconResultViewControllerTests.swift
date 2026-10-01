@@ -384,7 +384,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
         XCTAssertEqual(
             controller.testingExportMenuTitles,
-            ["Export as CSV...", "Export as TSV...", "Export as Excel..."]
+            ["Export as CSV\u{2026}", "Export as TSV\u{2026}", "Export as Excel\u{2026}"]
         )
         XCTAssertTrue(controller.testingHasProvenanceAction)
     }

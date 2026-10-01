@@ -14,6 +14,14 @@ final class TwelveSUnresolvedTableView: BatchTableView<TwelveSUnresolvedSequence
     private(set) var typographyApplicationCount = 0
     #endif
 
+    /// Supplies each row's accessibility actions. The controller owns the
+    /// copy commands and the selection, so it builds them.
+    var rowAccessibilityActionsProvider: ((Int, NSView) -> [NSAccessibilityCustomAction])?
+
+    override func accessibilityActions(forRow row: Int, cellView: NSView) -> [NSAccessibilityCustomAction] {
+        rowAccessibilityActionsProvider?(row, cellView) ?? []
+    }
+
     override var columnSpecs: [BatchColumnSpec] {
         [
             .init(identifier: .init("sequenceID"), title: "Sequence", width: 130, minWidth: 80, defaultAscending: true),

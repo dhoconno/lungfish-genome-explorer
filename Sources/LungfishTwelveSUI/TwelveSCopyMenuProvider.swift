@@ -75,9 +75,26 @@ private final class TwelveSCopyActionTarget: NSObject {
 }
 
 /// Builds the selection-aware copy menu and writes payloads to a pasteboard.
+///
+/// The menu, Selection > Table Row and each row's accessibility actions all
+/// read ``targetEntries(rows:pasteboard:onOpenURL:)`` and
+/// ``unresolvedEntries(rows:pasteboard:)``, so they offer the same commands
+/// under the same titles.
 @MainActor
 enum TwelveSCopyMenuProvider {
     enum Mode { case targets, unresolved }
+
+    /// One command of the copy menu: its title, the shared row command the
+    /// menu bar reaches it through (nil for the species lookups), and what it
+    /// does.
+    struct Entry {
+        let title: String
+        let command: ResultRowCommand?
+        /// True for the lookups, which the context menu sets apart with a
+        /// separator.
+        let isLookup: Bool
+        let perform: @MainActor () -> Void
+    }
 
     /// Titles for the items shown given selection state — drives both the live
     /// menu and the unit tests.
@@ -97,6 +114,86 @@ enum TwelveSCopyMenuProvider {
         return titles
     }
 
+    /// The commands for the current target-mode selection, each writing to
+    /// `pasteboard` when performed. For a single-row selection, also
+    /// "Learn More About <species>" (NCBI) and "View Photo of <species>"
+    /// (Wikipedia), which invoke `onOpenURL`.
+    static func targetEntries(
+        rows: [TwelveSTargetSampleRow],
+        pasteboard: PasteboardWriting,
+        onOpenURL: @escaping (URL) -> Void
+    ) -> [Entry] {
+        guard !rows.isEmpty else { return [] }
+        var entries: [Entry] = []
+        for title in itemTitles(mode: .targets, selectedCount: rows.count, hasSequence: false) {
+            switch title {
+            case "Copy Name", "Copy Names":
+                entries.append(Entry(title: title, command: .copyName, isLookup: false) {
+                    pasteboard.setString(TwelveSCopyFormatting.names(rows))
+                })
+            case "Copy Rows":
+                entries.append(Entry(title: title, command: .copyAsTSV, isLookup: false) {
+                    pasteboard.setString(TwelveSCopyFormatting.targetRowsTSV(rows))
+                })
+            default:
+                break
+            }
+        }
+        if rows.count == 1, let row = rows.first {
+            let name = row.scientificName
+            let taxid = row.taxids.first
+            entries.append(Entry(title: "Learn More About \(name)", command: nil, isLookup: true) {
+                onOpenURL(TwelveSSpeciesLinks.ncbiTaxonomyURL(taxid: taxid, scientificName: name))
+            })
+            entries.append(Entry(title: "View Photo of \(name)", command: nil, isLookup: true) {
+                onOpenURL(TwelveSSpeciesLinks.wikipediaURL(scientificName: name))
+            })
+        }
+        return entries
+    }
+
+    /// The commands for the current unresolved-mode selection.
+    static func unresolvedEntries(
+        rows: [TwelveSUnresolvedSequence],
+        pasteboard: PasteboardWriting
+    ) -> [Entry] {
+        guard !rows.isEmpty else { return [] }
+        let hasSequence = rows.first.map { !$0.sequence.isEmpty } ?? false
+        var entries: [Entry] = []
+        for title in itemTitles(mode: .unresolved, selectedCount: rows.count, hasSequence: hasSequence) {
+            switch title {
+            case "Copy Name", "Copy Names":
+                entries.append(Entry(title: title, command: .copyName, isLookup: false) {
+                    pasteboard.setString(TwelveSCopyFormatting.unresolvedNames(rows))
+                })
+            case "Copy Sequence":
+                if let row = rows.first {
+                    entries.append(Entry(title: title, command: .copySequence, isLookup: false) {
+                        pasteboard.setString(TwelveSCopyFormatting.sequence(row))
+                    })
+                }
+            case "Copy Sequences":
+                entries.append(Entry(title: title, command: .copySequence, isLookup: false) {
+                    pasteboard.setString(TwelveSCopyFormatting.fasta(rows))
+                })
+            case "Copy Rows":
+                entries.append(Entry(title: title, command: .copyAsTSV, isLookup: false) {
+                    pasteboard.setString(TwelveSCopyFormatting.unresolvedRowsTSV(rows))
+                })
+            default:
+                break
+            }
+        }
+        return entries
+    }
+
+    /// The commands as accessibility custom actions, named after their titles.
+    static func accessibilityActions(_ entries: [Entry]) -> [NSAccessibilityCustomAction] {
+        entries.map { entry in
+            AccessibilityCellActions.makeAction(name: entry.title) { entry.perform() }
+        }
+    }
+
     /// Populates `menu` with copy items for the current target-mode selection,
     /// each writing to `pasteboard` when chosen. For a single-row selection, also
     /// appends "Learn More About <species>" (NCBI) and "View Photo of <species>"
@@ -108,31 +205,7 @@ enum TwelveSCopyMenuProvider {
         onOpenURL: @escaping (URL) -> Void
     ) {
         menu.removeAllItems()
-        guard !rows.isEmpty else { return }
-        let titles = itemTitles(mode: .targets, selectedCount: rows.count, hasSequence: false)
-        for title in titles {
-            switch title {
-            case "Copy Name", "Copy Names":
-                addItem(menu, title: title) { pasteboard.setString(TwelveSCopyFormatting.names(rows)) }
-            case "Copy Rows":
-                addItem(menu, title: title) { pasteboard.setString(TwelveSCopyFormatting.targetRowsTSV(rows)) }
-            default:
-                break
-            }
-        }
-
-        // Single-species lookups.
-        if rows.count == 1, let row = rows.first {
-            let name = row.scientificName
-            let taxid = row.taxids.first
-            menu.addItem(NSMenuItem.separator())
-            addItem(menu, title: "Learn More About \(name)") {
-                onOpenURL(TwelveSSpeciesLinks.ncbiTaxonomyURL(taxid: taxid, scientificName: name))
-            }
-            addItem(menu, title: "View Photo of \(name)") {
-                onOpenURL(TwelveSSpeciesLinks.wikipediaURL(scientificName: name))
-            }
-        }
+        populate(menu, with: targetEntries(rows: rows, pasteboard: pasteboard, onOpenURL: onOpenURL))
     }
 
     /// Populates `menu` with copy items for the current unresolved-mode selection.
@@ -142,24 +215,17 @@ enum TwelveSCopyMenuProvider {
         pasteboard: PasteboardWriting
     ) {
         menu.removeAllItems()
-        guard !rows.isEmpty else { return }
-        let hasSequence = rows.first.map { !$0.sequence.isEmpty } ?? false
-        let titles = itemTitles(mode: .unresolved, selectedCount: rows.count, hasSequence: hasSequence)
-        for title in titles {
-            switch title {
-            case "Copy Name", "Copy Names":
-                addItem(menu, title: title) { pasteboard.setString(TwelveSCopyFormatting.unresolvedNames(rows)) }
-            case "Copy Sequence":
-                if let row = rows.first {
-                    addItem(menu, title: title) { pasteboard.setString(TwelveSCopyFormatting.sequence(row)) }
-                }
-            case "Copy Sequences":
-                addItem(menu, title: title) { pasteboard.setString(TwelveSCopyFormatting.fasta(rows)) }
-            case "Copy Rows":
-                addItem(menu, title: title) { pasteboard.setString(TwelveSCopyFormatting.unresolvedRowsTSV(rows)) }
-            default:
-                break
+        populate(menu, with: unresolvedEntries(rows: rows, pasteboard: pasteboard))
+    }
+
+    private static func populate(_ menu: NSMenu, with entries: [Entry]) {
+        var addedLookupSeparator = false
+        for entry in entries {
+            if entry.isLookup, !addedLookupSeparator {
+                menu.addItem(NSMenuItem.separator())
+                addedLookupSeparator = true
             }
+            addItem(menu, title: entry.title, handler: entry.perform)
         }
     }
 

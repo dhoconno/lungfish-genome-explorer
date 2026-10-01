@@ -97,6 +97,14 @@ final class TwelveSAdaptiveColumnWidthState {
 /// sample/species evidence pair.
 @MainActor
 final class TwelveSTargetTableView: BatchTableView<TwelveSTargetSampleRow> {
+    /// Supplies each row's accessibility actions. The controller owns the
+    /// copy commands and the selection, so it builds them.
+    var rowAccessibilityActionsProvider: ((Int, NSView) -> [NSAccessibilityCustomAction])?
+
+    override func accessibilityActions(forRow row: Int, cellView: NSView) -> [NSAccessibilityCustomAction] {
+        rowAccessibilityActionsProvider?(row, cellView) ?? []
+    }
+
     private static let metadataPrefix = "sampleMeta::"
     private let adaptiveColumnWidths = TwelveSAdaptiveColumnWidthState()
     #if DEBUG
