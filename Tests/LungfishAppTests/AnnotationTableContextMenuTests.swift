@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishKit
+import LungfishTestSupport
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishApp
@@ -975,5 +977,222 @@ final class AnnotationTableContextMenuTests: XCTestCase {
             name: "zero", type: "misc_feature", chromosome: "chr1",
             startValue: "0", endValue: "10", strand: "+", attributes: ""
         ), "Position 0 does not exist in 1-based coordinates")
+    }
+
+    // MARK: - Keyboard and accessibility routes
+
+    private func host(_ drawer: AnnotationTableDrawerView) -> NSWindow {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 240),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = drawer
+        drawer.layoutSubtreeIfNeeded()
+        drawer.tableView.layoutSubtreeIfNeeded()
+        return window
+    }
+
+    /// Every titled command of the row's context menu, Copy submenu included.
+    private func flattenedContextTitles(_ drawer: AnnotationTableDrawerView, row: Int) -> [String] {
+        let menu = NSMenu()
+        drawer.buildRowContextMenu(menu, row: row)
+        var titles: [String] = []
+        for item in menu.items where !item.isSeparatorItem {
+            if let submenu = item.submenu {
+                titles += submenu.items.filter { !$0.isSeparatorItem && $0.isEnabled }.map(\.title)
+            } else if item.isEnabled {
+                titles.append(item.title)
+            }
+        }
+        return titles
+    }
+
+    private func assertRowParity(_ drawer: AnnotationTableDrawerView, row: Int, file: StaticString = #filePath, line: UInt = #line) {
+        let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
+        XCTAssertGreaterThan(rows.count, row, file: file, line: line)
+        let names = AccessibilityRowProbe.firstCellActionNames(rows[row])
+        XCTAssertEqual(names, flattenedContextTitles(drawer, row: row), "cell actions are the enabled context commands", file: file, line: line)
+        XCTAssertEqual(Set(names).count, names.count, "each command listed once", file: file, line: line)
+        for served in AccessibilityRowProbe.servedCellActionNames(rows[row]) {
+            XCTAssertEqual(served, names, "the AX server lists each action once", file: file, line: line)
+        }
+        let menu = NSMenu()
+        drawer.buildRowContextMenu(menu, row: row)
+        ContextMenuParityAssert.assertParity(contextMenu: menu, cellActionNames: names, mainMenu: MainMenu.createMainMenu(), file: file, line: line)
+    }
+
+    func testAnnotationTabRowsPublishEveryContextCommandAsACellAction() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t500\tgag-cds\t0\t+\t100\t500\t0,0,0\t1\t400\t0\tCDS\ttranslation=MKVLGPRSE",
+            "chr1\t600\t700\tgene-b\t0\t+\t600\t700\t0,0,0\t1\t100\t0\tgene\tgene=gene-b",
+        ])
+        let window = host(drawer)
+        defer { window.close() }
+        XCTAssertTrue(drawer.selectAnnotation(named: "gag-cds"))
+        let row = try XCTUnwrap(drawer.displayedAnnotations.firstIndex { $0.name == "gag-cds" })
+        assertRowParity(drawer, row: row)
+        let names = AccessibilityRowProbe.firstCellActionNames(AccessibilityRowProbe.rowProxies(of: drawer.tableView)[row])
+        for title in ["Copy Translation", "Copy Translation as FASTA", "Edit Annotation\u{2026}", "Delete Annotation\u{2026}", "Select Related Gene Features", "Zoom to Annotation", "Show in Inspector"] {
+            XCTAssertTrue(names.contains(title), title)
+        }
+    }
+
+    func testAnnotationCellActionPerformsOnTheRowTheCellShowsNow() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a",
+            "chr1\t300\t400\tgene-b\t0\t+\t300\t400\t0,0,0\t1\t100\t0\tgene\tgene=gene-b",
+        ])
+        let window = host(drawer)
+        defer { window.close() }
+        let delegate = DrawerDelegateSpy()
+        drawer.delegate = delegate
+        let rowB = try XCTUnwrap(drawer.displayedAnnotations.firstIndex { $0.name == "gene-b" })
+        let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
+
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: rows[rowB]))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "gene-b")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Coordinates", in: rows[rowB]))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "chr1:301-400")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Extract Sequence\u{2026}", in: rows[rowB]))
+        XCTAssertEqual(delegate.extractedAnnotations.map(\.name), ["gene-b"])
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Delete Annotation\u{2026}", in: rows[rowB]))
+        XCTAssertEqual(delegate.deletedAnnotations.map(\.name), ["gene-b"])
+    }
+
+    private func makeVariantDrawer() -> AnnotationTableDrawerView {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        drawer.activeTab = .variants
+        drawer.activeVariantSubtab = .calls
+        drawer.configureColumnsForTab(.variants)
+        drawer.displayedAnnotations = [
+            AnnotationSearchIndex.SearchResult(
+                name: "rs1", chromosome: "chr1", start: 9, end: 10,
+                trackId: "caller-a", trackName: "Caller A", type: "SNP",
+                ref: "A", alt: "G", quality: 50, filter: "PASS", variantRowId: 1
+            ),
+            AnnotationSearchIndex.SearchResult(
+                name: "rs2", chromosome: "chr1", start: 19, end: 20,
+                trackId: "caller-a", trackName: "Caller A", type: "SNP",
+                ref: "C", alt: "T", variantRowId: 2
+            ),
+        ]
+        drawer.tableView.reloadData()
+        return drawer
+    }
+
+    func testVariantTabRowsPublishEveryContextCommandOnceAndCopyActionsPerform() throws {
+        let drawer = makeVariantDrawer()
+        let window = host(drawer)
+        defer { window.close() }
+        drawer.tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        assertRowParity(drawer, row: 1)
+
+        let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
+        let names = AccessibilityRowProbe.firstCellActionNames(rows[1])
+        for title in ["Copy Variant ID", "Copy Coordinates", "Copy Ref/Alt", "Copy as VCF Line", "Zoom to Variant", "Show in Inspector", "Bookmark Variant", "Filter to SNP Only", "Delete Selected Variant", "Delete All Variants\u{2026}"] {
+            XCTAssertTrue(names.contains(title), title)
+        }
+        XCTAssertFalse(names.contains("Export Bookmarked Variants\u{2026}"), "nothing bookmarked yet")
+
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Variant ID", in: rows[0]))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs1")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Ref/Alt", in: rows[1]))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "C > T")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy as VCF Line", in: rows[0]))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "chr1\t10\trs1\tA\tG\t50.0\tPASS\t.")
+    }
+
+    func testVariantRowsAreReusedForTheRowTheyShowAfterAReorder() throws {
+        let drawer = makeVariantDrawer()
+        let window = host(drawer)
+        defer { window.close() }
+        drawer.displayedAnnotations.reverse()
+        drawer.tableView.reloadData()
+        drawer.tableView.layoutSubtreeIfNeeded()
+        let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Variant ID", in: rows[0]))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs2")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Variant ID", in: rows[1]))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs1")
+    }
+
+    func testSamplesTabRowsPublishTheirContextCommandsOnce() throws {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        drawer.activeTab = .samples
+        drawer.configureColumnsForTab(.samples)
+        drawer.displayedSamples = [
+            AnnotationTableDrawerView.SampleDisplayRow(rowKey: "s1", name: "sample-1", sourceFile: "a.vcf", isVisible: true, metadata: [:]),
+            AnnotationTableDrawerView.SampleDisplayRow(rowKey: "s2", name: "sample-2", sourceFile: "a.vcf", isVisible: true, metadata: [:]),
+        ]
+        drawer.tableView.reloadData()
+        let window = host(drawer)
+        defer { window.close() }
+        assertRowParity(drawer, row: 1)
+        let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
+        let names = AccessibilityRowProbe.firstCellActionNames(rows[1])
+        XCTAssertEqual(Array(names.prefix(4)), ["Hide sample-2", "Show All Samples", "Hide All Samples", "Copy Sample Name"])
+        XCTAssertTrue(names.contains("Create Group from Shown Results\u{2026}"))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Sample Name", in: rows[1]))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "sample-2")
+    }
+
+    func testMenuBarRowCommandsFollowTheDrawerSelection() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a",
+            "chr1\t300\t400\tgene-b\t0\t+\t300\t400\t0,0,0\t1\t100\t0\tgene\tgene=gene-b",
+        ])
+        let window = host(drawer)
+        defer { window.close() }
+        let delegate = DrawerDelegateSpy()
+        drawer.delegate = delegate
+        func item(_ selector: Selector) -> NSMenuItem { NSMenuItem(title: "", action: selector, keyEquivalent: "") }
+        let copyName = item(#selector(ResultRowMenuActions.copySelectedRowName(_:)))
+        let copySequence = item(#selector(ResultRowMenuActions.copySelectedRowSequence(_:)))
+        let copyFASTA = item(#selector(ResultRowMenuActions.copySelectedRowFASTA(_:)))
+        let inspector = item(#selector(ResultRowMenuActions.showSelectedRowInInspector(_:)))
+        let extract = item(#selector(ResultRowMenuActions.extractSelectedRowsToNewBundle(_:)))
+        let activate = item(#selector(ResultRowMenuActions.activateSelectedRow(_:)))
+        let edit = item(#selector(AnnotationEditingMenuActions.editAnnotation(_:)))
+        let delete = item(#selector(AnnotationEditingMenuActions.deleteAnnotation(_:)))
+        let all = [copyName, copySequence, copyFASTA, inspector, extract, activate, edit, delete]
+
+        drawer.tableView.deselectAll(nil)
+        for menuItem in all {
+            XCTAssertFalse(drawer.validateMenuItem(menuItem), "\(menuItem.action!) with nothing selected")
+        }
+
+        XCTAssertTrue(drawer.selectAnnotation(named: "gene-b"))
+        for menuItem in all {
+            XCTAssertTrue(drawer.validateMenuItem(menuItem), "\(menuItem.action!) with one row selected")
+        }
+        drawer.copySelectedRowName(nil)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "gene-b")
+        drawer.extractSelectedRowsToNewBundle(nil)
+        XCTAssertEqual(delegate.extractedAnnotations.map(\.name), ["gene-b"])
+        drawer.deleteAnnotation(nil)
+        XCTAssertEqual(delegate.deletedAnnotations.map(\.name), ["gene-b"])
+
+        XCTAssertEqual(drawer.selectAnnotations(named: ["gene-a", "gene-b"]), 2)
+        XCTAssertFalse(drawer.validateMenuItem(copyName), "copy commands take one row")
+        XCTAssertFalse(drawer.validateMenuItem(edit), "Edit takes one row")
+        XCTAssertTrue(drawer.validateMenuItem(delete))
+        XCTAssertTrue(drawer.validateMenuItem(extract))
+        drawer.extractSelectedRowsToNewBundle(nil)
+        XCTAssertEqual(delegate.extractedAnnotations.map(\.name), ["gene-a", "gene-b"])
+
+        let variants = makeVariantDrawer()
+        let variantWindow = host(variants)
+        defer { variantWindow.close() }
+        variants.tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        XCTAssertTrue(variants.validateMenuItem(copyName))
+        XCTAssertFalse(variants.validateMenuItem(copySequence), "a variant has no sequence to copy")
+        XCTAssertFalse(variants.validateMenuItem(copyFASTA))
+        XCTAssertFalse(variants.validateMenuItem(edit))
+        XCTAssertFalse(variants.validateMenuItem(delete))
+        XCTAssertTrue(variants.validateMenuItem(inspector))
+        variants.copySelectedRowName(nil)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs1")
     }
 }

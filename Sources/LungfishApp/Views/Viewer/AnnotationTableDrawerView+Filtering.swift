@@ -1985,6 +1985,7 @@ extension AnnotationTableDrawerView {
         }
         guard !groups.isEmpty else {
             sampleGroupPresetButton.isEnabled = false
+            installPullDownAccessibilityMirrors()
             return
         }
 
@@ -2000,6 +2001,7 @@ extension AnnotationTableDrawerView {
         clearItem.target = self
         sampleGroupPresetButton.menu?.addItem(clearItem)
         sampleGroupPresetButton.isEnabled = true
+        installPullDownAccessibilityMirrors()
     }
 
     @objc func selectSampleGroupPreset(_ sender: NSMenuItem) {

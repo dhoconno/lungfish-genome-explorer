@@ -613,7 +613,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     let clearFilterButton = NSButton()
     let downloadTemplateButton = NSButton()
     let importMetadataButton = NSButton()
-    let exportButton = NSButton()
+    let exportButton = MenuMirroringButton()
     let autoSizeColumnsButton = NSButton()
     let columnConfigButton = NSButton()
     let profileButton = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -706,6 +706,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     var sampleTokenPayloads: [ObjectIdentifier: SampleSmartToken] = [:]
     /// Bookmarked variant keys (`trackId:variantRowId`) for star column display.
     var bookmarkedVariantKeys: Set<String> = []
+    /// The row commands derived for the row whose cells were built last, so
+    /// one context menu build serves every cell of the row.
+    var accessibilityRowCommandCache: AnnotationDrawerRowCommandCache?
     /// Base annotation result set before local column filters.
     var baseDisplayedAnnotationRows: [AnnotationSearchIndex.SearchResult] = []
     /// Header-driven filters applied to annotation rows.
@@ -1067,6 +1070,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         exportButton.action = #selector(showExportMenu(_:))
         exportButton.translatesAutoresizingMaskIntoConstraints = false
         exportButton.toolTip = "Export table data"
+        exportButton.setAccessibilityLabel("Export table")
+        exportButton.setAccessibilityHelp("Export all matching or selected rows as Excel, CSV, TSV, or JSON.")
+        exportButton.menuProvider = { [weak self] in self?.makeScientificTableExportMenu() }
         headerBar.addSubview(exportButton)
 
         // Filter profile popup (header bar) — only shown on variants tab
@@ -1183,6 +1189,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // Context menu (built dynamically via NSMenuDelegate)
         let contextMenu = NSMenu()
         contextMenu.delegate = self
+        // menuNeedsUpdate decides every item's enabled state (Edit and Delete
+        // need a database row, Show in Inspector one row). Auto-enabling
+        // would re-enable them for any target that answers the selector.
+        contextMenu.autoenablesItems = false
         tableView.menu = contextMenu
 
         scrollView.documentView = tableView
@@ -2715,7 +2725,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         deleteItem.target = self
         menu.addItem(deleteItem)
 
-        let deleteAllItem = NSMenuItem(title: "Delete All Variants...", action: #selector(deleteAllVariantsAction(_:)), keyEquivalent: "")
+        let deleteAllItem = NSMenuItem(title: "Delete All Variants\u{2026}", action: #selector(deleteAllVariantsAction(_:)), keyEquivalent: "")
         deleteAllItem.target = self
         menu.addItem(deleteAllItem)
     }
@@ -5698,24 +5708,4 @@ private func canonicalChromosomeForFiltering(_ raw: String) -> String {
 /// the viewport on a variant without a mouse. Everything else is standard
 /// `NSTableView` behaviour, including arrow-key selection.
 @MainActor
-public final class AnnotationDrawerTableView: NSTableView {
-    /// Called when Return or Enter is pressed with a row selected.
-    var onActivateSelectedRow: (() -> Void)?
-
-    /// Whether the key event should activate the selected row.
-    static func activatesSelectedRow(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) -> Bool {
-        let isReturnOrEnter = keyCode == 36 || keyCode == 76
-        let modifiers = modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
-        return isReturnOrEnter && modifiers.isEmpty
-    }
-
-    public override func keyDown(with event: NSEvent) {
-        if Self.activatesSelectedRow(keyCode: event.keyCode, modifierFlags: event.modifierFlags),
-           selectedRow >= 0,
-           let onActivateSelectedRow {
-            onActivateSelectedRow()
-            return
-        }
-        super.keyDown(with: event)
-    }
-}
+public final class AnnotationDrawerTableView: RowActivatingTableView {}
