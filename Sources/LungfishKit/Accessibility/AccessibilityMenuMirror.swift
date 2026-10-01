@@ -41,14 +41,24 @@ public enum AccessibilityMenuMirror {
                 send(item)
             }
         }
-        popUp.setAccessibilityCustomActions(actions.isEmpty ? nil : actions)
+        apply(actions, to: popUp)
     }
 
     /// Mirrors `menu` on `owner`, for a view that pops the menu itself, such
     /// as a table header view or an action button.
     public static func install(_ menu: NSMenu, on owner: NSView) {
         let actions = actions(for: menu)
-        owner.setAccessibilityCustomActions(actions.isEmpty ? nil : actions)
+        apply(actions, to: owner)
+    }
+
+    /// Publishes `actions` on `owner`. A control that draws through a cell
+    /// (`NSButton`, `NSPopUpButton`) is exposed to the AX server as its cell,
+    /// which never reads the view's own custom actions, so they are set on
+    /// the cell as well.
+    public static func apply(_ actions: [NSAccessibilityCustomAction], to owner: NSView) {
+        let value = actions.isEmpty ? nil : actions
+        owner.setAccessibilityCustomActions(value)
+        (owner as? NSControl)?.cell?.setAccessibilityCustomActions(value)
     }
 
     /// The custom actions that mirror `menu`, in menu order. Items without an

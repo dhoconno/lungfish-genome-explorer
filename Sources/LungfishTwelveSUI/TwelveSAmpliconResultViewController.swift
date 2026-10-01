@@ -695,7 +695,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         actions.append(AccessibilityCellActions.makeAction(name: "Import Metadata\u{2026}") { [weak self] in
             self?.onMetadataImportRequested?()
         })
-        sampleColumnsButton.setAccessibilityCustomActions(actions)
+        AccessibilityMenuMirror.apply(actions, to: sampleColumnsButton)
     }
 
     @objc private func toggleMetadataField(_ sender: NSMenuItem) {
