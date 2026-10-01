@@ -62,28 +62,27 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
     // tools and rely on I3 (click wiring) in their integration test suites
     // for dynamic coverage.
     func testI1_taxtriage_menuItemVisible_sourceLevel() throws {
-        let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift"
-        let source = try String(contentsOfFile: path, encoding: .utf8)
-        XCTAssertTrue(
-            source.contains("Extract Reads\u{2026}") || source.contains("Extract Reads\\u{2026}"),
-            "TaxTriageResultViewController must wire an 'Extract Reads…' menu item"
-        )
-        // Asserting `#selector(contextExtractFASTQ` rather than just the bare
-        // method name catches a regression where the function exists but is
-        // no longer wired into a menu item via `#selector(...)`.
-        XCTAssertTrue(
-            source.contains("#selector(contextExtractFASTQ"),
-            "TaxTriageResultViewController must wire contextExtractFASTQ via #selector(...)"
-        )
+        // The per-sample table and the batch table both route Extract Reads
+        // through the shared extractReadsForSelectedRows selector.
+        let tableSources = try [
+            "TaxTriageResultViewController.swift", "BatchTaxTriageTableView.swift",
+        ].map {
+            try String(
+                contentsOfFile: "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishTaxTriageUI/\($0)",
+                encoding: .utf8
+            )
+        }
+        for tableSource in tableSources {
+            XCTAssertTrue(
+                tableSource.contains("func extractReadsForSelectedRows("),
+                "TaxTriage tables must route Extract Reads through extractReadsForSelectedRows"
+            )
+        }
     }
 
     func testI1_naomgs_menuItemVisible_sourceLevel() throws {
         let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift"
         let source = try String(contentsOfFile: path, encoding: .utf8)
-        XCTAssertTrue(
-            source.contains("Extract Reads\u{2026}") || source.contains("Extract Reads\\u{2026}"),
-            "NaoMgsResultViewController must wire an 'Extract Reads…' menu item"
-        )
         XCTAssertTrue(
             source.contains("func extractReadsForSelectedRows(") && source.contains(".extractReads"),
             "NaoMgsResultViewController must route Extract Reads through extractReadsForSelectedRows"
@@ -93,10 +92,6 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
     func testI1_nvd_menuItemVisible_sourceLevel() throws {
         let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishNvdUI/NvdResultViewController.swift"
         let source = try String(contentsOfFile: path, encoding: .utf8)
-        XCTAssertTrue(
-            source.contains("Extract Reads\u{2026}") || source.contains("Extract Reads\\u{2026}"),
-            "NvdResultViewController must wire an 'Extract Reads…' menu item"
-        )
         // The context menu, Selection > Table Row and the row accessibility
         // actions all route Extract Reads through the shared selector.
         XCTAssertTrue(

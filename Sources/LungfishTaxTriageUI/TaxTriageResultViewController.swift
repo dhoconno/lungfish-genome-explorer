@@ -5146,7 +5146,7 @@ public struct TaxTriageTableRow: Equatable {
 /// Columns: Organism, TASS Score, Reads, Coverage, Confidence (color bar).
 /// All columns are sortable and user-resizable.
 @MainActor
-final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation {
+final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation, ResultRowMenuActions {
 
     // MARK: - Column Identifiers
 
@@ -5443,71 +5443,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     private func setupContextMenu() {
-        let menu = NSMenu()
-
-        let blastItem = NSMenuItem(
-            title: "Verify with BLAST\u{2026}",
-            action: #selector(contextBlastAction(_:)),
-            keyEquivalent: ""
-        )
-        blastItem.target = self
-        menu.addItem(blastItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let copyItem = NSMenuItem(
-            title: "Copy Organism Name",
-            action: #selector(contextCopyAction(_:)),
-            keyEquivalent: ""
-        )
-        copyItem.target = self
-        menu.addItem(copyItem)
-
-        let copyAccessionItem = NSMenuItem(
-            title: "Copy Accession Number",
-            action: #selector(contextCopyAccessionAction(_:)),
-            keyEquivalent: ""
-        )
-        copyAccessionItem.target = self
-        menu.addItem(copyAccessionItem)
-
-        let copyTaxIdItem = NSMenuItem(
-            title: LungfishUIStrings.Classifier.copyTaxonID,
-            action: #selector(contextCopyTaxIdAction(_:)),
-            keyEquivalent: ""
-        )
-        copyTaxIdItem.target = self
-        menu.addItem(copyTaxIdItem)
-
-        let copyTSVItem = NSMenuItem(
-            title: "Copy Row as TSV",
-            action: #selector(contextCopyRowTSVAction(_:)),
-            keyEquivalent: ""
-        )
-        copyTSVItem.target = self
-        menu.addItem(copyTSVItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let lookupItem = NSMenuItem(
-            title: "Look Up in NCBI Taxonomy",
-            action: #selector(contextLookUpNCBIAction(_:)),
-            keyEquivalent: ""
-        )
-        lookupItem.target = self
-        menu.addItem(lookupItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let extractItem = NSMenuItem(
-            title: "Extract Reads\u{2026}",
-            action: #selector(contextExtractFASTQ(_:)),
-            keyEquivalent: ""
-        )
-        extractItem.target = self
-        menu.addItem(extractItem)
-
-        tableView.menu = menu
+        tableView.menu = TaxTriageRowCommands.makeContextMenu(target: self, includingAccession: true)
     }
 
     private func selectedRowKeys() -> [String] {
@@ -5534,104 +5470,111 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         return "\(tax)|\(row.organism.lowercased())"
     }
 
-    // MARK: - Menu Item Validation
+    // MARK: - Row Commands
 
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(contextBlastAction(_:)) {
-            // BLAST requires exactly one selected row
-            return tableView.clickedRow >= 0 && tableView.selectedRowIndexes.count <= 1
-        }
-        if menuItem.action == #selector(contextExtractFASTQ(_:)) {
-            // Extract FASTQ requires at least one selected row
-            return !tableView.selectedRowIndexes.isEmpty || tableView.clickedRow >= 0
-        }
-        return true
-    }
-
-    @objc private func contextBlastAction(_ sender: Any) {
-        let clickedRow = tableView.clickedRow
-        guard clickedRow >= 0, clickedRow < sortedRows.count else { return }
-        let tableRow = sortedRows[clickedRow]
-
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentSize = NSSize(width: 280, height: 160)
-        popover.contentViewController = NSHostingController(
-            rootView: BlastConfigPopoverView(
-                taxonName: tableRow.organism,
-                readsClade: tableRow.uniqueReads ?? tableRow.reads,
-                database: "core_nt",
-                onRun: { [weak self, weak popover] readCount in
-                    popover?.close()
-                    self?.onBlastRequested?(tableRow, readCount)
-                }
-            )
+    private func subject(for row: TaxTriageTableRow) -> TaxTriageRowSubject {
+        TaxTriageRowSubject(
+            organism: row.organism,
+            taxId: row.taxId,
+            accession: row.taxId.map { "taxid:\($0)" } ?? row.organism,
+            tsvFields: [
+                row.organism,
+                String(format: "%.4f", row.tassScore),
+                "\(row.reads)",
+                row.uniqueReads.map(String.init) ?? "",
+                row.coverage.map { String(format: "%.2f", $0) } ?? "",
+                row.confidence ?? "",
+                row.taxId.map(String.init) ?? "",
+                row.rank ?? "",
+            ]
         )
-
-        let rowRect = tableView.rect(ofRow: clickedRow)
-        popover.show(relativeTo: rowRect, of: tableView, preferredEdge: .maxY)
     }
 
-    @objc private func contextCopyAction(_ sender: Any) {
-        let row = tableView.clickedRow
-        guard row >= 0, row < sortedRows.count else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(sortedRows[row].organism, forType: .string)
-    }
-
-    @objc private func contextCopyAccessionAction(_ sender: Any) {
-        let row = tableView.clickedRow
-        guard row >= 0, row < sortedRows.count else { return }
-        let item = sortedRows[row]
-        let accession = item.taxId.map { "taxid:\($0)" } ?? item.organism
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(accession, forType: .string)
-    }
-
-    @objc private func contextCopyTaxIdAction(_ sender: Any) {
-        let row = tableView.clickedRow
-        guard row >= 0, row < sortedRows.count else { return }
-        let item = sortedRows[row]
-        let taxIdString = item.taxId.map(String.init) ?? ""
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(taxIdString, forType: .string)
-    }
-
-    @objc private func contextCopyRowTSVAction(_ sender: Any) {
-        let row = tableView.clickedRow
-        guard row >= 0, row < sortedRows.count else { return }
-        let item = sortedRows[row]
-        let fields: [String] = [
-            item.organism,
-            String(format: "%.4f", item.tassScore),
-            "\(item.reads)",
-            item.uniqueReads.map(String.init) ?? "",
-            item.coverage.map { String(format: "%.2f", $0) } ?? "",
-            item.confidence ?? "",
-            item.taxId.map(String.init) ?? "",
-            item.rank ?? "",
-        ]
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(fields.joined(separator: "\t"), forType: .string)
-    }
-
-    @objc private func contextLookUpNCBIAction(_ sender: Any) {
-        let row = tableView.clickedRow
-        guard row >= 0, row < sortedRows.count else { return }
-        let item = sortedRows[row]
-        let urlString: String
-        if let taxId = item.taxId {
-            urlString = "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=\(taxId)"
+    /// The table row indexes a menu command acts on. A context-menu command
+    /// acts on the clicked row, or on the whole selection when the clicked
+    /// row is part of it. A menu-bar command or accessibility action acts on
+    /// the selection, because `clickedRow` outlives the click that set it.
+    private func commandTargetRows(sender: Any?) -> [Int] {
+        let selected = tableView.selectedRowIndexes
+        let rows: [Int]
+        if let menuItem = sender as? NSMenuItem,
+           ResultRowMenuValidation.isContextMenuItem(menuItem, in: [tableView.menu]),
+           tableView.clickedRow >= 0, !selected.contains(tableView.clickedRow) {
+            rows = [tableView.clickedRow]
         } else {
-            let encoded = item.organism.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? item.organism
-            urlString = "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?name=\(encoded)"
+            rows = Array(selected)
         }
-        if let url = URL(string: urlString) {
-            NSWorkspace.shared.open(url)
+        return rows.filter { sortedRows.indices.contains($0) }
+    }
+
+    private func availableRowCommands(forRows rows: [Int]) -> [ResultRowCommand] {
+        TaxTriageRowCommands.available(for: rows.map { subject(for: sortedRows[$0]) })
+    }
+
+    /// Makes the clicked row the selection when a context-menu command was
+    /// aimed at it, so the selection-based handlers act on the right rows.
+    private func adoptContextTargets(sender: Any?) {
+        guard let menuItem = sender as? NSMenuItem,
+              ResultRowMenuValidation.isContextMenuItem(menuItem, in: [tableView.menu]) else { return }
+        let clicked = tableView.clickedRow
+        guard clicked >= 0, !tableView.selectedRowIndexes.contains(clicked) else { return }
+        tableView.selectRowIndexes(IndexSet(integer: clicked), byExtendingSelection: false)
+    }
+
+    private func perform(_ command: ResultRowCommand, sender: Any?) {
+        let rows = commandTargetRows(sender: sender)
+        guard rows.count == 1, let index = rows.first else { return }
+        TaxTriageRowCommands.perform(command, on: subject(for: sortedRows[index]))
+    }
+
+    /// The context menu follows the selection (or the clicked row). The
+    /// menu-bar items under Selection > Table Row are enabled only while the
+    /// table has keyboard focus.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let command = ResultRowCommand.command(for: menuItem.action) else { return true }
+        guard TaxTriageRowCommands.supported.contains(command) else { return false }
+        guard ResultRowMenuValidation.isReachable(menuItem, table: tableView) else { return false }
+        return availableRowCommands(forRows: commandTargetRows(sender: menuItem)).contains(command)
+    }
+
+    /// The accessibility custom actions of the row at `row`: every
+    /// single-row command its context menu offers, named the same. The
+    /// handlers resolve the row from `cellView` when they run and select it
+    /// first, so the shared handlers act on it through the selection.
+    private func accessibilityActions(forRow row: Int, cellView: NSView) -> [NSAccessibilityCustomAction] {
+        guard sortedRows.indices.contains(row) else { return [] }
+        return ResultRowMenuValidation.cellActions(availableRowCommands(forRows: [row]), on: cellView) {
+            [weak self] command, currentRow in
+            guard let self else { return }
+            self.tableView.selectRowIndexes(IndexSet(integer: currentRow), byExtendingSelection: false)
+            _ = NSApp.sendAction(command.menuSelector, to: self, from: nil)
         }
     }
 
-    @objc private func contextExtractFASTQ(_ sender: Any?) {
+    // MARK: Menu handlers
+
+    @objc func blastVerifySelectedRow(_ sender: Any?) {
+        let rows = commandTargetRows(sender: sender)
+        guard rows.count == 1, let index = rows.first else { return }
+        let tableRow = sortedRows[index]
+        TaxTriageRowCommands.presentBlastPopover(
+            taxonName: tableRow.organism,
+            readsClade: tableRow.uniqueReads ?? tableRow.reads,
+            anchorRect: tableView.rect(ofRow: index),
+            in: tableView
+        ) { [weak self] readCount in
+            self?.onBlastRequested?(tableRow, readCount)
+        }
+    }
+
+    @objc func copySelectedRowName(_ sender: Any?) { perform(.copyName, sender: sender) }
+    @objc func copySelectedRowAccession(_ sender: Any?) { perform(.copyAccession, sender: sender) }
+    @objc func copySelectedRowTaxonID(_ sender: Any?) { perform(.copyTaxonID, sender: sender) }
+    @objc func copySelectedRowAsTSV(_ sender: Any?) { perform(.copyAsTSV, sender: sender) }
+    @objc func openSelectedRowTaxonomyOnNCBI(_ sender: Any?) { perform(.openTaxonomyOnNCBI, sender: sender) }
+
+    @objc func extractReadsForSelectedRows(_ sender: Any?) {
+        adoptContextTargets(sender: sender)
         onExtractFASTQ?()
     }
 
@@ -5686,6 +5629,12 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     // MARK: - NSTableViewDelegate
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let cell = makeCell(for: tableColumn, row: row) else { return nil }
+        AccessibilityCellActions.install(accessibilityActions(forRow: row, cellView: cell), on: cell)
+        return cell
+    }
+
+    private func makeCell(for tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let column = tableColumn, row < sortedRows.count else { return nil }
         let item = sortedRows[row]
 
