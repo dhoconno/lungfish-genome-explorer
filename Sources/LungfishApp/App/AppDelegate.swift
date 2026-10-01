@@ -665,7 +665,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
             let missingDatabase: Bool
             if case .missingDatabase? = fallback.error as? ProjectStoreError { missingDatabase = true } else { missingDatabase = false }
-            let accessSuffix = !isNativeProject ? "" : (missingDatabase ? " (Missing Project Database)" : " (Read Only)")
+            let accessSuffix = isNativeProject ? " (Read Only)" : ""
             controller.window?.title = "\(fallback.name)\(accessSuffix) - \(LungfishAppIdentity.current.fullName)"
             debugLog("openProject: Failed via ProjectSession, falling back to filesystem sidebar: \(fallback.error.localizedDescription)")
             controller.mainSplitViewController?.sidebarController.openProject(at: fallback.url, asyncScan: true)
@@ -686,11 +686,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     self.migrateProject(at: fallback.url, in: controller)
                 }
             } else if isNativeProject, missingDatabase, let window = controller.window {
-                // Without its database the project can be browsed but not changed.
-                // Say why, rather than leaving a bare "Read Only" in the title.
+                // Without its project store the project can be browsed but not
+                // changed. Say why, rather than leaving a bare "Read Only" title.
                 let alert = NSAlert()
-                alert.messageText = "Project Database Missing"
-                alert.informativeText = "\(fallback.name) has no project database (.project.db), so its files can be browsed but not changed. This usually happens when a project folder is copied without its hidden files. Copy the whole folder again in Finder, or download the demo project again."
+                alert.messageText = "Opened Read Only"
+                alert.informativeText = "\(fallback.name) has no project store, the hidden .project.db file, so you can browse its files but not change them. A project built only with lungfish-cli has no store until it is created in the app. A project folder copied without its hidden files has lost its store, so copy the whole folder again or download the demo project again."
                 alert.addButton(withTitle: "OK")
                 alert.beginSheetModal(for: window)
             }

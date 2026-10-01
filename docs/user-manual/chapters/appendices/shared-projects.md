@@ -88,7 +88,7 @@ Try to run something that writes and a sheet titled **Project Is Open Read Only*
 
 A project copied while another copy of LGE had the original open carries that session's lock inside it. Open the copy and its alert names the session from the original. Once that session has ended, the copy opens normally on the same Mac. On another Mac, use **Recover and Open**.
 
-A folder built only with `lungfish-cli` and never opened in the app has no [project store](../../GLOSSARY.md#project-store), the app's own hidden index of the project's contents, and the app opens it read only for that reason. It does the same when the project store or the project folder cannot be written to, for example because the folder belongs to another user or sits on a read-only volume. The title reads `(Read Only)` either way. If `(Read Only)` appears without a lock alert first, one of these is the cause.
+A folder built only with `lungfish-cli` and never opened in the app has no [project store](../../GLOSSARY.md#project-store), the app's own hidden index of the project's contents, and the app opens it read only for that reason. It does the same when the project store or the project folder cannot be written to, for example because the folder belongs to another user or sits on a read-only volume. The title reads `(Read Only)` either way. When the project store is missing, an alert titled **Opened Read Only** says so. A project folder copied without its hidden files loses its store the same way, so copy the whole folder again. If `(Read Only)` appears without a lock alert first, one of these is the cause.
 
 ## Before you type anything
 
@@ -210,7 +210,7 @@ Taking and releasing a lock writes no provenance record, because a lock is bookk
 Four checks tell you a shared project is in the state you think it is.
 
 1. The window title has no `(Read Only)` after the project name when you expect to be able to write.
-2. When the title does show `(Read Only)`, an opening alert named the lock's owner, or no alert appeared because the project store is missing.
+2. When the title does show `(Read Only)`, an opening alert named the lock's owner, or the **Opened Read Only** alert said the project store is missing.
 3. `project lock` on a free project exits 0. It exits 1 when the lock belongs to a running LGE on this Mac, to another Mac, or is corrupted.
 4. `project migrate --dry-run` reports each bundle as `current`, `unreadable` for alignments, trees, and primer schemes, or names exactly the bundles it would change.
 
