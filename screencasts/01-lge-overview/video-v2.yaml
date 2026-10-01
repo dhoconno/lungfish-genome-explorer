@@ -4,7 +4,7 @@
 # recorded with wincap. Terminal beats replay real lungfish-cli output saved in terminal-v2/.
 
 slug: 01-lge-overview-v2
-app: Lungfish Preview 2026.9.73
+app: Lungfish Preview 2026.9.73 (exports beat 2026.9.74)
 window_points: [1440, 810]
 trim_top: 52          # hide the title bar in every app take
 outputs: [wide, square]
@@ -95,6 +95,16 @@ beats:
     caption: Export the history as a script or methods text
     kicker: File · Export · Provenance · Methods Section
     square_focus: [0.15, 0.0, 0.62, 1.0]
+
+  - kind: take
+    id: exports
+    take: takes-v2/exports.mov    # the three exports read in LGE's viewer (Preview 2026.9.74)
+    in: 1.6
+    duration: 13.5
+    caption: Read the methods, Nextflow and Snakemake exports
+    kicker: methods.md · main.nf · Snakefile
+    crop: [0.0, 0.064, 0.80, 0.62]
+    square_focus: [0.0, 0.0, 0.7, 1.0]
 
   - kind: terminal
     id: cli

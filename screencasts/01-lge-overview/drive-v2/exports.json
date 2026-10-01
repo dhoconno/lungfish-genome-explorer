@@ -1,0 +1,10 @@
+[
+  {"wait": 1.2},
+  {"focusTable": {"table": 1, "outline": true}},
+  {"row": {"table": 1, "outline": true, "index": 5}},
+  {"wait": 4.5},
+  {"row": {"table": 1, "outline": true, "index": 9}},
+  {"wait": 4.5},
+  {"row": {"table": 1, "outline": true, "index": 15}},
+  {"wait": 5}
+]
