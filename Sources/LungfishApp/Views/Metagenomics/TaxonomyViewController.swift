@@ -91,7 +91,7 @@ struct BatchClassificationRow: Sendable {
 /// This class is `@MainActor` isolated and manages its `NSSplitView` directly
 /// so pane sizing and synchronized selection stay within this controller.
 @MainActor
-public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate, SampleMetadataPresentationConsumer {
+public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate, SampleMetadataPresentationConsumer, OutlineExpandCollapseActions {
 
     // MARK: - Data
 
@@ -1923,15 +1923,16 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     /// Expands all items in the taxonomy table.
     ///
-    /// Triggered by the View > Expand All menu item (Cmd+Shift+Right).
-    @objc func expandAllTaxonomyItems(_ sender: Any?) {
+    /// Triggered by the View > Expand All menu item (Cmd+Shift+Right), which
+    /// targets ``OutlineExpandCollapseActions`` through the responder chain.
+    @objc public func expandAllOutlineItems(_ sender: Any?) {
         taxonomyTableView.expandAll()
     }
 
     /// Collapses all items in the taxonomy table.
     ///
     /// Triggered by the View > Collapse All menu item (Cmd+Shift+Left).
-    @objc func collapseAllTaxonomyItems(_ sender: Any?) {
+    @objc public func collapseAllOutlineItems(_ sender: Any?) {
         taxonomyTableView.collapseAll()
     }
 
