@@ -66,16 +66,26 @@ protocol ChromosomeNavigatorDelegate: AnyObject {
 ///
 /// The navigator shows each chromosome's name and formatted length in an `NSTableView`.
 /// Includes a sort popup (natural/alphabetical/by-size) and a filter search field.
+///
+/// Every command the row's context menu offers is also a cell accessibility
+/// action and, for the selected row, a Selection > Table Row menu item
+/// (``ResultRowMenuActions``), so keyboards, VoiceOver and AX automation can
+/// drive the list without a mouse. Return or Enter navigates like a
+/// double-click, and the sort pop-up mirrors its items as actions.
 @MainActor
-public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableViewDelegate {
+public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation, ResultRowMenuActions {
 
     // MARK: - Properties
 
     weak var delegate: ChromosomeNavigatorDelegate?
 
     /// Invoked with every selected chromosome when the user asks to extract
-    /// them to a new bundle. A `nil` handler omits the menu item entirely.
-    public var onExtractSelectedSequencesRequested: (([ChromosomeInfo]) -> Void)?
+    /// them to a new bundle. A `nil` handler omits the menu item entirely,
+    /// and the row cell actions, which are installed from the cell callback,
+    /// follow it on the next reload.
+    public var onExtractSelectedSequencesRequested: (([ChromosomeInfo]) -> Void)? {
+        didSet { tableView.reloadData() }
+    }
 
     /// Overrides `tableView.clickedRow` in tests, where there is no real click.
     private var testingClickedRow: Int?
@@ -124,7 +134,7 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     // MARK: - UI Components
 
     private let scrollView = NSScrollView()
-    private let tableView = NSTableView()
+    private let tableView = RowActivatingTableView()
     private let headerLabel = NSTextField(labelWithString: "Chromosomes")
     private let sortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let filterField = NSSearchField()
@@ -163,6 +173,7 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         sortPopup.target = self
         sortPopup.action = #selector(sortModeChanged(_:))
         sortPopup.setAccessibilityLabel("Sort chromosomes")
+        AccessibilityMenuMirror.install(on: sortPopup)
         addSubview(sortPopup)
 
         // Filter search field
@@ -192,6 +203,10 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         tableView.style = .sourceList
         tableView.target = self
         tableView.doubleAction = #selector(tableViewDoubleClicked(_:))
+        tableView.onActivateSelectedRow = { [weak self] in
+            guard let self else { return }
+            self.activate(row: self.tableView.selectedRow)
+        }
 
         // Context menu for right-click actions
         let contextMenu = NSMenu()
@@ -292,11 +307,16 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     // MARK: - Actions
 
     @objc private func tableViewDoubleClicked(_ sender: Any) {
-        let row = tableView.clickedRow
+        activate(row: tableView.clickedRow)
+    }
+
+    /// Navigates to the chromosome at `row`, what a double-click, Return and
+    /// the row's Navigate to Chromosome action all do.
+    private func activate(row: Int) {
         guard row >= 0, row < displayedChromosomes.count else { return }
 
         let chromosome = displayedChromosomes[row]
-        logger.info("ChromosomeNavigatorView: Double-clicked chromosome '\(chromosome.name, privacy: .public)'")
+        logger.info("ChromosomeNavigatorView: Activated chromosome '\(chromosome.name, privacy: .public)'")
         delegate?.chromosomeNavigator(self, didSelectChromosome: chromosome)
     }
 
@@ -305,6 +325,10 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     /// Copies the chromosome name to the pasteboard.
     @objc private func copyChromosomeName(_ sender: NSMenuItem?) {
         guard let chromosome = sender?.representedObject as? ChromosomeInfo else { return }
+        copyName(of: chromosome)
+    }
+
+    private func copyName(of chromosome: ChromosomeInfo) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(chromosome.name, forType: .string)
@@ -314,6 +338,10 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     /// Copies the chromosome length as a formatted string to the pasteboard.
     @objc private func copyChromosomeLength(_ sender: NSMenuItem?) {
         guard let chromosome = sender?.representedObject as? ChromosomeInfo else { return }
+        copyLength(of: chromosome)
+    }
+
+    private func copyLength(of chromosome: ChromosomeInfo) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString("\(chromosome.length)", forType: .string)
@@ -323,6 +351,10 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     /// Posts a notification to show the chromosome details in the inspector.
     @objc private func showChromosomeInInspector(_ sender: NSMenuItem?) {
         guard let chromosome = sender?.representedObject as? ChromosomeInfo else { return }
+        showInInspector(chromosome)
+    }
+
+    private func showInInspector(_ chromosome: ChromosomeInfo) {
         NotificationCenter.default.post(
             name: .chromosomeInspectorRequested,
             object: self,
@@ -356,7 +388,79 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         }
 
         cellView.configure(with: chromosome)
+        AccessibilityCellActions.install(accessibilityActions(for: cellView), on: cellView)
         return cellView
+    }
+
+    // MARK: - Accessibility cell actions
+
+    /// The commands every cell of a row publishes to AX clients: Navigate to
+    /// Chromosome, then the context menu's commands in menu order. Handlers
+    /// resolve the row when they run, because cell views are recycled as the
+    /// list scrolls and re-sorts.
+    private func accessibilityActions(for cellView: NSView) -> [NSAccessibilityCustomAction] {
+        func action(_ name: String, _ body: @escaping @MainActor (ChromosomeNavigatorView, Int, ChromosomeInfo) -> Void) -> NSAccessibilityCustomAction {
+            AccessibilityCellActions.makeAction(name: name) { [weak self, weak cellView] in
+                guard let self, let cellView,
+                      let row = AccessibilityCellActions.currentRow(of: cellView),
+                      row < self.displayedChromosomes.count else { return }
+                body(self, row, self.displayedChromosomes[row])
+            }
+        }
+        var actions = [action("Navigate to Chromosome") { navigator, row, _ in navigator.activate(row: row) }]
+        if onExtractSelectedSequencesRequested != nil {
+            actions.append(action("Extract to New Bundle\u{2026}") { navigator, row, _ in
+                navigator.targetSelection(toRow: row)
+                navigator.extractSelectedChromosomes(nil)
+            })
+        }
+        actions.append(action("Copy Name") { navigator, _, chromosome in navigator.copyName(of: chromosome) })
+        actions.append(action("Copy Length") { navigator, _, chromosome in navigator.copyLength(of: chromosome) })
+        actions.append(action("Show in Inspector") { navigator, _, chromosome in navigator.showInInspector(chromosome) })
+        return actions
+    }
+
+    /// Makes `row` the whole selection unless it is already part of it, the
+    /// same reconciliation a right-click outside the selection performs.
+    private func targetSelection(toRow row: Int) {
+        guard !tableView.selectedRowIndexes.contains(row) else { return }
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    // MARK: - Selection > Table Row (ResultRowMenuActions)
+
+    private var singleSelectedChromosome: ChromosomeInfo? {
+        let selected = selectedChromosomes()
+        return selected.count == 1 ? selected[0] : nil
+    }
+
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(activateSelectedRow(_:)), #selector(copySelectedRowName(_:)), #selector(showSelectedRowInInspector(_:)):
+            return singleSelectedChromosome != nil
+        case #selector(extractSelectedRowsToNewBundle(_:)):
+            return onExtractSelectedSequencesRequested != nil && !selectedChromosomes().isEmpty
+        default:
+            return true
+        }
+    }
+
+    @objc public func activateSelectedRow(_ sender: Any?) {
+        activate(row: tableView.selectedRow)
+    }
+
+    @objc public func copySelectedRowName(_ sender: Any?) {
+        guard let chromosome = singleSelectedChromosome else { return }
+        copyName(of: chromosome)
+    }
+
+    @objc public func showSelectedRowInInspector(_ sender: Any?) {
+        guard let chromosome = singleSelectedChromosome else { return }
+        showInInspector(chromosome)
+    }
+
+    @objc public func extractSelectedRowsToNewBundle(_ sender: Any?) {
+        extractSelectedChromosomes(sender)
     }
 
     public func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
@@ -425,9 +529,7 @@ extension ChromosomeNavigatorView: NSMenuDelegate {
 
         // Right-clicking outside the current selection targets that row alone,
         // matching FASTACollectionViewController's reconciliation.
-        if !tableView.selectedRowIndexes.contains(clickedRow) {
-            tableView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
-        }
+        targetSelection(toRow: clickedRow)
 
         let selected = selectedChromosomes()
 
@@ -485,6 +587,16 @@ extension ChromosomeNavigatorView: NSMenuDelegate {
 
     func testingSelectRows(_ rows: [Int]) {
         tableView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+    }
+
+    var testingTableView: NSTableView { tableView }
+
+    var testingSortPopUp: NSPopUpButton { sortPopup }
+
+    func testingBuildContextMenu(_ menu: NSMenu, clickedRow: Int) {
+        testingClickedRow = clickedRow
+        defer { testingClickedRow = nil }
+        menuNeedsUpdate(menu)
     }
 
     var testingSelectedChromosomeNames: [String] { selectedChromosomes().map(\.name) }

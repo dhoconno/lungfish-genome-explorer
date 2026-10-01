@@ -1,4 +1,6 @@
 import XCTest
+import LungfishKit
+import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishCore
 
@@ -369,6 +371,172 @@ final class FASTACollectionViewControllerTests: XCTestCase {
         let textView = try XCTUnwrap(scrollView.documentView as? NSTextView)
         XCTAssertGreaterThanOrEqual(textView.frame.width, scrollView.contentSize.width)
         XCTAssertGreaterThanOrEqual(textView.frame.height, scrollView.contentSize.height)
+    }
+
+    // MARK: - Keyboard and accessibility
+
+    private func makeHostedController(sequenceCount: Int = 3) throws -> (FASTACollectionViewController, NSWindow) {
+        _ = NSApplication.shared
+        let vc = FASTACollectionViewController()
+        vc.onExtractSequenceRequested = { _ in }
+        vc.onBlastRequested = { _ in }
+        vc.onExportRequested = { _ in }
+        vc.onCreateBundleRequested = { _ in }
+        vc.onAlignWithMAFFTRequested = { _ in }
+        vc.onRunOperationRequested = { _ in }
+        _ = vc.view
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 400),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = vc.view
+        vc.view.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
+        let bases = ["AACCGGTT", "ATATAT", "GGGGCCCC"]
+        vc.configure(
+            sequences: try (0..<sequenceCount).map { try makeSequence(name: "seq\($0 + 1)", bases: bases[$0 % bases.count]) },
+            annotations: [],
+            sourceNames: [:]
+        )
+        vc.view.layoutSubtreeIfNeeded()
+        vc.testTableView.layoutSubtreeIfNeeded()
+        return (vc, window)
+    }
+
+    func testReturnOpensTheSelectedSequenceLikeADoubleClick() throws {
+        let (vc, window) = try makeHostedController()
+        defer { window.close() }
+        var opened: [String] = []
+        vc.onOpenSequence = { sequence, _ in opened.append(sequence.name) }
+        vc.testSelectRows([1])
+
+        let returnEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+            isARepeat: false, keyCode: 36
+        ))
+        vc.testTableView.keyDown(with: returnEvent)
+        XCTAssertEqual(opened, ["seq2"])
+
+        vc.testSelectRows([])
+        vc.testTableView.keyDown(with: returnEvent)
+        XCTAssertEqual(opened, ["seq2"], "Return with no selection opens nothing")
+    }
+
+    func testRowsPublishTheSharedFASTAActionsOnceAndInParityWithTheContextMenu() throws {
+        let (vc, window) = try makeHostedController()
+        defer { window.close() }
+        vc.testSelectRows([0])
+
+        let rows = AccessibilityRowProbe.rowProxies(of: vc.testTableView)
+        XCTAssertEqual(rows.count, 3)
+        let expected = ["Extract Sequence\u{2026}", "Verify with BLAST\u{2026}", "Copy Name", "Copy Sequence", "Copy FASTA", "Export FASTA\u{2026}", "Extract to New Bundle\u{2026}", "Run Operation\u{2026}"]
+        XCTAssertEqual(AccessibilityRowProbe.firstCellActionNames(rows[0]), expected)
+        for served in AccessibilityRowProbe.servedCellActionNames(rows[0]) {
+            XCTAssertEqual(served, expected, "the AX server lists each action once")
+        }
+
+        // With two rows selected the selected rows offer the plural titles and
+        // Align with MAFFT, the unselected row keeps its single-row set, and
+        // the context menu (every command enabled) has a cell action for each
+        // of its commands.
+        vc.testSelectRows([0, 1])
+        vc.testUpdateContextMenu(clickedRow: 0)
+        let multi = AccessibilityRowProbe.rowProxies(of: vc.testTableView)
+        let selectedRowActions = AccessibilityRowProbe.firstCellActionNames(multi[0])
+        XCTAssertTrue(selectedRowActions.contains("Align with MAFFT\u{2026}"))
+        XCTAssertTrue(selectedRowActions.contains("Copy Names"))
+        XCTAssertEqual(AccessibilityRowProbe.firstCellActionNames(multi[2]), expected)
+        ContextMenuParityAssert.assertParity(
+            contextMenu: vc.testContextMenu,
+            cellActionNames: selectedRowActions,
+            mainMenu: MainMenu.createMainMenu()
+        )
+    }
+
+    func testCellActionsTargetTheRowTheCellShowsNow() throws {
+        let (vc, window) = try makeHostedController()
+        defer { window.close() }
+        let pasteboard = RecordingPasteboard()
+        vc.testSetPasteboard(pasteboard)
+        var extracted: [[String]] = []
+        vc.onExtractSequenceRequested = { extracted.append($0.map(\.name)) }
+
+        let rows = AccessibilityRowProbe.rowProxies(of: vc.testTableView)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: rows[2]))
+        XCTAssertEqual(pasteboard.lastString, "seq3")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy FASTA", in: rows[1]))
+        XCTAssertEqual(pasteboard.lastString, ">seq2\nATATAT\n")
+
+        // An action on a row outside the selection targets that row alone;
+        // on a selected row it acts on the whole selection.
+        vc.testSelectRows([0, 1])
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Extract Sequence\u{2026}", in: rows[2]))
+        XCTAssertEqual(extracted.last, ["seq3"])
+        vc.testSelectRows([0, 1])
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Extract Sequence\u{2026}", in: rows[0]))
+        XCTAssertEqual(extracted.last, ["seq1", "seq2"])
+
+        // Sort descending so the recycled cells show other sequences.
+        vc.testSort(column: "name", ascending: false)
+        vc.testTableView.layoutSubtreeIfNeeded()
+        let sorted = AccessibilityRowProbe.rowProxies(of: vc.testTableView)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: sorted[0]))
+        XCTAssertEqual(pasteboard.lastString, "seq3")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: sorted[2]))
+        XCTAssertEqual(pasteboard.lastString, "seq1")
+    }
+
+    func testMenuBarRowCommandsFollowTheSelection() throws {
+        let (vc, window) = try makeHostedController()
+        defer { window.close() }
+        let pasteboard = RecordingPasteboard()
+        vc.testSetPasteboard(pasteboard)
+        var opened: [String] = []
+        vc.onOpenSequence = { sequence, _ in opened.append(sequence.name) }
+        var blasted: [String] = []
+        vc.onBlastRequested = { blasted = $0.map(\.name) }
+        var bundled: [String] = []
+        vc.onCreateBundleRequested = { bundled = $0.map(\.name) }
+
+        func item(_ selector: Selector) -> NSMenuItem { NSMenuItem(title: "", action: selector, keyEquivalent: "") }
+        let copyName = item(#selector(ResultRowMenuActions.copySelectedRowName(_:)))
+        let copySequence = item(#selector(ResultRowMenuActions.copySelectedRowSequence(_:)))
+        let copyFASTA = item(#selector(ResultRowMenuActions.copySelectedRowFASTA(_:)))
+        let blast = item(#selector(ResultRowMenuActions.blastVerifySelectedRow(_:)))
+        let bundle = item(#selector(ResultRowMenuActions.extractSelectedRowsToNewBundle(_:)))
+        let activate = item(#selector(ResultRowMenuActions.activateSelectedRow(_:)))
+
+        vc.testSelectRows([])
+        for menuItem in [copyName, copySequence, copyFASTA, blast, bundle, activate] {
+            XCTAssertFalse(vc.validateMenuItem(menuItem), "\(menuItem.action!) with nothing selected")
+        }
+
+        vc.testSelectRows([1])
+        for menuItem in [copyName, copySequence, copyFASTA, blast, bundle, activate] {
+            XCTAssertTrue(vc.validateMenuItem(menuItem), "\(menuItem.action!) with one row selected")
+        }
+        vc.copySelectedRowName(nil)
+        XCTAssertEqual(pasteboard.lastString, "seq2")
+        vc.copySelectedRowSequence(nil)
+        XCTAssertEqual(pasteboard.lastString, "ATATAT")
+        vc.copySelectedRowFASTA(nil)
+        XCTAssertEqual(pasteboard.lastString, ">seq2\nATATAT\n")
+        vc.blastVerifySelectedRow(nil)
+        XCTAssertEqual(blasted, ["seq2"])
+        vc.extractSelectedRowsToNewBundle(nil)
+        XCTAssertEqual(bundled, ["seq2"])
+        vc.activateSelectedRow(nil)
+        XCTAssertEqual(opened, ["seq2"])
+
+        vc.testSelectRows([0, 2])
+        XCTAssertFalse(vc.validateMenuItem(activate), "Open Row opens one sequence")
+        XCTAssertTrue(vc.validateMenuItem(copyName))
+        vc.copySelectedRowName(nil)
+        XCTAssertEqual(pasteboard.lastString, "seq1\nseq3")
+
+        vc.onBlastRequested = nil
+        XCTAssertFalse(vc.validateMenuItem(blast), "no BLAST handler wired")
     }
 
     private func makeSequence(name: String, bases: String) throws -> Sequence {
