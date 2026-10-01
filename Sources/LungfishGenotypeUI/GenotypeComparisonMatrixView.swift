@@ -3990,8 +3990,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     ///
     /// Review marks and comments act on the current selection, which the
     /// product allows only on cells, so they are listed while the selection
-    /// touches this row and the command is enabled for it. Hide Row and Show
-    /// Only Row are always listed. Performing any of them on a row outside the
+    /// touches this row and the command is enabled for it. Select Supported
+    /// Cells turns the row into the cells that carry reads, which is how an AX
+    /// client reaches the review marks, since cells have no AX selection of
+    /// their own. Select Supported Cells, Hide Row and Show Only Row are always
+    /// listed. Performing any of them on a row outside the
     /// selection selects that row first, as a click on its selector would.
     private func rowAccessibilityActions(rowID: GenotypeCandidateMatrixRowID) -> [NSAccessibilityCustomAction] {
         guard let row = visibleRows.first(where: { $0.id == rowID }) else { return [] }
@@ -4007,6 +4010,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             ("Clear Review", .clearReview, false),
             ("Edit Comment", .editComment, false),
             ("Remove Comment", .removeComments, false),
+            ("Select Supported Cells", .selectSupportedCells, true),
             ("Hide Row", .hideSelectedRows, true),
             ("Show Only Row", .showOnlySelectedRows, true),
         ]
