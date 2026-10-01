@@ -31,4 +31,4 @@ Related: custom actions set on the NSTableRowView are not exposed at all, becaus
 
 ## Configuration
 
-macOS 26.6.2 (25G…), Apple silicon, AppKit app built with Swift 6.2 (Xcode 26 toolchain). Reproduced in Lungfish Genome Explorer (open source, github.com/dhoconno/lungfish-genome-explorer), see `Sources/LungfishKit/Accessibility/TableCellProxyActionFix.swift` for the analysis and our guarded workaround.
+macOS 26.6.2 (25G83), Apple silicon, AppKit app built with Swift 6.2 (Xcode 26 toolchain). Reproduced in Lungfish Genome Explorer (open source, github.com/dhoconno/lungfish-genome-explorer), see `Sources/LungfishKit/Accessibility/TableCellProxyActionFix.swift` for the analysis and our guarded workaround.
