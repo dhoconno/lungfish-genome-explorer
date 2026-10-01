@@ -3093,8 +3093,10 @@ extension NvdResultViewController {
               let target = item.target else {
             return false
         }
+        #if DEBUG
         testingContextClickedItem = .contig(sampleId: hit.sampleId, qseqid: hit.qseqid)
         defer { testingContextClickedItem = nil }
+        #endif
         guard validateMenuItem(item) else { return false }
         NSApp.sendAction(action, to: target, from: item)
         return true
