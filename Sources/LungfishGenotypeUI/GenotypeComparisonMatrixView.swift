@@ -141,7 +141,21 @@ private final class GenotypeMatrixPaneDivider: NSView {
 }
 
 @MainActor
-final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTableViewDelegate {
+/// The review commands the genotype matrix answers from the menu bar.
+///
+/// Tools > Genotype Review > Selected Cell sends these to the first responder
+/// with a nil target, so they reach the matrix only while it has the keyboard
+/// focus. The protocol is public so the menu bar can name the selectors
+/// without the matrix view itself being public.
+@objc public protocol GenotypeMatrixReviewMenuActions: AnyObject {
+    func markSelectionFalsePositive(_ sender: Any?)
+    func markSelectionFalseNegative(_ sender: Any?)
+    func clearSelectionReview(_ sender: Any?)
+    func editSelectionComment(_ sender: Any?)
+    func removeSelectionComments(_ sender: Any?)
+}
+
+final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTableViewDelegate, GenotypeMatrixReviewMenuActions {
     private final class ContextMenuCommandPayload: NSObject {
         let command: GenotypeMatrixContextCommand
         let selectionTargets: Set<GenotypeAnnotationSidecar.MatrixTarget>
@@ -1970,9 +1984,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             }
         }
         pinnedTableView.headerView?.menu = menu
+        if let headerView = pinnedTableView.headerView {
+            AccessibilityMenuMirror.install(menu, on: headerView)
+        }
         if let visibleMenu = menu.copy() as? NSMenu {
             visibleMenu.insertItem(withTitle: "Columns", action: nil, keyEquivalent: "", at: 0)
             columnsButton.menu = visibleMenu
+            // The pull-down opens only on a click, so list its items as
+            // accessibility actions for VoiceOver and AX automation.
+            AccessibilityMenuMirror.install(on: columnsButton)
         }
     }
 
@@ -3133,6 +3153,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 fallback: "Select \(sharedCall.genotype)"
             )
             cell.setAccessibilityElement(false)
+            // Installing an empty list applies the table proxy fix that makes
+            // each action list once. The cell then answers its actions
+            // itself, computed against the selection when an AX client asks.
+            AccessibilityCellActions.install([], on: cell)
+            let rowID = sharedCall.id
+            cell.accessibilityActionsProvider = { [weak self] in
+                self?.rowAccessibilityActions(rowID: rowID) ?? []
+            }
             return cell
         }
 #if DEBUG
@@ -3918,27 +3946,95 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         return field.stringValue
     }
 
-    /// The matrix context-menu shortcuts (⌥⌘P / ⌥⌘X / ⌥⌘R / ⌥⌘M).
+    // MARK: - Review commands in the menu bar
+
+    // The review chords (⌥⌘P, ⌥⌘X, ⌥⌘R, ⌥⌘M) belong to Tools > Genotype
+    // Review > Selected Cell. The matrix does not claim them in
+    // `performKeyEquivalent`, so the key reaches the menu bar and the menu
+    // item reaches this view through the responder chain, which enables it
+    // only while the matrix (or one of its tables) has the keyboard focus.
+
+    @objc func markSelectionFalsePositive(_ sender: Any?) {
+        performContextCommand(.markFalsePositive)
+    }
+
+    @objc func markSelectionFalseNegative(_ sender: Any?) {
+        performContextCommand(.markFalseNegative)
+    }
+
+    @objc func clearSelectionReview(_ sender: Any?) {
+        performContextCommand(.clearReview)
+    }
+
+    @objc func editSelectionComment(_ sender: Any?) {
+        performContextCommand(.editComment)
+    }
+
+    @objc func removeSelectionComments(_ sender: Any?) {
+        performContextCommand(.removeComments)
+    }
+
+    private static func menuCommand(for action: Selector) -> GenotypeMatrixContextCommand? {
+        switch action {
+        case #selector(markSelectionFalsePositive(_:)): return .markFalsePositive
+        case #selector(markSelectionFalseNegative(_:)): return .markFalseNegative
+        case #selector(clearSelectionReview(_:)): return .clearReview
+        case #selector(editSelectionComment(_:)): return .editComment
+        case #selector(removeSelectionComments(_:)): return .removeComments
+        default: return nil
+        }
+    }
+
+    /// The commands a matrix row offers to AX clients, computed when the
+    /// client asks so the list follows the selection.
     ///
-    /// AppKit forwards `performKeyEquivalent` to every view in the window's
-    /// hierarchy, not only the focused one, so this is gated on the matrix
-    /// (or one of its descendants) being the first responder. Without that
-    /// gate the matrix claimed its shortcuts from any control in the window,
-    /// and the main menu's own key equivalents never got a chance.
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard ownsKeyboardFocus else {
-            return super.performKeyEquivalent(with: event)
+    /// Review marks and comments act on the current selection, which the
+    /// product allows only on cells, so they are listed while the selection
+    /// touches this row and the command is enabled for it. Hide Row and Show
+    /// Only Row are always listed. Performing any of them on a row outside the
+    /// selection selects that row first, as a click on its selector would.
+    private func rowAccessibilityActions(rowID: GenotypeCandidateMatrixRowID) -> [NSAccessibilityCustomAction] {
+        guard let row = visibleRows.first(where: { $0.id == rowID }) else { return [] }
+        var enabled: Set<GenotypeMatrixContextCommand> = []
+        if selectionTouchesRow(row) {
+            let state = makeContextMenuState()
+            let items = state.items + state.visibilityItems + state.visibilitySubmenus.flatMap(\.items)
+            enabled = Set(items.filter(\.availability.isEnabled).map(\.command))
         }
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let state = makeContextMenuState()
-        if let item = state.items.first(where: {
-            !$0.keyEquivalent.isEmpty
-                && $0.keyEquivalent == event.charactersIgnoringModifiers?.lowercased()
-                && NSEvent.ModifierFlags(rawValue: $0.keyModifierRawValue) == modifiers
-        }) {
-            return performContextCommand(item.command)
+        let commands: [(String, GenotypeMatrixContextCommand, Bool)] = [
+            ("Mark False Positive", .markFalsePositive, false),
+            ("Mark False Negative", .markFalseNegative, false),
+            ("Clear Review", .clearReview, false),
+            ("Edit Comment", .editComment, false),
+            ("Remove Comment", .removeComments, false),
+            ("Hide Row", .hideSelectedRows, true),
+            ("Show Only Row", .showOnlySelectedRows, true),
+        ]
+        return commands.compactMap { name, command, alwaysListed in
+            guard alwaysListed || enabled.contains(command) else { return nil }
+            return AccessibilityCellActions.makeAction(name: name) { [weak self] in
+                self?.performRowAction(command, rowID: rowID)
+            }
         }
-        return super.performKeyEquivalent(with: event)
+    }
+
+    private func selectionTouchesRow(_ row: GenotypeCandidateMatrixRow) -> Bool {
+        selectedMatrixTargets.contains { target in
+            switch target {
+            case let .row(locus, genotype, _), let .cell(locus, genotype, _, _):
+                return locus == row.locus && genotype == row.genotype
+            case .column:
+                return false
+            }
+        }
+    }
+
+    private func performRowAction(_ command: GenotypeMatrixContextCommand, rowID: GenotypeCandidateMatrixRowID) {
+        guard let row = visibleRows.firstIndex(where: { $0.id == rowID }) else { return }
+        if !selectionTouchesRow(visibleRows[row]) {
+            selectRowFromDirectClick(row, modifiers: [])
+        }
+        performContextCommand(command)
     }
 
     /// True when the window's first responder is this view or one of its
@@ -7018,6 +7114,14 @@ private final class GenotypeMatrixRowSelectorCellView: NSTableCellView {
     private let selectorButton = GenotypeMatrixSelectorButton()
     private var commentFoldSize: CGFloat?
 
+    /// Computes the row's accessibility actions when an AX client asks.
+    var accessibilityActionsProvider: (() -> [NSAccessibilityCustomAction])?
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        let actions = accessibilityActionsProvider?() ?? []
+        return actions.isEmpty ? nil : actions
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         buildView()
@@ -9241,3 +9345,15 @@ extension GenotypeComparisonMatrixView {
     }
 }
 #endif
+
+extension GenotypeComparisonMatrixView: NSMenuItemValidation {
+    /// The Selected Cell review items are enabled while the matrix owns the
+    /// keyboard focus and the command applies to the current selection.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let action = menuItem.action,
+              let command = Self.menuCommand(for: action) else { return true }
+        guard ownsKeyboardFocus, !selectedMatrixTargets.isEmpty else { return false }
+        let state = makeContextMenuState()
+        return state.items.first { $0.command == command }?.availability.isEnabled == true
+    }
+}

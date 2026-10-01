@@ -92,10 +92,6 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
     /// Chords handled inside a view's keyDown or a view-local context menu,
     /// which the menu bar must not bind to something else.
     private static let viewLocalChords: [(Chord, String)] = [
-        (Chord("p", [.command, .option]), "genotype matrix: mark false positive"),
-        (Chord("x", [.command, .option]), "genotype matrix: mark false negative"),
-        (Chord("r", [.command, .option]), "genotype matrix: clear review mark"),
-        (Chord("m", [.command, .option]), "genotype matrix: add or edit comment"),
         (Chord("\u{8}", []), "sidebar: move to Trash"),
         (Chord("\u{7f}", []), "sidebar: move to Trash"),
         (Chord(String(Character(UnicodeScalar(NSRightArrowFunctionKey)!)), [.option]), "taxonomy table: expand row recursively"),
@@ -106,6 +102,20 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
     /// siblings" inside the sidebar, which takes precedence while the sidebar
     /// has focus. Documented in the shortcuts appendix; predates this audit.
     private static let grandfatheredOverlaps: Set<Chord> = [Chord("a", [.command, .shift])]
+
+    /// The matrix review chords moved from a view-level key handler to
+    /// Tools > Genotype Review > Selected Cell, so the menu bar documents them.
+    func testSelectedCellReviewItemsCarryTheMatrixChords() {
+        let expected: [(String, String)] = [
+            ("Mark False Positive", "p"), ("Mark False Negative", "x"),
+            ("Clear Review", "r"), ("Edit Comment\u{2026}", "m"),
+        ]
+        let bound = menuBindings().filter { $0.path.contains("Genotype Review > Selected Cell") }
+        for (title, key) in expected {
+            let binding = bound.first { $0.title == title }
+            XCTAssertEqual(binding?.chord, Chord(key, [.command, .option]), "\(title) must carry the matrix chord")
+        }
+    }
 
     func testMenuBarDoesNotRepurposeViewLocalChords() {
         let bound = Dictionary(grouping: menuBindings(), by: \.chord)
