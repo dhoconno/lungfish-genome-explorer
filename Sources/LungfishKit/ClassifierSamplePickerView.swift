@@ -95,9 +95,10 @@ public struct ClassifierSamplePickerView: View {
 
             Divider()
 
-            // Sample list
+            // Sample list. An eager stack so every toggle is in the
+            // accessibility tree, not only the rows near the viewport.
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(filteredSamples.indices, id: \.self) { index in
                         sampleRow(filteredSamples[index])
                     }
