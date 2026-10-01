@@ -16,6 +16,10 @@ screencasts/
 
 Every beat shows the app itself, filmed from a released Lungfish build. The only exception is a beat whose point is a command-line feature, for example that every app feature is backed by `lungfish-cli`; such a beat may replay a real CLI session and must say so in its kicker. Never substitute a CLI replay, Finder, a text editor, or a rendered file page for something the app can show. If a surface cannot be filmed in the background (panels and sheets that only draw while the app is frontmost), film it with the owner present rather than working around it.
 
+## Storage
+
+Renders, posters and raw takes are not committed. They are stored in the LGE LabKey folder under `screencasts/<slug>/` with `scripts/lge-files/lge-files.sh` (contract: `docs/development/large-files.md`), and each video's `large-files.tsv` lists them with size, SHA-256 and download URL.
+
 ## Style
 
 - Brand fonts and palette from the Lungfish style guide, with the app's own orange `#D47B3A` as the accent so cards match the footage.

@@ -24,6 +24,15 @@ builders are internal. The full machine, channel, cache, verification, and
 side-by-side caveats live in `.codex/skills/releasing-lungfish/SKILL.md` and
 `docs/release/sparkle-updates.md`.
 
+## Large Files
+
+Generated, recorded or downloaded files that must be kept but do not belong in
+git (videos and takes, DMGs, large inputs, exported packages) are stored in the
+public LGE LabKey folder with `scripts/lge-files/lge-files.sh`, which reads the
+API key from `~/.env` at run time without exposing it. Uploads the repository
+depends on are listed in a committed manifest. Contract and rules:
+`docs/development/large-files.md`.
+
 ## Dependency Sweep
 
 The coordinator validates committed dependency manifests and runs the compact
