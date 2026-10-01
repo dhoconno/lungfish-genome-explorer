@@ -3978,6 +3978,11 @@ public class ViewerViewController: NSViewController {
 
     public func updateStatusBar() {
         guard let frame = referenceFrame else { return }
+        // The "Visible:" range mirrors the viewport selection, which the draw
+        // pass also keeps in sync. Sync it here first so every navigation path
+        // (position field, zoom, zoom to variant, panning) reports the range it
+        // just produced instead of the one from the previous draw.
+        viewerView.ensureVisibleViewportSelection(frame: frame)
         // Preserve selection info if we have one from the viewer
         let selectionInfo: String?
         if viewerView.isUserColumnSelection, let range = viewerView.selectionRange {

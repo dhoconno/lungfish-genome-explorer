@@ -922,6 +922,20 @@ extension MainSplitViewController {
                 resultDirectoryURL: url,
                 provenance: provenance
             )
+            // The sidebar can re-announce the analysis that is already on
+            // screen (a refresh, a repeated selection event, a window-level
+            // relayout). Nothing on disk changed, so the viewer keeps its focus
+            // mode, selected contig, region and drawer tab instead of being
+            // rebuilt and re-wired to the Inspector from scratch.
+            if case .referenceBundle(let input) = route,
+               viewerController.contentMode == .mapping,
+               viewerController.referenceBundleViewportController?.currentInput == input {
+                mainSplitLogger.info(
+                    "displayMappingAnalysis: '\(url.lastPathComponent, privacy: .public)' is already displayed, keeping viewer state"
+                )
+                recordUITestEvent("mapping.display.unchanged \(url.lastPathComponent)")
+                return
+            }
             inspectorController.clearSelection()
             inspectorController.updateProvenanceTarget(
                 url: url,

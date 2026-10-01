@@ -578,6 +578,22 @@ extension ViewerViewController {
     }
 
     func displayReferenceBundleViewport(_ input: ReferenceBundleViewportInput) throws {
+        // The same document can be announced again without the user choosing
+        // anything new (a sidebar refresh, a repeated selection event, a
+        // window-level relayout that re-routes the selection). Rebuilding the
+        // viewport then would drop focus mode, the selected contig, the shown
+        // region and the drawer tab, so an unchanged input keeps the live one.
+        if let existing = referenceBundleViewportController,
+           contentMode == .mapping,
+           existing.parent === self,
+           existing.view.superview === view,
+           existing.currentInput == input {
+            mappingDisplayLogger.info(
+                "displayReferenceBundleViewport: \(input.documentTitle, privacy: .public) is already displayed, keeping viewport state"
+            )
+            return
+        }
+
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()

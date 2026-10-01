@@ -484,6 +484,79 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
         XCTAssertFalse(vc.testListContainer.isHidden)
     }
 
+    func testReconfiguringWithUnchangedInputKeepsFocusModeAndSelection() throws {
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Reference",
+            chromosomes: [
+                .init(name: "chr1", length: 100),
+                .init(name: "chr2", length: 200),
+            ],
+            includeAlignment: false,
+            includeVariant: false
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let input = ReferenceBundleViewportInput.directBundle(bundleURL: bundleURL, manifest: manifest)
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+        try vc.configureForTesting(input: input)
+        vc.testSelectSequence(named: "chr2")
+        vc.testEnterFocusedDetailMode()
+
+        try vc.configureForTesting(input: input)
+
+        XCTAssertEqual(vc.testPresentationMode, .focusedDetail)
+        XCTAssertFalse(vc.testBackButtonIsHidden)
+        XCTAssertEqual(vc.testSelectedSequenceName, "chr2")
+
+        // A different input is a new document and starts in list-detail mode.
+        let otherURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Other",
+            chromosomes: [.init(name: "chrX", length: 50)],
+            includeAlignment: false,
+            includeVariant: false
+        )
+        defer { try? FileManager.default.removeItem(at: otherURL.deletingLastPathComponent()) }
+        try vc.configureForTesting(
+            input: .directBundle(bundleURL: otherURL, manifest: try BundleManifest.load(from: otherURL))
+        )
+        XCTAssertEqual(vc.testPresentationMode, .listDetail)
+        XCTAssertEqual(vc.testSelectedSequenceName, "chrX")
+    }
+
+    func testNavigatingEmbeddedViewerUpdatesVisibleStatusBeforeRedraw() throws {
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Reference",
+            chromosomes: [.init(name: "chr1", length: 500_000)],
+            includeAlignment: false,
+            includeVariant: false
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+        try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: manifest))
+        vc.testEnterFocusedDetailMode()
+        let viewer = vc.testEmbeddedViewerController
+
+        // The status bar is driven by the model, not by a later draw pass: each
+        // navigation path (position field, zoom buttons, zoom to variant, pan)
+        // must leave "Visible:" matching the viewport it just produced.
+        // navigateToPosition takes 0-based starts; the status text is 1-based closed.
+        XCTAssertTrue(viewer.navigateToPosition(chromosome: "chr1", start: 2093, end: 2394))
+        XCTAssertEqual(viewer.statusBar.selectionLabel.stringValue, "Visible: 2094-2394 (301 bp)")
+        XCTAssertEqual((viewer.statusBar.selectionLabel as NSAccessibilityProtocol).accessibilityValue() as? String, "Visible: 2094-2394 (301 bp)")
+
+        XCTAssertTrue(viewer.navigateToPosition(chromosome: "chr1", start: 10_000, end: 20_000))
+        XCTAssertEqual(viewer.statusBar.selectionLabel.stringValue, "Visible: 10001-20000 (10,000 bp)")
+
+        viewer.zoomIn()
+        let frame = try XCTUnwrap(viewer.referenceFrame)
+        let expected = "Visible: \(Int(frame.start) + 1)-\(Int(ceil(frame.end))) (\((Int(ceil(frame.end)) - Int(frame.start)).formatted()) bp)"
+        XCTAssertEqual(viewer.statusBar.selectionLabel.stringValue, expected)
+        XCTAssertEqual((viewer.statusBar.selectionLabel as NSAccessibilityProtocol).accessibilityValue() as? String, expected)
+    }
+
     func testFullSizeContentKeepsSummaryAndSearchBelowEffectiveSafeAreaTop() throws {
         let parent = NSViewController()
         parent.view = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))

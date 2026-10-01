@@ -518,7 +518,22 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     func configure(input: ReferenceBundleViewportInput) throws {
-        try configure(input: input, preferredSelectionName: nil)
+        // Reconfiguring with the document already shown keeps the row the
+        // user chose; a new document starts from its default selection.
+        let preferredSelectionName = currentInput == input ? currentSelectionName() : nil
+        try configure(input: input, preferredSelectionName: preferredSelectionName)
+    }
+
+    /// The name of the selected contig or sequence, whichever list this input shows.
+    private func currentSelectionName() -> String? {
+        switch currentInput?.kind {
+        case .directBundle:
+            return currentSelectedSequence()?.summary.name
+        case .mappingResult:
+            return currentSelectedContig()?.contigName
+        case nil:
+            return nil
+        }
     }
 
     private func configure(input: ReferenceBundleViewportInput, preferredSelectionName: String?) throws {
@@ -526,6 +541,11 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         // before AppKit first requests its view. Selection immediately loads the
         // embedded viewer, whose progress overlay is created by loadView().
         _ = view
+        // Focus mode is the user's choice of how to look at this document.
+        // Reloading the same document (an Inspector-driven refresh, a repeated
+        // display request) keeps it; only a different document starts in
+        // list-detail mode.
+        let keepsPresentationMode = currentInput == input
         clearAlignmentActionContext()
         currentInput = input
         currentResult = input.mappingResult
@@ -535,7 +555,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         recordStoreWarning = nil
         alignmentTrackSummaryWarning = nil
         alignmentTrackSummaryRefreshID = UUID()
-        presentationMode = .listDetail
+        if !keepsPresentationMode {
+            presentationMode = .listDetail
+        }
         applyPresentationMode()
         updateSummaryBar()
 
@@ -838,13 +860,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     @objc(reloadViewerBundleForInspectorChangesAndReturnError:)
     func reloadViewerBundleForInspectorChanges() throws {
         guard let input = currentInput else { return }
-        let preferredSelectionName: String?
-        switch input.kind {
-        case .directBundle:
-            preferredSelectionName = currentSelectedSequence()?.summary.name
-        case .mappingResult:
-            preferredSelectionName = currentSelectedContig()?.contigName
-        }
+        let preferredSelectionName = currentSelectionName()
         loadedViewerBundleURL = nil
         try configure(input: input, preferredSelectionName: preferredSelectionName)
     }
@@ -2011,6 +2027,7 @@ extension ReferenceBundleViewportController {
     var testSequenceTableView: ReferenceBundleRecordTable { sequenceTableView }
     var testContigTableView: MappingContigTableView { contigTableView }
     var testDetailPlaceholderMessage: String { detailPlaceholderLabel.stringValue }
+    var testEmbeddedViewerController: ViewerViewController { embeddedViewerController }
     var testEmbeddedViewerPublishesGlobalViewportNotifications: Bool {
         embeddedViewerController.publishesGlobalViewportNotifications
     }

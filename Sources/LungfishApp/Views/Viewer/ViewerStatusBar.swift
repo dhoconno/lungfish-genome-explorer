@@ -89,5 +89,10 @@ public class ViewerStatusBar: NSView {
         positionLabel.stringValue = position ?? "No sequence loaded"
         selectionLabel.stringValue = selection ?? ""
         scaleLabel.stringValue = String(format: "%.1f bp/px", scale)
+        // VoiceOver reads the value, so it must track the text on every update
+        // rather than the label's value from an earlier layout pass.
+        positionLabel.setAccessibilityValue(positionLabel.stringValue)
+        selectionLabel.setAccessibilityValue(selectionLabel.stringValue)
+        scaleLabel.setAccessibilityValue(scaleLabel.stringValue)
     }
 }

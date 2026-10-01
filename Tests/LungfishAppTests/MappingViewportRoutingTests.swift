@@ -532,6 +532,45 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(viewport.testContigTableView.displayedRows.map(\.sampleID), ["S1"])
     }
 
+    func testRedisplayingSameMappingResultPreservesFocusSelectionAndRegion() throws {
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Redisplay Keeps State",
+            chromosomes: [.init(name: "chr1", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true
+        )
+        let resultURL = bundleURL.deletingLastPathComponent().appendingPathComponent("mapping-result", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
+        let result = MappingRoutingFixture.makeMappingResult(
+            resultDirectory: resultURL, viewerBundleURL: bundleURL
+        )
+        try result.save(to: resultURL)
+
+        let split = MainSplitViewController(); split.loadViewIfNeeded()
+        split.displayMappingAnalysisFromSidebar(at: resultURL)
+        let viewport = try MappingRoutingFixture.waitForInitialSampleRows(on: split)
+        viewport.testSelectContig(named: "chr1")
+        viewport.testEnterFocusedDetailMode()
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertTrue(viewer.navigateToPosition(chromosome: "chr1", start: 20, end: 60))
+        XCTAssertEqual(viewport.testPresentationMode, .focusedDetail)
+        XCTAssertEqual(viewport.testSelectedContigName, "chr1")
+
+        // Any re-announcement of the already displayed analysis (sidebar
+        // refresh, a repeated selection event, a window-level relayout that
+        // re-routes the selection) must not rebuild the viewport.
+        split.displayMappingAnalysisFromSidebar(at: resultURL)
+
+        XCTAssertTrue(split.viewerController.referenceBundleViewportController === viewport)
+        XCTAssertEqual(viewport.testPresentationMode, .focusedDetail)
+        XCTAssertEqual(viewport.testSelectedContigName, "chr1")
+        let frame = try XCTUnwrap(viewer.referenceFrame)
+        XCTAssertEqual(Int(frame.start), 20)
+        XCTAssertEqual(Int(frame.end), 60)
+    }
+
     func testSidebarMappingRouteUsesPersistedManifestSampleNameAliasForImportedMetadata() throws {
         let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
             name: "Sidebar Manifest Alias",
