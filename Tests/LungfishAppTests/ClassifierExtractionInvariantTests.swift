@@ -97,9 +97,11 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             source.contains("Extract Reads\u{2026}") || source.contains("Extract Reads\\u{2026}"),
             "NvdResultViewController must wire an 'Extract Reads…' menu item"
         )
+        // The context menu, Selection > Table Row and the row accessibility
+        // actions all route Extract Reads through the shared selector.
         XCTAssertTrue(
-            source.contains("#selector(contextExtractReadsUnified"),
-            "NvdResultViewController must wire contextExtractReadsUnified via #selector(...)"
+            source.contains("func extractReadsForSelectedRows(") && source.contains(".command(.extractReads)"),
+            "NvdResultViewController must route Extract Reads through extractReadsForSelectedRows"
         )
     }
 

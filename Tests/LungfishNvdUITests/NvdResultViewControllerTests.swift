@@ -189,7 +189,9 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertTrue(state.blastEnabled)
     }
 
-    func testContextMenuBlastDisabledWhenClickedContigDiffersFromIdentitySelection() throws {
+    /// A context-menu command acts on the clicked row when the selection does
+    /// not include it, so Verify with BLAST stays available for that contig.
+    func testContextMenuBlastTargetsTheClickedContigWhenSelectionDiffers() throws {
         let fixture = try NvdMenuFixture(duplicateContigs: true)
         addTeardownBlock {
             try? FileManager.default.removeItem(at: fixture.rootURL)
@@ -206,7 +208,7 @@ final class NvdResultViewControllerTests: XCTestCase {
         let state = vc.testContextMenuActionStateForFirstContig()
 
         XCTAssertEqual(state.identitySelectionCount, 1)
-        XCTAssertFalse(state.blastEnabled)
+        XCTAssertTrue(state.blastEnabled)
     }
 
     func testContextMenuExtractSequenceTargetsClickedContigWhenSelectionDiffers() throws {
@@ -262,9 +264,9 @@ final class NvdResultViewControllerTests: XCTestCase {
                 "Export FASTA…",
                 "Extract to New Bundle…",
                 "Run Operation…",
-                "Copy Contig Name",
+                "Copy Name",
                 "Copy Accession",
-                "View Accession on NCBI",
+                "Open on NCBI",
                 "Search PubMed",
             ]
         )

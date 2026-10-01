@@ -110,7 +110,8 @@ private func nvdHasAncestor<T: NSView>(of type: T.Type, from view: NSView) -> Bo
 @MainActor
 public final class NvdResultViewController: NSViewController, NSSplitViewDelegate,
     NSOutlineViewDataSource, NSOutlineViewDelegate, NSPopoverDelegate,
-    SampleMetadataPresentationConsumer
+    SampleMetadataPresentationConsumer, NSMenuItemValidation, ResultRowMenuActions,
+    OutlineExpandCollapseActions
 {
 
     // MARK: - Data
@@ -1637,20 +1638,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         onExtractReadsRequested?(.nvd, resultPath, selectors, "nvd_\(firstContig)")
     }
 
-    @objc private func contextExtractReadsUnified(_ sender: Any?) {
-        if let hit = (sender as? NSMenuItem)?.representedObject as? NvdBlastHit {
-            presentUnifiedExtractionDialog(for: hit)
-            return
-        }
-
-        if outlineView.selectedRowIndexes.isEmpty,
-           outlineView.clickedRow >= 0 {
-            outlineView.selectRowIndexes(IndexSet(integer: outlineView.clickedRow), byExtendingSelection: false)
-            updateSelectionIdentitiesFromOutlineSelection()
-        }
-        presentUnifiedExtractionDialog()
-    }
-
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
         applyLayoutPreference()
     }
@@ -1944,75 +1931,18 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         return menu
     }
 
+    /// Fills `menu` with the contig commands for `hit`. The list is the same
+    /// for every contig and hit row, and each item is enabled or disabled by
+    /// ``validateMenuItem(_:)`` against the rows the command would act on.
     private func populateContextMenu(_ menu: NSMenu, for hit: NvdBlastHit) {
         menu.removeAllItems()
-        let extractReadsItem = NSMenuItem(
-            title: "Extract Reads\u{2026}",
-            action: #selector(contextExtractReadsUnified(_:)),
-            keyEquivalent: ""
-        )
-        extractReadsItem.target = self
-        extractReadsItem.representedObject = hit
-        extractReadsItem.isEnabled = database != nil
-        menu.addItem(extractReadsItem)
-        menu.addItem(NSMenuItem.separator())
-
-        let selectedHit = singleIdentityBackedSelectedHit(matching: hit)
-        let contextFASTARecord = contigFASTARecord(for: hit)
-        let sharedItems = FASTASequenceActionMenuBuilder.buildItems(
-            selectionCount: contextFASTARecord == nil ? 0 : 1,
-            handlers: FASTASequenceActionHandlers(
-                onExtractSequence: { [weak self] in self?.extractSequence(for: hit) },
-                onBlast: (onBlastVerification != nil && database != nil && selectedHit != nil)
-                    ? { [weak self] in
-                        self?.performBlastVerification(for: hit)
-                    }
-                    : nil,
-                onCopy: contextFASTARecord == nil ? nil : { [weak self] in self?.copyContigSequence(hit) },
-                onExport: (onExportFASTARequested == nil || contextFASTARecord == nil) ? nil : { [weak self] in
-                    self?.exportContigSequence(hit)
-                },
-                onCreateBundle: (onCreateBundleRequested == nil || contextFASTARecord == nil) ? nil : { [weak self] in
-                    self?.createBundle(for: hit)
-                },
-                onRunOperation: (onRunOperationRequested == nil || contextFASTARecord == nil) ? nil : { [weak self] in
-                    self?.runOperation(for: hit)
-                }
-            )
-        )
-        if !sharedItems.isEmpty {
-            sharedItems.forEach(menu.addItem(_:))
-        }
-
-        // Copy Contig Name
-        let copyContig = NSMenuItem(title: "Copy Contig Name", action: #selector(contextCopyContigName(_:)), keyEquivalent: "")
-        copyContig.target = self
-        copyContig.representedObject = hit.qseqid
-        menu.addItem(copyContig)
-
-        // Copy Accession
-        if !hit.sseqid.isEmpty {
-            let copyAcc = NSMenuItem(title: "Copy Accession", action: #selector(contextCopyAccession(_:)), keyEquivalent: "")
-            copyAcc.target = self
-            copyAcc.representedObject = hit.sseqid
-            menu.addItem(copyAcc)
-        }
-
-        menu.addItem(NSMenuItem.separator())
-
-        // View on NCBI
-        if !hit.sseqid.isEmpty {
-            let viewNCBI = NSMenuItem(title: "View Accession on NCBI", action: #selector(contextViewAccessionOnNCBI(_:)), keyEquivalent: "")
-            viewNCBI.target = self
-            viewNCBI.representedObject = hit.sseqid
-            menu.addItem(viewNCBI)
-        }
-
-        if !hit.adjustedTaxidName.isEmpty {
-            let searchPubMed = NSMenuItem(title: "Search PubMed", action: #selector(contextSearchPubMed(_:)), keyEquivalent: "")
-            searchPubMed.target = self
-            searchPubMed.representedObject = hit.adjustedTaxidName
-            menu.addItem(searchPubMed)
+        for (index, section) in Self.rowActionSections.enumerated() {
+            if index > 0 { menu.addItem(.separator()) }
+            for action in section {
+                let item = NSMenuItem(title: action.title, action: action.selector, keyEquivalent: "")
+                item.target = self
+                menu.addItem(item)
+            }
         }
     }
 
@@ -2097,31 +2027,267 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         return ">\(hit.qseqid)\n\(sequence)\n"
     }
 
-    @objc private func contextCopyContigName(_ sender: NSMenuItem) {
-        guard let name = sender.representedObject as? String else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(name, forType: .string)
-    }
+    // MARK: - Row Commands
 
-    @objc private func contextCopyAccession(_ sender: NSMenuItem) {
-        guard let accession = sender.representedObject as? String else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(accession, forType: .string)
-    }
+    /// One command of the contig menus: a shared ``ResultRowCommand`` or one of
+    /// the NVD-only FASTA commands. The context menu, Selection > Table Row
+    /// validation and each row's accessibility actions all read
+    /// ``availableRowActions(for:verifyingSequence:)``, so they list the same
+    /// commands under the same titles.
+    enum NvdRowAction: Hashable {
+        case command(ResultRowCommand)
+        case extractSequence
+        case exportFASTA
+        case runOperation
 
-    @objc func contextViewAccessionOnNCBI(_ sender: NSMenuItem) {
-        guard let accession = sender.representedObject as? String else { return }
-        if let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(accession)") {
-            if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
+        var title: String {
+            switch self {
+            case .command(let command): return command.title
+            case .extractSequence: return "Extract Sequence\u{2026}"
+            case .exportFASTA: return "Export FASTA\u{2026}"
+            case .runOperation: return "Run Operation\u{2026}"
+            }
+        }
+
+        var selector: Selector {
+            switch self {
+            case .command(let command): return command.menuSelector
+            case .extractSequence: return #selector(NvdResultViewController.extractSelectedRowSequence(_:))
+            case .exportFASTA: return #selector(NvdResultViewController.exportSelectedRowFASTA(_:))
+            case .runOperation: return #selector(NvdResultViewController.runOperationOnSelectedRow(_:))
+            }
+        }
+
+        static func action(for selector: Selector?) -> NvdRowAction? {
+            guard let selector else { return nil }
+            if let command = ResultRowCommand.command(for: selector) { return .command(command) }
+            return [NvdRowAction.extractSequence, .exportFASTA, .runOperation].first { $0.selector == selector }
         }
     }
 
-    @objc func contextSearchPubMed(_ sender: NSMenuItem) {
-        guard let name = sender.representedObject as? String else { return }
-        let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
-        if let url = URL(string: "https://pubmed.ncbi.nlm.nih.gov/?term=\(encodedName)") {
-            if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
+    /// The context menu's sections, in display order.
+    static let rowActionSections: [[NvdRowAction]] = [
+        [.command(.extractReads)],
+        [
+            .extractSequence, .command(.blastVerify), .command(.copyFASTA), .exportFASTA,
+            .command(.extractToNewBundle), .runOperation,
+        ],
+        [.command(.copyName), .command(.copyAccession)],
+        [.command(.openOnNCBI), .command(.searchPubMed)],
+    ]
+
+    /// The hit a contig or child-hit row shows, or nil for a taxon group row.
+    func hit(for item: NvdOutlineItem) -> NvdBlastHit? {
+        switch item {
+        case .contig(let sampleId, let qseqid):
+            return displayedContigLookup[Self.contigLookupKey(sampleId: sampleId, qseqid: qseqid)]
+        case .childHit(let sampleId, let qseqid, let hitRank):
+            return childHitsCache["\(sampleId)\t\(qseqid)"]?.first { $0.hitRank == hitRank }
+        case .taxonGroup:
+            return nil
         }
+    }
+
+    /// The commands that apply to a single `hit`. The FASTA commands need the
+    /// contig sequence. `verifyingSequence: false` assumes it is readable,
+    /// which the row actions use so configuring a cell never reads a FASTA
+    /// file from disk.
+    func availableRowActions(forHit hit: NvdBlastHit, verifyingSequence: Bool = true) -> [NvdRowAction] {
+        var actions: [NvdRowAction] = []
+        if database != nil { actions.append(.command(.extractReads)) }
+        let hasSequence = database != nil && bundleURL != nil
+            && (!verifyingSequence || contigFASTARecord(for: hit) != nil)
+        if hasSequence {
+            actions.append(.extractSequence)
+            if onBlastVerification != nil { actions.append(.command(.blastVerify)) }
+            actions.append(.command(.copyFASTA))
+            if onExportFASTARequested != nil { actions.append(.exportFASTA) }
+            if onCreateBundleRequested != nil { actions.append(.command(.extractToNewBundle)) }
+            if onRunOperationRequested != nil { actions.append(.runOperation) }
+        }
+        actions.append(.command(.copyName))
+        if !hit.sseqid.isEmpty {
+            actions.append(.command(.copyAccession))
+            actions.append(.command(.openOnNCBI))
+        }
+        if !hit.adjustedTaxidName.isEmpty { actions.append(.command(.searchPubMed)) }
+        return actions
+    }
+
+    /// The commands that apply to `items`. Extract Reads takes any selection
+    /// that points at contigs. Every other command acts on exactly one row.
+    func availableRowActions(for items: [NvdOutlineItem], verifyingSequence: Bool = true) -> [NvdRowAction] {
+        guard !items.isEmpty else { return [] }
+        if items.count == 1, let item = items.first, let hit = hit(for: item) {
+            return availableRowActions(forHit: hit, verifyingSequence: verifyingSequence)
+        }
+        return database != nil && items.contains { $0.sampleContig != nil } ? [.command(.extractReads)] : []
+    }
+
+    #if DEBUG
+    /// Test seam: stands in for the row a context menu was opened over.
+    var testingContextClickedItem: NvdOutlineItem?
+    #endif
+
+    /// The row a context-menu command was aimed at, or nil for a menu-bar
+    /// command or accessibility action.
+    private func contextClickedItem(sender: Any?) -> NvdOutlineItem? {
+        #if DEBUG
+        if let override = testingContextClickedItem { return override }
+        #endif
+        guard let menuItem = sender as? NSMenuItem,
+              ResultRowMenuValidation.isContextMenuItem(menuItem, in: [outlineView.menu]) else { return nil }
+        let clicked = outlineView.clickedRow
+        return clicked >= 0 ? outlineView.item(atRow: clicked) as? NvdOutlineItem : nil
+    }
+
+    /// The items a menu command acts on. A context-menu command acts on the
+    /// clicked row, or on the whole selection when the clicked row is part of
+    /// it. A menu-bar command or accessibility action acts on the selection,
+    /// because `clickedRow` outlives the click that set it.
+    private func commandTargets(sender: Any?) -> [NvdOutlineItem] {
+        let selected = selectedOutlineItemsByIdentity()
+        guard let clickedItem = contextClickedItem(sender: sender) else { return selected }
+        return selected.contains(clickedItem) ? selected : [clickedItem]
+    }
+
+    /// Makes the clicked row the selection when a context-menu command was
+    /// aimed at it, so the selection-based handlers act on the right rows.
+    private func adoptContextTargets(sender: Any?) {
+        guard let clickedItem = contextClickedItem(sender: sender),
+              !selectedOutlineItemsByIdentity().contains(clickedItem) else { return }
+        let row = outlineView.row(forItem: clickedItem)
+        guard row >= 0 else { return }
+        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        updateSelectionIdentitiesFromOutlineSelection()
+    }
+
+    private func soleHit(_ sender: Any?) -> NvdBlastHit? {
+        let targets = commandTargets(sender: sender)
+        guard targets.count == 1, let item = targets.first else { return nil }
+        return hit(for: item)
+    }
+
+    private func writeToPasteboard(_ string: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+    }
+
+    private func openExternal(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
+    }
+
+    // MARK: Menu validation
+
+    /// The context menu follows the selection (or the clicked row). The
+    /// menu-bar items, Selection > Table Row and View > Expand All, are
+    /// enabled only while the outline has keyboard focus.
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let action = menuItem.action else { return true }
+        if action == #selector(OutlineExpandCollapseActions.expandAllOutlineItems(_:))
+            || action == #selector(OutlineExpandCollapseActions.collapseAllOutlineItems(_:)) {
+            return menuItemIsReachable(menuItem)
+        }
+        guard let rowAction = NvdRowAction.action(for: action) else { return true }
+        guard menuItemIsReachable(menuItem) else { return false }
+        return availableRowActions(for: commandTargets(sender: menuItem)).contains(rowAction)
+    }
+
+    private func menuItemIsReachable(_ menuItem: NSMenuItem) -> Bool {
+        #if DEBUG
+        if testingContextClickedItem != nil { return true }
+        #endif
+        return ResultRowMenuValidation.isReachable(menuItem, table: outlineView)
+    }
+
+    // MARK: Row accessibility actions
+
+    /// The accessibility custom actions of the row showing `item`: every
+    /// single-row command its context menu offers, named the same. The
+    /// handlers resolve the row from `cellView` when they run and select it
+    /// first, so the shared handlers act on it through the selection.
+    private func accessibilityActions(for item: NvdOutlineItem, cellView: NSView) -> [NSAccessibilityCustomAction] {
+        availableRowActions(for: [item], verifyingSequence: false).map { rowAction in
+            AccessibilityCellActions.makeAction(name: rowAction.title) { [weak self, weak cellView] in
+                guard let self, let cellView,
+                      let row = AccessibilityCellActions.currentRow(of: cellView) else { return }
+                self.outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                self.updateSelectionIdentitiesFromOutlineSelection()
+                _ = NSApp.sendAction(rowAction.selector, to: self, from: nil)
+            }
+        }
+    }
+
+    private func installRowActions(on cell: NSView, for item: NvdOutlineItem) {
+        AccessibilityCellActions.install(accessibilityActions(for: item, cellView: cell), on: cell)
+    }
+
+    // MARK: Menu handlers
+
+    @objc public func extractReadsForSelectedRows(_ sender: Any?) {
+        adoptContextTargets(sender: sender)
+        presentUnifiedExtractionDialog()
+    }
+
+    @objc public func blastVerifySelectedRow(_ sender: Any?) {
+        adoptContextTargets(sender: sender)
+        blastVerifySelectedContig()
+    }
+
+    @objc public func copySelectedRowFASTA(_ sender: Any?) {
+        guard let hit = soleHit(sender) else { return }
+        copyContigSequence(hit)
+    }
+
+    @objc public func extractSelectedRowsToNewBundle(_ sender: Any?) {
+        guard let hit = soleHit(sender) else { return }
+        createBundle(for: hit)
+    }
+
+    @objc public func copySelectedRowName(_ sender: Any?) {
+        guard let hit = soleHit(sender) else { return }
+        writeToPasteboard(hit.qseqid)
+    }
+
+    @objc public func copySelectedRowAccession(_ sender: Any?) {
+        guard let hit = soleHit(sender), !hit.sseqid.isEmpty else { return }
+        writeToPasteboard(hit.sseqid)
+    }
+
+    @objc public func openSelectedRowOnNCBI(_ sender: Any?) {
+        guard let hit = soleHit(sender), !hit.sseqid.isEmpty else { return }
+        openExternal("https://www.ncbi.nlm.nih.gov/nuccore/\(hit.sseqid)")
+    }
+
+    @objc public func searchPubMedForSelectedRow(_ sender: Any?) {
+        guard let hit = soleHit(sender), !hit.adjustedTaxidName.isEmpty else { return }
+        let encoded = hit.adjustedTaxidName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+            ?? hit.adjustedTaxidName
+        openExternal("https://pubmed.ncbi.nlm.nih.gov/?term=\(encoded)")
+    }
+
+    @objc func extractSelectedRowSequence(_ sender: Any?) {
+        guard let hit = soleHit(sender) else { return }
+        extractSequence(for: hit)
+    }
+
+    @objc func exportSelectedRowFASTA(_ sender: Any?) {
+        guard let hit = soleHit(sender) else { return }
+        exportContigSequence(hit)
+    }
+
+    @objc func runOperationOnSelectedRow(_ sender: Any?) {
+        guard let hit = soleHit(sender) else { return }
+        runOperation(for: hit)
+    }
+
+    @objc public func expandAllOutlineItems(_ sender: Any?) {
+        outlineView.expandItem(nil, expandChildren: true)
+    }
+
+    @objc public func collapseAllOutlineItems(_ sender: Any?) {
+        outlineView.collapseItem(nil, collapseChildren: true)
     }
 
     // MARK: - Multi-Selection Helpers
@@ -2431,6 +2597,7 @@ extension NvdResultViewController {
             }
             if let cell = metadataColumnController.cellForColumn(tableColumn, in: outlineView, sampleId: rowSampleId) {
                 contentTypographyApplicator.apply(to: cell)
+                installRowActions(on: cell, for: outlineItem)
                 return cell
             }
         }
@@ -2463,6 +2630,7 @@ extension NvdResultViewController {
             configureTaxonCell(cellView, column: identifier.rawValue, name: name)
         }
 
+        installRowActions(on: cellView, for: outlineItem)
         return cellView
     }
 
@@ -2889,14 +3057,11 @@ extension NvdResultViewController {
         guard displayedContigs.indices.contains(index) else {
             return TestContextMenuActionState(identitySelectionCount: 0, menuSelectionCount: 0, blastEnabled: false)
         }
-        let menu = NSMenu(title: "Test Menu")
-        populateContextMenu(menu, for: displayedContigs[index])
-        let blastItem = menu.items.first { $0.title == "Verify with BLAST\u{2026}" }
         let count = visibleIdentitySelectionCount()
         return TestContextMenuActionState(
             identitySelectionCount: count,
             menuSelectionCount: count,
-            blastEnabled: blastItem?.isEnabled == true
+            blastEnabled: availableRowActions(forHit: displayedContigs[index]).contains(.command(.blastVerify))
         )
     }
 
@@ -2912,16 +3077,25 @@ extension NvdResultViewController {
         return menu.items.map(\.title)
     }
 
+    /// Fills `menu` the way opening the context menu over `rowItem` would.
+    func menuNeedsUpdateForTesting(_ menu: NSMenu, rowItem: NvdOutlineItem) {
+        guard let hit = hit(for: rowItem) else { menu.removeAllItems(); return }
+        populateContextMenu(menu, for: hit)
+    }
+
     func testInvokeContextMenuItem(title: String, forContigAt index: Int) -> Bool {
         guard displayedContigs.indices.contains(index) else { return false }
+        let hit = displayedContigs[index]
         let menu = NSMenu(title: "Test Menu")
-        populateContextMenu(menu, for: displayedContigs[index])
+        populateContextMenu(menu, for: hit)
         guard let item = menu.items.first(where: { $0.title == title }),
-              item.isEnabled,
               let action = item.action,
               let target = item.target else {
             return false
         }
+        testingContextClickedItem = .contig(sampleId: hit.sampleId, qseqid: hit.qseqid)
+        defer { testingContextClickedItem = nil }
+        guard validateMenuItem(item) else { return false }
         NSApp.sendAction(action, to: target, from: item)
         return true
     }
