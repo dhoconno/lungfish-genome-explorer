@@ -30,6 +30,22 @@ public enum QualityBinningScheme: String, Sendable, CaseIterable, Codable {
     /// default everywhere as of D1 (2026-09-23): binning is opt-in only, at
     /// import time, never applied silently to downloads or derived outputs.
     case none
+
+    /// The user-visible name. The raw values are historical identifiers and are
+    /// never shown in the UI (the import sheet and the Inspector both use this).
+    public var displayName: String {
+        switch self {
+        case .illumina4: return "Illumina (7-level)"
+        case .eightLevel: return "Fine (~21-level)"
+        case .none: return "None (preserve original)"
+        }
+    }
+
+    /// Display name for a persisted raw value, falling back to the raw value
+    /// itself for a scheme this build does not know.
+    public static func displayName(forRawValue rawValue: String) -> String {
+        QualityBinningScheme(rawValue: rawValue)?.displayName ?? rawValue
+    }
 }
 
 // MARK: - FASTQIngestionConfig

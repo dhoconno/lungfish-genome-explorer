@@ -2580,6 +2580,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 let firstAccession = recordsToDownload[0].accession
                 var detectedPlatform: LungfishIO.SequencingPlatform = .unknown
                 var isPaired = false
+                var firstRunBytes: Int64?
                 do {
                     let readRecords = try await ena.searchReads(term: firstAccession, limit: 1)
                     if let readRecord = readRecords.first {
@@ -2591,6 +2592,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         default:                detectedPlatform = .unknown
                         }
                         isPaired = readRecord.libraryLayout?.uppercased() == "PAIRED"
+                        firstRunBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
                     } else if let runInfo = try await ncbiService.sraEFetchRunInfo(ids: [firstAccession]).first {
                         switch runInfo.platform?.uppercased() {
                         case "ILLUMINA":        detectedPlatform = .illumina
@@ -2600,6 +2602,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         default:                detectedPlatform = .unknown
                         }
                         isPaired = runInfo.libraryLayout?.uppercased() == "PAIRED"
+                        firstRunBytes = runInfo.size.map { Int64($0) * 1_000_000 }
                     }
                 } catch {
                     logger.warning("Failed to fetch ENA metadata for config sheet, using defaults: \(error.localizedDescription, privacy: .public)")
@@ -2624,10 +2627,16 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     return
                 }
 
+                // The placeholder files do not exist yet, so the sheet's own
+                // size line would read zero. Show the size the archive reports.
                 FASTQImportConfigSheet.present(
                     on: window,
                     pairs: placeholderPairs,
                     detectedPlatform: detectedPlatform,
+                    summaryOverride: FASTQImportConfigSheet.downloadSummary(
+                        pairs: placeholderPairs,
+                        knownDownloadBytes: recordsToDownload.count == 1 ? firstRunBytes : nil
+                    ),
                     onImport: { [downloadCenterTaskID, totalCount] importConfig in
                         // User confirmed — start the actual download with captured config
                         self.startENADownloadTask(

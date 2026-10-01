@@ -1271,7 +1271,7 @@ public struct DocumentSection: View {
                 metadataRow(label: "Compressed", value: ingestion.isCompressed ? "Yes" : "No")
                 metadataRow(label: "Pairing", value: ingestion.pairingMode.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
                 if let binning = ingestion.qualityBinning, binning != "none" {
-                    metadataRow(label: "Quality Binning", value: binning)
+                    metadataRow(label: "Quality Binning", value: QualityBinningScheme.displayName(forRawValue: binning))
                 }
 
                 if !ingestion.originalFilenames.isEmpty {

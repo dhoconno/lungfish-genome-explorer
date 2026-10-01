@@ -60,6 +60,19 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(retrieved?.metadata?["strain"], "K-12")
     }
 
+    func testOpeningAFolderWithoutItsDatabaseReportsMissingDatabase() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LungfishTests-\(UUID().uuidString).lungfish")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        XCTAssertThrowsError(try ProjectStore(opening: directory, access: .readOnly)) { error in
+            guard case ProjectStoreError.missingDatabase(let url)? = error as? ProjectStoreError else {
+                return XCTFail("expected missingDatabase, got \(error)")
+            }
+            XCTAssertEqual(url.standardizedFileURL, directory.standardizedFileURL)
+        }
+    }
+
     func testLegacyDatabaseMigrationIsExplicitAndRetainsSourceRecovery() throws {
         let directory = tempDirectory.appendingPathComponent("Legacy")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

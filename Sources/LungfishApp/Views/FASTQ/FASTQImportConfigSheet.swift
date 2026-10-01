@@ -303,7 +303,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         // roughly 21 levels over a typical 0-40 Phred range — not 4 or 8.
         // The persisted raw values keep the old names (illumina4/eightLevel)
         // for backward compatibility; only the user-visible label changes.
-        binningPopup.addItems(withTitles: ["Illumina (7-level)", "Fine (~21-level)", "None (preserve original)"])
+        binningPopup.addItems(withTitles: [QualityBinningScheme.illumina4, .eightLevel, .none].map(\.displayName))
         binningPopup.selectItem(at: defaultBinningIndex(for: detectedPlatform))
         binningPopup.font = .systemFont(ofSize: 12)
         binningPopup.translatesAutoresizingMaskIntoConstraints = false
@@ -598,6 +598,26 @@ public final class FASTQImportConfigSheet: NSViewController {
     }
 
     // MARK: - Summary
+
+    /// Summary for runs that are about to be downloaded, whose files do not exist
+    /// locally yet. `knownDownloadBytes` is the size the archive reports, when known.
+    nonisolated static func downloadSummary(pairs: [FASTQFilePair], knownDownloadBytes: Int64?) -> String {
+        let sizeLine = "Download size: " + (knownDownloadBytes.map { LungfishFormatters.formatBytes($0) } ?? "shown when the download starts")
+        if pairs.count == 1 {
+            let pair = pairs[0]
+            if let r2 = pair.r2 {
+                return "R1: \(pair.r1.lastPathComponent)\nR2: \(r2.lastPathComponent)\n\(sizeLine)"
+            }
+            return "\(pair.r1.lastPathComponent)\n\(sizeLine)"
+        }
+        let pairedCount = pairs.filter(\.isPaired).count
+        let singleCount = pairs.count - pairedCount
+        var lines = ["\(pairs.count) runs selected"]
+        if pairedCount > 0 { lines.append("  \(pairedCount) paired-end") }
+        if singleCount > 0 { lines.append("  \(singleCount) single-end") }
+        lines.append(sizeLine)
+        return lines.joined(separator: "\n")
+    }
 
     private func updateSummary() {
         if let summaryOverride {

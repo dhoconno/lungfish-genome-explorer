@@ -485,3 +485,26 @@ private extension NSPopUpButton {
         }
     }
 }
+
+@Suite("FASTQ import sheet download summary")
+struct FASTQImportDownloadSummaryTests {
+    @Test("A run that is not downloaded yet shows the archive's size, not zero")
+    func singlePairedRunShowsKnownSize() {
+        let pair = FASTQFilePair(
+            r1: URL(fileURLWithPath: "/SRR36291587_1.fastq.gz"),
+            r2: URL(fileURLWithPath: "/SRR36291587_2.fastq.gz")
+        )
+        let summary = FASTQImportConfigSheet.downloadSummary(pairs: [pair], knownDownloadBytes: 21_000_000)
+        #expect(summary.contains("R1: SRR36291587_1.fastq.gz"))
+        #expect(summary.contains("Download size: 21 MB"))
+        #expect(!summary.contains("Zero"))
+    }
+
+    @Test("An unknown size says when it will be known")
+    func unknownSizeIsExplained() {
+        let pairs = ["SRR1", "SRR2"].map { FASTQFilePair(r1: URL(fileURLWithPath: "/\($0)_1.fastq.gz"), r2: nil) }
+        let summary = FASTQImportConfigSheet.downloadSummary(pairs: pairs, knownDownloadBytes: nil)
+        #expect(summary.hasPrefix("2 runs selected"))
+        #expect(summary.contains("Download size: shown when the download starts"))
+    }
+}

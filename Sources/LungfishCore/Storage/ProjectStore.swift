@@ -357,7 +357,7 @@ public final class ProjectStore: @unchecked Sendable {
             let candidate = url.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
         }
-        throw ProjectStoreError.databaseError(message: "Missing project database in \(url.path)")
+        throw ProjectStoreError.missingDatabase(projectURL: url)
     }
 
     private static func sourceFingerprint(_ source: URL) throws -> [String: String] {
@@ -1490,6 +1490,9 @@ public enum ProjectStoreError: Error, LocalizedError, Sendable {
     case versionNotFound(hash: String)
     case invalidVersionIndex(index: Int)
     case serializationError(message: String)
+    /// The folder looks like a project but has no `.project.db`, usually because
+    /// it was copied without its hidden files.
+    case missingDatabase(projectURL: URL)
 
     public var errorDescription: String? {
         switch self {
@@ -1507,6 +1510,8 @@ public enum ProjectStoreError: Error, LocalizedError, Sendable {
             return "Invalid version index: \(index)"
         case .serializationError(let message):
             return "Serialization error: \(message)"
+        case .missingDatabase(let projectURL):
+            return "Missing project database in \(projectURL.path)"
         }
     }
 }

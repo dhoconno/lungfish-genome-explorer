@@ -663,7 +663,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     for: previousProjectURL
                 )
             }
-            let accessSuffix = isNativeProject ? " (Read Only)" : ""
+            let missingDatabase: Bool
+            if case .missingDatabase? = fallback.error as? ProjectStoreError { missingDatabase = true } else { missingDatabase = false }
+            let accessSuffix = !isNativeProject ? "" : (missingDatabase ? " (Missing Project Database)" : " (Read Only)")
             controller.window?.title = "\(fallback.name)\(accessSuffix) - \(LungfishAppIdentity.current.fullName)"
             debugLog("openProject: Failed via ProjectSession, falling back to filesystem sidebar: \(fallback.error.localizedDescription)")
             controller.mainSplitViewController?.sidebarController.openProject(at: fallback.url, asyncScan: true)
@@ -683,6 +685,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                           controller.mainSplitViewController?.sidebarController.projectFolderURL?.standardizedFileURL == fallback.url.standardizedFileURL else { return }
                     self.migrateProject(at: fallback.url, in: controller)
                 }
+            } else if isNativeProject, missingDatabase, let window = controller.window {
+                // Without its database the project can be browsed but not changed.
+                // Say why, rather than leaving a bare "Read Only" in the title.
+                let alert = NSAlert()
+                alert.messageText = "Project Database Missing"
+                alert.informativeText = "\(fallback.name) has no project database (.project.db), so its files can be browsed but not changed. This usually happens when a project folder is copied without its hidden files. Copy the whole folder again in Finder, or download the demo project again."
+                alert.addButton(withTitle: "OK")
+                alert.beginSheetModal(for: window)
             }
         }
 

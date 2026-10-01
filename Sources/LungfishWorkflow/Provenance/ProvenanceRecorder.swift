@@ -6,6 +6,7 @@ import Foundation
 import CryptoKit
 import os.log
 import LungfishCore
+import LungfishIO
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "ProvenanceRecorder")
 
@@ -310,6 +311,10 @@ public actor ProvenanceRecorder {
             }
         }
 
+        if selectedIsDirectory, let viralRecon = viralReconRunProvenanceCandidate(for: standardizedURL) {
+            return viralRecon
+        }
+
         var dir = selectedIsDirectory ? standardizedURL : standardizedURL.deletingLastPathComponent()
         var checkedSelectedDirectory = false
         for _ in 0..<5 {
@@ -342,6 +347,27 @@ public actor ProvenanceRecorder {
             dir = parent
         }
         return nil
+    }
+
+    /// A Viral Recon result folder holds the copied outputs for one sample. The
+    /// run's provenance is written next to the raw pipeline results, which the
+    /// folder's `viralrecon-result.json` names in `rawResultsPath`.
+    private static func viralReconRunProvenanceCandidate(
+        for directory: URL
+    ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
+        let resultURL = directory.appendingPathComponent("viralrecon-result.json")
+        guard let data = try? Data(contentsOf: resultURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawResultsPath = json["rawResultsPath"] as? String,
+              !rawResultsPath.isEmpty else {
+            return nil
+        }
+        let rawResults = rawResultsPath.hasPrefix("@/")
+            ? FASTQBundle.resolveBundle(relativePath: rawResultsPath, from: directory)
+            : URL(fileURLWithPath: rawResultsPath).standardizedFileURL
+        let sidecar = rawResults.appendingPathComponent(provenanceFilename)
+        guard let envelope = loadEnvelope(fromSidecar: sidecar) else { return nil }
+        return (sidecar, envelope)
     }
 
     private static func singleNestedOperationProvenanceCandidate(

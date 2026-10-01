@@ -7,8 +7,8 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum FeatureFilePanelFactory {
-    static func inspectorProvenanceExportPanel(defaultDirectoryName: String) -> NSSavePanel {
-        AppFilePanelFactory.provenanceExportPanel(defaultDirectoryName: defaultDirectoryName)
+    static func inspectorProvenanceExportPanel(defaultDirectoryName: String, sourceURL: URL?) -> NSSavePanel {
+        AppFilePanelFactory.provenanceExportPanel(defaultDirectoryName: defaultDirectoryName, sourceURL: sourceURL)
     }
 
     static func inspectorTextMetadataImportPanel() -> NSOpenPanel {

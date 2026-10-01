@@ -166,13 +166,25 @@ final class AppFilePanelFactoryTests: XCTestCase {
     }
 
     func testProvenanceExportPanelSelectsDestinationDirectoryName() {
-        let panel = AppFilePanelFactory.provenanceExportPanel(defaultDirectoryName: "reads-provenance-shell")
+        let panel = AppFilePanelFactory.provenanceExportPanel(defaultDirectoryName: "reads-provenance-shell", sourceURL: nil)
 
         XCTAssertEqual(panel.title, "Export Provenance")
         XCTAssertEqual(panel.message, "Choose a folder name for the exported reproducibility package.")
         XCTAssertEqual(panel.nameFieldStringValue, "reads-provenance-shell")
         XCTAssertTrue(panel.canCreateDirectories)
         XCTAssertTrue(panel.canSelectHiddenExtension)
+    }
+
+    func testProvenanceExportPanelStartsInTheSourcesProject() throws {
+        let project = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PanelTest-\(UUID().uuidString).lungfish")
+        let result = project.appendingPathComponent("Analyses/minimap2-run")
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let panel = AppFilePanelFactory.provenanceExportPanel(defaultDirectoryName: "run-provenance", sourceURL: result)
+
+        XCTAssertEqual(panel.directoryURL?.standardizedFileURL.path, project.standardizedFileURL.path)
     }
 
     func testSequenceExportPanelAllowsFilesAndOtherTypes() {

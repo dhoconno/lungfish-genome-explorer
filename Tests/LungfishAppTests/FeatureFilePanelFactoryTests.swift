@@ -73,7 +73,7 @@ final class FeatureFilePanelFactoryTests: XCTestCase {
     }
 
     func testInspectorProvenanceExportReusesFolderPackageConfiguration() {
-        let panel = FeatureFilePanelFactory.inspectorProvenanceExportPanel(defaultDirectoryName: "reads-provenance-shell")
+        let panel = FeatureFilePanelFactory.inspectorProvenanceExportPanel(defaultDirectoryName: "reads-provenance-shell", sourceURL: nil)
 
         XCTAssertEqual(panel.title, "Export Provenance")
         XCTAssertEqual(panel.message, "Choose a folder name for the exported reproducibility package.")

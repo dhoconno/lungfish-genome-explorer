@@ -490,7 +490,8 @@ extension InspectorViewController {
         }
 
         let savePanel = FeatureFilePanelFactory.inspectorProvenanceExportPanel(
-            defaultDirectoryName: "\(sourceURL.deletingPathExtension().lastPathComponent)-provenance-\(format.cliToken)"
+            defaultDirectoryName: "\(sourceURL.deletingPathExtension().lastPathComponent)-provenance-\(format.cliToken)",
+            sourceURL: sourceURL
         )
 
         guard let window = view.window ?? NSApp.keyWindow else { return }

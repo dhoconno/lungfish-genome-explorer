@@ -160,14 +160,22 @@ enum AppFilePanelFactory {
         return panel
     }
 
-    static func provenanceExportPanel(defaultDirectoryName: String) -> NSSavePanel {
+    static func provenanceExportPanel(defaultDirectoryName: String, sourceURL: URL?) -> NSSavePanel {
         let panel = NSSavePanel()
         panel.title = "Export Provenance"
         panel.message = "Choose a folder name for the exported reproducibility package."
         panel.nameFieldStringValue = defaultDirectoryName
         panel.canCreateDirectories = true
         panel.canSelectHiddenExtension = true
+        startInProject(panel, containing: sourceURL)
         return panel
+    }
+
+    /// Starts a panel in the project that holds `sourceURL`. Without this, macOS
+    /// opens the last folder used, which can be inside a different project.
+    static func startInProject(_ panel: NSSavePanel, containing sourceURL: URL?) {
+        guard let sourceURL, let root = ProjectTempDirectory.findProjectRoot(sourceURL) else { return }
+        panel.directoryURL = root
     }
 
     static func sequenceExportPanel() -> NSSavePanel {

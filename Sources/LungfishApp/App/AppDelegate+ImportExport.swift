@@ -151,10 +151,11 @@ extension AppDelegate {
 
     private func presentProvenanceExportSheet(source: AppProvenanceExportSource, format: ProvenanceExportFormat) {
         let savePanel = AppFilePanelFactory.provenanceExportPanel(
-            defaultDirectoryName: defaultProvenanceExportDirectoryName(for: format, sourceURL: source.selectedURL)
+            defaultDirectoryName: defaultProvenanceExportDirectoryName(for: format, sourceURL: source.selectedURL),
+            sourceURL: source.selectedURL
         )
 
-        guard let window = mainWindowController?.window ?? NSApp.keyWindow else {
+        guard let window = activeMainWindowController()?.window ?? mainWindowController?.window ?? NSApp.keyWindow else {
             return
         }
 
