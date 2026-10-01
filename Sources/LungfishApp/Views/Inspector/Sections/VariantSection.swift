@@ -488,10 +488,21 @@ public struct VariantSection: View {
                 selectionBreakdown("Chromosomes", values: viewModel.chromosomeBreakdown)
                 selectionBreakdown("Types", values: viewModel.typeBreakdown)
                 Divider()
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(viewModel.selectionEntries) { entry in
+                // An eager stack keeps every entry in the accessibility tree
+                // and reachable with Tab; the cap keeps a selection of
+                // hundreds of rows from building hundreds of disclosure
+                // groups. The summary above and Copy Selection still cover
+                // the whole selection.
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(viewModel.selectionEntries.prefix(Self.selectionEntryDisplayCap)) { entry in
                         variantSelectionEntry(entry)
                     }
+                }
+                if viewModel.selectionEntries.count > Self.selectionEntryDisplayCap {
+                    Text("Showing \(Self.selectionEntryDisplayCap) of \(viewModel.selectionEntries.count) selected rows")
+                        .font(LungfishInspectorStyle.controlFont)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("variant-selection-cap")
                 }
                 Button {
                     viewModel.onCopyVariantInfo?(viewModel.copySelectionText())
@@ -530,9 +541,12 @@ public struct VariantSection: View {
         }
     }
 
+    /// The most selected rows the section lists one by one.
+    static let selectionEntryDisplayCap = 100
+
     private func variantSelectionEntry(_ entry: VariantSelectionEntry) -> some View {
         DisclosureGroup {
-            LazyVStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 4) {
                 if let sampleName = entry.sampleName {
                     selectionField(label: "Sample", value: sampleName)
                 }
@@ -689,7 +703,7 @@ public struct VariantSection: View {
                 .font(LungfishInspectorStyle.controlFont)
                 .foregroundStyle(.secondary)
 
-            LazyVStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 4) {
                 ForEach(viewModel.infoFields, id: \.key) { field in
                     HStack(alignment: .top) {
                         Text(field.key)

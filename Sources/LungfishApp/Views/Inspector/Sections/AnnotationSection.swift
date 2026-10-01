@@ -402,7 +402,7 @@ public struct AnnotationSection: View {
                     .font(LungfishInspectorStyle.controlFont)
                 }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 70))], spacing: 4) {
+                FlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
                     ForEach(viewModel.availableVariantTypes, id: \.self) { vtype in
                         variantTypeChip(vtype)
                     }
@@ -504,7 +504,7 @@ public struct AnnotationSection: View {
             // Common types grid
             let commonTypes: [AnnotationType] = [.gene, .cds, .exon, .mRNA, .promoter, .primer, .snp, .region]
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 4) {
+            FlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
                 ForEach(commonTypes, id: \.self) { type in
                     typeFilterChip(type)
                 }

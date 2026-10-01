@@ -365,11 +365,10 @@ struct MSAPairwiseIdentitySection: View {
                     .font(LungfishInspectorStyle.controlFont)
                     .foregroundStyle(.secondary)
             } else {
-                // A SwiftUI Table adds cell insets and scrolls sideways once
-                // its columns exceed the Inspector, which cut off the value
-                // header and the Sites column at the default width. This
-                // table lays its columns out in the width it is given: the
-                // name columns share what the fixed numeric columns leave.
+                // A native Table: its rows are AX rows, its headers sort on
+                // click or Space, and the arrow keys walk it. The numeric
+                // columns are fixed to their widest text and the two name
+                // columns share the rest, so it fits the Inspector's width.
                 pairTable
                 .accessibilityIdentifier("msa-pairwise-identity-table")
                 Text("\(model.pairs.count) pairs, gaps skipped pairwise. Values match lungfish-cli msa distance --model \(model.model.rawValue).")
@@ -394,30 +393,26 @@ extension MSAPairwiseIdentitySection {
 
     var pairTable: some View {
         let widths = numericWidths
-        return VStack(spacing: 0) {
-            HStack(spacing: Self.columnSpacing) {
-                sortHeader("Sequence A", key: \.rowName, defaultOrder: .forward)
-                    .frame(minWidth: Self.minimumNameColumnWidth, maxWidth: .infinity, alignment: .leading)
-                sortHeader("Sequence B", key: \.columnName, defaultOrder: .forward)
-                    .frame(minWidth: Self.minimumNameColumnWidth, maxWidth: .infinity, alignment: .leading)
-                sortHeader(model.model.displayName, key: \.sortableValue, defaultOrder: .reverse)
-                    .frame(width: widths.value, alignment: .trailing)
-                sortHeader("Sites", key: \.comparableSites, defaultOrder: .reverse)
-                    .frame(width: widths.sites, alignment: .trailing)
+        return Table(model.sortedPairs, sortOrder: $model.sortOrder) {
+            TableColumn("Sequence A", value: \.rowName) { pair in
+                nameCell(pair.rowName)
             }
-            .padding(.vertical, 4)
-            Divider()
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(model.sortedPairs.enumerated()), id: \.element.id) { index, pair in
-                        pairRow(pair, widths: widths)
-                            .background(index.isMultiple(of: 2)
-                                ? Color.clear
-                                : Color(nsColor: .alternatingContentBackgroundColors.last ?? .clear))
-                    }
-                }
+            .width(min: Self.minimumNameColumnWidth)
+            TableColumn("Sequence B", value: \.columnName) { pair in
+                nameCell(pair.columnName)
             }
+            .width(min: Self.minimumNameColumnWidth)
+            TableColumn(model.model.displayName, value: \.sortableValue) { pair in
+                numericCell(pair.formattedValue)
+            }
+            .width(widths.value)
+            TableColumn("Sites", value: \.comparableSites) { pair in
+                numericCell("\(pair.comparableSites)")
+            }
+            .width(widths.sites)
         }
+        .tableStyle(.bordered(alternatesRowBackgrounds: true))
+        .font(LungfishInspectorStyle.controlFont.weight(.regular))
         .frame(
             minHeight: 120,
             idealHeight: min(320, CGFloat(model.pairs.count + 1) * 24 + 8),
@@ -425,64 +420,19 @@ extension MSAPairwiseIdentitySection {
         )
     }
 
-    private func pairRow(_ pair: MSADistanceMatrix.Pair, widths: (value: CGFloat, sites: CGFloat)) -> some View {
-        HStack(spacing: Self.columnSpacing) {
-            Text(pair.rowName)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(pair.rowName)
-                .frame(minWidth: Self.minimumNameColumnWidth, maxWidth: .infinity, alignment: .leading)
-            Text(pair.columnName)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(pair.columnName)
-                .frame(minWidth: Self.minimumNameColumnWidth, maxWidth: .infinity, alignment: .leading)
-            Text(pair.formattedValue)
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .frame(width: widths.value, alignment: .trailing)
-            Text("\(pair.comparableSites)")
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .frame(width: widths.sites, alignment: .trailing)
-        }
-        .font(LungfishInspectorStyle.controlFont.weight(.regular))
-        .padding(.vertical, 3)
-        .accessibilityElement(children: .combine)
+    private func nameCell(_ name: String) -> some View {
+        Text(name)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(name)
     }
 
-    private func sortHeader<Value: Comparable>(
-        _ title: String,
-        key: any KeyPath<MSADistanceMatrix.Pair, Value> & Sendable,
-        defaultOrder: SortOrder
-    ) -> some View {
-        let current = model.sortOrder.first
-        let isActive = current?.keyPath == key as PartialKeyPath<MSADistanceMatrix.Pair>
-        return Button {
-            let order: SortOrder
-            if isActive, let current {
-                order = current.order == .forward ? .reverse : .forward
-            } else {
-                order = defaultOrder
-            }
-            model.sortOrder = [KeyPathComparator(key, order: order)]
-        } label: {
-            HStack(spacing: 2) {
-                Text(title)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if isActive, let current {
-                    Image(systemName: current.order == .forward ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .font(LungfishInspectorStyle.controlFont.weight(.semibold))
-        .help("Sort by \(title)")
-        .accessibilityLabel("Sort by \(title)")
+    private func numericCell(_ text: String) -> some View {
+        Text(text)
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 

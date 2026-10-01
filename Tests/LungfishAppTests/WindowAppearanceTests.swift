@@ -250,20 +250,20 @@ final class WindowAppearanceTests: XCTestCase {
         // native SwiftUI `Picker` controls, on the live tree.
         XCTAssertTrue(inspected.findAll(ViewType.Picker.self).isEmpty)
 
-        let mappingSource = try String(
+        let captionSource = try String(
             contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/MappingDocumentSection.swift"),
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/ProvenancePathCaption.swift"),
             encoding: .utf8
         )
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // MappingDocumentSection's file-path truncation/help wiring is layout/help
-        // presentation on constructed rows; the underlying accessibility-identifier
-        // and lineLimit/truncationMode modifiers are real, but reaching this specific
+        // The Run Inputs and Output Files path captions (MappingDocumentSection,
+        // AssemblyDocumentSection) share ProvenancePathCaption; its truncation and
+        // help wiring is layout/help presentation on constructed rows. Reaching a
         // row through a full ReferenceBundle fixture was out of scope for this
         // sidecar-width-focused conversion. Kept as a source check for that one file.
-        XCTAssertTrue(mappingSource.contains(".lineLimit(2)"))
-        XCTAssertTrue(mappingSource.contains(".truncationMode(.middle)"))
-        XCTAssertTrue(mappingSource.contains(".help(text)"))
+        XCTAssertTrue(captionSource.contains(".lineLimit(2)"))
+        XCTAssertTrue(captionSource.contains(".truncationMode(.middle)"))
+        XCTAssertTrue(captionSource.contains(".help(presentation.helpText)"))
     }
 
     func testInspectorControlsDoNotScaleIndividualLabelsToFitSidecar() throws {
@@ -637,7 +637,7 @@ final class WindowAppearanceTests: XCTestCase {
             ),
             AlertCase(
                 path: "Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift",
-                startToken: "@objc private func contextMenuDeleteVariantTracks",
+                startToken: "@objc func deleteSelectedSidebarVariantTracks",
                 endToken: "private func performDeleteVariantTracks",
                 label: "sidebar variant track deletion"
             ),

@@ -1396,12 +1396,13 @@ public struct DocumentSection: View {
                                         .foregroundStyle(.tertiary)
                                         .lineLimit(2)
                                         .truncationMode(.middle)
-                                        .contextMenu {
-                                            Button("Copy Command") {
+                                        .accessibilityIdentifier("document-step-command")
+                                        .contextActions([
+                                            .command("Copy Command") {
                                                 NSPasteboard.general.clearContents()
                                                 NSPasteboard.general.setString(commandLine, forType: .string)
-                                            }
-                                        }
+                                            },
+                                        ])
                                         .help("Right-click to copy")
                                 }
                             }
@@ -1658,10 +1659,11 @@ public struct DocumentSection: View {
                 Link(value, destination: linkURL)
                     .font(LungfishInspectorStyle.controlFont)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .contextMenu {
-                        Button("Copy Value") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string) }
-                        Button("Copy Link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(urlString, forType: .string) }
-                    }
+                    .accessibilityIdentifier("document-link-\(label)")
+                    .contextActions([
+                        .command("Copy Value") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string) },
+                        .command("Copy Link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(urlString, forType: .string) },
+                    ])
             } else {
                 Text(value)
                     .font(LungfishInspectorStyle.controlFont)
@@ -1799,7 +1801,7 @@ struct AlignmentTrackInventorySection: View {
             .buttonStyle(.plain)
 
             if let removeAction {
-                Button("Remove Derived Alignment...") {
+                Button("Remove Derived Alignment\u{2026}") {
                     removeAction()
                 }
                 .font(LungfishInspectorStyle.controlFont)
@@ -1807,13 +1809,9 @@ struct AlignmentTrackInventorySection: View {
                 .buttonStyle(.borderless)
             }
         }
-        .contextMenu {
-            if let removeAction {
-                Button("Remove Derived Alignment...") {
-                    removeAction()
-                }
-            }
-        }
+        .contextActions(removeAction.map { remove in
+            [.command("Remove Derived Alignment\u{2026}") { remove() }]
+        } ?? [])
     }
 
     @ViewBuilder

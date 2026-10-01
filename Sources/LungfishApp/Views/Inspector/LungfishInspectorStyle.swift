@@ -22,23 +22,31 @@ struct LungfishInspectorSegmentedButtonGrid<Option: Hashable>: View {
     let label: (Option) -> String
     var minimumLabelScale: CGFloat = 1
 
-    private var columns: [GridItem] {
-        Array(
-            repeating: GridItem(.flexible(minimum: 0), spacing: 6),
-            count: max(1, min(options.count, 2))
-        )
+    private var columnCount: Int { max(1, min(options.count, 2)) }
+
+    /// The options in rows of `columnCount`, for an eager `Grid` whose
+    /// every button is in the accessibility tree.
+    private var rows: [[Option]] {
+        stride(from: 0, to: options.count, by: columnCount).map { start in
+            Array(options[start..<min(start + columnCount, options.count)])
+        }
     }
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 6) {
-            ForEach(options, id: \.self) { option in
-                Button {
-                    selection = option
-                } label: {
-                    optionLabel(option)
+        Grid(horizontalSpacing: 6, verticalSpacing: 6) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                GridRow {
+                    ForEach(row, id: \.self) { option in
+                        Button {
+                            selection = option
+                        } label: {
+                            optionLabel(option)
+                        }
+                        .buttonStyle(.plain)
+                        .help(label(option))
+                        .accessibilityAddTraits(selection == option ? .isSelected : [])
+                    }
                 }
-                .buttonStyle(.plain)
-                .help(label(option))
             }
         }
         .accessibilityLabel(accessibilityLabel)

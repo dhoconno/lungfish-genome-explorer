@@ -212,21 +212,24 @@ struct MappingDocumentSection: View {
                 if let fileURL = row.fileURL {
                     pathCaption(fileURL.path)
                 } else {
-                    pathCaption("Missing")
+                    plainCaption("Missing")
                 }
             }
         }
     }
 
-    private func pathCaption(_ text: String) -> some View {
+    /// A recorded path, project-relative when it lies in this project, as
+    /// the Provenance tab shows it; the full path is the tooltip and the
+    /// accessibility value.
+    private func pathCaption(_ path: String) -> some View {
+        ProvenancePathCaption(path: path, projectURL: viewModel.enclosingProjectURL)
+    }
+
+    private func plainCaption(_ text: String) -> some View {
         Text(text)
             .font(LungfishInspectorStyle.controlFont)
             .foregroundStyle(.tertiary)
-            .textSelection(.enabled)
-            .lineLimit(2)
-            .truncationMode(.middle)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .help(text)
     }
 
     private func contextRow(label: String, value: String) -> some View {

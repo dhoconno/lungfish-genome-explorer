@@ -61,18 +61,28 @@ struct AttachmentsSection: View {
             Spacer()
         }
         .padding(.vertical, 2)
-        .contextMenu {
-            Button("Reveal in Finder") {
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(attachment.filename)
+        .accessibilityValue(formatFileSize(attachment.fileSize))
+        .accessibilityIdentifier("attachment-\(attachment.filename)")
+        .contextActions(attachmentActions(attachment))
+    }
+
+    /// The row's commands, offered from its context menu and, under the
+    /// same titles, as its accessibility actions.
+    func attachmentActions(_ attachment: BundleAttachment) -> [ContextAction] {
+        [
+            .command("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([attachment.url])
-            }
-            Button("Quick Look") {
+            },
+            .command("Quick Look") {
                 NSWorkspace.shared.open(attachment.url)
-            }
-            Divider()
-            Button("Remove Attachment") {
+            },
+            .divider(),
+            .command("Remove Attachment") {
                 removeAttachment(attachment)
-            }
-        }
+            },
+        ]
     }
 
     private func removeAttachment(_ attachment: BundleAttachment) {

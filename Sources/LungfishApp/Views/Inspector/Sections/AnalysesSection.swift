@@ -15,6 +15,19 @@ struct AnalysesSection: View {
     let analyses: [AnalysisManifestEntry]
     var onNavigate: ((AnalysisManifestEntry) -> Void)?
 
+    private static let absoluteFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
+    }()
+
+    /// The run's full date and time, shown on hover and carried by every
+    /// row as its tooltip and accessibility value.
+    static func absoluteTimestamp(_ date: Date) -> String {
+        absoluteFormatter.string(from: date)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if analyses.isEmpty {
@@ -59,6 +72,7 @@ private struct AnalysisRowButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(entry.displayName)
+        .accessibilityValue(AnalysesSection.absoluteTimestamp(entry.timestamp))
         .accessibilityIdentifier("analysis-entry-\(entry.id.uuidString)")
         .accessibilityHint("Opens this analysis")
             .onHover { hovering in
@@ -97,9 +111,13 @@ private struct AnalysisRow: View {
 
                     Spacer()
 
-                    Text(isHovering ? absoluteTimestamp(entry.timestamp) : relativeTimestamp(entry.timestamp))
+                    // The relative time reads at a glance; the absolute
+                    // time, shown on hover, is also the tooltip and the
+                    // row's accessibility value so it never needs a mouse.
+                    Text(isHovering ? AnalysesSection.absoluteTimestamp(entry.timestamp) : relativeTimestamp(entry.timestamp))
                         .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.tertiary)
+                        .help(AnalysesSection.absoluteTimestamp(entry.timestamp))
                 }
 
                 // Summary line
@@ -160,19 +178,8 @@ private struct AnalysisRow: View {
         return f
     }()
 
-    private static let absoluteFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f
-    }()
-
     private func relativeTimestamp(_ date: Date) -> String {
         Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    private func absoluteTimestamp(_ date: Date) -> String {
-        Self.absoluteFormatter.string(from: date)
     }
 
     // MARK: - Parameter Formatting
