@@ -234,3 +234,56 @@ final class ViralDetectionRowAccessibilityTests: XCTestCase {
         XCTAssertTrue(table.validateMenuItem(copy), "the context menu follows the selection alone")
     }
 }
+
+// MARK: - Right-click targets (Lane C review fixes)
+
+extension ViralDetectionRowAccessibilityTests {
+    /// Sends a right-click down to `row`, which makes AppKit set `clickedRow`
+    /// and hand back the row's context menu, as a real right-click does.
+    fileprivate func rightClick(row: Int) throws -> NSMenu {
+        outline.scrollRowToVisible(row)
+        outline.layoutSubtreeIfNeeded()
+        let rect = outline.rect(ofRow: row)
+        let point = outline.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .rightMouseDown, location: point, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        ))
+        let menu = try XCTUnwrap(outline.menu(for: event))
+        XCTAssertEqual(outline.clickedRow, row)
+        return menu
+    }
+
+    func testSubmenuCommandsTargetTheClickedRowAndAreEnabledWithoutFocus() throws {
+        window.makeKeyAndOrderFront(nil)
+        let menu = try rightClick(row: 5)
+        XCTAssertTrue(outline.selectedRowIndexes.isEmpty)
+        let ncbi = try XCTUnwrap(menu.items.first { $0.title == "Look Up on NCBI" }?.submenu)
+        let genBank = try XCTUnwrap(ncbi.items.first { $0.title == "Open GenBank Record" })
+        XCTAssertFalse(ResultRowMenuValidation.tableHasKeyboardFocus(outline))
+        XCTAssertTrue(table.validateMenuItem(genBank), "a submenu item of the context menu follows the clicked row")
+    }
+
+    func testBlastVerifyFromAContextMenuOpensForTheClickedRowNotTheSelectedOne() throws {
+        window.makeKeyAndOrderFront(nil)
+        outline.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        let menu = try rightClick(row: 6)
+        let blast = try XCTUnwrap(menu.items.first { $0.title.hasPrefix("Verify with BLAST") })
+        table.blastVerifySelectedRow(blast)
+        XCTAssertEqual(outline.selectedRow, 6, "the clicked row becomes the selection")
+        XCTAssertEqual(table.testingBlastPopoverAnchor, outline.rect(ofRow: 6), "the popover is anchored to the clicked row")
+        table.testingCloseBlastPopover()
+    }
+
+    func testExtractReadsFromAContextMenuActsOnTheClickedRow() throws {
+        window.makeKeyAndOrderFront(nil)
+        outline.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        let menu = try rightClick(row: 6)
+        let extract = try XCTUnwrap(menu.items.first { $0.title.hasPrefix("Extract Reads") })
+        var requested = 0
+        table.onExtractReadsRequested = { requested += 1 }
+        table.extractReadsForSelectedRows(extract)
+        XCTAssertEqual(requested, 1)
+        XCTAssertEqual(outline.selectedRow, 6, "validation chose the clicked row, so the handler acts on it")
+    }
+}

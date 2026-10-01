@@ -60,6 +60,17 @@ public enum AccessibilityRowProbe {
         }
     }
 
+    /// The action names a button or other cell-backed control lists to an AX
+    /// client. The server exposes an `NSControl` as its cell, so this reads
+    /// the cell the way ``servedCellActionNames(_:)`` reads a table cell
+    /// proxy: the legacy action names mapped through their descriptions plus
+    /// the modern custom actions. A name listed twice here is listed twice
+    /// to VoiceOver.
+    public static func servedActionNames(ofControl control: NSControl) -> [String] {
+        let element: AnyObject = control.cell ?? control
+        return legacyActionDescriptions(of: element) + actionNames(of: element)
+    }
+
     private static func legacyActionDescriptions(of element: AnyObject) -> [String] {
         let namesSelector = NSSelectorFromString("accessibilityActionNames")
         let describeSelector = NSSelectorFromString("accessibilityActionDescription:")

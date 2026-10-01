@@ -20,6 +20,15 @@ public enum TwelveSAmpliconResultExportFormat: String, CaseIterable, Identifiabl
         }
     }
 
+    /// The format sheet's button title, a verb phrase as the HIG asks.
+    public var sheetButtonTitle: String {
+        switch self {
+        case .csv: return "Export CSV"
+        case .tsv: return "Export TSV"
+        case .excel: return "Export Excel Workbook"
+        }
+    }
+
     public var fileExtension: String {
         switch self {
         case .csv: return "csv"

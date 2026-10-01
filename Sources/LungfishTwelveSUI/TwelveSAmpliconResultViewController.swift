@@ -387,10 +387,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         return []
     }
 
-    /// The accessibility actions of the Export button, as an AX client lists them.
-    var testingExportButtonActionNames: [String] {
-        (actionBar.exportButton.accessibilityCustomActions() ?? []).map(\.name)
-    }
+    var testingExportButton: NSButton { actionBar.exportButton }
 
     /// The accessibility actions of the Sample Columns button.
     var testingSampleColumnsActions: [NSAccessibilityCustomAction] {
@@ -1763,7 +1760,7 @@ extension TwelveSAmpliconResultViewController: ResultRowMenuActions, TwelveSResu
         alert.messageText = "Export 12S Result"
         alert.informativeText = "Choose a format for the result."
         for format in TwelveSAmpliconResultExportFormat.allCases {
-            alert.addButton(withTitle: format.displayName)
+            alert.addButton(withTitle: format.sheetButtonTitle)
         }
         alert.addButton(withTitle: "Cancel")
         return alert

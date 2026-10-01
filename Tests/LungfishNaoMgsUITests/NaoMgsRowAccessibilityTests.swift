@@ -209,9 +209,10 @@ final class NaoMgsRowAccessibilityTests: XCTestCase {
         let found = await waitUntil { Self.accessionButtons(in: self.vc.testDetailContentView).isEmpty == false }
         XCTAssertTrue(found, "the detail pane lists the taxon's accessions")
         let button = try XCTUnwrap(Self.accessionButtons(in: vc.testDetailContentView).first)
-        let names = (button.accessibilityCustomActions() ?? []).map(\.name)
-        XCTAssertTrue(names.contains("Copy Accession"), "\(names)")
-        XCTAssertEqual(Set(names).count, names.count)
+        // Read the action names the way the AX server lists them (the button's cell).
+        let names = AccessibilityRowProbe.servedActionNames(ofControl: button)
+        XCTAssertEqual(names.filter { $0 == "Copy Accession" }.count, 1, "listed once at the AX element: \(names)")
+        XCTAssertEqual(Set(names).count, names.count, "\(names)")
         let action = try XCTUnwrap(button.accessibilityCustomActions()?.first { $0.name == "Copy Accession" })
         NSPasteboard.general.clearContents()
         XCTAssertEqual(action.handler?(), true)

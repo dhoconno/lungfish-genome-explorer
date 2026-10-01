@@ -761,9 +761,10 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
     }
 
     private func refreshNodeContextMenu() {
-        let menu = nodeContextMenu()
-        nodeTableView.menu = menu
-        treeCanvasView.menu = menu
+        // Each view owns its menu. A shared instance would let a canvas
+        // command read the node table's stale clickedRow.
+        nodeTableView.menu = nodeContextMenu()
+        treeCanvasView.menu = nodeContextMenu()
     }
 
     // MARK: - Node Commands
@@ -972,6 +973,13 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         }
         treeCanvasView.collapsedNodeIDs = collapsedNodeIDs
         refreshNodeContextMenu()
+        // The row's Collapse Clade / Expand Clade action name follows the state.
+        if let row = nodes.firstIndex(where: { $0.id == selectedNodeID }) {
+            nodeTableView.reloadData(
+                forRowIndexes: IndexSet(integer: row),
+                columnIndexes: IndexSet(0..<nodeTableView.numberOfColumns)
+            )
+        }
     }
 
     @objc func copySelectedTipNames(_ sender: Any?) {
@@ -1445,6 +1453,8 @@ public extension PhylogeneticTreeViewController {
 
     var testingNodeTableContextMenu: NSMenu? { nodeTableView.menu }
 
+    var testingTreeCanvasView: NSView { treeCanvasView }
+
     var testingNodeContextMenuTitles: [String] {
         nodeContextMenu().items.map(\.title)
     }
@@ -1731,6 +1741,17 @@ private final class PhylogeneticTreeCanvasView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         guard let nodeID = nodeID(at: point) else { return }
         onNodeSelected?(nodeID)
+    }
+
+    /// A right-click selects the node under the pointer, so the menu's
+    /// commands act on it. A node already in the selection keeps the
+    /// selection, as in Finder.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        if let nodeID = nodeID(at: point), !selectedNodeIDs.contains(nodeID) {
+            onNodeSelected?(nodeID)
+        }
+        return super.menu(for: event)
     }
 
     private func recomputeLayout() {

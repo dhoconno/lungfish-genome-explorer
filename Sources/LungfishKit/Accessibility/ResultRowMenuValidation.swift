@@ -25,8 +25,14 @@ public enum ResultRowMenuValidation {
     /// True when `item` belongs to one of `menus`, the context menus of the
     /// surface.
     public static func isContextMenuItem(_ item: NSMenuItem, in menus: [NSMenu?]) -> Bool {
-        guard let owner = item.menu else { return false }
-        return menus.contains { $0 === owner }
+        // A submenu item (a "Look Up on NCBI" entry, say) belongs to the
+        // submenu, so walk up to the context menu that presents it.
+        var owner = item.menu
+        while let current = owner {
+            if menus.contains(where: { $0 === current }) { return true }
+            owner = current.supermenu
+        }
+        return false
     }
 
     /// True when the item may act now: it is in a context menu of the

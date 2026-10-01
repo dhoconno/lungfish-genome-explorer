@@ -5443,7 +5443,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     private func setupContextMenu() {
-        tableView.menu = TaxTriageRowCommands.makeContextMenu(target: self, includingAccession: true)
+        tableView.menu = TaxTriageRowCommands.makeContextMenu(target: self)
     }
 
     private func selectedRowKeys() -> [String] {
@@ -5476,7 +5476,6 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         TaxTriageRowSubject(
             organism: row.organism,
             taxId: row.taxId,
-            accession: row.taxId.map { "taxid:\($0)" } ?? row.organism,
             tsvFields: [
                 row.organism,
                 String(format: "%.4f", row.tassScore),
@@ -5557,6 +5556,8 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         let rows = commandTargetRows(sender: sender)
         guard rows.count == 1, let index = rows.first else { return }
         let tableRow = sortedRows[index]
+        // A menu-bar or accessibility invocation can target an off-screen row.
+        tableView.scrollRowToVisible(index)
         TaxTriageRowCommands.presentBlastPopover(
             taxonName: tableRow.organism,
             readsClade: tableRow.uniqueReads ?? tableRow.reads,
@@ -5568,7 +5569,6 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     @objc func copySelectedRowName(_ sender: Any?) { perform(.copyName, sender: sender) }
-    @objc func copySelectedRowAccession(_ sender: Any?) { perform(.copyAccession, sender: sender) }
     @objc func copySelectedRowTaxonID(_ sender: Any?) { perform(.copyTaxonID, sender: sender) }
     @objc func copySelectedRowAsTSV(_ sender: Any?) { perform(.copyAsTSV, sender: sender) }
     @objc func openSelectedRowTaxonomyOnNCBI(_ sender: Any?) { perform(.openTaxonomyOnNCBI, sender: sender) }

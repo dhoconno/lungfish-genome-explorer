@@ -200,7 +200,7 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
         XCTAssertEqual(
             served,
             [
-                "Verify with BLAST\u{2026}", "Copy Name", "Copy Accession", "Copy Taxon ID", "Copy Row as TSV",
+                "Verify with BLAST\u{2026}", "Copy Name", "Copy Taxon ID", "Copy Row as TSV",
                 "Open Taxonomy on NCBI", "Extract Reads\u{2026}",
             ]
         )
@@ -215,8 +215,10 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Organism 3")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon ID", in: try rowProxy(4, in: view)))
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "5004")
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Accession", in: try rowProxy(5, in: view)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "taxid:5005")
+        XCTAssertFalse(
+            AccessibilityRowProbe.performCellAction(named: "Copy Accession", in: try rowProxy(5, in: view)),
+            "a TaxTriage row has no accession, so Copy Taxon ID covers it"
+        )
     }
 
     func testOrganismExtractReadsActionRunsTheCallbackForItsRow() throws {
@@ -248,7 +250,7 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
         XCTAssertFalse(table.validateMenuItem(menuBarItem(.copyName)), "nothing selected")
         view.selectRowIndexes(IndexSet(integer: 3), byExtendingSelection: false)
         XCTAssertTrue(table.validateMenuItem(menuBarItem(.copyName)))
-        XCTAssertTrue(table.validateMenuItem(menuBarItem(.copyAccession)))
+        XCTAssertFalse(table.validateMenuItem(menuBarItem(.copyAccession)), "no accession in TaxTriage rows")
         XCTAssertFalse(table.validateMenuItem(menuBarItem(.copySequence)))
         view.selectRowIndexes(IndexSet([3, 4]), byExtendingSelection: false)
         XCTAssertFalse(table.validateMenuItem(menuBarItem(.copyName)))

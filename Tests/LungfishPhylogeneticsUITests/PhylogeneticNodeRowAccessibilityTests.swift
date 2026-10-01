@@ -138,7 +138,6 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
         let row = try firstRow(isTip: false)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Collapse Clade", in: try rowProxy(row)))
         XCTAssertEqual(controller.testingCollapsedNodeLabels, [nodeLabel(row)])
-        table.reloadData()
         table.layoutSubtreeIfNeeded()
         XCTAssertTrue(try firstCellActions(row).contains("Expand Clade"))
     }
@@ -206,5 +205,50 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
 
         let enabledTitles = menu.items.filter { controller.validateMenuItem($0) }.map(\.title)
         XCTAssertEqual(enabledTitles, cellNames, "the context menu enables exactly the commands the row serves")
+    }
+
+    // MARK: - Canvas and node table menus
+
+    private func rightClickEvent(in view: NSView, at point: NSPoint) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.mouseEvent(
+            with: .rightMouseDown, location: view.convert(point, to: nil), modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+            clickCount: 1, pressure: 1
+        ))
+    }
+
+    func testCanvasAndNodeTableHaveSeparateMenus() throws {
+        let tableMenu = try XCTUnwrap(controller.testingNodeTableContextMenu)
+        let canvasMenu = try XCTUnwrap(controller.testingTreeCanvasView.menu)
+        XCTAssertFalse(tableMenu === canvasMenu)
+    }
+
+    func testCanvasCommandActsOnTheClickedCanvasNodeNotAStaleTableRow() throws {
+        let tips = (0..<table.numberOfRows).filter { isTip($0) }
+        let staleRow = tips[1]
+        let canvasLabel = nodeLabel(tips[5])
+        controller.testingSelectNode(label: nodeLabel(tips[0]))
+        // A table right-click leaves clickedRow pointing at an unselected row.
+        let rect = table.rect(ofRow: staleRow)
+        _ = table.menu(for: try rightClickEvent(in: table, at: NSPoint(x: rect.midX, y: rect.midY)))
+        XCTAssertEqual(table.clickedRow, staleRow)
+
+        let canvas = controller.testingTreeCanvasView
+        let point = try XCTUnwrap(controller.testingCanvasPoint(label: canvasLabel))
+        let menu = try XCTUnwrap(canvas.menu(for: try rightClickEvent(in: canvas, at: point)))
+        let copyName = try XCTUnwrap(menu.items.first { $0.title == "Copy Name" })
+        XCTAssertTrue(controller.validateMenuItem(copyName), "canvas menu items are context-menu items")
+        NSPasteboard.general.clearContents()
+        controller.copySelectedRowName(copyName)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), canvasLabel)
+    }
+
+    func testCollapseCladeFromTheMenuBarRenamesTheRowActionWithoutAFullReload() throws {
+        let row = try firstRow(isTip: false)
+        controller.testingSelectNode(label: nodeLabel(row))
+        controller.toggleSelectedCladeCollapse(nil)
+        table.layoutSubtreeIfNeeded()
+        let served = try firstCellActions(row)
+        XCTAssertTrue(served.contains("Expand Clade"), "\(served)")
     }
 }

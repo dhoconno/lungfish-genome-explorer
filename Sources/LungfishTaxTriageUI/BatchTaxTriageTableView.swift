@@ -58,7 +58,7 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric>, Res
 
     private func installContextMenu() {
         guard tableView.menu == nil else { return }
-        tableView.menu = TaxTriageRowCommands.makeContextMenu(target: self, includingAccession: false)
+        tableView.menu = TaxTriageRowCommands.makeContextMenu(target: self)
     }
 
     // MARK: - Row Commands
@@ -67,7 +67,6 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric>, Res
         TaxTriageRowSubject(
             organism: metric.organism,
             taxId: metric.taxId,
-            accession: nil,
             tsvFields: [
                 metric.sample ?? "",
                 metric.organism,
@@ -136,6 +135,8 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric>, Res
         guard rows.count == 1, let index = rows.first else { return }
         selectDisplayedRowForContextMenuIfNeeded(index)
         let metric = displayedRows[index]
+        // A menu-bar or accessibility invocation can target an off-screen row.
+        tableView.scrollRowToVisible(index)
         TaxTriageRowCommands.presentBlastPopover(
             taxonName: metric.organism,
             readsClade: metric.reads,
@@ -160,7 +161,7 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric>, Res
         guard let command = ResultRowCommand.command(for: menuItem.action) else {
             return super.validateMenuItem(menuItem)
         }
-        guard TaxTriageRowCommands.supported.contains(command), command != .copyAccession else { return false }
+        guard TaxTriageRowCommands.supported.contains(command) else { return false }
         guard ResultRowMenuValidation.isReachable(menuItem, table: tableView) else { return false }
         return availableRowCommands(forRows: commandTargetRows(sender: menuItem)).contains(command)
     }

@@ -2239,6 +2239,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// read count is chosen.
     @objc public func blastVerifySelectedRow(_ sender: Any?) {
         guard let (index, row) = soleTargetRow(sender) else { return }
+        // A menu-bar or accessibility invocation can target an off-screen row.
+        taxonomyTableView.scrollRowToVisible(index)
         showBlastConfigPopover(
             for: row,
             anchorRect: taxonomyTableView.rect(ofRow: index),

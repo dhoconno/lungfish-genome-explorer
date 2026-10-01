@@ -12,9 +12,6 @@ import SwiftUI
 struct TaxTriageRowSubject {
     let organism: String
     let taxId: Int?
-    /// The value Copy Accession writes, or nil when the table has no such
-    /// command.
-    let accession: String?
     let tsvFields: [String]
 }
 
@@ -30,7 +27,7 @@ enum TaxTriageRowCommands {
     /// The context menu's sections, in display order.
     static let sections: [[ResultRowCommand]] = [
         [.blastVerify],
-        [.copyName, .copyAccession, .copyTaxonID, .copyAsTSV],
+        [.copyName, .copyTaxonID, .copyAsTSV],
         [.openTaxonomyOnNCBI],
         [.extractReads],
     ]
@@ -42,20 +39,15 @@ enum TaxTriageRowCommands {
     static func available(for subjects: [TaxTriageRowSubject]) -> [ResultRowCommand] {
         guard let subject = subjects.first else { return [] }
         guard subjects.count == 1 else { return [.extractReads] }
-        var commands: [ResultRowCommand] = [.blastVerify, .copyName]
-        if subject.accession != nil { commands.append(.copyAccession) }
-        commands.append(contentsOf: [.copyTaxonID, .copyAsTSV, .openTaxonomyOnNCBI, .extractReads])
-        return commands
+        return [.blastVerify, .copyName, .copyTaxonID, .copyAsTSV, .openTaxonomyOnNCBI, .extractReads]
     }
 
     /// The context menu for a table whose handlers are the shared selectors.
-    static func makeContextMenu(target: AnyObject, includingAccession: Bool) -> NSMenu {
+    static func makeContextMenu(target: AnyObject) -> NSMenu {
         let menu = NSMenu()
         for (index, section) in sections.enumerated() {
-            let commands = section.filter { includingAccession || $0 != .copyAccession }
-            guard !commands.isEmpty else { continue }
             if index > 0 { menu.addItem(.separator()) }
-            for command in commands {
+            for command in section {
                 menu.addItem(command.makeContextMenuItem(target: target, action: command.menuSelector))
             }
         }
@@ -69,9 +61,6 @@ enum TaxTriageRowCommands {
         switch command {
         case .copyName:
             writeToPasteboard(subject.organism)
-        case .copyAccession:
-            guard let accession = subject.accession else { return true }
-            writeToPasteboard(accession)
         case .copyTaxonID:
             writeToPasteboard(subject.taxId.map(String.init) ?? "")
         case .copyAsTSV:

@@ -204,10 +204,13 @@ final class TwelveSRowAccessibilityTests: XCTestCase {
 
     // MARK: - Buttons and the Export menu item
 
-    func testExportButtonListsTheFormatsAsActions() throws {
+    func testExportButtonListsEachFormatExactlyOnceAtTheAXElement() throws {
+        // The standard AXPress action ("press") comes with every button.
+        let served = AccessibilityRowProbe.servedActionNames(ofControl: vc.testingExportButton).filter { $0 != "press" }
         XCTAssertEqual(
-            vc.testingExportButtonActionNames,
-            ["Export as CSV\u{2026}", "Export as TSV\u{2026}", "Export as Excel\u{2026}"]
+            served,
+            ["Export as CSV\u{2026}", "Export as TSV\u{2026}", "Export as Excel\u{2026}"],
+            "the button's cell, which the AX server exposes, lists each name once"
         )
     }
 
@@ -233,8 +236,11 @@ final class TwelveSRowAccessibilityTests: XCTestCase {
         XCTAssertTrue(vc.validateMenuItem(item), "a result is showing")
         XCTAssertEqual(
             vc.makeExportFormatAlert().buttons.map(\.title),
-            TwelveSAmpliconResultExportFormat.allCases.map(\.displayName) + ["Cancel"]
+            ["Export CSV", "Export TSV", "Export Excel Workbook", "Cancel"]
         )
+        let buttons = vc.makeExportFormatAlert().buttons
+        XCTAssertEqual(buttons.first?.keyEquivalent, "\r", "Return still chooses the first format")
+        XCTAssertEqual(buttons.last?.keyEquivalent, "\u{1b}", "Escape still cancels")
 
         vc.exportTwelveSResult(nil)
         let sheet = try XCTUnwrap(window.attachedSheet, "the format choice is a sheet on the result window")

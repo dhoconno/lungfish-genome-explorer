@@ -1077,9 +1077,11 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     // MARK: - Menu Handlers
 
     @objc public func extractReadsForSelectedRows(_ sender: Any?) {
-        if !hasVisibleIdentitySelection(), outlineView.clickedRow >= 0 {
-            selectClickedRowForContextMenuIfNeeded(outlineView.clickedRow)
-        }
+        // Act on the rows validation chose: the clicked row for a context-menu
+        // command, the selection otherwise.
+        let targets = commandTargets(sender: sender)
+        guard !targets.isEmpty else { return }
+        selectContextMenuTargetIfNeeded(sender)
         onExtractReadsRequested?()
     }
 
@@ -1127,17 +1129,36 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         )
 
         let row = outlineView.row(forItem: item)
+        // A menu-bar or accessibility invocation can target a row that is
+        // scrolled out of view, so bring it on screen before anchoring.
+        if row >= 0 { outlineView.scrollRowToVisible(row) }
         let rowRect = row >= 0 ? outlineView.rect(ofRow: row) : outlineView.bounds
+        blastPopover = popover
         popover.show(relativeTo: rowRect, of: outlineView, preferredEdge: .maxY)
+    }
+
+    /// The BLAST popover last shown, kept so tests can read its anchor.
+    private var blastPopover: NSPopover?
+
+    /// Makes the clicked row the selection when a context-menu command
+    /// targets a row outside the selection.
+    private func selectContextMenuTargetIfNeeded(_ sender: Any?) {
+        guard let menuItem = sender as? NSMenuItem,
+              ResultRowMenuValidation.isContextMenuItem(menuItem, in: [outlineView.menu]) else { return }
+        let clicked = outlineView.clickedRow
+        guard clicked >= 0, !outlineView.selectedRowIndexes.contains(clicked) else { return }
+        selectClickedRowForContextMenuIfNeeded(clicked)
     }
 
     @objc public func blastVerifySelectedRow(_ sender: Any?) {
         let targets = commandTargets(sender: sender)
-        guard targets.count == 1 else { return }
-        if outlineView.selectedRowIndexes.count != 1 || !hasVisibleIdentitySelection() {
-            selectClickedRowForContextMenuIfNeeded(outlineView.clickedRow)
+        guard targets.count == 1, let target = targets.first else { return }
+        selectContextMenuTargetIfNeeded(sender)
+        let row = outlineView.row(forItem: target)
+        if row >= 0, outlineView.selectedRowIndexes != IndexSet(integer: row) {
+            selectClickedRowForContextMenuIfNeeded(row)
         }
-        showBlastPopoverForSelectedRow()
+        showBlastPopover(for: target)
     }
 
     private func writeToPasteboard(_ string: String) {
@@ -1900,6 +1921,11 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
     /// Returns the outline view for testing.
     var testOutlineView: NSOutlineView { outlineView }
+
+    /// The rectangle the BLAST popover is anchored to, in outline coordinates.
+    var testingBlastPopoverAnchor: NSRect? { blastPopover?.positioningRect }
+
+    func testingCloseBlastPopover() { blastPopover?.close() }
 
     /// Returns the number of currently displayed assembly items.
     var testDisplayedAssemblyCount: Int { displayItems.count }
