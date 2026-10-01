@@ -136,11 +136,10 @@ struct Primer3ResultsView: View {
             .background(selectedPair?.id == candidate.id ? Color.accentColor.opacity(0.15) : .clear,
                         in: RoundedRectangle(cornerRadius: 6))
         }.buttonStyle(.plain)
-          .contextMenu {
-            if let target = targets.first(where: { $0.id == candidate.id.uuidString }),
-              let interval = target.intervals.first(where: { $0.id == candidate.id.uuidString }) {
-              PrimerReviewContextMenu(target: target, item: .amplicon(interval), selection: activeSelection)
-            }
+          .primerReviewContextActions(selection: activeSelection) {
+            guard let target = targets.first(where: { $0.id == candidate.id.uuidString }),
+              let interval = target.intervals.first(where: { $0.id == candidate.id.uuidString }) else { return nil }
+            return (target, .amplicon(interval))
           }
       }
     }
@@ -231,11 +230,10 @@ struct Primer3ResultsView: View {
         Text("Calculating MSA matches…").font(.caption).foregroundStyle(.secondary)
       }
     }
-    .contextMenu {
-      if let target = targets.first(where: { $0.id == pair.id.uuidString }),
-        let primer = target.primers.first(where: { $0.id == oligo.id.uuidString }) {
-        PrimerReviewContextMenu(target: target, item: .primer(primer), selection: activeSelection)
-      }
+    .primerReviewContextActions(selection: activeSelection) {
+      guard let target = targets.first(where: { $0.id == pair.id.uuidString }),
+        let primer = target.primers.first(where: { $0.id == oligo.id.uuidString }) else { return nil }
+      return (target, .primer(primer))
     }
   }
 

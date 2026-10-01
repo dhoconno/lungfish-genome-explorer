@@ -184,7 +184,7 @@ struct PrimerReferenceCoverageTrack: View {
         .frame(height: 20).contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .contextMenu { PrimerReviewContextMenu(target: target, item: .amplicon(interval), selection: selection) }
+    .primerReviewContextActions(target: target, item: .amplicon(interval), selection: selection)
     .offset(x: position, y: 20)
     .help(label).accessibilityLabel(label)
     .accessibilityIdentifier("primerReview.amplicon.\(interval.id)")
@@ -207,7 +207,7 @@ struct PrimerReferenceCoverageTrack: View {
         .frame(width: hitWidth, height: 20).contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .contextMenu { PrimerReviewContextMenu(target: target, item: .primer(primer), selection: selection) }
+    .primerReviewContextActions(target: target, item: .primer(primer), selection: selection)
     .offset(x: x, y: y)
     .help(primerHelp(primer))
     .accessibilityLabel("\(primer.name), binding site \(primer.start + 1)–\(primer.end), \(primer.poolLabel ?? primer.pool.map { "pool \($0)" } ?? "candidate pair")")

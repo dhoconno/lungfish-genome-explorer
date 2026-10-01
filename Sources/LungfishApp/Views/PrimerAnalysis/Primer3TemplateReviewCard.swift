@@ -65,7 +65,7 @@ struct Primer3TemplateReviewCard: View {
     .help("Product \(interval.start + 1)–\(interval.end), including both primer sites")
     .accessibilityLabel("Product, \(interval.length) bp, template coordinates \(interval.start + 1)–\(interval.end)")
     .accessibilityIdentifier("primerReview.amplicon.\(interval.id)")
-    .contextMenu { PrimerReviewContextMenu(target: target, item: .amplicon(interval), selection: selection) }
+    .primerReviewContextActions(target: target, item: .amplicon(interval), selection: selection)
   }
 
   private func primerRow(_ primer: PrimerReviewPrimer) -> some View {
@@ -82,7 +82,7 @@ struct Primer3TemplateReviewCard: View {
     .help("\(primer.name): \(primer.start + 1)–\(primer.end) (\(primer.strand)); stored oligo is 5′–3′")
     .accessibilityLabel("\(primer.name), binding site \(primer.start + 1)–\(primer.end), strand \(primer.strand)")
     .accessibilityIdentifier("primerReview.primer.\(primer.id)")
-    .contextMenu { PrimerReviewContextMenu(target: target, item: .primer(primer), selection: selection) }
+    .primerReviewContextActions(target: target, item: .primer(primer), selection: selection)
   }
 
   private func mapRow(title: String, start: Int, end: Int, color: Color, selected: Bool) -> some View {

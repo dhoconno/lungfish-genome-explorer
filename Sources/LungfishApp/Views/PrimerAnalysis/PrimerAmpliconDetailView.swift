@@ -42,7 +42,7 @@ struct PrimerAmpliconDetailView: View {
               ?? (target.presentation == .primer3Template ? "Candidate pair" : "Not pooled"))
               .font(.subheadline.weight(.medium))
           }
-          .contextMenu { PrimerReviewContextMenu(target: target, item: .amplicon(interval), selection: selection) }
+          .primerReviewContextActions(target: target, item: .amplicon(interval), selection: selection)
           HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(interval.length.formatted()) bp").font(.title2.weight(.semibold)).monospacedDigit()
             Text(interval.sizeLabel).font(.caption).foregroundStyle(.secondary)
@@ -134,7 +134,7 @@ struct PrimerAmpliconDetailView: View {
     .padding(8)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(selected ? Color.accentColor.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 4))
-    .contextMenu { PrimerReviewContextMenu(target: target, item: .primer(primer), selection: selection) }
+    .primerReviewContextActions(target: target, item: .primer(primer), selection: selection)
   }
 
   @ViewBuilder private func compatibility(_ primer: PrimerReviewPrimer) -> some View {
