@@ -34,6 +34,50 @@ LAYOUTS = {
 }
 
 
+# ---------------------------------------------------------------- spec
+
+def filmed_with_text(cfg: dict) -> str:
+    """'Filmed with Lungfish Preview 2026.9.75' from the spec's version tag."""
+    fw = cfg["filmed_with"]
+    versions = fw["versions"]
+    shown = versions[0] if len(versions) == 1 else ", ".join(versions[:-1]) + " and " + versions[-1]
+    return f"Filmed with {fw['app']} {shown}"
+
+
+def validate_spec(cfg: dict) -> list[str]:
+    """Every video records what it was filmed with and what each beat shows, so it can be remade."""
+    problems = []
+    fw = cfg.get("filmed_with") or {}
+    if not fw.get("app") or not fw.get("versions"):
+        problems.append("filmed_with needs app and versions (the release the takes were filmed on)")
+    for key in ("title", "purpose"):
+        if not cfg.get(key):
+            problems.append(f"missing top-level {key}")
+    for beat in cfg["beats"]:
+        if not beat.get("shows"):
+            problems.append(f"{beat['id']}: missing shows (what the beat demonstrates)")
+        if beat["kind"] == "take" and not beat.get("capture"):
+            problems.append(f"{beat['id']}: missing capture (how to film it again)")
+    return problems
+
+
+def current_app_version() -> str:
+    text = (REPO / "Sources/LungfishCore/AppVersion.swift").read_text()
+    return re.search(r'static let short = "([^"]+)"', text).group(1)
+
+
+def print_status():
+    """List every video with the versions it was filmed on, against the current app version."""
+    current = current_app_version()
+    key = lambda v: tuple(int(x) for x in v.split("."))
+    print(f"current app version {current}")
+    for spec in sorted(HERE.glob("*/video.yaml")):
+        cfg = yaml.safe_load(spec.read_text())
+        versions = (cfg.get("filmed_with") or {}).get("versions") or []
+        state = "untagged" if not versions else ("current" if key(min(versions, key=key)) >= key(current) else "behind")
+        print(f"  {cfg.get('slug', spec.parent.name):<28} filmed {', '.join(versions) or '-':<24} {state}")
+
+
 # ---------------------------------------------------------------- lint
 
 def lint_text(beats: list[dict]) -> list[str]:
@@ -350,7 +394,7 @@ def render_document(beat, video_dir: Path, ov: Overlays, work: Path, fps: int) -
     return out
 
 
-def join(segments: list[tuple[Path, float, str]], xfade: float, out: Path, fps: int):
+def join(segments: list[tuple[Path, float, str]], xfade: float, out: Path, fps: int, metadata: dict[str, str] | None = None):
     """Join segments, crossfading after a beat marked transition: fade and hard-cutting otherwise."""
     inputs, graph = [], []
     for i, (p, _, _) in enumerate(segments):
@@ -368,7 +412,8 @@ def join(segments: list[tuple[Path, float, str]], xfade: float, out: Path, fps: 
             graph.append(f"{cur}[s{i}]concat=n=2:v=1:a=0,settb=AVTB{label}")
             length += segments[i][1]
         cur = label
-    ffmpeg([*inputs, "-filter_complex", ";".join(graph), "-map", cur, *ENCODE, "-r", str(fps), "-movflags", "+faststart", str(out)])
+    tags = sum((["-metadata", f"{k}={v}"] for k, v in (metadata or {}).items()), [])
+    ffmpeg([*inputs, "-filter_complex", ";".join(graph), "-map", cur, *ENCODE, "-r", str(fps), *tags, "-movflags", "+faststart", str(out)])
     return length
 
 
@@ -376,15 +421,30 @@ def join(segments: list[tuple[Path, float, str]], xfade: float, out: Path, fps: 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("video", type=Path)
+    ap.add_argument("video", type=Path, nargs="?")
+    ap.add_argument("--status", action="store_true", help="list each video's filmed version against the current app")
     ap.add_argument("--only", choices=list(LAYOUTS))
     ap.add_argument("--lint-only", action="store_true")
     args = ap.parse_args()
+    if args.status:
+        print_status()
+        return
+    if not args.video:
+        ap.error("give a video.yaml, or --status")
 
     video_dir = args.video.resolve().parent
     cfg = yaml.safe_load(args.video.read_text())
     brand = json.loads((SHARED / "brand.json").read_text())
     fps = brand["canvas"]["fps"]
+
+    spec_problems = validate_spec(cfg)
+    if spec_problems:
+        print("The video spec is incomplete:")
+        print("\n".join(f"  {p}" for p in spec_problems))
+        sys.exit(1)
+    for beat in cfg["beats"]:
+        for line in beat.get("lines", []):
+            line["text"] = line["text"].replace("{filmed_with}", filmed_with_text(cfg))
 
     problems = lint_text(cfg["beats"])
     if problems:
@@ -432,7 +492,10 @@ def main():
                     render_take(beat, cfg, layout, brand, ov, video_dir, work, fps, seg)
                 segments.append((seg, float(beat["duration"]), beat.get("transition", "cut")))
             final = out_dir / f"{cfg['slug']}-{name}.mp4"
-            length = join(segments, brand["timing"]["crossfade"], final, fps)
+            length = join(segments, brand["timing"]["crossfade"], final, fps, metadata={
+                "title": cfg["title"],
+                "comment": f"{filmed_with_text(cfg)}. Spec: screencasts/{video_dir.name}/video.yaml",
+            })
             poster = out_dir / f"{cfg['slug']}-{name}-poster.png"
             ffmpeg(["-ss", "1.6", "-i", str(final), "-frames:v", "1", str(poster)])
             shown = final.relative_to(REPO) if final.is_relative_to(REPO) else final

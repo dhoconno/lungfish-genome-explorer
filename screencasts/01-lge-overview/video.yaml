@@ -1,17 +1,59 @@
-# Quick video 01: what LGE records for you.
-# Render: python3 screencasts/render.py screencasts/01-lge-overview/video.yaml
-# A take whose file is missing renders as a labelled placeholder, so the cut can be timed before capture.
+# Quick video 01: what Lungfish Genome Explorer is for, in about 75 seconds.
+# This file is the whole recipe. To remake the video against a newer app version, recreate the
+# setup below, re-film each beat as its `capture` says, re-check each `verify` fact, update
+# `filmed_with`, and render:  python3 screencasts/render.py screencasts/01-lge-overview/video.yaml
+# Spec reference: screencasts/README.md, "The video spec".
 
 slug: 01-lge-overview
-app: Lungfish Preview 2026.9.71
-project: ~/Desktop/lge-docs/screencast/HG002 chr20.lungfish
-window_points: [1440, 810]
-trim_top: 52          # hide the title bar (and the Debug build name) in every take
+title: Lungfish Genome Explorer overview
+track: overview
+purpose: >-
+  Show a scientist who analyses nucleic-acid sequences what sets LGE apart, led by provenance.
+  Learners can start with real public data (demo projects, SRA), reads are stored compactly,
+  reads, alignments and variants share one window, nf-core pipelines run in containers, and
+  every result records how it was made and exports as methods text, Nextflow or Snakemake.
+audience: Scientists and learners who work with sequencing data, most of them new to LGE.
+narration: none           # silent overview, captions only (focus group 2026-10-01)
+
+filmed_with:
+  app: Lungfish Preview
+  versions: ["2026.9.73", "2026.9.74"]   # per-beat versions below where they differ
+  date: 2026-10-01
+
+setup:
+  window_points: [1440, 810]
+  projects:
+    - name: HG002 chr20.lungfish
+      from: Demo project "Human Mapping and Variants (with results)", copied to ~/Desktop/lge-docs/screencast/v2/
+      used_by: [viewer, provenance, files, export, exports-methods, exports-nextflow, exports-snakemake, cli]
+    - name: FASTQ storage.lungfish
+      from: >-
+        A new project in the app with HG002.chr20.10.0-10.5Mb_R1/_R2 (Human Reads demo, Practice Data)
+        imported with clumping on and Quality Binning set to Illumina (7-level)
+      used_by: [disk]
+    - name: SARS-CoV-2 Amplicons.lungfish
+      from: Demo project "SARS-CoV-2 Amplicons", with Viral Recon run from Tools (Docker Desktop running)
+      used_by: [pipeline]
+  notes:
+    - Copy whole project folders in Finder so the hidden .project.db comes along.
+    - Hide the Inspector except where a beat films it. Keep the owner's home folder and user name out of frame.
+
+honesty:
+  - Quality binning is lossy and off by default. The kicker gives the measured sizes for this dataset only.
+  - SRA and demo downloads need a network connection. Do not imply otherwise.
+  - Viral Recon and TaxTriage need Docker Desktop. The caption names Docker. Never say Apple containers.
+  - Pipelines are filmed from completed results. Never imply a pipeline finishes in seconds.
+  - Never name another product on screen. Say "recorded" rather than "reproducible".
+
 outputs: [wide]
+trim_top: 52          # hide the title bar in every app take
+window_points: [1440, 810]
 
 beats:
   - kind: card
     id: title
+    shows: >-
+      Title card.
     duration: 2.8
     icon: true
     title: Lungfish Genome Explorer
@@ -19,78 +61,213 @@ beats:
     transition: fade
 
   - kind: take
+    id: demo
+    shows: >-
+      Help > Demo Projects lists real public datasets ready to download and open.
+    capture: >-
+      Attended (the panel draws only while the app is frontmost). Open Help > Demo Projects and scroll the list once. wincap --app-region.
+    verify:
+      - Demo project titles and sizes match the current manifest.
+    take: takes-v2/demo.mov       # Help > Demo Projects, filmed with the app frontmost
+    in: 1.5
+    duration: 6.0
+    caption: Start with real public datasets
+    kicker: Help · Demo Projects
+    crop: [0.0, 0.205, 1.0, 0.75]  # below the Save to row (it shows the owner's home folder)
+    square_focus: [0.0, 0.0, 0.75, 1.0]
+
+  - kind: take
+    id: sra
+    shows: >-
+      Tools > Search Online Databases > Search SRA finds run SRR36291587 and offers to download it into the project.
+    capture: >-
+      Attended. Search for SRR36291587, wait for the result row, select it. Jump-cut over the search wait. Do not click Download.
+    verify:
+      - The result row shows SRR36291587, Illumina, paired, about 21 MB.
+    segments: [[2.0, 5.6], [13.2, 16.2]]   # jump cut over the loading wait
+    take: takes-v2/sra.mov        # Tools > Search Online Databases > Search SRA
+    duration: 6.6
+    caption: Search SRA and download runs into a project
+    kicker: Tools · Search Online Databases · SRA
+    crop: [0.18, 0.085, 0.64, 0.645]
+    square_focus: [0.0, 0.0, 1.0, 1.0]
+    transition: fade
+
+  - kind: take
+    id: disk
+    shows: >-
+      The Inspector's Ingestion section for clumped, binned reads, with the original and stored sizes.
+    capture: >-
+      drive-v2/disk-setup.json then drive-v2/disk.json (axdrive, unattended).
+    verify:
+      - Original Size and After Clumpify values match the kicker.
+      - Quality Binning reads Illumina (7-level) (fixed in 2026.9.75).
+    take: takes-v2/disk.mov
+    in: 2.6
+    duration: 6.0
+    caption: Clump reads and bin qualities to save space
+    kicker: HG002 reads · 18 MB stored as 5.8 MB
+    crop: [0.62, 0.064, 0.38, 0.62]
+    # The Inspector settles about 3 s in, then the view closes on Ingestion and marks the sizes.
+    zoom: {at: 3.0, dur: 0.8, region: [0.36, 0.42, 0.55, 0.55]}
+    highlights:
+      - {at: 3.9, region: [0.385, 0.743, 0.265, 0.075]}
+    square_focus: [0.0, 0.0, 1.0, 1.0]
+
+  - kind: take
     id: viewer
-    take: takes/viewer.mov
-    in: 1.6
-    duration: 9.0
+    shows: >-
+      Reads, alignments and variants for HG002 chr20 in one viewport: overview, a 3 kb window, then the read pileup.
+    capture: >-
+      drive-v2/viewer-prep.json, viewer-setup.json, viewer.json (unattended).
+    take: takes-v2/viewer.mov
+    in: 2.4
+    duration: 7.0
     caption: Reads, alignments and variants in one window
     kicker: HG002 · chr20
-    placeholder: chr20 read pileup. Click a row in the variant table and the view recentres on it.
     square_focus: [0.22, 0.05, 0.56, 1.0]
 
   - kind: take
-    id: folder
-    take: takes/folder.mov
-    in: 1
-    duration: 6.5
-    caption: Your project is a folder of standard files
-    kicker: Finder · Analyses/minimap2
-    placeholder: Finder on the minimap2 result folder, BAM alignment and index selected.
-    crop: [0.185, 0.035, 0.805, 0.525]     # drop Finder's sidebar (personal favourites) and empty rows
-    square_focus: [0.0, 0.0, 0.62, 1.0]
+    id: pipeline
+    shows: >-
+      A completed nf-core Viral Recon result opened in LGE: consensus, lineage and QC reports.
+    capture: >-
+      drive-v2/pipeline-setup.json then pipeline.json (unattended).
+    verify:
+      - The result still opens on the reference viewport with its output list in the Inspector.
+    take: takes-v2/pipeline.mov
+    in: 1.4
+    duration: 6.8
+    caption: Browse nf-core pipeline results run in Docker
+    kicker: Viral Recon · Nextflow · Docker
+    square_focus: [0.40, 0.0, 0.60, 1.0]
 
   - kind: take
     id: provenance
-    take: takes/provenance.mov
-    in: 2.1             # start on the Provenance tab (drive/provenance.json)
-    duration: 8.8
+    shows: >-
+      Inspector > Provenance for the minimap2 result: lineage from import to mapping and the exact command.
+    capture: >-
+      drive-v2/provenance-setup.json then provenance.json (unattended).
+    transition: fade
+    take: takes-v2/provenance.mov
+    in: 3.0
+    duration: 6.3
     caption: Each result records its tool, version and command
     kicker: Inspector · Provenance · Lineage
-    crop: [0.585, 0.064, 0.41, 0.915]   # the Inspector column only, title bar and window corner dropped
-    placeholder: Variant track selected. Inspector Provenance lineage with the bcftools step expanded to its command and conda build.
+    crop: [0.56, 0.064, 0.44, 0.915]
     square_focus: [0.0, 0.0, 1.0, 1.0]
 
-  - kind: document
+  - kind: take
+    id: files
+    shows: >-
+      Provenance > Files & Outputs lists every input and output with its SHA-256 checksum.
+    capture: >-
+      drive-v2/files-setup.json then files.json (unattended).
+    take: takes-v2/files.mov      # Inspector > Provenance > Files & Outputs
+    in: 1.2
+    duration: 5.0
+    caption: Every input and output is listed with its checksum
+    kicker: Inspector · Provenance · Files & Outputs
+    crop: [0.56, 0.064, 0.44, 0.915]
+    square_focus: [0.0, 0.0, 1.0, 1.0]
+
+  - kind: take
     id: export
-    # Real output of File > Export > Provenance (same exporter as lungfish-cli provenance export).
-    # Regenerate (exports/ is not committed, it holds machine paths):
-    #   lungfish-cli provenance export <variants/vc-7bcd…lungfish-provenance.json> --format methods|snakemake --output exports/<format>
-    pages:
-      - file: exports/methods/methods.md
-        title: methods.md
-        style: prose
-        from: 9
-        to: 9
-      - file: exports/snakemake/Snakefile
-        title: Snakefile
-        style: code
-        from: 207
-        to: 221
-    duration: 7.5
+    shows: >-
+      File > Export > Provenance > Methods Section, saved inside the project.
+    capture: >-
+      Attended (save panel). drive-v2/exports.json. The save panel now opens in the project (2026.9.75).
+    take: takes-v2/export.mov     # File > Export > Provenance > Methods Section…, app-region capture
+    in: 7.2
+    duration: 5.3
     caption: Export the history as a script or methods text
-    kicker: File · Export · Provenance
-    square_focus: [0.0, 0.0, 0.62, 1.0]
+    kicker: File · Export · Provenance · Methods Section
+    square_focus: [0.15, 0.0, 0.62, 1.0]
+
+  # The three exports read in LGE's viewer (Preview 2026.9.74), one take cut into three beats.
+  # Nextflow and Snakemake takes are scrolled past their generated header (it names the recording user)
+  # to a process or rule with its pinned conda environment.
+  - kind: take
+    id: exports-methods
+    shows: >-
+      The exported methods.md in LGE"s viewer, closing on the tool versions table.
+    capture: >-
+      drive-v2/methods.json (unattended).
+    filmed_with: "2026.9.74"
+    take: takes-v2/methods.mov
+    in: 1.3
+    duration: 6.5
+    caption: A methods paragraph naming every tool and version
+    kicker: methods.md
+    crop: [0.0, 0.064, 0.80, 0.50]
+    zoom: {at: 2.0, dur: 0.9, region: [0.29, 0.5, 0.52, 0.4]}
+    highlights:
+      - {at: 3.0, region: [0.296, 0.62, 0.5, 0.255]}
+    square_focus: [0.0, 0.0, 0.7, 1.0]
+
+  - kind: take
+    id: exports-nextflow
+    shows: >-
+      The exported main.nf, closing on a process with its pinned conda package.
+    capture: >-
+      Open main.nf in the viewer and scroll past the generated header (it names the recording user) to process SAMTOOLS_7.
+    verify:
+      - The pinned build string in the highlight is still bioconda::samtools=1.24=h36b3a25_1.
+    filmed_with: "2026.9.74"
+    take: takes-v2/nextflow.mov
+    in: 0.5
+    duration: 5.0
+    caption: A Nextflow pipeline with pinned conda packages
+    kicker: main.nf
+    crop: [0.0, 0.064, 0.80, 0.62]
+    zoom: {at: 0.6, dur: 0.8, region: [0.29, 0.33, 0.45, 0.2]}
+    highlights:
+      - {at: 1.6, region: [0.297, 0.435, 0.33, 0.07]}
+    square_focus: [0.0, 0.0, 0.7, 1.0]
+
+  - kind: take
+    id: exports-snakemake
+    shows: >-
+      The exported Snakefile, closing on a rule with its conda environment file.
+    capture: >-
+      Open the Snakefile and scroll past the header to rule bgzip_4.
+    filmed_with: "2026.9.74"
+    take: takes-v2/snakemake.mov
+    in: 0.5
+    duration: 5.0
+    caption: A Snakemake workflow from the same record
+    kicker: Snakefile
+    crop: [0.0, 0.064, 0.80, 0.62]
+    zoom: {at: 0.6, dur: 0.8, region: [0.29, 0.45, 0.45, 0.3]}
+    highlights:
+      - {at: 1.6, regions: [[0.300, 0.462, 0.32, 0.035], [0.31, 0.69, 0.18, 0.06]]}
+    square_focus: [0.0, 0.0, 0.7, 1.0]
 
   - kind: terminal
     id: cli
+    shows: >-
+      The same variant call run with lungfish-cli writes into the same project (a CLI feature, so a replay is allowed).
+    capture: >-
+      Run the command against the project copy with the released CLI and save the output to terminal-v2/cli-full.txt, then trim to cli-output.txt.
     title: HG002 chr20.lungfish
     prompt: "$ "
-    # Real run on the project copy, 2026-09-30 (4 s). cli-full.txt is the complete output,
-    # cli-output.txt keeps the first 12 and last 4 lines with an explicit "…" between them.
-    command: lungfish-cli variants call --bundle Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref --alignment-track aln_DC100740 --caller bcftools --name "HG002 bcftools CLI"
-    output_file: terminal/cli-output.txt
+    # Real run with the Preview 2026.9.73 CLI on the project copy. cli-full.txt is the complete
+    # output; cli-output.txt keeps the first 12 and last 4 lines with an explicit "…" between.
+    command: lungfish-cli variants call --bundle Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref --alignment-track aln_DC100740 --caller bcftools --name "HG002 bcftools rerun"
+    output_file: terminal-v2/cli-output.txt
     max_lines: 18
     type_cps: 120
     line_interval: 0.12
-    duration: 8.0
-    square_focus: [0.0, 0.0, 0.62, 1.0]
+    duration: 6.5
     caption: The same analysis from the app or terminal
     kicker: lungfish-cli
-    placeholder: The variant call re-run with lungfish-cli, output captured from a real run.
+    square_focus: [0.0, 0.0, 0.62, 1.0]
     transition: fade
 
   - kind: card
     id: end
+    shows: >-
+      End card with licence, platform and links, and the version the video was filmed with.
     duration: 4.5
     icon: true
     title: Lungfish Genome Explorer
@@ -101,3 +278,5 @@ beats:
         style: url
       - text: lungfish-genome-explorer.readthedocs.io
         style: url
+      - text: "{filmed_with}"
+        style: version

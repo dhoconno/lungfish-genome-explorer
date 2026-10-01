@@ -6,7 +6,7 @@ Brainstormed by a four-expert panel (bioinformatics educator, competitive analys
 
 - Folders `<track><nn>-<slug>/`: **B** beginners and learners, **S** switching from other apps, **C** command-line users. `01-lge-overview` stays the unprefixed flagship.
 - Lengths: B 45 to 75 s (4 to 6 beats), S 30 to 60 s (one familiar task each), C 30 to 60 s.
-- Every `video.yaml` gains `manual:` (chapter id) and `demo:` (demo project) keys, and each manual chapter lists its videos, so they link both ways.
+- Every `video.yaml` gains `manual:` (chapter id) and `demo:` (demo project) keys, and each manual chapter lists its videos, so they link both ways. Every spec also carries `filmed_with` and per-beat `shows`, `capture` and `verify` (README).
 - Shared 2 s title card naming the track and a 3 s end card naming the manual chapter and demo project.
 - Publish: wide MP4 and poster embedded in the matching Read the Docs chapter (from the media repo pinned per release), a grid on the site, 01 only in the README, new videos listed in release notes, square cuts for social posts.
 
@@ -65,8 +65,9 @@ Deferred: pointing coding agents at a project (owner said its own later video), 
 - A path-leak check that scans frames for `/Users/` before encoding.
 - A `poster_beat:` key, shared card templates, and click rings from axdrive press coordinates.
 
-## Questions for the owner
+## Owner decisions (2026-10-01)
 
-1. Host videos only in the media repo and Read the Docs, or also on a video platform for discoverability?
-2. May switcher captions allude to other apps without naming them (for example "Where your alignment view lives")?
-3. When a release changes the UI, pull a stale video until it is re-filmed, or label it "as of version X"?
+1. **Hosting.** Serve the videos from the public LGE LabKey folder and embed them in the manual and the site. A tested render plays and seeks there (HTTP range requests, `video/mp4`, moov atom first). Caption tracks live beside the embedding page, because LabKey sends no CORS headers. A video platform would only add discoverability and can be decided later.
+2. **Switcher captions** may allude to other apps without naming them.
+3. **Versions.** Every video is tagged with the release it was filmed on and keeps its full recipe in `video.yaml`, so it can be remade against a newer version (README, "The video spec").
+4. **Narration.** Tutorial videos are narrated with an on-device Apple Premium voice. The overview and social cuts stay silent. Captions stay on everything.
