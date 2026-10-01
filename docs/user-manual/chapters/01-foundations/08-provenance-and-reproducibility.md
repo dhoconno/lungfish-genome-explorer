@@ -99,7 +99,7 @@ A lineage is the list of every step behind one result, in the order they ran. Th
 
 <!-- SHOT: provenance-lineage-step-expanded -->
 
-The chain runs twelve steps. The first two stage the alignment and the reference for the caller, and step 3 indexes the reference with `samtools faidx`. Step 4 is the [pileup](../../GLOSSARY.md#pileup), which gathers the bases every read shows at each reference position. Step 5 is the call, which decides from that evidence where the sample differs. Step 6 is the threshold filter, which removes every row below the Call Variants dialog's Minimum Allele Frequency of 0.05 or Minimum Depth of 10.
+Lineage lists the records that fed this one before the record itself, so the block starts with the read import, the reference import, and the mapping, each with its own numbered steps, and ends with the variant call. The variant call's own chain runs twelve steps. The first two stage the alignment and the reference for the caller, and step 3 indexes the reference with `samtools faidx`. Step 4 is the [pileup](../../GLOSSARY.md#pileup), which gathers the bases every read shows at each reference position. Step 5 is the call, which decides from that evidence where the sample differs. Step 6 is the threshold filter, which removes every row below the Call Variants dialog's Minimum Allele Frequency of 0.05 or Minimum Depth of 10.
 
 ```text
 bcftools mpileup -Ou -A -d 0 -a FORMAT/AD,FORMAT/DP,INFO/AD -f .../reference.fa .../aln_<id>.bam
