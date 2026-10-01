@@ -1137,3 +1137,41 @@ extension ViewerViewController: TrackHeaderViewDelegate {
         )
     }
 }
+
+// MARK: - View > Toggle Annotations for Selected Track
+
+/// The menu bar route to the track header's disclosure triangles.
+///
+/// The selected track is the one the header's focus ring sits on while the
+/// header has keyboard focus, otherwise the active sequence of the stacked
+/// view. The item is enabled only while that track has annotations to show
+/// or hide.
+extension ViewerViewController: TrackHeaderMenuActions, NSMenuItemValidation {
+
+    /// The track View > Toggle Annotations for Selected Track acts on, or
+    /// nil when no stacked track with annotations is selected.
+    var selectedTrackIndexForAnnotationToggle: Int? {
+        guard let state = viewerView.multiSequenceState, !state.stackedSequences.isEmpty else { return nil }
+        let index: Int
+        if headerView.window?.firstResponder === headerView, let focused = headerView.focusedTrackIndex {
+            index = focused
+        } else {
+            index = state.activeSequenceIndex
+        }
+        guard state.stackedSequences.indices.contains(index),
+              !state.stackedSequences[index].annotations.isEmpty else { return nil }
+        return index
+    }
+
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(toggleAnnotationsForSelectedTrack(_:)) {
+            return selectedTrackIndexForAnnotationToggle != nil
+        }
+        return true
+    }
+
+    @objc public func toggleAnnotationsForSelectedTrack(_ sender: Any?) {
+        guard let index = selectedTrackIndexForAnnotationToggle else { return }
+        trackHeaderView(headerView, didToggleAnnotationsForTrackAt: index)
+    }
+}
