@@ -737,6 +737,13 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
         self.roleWasExplicit = roleWasExplicit
     }
 
+    /// The recorded format, or the one the file name implies when the record
+    /// has none or says unknown (older records stamped every index unknown).
+    public var resolvedFormat: FileFormat {
+        if let format, format != .unknown { return format }
+        return FileFormat.inferred(fromPath: path)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case path
         case checksumSHA256

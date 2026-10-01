@@ -657,28 +657,7 @@ public actor ProvenanceRecorder {
 
     /// Detects file format from extension.
     private static func detectFormat(url: URL) -> FileFormat {
-        var ext = url.pathExtension.lowercased()
-        if ext == "gz" {
-            ext = url.deletingPathExtension().pathExtension.lowercased()
-        }
-        switch ext {
-        case "fa", "fasta", "fna": return .fasta
-        case "fq", "fastq": return .fastq
-        case "bam": return .bam
-        case "cram": return .cram
-        case "sam": return .sam
-        case "vcf": return .vcf
-        case "bcf": return .bcf
-        case "gff", "gff3": return .gff3
-        case "bed": return .bed
-        case "bb", "bigbed": return .bigBed
-        case "bw", "bigwig": return .bigWig
-        case "gb", "gbk", "genbank": return .genBank
-        case "html": return .html
-        case "json": return .json
-        case "txt", "tsv", "csv", "log": return .text
-        default: return .unknown
-        }
+        FileFormat.inferred(fromPath: url.path)
     }
 }
 
