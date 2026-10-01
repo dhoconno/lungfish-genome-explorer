@@ -97,6 +97,8 @@ If a folder of the same name already exists where you save, LGE writes into it a
 
 A **Provenance Export Complete** alert names the target and the file it wrote, with **OK** and **Show in Finder** buttons. Click **Show in Finder** to open the folder.
 
+If you saved the folder inside your project, you can also read the files without leaving LGE. Select `main.nf` or `Snakefile` in the sidebar and the viewer shows it as plain text, with the status bar reading Previewing and the file name. LGE does this for files macOS cannot preview, such as Nextflow and Snakemake scripts, and it shows the first 2 MB of a longer file and says so.
+
 <!-- SHOT: export-provenance-complete-alert -->
 
 <!-- SHOT: provenance-export-folder -->

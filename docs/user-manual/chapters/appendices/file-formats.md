@@ -71,6 +71,8 @@ Detection only in the read column means LGE names the file type correctly and do
 | TIFF | `.tiff`, `.tif` | Image | No | No |
 | SVG | `.svg` | Image | No | No |
 
+Text files that macOS cannot preview, such as Nextflow `.nf` and `nextflow.config`, Snakemake `.smk` and `Snakefile`, `.R` scripts, and small extension-less text files, show in the viewer as read-only plain text. Files over 2 MB show their first 2 MB.
+
 FASTA's seven extensions differ only in what the file holds. `.faa` holds protein sequence and the other six hold nucleotide sequence, and LGE treats all seven the same way.
 
 The document and image rows read No in both columns because LGE identifies those files so it can label an attachment or an export, not so it can open them. A PDF you attach to a sample stays a PDF that Preview opens.

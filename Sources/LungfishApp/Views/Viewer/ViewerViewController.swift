@@ -156,6 +156,9 @@ public class ViewerViewController: NSViewController {
     /// PDF view for displaying PDF files (more reliable than QLPreviewView)
     private var pdfView: PDFView?
     
+    /// Read-only text view for workflow and script files Quick Look cannot preview
+    private var plainTextPreviewScrollView: NSScrollView?
+
     /// URL currently being previewed with QuickLook or PDFKit
     private var quickLookURL: URL?
 
@@ -3315,6 +3318,12 @@ public class ViewerViewController: NSViewController {
         // Store the URL
         quickLookURL = fileURL
 
+        // Files macOS has no preview for (Nextflow main.nf, Snakefile, ...) show as text.
+        if PlainTextPreview.decision(for: fileURL) == .text,
+           displayPlainTextPreview(url: fileURL) {
+            return
+        }
+
 #if DEBUG
         if Self.isRunningUnderXCTest {
             logger.debug("displayQuickLookPreview: Skipping embedded preview rendering under XCTest")
@@ -3336,6 +3345,63 @@ public class ViewerViewController: NSViewController {
         displayQLPreview(url: fileURL)
     }
     
+    /// Displays a file as read-only monospaced text. Returns false when the file
+    /// cannot be read as UTF-8 so the caller can fall back to Quick Look.
+    private func displayPlainTextPreview(url: URL) -> Bool {
+        guard let content = PlainTextPreview.load(from: url) else { return false }
+
+        let scrollView = NSTextView.scrollableTextView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = .textBackgroundColor
+        scrollView.setAccessibilityLabel("Text preview of \(url.lastPathComponent)")
+        scrollView.setAccessibilityIdentifier("viewer-plain-text-preview")
+
+        if let textView = scrollView.documentView as? NSTextView {
+            textView.isEditable = false
+            textView.isSelectable = true
+            textView.isRichText = false
+            textView.isHorizontallyResizable = true
+            textView.isAutomaticQuoteSubstitutionEnabled = false
+            textView.isAutomaticDashSubstitutionEnabled = false
+            textView.isAutomaticSpellingCorrectionEnabled = false
+            textView.textContainerInset = NSSize(width: 12, height: 10)
+            textView.textContainer?.widthTracksTextView = false
+            textView.textContainer?.containerSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            textView.font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            textView.textColor = .textColor
+            textView.backgroundColor = .textBackgroundColor
+            textView.string = content.text
+            textView.setAccessibilityLabel("Contents of \(url.lastPathComponent)")
+            textView.setAccessibilityIdentifier("viewer-plain-text-preview-text")
+        }
+
+        view.addSubview(scrollView, positioned: .above, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+        ])
+        plainTextPreviewScrollView = scrollView
+
+        statusBar.positionLabel.stringValue = "Previewing: \(url.lastPathComponent)"
+        if content.isTruncated {
+            let shown = ByteCountFormatter.string(fromByteCount: Int64(PlainTextPreview.maxPreviewBytes), countStyle: .file)
+            let total = ByteCountFormatter.string(fromByteCount: Int64(content.totalBytes), countStyle: .file)
+            statusBar.selectionLabel.stringValue = "Truncated: showing the first \(shown) of \(total)"
+        } else {
+            statusBar.selectionLabel.stringValue = ""
+        }
+        logger.info("displayPlainTextPreview: Showing '\(url.lastPathComponent, privacy: .public)' as text")
+        return true
+    }
+
     /// Displays a PDF file using PDFKit.
     ///
     /// PDFKit provides more reliable embedded rendering than QLPreviewView,
@@ -3550,12 +3616,15 @@ public class ViewerViewController: NSViewController {
         }
         pdfView = nil
 
+        plainTextPreviewScrollView?.removeFromSuperview()
+        plainTextPreviewScrollView = nil
+
         logger.debug("removePreviewViews: Cleanup complete")
     }
     
     /// Hides the QuickLook/PDF preview and shows the genomics viewer
     public func hideQuickLookPreview() {
-        guard quickLookView != nil || pdfView != nil else { return }
+        guard quickLookView != nil || pdfView != nil || plainTextPreviewScrollView != nil else { return }
         
         logger.info("hideQuickLookPreview: Removing preview views")
         
@@ -4252,6 +4321,19 @@ extension ViewerViewController {
 
     var testHasQuickLookView: Bool {
         quickLookView != nil
+    }
+
+    /// Text shown by the plain-text fallback preview, or nil when it is not active.
+    var testPlainTextPreviewString: String? {
+        (plainTextPreviewScrollView?.documentView as? NSTextView)?.string
+    }
+
+    var testPlainTextPreviewAccessibilityLabel: String? {
+        plainTextPreviewScrollView?.accessibilityLabel()
+    }
+
+    var testPreviewStatusText: String {
+        statusBar.positionLabel.stringValue
     }
 
     // The environment half of the old check never fired under SwiftPM, which
