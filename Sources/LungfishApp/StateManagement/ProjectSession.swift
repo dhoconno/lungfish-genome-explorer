@@ -122,7 +122,6 @@ public final class ProjectSession: Identifiable {
             description: description,
             author: author
         )
-        _ = try? PrimerSchemesFolder.ensureFolder(in: createdProject.url)
 
         documentGeneration &+= 1
         projectURL = createdProject.url.standardizedFileURL

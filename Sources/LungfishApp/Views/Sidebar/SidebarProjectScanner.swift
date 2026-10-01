@@ -101,7 +101,13 @@ enum SidebarProjectScanner {
                     context: .projectRoot
                 ) else { continue }
 
-                nodes.append(scanTree(from: entry.url, isRoot: false))
+                let node = scanTree(from: entry.url, isRoot: false)
+                // An empty Primer Schemes folder (older projects created one up
+                // front) is not shown until it holds a scheme.
+                if entry.isDirectory, entry.url.lastPathComponent == PrimerSchemesFolder.folderName, node.children.isEmpty {
+                    continue
+                }
+                nodes.append(node)
             }
 
             // Insert a top-level "Analyses" group if the project has any results.

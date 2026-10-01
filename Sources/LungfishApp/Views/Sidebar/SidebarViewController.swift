@@ -1294,6 +1294,9 @@ public class SidebarViewController: NSViewController {
         /// expanded, so it carries no collapse choice of the user's; if it
         /// gains children it opens, as top-level folders do on first load.
         let emptyFolderURLs: Set<URL>
+        /// Top-level folders on screen. A top-level folder that appears in a
+        /// refresh (for example Primer Schemes, hidden while empty) opens.
+        let rootFolderURLs: Set<URL>
         let shouldApplyInitialExpansionDefaults: Bool
     }
 
@@ -1313,6 +1316,7 @@ public class SidebarViewController: NSViewController {
                 ? saveExpandedItemURLs()
                 : (unfilteredExpandedURLs ?? []),
             emptyFolderURLs: Self.emptyFolderURLs(in: rootItems),
+            rootFolderURLs: Set(rootItems.filter { $0.type == .folder }.compactMap { $0.url?.standardizedFileURL }),
             shouldApplyInitialExpansionDefaults: rootItems.isEmpty
         )
     }
@@ -1605,6 +1609,12 @@ public class SidebarViewController: NSViewController {
         if shouldApplyInitialExpansionDefaults {
             for item in rootItems where item.type == .folder {
                 outlineView.expandItem(item)
+            }
+        } else {
+            for item in rootItems where item.type == .folder {
+                if let url = item.url?.standardizedFileURL, !state.rootFolderURLs.contains(url) {
+                    outlineView.expandItem(item)
+                }
             }
         }
 

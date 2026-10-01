@@ -229,13 +229,8 @@ public final class DocumentManager {
             author: author
         )
 
-        // Bootstrap the primer-scheme folder so imported schemes and the
-        // sidebar scanner find a stable home from the project's first moment.
-        do {
-            _ = try PrimerSchemesFolder.ensureFolder(in: project.url)
-        } catch {
-            logger.warning("createProject: Could not create Primer Schemes folder: \(error.localizedDescription)")
-        }
+        // No Primer Schemes folder yet. It is created when the first scheme is
+        // saved, so a new project's sidebar shows nothing it does not hold.
 
         activeProject = project
         activeProjectOpenWarningState = .unlocked(projectURL: project.url)

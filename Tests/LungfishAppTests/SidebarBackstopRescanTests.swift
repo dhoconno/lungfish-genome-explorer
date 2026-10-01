@@ -114,10 +114,10 @@ final class SidebarBackstopRescanTests: XCTestCase {
     // MARK: - Previously empty folders (2026-09-24)
 
     /// A project whose `Primer Schemes/` folder exists but is empty, as in a
-    /// freshly created project.
-    private func makeProjectWithEmptyFolder() throws -> (project: URL, folder: URL) {
+    /// project created before 2026.9.76.
+    private func makeProjectWithEmptyFolder(named name: String = "Primer Schemes") throws -> (project: URL, folder: URL) {
         let project = try makeProject()
-        let folder = project.appendingPathComponent("Primer Schemes", isDirectory: true)
+        let folder = project.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return (project, folder)
     }
@@ -134,7 +134,7 @@ final class SidebarBackstopRescanTests: XCTestCase {
         let (projectURL, folder) = try makeProjectWithEmptyFolder()
         let clock = ManualClock()
         let (sidebar, _) = openedSidebar(at: projectURL, clock: clock)
-        XCTAssertEqual(item(titled: "Primer Schemes", in: sidebar.rootItems)?.children.count, 0)
+        XCTAssertNil(item(titled: "Primer Schemes", in: sidebar.rootItems), "An empty Primer Schemes folder is not shown")
 
         try ">p\nACGT\n".write(
             to: folder.appendingPathComponent("scheme.fasta"), atomically: true, encoding: .utf8
@@ -151,7 +151,9 @@ final class SidebarBackstopRescanTests: XCTestCase {
     }
 
     func testIncrementalUpdateIntoPreviouslyEmptyFolderShowsTheNewRow() async throws {
-        let (projectURL, folder) = try makeProjectWithEmptyFolder()
+        // A folder the user made, which the sidebar shows while empty (an empty
+        // Primer Schemes folder is hidden, so it takes the full-reload path).
+        let (projectURL, folder) = try makeProjectWithEmptyFolder(named: "Notes")
         let clock = ManualClock()
         let (sidebar, _) = openedSidebar(at: projectURL, clock: clock)
         let fileURL = folder.appendingPathComponent("scheme.fasta")
