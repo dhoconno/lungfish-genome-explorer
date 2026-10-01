@@ -1258,23 +1258,28 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
     @MainActor func testSearchPubMedOpensExactURLForTaxonName() {
         let vc = NaoMgsResultViewController()
         vc.loadViewIfNeeded()
+        vc.configureWithCachedRows(
+            [Self.makeCachedRow(name: "SARS-CoV-2")],
+            manifest: Self.makeManifest(),
+            awaitingDatabase: false
+        )
+        vc.testSelectTaxonomyRow(0)
         var opened: [URL] = []
         vc.onOpenURLRequested = { opened.append($0) }
 
-        let item = NSMenuItem(title: "Search PubMed", action: nil, keyEquivalent: "")
-        item.representedObject = "SARS-CoV-2"
-
-        vc.contextSearchPubMed(item)
+        vc.searchPubMedForSelectedRow(nil)
 
         XCTAssertEqual(opened.count, 1)
         XCTAssertEqual(opened[0].absoluteString, "https://pubmed.ncbi.nlm.nih.gov/?term=SARS-CoV-2")
     }
 
-    private static func makeCachedRow(sample: String = "sample-1", taxId: Int = 1234) -> NaoMgsTaxonSummaryRow {
+    private static func makeCachedRow(
+        sample: String = "sample-1", taxId: Int = 1234, name: String = "Example virus"
+    ) -> NaoMgsTaxonSummaryRow {
         NaoMgsTaxonSummaryRow(
             sample: sample,
             taxId: taxId,
-            name: "Example virus",
+            name: name,
             hitCount: 10,
             uniqueReadCount: 8,
             avgIdentity: 99.5,

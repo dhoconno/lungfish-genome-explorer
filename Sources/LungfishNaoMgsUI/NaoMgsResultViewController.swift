@@ -46,7 +46,7 @@ private typealias DBAccessionSummary = LungfishIO.NaoMgsAccessionSummary
 /// This class is `@MainActor` isolated and manages its `NSSplitView` directly
 /// so pane sizing and selection state stay local to this controller.
 @MainActor
-public final class NaoMgsResultViewController: NSViewController, NSSplitViewDelegate, NSPopoverDelegate, SampleMetadataPresentationConsumer, ColumnFilterMenuHost {
+public final class NaoMgsResultViewController: NSViewController, NSSplitViewDelegate, NSPopoverDelegate, SampleMetadataPresentationConsumer, ColumnFilterMenuHost, NSMenuItemValidation, ResultRowMenuActions {
 
     // MARK: - Data (Database-backed)
 
@@ -1185,6 +1185,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             copyItem.representedObject = accessionSummary.accession
             accMenu.addItem(copyItem)
             accessionButton.menu = accMenu
+            // The menu is reached by a right click, so list its two items
+            // (View on GenBank, Copy Accession) as the button's actions.
+            AccessibilityMenuMirror.install(accMenu, on: accessionButton)
 
             // Stats label (non-selectable, informational)
             let coverageDetail: String
@@ -2124,77 +2127,163 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         return menu
     }
 
+    /// Fills `menu` with the taxon commands. The list is the same for every
+    /// row, and each item is enabled or disabled by ``validateMenuItem(_:)``
+    /// against the rows the command would act on.
     private func populateContextMenu(_ menu: NSMenu, for row: NaoMgsTaxonSummaryRow) {
         menu.removeAllItems()
-
-        // BLAST verification items (single selection only)
-        if database != nil, onBlastVerification != nil,
-           taxonomyTableView.selectedRowIndexes.count <= 1 {
-            let uniqueCount = row.uniqueReadCount
-            if uniqueCount > 0 {
-                // Smart BLAST count options
-                let blastCounts: [(label: String, count: Int)]
-                if uniqueCount <= 20 {
-                    blastCounts = [("BLAST All \(uniqueCount) Reads", uniqueCount)]
-                } else if uniqueCount <= 50 {
-                    blastCounts = [
-                        ("BLAST 20 Reads", 20),
-                        ("BLAST All \(uniqueCount) Reads", uniqueCount),
-                    ]
-                } else {
-                    blastCounts = [
-                        ("BLAST 20 Reads", 20),
-                        ("BLAST 50 Reads", 50),
-                    ]
-                }
-                for (label, count) in blastCounts {
-                    let item = NSMenuItem(title: label, action: #selector(contextBlastVerify(_:)), keyEquivalent: "")
-                    item.target = self
-                    item.representedObject = BlastMenuSelection(row: row, readCount: count)
-                    menu.addItem(item)
-                }
-                menu.addItem(NSMenuItem.separator())
+        for (index, section) in Self.rowCommandSections.enumerated() {
+            if index > 0 { menu.addItem(.separator()) }
+            for command in section {
+                menu.addItem(command.makeContextMenuItem(target: self, action: command.menuSelector))
             }
         }
+    }
 
-        // Copy Taxon ID
-        let copyTaxId = NSMenuItem(title: LungfishUIStrings.Classifier.copyTaxonID, action: #selector(contextCopyTaxonId(_:)), keyEquivalent: "")
-        copyTaxId.target = self
-        copyTaxId.representedObject = row.taxId
-        menu.addItem(copyTaxId)
+    // MARK: - Row Commands
 
-        // Copy accessions
-        if !row.topAccessions.isEmpty {
-            let copyAccessions = NSMenuItem(title: "Copy Top Accessions", action: #selector(contextCopyAccessions(_:)), keyEquivalent: "")
-            copyAccessions.target = self
-            copyAccessions.representedObject = row.topAccessions
-            menu.addItem(copyAccessions)
+    /// The context menu's sections, in display order.
+    static let rowCommandSections: [[ResultRowCommand]] = [
+        [.blastVerify],
+        [.copyTaxonID, .copyAccession],
+        [.openOnNCBI, .openTaxonomyOnNCBI, .searchPubMed],
+        [.extractReads],
+    ]
+
+    /// The commands that apply to `rows`, in menu order. This one rule feeds
+    /// the context menu, Selection > Table Row validation and each row's
+    /// accessibility actions. Extract Reads takes any selection and every
+    /// other command acts on exactly one row.
+    func availableRowCommands(for rows: [NaoMgsTaxonSummaryRow]) -> [ResultRowCommand] {
+        guard !rows.isEmpty else { return [] }
+        var commands: [ResultRowCommand] = []
+        if let row = rows.first, rows.count == 1 {
+            if database != nil, onBlastVerification != nil, row.uniqueReadCount > 0 {
+                commands.append(.blastVerify)
+            }
+            commands.append(.copyTaxonID)
+            if !row.topAccessions.isEmpty { commands.append(.copyAccession) }
+            commands.append(contentsOf: [.openOnNCBI, .openTaxonomyOnNCBI, .searchPubMed])
         }
+        if database != nil { commands.append(.extractReads) }
+        return commands
+    }
 
-        menu.addItem(NSMenuItem.separator())
+    /// The table rows a menu command acts on. A context-menu command acts on
+    /// the clicked row, or on the whole selection when the clicked row is
+    /// part of it. A menu-bar command or accessibility action acts on the
+    /// selection, because `clickedRow` outlives the click that set it.
+    private func commandTargetRows(sender: Any?) -> [Int] {
+        let selected = taxonomyTableView.selectedRowIndexes
+        let rows: [Int]
+        if let menuItem = sender as? NSMenuItem,
+           ResultRowMenuValidation.isContextMenuItem(menuItem, in: [taxonomyTableView.menu]),
+           taxonomyTableView.clickedRow >= 0, !selected.contains(taxonomyTableView.clickedRow) {
+            rows = [taxonomyTableView.clickedRow]
+        } else {
+            rows = Array(selected)
+        }
+        return rows.filter { displayedRows.indices.contains($0) }
+    }
 
-        // View on NCBI
-        let viewNCBI = NSMenuItem(title: "View on NCBI", action: #selector(contextViewOnNCBI(_:)), keyEquivalent: "")
-        viewNCBI.target = self
-        viewNCBI.representedObject = row.taxId
-        menu.addItem(viewNCBI)
+    /// Makes the clicked row the selection when a context-menu command was
+    /// aimed at it, so the selection-based handlers act on the right rows.
+    private func adoptContextTargets(sender: Any?) {
+        guard let menuItem = sender as? NSMenuItem,
+              ResultRowMenuValidation.isContextMenuItem(menuItem, in: [taxonomyTableView.menu]) else { return }
+        let clicked = taxonomyTableView.clickedRow
+        guard clicked >= 0, !taxonomyTableView.selectedRowIndexes.contains(clicked) else { return }
+        taxonomyTableView.selectRowIndexes(IndexSet(integer: clicked), byExtendingSelection: false)
+    }
 
-        let viewTaxonomy = NSMenuItem(title: "View Taxonomy on NCBI", action: #selector(contextViewTaxonomyOnNCBI(_:)), keyEquivalent: "")
-        viewTaxonomy.target = self
-        viewTaxonomy.representedObject = row.taxId
-        menu.addItem(viewTaxonomy)
+    private func soleTargetRow(_ sender: Any?) -> (index: Int, row: NaoMgsTaxonSummaryRow)? {
+        let rows = commandTargetRows(sender: sender)
+        guard rows.count == 1, let index = rows.first else { return nil }
+        return (index, displayedRows[index])
+    }
 
-        let searchPubMed = NSMenuItem(title: "Search PubMed", action: #selector(contextSearchPubMed(_:)), keyEquivalent: "")
-        searchPubMed.target = self
-        searchPubMed.representedObject = row.name
-        menu.addItem(searchPubMed)
+    /// The context menu follows the selection (or the clicked row). The
+    /// menu-bar items under Selection > Table Row are enabled only while the
+    /// taxon table has keyboard focus.
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let command = ResultRowCommand.command(for: menuItem.action) else { return true }
+        guard Self.rowCommandSections.contains(where: { $0.contains(command) }) else { return false }
+        guard ResultRowMenuValidation.isReachable(menuItem, table: taxonomyTableView) else { return false }
+        let rows = commandTargetRows(sender: menuItem).map { displayedRows[$0] }
+        return availableRowCommands(for: rows).contains(command)
+    }
 
-        menu.addItem(NSMenuItem.separator())
+    /// The accessibility custom actions of the row at `row`: every
+    /// single-row command its context menu offers, named the same. The
+    /// handlers resolve the row from `cellView` when they run and select it
+    /// first, so the shared handlers act on it through the selection.
+    private func accessibilityActions(forRow row: Int, cellView: NSView) -> [NSAccessibilityCustomAction] {
+        guard displayedRows.indices.contains(row) else { return [] }
+        return ResultRowMenuValidation.cellActions(
+            availableRowCommands(for: [displayedRows[row]]), on: cellView
+        ) { [weak self] command, currentRow in
+            guard let self else { return }
+            self.taxonomyTableView.selectRowIndexes(IndexSet(integer: currentRow), byExtendingSelection: false)
+            _ = NSApp.sendAction(command.menuSelector, to: self, from: nil)
+        }
+    }
 
-        let extractItem = NSMenuItem(title: "Extract Reads\u{2026}", action: #selector(contextExtractFASTQ(_:)), keyEquivalent: "")
-        extractItem.target = self
-        extractItem.isEnabled = database != nil
-        menu.addItem(extractItem)
+    // MARK: Menu handlers
+
+    @objc public func extractReadsForSelectedRows(_ sender: Any?) {
+        adoptContextTargets(sender: sender)
+        presentUnifiedExtractionDialog()
+    }
+
+    /// Opens the BLAST configuration popover for the target row, where the
+    /// read count is chosen.
+    @objc public func blastVerifySelectedRow(_ sender: Any?) {
+        guard let (index, row) = soleTargetRow(sender) else { return }
+        showBlastConfigPopover(
+            for: row,
+            anchorRect: taxonomyTableView.rect(ofRow: index),
+            in: taxonomyTableView
+        )
+    }
+
+    private func writeToPasteboard(_ string: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+    }
+
+    private func openExternal(_ urlString: String) {
+        guard let url = URL(string: urlString) else {
+            logger.warning("Could not build URL: \(urlString, privacy: .public)")
+            return
+        }
+        if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
+    }
+
+    @objc public func copySelectedRowTaxonID(_ sender: Any?) {
+        guard let (_, row) = soleTargetRow(sender) else { return }
+        writeToPasteboard("\(row.taxId)")
+    }
+
+    /// Copies the taxon's top reference accessions, one per line.
+    @objc public func copySelectedRowAccession(_ sender: Any?) {
+        guard let (_, row) = soleTargetRow(sender), !row.topAccessions.isEmpty else { return }
+        writeToPasteboard(row.topAccessions.joined(separator: "\n"))
+    }
+
+    @objc public func openSelectedRowOnNCBI(_ sender: Any?) {
+        guard let (_, row) = soleTargetRow(sender) else { return }
+        openExternal("https://www.ncbi.nlm.nih.gov/nuccore/?term=txid\(row.taxId)[Organism:exp]")
+    }
+
+    @objc public func openSelectedRowTaxonomyOnNCBI(_ sender: Any?) {
+        guard let (_, row) = soleTargetRow(sender) else { return }
+        openExternal("https://www.ncbi.nlm.nih.gov/datasets/taxonomy/\(row.taxId)/")
+    }
+
+    @objc public func searchPubMedForSelectedRow(_ sender: Any?) {
+        guard let (_, row) = soleTargetRow(sender) else { return }
+        let encoded = row.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? row.name
+        openExternal("https://pubmed.ncbi.nlm.nih.gov/?term=\(encoded)")
     }
 
     // MARK: - BLAST Configuration Popover
@@ -2208,6 +2297,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     ///   - row: The taxon row to verify.
     ///   - sender: The view or button to anchor the popover to.
     private func showBlastConfigPopover(for row: NaoMgsTaxonSummaryRow, relativeTo sender: Any) {
+        guard let view = sender as? NSView else { return }
+        showBlastConfigPopover(for: row, anchorRect: view.bounds, in: view)
+    }
+
+    /// Shows the BLAST configuration popover anchored to `anchorRect` of `view`.
+    private func showBlastConfigPopover(for row: NaoMgsTaxonSummaryRow, anchorRect: NSRect, in view: NSView) {
         guard database != nil, onBlastVerification != nil else { return }
         let uniqueCount = row.uniqueReadCount
         guard uniqueCount > 0 else { return }
@@ -2230,9 +2325,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         popover.contentViewController = NSHostingController(rootView: configView)
 
-        if let button = sender as? NSView {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
-        }
+        popover.show(relativeTo: anchorRect, of: view, preferredEdge: .maxY)
     }
 
     // MARK: - Context Menu Actions
@@ -2410,23 +2503,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         onBlastVerification?(summary, selection.readCount, selectedHits)
     }
 
-    @objc private func contextBlastVerify(_ sender: NSMenuItem) {
-        guard let selection = sender.representedObject as? BlastMenuSelection else { return }
-        executeBlastVerification(selection)
-    }
-
-    @objc private func contextCopyTaxonId(_ sender: NSMenuItem) {
-        guard let taxId = sender.representedObject as? Int else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("\(taxId)", forType: .string)
-    }
-
-    @objc private func contextCopyAccessions(_ sender: NSMenuItem) {
-        guard let accessions = sender.representedObject as? [String] else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(accessions.joined(separator: "\n"), forType: .string)
-    }
-
     @objc func contextCopyAccession(_ sender: NSMenuItem) {
         guard let accession = sender.representedObject as? String else { return }
         NSPasteboard.general.clearContents()
@@ -2456,29 +2532,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         if let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(accession)") {
             if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
         }
-    }
-
-    @objc private func contextViewOnNCBI(_ sender: NSMenuItem) {
-        guard let taxId = sender.representedObject as? Int else { return }
-        let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/?term=txid\(taxId)[Organism:exp]")!
-        if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
-    }
-
-    @objc private func contextViewTaxonomyOnNCBI(_ sender: NSMenuItem) {
-        guard let taxId = sender.representedObject as? Int else { return }
-        let url = URL(string: "https://www.ncbi.nlm.nih.gov/datasets/taxonomy/\(taxId)/")!
-        if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
-    }
-
-    @objc func contextSearchPubMed(_ sender: NSMenuItem) {
-        guard let name = sender.representedObject as? String else { return }
-        let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
-        let url = URL(string: "https://pubmed.ncbi.nlm.nih.gov/?term=\(encodedName)")!
-        if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
-    }
-
-    @objc private func contextExtractFASTQ(_ sender: Any?) {
-        presentUnifiedExtractionDialog()
     }
 
     // MARK: - NSSplitViewDelegate
@@ -2530,11 +2583,15 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         taxonomyTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: taxonomyTableView))
     }
+    /// Fills the table's own context menu as opening it over row `index` would.
+    func testPopulateContextMenu(forRow index: Int) -> NSMenu? {
+        guard displayedRows.indices.contains(index), let menu = taxonomyTableView.menu else { return nil }
+        populateContextMenu(menu, for: displayedRows[index])
+        return menu
+    }
     func testContextMenuExtractReadsEnabled() -> Bool? {
         guard let row = displayedRows.first else { return nil }
-        let menu = NSMenu(title: "Taxon Actions")
-        populateContextMenu(menu, for: row)
-        return menu.items.first { $0.title == "Extract Reads\u{2026}" }?.isEnabled
+        return availableRowCommands(for: [row]).contains(.extractReads)
     }
 #if DEBUG
     var testTaxonomyReloadCount: Int { taxonomyReloadCount }
@@ -2981,6 +3038,7 @@ extension NaoMgsResultViewController: NSTableViewDelegate {
         let rowSampleId = displayedRows[row].sample
         if let cell = metadataColumnController.cellForColumn(tableColumn, in: tableView, sampleId: rowSampleId) {
             contentTypographyApplicator.apply(to: cell)
+            AccessibilityCellActions.install(accessibilityActions(forRow: row, cellView: cell), on: cell)
             return cell
         }
 
@@ -3018,6 +3076,7 @@ extension NaoMgsResultViewController: NSTableViewDelegate {
         }
 
         contentTypographyApplicator.apply(to: cellView)
+        AccessibilityCellActions.install(accessibilityActions(forRow: row, cellView: cellView), on: cellView)
         return cellView
     }
 

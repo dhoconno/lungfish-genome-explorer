@@ -85,8 +85,8 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             "NaoMgsResultViewController must wire an 'Extract Reads…' menu item"
         )
         XCTAssertTrue(
-            source.contains("#selector(contextExtractFASTQ"),
-            "NaoMgsResultViewController must wire contextExtractFASTQ via #selector(...)"
+            source.contains("func extractReadsForSelectedRows(") && source.contains(".extractReads"),
+            "NaoMgsResultViewController must route Extract Reads through extractReadsForSelectedRows"
         )
     }
 
