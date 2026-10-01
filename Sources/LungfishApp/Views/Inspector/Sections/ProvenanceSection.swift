@@ -60,6 +60,7 @@ struct ProvenanceSection: View {
                     .padding(.top, 4)
             }
             .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("provenance-run-summary")
 
             if !viewModel.warnings.isEmpty {
@@ -72,6 +73,7 @@ struct ProvenanceSection: View {
                     .padding(.top, 4)
                 }
                 .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("provenance-warnings")
             }
 
@@ -80,6 +82,7 @@ struct ProvenanceSection: View {
                     .padding(.top, 4)
             }
             .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("provenance-step-list")
 
             DisclosureGroup("Files & Outputs", isExpanded: $isFilesExpanded) {
@@ -87,6 +90,7 @@ struct ProvenanceSection: View {
                     .padding(.top, 4)
             }
             .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("provenance-files")
 
             DisclosureGroup("Invocation & Options", isExpanded: $isOptionsExpanded) {
@@ -94,6 +98,7 @@ struct ProvenanceSection: View {
                     .padding(.top, 4)
             }
             .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("provenance-options")
 
             DisclosureGroup("Runtime", isExpanded: $isRuntimeExpanded) {
@@ -101,6 +106,7 @@ struct ProvenanceSection: View {
                     .padding(.top, 4)
             }
             .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("provenance-runtime")
 
             DisclosureGroup("Raw JSON", isExpanded: $isRawJSONExpanded) {
@@ -108,8 +114,13 @@ struct ProvenanceSection: View {
                     .padding(.top, 4)
             }
             .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("provenance-raw-json")
         }
+        // A plain container passes an accessibility identifier on to every
+        // descendant; `.contain` makes the stack its own element, so the
+        // run, step and value rows keep the identifiers they declare.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("provenance-root")
     }
 
@@ -288,7 +299,7 @@ struct ProvenanceSection: View {
                 emptyMessage("No explicit or resolved option values are available.")
             } else {
                 ForEach(filteredOptions) { row in
-                    summaryRow("\(row.name) (\(row.kind))", value: row.value)
+                    summaryRow("\(row.name) (\(row.kind))", value: row.displayValue, recorded: row.value)
                 }
             }
         }
@@ -355,7 +366,16 @@ struct ProvenanceSection: View {
         ) {
             VStack(alignment: .leading, spacing: 6) {
                 if !step.command.isEmpty {
-                    summaryRow("Command", value: step.command)
+                    summaryRow(
+                        "Command",
+                        value: step.displayCommand,
+                        recorded: step.command,
+                        accessibilityIdentifier: "provenance-step-command"
+                    )
+                    .contextMenu {
+                        Button("Copy Command") { copyToPasteboard(step.command) }
+                    }
+                    .accessibilityAction(named: "Copy Command") { copyToPasteboard(step.command) }
                 }
                 if !step.inputPaths.isEmpty {
                     pathList("Inputs", step.inputPathLabels, recorded: step.inputPaths)
@@ -479,18 +499,25 @@ struct ProvenanceSection: View {
     /// by hand) shows the recorded paths.
     private func pathList(_ label: String, _ labels: [String], recorded: [String]) -> some View {
         let shown = labels.count == recorded.count ? labels : recorded
-        let recordedText = recorded.joined(separator: "\n")
-        return summaryRow(label, value: shown.joined(separator: "\n"), accessibilityIdentifier: "provenance-path-list-value")
-            .help(recordedText)
-            .accessibilityValue(recordedText)
+        return summaryRow(
+            label,
+            value: shown.joined(separator: "\n"),
+            recorded: recorded.joined(separator: "\n"),
+            accessibilityIdentifier: "provenance-path-list-value"
+        )
     }
 
+    /// A label and value. When `recorded` differs from `value` (a path shown
+    /// project-relative, a command with its paths shortened), the value's
+    /// tooltip and accessibility value carry the recorded text whole.
     private func summaryRow(
         _ label: String,
         value: String,
+        recorded: String? = nil,
         accessibilityIdentifier: String = "provenance-summary-value"
     ) -> some View {
-        Group {
+        let recordedText = (recorded == value) ? nil : recorded
+        return Group {
             if usesGenotypePresentation {
                 InspectorKeyValueRow(
                     label,
@@ -498,13 +525,15 @@ struct ProvenanceSection: View {
                     font: LungfishInspectorStyle.controlFont,
                     valueAccessibilityIdentifier: accessibilityIdentifier
                 )
+                .help(ifPresent: recordedText)
+                .accessibilityValue(recordedText ?? value)
             } else {
                 HStack(alignment: .top, spacing: 8) {
                     Text(label)
                         .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.secondary)
                         .frame(width: 96, alignment: .trailing)
-                    summaryValueText(value, accessibilityIdentifier: accessibilityIdentifier)
+                    summaryValueText(value, recorded: recordedText, accessibilityIdentifier: accessibilityIdentifier)
                 }
             }
         }
@@ -512,6 +541,7 @@ struct ProvenanceSection: View {
 
     private func summaryValueText(
         _ value: String,
+        recorded: String?,
         accessibilityIdentifier: String
     ) -> some View {
         Text(value)
@@ -520,6 +550,8 @@ struct ProvenanceSection: View {
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
             .accessibilityIdentifier(accessibilityIdentifier)
+            .accessibilityValue(recorded ?? value)
+            .help(ifPresent: recorded)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -555,7 +587,7 @@ struct ProvenanceSection: View {
     private var filteredOptions: [ProvenanceOptionRow] {
         guard !normalizedSearch.isEmpty else { return viewModel.optionRows }
         return viewModel.optionRows.filter {
-            matchesSearch($0.kind) || matchesSearch($0.name) || matchesSearch($0.value)
+            matchesSearch($0.kind) || matchesSearch($0.name) || matchesSearch($0.value) || matchesSearch($0.displayValue)
         }
     }
 
@@ -602,6 +634,7 @@ struct ProvenanceSection: View {
         return matchesSearch(step.toolName)
             || matchesSearch(step.toolVersion)
             || matchesSearch(step.command)
+            || matchesSearch(step.displayCommand)
             || step.inputPaths.contains(where: matchesSearch)
             || step.outputPaths.contains(where: matchesSearch)
             || matchesSearch(step.stderr ?? "")
@@ -619,6 +652,18 @@ struct ProvenanceSection: View {
     private func copyToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+private extension View {
+    /// A tooltip only when there is text for one.
+    @ViewBuilder
+    func help(ifPresent text: String?) -> some View {
+        if let text {
+            help(text)
+        } else {
+            self
+        }
     }
 }
 

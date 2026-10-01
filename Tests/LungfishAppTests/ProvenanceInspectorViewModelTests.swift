@@ -1025,6 +1025,13 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
             toolName: "lungfish map",
             toolVersion: "Lungfish dev (0)",
             argv: ["minimap2", "-a", reads.path],
+            options: ProvenanceOptions(
+                explicit: [
+                    "reads": .file(URL(fileURLWithPath: reads.path)),
+                    "effectiveArgv": .string("minimap2 -a '\(reads.path)' -o '\(rawSAM.path)'"),
+                    "threads": .integer(14),
+                ]
+            ),
             runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
             files: [reads, external, rawSAM, bam, bai],
             output: bam,
@@ -1087,6 +1094,30 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertEqual(run.steps[1].inputPaths, [rawSAM.path])
         XCTAssertEqual(run.steps[0].inputPathLabels.last, "HG002_R1.fastq.gz (outside the project)")
         XCTAssertEqual(run.steps[1].outputPathLabels.first, "Analyses/minimap2-1/ref.lungfishref/alignments/mapped/aln_1.bam")
+
+        // The Command row shows project paths project-relative while the
+        // recorded command stays whole for help, accessibility and copying.
+        // The reader re-roots a recorded path whose file exists here, so the
+        // kept FASTQ is named by this project's path and the discarded SAM by
+        // the foreign one.
+        let localReads = imports.appendingPathComponent("reads.fastq.gz").path
+        XCTAssertEqual(run.steps[0].displayCommand, "minimap2 -a Imports/reads.lungfishfastq/reads.fastq.gz")
+        XCTAssertEqual(run.steps[0].command, "minimap2 -a '\(localReads)'")
+        XCTAssertEqual(run.steps[1].displayCommand, "lungfish-internal adopt")
+        XCTAssertTrue(viewModel.copyableText.contains("Command: minimap2 -a '\(localReads)'"), viewModel.copyableText)
+
+        func option(_ name: String) throws -> ProvenanceOptionRow {
+            try XCTUnwrap(viewModel.optionRows.first { $0.name == name }, "no option named \(name)")
+        }
+        XCTAssertEqual(try option("reads").displayValue, "Imports/reads.lungfishfastq/reads.fastq.gz")
+        XCTAssertEqual(try option("reads").value, localReads)
+        XCTAssertEqual(
+            try option("effectiveArgv").displayValue,
+            "minimap2 -a Imports/reads.lungfishfastq/reads.fastq.gz -o Analyses/minimap2-1/reads.raw.sam"
+        )
+        XCTAssertEqual(try option("effectiveArgv").value, "minimap2 -a '\(localReads)' -o '\(rawSAM.path)'")
+        XCTAssertEqual(try option("threads").displayValue, "14")
+        XCTAssertTrue(viewModel.copyableText.contains("reads (Explicit): \(localReads)"), viewModel.copyableText)
 
         XCTAssertFalse(viewModel.copyableText.contains("dev (0)"), viewModel.copyableText)
         XCTAssertTrue(viewModel.copyableText.contains("Lungfish (development build)"), viewModel.copyableText)

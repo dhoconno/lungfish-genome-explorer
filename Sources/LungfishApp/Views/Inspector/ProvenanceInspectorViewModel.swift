@@ -336,7 +336,11 @@ struct ProvenanceLineageStep: Identifiable, Equatable {
     var ordinal: Int
     var toolName: String
     var toolVersion: String
+    /// The recorded command, kept whole for the copy text, help and accessibility.
     var command: String
+    /// The command as the Inspector shows it: each path argument
+    /// project-relative or by name, per ProvenanceCommandPresentation.
+    var commandLabel: String? = nil
     /// Recorded paths, for the copy text, help and accessibility.
     var inputPaths: [String]
     var outputPaths: [String]
@@ -349,6 +353,8 @@ struct ProvenanceLineageStep: Identifiable, Equatable {
     var wallTimeSeconds: TimeInterval?
     var stderr: String?
     var dependsOn: [UUID]
+
+    var displayCommand: String { commandLabel ?? command }
 }
 
 struct ProvenanceFileRow: Identifiable, Equatable {
@@ -383,7 +389,12 @@ struct ProvenanceOptionRow: Identifiable, Equatable {
     var id: String { "\(kind)|\(name)" }
     var kind: String
     var name: String
+    /// The recorded value, kept whole for the copy text, help and accessibility.
     var value: String
+    /// The value as the Inspector shows it, with paths project-relative.
+    var valueLabel: String? = nil
+
+    var displayValue: String { valueLabel ?? value }
 }
 
 struct ProvenanceRuntimeRow: Identifiable, Equatable {
@@ -761,7 +772,7 @@ final class ProvenanceInspectorViewModel {
         lineageRuns = upstreamRuns.map { lineageRun(for: $0.envelope, fastqPresentation: nil, projectURL: projectURL) }
             + [lineageRun(for: envelope, fastqPresentation: fastqPresentation, projectURL: projectURL)]
         fileRows = Array(completeFileRows.prefix(Self.maximumDisplayedFileRows))
-        optionRows = buildOptionRows(envelope.options)
+        optionRows = buildOptionRows(envelope.options, projectURL: projectURL)
         runtimeRows = buildRuntimeRows(envelope.runtimeIdentity)
         rawJSON = shouldInlineRawJSON(fileRowCount: deduplicatedDescriptors.count, envelope: envelope)
             ? encodedJSON(envelope)
@@ -793,6 +804,7 @@ final class ProvenanceInspectorViewModel {
                     toolName: step.toolName,
                     toolVersion: stepIdentity.displayVersion,
                     command: step.reproducibleCommand,
+                    commandLabel: ProvenanceCommandPresentation.display(step.reproducibleCommand, projectURL: projectURL),
                     inputPaths: inputs,
                     outputPaths: outputs,
                     inputPathLabels: inputs.map { pathLabel($0, projectURL: projectURL) },
@@ -1000,15 +1012,41 @@ final class ProvenanceInspectorViewModel {
         }
     }
 
-    private func buildOptionRows(_ options: ProvenanceOptions) -> [ProvenanceOptionRow] {
-        rows(from: options.explicit, kind: "Explicit")
-            + rows(from: options.defaults, kind: "Default")
-            + rows(from: options.resolvedDefaults, kind: "Resolved Default")
+    private func buildOptionRows(_ options: ProvenanceOptions, projectURL: URL?) -> [ProvenanceOptionRow] {
+        rows(from: options.explicit, kind: "Explicit", projectURL: projectURL)
+            + rows(from: options.defaults, kind: "Default", projectURL: projectURL)
+            + rows(from: options.resolvedDefaults, kind: "Resolved Default", projectURL: projectURL)
     }
 
-    private func rows(from values: [String: ParameterValue], kind: String) -> [ProvenanceOptionRow] {
+    private func rows(from values: [String: ParameterValue], kind: String, projectURL: URL?) -> [ProvenanceOptionRow] {
         values.keys.sorted().map { key in
-            ProvenanceOptionRow(kind: kind, name: key, value: values[key]?.displayValue ?? "")
+            let value = values[key]
+            return ProvenanceOptionRow(
+                kind: kind,
+                name: key,
+                value: value?.displayValue ?? "",
+                valueLabel: value.map { Self.presentedOptionValue($0, projectURL: projectURL) }
+            )
+        }
+    }
+
+    /// An option value as the Inspector shows it. A file is shown the way a
+    /// path list shows it, and a string is treated as a command so any path
+    /// argument inside it is shown the same way.
+    private static func presentedOptionValue(_ value: ParameterValue, projectURL: URL?) -> String {
+        switch value {
+        case .string(let string):
+            return ProvenanceCommandPresentation.display(string, projectURL: projectURL)
+        case .file(let url):
+            return ProvenanceCommandPresentation.displayPath(url.path, projectURL: projectURL)
+        case .array(let values):
+            return values.map { presentedOptionValue($0, projectURL: projectURL) }.joined(separator: ", ")
+        case .dictionary(let values):
+            return values.keys.sorted()
+                .map { "\($0): \(values[$0].map { presentedOptionValue($0, projectURL: projectURL) } ?? "")" }
+                .joined(separator: ", ")
+        case .integer, .number, .boolean, .null:
+            return value.displayValue
         }
     }
 
