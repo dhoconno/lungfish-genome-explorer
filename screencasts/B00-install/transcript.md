@@ -14,4 +14,4 @@ Click Create Project, type a name, and click Save.
 
 A project is one folder on your Mac. It holds your data and your results as you work.
 
-Next, open a demo project with real data and look around the window.
+Next, watch Your first project on the Videos page of the Lungfish Genome Explorer website.

@@ -167,12 +167,15 @@ beats:
 
   - kind: card
     id: end
-    duration: 5.0
+    duration: 6.0
     icon: true
     title: Learn more in the manual
-    shows: End card pointing to the manual chapter, with the version line.
-    narration: To learn more about projects, read the manual chapter The Lungfish Project.
+    shows: End card naming the next video and where to watch it, with the version line.
+    narration: To learn more about projects, read the manual chapter The Lungfish Project. More videos are on the
+      Videos page of the website.
     lines:
     - {text: Chapter · The Lungfish Project}
     - {text: lungfish-genome-explorer.readthedocs.io, style: url}
+    - {text: More videos}
+    - {text: dhoconno.github.io/lungfish-genome-explorer/videos.html, style: url}
     - {text: '{filmed_with}', style: version}

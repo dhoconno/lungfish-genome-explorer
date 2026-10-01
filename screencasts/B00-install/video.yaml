@@ -145,12 +145,12 @@ beats:
 
   - kind: card
     id: end
-    duration: 5.0
+    duration: 6.0
     icon: true
-    title: Next, open a demo project
-    shows: End card pointing to B01, the manual chapter and the version line.
-    narration: Next, open a demo project with real data and look around the window.
+    title: Next, Your first project
+    shows: End card naming the next video and where to watch it, with the version line.
+    narration: Next, watch Your first project on the Videos page of the Lungfish Genome Explorer website.
     lines:
-    - {text: Chapter · The Lungfish Project}
-    - {text: lungfish-genome-explorer.readthedocs.io, style: url}
+    - {text: Watch it on the Videos page}
+    - {text: dhoconno.github.io/lungfish-genome-explorer/videos.html, style: url}
     - {text: '{filmed_with}', style: version}

@@ -1,0 +1,74 @@
+---
+title: "Videos"
+toc: false
+---
+
+<!-- Video files and posters are served from the public LGE LabKey folder
+     (docs/development/large-files.md). Caption tracks sit beside this page in
+     videos/, because the LabKey server sends no CORS headers and a <track>
+     must come from the page's own origin. Each video's recipe and transcript
+     live in screencasts/<slug>/ in the repository. -->
+
+Short videos that show Lungfish Genome Explorer (LGE) at work. Each one names the version it was filmed with. The learner videos have a synthetic narrator and on-screen captions. The overview is silent, with its captions on screen.
+
+[Back to the home page](index.html)
+
+## Getting started
+
+### Your first project
+
+<figure class="lge-video">
+<video controls preload="metadata" playsinline width="100%"
+  poster="https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/screencasts/B01-first-project/renders/B01-first-project-poster.png">
+<source src="https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/screencasts/B01-first-project/renders/B01-first-project.mp4" type="video/mp4">
+<track kind="captions" srclang="en" label="English" src="videos/B01-first-project.vtt">
+</video>
+<figcaption>Open a demo project of real human sequencing data and find the sidebar, the Inspector, your results and the Operations panel. 77 seconds, filmed with Lungfish 2026.9.72.</figcaption>
+</figure>
+
+<details>
+<summary>Transcript</summary>
+
+Choose Help, then Demo Projects. Each one holds real public data. Find Human Mapping and Variants, with results, and click Download and Open. You need an internet connection.
+
+A project is one folder on your Mac. The sidebar on the left shows what is inside. Imports holds the reads, short pieces of DNA read by a sequencer.
+
+Click HG002 under Imports. These are reads from one anonymous human volunteer. The Inspector on the right shows how many reads there are and their quality scores.
+
+Results go under Analyses, and these were made in advance. Open the minimap2 result and zoom in. Each read sits where it matches the reference, a slice of human chromosome 20.
+
+Click Operations in the toolbar. The Operations Panel lists every task the app runs, like this download, and whether it finished.
+
+To learn more about projects, read the manual chapter The Lungfish Project.
+
+</details>
+
+## Overview
+
+### What LGE is for
+
+<figure class="lge-video">
+<video controls preload="metadata" playsinline width="100%"
+  poster="https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/screencasts/01-lge-overview/renders/01-lge-overview-poster.png">
+<source src="https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/screencasts/01-lge-overview/renders/01-lge-overview.mp4" type="video/mp4">
+</video>
+<figcaption>Real data to start from, compact read storage, one window for reads and variants, nf-core pipelines, and a recorded history that exports as methods text, Nextflow or Snakemake. 78 seconds, silent, filmed with Lungfish Preview 2026.9.73 and 2026.9.74.</figcaption>
+</figure>
+
+<details>
+<summary>On-screen text</summary>
+
+- Start with real public datasets
+- Search SRA and download runs into a project
+- Clump reads and bin qualities to save space
+- Reads, alignments and variants in one window
+- Browse nf-core pipeline results run in Docker
+- Each result records its tool, version and command
+- Every input and output is listed with its checksum
+- Export the history as a script or methods text
+- A methods paragraph naming every tool and version
+- A Nextflow pipeline with pinned conda packages
+- A Snakemake workflow from the same record
+- The same analysis from the app or terminal
+
+</details>

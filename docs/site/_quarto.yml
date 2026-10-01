@@ -5,11 +5,13 @@ project:
   output-dir: _site
   render:
     - index.qmd
+    - videos.qmd
   # assets/ holds the app icon, which the OG/favicon tags in the header reach
   # by path, so it must be copied into _site even though no Markdown image
   # references it directly.
   resources:
     - assets/**
+    - videos/*.vtt
 
 format:
   html:

@@ -57,6 +57,8 @@ I'm also unabashed about hoping that others will make LGE their own by forking i
 
 The [user manual](https://lungfish-genome-explorer.readthedocs.io/en/latest/) on Read the Docs is the place for step-by-step guidance. It is being written alongside the app, so expect gaps.
 
+Short [videos](videos.html) show LGE at work, starting with your first project.
+
 LGE is MIT licensed. Bug reports, failed workflows, and half-formed notes are all welcome on the [issue tracker](https://github.com/dhoconno/lungfish-genome-explorer/issues); please keep private sequence data and credentials out of public issues. I'm not taking pull requests, but if you fork it, the repository has the scripts to sign and publish your own build.
 
 Development supported by Inkfish LLC.

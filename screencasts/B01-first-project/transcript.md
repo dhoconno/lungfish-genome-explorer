@@ -12,4 +12,4 @@ Results go under Analyses, and these were made in advance. Open the minimap2 res
 
 Click Operations in the toolbar. The Operations Panel lists every task the app runs, like this download, and whether it finished.
 
-To learn more about projects, read the manual chapter The Lungfish Project.
+To learn more about projects, read the manual chapter The Lungfish Project. More videos are on the Videos page of the website.
