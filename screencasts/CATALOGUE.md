@@ -14,6 +14,7 @@ Brainstormed by a four-expert panel (bioinformatics educator, competitive analys
 
 | # | Video | Demo project | Beats (on screen) | Chapter |
 |---|---|---|---|---|
+| B00 | Install LGE | none (creates My First Project) | the website's stable download; drag to Applications; first open; Welcome window tools install; Create Project | 01-foundations/06 |
 | B01 | Your first project | Human Mapping and Variants (with results) | Help > Demo Projects, Download & Open; sidebar groups; select the reads to see the Inspector; Operations panel; results under Analyses | 01-foundations/06 |
 | B02 | Find the sickle cell codon | Genes and Sequences (human beta-globin, NG_000007.3) | Go to Location to NG_000007:70613-70615; the GAG codon; Translate overlay; add an annotation | 02-sequences/01 |
 | B03 | Reading a read pileup | Human Mapping and Variants (with results) | coverage curve and hover depth; zoom to bases; sort reads by base; the matching called variant | 04-alignments/02, 05-variants/02 |

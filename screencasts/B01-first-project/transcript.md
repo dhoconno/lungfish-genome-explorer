@@ -1,6 +1,6 @@
 # Your first project
 
-Filmed with Lungfish Preview 2026.9.75. The narration is a synthetic voice.
+Filmed with Lungfish 2026.9.72. The narration is a synthetic voice.
 
 Choose Help, then Demo Projects. Each one holds real public data. Find Human Mapping and Variants, with results, and click Download and Open. You need an internet connection.
 

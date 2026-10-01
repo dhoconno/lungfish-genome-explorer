@@ -43,7 +43,7 @@ The version tag is written three ways: in `filmed_with`, in the MP4's title and 
 
 ## Footage rule (binding, owner 2026-10-01)
 
-Every beat shows the app itself, filmed from a released Lungfish build. The only exception is a beat whose point is a command-line feature, for example that every app feature is backed by `lungfish-cli`; such a beat may replay a real CLI session and must say so in its kicker. Never substitute a CLI replay, Finder, a text editor, or a rendered file page for something the app can show. If a surface cannot be filmed in the background (panels and sheets that only draw while the app is frontmost), film it with the owner present rather than working around it.
+Every beat shows the app itself, filmed from a released Lungfish build. The only exception is a beat whose point is a command-line feature, for example that every app feature is backed by `lungfish-cli`; such a beat may replay a real CLI session and must say so in its kicker. Never substitute a CLI replay, Finder, a text editor, or a rendered file page for something the app can show. Installing LGE happens before the app exists on the Mac, so the install video (B00) films the website, the disk image window and the Applications folder, and its spec says so under `footage_exception`. If a surface cannot be filmed in the background (panels and sheets that only draw while the app is frontmost), film it with the owner present rather than working around it.
 
 ## Storage
 

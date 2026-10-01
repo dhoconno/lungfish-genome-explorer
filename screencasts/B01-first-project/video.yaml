@@ -15,8 +15,8 @@ manual: 01-foundations/06-the-lungfish-project
 demo: human-mapping-and-variants-results
 
 filmed_with:
-  app: Lungfish Preview
-  versions: ["2026.9.75"]
+  app: Lungfish
+  versions: ["2026.9.72"]
   date: 2026-10-01
 
 narration:
@@ -35,7 +35,7 @@ setup:
   window_points: [1440, 810]
   projects:
     - name: Human Mapping and Variants (with results).lungfish
-      from: Downloaded on camera with Help > Demo Projects into the default LGE Demo Projects folder. Delete any earlier copy first so the button reads Download & Open.
+      from: Downloaded on camera with Help > Demo Projects (Stable, right after B00) into the default LGE Demo Projects folder. Delete any earlier copy first so the button reads Download & Open.
   notes:
     - Start with no project open and the Inspector visible.
     - Crop out the Save to row in the Demo Projects panel, which shows the owner's home folder.
@@ -54,8 +54,8 @@ beats:
 
   - kind: take
     id: demo
-    take: takes/demo.mov
-    duration: 9.5
+    take: takes-stable/demo.mov
+    duration: 13.0
     caption: Start from a demo project with real data
     kicker: Help · Demo Projects
     shows: Help > Demo Projects lists projects of real public data. Human Mapping and Variants (with results) is selected
@@ -67,20 +67,18 @@ beats:
     narration: Choose Help, then Demo Projects. Each one holds real public data. Find Human Mapping and Variants,
       with results, and click Download and Open. You need an internet connection.
     verify: [The project title and button label match the panel.]
-    segments:
-    - [0.3, 2.8]
-    - [9.0, 16.0]
-    crop: [0.265, 0.296, 0.47, 0.537]
+    crop: [0.237, 0.27, 0.526, 0.6]
     highlights:
-    - at: 4.0
-      until: 6.6
+    - at: 2.4
+      until: 5.5
       regions:
-      - [0.02, 0.025, 0.4, 0.05]
-      - [0.8, 0.035, 0.18, 0.06]
+      - [0.02, 0.035, 0.33, 0.05]
+      - [0.785, 0.035, 0.2, 0.065]
+    in: 0.3
 
   - kind: take
     id: sidebar
-    take: takes/project.mov
+    take: takes-stable/project.mov
     duration: 12.0
     caption: The sidebar lists everything in the project
     kicker: Sidebar · Imports · Reference Sequences · Analyses
@@ -97,11 +95,11 @@ beats:
       region: [0.0, 0.02, 0.36, 0.36]
     highlights:
     - at: 6.5
-      region: [0.012, 0.135, 0.21, 0.055]
+      region: [0.012, 0.14, 0.235, 0.06]
 
   - kind: take
     id: inspector
-    take: takes/project.mov
+    take: takes-stable/project.mov
     duration: 13.0
     caption: Select an item to see its details
     kicker: HG002 reads · Inspector
@@ -114,54 +112,57 @@ beats:
     zoom:
       at: 5.0
       dur: 0.9
-      region: [0.72, 0.12, 0.28, 0.45]
+      region: [0.76, 0.12, 0.24, 0.45]
     highlights:
     - at: 6.2
       regions:
-      - [0.74, 0.2, 0.2, 0.035]
-      - [0.74, 0.445, 0.2, 0.085]
+      - [0.79, 0.205, 0.2, 0.03]
+      - [0.79, 0.45, 0.2, 0.08]
 
   - kind: take
     id: results
-    take: takes/results.mov
-    duration: 15.0
+    take: takes-stable/results.mov
+    duration: 17.4
     caption: Results appear under Analyses
     kicker: Analyses · minimap2
     shows: The minimap2 result under Analyses opens the reads aligned to the chromosome 20 reference slice.
     capture: Start with HG002 selected. Record the project window, click the minimap2 result, then its contig row,
       then run drive/results-focus.json with axdrive (Focus, then position chr20_10.0-10.5Mb:2094-2394) so single
-      reads are drawn.
+      reads are drawn. Stable 2026.9.72 shows full paths under Run Inputs, so they are blurred.
     narration: Results go under Analyses, and these were made in advance. Open the minimap2 result and zoom in. Each
       read sits where it matches the reference, a slice of human chromosome 20.
-    in: 1.5
     zoom:
-      at: 9.0
+      at: 12.0
       dur: 0.9
-      region: [0.235, 0.03, 0.5, 0.5]
+      region: [0.25, 0.08, 0.5, 0.5]
     highlights:
-    - at: 10.2
-      region: [0.236, 0.37, 0.49, 0.14]
+    - at: 13.2
+      region: [0.252, 0.37, 0.5, 0.2]
+    blur:
+    - [0.77, 0.32, 0.23, 0.2]
+    segments:
+    - [1.5, 6.0]
+    - [13.0, 25.9]
 
   - kind: take
     id: operations
-    take: takes/operations.mov
+    take: takes-stable/operations.mov
     duration: 10.0
     caption: The Operations Panel lists every task
     kicker: Operations
     shows: The Operations panel lists the demo download that just finished, with its status.
-    capture: Record the project window with wincap --app-region and click the Operations toolbar button. The panel
-      is its own window and lists every operation on the Mac, so blur all rows but the demo download, and its second
-      line, which shows a home-folder path.
+    capture: Record the project window with wincap --app-region and press the Operations toolbar button. On a fresh
+      Stable run the panel lists only the demo download. Its second and third lines show the install path, so they
+      are blurred.
     narration: Click Operations in the toolbar. The Operations Panel lists every task the app runs, like this download,
       and whether it finished.
-    in: 14.6
-    crop: [0.29, 0.14, 0.63, 0.845]
+    in: 1.5
+    crop: [0.293, 0.137, 0.623, 0.84]
     blur:
-    - [0.0, 0.126, 0.62, 0.058]
-    - [0.0, 0.184, 1.0, 0.816]
+    - [0.0, 0.125, 0.6, 0.06]
     highlights:
     - at: 0.8
-      region: [0.02, 0.095, 0.66, 0.035]
+      region: [0.01, 0.1, 0.65, 0.035]
     verify: [The demo download row reads Completed.]
 
   - kind: card
