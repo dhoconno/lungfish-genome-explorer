@@ -44,7 +44,7 @@ process LUNGFISH_IMPORT_FASTA_1 {
     path 'sequence.fa.gz'
 
     script:
-    "lungfish-cli import fasta reference.fasta --output-dir lge-feature-screencast-1fa2ad --name reference"
+    "lungfish-cli import fasta reference.fasta --output-dir . --name reference"
 
     stub:
     "touch sequence.fa.gz"
@@ -127,7 +127,7 @@ process LUNGFISH_IMPORT_FASTQ_5 {
     path 'reads.fastq.gz'
 
     script:
-    "lungfish-cli import fastq reads_R1.fastq.gz reads_R2.fastq.gz --project lge-feature-screencast-1fa2ad --recipe none"
+    "lungfish-cli import fastq reads_R1.fastq.gz reads_R2.fastq.gz --project . --recipe none"
 
     stub:
     "touch reads.fastq.gz"

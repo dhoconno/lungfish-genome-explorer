@@ -18,11 +18,17 @@ final class BlastDrawerRowAccessibilityTests: XCTestCase {
     private var tab: BlastResultsDrawerTab!
     private var outline: NSOutlineView { tab.resultsOutlineView }
     private let readCount = 40
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private var pasteboard: NSPasteboard!
 
     override func setUp() async throws {
         try await super.setUp()
         _ = NSApplication.shared
+        pasteboard = NSPasteboard.withUniqueName()
         tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 900, height: 260))
+        tab.pasteboard = pasteboard
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 260),
             styleMask: [.titled], backing: .buffered, defer: false
@@ -41,6 +47,8 @@ final class BlastDrawerRowAccessibilityTests: XCTestCase {
         window.orderOut(nil)
         window = nil
         tab = nil
+        pasteboard.releaseGlobally()
+        pasteboard = nil
         try await super.tearDown()
     }
 
@@ -103,15 +111,15 @@ final class BlastDrawerRowAccessibilityTests: XCTestCase {
     }
 
     func testCopyActionsWriteThePasteboard() throws {
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(3)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "read_03")
+        XCTAssertEqual(pasteboard.string(forType: .string), "read_03")
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy FASTA", in: try rowProxy(4)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), ">read_04\nACGTAAAA\n")
+        XCTAssertEqual(pasteboard.string(forType: .string), ">read_04\nACGTAAAA\n")
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Accession", in: try rowProxy(5)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "ACC_05")
+        XCTAssertEqual(pasteboard.string(forType: .string), "ACC_05")
     }
 
     func testChildHitRowCopiesItsOwnAccession() throws {
@@ -120,18 +128,18 @@ final class BlastDrawerRowAccessibilityTests: XCTestCase {
         XCTAssertTrue(outline.item(atRow: 1) is HitSummaryItem)
         let served = try firstCellActions(1)
         XCTAssertTrue(served.contains("Copy Accession"), "\(served)")
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Accession", in: try rowProxy(1)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), (outline.item(atRow: 1) as? HitSummaryItem)?.hit.accession)
+        XCTAssertEqual(pasteboard.string(forType: .string), (outline.item(atRow: 1) as? HitSummaryItem)?.hit.accession)
     }
 
     // MARK: - Row reuse
 
     func testActionsOfARowFarDownActOnThatRow() throws {
         let far = 35
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(far)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), try readID(atRow: far))
+        XCTAssertEqual(pasteboard.string(forType: .string), try readID(atRow: far))
         XCTAssertEqual(outline.selectedRow, far)
     }
 

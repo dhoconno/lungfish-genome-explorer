@@ -48,6 +48,11 @@ struct ProvenanceExportPlan {
         var filename: String {
             switch self {
             case .project(let p), .result(let p), .external(let p), .verbatim(let p):
+                // The project root itself (an empty project-relative path)
+                // is the process's working directory. `URL(fileURLWithPath:)`
+                // resolves an empty path against the current directory, which
+                // would spell it as whatever folder the exporter runs in.
+                guard !p.isEmpty else { return "." }
                 return URL(fileURLWithPath: p).lastPathComponent
             }
         }

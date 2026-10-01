@@ -856,6 +856,11 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
 
         trailing.showCompareAndCopy()
         flush(workbench)
+        // The trailing host re-measures itself one main-queue hop after the
+        // mode changes. Until that lands, its frame is the evidence-mode
+        // height while the comparison content already has its full height
+        // and spills over the header, so wait for the two to agree.
+        settleIntrinsicHeight(of: evidence, in: workbench)
         let back = try XCTUnwrap(
             concreteButton(
                 identifier: "sample-comparison-back-to-evidence",
@@ -1596,6 +1601,29 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
     private func flush(_ host: NSView) {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
         host.layoutSubtreeIfNeeded()
+    }
+
+    /// Runs the run loop until `view`'s frame height matches its intrinsic
+    /// height, or `timeout` passes. Returns as soon as the layout settles,
+    /// so a loaded machine gets the time it needs and an idle one none.
+    private func settleIntrinsicHeight(
+        of view: NSView,
+        in host: NSView,
+        timeout: TimeInterval = 5
+    ) {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while Date() < deadline {
+            host.layoutSubtreeIfNeeded()
+            if abs(view.frame.height - view.intrinsicContentSize.height) < 0.5,
+               !view.needsLayout, !host.needsLayout {
+                return
+            }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
+        XCTFail(
+            "Trailing pane layout did not settle: frame=\(view.frame) "
+                + "intrinsic=\(view.intrinsicContentSize)"
+        )
     }
 
     private func descendants(of root: NSView) -> [NSView] {

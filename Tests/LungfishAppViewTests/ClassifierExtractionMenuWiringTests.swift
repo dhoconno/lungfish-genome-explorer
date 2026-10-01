@@ -54,6 +54,10 @@ final class ClassifierExtractionMenuWiringTests: XCTestCase {
         )
         host.contentView = NSView(frame: .zero)
         host.contentView?.addSubview(table)
+        // Extract Reads acts on the rows the command targets (the clicked
+        // row, or the selection), so a row must be selected for the menu
+        // click to reach the orchestrator, as it must in the app.
+        table.setTestingSelection(indices: [0])
 
         // Wire the callback to fire the orchestrator — reuses the same
         // Context-construction pattern the real VC uses.

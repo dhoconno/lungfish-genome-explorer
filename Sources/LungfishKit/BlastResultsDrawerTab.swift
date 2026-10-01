@@ -1280,6 +1280,11 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         return cell
     }
 
+    /// The pasteboard the copy commands write. The general pasteboard is
+    /// shared by every process on the machine, so tests give the drawer a
+    /// private one.
+    var pasteboard: NSPasteboard = .general
+
     /// Copies all targeted reads as FASTA entries to the pasteboard.
     ///
     /// Each read with a `querySequence` becomes a separate FASTA entry,
@@ -1293,8 +1298,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         }
         guard !entries.isEmpty else { return }
         let fasta = entries.joined(separator: "\n") + "\n"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(fasta, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(fasta, forType: .string)
     }
 
     /// Copies the read IDs of all targeted parent rows to the pasteboard,
@@ -1303,8 +1308,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         let readItems = readItems(in: commandTargets(sender: sender))
         guard !readItems.isEmpty else { return }
         let ids = readItems.map { $0.result.id }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(ids.joined(separator: "\n"), forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(ids.joined(separator: "\n"), forType: .string)
     }
 
     /// Copies accessions from all targeted rows to the pasteboard, one per line.
@@ -1322,8 +1327,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             }
         }
         guard !accessions.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(accessions.joined(separator: "\n"), forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(accessions.joined(separator: "\n"), forType: .string)
     }
 
     @objc public func expandAllOutlineItems(_ sender: Any?) {

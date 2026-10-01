@@ -36,7 +36,11 @@ public enum AccessibilityMenuMirror {
                 // button's action.
                 popUp.selectItem(at: index)
                 if let action = popUp.action {
-                    popUp.sendAction(action, to: popUp.target)
+                    // Sent through the shared application, as `send(_:)`
+                    // does. `NSControl.sendAction(_:to:)` goes through the
+                    // `NSApp` global, which is nil until something creates
+                    // the application, and then silently sends nothing.
+                    NSApplication.shared.sendAction(action, to: popUp.target, from: popUp)
                 }
             } else {
                 send(item)
