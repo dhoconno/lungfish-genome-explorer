@@ -969,8 +969,8 @@ final class BlastResultsDrawerTests: XCTestCase {
         XCTAssertNotNil(menu, "Outline view should have a context menu")
 
         let titles = menu?.items.compactMap { $0.isSeparatorItem ? nil : $0.title }
-        XCTAssertTrue(titles?.contains("Copy Sequence as FASTA") ?? false)
-        XCTAssertTrue(titles?.contains("Copy Read ID") ?? false)
+        XCTAssertTrue(titles?.contains("Copy FASTA") ?? false)
+        XCTAssertTrue(titles?.contains("Copy Name") ?? false)
         XCTAssertTrue(titles?.contains("Copy Accession") ?? false)
         XCTAssertTrue(titles?.contains("Expand All") ?? false)
         XCTAssertTrue(titles?.contains("Collapse All") ?? false)

@@ -270,7 +270,7 @@ private let hiddenColumnsDefaultsKey = "blastResultsHiddenColumns"
 /// This class is `@MainActor` isolated. All data source and delegate methods
 /// run on the main thread.
 @MainActor
-public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
+public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRowMenuActions, OutlineExpandCollapseActions {
     public enum BlastResultsDrawerPresentationStyle: Equatable {
         case verification
         case contigBlast
@@ -1010,6 +1010,28 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
             headerMenu.addItem(item)
         }
         resultsOutlineView.headerView?.menu = headerMenu
+        mirrorHeaderMenu()
+    }
+
+    /// Lists the header column menu's items as accessibility actions on the
+    /// header view, so the optional columns can be shown and hidden without a
+    /// mouse. A checked menu item is named "Hide <Column> Column" and an
+    /// unchecked one "Show <Column> Column", because an action name cannot
+    /// carry the checkmark. The list is rebuilt after every toggle.
+    private func mirrorHeaderMenu() {
+        guard let header = resultsOutlineView.headerView, let menu = header.menu else { return }
+        let actions = menu.items.compactMap { item -> NSAccessibilityCustomAction? in
+            guard let column = item.representedObject as? NSTableColumn else { return nil }
+            let verb = column.isHidden ? "Show" : "Hide"
+            return AccessibilityCellActions.makeAction(name: "\(verb) \(column.title) Column") { [weak self] in
+                guard let self else { return }
+                column.isHidden.toggle()
+                item.state = column.isHidden ? .off : .on
+                self.saveColumnVisibility()
+                self.mirrorHeaderMenu()
+            }
+        }
+        header.setAccessibilityCustomActions(actions.isEmpty ? nil : actions)
     }
 
     /// Toggles the visibility of a column when its header context menu item
@@ -1019,6 +1041,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         column.isHidden.toggle()
         sender.state = column.isHidden ? .off : .on
         saveColumnVisibility()
+        mirrorHeaderMenu()
     }
 
     /// Refreshes the checkmark state of all items in the header context menu
@@ -1029,6 +1052,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
             guard let column = item.representedObject as? NSTableColumn else { continue }
             item.state = column.isHidden ? .off : .on
         }
+        mirrorHeaderMenu()
     }
 
     // MARK: - Column Visibility Persistence
@@ -1107,52 +1131,60 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
 
     /// Builds the context menu for the outline view.
     ///
-    /// Menu items include:
-    /// - Copy Sequence as FASTA (parent rows only)
-    /// - Copy Read ID (parent rows only)
+    /// Menu items, named and routed like Selection > Table Row:
+    /// - Copy FASTA (parent rows only)
+    /// - Copy Name, the read ID (parent rows only)
     /// - Copy Accession (both parent and child rows)
     /// - Expand All / Collapse All
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
 
-        menu.addItem(withTitle: "Copy Sequence as FASTA",
-                     action: #selector(contextCopyFASTA(_:)),
-                     keyEquivalent: "")
-        menu.addItem(withTitle: "Copy Read ID",
-                     action: #selector(contextCopyReadId(_:)),
-                     keyEquivalent: "")
-        menu.addItem(withTitle: "Copy Accession",
-                     action: #selector(contextCopyAccession(_:)),
-                     keyEquivalent: "")
+        for command in [ResultRowCommand.copyFASTA, .copyName, .copyAccession] {
+            menu.addItem(command.makeContextMenuItem(target: self, action: command.menuSelector))
+        }
 
         menu.addItem(.separator())
 
-        menu.addItem(withTitle: "Expand All",
-                     action: #selector(contextExpandAll(_:)),
-                     keyEquivalent: "")
-        menu.addItem(withTitle: "Collapse All",
-                     action: #selector(contextCollapseAll(_:)),
-                     keyEquivalent: "")
+        for (title, selector) in [
+            ("Expand All", #selector(OutlineExpandCollapseActions.expandAllOutlineItems(_:))),
+            ("Collapse All", #selector(OutlineExpandCollapseActions.collapseAllOutlineItems(_:))),
+        ] {
+            let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
 
         return menu
     }
 
     // MARK: - Selection Helpers
 
-    /// Returns the selected `ReadResultItem` instances from the outline view.
-    ///
-    /// For selected child rows (`HitSummaryItem`), the parent `ReadResultItem`
-    /// is included instead (deduplicated). Items are returned in outline view
-    /// order.
-    ///
-    /// - Returns: An ordered array of unique `ReadResultItem` instances.
-    private func selectedReadItems() -> [ReadResultItem] {
-        let indexes = resultsOutlineView.selectedRowIndexes
-        var seen = Set<ObjectIdentifier>()
-        var items: [ReadResultItem] = []
+    /// The outline items a command acts on. A context-menu command acts on
+    /// the clicked row, or on the whole selection when the clicked row is
+    /// part of it. A menu-bar command or accessibility action acts on the
+    /// selection, because `clickedRow` outlives the click that set it.
+    private func commandTargets(sender: Any? = nil) -> [AnyObject] {
+        let selected = selectedItems()
+        guard let menuItem = sender as? NSMenuItem,
+              ResultRowMenuValidation.isContextMenuItem(menuItem, in: [resultsOutlineView.menu]) else {
+            return selected
+        }
+        let clicked = resultsOutlineView.clickedRow
+        guard clicked >= 0, let clickedItem = resultsOutlineView.item(atRow: clicked) as AnyObject? else {
+            return selected
+        }
+        if resultsOutlineView.selectedRowIndexes.contains(clicked) { return selected }
+        return [clickedItem]
+    }
 
-        for row in indexes {
-            let item = resultsOutlineView.item(atRow: row)
+    /// Returns the `ReadResultItem` instances among `items`.
+    ///
+    /// For child rows (`HitSummaryItem`), the parent `ReadResultItem` is
+    /// included instead (deduplicated). Items stay in the order given.
+    private func readItems(in items: [AnyObject]) -> [ReadResultItem] {
+        var seen = Set<ObjectIdentifier>()
+        var result: [ReadResultItem] = []
+        for item in items {
             let readItem: ReadResultItem?
             if let ri = item as? ReadResultItem {
                 readItem = ri
@@ -1162,10 +1194,10 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
                 readItem = nil
             }
             if let readItem, seen.insert(ObjectIdentifier(readItem)).inserted {
-                items.append(readItem)
+                result.append(readItem)
             }
         }
-        return items
+        return result
     }
 
     /// Returns all selected items (both `ReadResultItem` and `HitSummaryItem`)
@@ -1181,56 +1213,80 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         return items
     }
 
-    /// Validates context menu items based on the current selection.
+    /// The row commands that apply to `items`, in menu order. This one rule
+    /// feeds the context menu, Selection > Table Row validation and each
+    /// row's accessibility actions.
     ///
-    /// With multi-selection enabled, validation checks all selected rows:
-    /// - "Copy Sequence as FASTA" is enabled when at least one selected parent
-    ///   row has a `querySequence`.
-    /// - "Copy Read ID" is enabled when at least one parent row is selected.
-    /// - "Copy Accession" is enabled when at least one selected row (parent or
+    /// - Copy FASTA applies when at least one selected parent row has a
+    ///   `querySequence`.
+    /// - Copy Name, the read ID, applies when at least one parent row is
+    ///   selected.
+    /// - Copy Accession applies when at least one selected row (parent or
     ///   child) has an accession.
+    func availableRowCommands(for items: [AnyObject]) -> [ResultRowCommand] {
+        var commands: [ResultRowCommand] = []
+        if readItems(in: items).contains(where: { $0.result.querySequence != nil }) {
+            commands.append(.copyFASTA)
+        }
+        if !readItems(in: items).isEmpty {
+            commands.append(.copyName)
+        }
+        let hasAccession = items.contains { item in
+            if let readItem = item as? ReadResultItem { return readItem.result.topHitAccession != nil }
+            return item is HitSummaryItem
+        }
+        if hasAccession { commands.append(.copyAccession) }
+        return commands
+    }
+
+    /// Context-menu items follow the selection (or the clicked row). The
+    /// menu-bar items, Selection > Table Row and View > Expand All, are
+    /// enabled only while the outline has keyboard focus.
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        switch menuItem.action {
-        case #selector(contextExpandAll(_:)),
-             #selector(contextCollapseAll(_:)):
-            return true
-
-        case #selector(contextCopyFASTA(_:)):
-            let readItems = selectedReadItems()
-            return readItems.contains { $0.result.querySequence != nil }
-
-        case #selector(contextCopyReadId(_:)):
-            return !selectedReadItems().isEmpty
-
-        case #selector(contextCopyAccession(_:)):
-            let items = selectedItems()
-            return items.contains { item in
-                if let readItem = item as? ReadResultItem {
-                    return readItem.result.topHitAccession != nil
-                }
-                if item is HitSummaryItem {
-                    return true
-                }
-                return false
-            }
+        guard let action = menuItem.action else { return true }
+        switch action {
+        case #selector(OutlineExpandCollapseActions.expandAllOutlineItems(_:)),
+             #selector(OutlineExpandCollapseActions.collapseAllOutlineItems(_:)):
+            return ResultRowMenuValidation.isReachable(menuItem, table: resultsOutlineView)
 
         case #selector(toggleColumnVisibility(_:)):
             // Always allow toggling column visibility
             return true
 
         default:
-            return true
+            guard let command = ResultRowCommand.command(for: action) else { return true }
+            guard ResultRowMenuValidation.isReachable(menuItem, table: resultsOutlineView) else { return false }
+            return availableRowCommands(for: commandTargets(sender: menuItem)).contains(command)
         }
     }
 
-    /// Copies all selected reads as FASTA entries to the pasteboard.
+    // MARK: - Row Accessibility Actions
+
+    /// The accessibility custom actions of the row showing `item`: the
+    /// commands its context menu offers, named the same. The handlers
+    /// resolve the row from `cellView` when they run and select it first.
+    private func accessibilityActions(for item: AnyObject, cellView: NSView) -> [NSAccessibilityCustomAction] {
+        ResultRowMenuValidation.cellActions(availableRowCommands(for: [item]), on: cellView) { [weak self] command, row in
+            guard let self else { return }
+            self.resultsOutlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            _ = NSApp.sendAction(command.menuSelector, to: self, from: nil)
+        }
+    }
+
+    private func installRowActions(on cell: NSView?, for item: AnyObject) -> NSView? {
+        if let cell {
+            AccessibilityCellActions.install(accessibilityActions(for: item, cellView: cell), on: cell)
+        }
+        return cell
+    }
+
+    /// Copies all targeted reads as FASTA entries to the pasteboard.
     ///
-    /// Each selected read with a `querySequence` becomes a separate FASTA
-    /// entry, joined by newlines.
-    @objc private func contextCopyFASTA(_ sender: Any?) {
-        let readItems = selectedReadItems()
+    /// Each read with a `querySequence` becomes a separate FASTA entry,
+    /// joined by newlines.
+    @objc public func copySelectedRowFASTA(_ sender: Any?) {
         var entries: [String] = []
-        for readItem in readItems {
+        for readItem in readItems(in: commandTargets(sender: sender)) {
             if let sequence = readItem.result.querySequence {
                 entries.append(">\(readItem.result.id)\n\(sequence)")
             }
@@ -1241,24 +1297,23 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         NSPasteboard.general.setString(fasta, forType: .string)
     }
 
-    /// Copies the read IDs of all selected parent rows to the pasteboard,
+    /// Copies the read IDs of all targeted parent rows to the pasteboard,
     /// one per line.
-    @objc private func contextCopyReadId(_ sender: Any?) {
-        let readItems = selectedReadItems()
+    @objc public func copySelectedRowName(_ sender: Any?) {
+        let readItems = readItems(in: commandTargets(sender: sender))
         guard !readItems.isEmpty else { return }
         let ids = readItems.map { $0.result.id }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(ids.joined(separator: "\n"), forType: .string)
     }
 
-    /// Copies accessions from all selected rows to the pasteboard, one per line.
+    /// Copies accessions from all targeted rows to the pasteboard, one per line.
     ///
     /// For parent rows, the top hit accession is used. For child rows, the
     /// hit accession is used.
-    @objc private func contextCopyAccession(_ sender: Any?) {
-        let items = selectedItems()
+    @objc public func copySelectedRowAccession(_ sender: Any?) {
         var accessions: [String] = []
-        for item in items {
+        for item in commandTargets(sender: sender) {
             if let readItem = item as? ReadResultItem,
                let accession = readItem.result.topHitAccession {
                 accessions.append(accession)
@@ -1271,11 +1326,11 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         NSPasteboard.general.setString(accessions.joined(separator: "\n"), forType: .string)
     }
 
-    @objc private func contextExpandAll(_ sender: Any?) {
+    @objc public func expandAllOutlineItems(_ sender: Any?) {
         resultsOutlineView.expandItem(nil, expandChildren: true)
     }
 
-    @objc private func contextCollapseAll(_ sender: Any?) {
+    @objc public func collapseAllOutlineItems(_ sender: Any?) {
         resultsOutlineView.collapseItem(nil, collapseChildren: true)
     }
 
@@ -1709,11 +1764,11 @@ extension BlastResultsDrawerTab: NSOutlineViewDelegate {
         guard let columnId = tableColumn?.identifier else { return nil }
 
         if let readItem = item as? ReadResultItem {
-            return makeParentCell(columnId: columnId, readItem: readItem)
+            return installRowActions(on: makeParentCell(columnId: columnId, readItem: readItem), for: readItem)
         }
 
         if let hitItem = item as? HitSummaryItem {
-            return makeChildCell(columnId: columnId, hitItem: hitItem)
+            return installRowActions(on: makeChildCell(columnId: columnId, hitItem: hitItem), for: hitItem)
         }
 
         return nil
