@@ -10,6 +10,7 @@ import LungfishCore
 import LungfishWorkflow
 import LungfishKit
 import LungfishTaxTriageUI
+import LungfishTwelveSUI
 import LungfishGenotypeUI
 import UniformTypeIdentifiers
 
@@ -21,6 +22,7 @@ import UniformTypeIdentifiers
 /// - Edit menu
 /// - View menu
 /// - Sequence menu
+/// - Selection menu (commands on the selected sidebar item or table row)
 /// - Tools menu
 /// - Window menu
 /// - Help menu
@@ -63,6 +65,9 @@ public final class MainMenu {
 
         // Sequence menu
         mainMenu.addItem(createSequenceMenu())
+
+        // Selection menu (app-specific, so between View-level menus and Window)
+        mainMenu.addItem(createSelectionMenu())
 
         // Tools menu
         mainMenu.addItem(
@@ -243,6 +248,18 @@ public final class MainMenu {
             action: #selector(FileMenuActions.exportProjectSampleMetadata(_:)),
             keyEquivalent: ""
         )
+
+        exportMenu.addItem(.separator())
+
+        // Result exports. Nil target: enabled only while a result view
+        // controller that adopts the handler is in the responder chain. The
+        // 12S item presents the format list as a sheet, the same choice the
+        // result window's export button pops up.
+        exportMenu.addItem(
+            withTitle: "12S Result\u{2026}",
+            action: #selector(TwelveSResultMenuActions.exportTwelveSResult(_:)),
+            keyEquivalent: ""
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.exportTwelveSResult)
 
         exportMenu.addItem(.separator())
 
@@ -582,22 +599,25 @@ public final class MainMenu {
 
         viewMenu.addItem(.separator())
 
-        // Taxonomy tree expand/collapse
-        // These use nil target (responder chain) so they auto-disable when
-        // no TaxonomyViewController is active.
+        // Outline expand/collapse. Nil target (responder chain), so any
+        // controller that adopts OutlineExpandCollapseActions (the taxonomy
+        // table, the classifier result outlines, the BLAST drawer) answers
+        // for its own outline, and the items auto-disable when none is active.
         let expandAllItem = viewMenu.addItem(
             withTitle: "Expand All",
-            action: #selector(TaxonomyViewController.expandAllTaxonomyItems(_:)),
+            action: #selector(OutlineExpandCollapseActions.expandAllOutlineItems(_:)),
             keyEquivalent: String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
         )
         expandAllItem.keyEquivalentModifierMask = [.command, .shift]
+        expandAllItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.expandAll)
 
         let collapseAllItem = viewMenu.addItem(
             withTitle: "Collapse All",
-            action: #selector(TaxonomyViewController.collapseAllTaxonomyItems(_:)),
+            action: #selector(OutlineExpandCollapseActions.collapseAllOutlineItems(_:)),
             keyEquivalent: String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!))
         )
         collapseAllItem.keyEquivalentModifierMask = [.command, .shift]
+        collapseAllItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.collapseAll)
 
         viewMenu.addItem(.separator())
 
@@ -639,6 +659,14 @@ public final class MainMenu {
         )
         nucleotideModeItem.keyEquivalentModifierMask = [.command, .shift]
         nucleotideModeItem.tag = 1002  // Tag for validation/state
+
+        // Track header disclosure, for keyboards and AX clients that cannot
+        // hover the triangle. Nil target: the viewer validates it.
+        viewMenu.addItem(
+            withTitle: "Toggle Annotations for Selected Track",
+            action: #selector(TrackHeaderMenuActions.toggleAnnotationsForSelectedTrack(_:)),
+            keyEquivalent: ""
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.toggleAnnotationsForSelectedTrack)
 
         viewMenu.addItem(.separator())
 
@@ -724,7 +752,21 @@ public final class MainMenu {
             withTitle: "Add Annotation\u{2026}",
             action: #selector(SequenceMenuActions.addAnnotation(_:)),
             keyEquivalent: ""
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.addAnnotation)
+
+        // Edit and Delete act on the annotation selected in the drawer. Nil
+        // target: the viewer validates them against its selection.
+        seqMenu.addItem(
+            withTitle: "Edit Annotation\u{2026}",
+            action: #selector(AnnotationEditingMenuActions.editAnnotation(_:)),
+            keyEquivalent: ""
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.editAnnotation)
+
+        seqMenu.addItem(
+            withTitle: "Delete Annotation",
+            action: #selector(AnnotationEditingMenuActions.deleteAnnotation(_:)),
+            keyEquivalent: ""
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.deleteAnnotation)
 
         seqMenu.addItem(
             withTitle: "Find ORFs\u{2026}",
@@ -734,6 +776,67 @@ public final class MainMenu {
 
         seqMenuItem.submenu = seqMenu
         return seqMenuItem
+    }
+
+    // MARK: - Selection Menu
+
+    /// Selection: the commands a sidebar row or a table row offers from its
+    /// context menu, reachable from the menu bar and by shortcut.
+    ///
+    /// Every item has a nil target, so it reaches whichever outline or table
+    /// is first responder through the responder chain and is disabled when
+    /// none is. Show in Inspector is one item for every surface, at the top
+    /// level, so its chord (Cmd-Opt-S) is bound once.
+    private static func createSelectionMenu() -> NSMenuItem {
+        let selectionMenuItem = NSMenuItem(title: "Selection", action: nil, keyEquivalent: "")
+        selectionMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.selectionMenu)
+        let selectionMenu = NSMenu(title: "Selection")
+
+        let sidebarItem = NSMenuItem(title: "Sidebar Item", action: nil, keyEquivalent: "")
+        sidebarItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.selectionSidebarItem)
+        sidebarItem.submenu = makeRowCommandMenu(
+            title: sidebarItem.title,
+            sections: SidebarItemAction.menuSections,
+            identifier: MainMenuAccessibilityID.selectionSidebarItemAction
+        )
+        selectionMenu.addItem(sidebarItem)
+
+        let tableRowItem = NSMenuItem(title: "Table Row", action: nil, keyEquivalent: "")
+        tableRowItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.selectionTableRow)
+        tableRowItem.submenu = makeRowCommandMenu(
+            title: tableRowItem.title,
+            sections: ResultRowCommand.menuSections,
+            identifier: MainMenuAccessibilityID.selectionTableRowAction
+        )
+        selectionMenu.addItem(tableRowItem)
+
+        selectionMenu.addItem(.separator())
+
+        selectionMenu.addItem(
+            ResultRowCommand.showInInspector.makeMenuBarItem(
+                identifier: MainMenuAccessibilityID.selectionShowInInspector
+            )
+        )
+
+        selectionMenuItem.submenu = selectionMenu
+        return selectionMenuItem
+    }
+
+    /// A submenu of nil-target items built from a row-command enum, one
+    /// separator between sections.
+    private static func makeRowCommandMenu<Command: RowCommand>(
+        title: String,
+        sections: [[Command]],
+        identifier: (Command) -> String
+    ) -> NSMenu {
+        let menu = NSMenu(title: title)
+        for (index, section) in sections.enumerated() {
+            if index > 0 { menu.addItem(.separator()) }
+            for command in section {
+                menu.addItem(command.makeMenuBarItem(identifier: identifier(command)))
+            }
+        }
+        return menu
     }
 
     // MARK: - Tools Menu
@@ -1341,6 +1444,24 @@ enum ProvenanceExportMenuModel {
     func extractSelection(_ sender: Any?)
     func addAnnotation(_ sender: Any?)
     func findORFs(_ sender: Any?)
+}
+
+/// Sequence > Edit Annotation… and Delete Annotation handlers.
+///
+/// Separate from ``SequenceMenuActions`` so the app delegate does not have
+/// to implement them: the viewer that owns the annotation selection adopts
+/// this, and the items stay disabled while no such viewer is in the chain.
+@MainActor
+@objc protocol AnnotationEditingMenuActions {
+    func editAnnotation(_ sender: Any?)
+    func deleteAnnotation(_ sender: Any?)
+}
+
+/// View > Toggle Annotations for Selected Track handler, adopted by the
+/// viewer that owns the track headers.
+@MainActor
+@objc protocol TrackHeaderMenuActions {
+    func toggleAnnotationsForSelectedTrack(_ sender: Any?)
 }
 
 /// Tools menu action handlers.

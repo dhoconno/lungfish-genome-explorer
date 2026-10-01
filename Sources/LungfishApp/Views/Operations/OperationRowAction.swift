@@ -7,6 +7,8 @@ import LungfishKit
 
 /// One command that acts on a single ``OperationCenter/Item``.
 ///
+/// Adopts ``RowCommand``, the shape every row-command enum in the app shares.
+///
 /// The Operations panel offers these commands from three places that must
 /// always agree: the row's context menu, the log drawer's Actions pull-down,
 /// and the row's accessibility custom actions. The Operations menu in the
@@ -14,7 +16,7 @@ import LungfishKit
 /// responder chain (``OperationRowMenuActions``). ``available(for:)`` is the
 /// single source of truth for which commands apply to an item, so no surface
 /// can drift from the others.
-enum OperationRowAction: String, CaseIterable, Sendable {
+enum OperationRowAction: String, CaseIterable, RowCommand, Sendable {
     case removePartialOutput
     case revealInterruptedRun
     case revealOutputs
@@ -81,11 +83,11 @@ enum OperationRowAction: String, CaseIterable, Sendable {
     ///
     /// Option-Command letters are free of the app's existing bindings and of
     /// the genotype matrix's local Option-Command P, X, R and M keys.
-    var keyEquivalent: (key: String, modifiers: NSEvent.ModifierFlags)? {
+    var keyEquivalent: RowCommandKeyEquivalent? {
         switch self {
-        case .copyCLICommand: return ("c", [.command, .option])
-        case .viewLog: return ("l", [.command, .option])
-        case .revealOutputs: return ("o", [.command, .option])
+        case .copyCLICommand: return RowCommandKeyEquivalent("c", [.command, .option])
+        case .viewLog: return RowCommandKeyEquivalent("l", [.command, .option])
+        case .revealOutputs: return RowCommandKeyEquivalent("o", [.command, .option])
         default: return nil
         }
     }
@@ -111,8 +113,7 @@ enum OperationRowAction: String, CaseIterable, Sendable {
 
     /// The action a menu bar selector maps to, if any.
     static func action(for selector: Selector?) -> OperationRowAction? {
-        guard let selector else { return nil }
-        return allCases.first { $0.menuSelector == selector }
+        command(for: selector)
     }
 
     /// Whether the command applies to the item right now.

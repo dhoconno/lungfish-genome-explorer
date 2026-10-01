@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishKit
 
 enum SettingsAccessibilityID {
     static let window = "settings-window"
@@ -182,6 +183,7 @@ enum MainMenuAccessibilityID {
     static let editMenu = "main-menu-edit"
     static let viewMenu = "main-menu-view"
     static let sequenceMenu = "main-menu-sequence"
+    static let selectionMenu = "main-menu-selection"
     static let toolsMenu = "main-menu-tools"
     static let operationsMenu = "main-menu-operations"
     static let windowMenu = "main-menu-window"
@@ -197,6 +199,7 @@ enum MainMenuAccessibilityID {
     static let openRecent = "file-menu-open-recent"
     static let importCenter = "file-menu-import-center"
     static let export = "file-menu-export"
+    static let exportTwelveSResult = "file-menu-export-twelve-s-result"
     static let manageProjectStorage = "file-menu-manage-project-storage"
 
     static let focusViewer = "view-menu-focus-viewer"
@@ -206,6 +209,27 @@ enum MainMenuAccessibilityID {
     static let contentTextSizeSmaller = "view-menu-content-text-size-smaller"
     static let contentTextSizeDefault = "view-menu-content-text-size-default"
     static let provenanceInspector = "view-menu-provenance-inspector"
+    static let expandAll = "view-menu-expand-all"
+    static let collapseAll = "view-menu-collapse-all"
+    static let toggleAnnotationsForSelectedTrack = "view-menu-toggle-annotations-for-selected-track"
+
+    static let addAnnotation = "sequence-menu-add-annotation"
+    static let editAnnotation = "sequence-menu-edit-annotation"
+    static let deleteAnnotation = "sequence-menu-delete-annotation"
+
+    static let selectionSidebarItem = "selection-menu-sidebar-item"
+    static let selectionTableRow = "selection-menu-table-row"
+    static let selectionShowInInspector = "selection-menu-show-in-inspector"
+
+    /// Selection > Sidebar Item item for one sidebar command.
+    static func selectionSidebarItemAction(_ action: SidebarItemAction) -> String {
+        "selection-menu-sidebar-item-\(action.identifierSlug)"
+    }
+
+    /// Selection > Table Row item for one result-row command.
+    static func selectionTableRowAction(_ command: ResultRowCommand) -> String {
+        "selection-menu-table-row-\(command.identifierSlug)"
+    }
 
     static let callVariants = "tools-menu-call-variants"
     static let freyjaDemix = "tools-menu-freyja-demix"

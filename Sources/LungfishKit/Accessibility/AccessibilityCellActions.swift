@@ -1,4 +1,4 @@
-// AccessibilityCellActions.swift - Custom AX actions for table rows
+// AccessibilityCellActions.swift - Custom AX actions for table and outline rows
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -12,27 +12,42 @@ import AppKit
 /// cell proxies forward `AXCustomActions`, to the `NSTableCellView` they stand
 /// for. Actions set on an `NSTableRowView` are never read. So the actions are
 /// installed on every cell view of the row from the delegate's cell callback,
-/// which the table runs again whenever the row is reused or reloaded.
+/// which the table runs again whenever the row is reused or reloaded. The
+/// same holds for `NSOutlineView`, whose cell callback is
+/// `outlineView(_:viewFor:item:)`.
 ///
 /// Handlers resolve the row from the cell at the moment they run, with
 /// `NSTableView.row(for:)`, never from an index captured when the cell was
 /// built, because cell views are recycled as the table scrolls.
 @MainActor
-enum AccessibilityCellActions {
+public enum AccessibilityCellActions {
     /// Installs `actions` on `cellView`, or clears them when the list is empty.
-    static func install(_ actions: [NSAccessibilityCustomAction], on cellView: NSView) {
+    ///
+    /// Setting replaces, so reinstalling on a reused cell never accumulates.
+    /// The first install also applies ``TableCellProxyActionFix``, without
+    /// which the AX server would list every action twice.
+    public static func install(_ actions: [NSAccessibilityCustomAction], on cellView: NSView) {
+        TableCellProxyActionFix.installIfNeeded()
         cellView.setAccessibilityCustomActions(actions.isEmpty ? nil : actions)
     }
 
     /// The row a cell view currently shows, or nil when it is not in a table.
-    static func currentRow(of cellView: NSView) -> Int? {
+    public static func currentRow(of cellView: NSView) -> Int? {
         guard let tableView = enclosingTableView(of: cellView) else { return nil }
         let row = tableView.row(for: cellView)
         return row >= 0 ? row : nil
     }
 
+    /// The outline item a cell view currently shows, or nil when it is not in
+    /// an outline or its row has no item.
+    public static func currentItem(of cellView: NSView) -> Any? {
+        guard let outline = enclosingTableView(of: cellView) as? NSOutlineView,
+              let row = currentRow(of: cellView) else { return nil }
+        return outline.item(atRow: row)
+    }
+
     /// Builds one custom action whose handler runs on the main actor.
-    static func makeAction(
+    public static func makeAction(
         name: String,
         handler: @escaping @MainActor () -> Void
     ) -> NSAccessibilityCustomAction {
