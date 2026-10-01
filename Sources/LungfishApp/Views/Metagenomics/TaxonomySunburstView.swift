@@ -714,19 +714,21 @@ public class TaxonomySunburstView: NSView {
         onZoomChanged?(node)
     }
 
-    /// Zoom In (into the selected node) and Zoom Out (one level) as
+    /// Zoom Into Selected Group and Zoom Out to Parent Group (one level) as
     /// accessibility custom actions, each listed only while it applies, so
     /// AX clients that cannot double-click or press Escape can still move
-    /// through the chart.
+    /// through the chart. The chart has no per-segment elements, so a
+    /// VoiceOver user picks the group by selecting its row in the taxonomy
+    /// table, which selects the same node in the chart.
     public override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         var actions: [NSAccessibilityCustomAction] = []
         if let node = selectedNode, node !== centerNode, !node.children.isEmpty {
-            actions.append(AccessibilityCellActions.makeAction(name: "Zoom In") { [weak self] in
+            actions.append(AccessibilityCellActions.makeAction(name: "Zoom Into Selected Group") { [weak self] in
                 self?.zoomIntoSelectedNode()
             })
         }
         if centerNode != nil {
-            actions.append(AccessibilityCellActions.makeAction(name: "Zoom Out") { [weak self] in
+            actions.append(AccessibilityCellActions.makeAction(name: "Zoom Out to Parent Group") { [weak self] in
                 self?.zoomOut()
             })
         }

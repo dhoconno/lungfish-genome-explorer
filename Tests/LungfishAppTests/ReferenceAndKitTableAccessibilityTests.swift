@@ -40,6 +40,30 @@ final class ReferenceAndKitTableAccessibilityTests: XCTestCase {
         return (table, window)
     }
 
+    /// Goes through `AXUIElementCopyActionNames` and `AXUIElementPerformAction`
+    /// like an out-of-process client: the row's actions are listed once and
+    /// performing one on an unselected row acts on that row alone.
+    func testRecordRowActionsReachAnOutOfProcessAXClient() throws {
+        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        let (table, window) = makeRecordTable()
+        window.orderFront(nil)
+        defer { window.close() }
+        var extracted: [[String]] = []
+        table.onCopySequences = { _, _ in }
+        table.onExtractSequences = { extracted.append($0.map(\.summary.name)) }
+        table.tableView.reloadData()
+        table.tableView.layoutSubtreeIfNeeded()
+
+        let listed = AXProcessProbe.rowCellActionNames(row: 2)
+        let names = try XCTUnwrap(listed, "the server lists the row's cell")
+        XCTAssertEqual(names, ["Copy Name", "Copy Sequence", "Copy FASTA", "Extract to New Bundle\u{2026}"])
+        XCTAssertTrue(AXProcessProbe.performRowCellAction("Copy Name", row: 2))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "chrM")
+        table.tableView.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
+        XCTAssertTrue(AXProcessProbe.performRowCellAction("Extract to New Bundle\u{2026}", row: 2))
+        XCTAssertEqual(extracted.last, ["chrM"], "an unselected row is targeted alone")
+    }
+
     func testRecordRowsPublishTheFASTACommandsOnceAndInParityWithTheContextMenu() throws {
         let (table, window) = makeRecordTable()
         defer { window.close() }

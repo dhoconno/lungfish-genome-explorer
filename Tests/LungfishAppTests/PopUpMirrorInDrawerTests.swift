@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishKit
+import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishCore
 
@@ -28,6 +29,55 @@ final class PopUpMirrorInDrawerTests: XCTestCase {
         ]
         drawer.tableView.reloadData()
         return drawer
+    }
+
+    /// Shows the drawer in a front window so the AX server lists it, with the
+    /// variants toolbar visible.
+    private func hostVariantDrawer(_ drawer: AnnotationTableDrawerView) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 240), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        drawer.frame = NSRect(x: 0, y: 0, width: 1200, height: 240)
+        window.contentView = drawer
+        window.orderFront(nil)
+        drawer.layoutSubtreeIfNeeded()
+        drawer.updateSearchFieldVisibility()
+        drawer.rebuildProfileMenu()
+        drawer.rebuildHaploidModeMenu()
+        drawer.layoutSubtreeIfNeeded()
+        return window
+    }
+
+    /// Reads and performs the mirrors through `AXUIElementCopyActionNames` and
+    /// `AXUIElementPerformAction`, the calls an external client makes. An
+    /// `NSButton`, a pop-up and a pull-down each reach the server as their
+    /// cell, so all three must list their actions once and run them.
+    func testMirroredButtonPopUpAndPullDownAreListedOnceAndPerformableThroughTheAXServer() throws {
+        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        let drawer = makeVariantDrawer()
+        let window = hostVariantDrawer(drawer)
+        defer { window.close() }
+
+        let popUp = AXProcessProbe.Query(role: "AXPopUpButton")
+        let haploid = try XCTUnwrap(AXProcessProbe.customActionNames(popUp), "the haploid pop-up is listed")
+        XCTAssertEqual(haploid, ["Auto", "Haploid", "Diploid"])
+        XCTAssertTrue(AXProcessProbe.perform("Haploid", on: popUp))
+        XCTAssertEqual(drawer.haploidModeSelection, .haploid)
+
+        let pullDown = AXProcessProbe.Query(role: "AXMenuButton", text: "Profiles")
+        let profiles = try XCTUnwrap(AXProcessProbe.customActionNames(pullDown), "the Profiles pull-down is listed")
+        XCTAssertEqual(profiles.first, "No Profile")
+        XCTAssertEqual(profiles.last, "Save Current as Profile\u{2026}")
+        XCTAssertEqual(Set(profiles).count, profiles.count, "each action once: \(profiles)")
+        drawer.variantFilterText = "stale"
+        XCTAssertTrue(AXProcessProbe.perform("No Profile", on: pullDown))
+        XCTAssertEqual(drawer.variantFilterText, "")
+
+        let export = AXProcessProbe.Query(role: "AXButton", text: "Export table")
+        let exports = try XCTUnwrap(AXProcessProbe.customActionNames(export), "the export button is listed")
+        XCTAssertEqual(exports, [
+            "All Matching Rows\u{2026}: Excel Workbook (.xlsx)", "All Matching Rows\u{2026}: CSV",
+            "All Matching Rows\u{2026}: TSV", "All Matching Rows\u{2026}: JSON",
+        ], "the dynamic button lists its current menu once, with the one submenu naming format")
     }
 
     func testProfilePullDownMirrorsItsItemsAndAProfileActionAppliesTheProfile() throws {
@@ -79,15 +129,15 @@ final class PopUpMirrorInDrawerTests: XCTestCase {
 
     func testExportButtonMirrorsTheExportMenuForTheCurrentSelection() throws {
         let drawer = makeVariantDrawer()
-        var actions = try XCTUnwrap(drawer.exportButton.accessibilityCustomActions())
+        var actions = try XCTUnwrap(drawer.exportButton.cell?.accessibilityCustomActions())
         XCTAssertEqual(actions.map(\.name), [
-            "All Matching Rows\u{2026} > Excel Workbook (.xlsx)", "All Matching Rows\u{2026} > CSV",
-            "All Matching Rows\u{2026} > TSV", "All Matching Rows\u{2026} > JSON",
+            "All Matching Rows\u{2026}: Excel Workbook (.xlsx)", "All Matching Rows\u{2026}: CSV",
+            "All Matching Rows\u{2026}: TSV", "All Matching Rows\u{2026}: JSON",
         ], "nothing selected, so only the all-rows scope is offered")
         drawer.tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        actions = try XCTUnwrap(drawer.exportButton.accessibilityCustomActions())
+        actions = try XCTUnwrap(drawer.exportButton.cell?.accessibilityCustomActions())
         XCTAssertEqual(actions.count, 8)
-        XCTAssertEqual(actions[4].name, "Selected Rows (1)\u{2026} > Excel Workbook (.xlsx)")
+        XCTAssertEqual(actions[4].name, "Selected Rows (1)\u{2026}: Excel Workbook (.xlsx)")
     }
 
     func testGeneTabBarOverflowPopUpMirrorsTheHiddenGenesAndSelectsOne() throws {

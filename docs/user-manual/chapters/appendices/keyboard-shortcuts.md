@@ -252,11 +252,11 @@ The coordinate ruler above the sequence takes Cmd-0 for zoom to fit and Cmd-1 fo
 
 In the annotation table below the sequence, the up and down arrows move the selection and Return or Enter does what a double-click does. On the Annotations tab, selecting a row already recentres the viewport on it. On the Variants tab, selecting a row updates the Inspector and leaves the viewport where it is, so press Return to recentre the viewport on the selected variant.
 
-Every command the annotation table offers on a right-click also works without the mouse. With a row selected, **Selection > Table Row** holds the copy, extract and open commands for it, **Sequence > Edit Annotation...** and **Sequence > Delete Annotation** act on the selected annotation, and **Selection > Show in Inspector** (Cmd-Opt-S) shows it in the Inspector. VoiceOver lists the same commands as actions on the row, under the names the right-click menu uses, and lists the Profiles, Group Presets, haploid-mode and export buttons' menus as actions on those buttons.
+Every command the annotation table offers on a right-click also works without the mouse. With a row selected, **Selection > Table Row** holds the copy, extract and open commands for it, **Sequence > Edit Annotation...** and **Sequence > Delete Annotation** act on the selected annotation, and **Selection > Show in Inspector** (Cmd-Opt-S) shows it in the Inspector. VoiceOver lists the same commands as actions on the row, under the names the right-click menu uses with the submenu name in front, such as `Copy: Copy Name`, and lists the Profiles, Group Presets, haploid-mode and export buttons' menus as actions on those buttons.
 
 The chromosome list on the left of a reference bundle and the sequence table of a multi-sequence FASTA file follow the same pattern. The up and down arrows move the selection, Return or Enter jumps to the selected chromosome or opens the selected sequence, and **Selection > Table Row** holds the copy and extract commands for the selected rows.
 
-When several sequences are stacked, the track header on the left shows a disclosure triangle beside each sequence that has annotations. Press Tab until the header has focus, which draws a focus ring around a track, then Up Arrow and Down Arrow move the ring between tracks and Space or Return shows or hides that track's annotations. **View > Toggle Annotations for Selected Track** does the same for the focused track, or for the active sequence when the header does not have focus.
+When several sequences are stacked, the track header on the left shows a disclosure triangle beside each sequence that has annotations. Press Tab until the header has focus, which draws a focus ring around a track, then Up Arrow and Down Arrow move the ring between tracks and Space or Return shows or hides that track's annotations. **View > Show Annotations for Selected Track**, which reads Hide Annotations for Selected Track while the annotations are shown, does the same for the focused track, or for the active sequence when the header does not have focus.
 
 ## Inside the BAM alignment viewport
 
@@ -282,7 +282,7 @@ The comparison matrix inside that window, where each cell is one allele in one s
 
 ## Inside a classifier result window
 
-The TaxTriage sample shortcuts live in the View menu, listed above. In the taxonomy sunburst, the circular chart of nested organism groups, Escape steps back up one level, from the group you zoomed into to the broader group around it, and Cmd-0 returns to the full chart in one press. Cmd-0 there is **View > Zoom to Fit**, which LGE hands to the chart. Click the chart first. VoiceOver offers the chart a Zoom In action, into the selected group, and a Zoom Out action, one level up, while each applies.
+The TaxTriage sample shortcuts live in the View menu, listed above. In the taxonomy sunburst, the circular chart of nested organism groups, Escape steps back up one level, from the group you zoomed into to the broader group around it, and Cmd-0 returns to the full chart in one press. Cmd-0 there is **View > Zoom to Fit**, which LGE hands to the chart. Click the chart first. VoiceOver offers the chart a Zoom Into Selected Group action and a Zoom Out to Parent Group action, one level up, while each applies. Select the group by choosing its row in the taxonomy table, which selects the same group in the chart.
 
 In the taxonomy table, with a row selected, **Selection > Table Row** holds **Extract Reads...**, **Verify with BLAST...**, **Copy Name**, and the NCBI and PubMed links for that taxon, and **View > Expand All** (Cmd-Shift-Right Arrow) and **View > Collapse All** (Cmd-Shift-Left Arrow) open and close the whole tree. VoiceOver lists the row's right-click commands as actions on the row.
 
@@ -290,7 +290,7 @@ Every result table in a classifier window answers **Selection > Table Row**. Cli
 
 The EsViritu, NVD, and BLAST results tables are outlines, so **View > Expand All** (Cmd-Shift-Right Arrow) and **View > Collapse All** (Cmd-Shift-Left Arrow) work in them while they have focus. The NAO-MGS and TaxTriage tables are flat lists, so those two items stay greyed out there. In NAO-MGS, each accession button in the detail pane also offers **Copy Accession** as a VoiceOver action.
 
-The menus that open from a button have VoiceOver actions too. The BLAST table lists **Show** or **Hide** for each optional column on its header, and the 12S window does the same for the imported metadata columns on its **Sample Columns** button, with **Import Metadata...** beside them. The 12S Export button lists its three formats. **File > Export > 12S Result...** has no shortcut, shows the same three formats as a sheet on the result window, and stays greyed out until a 12S result is in front.
+The menus that open from a button have VoiceOver actions too. The BLAST table lists **Show** or **Hide** for each optional column on its header, and the 12S window does the same for the imported metadata columns on its **Sample Columns** button, with **Import Metadata...** beside them. The 12S Export button lists its three formats. **File > Export > 12S Result...** has no shortcut, shows the same three formats as a sheet on the result window, with buttons named **Export CSV**, **Export TSV**, and **Export Excel Workbook**, and stays greyed out until a 12S result is in front.
 
 ## Inside the sidebar
 

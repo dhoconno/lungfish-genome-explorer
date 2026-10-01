@@ -11,11 +11,16 @@ import AppKit
 /// table whose double-click does something (recentre the viewport, open a
 /// sequence, navigate to a chromosome) is one of these. Everything else is
 /// standard `NSTableView` behaviour, including arrow-key selection. Return
-/// with no selection does nothing, so a stale row is never activated.
+/// activates only when exactly one row is selected. With none or several
+/// selected the table beeps, so a stale or arbitrary row is never activated.
 @MainActor
 open class RowActivatingTableView: NSTableView {
     /// Called when Return or Enter is pressed with a row selected.
     public var onActivateSelectedRow: (() -> Void)?
+
+    /// Called instead of activating when Return is pressed without exactly
+    /// one selected row. Beeps by default.
+    public var rejectActivation: () -> Void = { NSSound.beep() }
 
     /// Whether the key event should activate the selected row: Return or
     /// Enter with no modifier other than the keypad or function flags.
@@ -27,9 +32,12 @@ open class RowActivatingTableView: NSTableView {
 
     open override func keyDown(with event: NSEvent) {
         if Self.activatesSelectedRow(keyCode: event.keyCode, modifierFlags: event.modifierFlags),
-           selectedRow >= 0,
            let onActivateSelectedRow {
-            onActivateSelectedRow()
+            if numberOfSelectedRows == 1 {
+                onActivateSelectedRow()
+            } else {
+                rejectActivation()
+            }
             return
         }
         super.keyDown(with: event)

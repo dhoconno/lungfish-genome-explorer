@@ -798,22 +798,55 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
     }
 
+    /// Whether the expand/collapse commands apply to `row`: a leaf offers
+    /// neither, a collapsed branch offers the two Expand commands, and an
+    /// expanded branch offers Collapse.
+    private func canExpand(item: Any) -> Bool {
+        outlineView.isExpandable(item) && !outlineView.isItemExpanded(item)
+    }
+
+    private func canCollapse(item: Any) -> Bool {
+        outlineView.isExpandable(item) && outlineView.isItemExpanded(item)
+    }
+
+    private func canExpand(row: Int) -> Bool {
+        row >= 0 && outlineView.item(atRow: row).map { canExpand(item: $0) } == true
+    }
+
+    private func canCollapse(row: Int) -> Bool {
+        row >= 0 && outlineView.item(atRow: row).map { canCollapse(item: $0) } == true
+    }
+
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let node = actionableNode(at: commandRow)
+        // The context menu follows the right-clicked row. The Selection >
+        // Table Row items of the menu bar follow the selected row alone, so a
+        // stale clicked row from an earlier right-click never answers for them.
+        let contextNode = actionableNode(at: commandRow)
+        let selectedNode = actionableNode(at: outlineView.selectedRow)
 
         switch menuItem.action {
-        case #selector(contextBlastReads(_:)), #selector(blastVerifySelectedRow(_:)):
-            // BLAST requires exactly one selected row
+        case #selector(contextBlastReads(_:)):
             guard readLevelActionsAvailable else { return false }
-            return node != nil && selectedActionableNodesByIdentity().count <= 1
+            return contextNode != nil && selectedActionableNodesByIdentity().count <= 1
+        case #selector(blastVerifySelectedRow(_:)):
+            guard readLevelActionsAvailable else { return false }
+            return selectedNode != nil && selectedActionableNodesByIdentity().count <= 1
         case #selector(contextOpenNCBITaxonomy(_:)), #selector(contextOpenNCBIGenBank(_:)),
-             #selector(contextOpenNCBIPubMed(_:)), #selector(contextCopyName(_:)),
-             #selector(openSelectedRowTaxonomyOnNCBI(_:)), #selector(openSelectedRowGenBank(_:)),
+             #selector(contextOpenNCBIPubMed(_:)), #selector(contextCopyName(_:)):
+            return contextNode != nil
+        case #selector(openSelectedRowTaxonomyOnNCBI(_:)), #selector(openSelectedRowGenBank(_:)),
              #selector(searchPubMedForSelectedRow(_:)), #selector(copySelectedRowName(_:)):
-            return node != nil
-        case #selector(contextExtractReads(_:)), #selector(extractReadsForSelectedRows(_:)):
+            return selectedNode != nil
+        case #selector(contextExtractReads(_:)):
             guard readLevelActionsAvailable else { return false }
-            return !selectedActionableNodesByIdentity().isEmpty || node != nil
+            return !selectedActionableNodesByIdentity().isEmpty || contextNode != nil
+        case #selector(extractReadsForSelectedRows(_:)):
+            guard readLevelActionsAvailable else { return false }
+            return !selectedActionableNodesByIdentity().isEmpty
+        case #selector(contextExpandItem(_:)), #selector(contextExpandAllBelow(_:)):
+            return canExpand(row: commandRow)
+        case #selector(contextCollapseItem(_:)):
+            return canCollapse(row: commandRow)
         case #selector(expandAllOutlineItems(_:)), #selector(collapseAllOutlineItems(_:)):
             return tree != nil
         default:
@@ -947,29 +980,58 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             }
         }
         var actions: [NSAccessibilityCustomAction] = []
+        // Only the commands that apply to this row now: a leaf offers no
+        // expand or collapse, an expanded branch only Collapse and a collapsed
+        // one only the Expand pair. Expanding or collapsing refreshes the list
+        // (see ``refreshAccessibilityActions(forItem:)``).
         if readLevelActionsAvailable {
             actions.append(action("Extract Reads\u{2026}") { table, row in table.extractReads(targeting: row) })
         }
-        actions.append(action("Expand") { table, row in table.expand(row: row, children: false) })
-        actions.append(action("Expand All Below") { table, row in table.expand(row: row, children: true) })
-        actions.append(action("Collapse") { table, row in table.collapse(row: row) })
+        if canExpand(item: node) {
+            actions.append(action("Expand") { table, row in table.expand(row: row, children: false) })
+            actions.append(action("Expand All Below") { table, row in table.expand(row: row, children: true) })
+        }
+        if canCollapse(item: node) {
+            actions.append(action("Collapse") { table, row in table.collapse(row: row) })
+        }
         if readLevelActionsAvailable {
             actions.append(action("BLAST Matching Reads\u{2026}") { table, row in table.blastReads(ofRow: row) })
         }
-        actions.append(action("NCBI Taxonomy") { table, row in
+        let lookUp = "Look Up on NCBI"
+        actions.append(action(AccessibilityMenuMirror.actionName(submenu: lookUp, item: "NCBI Taxonomy")) { table, row in
             guard let node = table.actionableNode(at: row) else { return }
             table.onNCBITaxonomyRequested?(node)
         })
-        actions.append(action("GenBank Sequences") { table, row in
+        actions.append(action(AccessibilityMenuMirror.actionName(submenu: lookUp, item: "GenBank Sequences")) { table, row in
             guard let node = table.actionableNode(at: row) else { return }
             table.onNCBIGenBankRequested?(node)
         })
-        actions.append(action("PubMed Literature") { table, row in
+        actions.append(action(AccessibilityMenuMirror.actionName(submenu: lookUp, item: "PubMed Literature")) { table, row in
             guard let node = table.actionableNode(at: row) else { return }
             table.onNCBIPubMedRequested?(node)
         })
         actions.append(action("Copy Taxon Name") { table, row in table.copyName(ofRow: row) })
         return actions
+    }
+
+    /// Reinstalls the cell actions of the row showing `item`, since the
+    /// outline keeps the same cell views when a row expands or collapses.
+    private func refreshAccessibilityActions(forItem item: Any) {
+        guard let node = item as? TaxonNode else { return }
+        let row = outlineView.row(forItem: node)
+        guard row >= 0 else { return }
+        for column in 0..<outlineView.numberOfColumns {
+            guard let cell = outlineView.view(atColumn: column, row: row, makeIfNecessary: false) else { continue }
+            AccessibilityCellActions.install(accessibilityActions(for: cell, node: node), on: cell)
+        }
+    }
+
+    public func outlineViewItemDidExpand(_ notification: Notification) {
+        if let item = notification.userInfo?["NSObject"] { refreshAccessibilityActions(forItem: item) }
+    }
+
+    public func outlineViewItemDidCollapse(_ notification: Notification) {
+        if let item = notification.userInfo?["NSObject"] { refreshAccessibilityActions(forItem: item) }
     }
 
     // MARK: - NSOutlineViewDataSource

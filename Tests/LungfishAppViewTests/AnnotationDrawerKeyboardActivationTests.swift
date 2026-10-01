@@ -10,7 +10,9 @@ import XCTest
 final class AnnotationDrawerKeyboardActivationTests: XCTestCase {
 
     private final class OneRowDataSource: NSObject, NSTableViewDataSource {
-        func numberOfRows(in tableView: NSTableView) -> Int { 1 }
+        let rows: Int
+        init(rows: Int = 1) { self.rows = rows }
+        func numberOfRows(in tableView: NSTableView) -> Int { rows }
     }
 
     func testReturnAndEnterActivateWithoutModifiers() {
@@ -44,6 +46,39 @@ final class AnnotationDrawerKeyboardActivationTests: XCTestCase {
         table.deselectAll(nil)
         table.keyDown(with: returnEvent)
         XCTAssertEqual(activations, 1, "Return with no selection must not activate a stale row")
+    }
+
+    func testReturnWithSeveralRowsSelectedBeepsAndActivatesNothing() throws {
+        _ = NSApplication.shared
+        let table = AnnotationDrawerTableView()
+        table.allowsMultipleSelection = true
+        let dataSource = OneRowDataSource(rows: 3)
+        table.dataSource = dataSource
+        table.addTableColumn(NSTableColumn(identifier: .init("name")))
+        table.reloadData()
+        var activations = 0
+        var beeps = 0
+        table.onActivateSelectedRow = { activations += 1 }
+        table.rejectActivation = { beeps += 1 }
+        let returnEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+            isARepeat: false, keyCode: 36
+        ))
+
+        table.selectRowIndexes(IndexSet([0, 2]), byExtendingSelection: false)
+        table.keyDown(with: returnEvent)
+        XCTAssertEqual(activations, 0, "Return must not guess which of several rows to activate")
+        XCTAssertEqual(beeps, 1)
+
+        table.deselectAll(nil)
+        table.keyDown(with: returnEvent)
+        XCTAssertEqual(beeps, 2, "Return with nothing selected also reports it cannot act")
+
+        table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        table.keyDown(with: returnEvent)
+        XCTAssertEqual(activations, 1)
+        XCTAssertEqual(beeps, 2)
     }
 
     // MARK: - Rows through AppKit's accessibility bridge
@@ -101,7 +136,7 @@ final class AnnotationDrawerKeyboardActivationTests: XCTestCase {
         // The row's enabled context menu commands, Copy submenu flattened,
         // in menu order. Edit and Delete are disabled without a database row.
         let expected = [
-            "Copy Name", "Copy Coordinates", "Copy Sequence", "Copy Reverse Complement", "Copy as FASTA",
+            "Copy: Copy Name", "Copy: Copy Coordinates", "Copy: Copy Sequence", "Copy: Copy Reverse Complement", "Copy: Copy as FASTA",
             "Extract Sequence\u{2026}", "Add Annotation\u{2026}", "Select Related Gene Features",
             "Zoom to Annotation", "Show in Inspector",
         ]

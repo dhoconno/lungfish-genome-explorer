@@ -208,6 +208,28 @@ final class ChromosomeNavigatorSelectionTests: XCTestCase {
         XCTAssertFalse(navigator.validateMenuItem(extract), "no extract handler wired")
     }
 
+    /// Row actions and the Sort pop-up through the real AX server.
+    func testRowActionsAndSortPopUpReachAnOutOfProcessAXClient() throws {
+        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        let (navigator, window) = makeNavigatorInWindow()
+        window.orderFront(nil)
+        defer { window.close() }
+        navigator.onExtractSelectedSequencesRequested = { _ in }
+        navigator.testingSelectRows([0])
+
+        let listed = AXProcessProbe.rowCellActionNames(row: 1)
+        let names = try XCTUnwrap(listed, "the server lists the row's cell")
+        XCTAssertTrue(names.contains("Copy Name"), "\(names)")
+        XCTAssertEqual(Set(names).count, names.count, "each action listed once: \(names)")
+        XCTAssertTrue(AXProcessProbe.performRowCellAction("Copy Name", row: 1))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "seg2")
+
+        let sort = AXProcessProbe.Query(role: "AXPopUpButton")
+        XCTAssertEqual(AXProcessProbe.customActionNames(sort), ["Natural", "A-Z", "Size"])
+        XCTAssertTrue(AXProcessProbe.perform("Size", on: sort))
+        XCTAssertEqual(navigator.sortMode, .bySize)
+    }
+
     func testSortPopUpMirrorsItsItemsAsActionsThatResort() throws {
         let navigator = makeNavigator()
         let actions = try XCTUnwrap(navigator.testingSortPopUp.accessibilityCustomActions())

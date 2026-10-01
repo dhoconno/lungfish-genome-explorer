@@ -664,9 +664,10 @@ public final class MainMenu {
         nucleotideModeItem.tag = 1002  // Tag for validation/state
 
         // Track header disclosure, for keyboards and AX clients that cannot
-        // hover the triangle. Nil target: the viewer validates it.
+        // hover the triangle. Nil target: the viewer validates it and switches
+        // the title between Show and Hide.
         viewMenu.addItem(
-            withTitle: "Toggle Annotations for Selected Track",
+            withTitle: "Show Annotations for Selected Track",
             action: #selector(TrackHeaderMenuActions.toggleAnnotationsForSelectedTrack(_:)),
             keyEquivalent: ""
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.toggleAnnotationsForSelectedTrack)
@@ -1460,7 +1461,7 @@ enum ProvenanceExportMenuModel {
     func deleteAnnotation(_ sender: Any?)
 }
 
-/// View > Toggle Annotations for Selected Track handler, adopted by the
+/// View > Show or Hide Annotations for Selected Track handler, adopted by the
 /// viewer that owns the track headers.
 @MainActor
 @objc protocol TrackHeaderMenuActions {

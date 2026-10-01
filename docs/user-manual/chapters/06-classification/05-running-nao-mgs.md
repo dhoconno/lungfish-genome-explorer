@@ -137,7 +137,7 @@ Each accession above its panel links to that record at GenBank, NCBI's sequence 
 
 The information button at the right end opens a popover headed **NAO-MGS Pipeline Info**, which lists the source file, import date, format version, hit and taxon counts, top taxon, workflow version, and number of fetched accessions.
 
-Right-clicking a taxon row offers BLAST verification, **Extract Reads...**, **Copy Taxon ID**, **Copy Top Accessions**, **View on NCBI**, **View Taxonomy on NCBI**, and **Search PubMed**.
+Right-clicking a taxon row offers **Verify with BLAST...**, **Copy Taxon ID**, **Copy Accession**, **Open on NCBI**, **Open Taxonomy on NCBI**, **Search PubMed**, and **Extract Reads...**.
 
 ## What good looks like
 

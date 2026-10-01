@@ -277,7 +277,7 @@ Selecting a row loads its reads into the alignment pane below the table, drawn a
 
 **BLAST Verify** in the action bar sends reads of the selected row to NCBI for a second opinion, as [BLAST Verification](06-blast-verification.md) explains, and needs exactly one row selected. It opens a popover whose slider sets how many reads to send, starting at 20, and whose caption names the database searched, core_nt. Right-clicking the row and choosing **Verify with BLAST...** opens the same popover. **Extract FASTQ** opens the dialog [Running Kraken 2](02-running-kraken2.md#extract-the-reads-of-one-taxon) documents.
 
-Right-clicking a row offers **Verify with BLAST...**, **Copy Organism Name**, **Copy Taxon ID**, **Copy Row as TSV**, **Look Up in NCBI Taxonomy**, and **Extract Reads...**. Copy Row as [TSV](../../GLOSSARY.md#tsv) copies the row as tab-separated text you can paste into a spreadsheet.
+Right-clicking a row offers **Verify with BLAST...**, **Copy Name**, **Copy Taxon ID**, **Copy Row as TSV**, **Open Taxonomy on NCBI**, and **Extract Reads...**. Copy Row as [TSV](../../GLOSSARY.md#tsv) copies the row as tab-separated text you can paste into a spreadsheet.
 
 **Export** in the action bar offers **Export as CSV...** and **Export as TSV...**, which write the rows the table shows at that moment, with columns for the sample, the scores and counts, the taxonomy ID, and a Contamination Risk flag. **Copy Summary** copies a short text summary of the run and of what the view shows. A batch adds **Export Organism Matrix (CSV)...** and **Export Batch Report...**. The Provenance button at the right end of the action bar shows how the run was made.
 

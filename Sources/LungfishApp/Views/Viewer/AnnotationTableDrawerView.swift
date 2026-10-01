@@ -709,6 +709,14 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// The row commands derived for the row whose cells were built last, so
     /// one context menu build serves every cell of the row.
     var accessibilityRowCommandCache: AnnotationDrawerRowCommandCache?
+    /// The row whose commands are being listed while it is outside the
+    /// selection. Invoking such a command selects the row first, so its
+    /// menu is built as if the row alone were selected.
+    var unselectedCommandRow: Int?
+    /// The indexes the row commands act on right now.
+    var commandSelectionIndexes: IndexSet {
+        unselectedCommandRow.map { IndexSet(integer: $0) } ?? tableView.selectedRowIndexes
+    }
     /// Base annotation result set before local column filters.
     var baseDisplayedAnnotationRows: [AnnotationSearchIndex.SearchResult] = []
     /// Header-driven filters applied to annotation rows.
@@ -1852,7 +1860,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     func selectedAnnotationResults(fallback result: AnnotationSearchIndex.SearchResult? = nil) -> [AnnotationSearchIndex.SearchResult] {
-        var indexes = tableView.selectedRowIndexes
+        var indexes = commandSelectionIndexes
         if indexes.isEmpty, let result, let index = displayedAnnotations.firstIndex(where: { $0.id == result.id }) {
             indexes.insert(index)
         }
@@ -2719,8 +2727,8 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
 
         // --- Delete ---
-        let selectedCount = tableView.selectedRowIndexes.count
-        let deleteTitle = selectedCount > 1 ? "Delete \(selectedCount) Selected Variants" : "Delete Selected Variant"
+        let selectedCount = commandSelectionIndexes.count
+        let deleteTitle = selectedCount > 1 ? "Delete \(selectedCount) Selected Variants\u{2026}" : "Delete Selected Variant\u{2026}"
         let deleteItem = NSMenuItem(title: deleteTitle, action: #selector(deleteSelectedVariantsAction(_:)), keyEquivalent: "")
         deleteItem.target = self
         menu.addItem(deleteItem)
@@ -3124,7 +3132,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     @objc private func deleteSelectedVariantsAction(_ sender: NSMenuItem) {
         guard let source = searchIndex else { return }
-        let selectedRows = tableView.selectedRowIndexes
+        let selectedRows = commandSelectionIndexes
         let selectedVariants = selectedRows.compactMap { idx -> AnnotationSearchIndex.SearchResult? in
             guard idx < displayedAnnotations.count else { return nil }
             return displayedAnnotations[idx]

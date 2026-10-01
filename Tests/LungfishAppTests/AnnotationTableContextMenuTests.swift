@@ -1001,7 +1001,8 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         var titles: [String] = []
         for item in menu.items where !item.isSeparatorItem {
             if let submenu = item.submenu {
-                titles += submenu.items.filter { !$0.isSeparatorItem && $0.isEnabled }.map(\.title)
+                titles += submenu.items.filter { !$0.isSeparatorItem && $0.isEnabled }
+                    .map { AccessibilityMenuMirror.actionName(submenu: item.title, item: $0.title) }
             } else if item.isEnabled {
                 titles.append(item.title)
             }
@@ -1034,7 +1035,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         let row = try XCTUnwrap(drawer.displayedAnnotations.firstIndex { $0.name == "gag-cds" })
         assertRowParity(drawer, row: row)
         let names = AccessibilityRowProbe.firstCellActionNames(AccessibilityRowProbe.rowProxies(of: drawer.tableView)[row])
-        for title in ["Copy Translation", "Copy Translation as FASTA", "Edit Annotation\u{2026}", "Delete Annotation\u{2026}", "Select Related Gene Features", "Zoom to Annotation", "Show in Inspector"] {
+        for title in ["Copy: Copy Translation", "Copy: Copy Translation as FASTA", "Edit Annotation\u{2026}", "Delete Annotation\u{2026}", "Select Related Gene Features", "Zoom to Annotation", "Show in Inspector"] {
             XCTAssertTrue(names.contains(title), title)
         }
     }
@@ -1051,14 +1052,76 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         let rowB = try XCTUnwrap(drawer.displayedAnnotations.firstIndex { $0.name == "gene-b" })
         let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
 
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: rows[rowB]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Name", in: rows[rowB]))
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "gene-b")
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Coordinates", in: rows[rowB]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Coordinates", in: rows[rowB]))
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "chr1:301-400")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Extract Sequence\u{2026}", in: rows[rowB]))
         XCTAssertEqual(delegate.extractedAnnotations.map(\.name), ["gene-b"])
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Delete Annotation\u{2026}", in: rows[rowB]))
         XCTAssertEqual(delegate.deletedAnnotations.map(\.name), ["gene-b"])
+    }
+
+    func testCellActionOnAnUnselectedRowActsOnThatRowNotTheSelection() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a",
+            "chr1\t300\t400\tgene-b\t0\t+\t300\t400\t0,0,0\t1\t100\t0\tgene\tgene=gene-b",
+            "chr1\t500\t600\tgene-c\t0\t+\t500\t600\t0,0,0\t1\t100\t0\tgene\tgene=gene-c",
+        ])
+        let window = host(drawer)
+        defer { window.close() }
+        let delegate = DrawerDelegateSpy()
+        drawer.delegate = delegate
+        XCTAssertTrue(drawer.selectAnnotation(named: "gene-a"))
+        let rowC = try XCTUnwrap(drawer.displayedAnnotations.firstIndex { $0.name == "gene-c" })
+        let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
+
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Extract Sequence\u{2026}", in: rows[rowC]))
+        XCTAssertEqual(delegate.extractedAnnotations.map(\.name), ["gene-c"], "the invoked row, not the selected one")
+        XCTAssertEqual(drawer.tableView.selectedRowIndexes, IndexSet(integer: rowC), "the invoked row becomes the selection")
+        drawer.selectAnnotation(named: "gene-a")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Delete Annotation\u{2026}", in: rows[rowC]))
+        XCTAssertEqual(delegate.deletedAnnotations.map(\.name), ["gene-c"])
+    }
+
+    func testCellActionOnASelectedRowKeepsTheWholeSelection() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a",
+            "chr1\t300\t400\tgene-b\t0\t+\t300\t400\t0,0,0\t1\t100\t0\tgene\tgene=gene-b",
+        ])
+        let window = host(drawer)
+        defer { window.close() }
+        let delegate = DrawerDelegateSpy()
+        drawer.delegate = delegate
+        XCTAssertEqual(drawer.selectAnnotations(named: ["gene-a", "gene-b"]), 2)
+        let rowB = try XCTUnwrap(drawer.displayedAnnotations.firstIndex { $0.name == "gene-b" })
+        let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Extract Sequence\u{2026}", in: rows[rowB]))
+        XCTAssertEqual(Set(delegate.extractedAnnotations.map(\.name)), ["gene-a", "gene-b"])
+    }
+
+    /// Goes through the real AX server (`AXUIElementCreateApplication`) rather
+    /// than the Swift getters: the listed names and the performed action are
+    /// what an out-of-process client gets.
+    func testDrawerRowActionsReachAnOutOfProcessAXClient() throws {
+        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a",
+            "chr1\t300\t400\tgene-b\t0\t+\t300\t400\t0,0,0\t1\t100\t0\tgene\tgene=gene-b",
+        ])
+        let window = host(drawer)
+        window.orderFront(nil)
+        defer { window.close() }
+        let delegate = DrawerDelegateSpy()
+        drawer.delegate = delegate
+        let rowB = try XCTUnwrap(drawer.displayedAnnotations.firstIndex { $0.name == "gene-b" })
+        let listed = AXProcessProbe.rowCellActionNames(row: rowB)
+        let names = try XCTUnwrap(listed, "the server lists the row's cell")
+        XCTAssertTrue(names.contains("Copy: Copy Name"), "\(names)")
+        XCTAssertEqual(Set(names).count, names.count, "each action listed once: \(names)")
+        let performed = AXProcessProbe.performRowCellAction("Copy: Copy Name", row: rowB)
+        XCTAssertTrue(performed)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "gene-b")
     }
 
     private func makeVariantDrawer() -> AnnotationTableDrawerView {
@@ -1091,16 +1154,16 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
         let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
         let names = AccessibilityRowProbe.firstCellActionNames(rows[1])
-        for title in ["Copy Variant ID", "Copy Coordinates", "Copy Ref/Alt", "Copy as VCF Line", "Zoom to Variant", "Show in Inspector", "Bookmark Variant", "Filter to SNP Only", "Delete Selected Variant", "Delete All Variants\u{2026}"] {
+        for title in ["Copy: Copy Variant ID", "Copy: Copy Coordinates", "Copy: Copy Ref/Alt", "Copy: Copy as VCF Line", "Zoom to Variant", "Show in Inspector", "Bookmark Variant", "Filter to SNP Only", "Delete Selected Variant\u{2026}", "Delete All Variants\u{2026}"] {
             XCTAssertTrue(names.contains(title), title)
         }
         XCTAssertFalse(names.contains("Export Bookmarked Variants\u{2026}"), "nothing bookmarked yet")
 
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Variant ID", in: rows[0]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Variant ID", in: rows[0]))
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs1")
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Ref/Alt", in: rows[1]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Ref/Alt", in: rows[1]))
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "C > T")
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy as VCF Line", in: rows[0]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy as VCF Line", in: rows[0]))
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "chr1\t10\trs1\tA\tG\t50.0\tPASS\t.")
     }
 
@@ -1112,9 +1175,9 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         drawer.tableView.reloadData()
         drawer.tableView.layoutSubtreeIfNeeded()
         let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Variant ID", in: rows[0]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Variant ID", in: rows[0]))
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs2")
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Variant ID", in: rows[1]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Variant ID", in: rows[1]))
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs1")
     }
 

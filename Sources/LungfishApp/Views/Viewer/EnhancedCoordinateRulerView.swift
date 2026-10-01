@@ -1138,7 +1138,7 @@ extension ViewerViewController: TrackHeaderViewDelegate {
     }
 }
 
-// MARK: - View > Toggle Annotations for Selected Track
+// MARK: - View > Show or Hide Annotations for Selected Track
 
 /// The menu bar route to the track header's disclosure triangles.
 ///
@@ -1148,7 +1148,7 @@ extension ViewerViewController: TrackHeaderViewDelegate {
 /// or hide.
 extension ViewerViewController: TrackHeaderMenuActions, NSMenuItemValidation {
 
-    /// The track View > Toggle Annotations for Selected Track acts on, or
+    /// The track View > Show or Hide Annotations for Selected Track acts on, or
     /// nil when no stacked track with annotations is selected.
     var selectedTrackIndexForAnnotationToggle: Int? {
         guard let state = viewerView.multiSequenceState, !state.stackedSequences.isEmpty else { return nil }
@@ -1165,7 +1165,15 @@ extension ViewerViewController: TrackHeaderMenuActions, NSMenuItemValidation {
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(toggleAnnotationsForSelectedTrack(_:)) {
-            return selectedTrackIndexForAnnotationToggle != nil
+            guard let index = selectedTrackIndexForAnnotationToggle,
+                  let state = viewerView.multiSequenceState else {
+                menuItem.title = "Show Annotations for Selected Track"
+                return false
+            }
+            menuItem.title = state.stackedSequences[index].showAnnotations
+                ? "Hide Annotations for Selected Track"
+                : "Show Annotations for Selected Track"
+            return true
         }
         return true
     }

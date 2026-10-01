@@ -12,7 +12,8 @@ import AppKit
 /// open the menu and walk it. With the mirror installed, the owner lists each
 /// enabled, titled item as a custom action named after the item, and
 /// performing the action does what choosing the item does. Items in a
-/// one-level submenu are named "Submenu > Item".
+/// one-level submenu are named "Submenu: Item" (see ``actionName(submenu:item:)``),
+/// the one format every flattened submenu uses.
 ///
 /// The mirror is a snapshot of the menu at install time, so an owner whose
 /// menu is rebuilt (a delegate's `menuNeedsUpdate`) installs it again after
@@ -69,6 +70,13 @@ public enum AccessibilityMenuMirror {
         }
     }
 
+    /// The accessibility action name of a submenu's item: "Submenu: Item",
+    /// for example "Look Up on NCBI: NCBI Taxonomy". Every surface that
+    /// flattens a submenu into actions names its items this way.
+    public static func actionName(submenu: String, item: String) -> String {
+        "\(submenu): \(item)"
+    }
+
     /// Sends the item's action the way the menu would: to its target, or
     /// down the responder chain when it has none. Done directly rather than
     /// through `performActionForItem(at:)`, which flashes the item and
@@ -78,26 +86,34 @@ public enum AccessibilityMenuMirror {
         NSApplication.shared.sendAction(action, to: item.target, from: item)
     }
 
+    /// An item that does something when chosen, with the name its
+    /// accessibility action carries.
+    public struct FlattenedItem {
+        public let name: String
+        public let item: NSMenuItem
+    }
+
     /// The items of `menu` that do something when chosen, with one submenu
     /// level flattened in place: enabled, titled, with an action. Separators,
-    /// disabled items and items that only open a submenu are left out. This
-    /// is the list a row's cell actions are built from when the row's
-    /// context menu is the source of truth.
-    public static func flattenedItems(of menu: NSMenu) -> [NSMenuItem] {
+    /// disabled items and items that only open a submenu are left out. An
+    /// item that came from a submenu is named "Submenu: Item". This is the
+    /// list a row's cell actions are built from when the row's context menu
+    /// is the source of truth.
+    public static func flattenedItems(of menu: NSMenu) -> [FlattenedItem] {
         if menu.autoenablesItems { menu.update() }
-        var items: [NSMenuItem] = []
+        var items: [FlattenedItem] = []
         for item in menu.items where !item.isSeparatorItem && !item.title.isEmpty {
             if let submenu = item.submenu {
                 if submenu.autoenablesItems { submenu.update() }
                 for child in submenu.items
                 where !child.isSeparatorItem && !child.title.isEmpty && child.isEnabled
                     && child.submenu == nil && child.action != nil {
-                    items.append(child)
+                    items.append(FlattenedItem(name: actionName(submenu: item.title, item: child.title), item: child))
                 }
                 continue
             }
             guard item.isEnabled, item.action != nil else { continue }
-            items.append(item)
+            items.append(FlattenedItem(name: item.title, item: item))
         }
         return items
     }
@@ -120,7 +136,7 @@ public enum AccessibilityMenuMirror {
                 for child in submenu.items
                 where !child.isSeparatorItem && !child.title.isEmpty && child.isEnabled
                     && child.submenu == nil && child.action != nil {
-                    actions.append(AccessibilityCellActions.makeAction(name: "\(item.title) > \(child.title)") {
+                    actions.append(AccessibilityCellActions.makeAction(name: actionName(submenu: item.title, item: child.title)) {
                         send(child)
                     })
                 }
@@ -143,15 +159,35 @@ public enum AccessibilityMenuMirror {
 /// item counts the selected rows). Rather than reinstalling a snapshot on
 /// every change, the button asks ``menuProvider`` for the current menu
 /// whenever its actions are read, so the list is never stale.
+///
+/// An `NSButton` reaches the AX server as its cell, which never reads the
+/// view's own custom actions, so the dynamic list is served by the button's
+/// cell (``MenuMirroringButtonCell``) and only there, which keeps each
+/// action listed once.
 @MainActor
 public final class MenuMirroringButton: NSButton {
     /// Builds the menu the button would pop right now. Nil publishes no
     /// actions.
     public var menuProvider: (() -> NSMenu?)?
 
-    public override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
-        guard let menu = menuProvider?() else { return super.accessibilityCustomActions() }
+    public override class var cellClass: AnyClass? {
+        get { MenuMirroringButtonCell.self }
+        set { _ = newValue }
+    }
+
+    /// The mirrored actions for the menu `menuProvider` builds right now.
+    func mirroredActions() -> [NSAccessibilityCustomAction]? {
+        guard let menu = menuProvider?() else { return nil }
         let actions = AccessibilityMenuMirror.actions(for: menu)
         return actions.isEmpty ? nil : actions
+    }
+}
+
+/// The cell of a ``MenuMirroringButton``, which the AX server asks for the
+/// button's custom actions.
+@MainActor
+public final class MenuMirroringButtonCell: NSButtonCell {
+    public override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        (controlView as? MenuMirroringButton)?.mirroredActions() ?? super.accessibilityCustomActions()
     }
 }

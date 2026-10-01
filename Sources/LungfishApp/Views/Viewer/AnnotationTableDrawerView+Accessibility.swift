@@ -48,37 +48,59 @@ extension AnnotationTableDrawerView: NSMenuItemValidation, ResultRowMenuActions,
         }
     }
 
-    /// The enabled commands of `row`'s context menu, in menu order.
-    func rowCommandItems(for row: Int) -> [NSMenuItem] {
+    /// The enabled commands of `row`'s context menu, in menu order, each with
+    /// the accessibility action name it carries ("Copy: Copy Name" for an
+    /// item of the Copy submenu).
+    func rowCommandItems(for row: Int) -> [AccessibilityMenuMirror.FlattenedItem] {
         let menu = NSMenu()
         menu.autoenablesItems = false
+        unselectedCommandRow = tableView.selectedRowIndexes.contains(row) ? nil : row
+        defer { unselectedCommandRow = nil }
         buildRowContextMenu(menu, row: row)
         return AccessibilityMenuMirror.flattenedItems(of: menu)
     }
 
+    /// Makes `row` the whole selection unless it is already part of it, the
+    /// reconciliation a right-click outside the selection performs. Commands
+    /// that act on the selection (Extract, Delete) then act on the row the
+    /// command was invoked on.
+    private func targetSelection(toRow row: Int) {
+        guard row >= 0, row < tableView.numberOfRows, !tableView.selectedRowIndexes.contains(row) else { return }
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
     /// Sends the command of `row`'s context menu whose action is `selector`
-    /// (and, when given, whose title is `title`). Returns false when the row
-    /// offers no such command right now.
+    /// (and, when given, whose action name is `name`). The row becomes the
+    /// selection first, unless it is already part of it, and the menu is
+    /// built after that so its commands describe the selection they act on.
+    /// Returns false when the row offers no such command right now.
     @discardableResult
-    func performRowCommand(_ selector: Selector, title: String? = nil, on row: Int) -> Bool {
-        let items = rowCommandItems(for: row)
-        guard let item = items.first(where: { $0.action == selector && (title == nil || $0.title == title) })
-            ?? items.first(where: { $0.action == selector }) else { return false }
+    func performRowCommand(_ selector: Selector, name: String? = nil, on row: Int) -> Bool {
+        func entry(in items: [AccessibilityMenuMirror.FlattenedItem]) -> AccessibilityMenuMirror.FlattenedItem? {
+            items.first(where: { $0.item.action == selector && (name == nil || $0.name == name) })
+                ?? items.first(where: { $0.item.action == selector })
+        }
         if selector == #selector(zoomToAnnotationAction(_:)) {
             // Zoom is the row's primary action: the same route as a
-            // double-click and Return, which recentres through the delegate.
+            // double-click and Return, which recentres through the delegate
+            // and leaves the selection alone.
+            guard entry(in: rowCommandItems(for: row)) != nil else { return false }
             activateRow(at: row)
             return true
         }
-        AccessibilityMenuMirror.send(item)
+        targetSelection(toRow: row)
+        guard let found = entry(in: rowCommandItems(for: row)) else { return false }
+        AccessibilityMenuMirror.send(found.item)
         return true
     }
 
     /// Identifies the row's command set for the cache: the same row of the
     /// same tab with the same selection and bookmark state lists the same
-    /// commands.
+    /// commands. A selected row's commands describe the whole selection, so
+    /// its key carries the selection size, and an unselected row's commands
+    /// describe the row alone.
     private func rowCommandCacheKey(for row: Int) -> String {
-        var parts = ["\(activeTab.rawValue)", "\(activeVariantSubtab.rawValue)", "\(row)", "\(tableView.selectedRowIndexes.count)"]
+        var parts = ["\(activeTab.rawValue)", "\(activeVariantSubtab.rawValue)", "\(row)", tableView.selectedRowIndexes.contains(row) ? "s\(tableView.selectedRowIndexes.count)" : "u"]
         if activeTab == .samples {
             parts.append(row < displayedSamples.count ? displayedSamples[row].name : "")
         } else if row < displayedAnnotations.count {
@@ -99,7 +121,7 @@ extension AnnotationTableDrawerView: NSMenuItemValidation, ResultRowMenuActions,
             return (cached.names, cached.selectors)
         }
         let items = rowCommandItems(for: row)
-        let cache = AnnotationDrawerRowCommandCache(key: key, names: items.map(\.title), selectors: items.compactMap(\.action))
+        let cache = AnnotationDrawerRowCommandCache(key: key, names: items.map(\.name), selectors: items.compactMap(\.item.action))
         accessibilityRowCommandCache = cache
         return (cache.names, cache.selectors)
     }
@@ -135,7 +157,7 @@ extension AnnotationTableDrawerView: NSMenuItemValidation, ResultRowMenuActions,
         let actions = zip(commands.names, commands.selectors).map { name, selector in
             AccessibilityCellActions.makeAction(name: name) { [weak self, weak cellView] in
                 guard let self, let cellView, let row = AccessibilityCellActions.currentRow(of: cellView) else { return }
-                self.performRowCommand(selector, title: name, on: row)
+                self.performRowCommand(selector, name: name, on: row)
             }
         }
         AccessibilityCellActions.install(actions, on: cellView)
@@ -164,7 +186,7 @@ extension AnnotationTableDrawerView: NSMenuItemValidation, ResultRowMenuActions,
     /// Whether the single selected row's context menu offers `selector` enabled.
     private func selectedRowOffers(_ selector: Selector) -> Bool {
         guard tableView.numberOfSelectedRows >= 1 else { return false }
-        return rowCommandItems(for: tableView.selectedRow).contains { $0.action == selector }
+        return rowCommandItems(for: tableView.selectedRow).contains { $0.item.action == selector }
     }
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {

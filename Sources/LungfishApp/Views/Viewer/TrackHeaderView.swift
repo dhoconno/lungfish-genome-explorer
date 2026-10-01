@@ -28,14 +28,14 @@ public protocol TrackHeaderViewDelegate: AnyObject {
 /// - Click-to-expand/collapse annotation tracks
 /// - Visual feedback for expanded/collapsed state
 ///
-/// The triangles are mouse targets that only show on hover, so the view also
-/// offers them two other ways. To accessibility clients it is a group whose
+/// The triangles are small mouse targets (hovering one only changes its
+/// colour), so the view also offers them two other ways. To accessibility clients it is a group whose
 /// children are one disclosure-triangle element per track with annotations
 /// (label the track name, value expanded or collapsed, press toggles). To
 /// the keyboard it is a focusable view: Up and Down move a focus ring
 /// between those tracks and Space or Return toggles the focused one. View >
-/// Toggle Annotations for Selected Track reaches the same toggle from the
-/// menu bar.
+/// Show or Hide Annotations for Selected Track reaches the same toggle from
+/// the menu bar.
 public class TrackHeaderView: NSView {
 
     private var trackNames: [String] = []
@@ -64,8 +64,13 @@ public class TrackHeaderView: NSView {
     /// annotations. Nil until the view takes focus.
     private(set) var focusedTrackIndex: Int?
 
-    /// One accessibility element per track with annotations.
+    /// One accessibility element per track with annotations, in track order.
     private var disclosureElements: [TrackDisclosureElement] = []
+
+    /// The elements by track key, kept across rebuilds so the element
+    /// VoiceOver is on survives a toggle, which hands the header a new
+    /// stacked list.
+    private var disclosureElementsByKey: [String: TrackDisclosureElement] = [:]
 
     public override var isFlipped: Bool { true }
 
@@ -137,6 +142,7 @@ public class TrackHeaderView: NSView {
     func toggleAnnotations(forTrackAt index: Int) -> Bool {
         guard annotationsExpanded(forTrackAt: index) != nil else { return false }
         delegate?.trackHeaderView(self, didToggleAnnotationsForTrackAt: index)
+        announceValueChange(forTrackAt: index)
         return true
     }
 
@@ -148,6 +154,7 @@ public class TrackHeaderView: NSView {
         guard disclosableTrackIndices.contains(index), focusedTrackIndex != index else { return }
         focusedTrackIndex = index
         noteFocusRingMaskChanged()
+        updateAccessibilityFocus(announce: true)
         needsDisplay = true
     }
 
@@ -157,6 +164,7 @@ public class TrackHeaderView: NSView {
             focusedTrackIndex = disclosableTrackIndices.first
         }
         noteFocusRingMaskChanged()
+        updateAccessibilityFocus(announce: true, viewHasFocus: true)
         needsDisplay = true
         return true
     }
@@ -164,6 +172,7 @@ public class TrackHeaderView: NSView {
     public override func resignFirstResponder() -> Bool {
         guard super.resignFirstResponder() else { return false }
         noteFocusRingMaskChanged()
+        for element in disclosureElements { element.setAccessibilityFocused(false) }
         needsDisplay = true
         return true
     }
@@ -206,24 +215,71 @@ public class TrackHeaderView: NSView {
 
     // MARK: - Accessibility
 
-    /// Rebuilds the disclosure elements from the current tracks. Each one
-    /// reads its state from the view when asked, so a toggle needs no
-    /// further bookkeeping than the redraw the delegate already triggers.
+    /// The key a track's element is kept under: its name, with the
+    /// occurrence number so two tracks of the same name stay distinct.
+    private func disclosureKeys() -> [Int: String] {
+        var seen: [String: Int] = [:]
+        var keys: [Int: String] = [:]
+        for index in disclosableTrackIndices {
+            let name = trackNames[index]
+            let occurrence = seen[name, default: 0]
+            seen[name] = occurrence + 1
+            keys[index] = "\(name)#\(occurrence)"
+        }
+        return keys
+    }
+
+    /// Brings the disclosure elements in line with the current tracks.
+    /// An element is reused for the track it already stands for and only its
+    /// label, help and frame are refreshed. Each one reads its state from the
+    /// view when asked, so a toggle needs no further bookkeeping than the
+    /// redraw the delegate already triggers.
     private func rebuildDisclosureElements() {
-        disclosureElements = disclosableTrackIndices.map { index in
-            let element = TrackDisclosureElement()
+        let keys = disclosureKeys()
+        var kept: [String: TrackDisclosureElement] = [:]
+        disclosureElements = disclosableTrackIndices.compactMap { index in
+            guard let key = keys[index] else { return nil }
+            let element = disclosureElementsByKey[key] ?? {
+                let created = TrackDisclosureElement()
+                created.header = self
+                created.setAccessibilityRole(.disclosureTriangle)
+                created.setAccessibilityParent(self)
+                return created
+            }()
             element.trackIndex = index
-            element.header = self
-            element.setAccessibilityRole(.disclosureTriangle)
-            element.setAccessibilityParent(self)
             element.setAccessibilityLabel(trackNames[index])
-            element.setAccessibilityHelp("Shows or hides the annotations of the \(trackNames[index]) track")
+            element.setAccessibilityHelp("Shows or hides the annotations of the \(trackNames[index]) track.")
             element.setAccessibilityFrameInParentSpace(rowRect(forTrackAt: index))
+            kept[key] = element
             return element
         }
+        disclosureElementsByKey = kept
         if let focused = focusedTrackIndex, !disclosableTrackIndices.contains(focused) {
             focusedTrackIndex = disclosableTrackIndices.first
         }
+        updateAccessibilityFocus(announce: false)
+    }
+
+    /// Marks the focused track's element as the accessibility focus while the
+    /// view is first responder, clears the others, and tells VoiceOver when
+    /// the focus moved.
+    private func updateAccessibilityFocus(announce: Bool, viewHasFocus: Bool? = nil) {
+        let viewHasFocus = viewHasFocus ?? (window?.firstResponder === self)
+        var focusedElement: TrackDisclosureElement?
+        for element in disclosureElements {
+            let focused = viewHasFocus && element.trackIndex == focusedTrackIndex
+            element.setAccessibilityFocused(focused)
+            if focused { focusedElement = element }
+        }
+        if announce, let focusedElement {
+            NSAccessibility.post(element: focusedElement, notification: .focusedUIElementChanged)
+        }
+    }
+
+    /// Tells VoiceOver the track's expanded state changed.
+    private func announceValueChange(forTrackAt index: Int) {
+        guard let element = disclosureElements.first(where: { $0.trackIndex == index }) else { return }
+        NSAccessibility.post(element: element, notification: .valueChanged)
     }
 
     public override func accessibilityChildren() -> [Any]? {
@@ -433,7 +489,7 @@ public class TrackHeaderView: NSView {
                 let triangleRect = CGRect(x: 0, y: rowY, width: 20, height: trackHeight)
 
                 if triangleRect.contains(location) {
-                    delegate?.trackHeaderView(self, didToggleAnnotationsForTrackAt: index)
+                    toggleAnnotations(forTrackAt: index)
                     return
                 }
             }

@@ -4,6 +4,7 @@
 
 import AppKit
 import XCTest
+import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishCore
 
@@ -109,5 +110,74 @@ final class TrackHeaderViewAccessibilityTests: XCTestCase {
         XCTAssertFalse(header.acceptsFirstResponder)
         XCTAssertEqual((header.accessibilityChildren() as? [Any])?.count ?? 0, 0)
         XCTAssertFalse(header.toggleAnnotations(forTrackAt: 0))
+    }
+
+    func testElementsAreReusedAcrossATogglePerTrack() throws {
+        let (header, _, window) = try makeHeader()
+        defer { window.close() }
+        let before = try XCTUnwrap(header.accessibilityChildren() as? [TrackDisclosureElement])
+        XCTAssertTrue(before[1].accessibilityPerformPress())
+        let after = try XCTUnwrap(header.accessibilityChildren() as? [TrackDisclosureElement])
+        XCTAssertEqual(after.count, 2)
+        XCTAssertTrue(after[0] === before[0] && after[1] === before[1],
+                      "VoiceOver tracks the element it is on, so a toggle must not replace it")
+        XCTAssertEqual(after[1].accessibilityHelp(), "Shows or hides the annotations of the query track.")
+    }
+
+    func testMovingKeyboardFocusMovesTheAccessibilityFocusWithIt() throws {
+        let (header, _, window) = try makeHeader()
+        defer { window.close() }
+        XCTAssertTrue(window.makeFirstResponder(header))
+        var elements = try XCTUnwrap(header.accessibilityChildren() as? [TrackDisclosureElement])
+        XCTAssertEqual(elements.map { $0.isAccessibilityFocused() }, [true, false])
+        header.keyDown(with: try key(125))
+        elements = try XCTUnwrap(header.accessibilityChildren() as? [TrackDisclosureElement])
+        XCTAssertEqual(elements.map { $0.isAccessibilityFocused() }, [false, true])
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        elements = try XCTUnwrap(header.accessibilityChildren() as? [TrackDisclosureElement])
+        XCTAssertEqual(elements.map { $0.isAccessibilityFocused() }, [false, false], "no element claims focus once the view resigns")
+    }
+
+    /// The disclosure triangles through the real AX server: listed under the
+    /// "Track headers" group, valued 0 or 1, and pressable with `AXPress`.
+    func testDisclosureTrianglesAreReachableThroughTheAXServer() throws {
+        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        let (_, spy, window) = try makeHeader()
+        window.orderFront(nil)
+        defer { window.close() }
+        let triangle = AXProcessProbe.Query(role: "AXDisclosureTriangle", text: "query")
+        XCTAssertEqual(AXProcessProbe.value(triangle), "0")
+        XCTAssertTrue(AXProcessProbe.press(triangle))
+        XCTAssertEqual(spy.toggled, [2])
+        XCTAssertEqual(AXProcessProbe.value(triangle), "1", "the same element reports the new state")
+    }
+
+    /// The View menu item names what it will do: Show when the selected
+    /// track's annotations are hidden, Hide when they are shown.
+    func testViewMenuItemTitleSwitchesBetweenShowAndHideForTheSelectedTrack() throws {
+        _ = NSApplication.shared
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        let state = MultiSequenceState()
+        state.setSequences([
+            try Sequence(name: "ref", alphabet: .dna, bases: "ACGTACGTACGT"),
+            try Sequence(name: "query", alphabet: .dna, bases: "ACGTACGT"),
+        ])
+        state.setAnnotations([SequenceAnnotation(type: .gene, name: "g", chromosome: "ref", start: 1, end: 5)])
+        state.setAnnotationVisibility(false, at: 0)
+        viewer.viewerView.multiSequenceState = state
+        let item = NSMenuItem(
+            title: "Show Annotations for Selected Track",
+            action: #selector(TrackHeaderMenuActions.toggleAnnotationsForSelectedTrack(_:)),
+            keyEquivalent: ""
+        )
+        XCTAssertTrue(viewer.validateMenuItem(item))
+        XCTAssertEqual(item.title, "Show Annotations for Selected Track")
+        state.setAnnotationVisibility(true, at: 0)
+        XCTAssertTrue(viewer.validateMenuItem(item))
+        XCTAssertEqual(item.title, "Hide Annotations for Selected Track")
+        state.setAnnotationVisibility(false, at: 0)
+        XCTAssertTrue(viewer.validateMenuItem(item))
+        XCTAssertEqual(item.title, "Show Annotations for Selected Track")
     }
 }

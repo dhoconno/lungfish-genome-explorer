@@ -168,7 +168,7 @@ final class SelectionMenuTests: XCTestCase {
     func testViewMenuOffersToggleAnnotationsForSelectedTrack() throws {
         let view = try submenu("View", in: mainMenu())
         let toggle = try item(identifier: MainMenuAccessibilityID.toggleAnnotationsForSelectedTrack, in: view)
-        XCTAssertEqual(toggle.title, "Toggle Annotations for Selected Track")
+        XCTAssertEqual(toggle.title, "Show Annotations for Selected Track", "the viewer switches it between Show and Hide")
         XCTAssertEqual(toggle.action, #selector(TrackHeaderMenuActions.toggleAnnotationsForSelectedTrack(_:)))
         XCTAssertNil(toggle.target)
         XCTAssertEqual(toggle.keyEquivalent, "")

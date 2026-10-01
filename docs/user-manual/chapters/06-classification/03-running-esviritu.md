@@ -207,7 +207,7 @@ EsViritu maps against the shared [pangenome](../../GLOSSARY.md#pangenome) of its
 
 ### Acting on a row
 
-Right-click a detection row for **Extract Reads...**, which writes the reads that mapped to that virus as a new FASTQ bundle, and **BLAST Verify...**, which sends a sample of those reads over the internet to NCBI. [BLAST](../../GLOSSARY.md#blast) searches a sequence against NCBI's collection, and [BLAST Verification](06-blast-verification.md#reading-the-results) explains how to read percent identity, e-value, and query coverage. The menu also offers a **Look Up on NCBI** submenu that opens the matching record in your web browser, and copy commands for the virus name, the accession, or the whole row.
+Right-click a detection row for **Extract Reads...**, which writes the reads that mapped to that virus as a new FASTQ bundle, and **Verify with BLAST...**, which sends a sample of those reads over the internet to NCBI. [BLAST](../../GLOSSARY.md#blast) searches a sequence against NCBI's collection, and [BLAST Verification](06-blast-verification.md#reading-the-results) explains how to read percent identity, e-value, and query coverage. The menu also offers a **Look Up on NCBI** submenu that opens the matching record in your web browser, and copy commands for the virus name, the accession, or the whole row.
 
 Extract reads with the action bar's **Extract FASTQ** button, whose dialog [Running Kraken 2](02-running-kraken2.md#extract-the-reads-of-one-taxon) documents. The action bar also carries **BLAST Verify** and an **Export** menu for CSV, TSV, a clipboard summary, and the run record.
 

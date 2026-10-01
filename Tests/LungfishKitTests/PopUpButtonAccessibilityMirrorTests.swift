@@ -87,7 +87,7 @@ final class PopUpButtonAccessibilityMirrorTests: XCTestCase {
         AccessibilityMenuMirror.install(menu, on: header)
 
         let actions = try XCTUnwrap(header.accessibilityCustomActions())
-        XCTAssertEqual(actions.map(\.name), ["Sort Ascending", "Filter > Contains\u{2026}", "Filter > Is Empty"])
+        XCTAssertEqual(actions.map(\.name), ["Sort Ascending", "Filter: Contains\u{2026}", "Filter: Is Empty"])
         XCTAssertEqual(actions[2].handler?(), true)
         XCTAssertEqual(target.chosen, ["Is Empty"])
     }

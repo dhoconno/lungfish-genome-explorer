@@ -454,6 +454,27 @@ final class FASTACollectionViewControllerTests: XCTestCase {
         )
     }
 
+    func testRowActionsReachAnOutOfProcessAXClient() throws {
+        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        let (vc, window) = try makeHostedController()
+        window.orderFront(nil)
+        defer { window.close() }
+        let pasteboard = RecordingPasteboard()
+        vc.testSetPasteboard(pasteboard)
+        var extracted: [[String]] = []
+        vc.onExtractSequenceRequested = { extracted.append($0.map(\.name)) }
+
+        let listed = AXProcessProbe.rowCellActionNames(row: 2)
+        let names = try XCTUnwrap(listed, "the server lists the row's cell")
+        XCTAssertTrue(names.contains("Copy Name"), "\(names)")
+        XCTAssertEqual(Set(names).count, names.count, "each action listed once: \(names)")
+        XCTAssertTrue(AXProcessProbe.performRowCellAction("Copy Name", row: 2))
+        XCTAssertEqual(pasteboard.lastString, "seq3")
+        vc.testSelectRows([0, 1])
+        XCTAssertTrue(AXProcessProbe.performRowCellAction("Extract Sequence\u{2026}", row: 2))
+        XCTAssertEqual(extracted.last, ["seq3"], "an unselected row is targeted alone")
+    }
+
     func testCellActionsTargetTheRowTheCellShowsNow() throws {
         let (vc, window) = try makeHostedController()
         defer { window.close() }
