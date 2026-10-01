@@ -79,9 +79,9 @@ final class PrimerOrderExportViewTests: XCTestCase {
         let document = makeDocument(count: 13)
         let inspected = try PrimerOrderResultContent(document: document,
             orderURL: URL(fileURLWithPath: document.outputDirectoryPath)).inspect()
-        for index in 1...13 {
-            XCTAssertNoThrow(try inspected.find(text: "oligo_\(index)"))
-        }
+        // The oligos are a native Table, which ViewInspector cannot enter. Every
+        // exported member as a table row is asserted through the accessibility
+        // bridge in PrimerTableAccessibilityTests.
         XCTAssertNoThrow(try inspected.find(button: "Open order workbook"))
         XCTAssertNoThrow(try inspected.find(button: "Open IDT upload copy"))
         XCTAssertNoThrow(try inspected.find(button: "Open CSV"))
