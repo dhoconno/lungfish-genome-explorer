@@ -16,7 +16,7 @@ entry_points:
   - Help > Demo Projects…
   - View > Show Sidebar (Ctrl-Cmd-S)
   - View > Show Inspector (Cmd-Opt-I)
-  - View > Document Inspector (Cmd-Opt-D)
+  - View > Document Inspector
   - Operations > Show Operations Panel (Cmd-Shift-P)
 shots:
   - id: welcome-window
@@ -380,7 +380,7 @@ Select the mapping result under `Analyses/` and the Inspector switches to the ru
 
 The read-bundle Inspector shows the shape that repeats for every selection. The top names the item and gives its size. Summary statistics follow, then the settings recorded when the file was imported, then the steps that produced this exact dataset with the tool, the command, and the time each took. Editable sample metadata sits at the bottom.
 
-A second, separate window, the Document Inspector, lists the descriptive metadata of the selected bundle, such as its source, organism, and assembly. Open it with **View > Document Inspector** (Cmd-Opt-D).
+A second, separate window, the Document Inspector, lists the descriptive metadata of the selected bundle, such as its source, organism, and assembly. Open it with **View > Document Inspector**, which has no shortcut because macOS keeps Cmd-Opt-D for showing and hiding the Dock.
 
 ## The Operations Panel
 

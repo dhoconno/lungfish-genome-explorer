@@ -102,12 +102,11 @@ The panels that frame the main viewport, plus the zoom commands. These need a pr
 | Show Inspector | Cmd-Opt-I | LGE's own |
 | Focus Viewer | Cmd-Opt-F | LGE's own |
 | Restore Side Panes | Ctrl-Cmd-Opt-F | LGE's own |
-| Document Inspector | Cmd-Opt-D | LGE's own |
 | Provenance Inspector | Cmd-Opt-V | LGE's own |
-| AI Assistant | Cmd-Shift-A | LGE's own |
+| AI Assistant | Cmd-Opt-A | LGE's own |
 | Enter Full Screen | Ctrl-Cmd-F | Standard macOS |
 
-**Focus Viewer** hides both the sidebar and the Inspector so the viewport fills the window, and **Restore Side Panes** brings both back. **AI Assistant** reveals the Inspector's Assistant tab. **Provenance Inspector** reveals the Inspector's Provenance tab, which lists every tool run that produced the selected result. In that tab each run and each step is a button. Press Space or Return on one to open or close it, Right Arrow to open it, and Left Arrow to close it.
+**Focus Viewer** hides both the sidebar and the Inspector so the viewport fills the window, and **Restore Side Panes** brings both back. **Document Inspector** has no shortcut, because macOS keeps Cmd-Opt-D for showing and hiding the Dock. **AI Assistant** reveals the Inspector's Assistant tab. **Provenance Inspector** reveals the Inspector's Provenance tab, which lists every tool run that produced the selected result. In that tab each run and each step is a button. Press Space or Return on one to open or close it, Right Arrow to open it, and Left Arrow to close it.
 
 The Sidebar and Inspector rows change their own titles as you use them. When the panel is showing, the menu reads **Hide Sidebar** or **Hide Inspector** instead, and the same shortcut does the hiding. The shortcut never changes.
 
@@ -175,9 +174,10 @@ Commands that act on whatever you have selected in the sidebar or in a result ta
 | Sidebar Item > New Folder | Cmd-Shift-N | Standard macOS (Finder) |
 | Sidebar Item > Duplicate | Cmd-Shift-D | LGE's own |
 | Sidebar Item > Move to Trash | Cmd-Delete | Standard macOS (Finder) |
+| Sidebar Item > Select Siblings | Cmd-Shift-A | LGE's own |
 | Show in Inspector | Cmd-Opt-S | LGE's own |
 
-The **Sidebar Item** submenu works while the sidebar list has focus, so click a sidebar row first. Its items are greyed out whenever they do not apply to the selected rows, so **Open Bundle** stays disabled on a folder and **Reassemble...** stays disabled on anything that is not an assembly. The three shortcuts carry the meanings Finder gives them. Cmd-Delete moves the selected rows to the Trash, and inside a text field it keeps its usual meaning of deleting to the start of the line, because the sidebar command is disabled while a text field has focus.
+The **Sidebar Item** submenu works while the sidebar list has focus, so click a sidebar row first. Its items are greyed out whenever they do not apply to the selected rows, so **Open Bundle** stays disabled on a folder and **Reassemble...** stays disabled on anything that is not an assembly. The first three shortcuts carry the meanings Finder gives them. Cmd-Delete moves the selected rows to the Trash, and inside a text field it keeps its usual meaning of deleting to the start of the line, because the sidebar command is disabled while a text field has focus. **Select Siblings** selects every item beside the selected one in the same folder, which is the quick way to pick every barcode of a run.
 
 The **Table Row** submenu works while a result table has focus, such as the taxonomy table of a classifier result or the annotation table below a sequence. It holds the commands those tables offer on a right-click, from **Extract Reads...** and **Verify with BLAST...** to the copy commands and the NCBI and PubMed links, and each table enables only the ones it supports.
 
@@ -280,9 +280,9 @@ The TaxTriage sample shortcuts live in the View menu, listed above. In the taxon
 
 ## Inside the sidebar
 
-Right-clicking in the sidebar opens a context menu, and three of its commands print shortcuts. **New Folder** is Cmd-Shift-N, **Duplicate** is Cmd-Shift-D, and **Move to Trash**, which reads **Move N Items to Trash** for several items, is Cmd-Delete. The same three live in **Selection > Sidebar Item**, so they work whenever the sidebar list has focus, with no menu open, and **Selection > Show in Inspector** (Cmd-Opt-S) reveals the selected item in the Inspector from there too.
+Right-clicking in the sidebar opens a context menu, and four of its commands print shortcuts. **New Folder** is Cmd-Shift-N, **Duplicate** is Cmd-Shift-D, **Move to Trash**, which reads **Move N Items to Trash** for several items, is Cmd-Delete, and **Select Siblings** is Cmd-Shift-A. The same four live in **Selection > Sidebar Item**, so they work whenever the sidebar list has focus, with no menu open, and **Selection > Show in Inspector** (Cmd-Opt-S) reveals the selected item in the Inspector from there too.
 
-Two more work whenever the sidebar list has focus and appear in no menu. Delete or Forward Delete moves the selected items to the Trash, and Cmd-Shift-A selects every item beside the selected one in the same folder, which takes precedence over **View > AI Assistant** while the sidebar has focus. Moving an item to the Trash removes it from the project, and recovering it means retrieving it from the Trash yourself.
+One more works whenever the sidebar list has focus and appears in no menu. Delete or Forward Delete moves the selected items to the Trash. Moving an item to the Trash removes it from the project, and recovering it means retrieving it from the Trash yourself.
 
 ## What LGE does not bind
 
@@ -302,7 +302,7 @@ Shortcuts are not the only way to drive LGE. Scrolling moves the viewport along 
 
 A few patterns repeat, and knowing them beats memorizing every row one at a time. This section uses combination and [chord](../../GLOSSARY.md#chord) for the same thing, a set of keys pressed together.
 
-Cmd-Shift-letter usually opens or toggles a panel, which is where **Show Operations Panel**, **AI Assistant**, **Plugin Manager...**, and **Import Center...** come from. For the Sequence menu commands, Cmd-Shift-letter performs the action on the visible region instead, which covers Extract, Copy, Translate, and Reverse Complement. Cmd-Opt-letter targets the inspectors and a few window-level commands, which is **Show Inspector**, **Show in Inspector**, **Document Inspector**, **Focus Viewer**, and **New Window for Current Project**. **Go to Gene...** is the exception, on Cmd-Opt-G only because Find Next holds Cmd-G.
+Cmd-Shift-letter usually opens or toggles a panel, which is where **Show Operations Panel**, **Plugin Manager...**, and **Import Center...** come from. For the Sequence menu commands, Cmd-Shift-letter performs the action on the visible region instead, which covers Extract, Copy, Translate, and Reverse Complement. Cmd-Opt-letter targets the inspectors and a few window-level commands, which is **Show Inspector**, **Show in Inspector**, **AI Assistant**, **Provenance Inspector**, **Focus Viewer**, and **New Window for Current Project**. **Go to Gene...** is the exception, on Cmd-Opt-G only because Find Next holds Cmd-G.
 
 The Sidebar breaks the first pattern. It toggles with Ctrl-Cmd-S rather than Cmd-Shift-S, because Control is what the macOS standard uses for that particular panel.
 
@@ -340,13 +340,12 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Shift-0 | All Samples | View menu, TaxTriage result window |
 | Cmd-1 | Zoom Reset (10kb) | View menu, coordinate ruler |
 | Cmd-A | Select All | Edit menu, sequence viewport, MSA viewport |
-| Cmd-Shift-A | AI Assistant | View menu |
-| Cmd-Shift-A | Select all items in the same folder | Sidebar list |
+| Cmd-Opt-A | AI Assistant | View menu |
+| Cmd-Shift-A | Sidebar Item, Select Siblings | Selection menu, sidebar list |
 | Cmd-Shift-B | Plugin Manager... | Tools menu |
 | Cmd-C | Copy | Edit menu, sequence viewport, MSA viewport |
 | Cmd-Opt-C | Selected Operation, Copy CLI Command | Operations menu |
 | Cmd-Shift-C | Copy Visible Region as FASTA | Sequence menu |
-| Cmd-Opt-D | Document Inspector | View menu |
 | Cmd-Shift-D | Sidebar Item, Duplicate | Selection menu, sidebar list |
 | Cmd-Delete | Sidebar Item, Move to Trash | Selection menu, sidebar list |
 | Delete | Move to Trash | Sidebar list |
@@ -411,7 +410,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 
 ## Accessibility
 
-VoiceOver, the screen reader built into macOS, reads every LGE menu item with its shortcut. Turn it on with Cmd-F5, adding fn on a laptop keyboard whose F5 key is a media key, then press Ctrl-Opt-M to move into the menu bar. Full Keyboard Access, in System Settings under Keyboard, lets Tab move between controls and Space activate the one with focus. When interface text is too small, use **View > Content Text Size**, where Cmd-Opt-plus enlarges LGE's own text everywhere, Cmd-Opt-minus shrinks it, and the Default item restores it. That is separate from the viewport zoom and from macOS display scaling.
+VoiceOver, the screen reader built into macOS, reads every LGE menu item with its shortcut. Inspector rows publish their right-click commands as VoiceOver actions, so Reveal in Finder, Copy Command, or Remove Attachment is reachable from the actions rotor without a mouse. Turn it on with Cmd-F5, adding fn on a laptop keyboard whose F5 key is a media key, then press Ctrl-Opt-M to move into the menu bar. Full Keyboard Access, in System Settings under Keyboard, lets Tab move between controls and Space activate the one with focus. When interface text is too small, use **View > Content Text Size**, where Cmd-Opt-plus enlarges LGE's own text everywhere, Cmd-Opt-minus shrinks it, and the Default item restores it. That is separate from the viewport zoom and from macOS display scaling.
 
 ## Next
 

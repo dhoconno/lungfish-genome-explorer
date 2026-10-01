@@ -85,7 +85,7 @@ You may fill in more than one provider. LGE tries your default first and falls b
 
 ### Open the Assistant tab
 
-Click `NG_000007.3` under `Reference Sequences/` in the sidebar, then choose **View > AI Assistant** (Cmd-Shift-A). The Inspector opens with its **Assistant** tab selected. The header carries the title, a status line, a **Data sent…** button, and a **Clear** button.
+Click `NG_000007.3` under `Reference Sequences/` in the sidebar, then choose **View > AI Assistant** (Cmd-Opt-A). The Inspector opens with its **Assistant** tab selected. The header carries the title, a status line, a **Data sent…** button, and a **Clear** button.
 
 The tab greets you with a welcome message and a column of suggested questions written for whatever is loaded. With a reference sequence open they include "Data overview", "Explore current view", "Search for a gene", "Navigate to a gene", "Disease gene check", "Find related research", and "Chromosome guide". Three more about variants, starting with "Variant statistics", join them when the view holds a variant track. The research button searches PubMed, the free index of biomedical literature kept by the National Library of Medicine. Click a button to send its question.
 
