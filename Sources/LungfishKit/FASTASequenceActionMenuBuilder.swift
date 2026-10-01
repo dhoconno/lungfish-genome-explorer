@@ -140,6 +140,23 @@ public enum FASTASequenceActionMenuBuilder {
         return items
     }
 
+    /// The enabled commands of ``buildItems(selectionCount:handlers:)`` as
+    /// accessibility custom actions, named after the menu titles, so a FASTA
+    /// row publishes the same commands its context menu offers.
+    public static func accessibilityActions(
+        selectionCount: Int,
+        handlers: FASTASequenceActionHandlers
+    ) -> [NSAccessibilityCustomAction] {
+        buildItems(selectionCount: selectionCount, handlers: handlers)
+            .filter { !$0.isSeparatorItem && $0.isEnabled }
+            .map { item in
+                AccessibilityCellActions.makeAction(name: item.title) {
+                    guard let target = item.target as? ActionTarget else { return }
+                    target.performAction(item)
+                }
+            }
+    }
+
     private static func addItem(
         titled title: String,
         handler: (() -> Void)?,

@@ -1096,7 +1096,11 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         // Metadata columns handled by the controller.
         if MetadataColumnController.isMetadataColumn(column.identifier) {
             let rowData = displayedRows[row]
-            return metadataColumns.cellForColumn(column, in: tableView, sampleId: sampleId(for: rowData) ?? "")
+            let cell = metadataColumns.cellForColumn(column, in: tableView, sampleId: sampleId(for: rowData) ?? "")
+            if let cell {
+                AccessibilityCellActions.install(accessibilityActions(forRow: row, cellView: cell), on: cell)
+            }
+            return cell
         }
 
         let rowData = displayedRows[row]
@@ -1106,8 +1110,25 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             ?? makeCellView(identifier: id)
 
         populateCellView(cellView, id: id, rowData: rowData)
+        AccessibilityCellActions.install(accessibilityActions(forRow: row, cellView: cellView), on: cellView)
 
         return cellView
+    }
+
+    /// The accessibility custom actions every cell of `row` publishes, so the
+    /// commands the row's context menu offers are reachable by VoiceOver and
+    /// AX automation. Called from the cell callback for every cell, reuse and
+    /// reload included. Handlers must resolve the row when they run, with
+    /// ``AccessibilityCellActions/currentRow(of:)`` on `cellView` and
+    /// ``displayedRow(at:)``, because cells are recycled. The default
+    /// publishes nothing.
+    open func accessibilityActions(forRow row: Int, cellView: NSView) -> [NSAccessibilityCustomAction] {
+        []
+    }
+
+    /// The displayed row at `index`, or nil when the index is out of range.
+    public func displayedRow(at index: Int) -> Row? {
+        displayedRows.indices.contains(index) ? displayedRows[index] : nil
     }
 
     /// Populates (or resets) `cellView` for `id`/`rowData`, exactly as

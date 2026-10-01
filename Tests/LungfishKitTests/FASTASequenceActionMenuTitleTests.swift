@@ -33,6 +33,30 @@ final class FASTASequenceActionMenuTitleTests: XCTestCase {
         XCTAssertTrue(titles.contains("Export Selected Residues…"))
     }
 
+    func testAccessibilityActionsMirrorTheEnabledMenuItemsAndRunTheirHandlers() {
+        var copied = 0
+        var aligned = 0
+        let handlers = FASTASequenceActionHandlers(
+            onBlast: {}, onCopy: { copied += 1 }, onExport: {}, onCreateBundle: {},
+            onAlignWithMAFFT: { aligned += 1 }
+        )
+        let single = FASTASequenceActionMenuBuilder.accessibilityActions(selectionCount: 1, handlers: handlers)
+        XCTAssertEqual(
+            single.map(\.name),
+            ["Verify with BLAST…", "Copy FASTA", "Export FASTA…", "Extract to New Bundle…"],
+            "Align with MAFFT needs two sequences, so it is not offered for one"
+        )
+        XCTAssertEqual(single[1].handler?(), true)
+        XCTAssertEqual(copied, 1)
+
+        let pair = FASTASequenceActionMenuBuilder.accessibilityActions(selectionCount: 2, handlers: handlers)
+        XCTAssertEqual(pair.last?.name, "Align with MAFFT…")
+        XCTAssertEqual(pair.last?.handler?(), true)
+        XCTAssertEqual(aligned, 1)
+
+        XCTAssertTrue(FASTASequenceActionMenuBuilder.accessibilityActions(selectionCount: 0, handlers: handlers).isEmpty)
+    }
+
     func testEllipsesAreTheSingleCharacterForm() {
         let items = FASTASequenceActionMenuBuilder.buildItems(
             selectionCount: 1,

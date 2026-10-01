@@ -1,4 +1,5 @@
 import AppKit
+import LungfishTestSupport
 import XCTest
 @testable import LungfishApp
 
@@ -99,6 +100,9 @@ final class AnnotationDrawerKeyboardActivationTests: XCTestCase {
         XCTAssertFalse(cellNames.isEmpty, "The AX row must expose cell children")
         for names in cellNames {
             XCTAssertEqual(names, ["Zoom to Annotation", "Show in Inspector"], "Every cell of the row carries the actions")
+        }
+        for served in AccessibilityRowProbe.servedCellActionNames(secondRow) {
+            XCTAssertEqual(served, ["Zoom to Annotation", "Show in Inspector"], "The AX server lists each action once")
         }
 
         // Performing the action through the AX element zooms to that row.
