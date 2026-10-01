@@ -114,6 +114,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     OutlineExpandCollapseActions
 {
 
+    /// The pasteboard the copy commands write. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
+
     // MARK: - Data
 
     /// SQLite database for BLAST hits and sample metadata.
@@ -1994,8 +1997,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     private func copyContigSequence(_ hit: NvdBlastHit) {
         guard let fastaText = contigFASTARecord(for: hit) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(fastaText, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(fastaText, forType: .string)
     }
 
     private func runOperation(for hit: NvdBlastHit) {
@@ -2169,8 +2172,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     private func writeToPasteboard(_ string: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
     }
 
     private func openExternal(_ urlString: String) {

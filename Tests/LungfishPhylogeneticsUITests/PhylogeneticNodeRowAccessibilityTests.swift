@@ -18,6 +18,10 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
     private let tipCount = 40
     private var directory: URL!
     private var window: NSWindow!
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private let pasteboard = NSPasteboard.withUniqueName()
     private var controller: PhylogeneticTreeViewController!
     private var table: NSTableView { controller.testingNodeTableView }
 
@@ -36,6 +40,7 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
         _ = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: bundleURL)
 
         controller = PhylogeneticTreeViewController()
+        controller.pasteboard = pasteboard
         controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 640)
         window = NSWindow(contentRect: controller.view.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -51,6 +56,7 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
         window.contentView = nil
         window = nil
         controller = nil
+        pasteboard.releaseGlobally()
         try? FileManager.default.removeItem(at: directory)
         try await super.tearDown()
     }
@@ -107,13 +113,13 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
 
     func testCopyActionsWriteThePasteboard() throws {
         let tipRow = try firstRow(isTip: true)
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(tipRow)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), nodeLabel(tipRow))
+        XCTAssertEqual(pasteboard.string(forType: .string), nodeLabel(tipRow))
 
         let internalRow = try firstRow(isTip: false)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Subtree as Newick", in: try rowProxy(internalRow)))
-        let newick = try XCTUnwrap(NSPasteboard.general.string(forType: .string))
+        let newick = try XCTUnwrap(pasteboard.string(forType: .string))
         XCTAssertTrue(newick.hasPrefix("("), newick)
     }
 
@@ -146,9 +152,9 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
 
     func testActionsOfARowFarDownActOnThatRow() throws {
         let far = table.numberOfRows - 3
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(far)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), nodeLabel(far))
+        XCTAssertEqual(pasteboard.string(forType: .string), nodeLabel(far))
         XCTAssertEqual(table.selectedRow, far)
     }
 
@@ -158,9 +164,9 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
         table.layoutSubtreeIfNeeded()
         guard let shownRow = AccessibilityCellActions.currentRow(of: first) else { return }
         let action = try XCTUnwrap(first.accessibilityCustomActions()?.first { $0.name == "Copy Name" })
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertEqual(action.handler?(), true)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), nodeLabel(shownRow))
+        XCTAssertEqual(pasteboard.string(forType: .string), nodeLabel(shownRow))
     }
 
     // MARK: - Menu-bar validation
@@ -183,9 +189,9 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
         focusTable()
         let row = try firstRow(isTip: true) + 1
         controller.testingSelectNode(label: nodeLabel(row))
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         controller.copySelectedRowName(nil)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), nodeLabel(row))
+        XCTAssertEqual(pasteboard.string(forType: .string), nodeLabel(row))
     }
 
     // MARK: - Context menu parity
@@ -238,9 +244,9 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
         let menu = try XCTUnwrap(canvas.menu(for: try rightClickEvent(in: canvas, at: point)))
         let copyName = try XCTUnwrap(menu.items.first { $0.title == "Copy Name" })
         XCTAssertTrue(controller.validateMenuItem(copyName), "canvas menu items are context-menu items")
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         controller.copySelectedRowName(copyName)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), canvasLabel)
+        XCTAssertEqual(pasteboard.string(forType: .string), canvasLabel)
     }
 
     func testCollapseCladeFromTheMenuBarRenamesTheRowActionWithoutAFullReload() throws {

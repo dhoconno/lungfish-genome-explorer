@@ -63,6 +63,10 @@ private final class LocalEventMonitor {
 @MainActor
 public class SidebarViewController: NSViewController {
 
+    /// The pasteboard the Copy Path and Copy Command items write. Tests
+    /// substitute a private one.
+    var copyPasteboard: NSPasteboard = .general
+
     // MARK: - UI Components
 
     /// The outline view for hierarchical navigation

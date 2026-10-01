@@ -2104,6 +2104,9 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         return menu
     }
 
+    /// The pasteboard the barcode copy commands write. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
+
     /// Standard copy: responder for Cmd+C.
     @objc func copy(_ sender: Any?) {
         guard window?.firstResponder === kitDetailTable else { return }
@@ -2120,8 +2123,8 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             lines.append("\(bc.id)\t\(bc.i7Sequence)\t\(bc.i5Sequence ?? "")")
         }
         let text = lines.joined(separator: "\n")
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
         statusLabel.stringValue = "Copied \(rows.count) barcode(s) to clipboard."
     }
 
@@ -2132,8 +2135,8 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             guard row < selectedKitBarcodes.count else { return nil }
             return selectedKitBarcodes[row].id
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(ids.joined(separator: "\n"), forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(ids.joined(separator: "\n"), forType: .string)
         statusLabel.stringValue = "Copied \(ids.count) barcode ID(s) to clipboard."
     }
 
@@ -2145,8 +2148,8 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             guard row < selectedKitBarcodes.count else { continue }
             lines.append(selectedKitBarcodes[row].i7Sequence)
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(lines.joined(separator: "\n"), forType: .string)
         statusLabel.stringValue = "Copied \(lines.count) sequence(s) to clipboard."
     }
 

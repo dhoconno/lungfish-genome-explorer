@@ -47,6 +47,9 @@ import LungfishKit
 public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation, ColumnFilterMenuHost,
     ResultRowMenuActions, OutlineExpandCollapseActions {
 
+    /// The pasteboard the Copy Name command writes. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
+
     /// Shared column-header sort/filter menu (see `LungfishKit.ColumnHeaderFilterMenu`).
     private lazy var columnHeaderFilterMenuController = ColumnHeaderFilterMenu(host: self)
 
@@ -867,8 +870,8 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     private func copyName(ofRow row: Int) {
         guard let node = actionableNode(at: row) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(node.name, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(node.name, forType: .string)
     }
 
     private func blastReads(ofRow row: Int) {

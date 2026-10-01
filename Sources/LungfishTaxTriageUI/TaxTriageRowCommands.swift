@@ -57,14 +57,18 @@ enum TaxTriageRowCommands {
     /// Runs a command that needs only the row's own values. Returns false for
     /// the commands the table runs itself.
     @discardableResult
-    static func perform(_ command: ResultRowCommand, on subject: TaxTriageRowSubject) -> Bool {
+    static func perform(
+        _ command: ResultRowCommand,
+        on subject: TaxTriageRowSubject,
+        pasteboard: NSPasteboard = .general
+    ) -> Bool {
         switch command {
         case .copyName:
-            writeToPasteboard(subject.organism)
+            writeToPasteboard(subject.organism, to: pasteboard)
         case .copyTaxonID:
-            writeToPasteboard(subject.taxId.map(String.init) ?? "")
+            writeToPasteboard(subject.taxId.map(String.init) ?? "", to: pasteboard)
         case .copyAsTSV:
-            writeToPasteboard(subject.tsvFields.joined(separator: "\t"))
+            writeToPasteboard(subject.tsvFields.joined(separator: "\t"), to: pasteboard)
         case .openTaxonomyOnNCBI:
             let urlString: String
             if let taxId = subject.taxId {
@@ -107,8 +111,8 @@ enum TaxTriageRowCommands {
         popover.show(relativeTo: anchorRect, of: view, preferredEdge: .maxY)
     }
 
-    private static func writeToPasteboard(_ string: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
+    private static func writeToPasteboard(_ string: String, to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
     }
 }

@@ -44,6 +44,11 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         func annotationDrawerDidFinishDraggingDivider(_ drawer: AnnotationTableDrawerView) {}
     }
 
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private let pasteboard = NSPasteboard.withUniqueName()
+
     override func setUp() {
         super.setUp()
         tempDir = FileManager.default.temporaryDirectory
@@ -52,6 +57,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
     }
 
     override func tearDown() {
+        pasteboard.releaseGlobally()
         if let tempDir {
             try? FileManager.default.removeItem(at: tempDir)
         }
@@ -90,6 +96,8 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         XCTAssertTrue(success, "Database should open successfully")
 
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+
+        drawer.copyPasteboard = pasteboard
         drawer.setSearchIndex(searchIndex)
         return drawer
     }
@@ -209,6 +217,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     func testAnnotationTrackControlsToggleVisibilityAndReorderTracks() {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        drawer.copyPasteboard = pasteboard
         let spy = DrawerDelegateSpy()
         drawer.delegate = spy
         drawer.setAnnotations([
@@ -244,6 +253,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     func testAnnotationTrackDisplayNameChangesEmitDisplayState() {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        drawer.copyPasteboard = pasteboard
         let spy = DrawerDelegateSpy()
         drawer.delegate = spy
         drawer.setAnnotations([
@@ -277,6 +287,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     func testEveryVariantColumnHeaderMenuHasSortAndFilterControls() {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        drawer.copyPasteboard = pasteboard
         drawer.activeTab = .variants
         drawer.activeVariantSubtab = .calls
         drawer.configureColumnsForTab(.variants)
@@ -294,6 +305,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     func testNumericInfoHeaderMenuActionSortsAscending() throws {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        drawer.copyPasteboard = pasteboard
         drawer.activeTab = .variants
         drawer.activeVariantSubtab = .calls
         drawer.infoColumnKeys = [(key: "DP", type: "Integer", description: "Depth")]
@@ -453,6 +465,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     func testLookupTranslationReturnsNilWithoutSearchIndex() {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        drawer.copyPasteboard = pasteboard
 
         let result = AnnotationSearchIndex.SearchResult(
             name: "test",
@@ -614,6 +627,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     func testContextMenuShowsTranslationForMixedCaseCDSType() throws {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        drawer.copyPasteboard = pasteboard
         drawer.setAnnotations([
             AnnotationSearchIndex.SearchResult(
                 name: "test-cds",
@@ -663,6 +677,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     func testCopyTranslationAsFASTAUsesRobustTypeParsingWithoutDatabaseRecord() throws {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        drawer.copyPasteboard = pasteboard
         drawer.setAnnotations([
             AnnotationSearchIndex.SearchResult(
                 name: "cds-fallback",
@@ -715,6 +730,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     func testAnnotationContextMenuDisablesDeleteForRowsWithoutDatabaseRowIDs() throws {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        drawer.copyPasteboard = pasteboard
         drawer.setAnnotations([
             AnnotationSearchIndex.SearchResult(
                 name: "summary-row",
@@ -737,6 +753,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     func testAnnotationContextMenuRequiresSingleTrackForRowDeletion() throws {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        drawer.copyPasteboard = pasteboard
         drawer.setAnnotations([
             AnnotationSearchIndex.SearchResult(
                 name: "a",
@@ -1053,9 +1070,9 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Name", in: rows[rowB]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "gene-b")
+        XCTAssertEqual(pasteboard.string(forType: .string), "gene-b")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Coordinates", in: rows[rowB]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "chr1:301-400")
+        XCTAssertEqual(pasteboard.string(forType: .string), "chr1:301-400")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Extract Sequence\u{2026}", in: rows[rowB]))
         XCTAssertEqual(delegate.extractedAnnotations.map(\.name), ["gene-b"])
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Delete Annotation\u{2026}", in: rows[rowB]))
@@ -1121,11 +1138,12 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         XCTAssertEqual(Set(names).count, names.count, "each action listed once: \(names)")
         let performed = AXProcessProbe.performRowCellAction("Copy: Copy Name", row: rowB)
         XCTAssertTrue(performed)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "gene-b")
+        XCTAssertEqual(pasteboard.string(forType: .string), "gene-b")
     }
 
     private func makeVariantDrawer() -> AnnotationTableDrawerView {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        drawer.copyPasteboard = pasteboard
         drawer.activeTab = .variants
         drawer.activeVariantSubtab = .calls
         drawer.configureColumnsForTab(.variants)
@@ -1160,11 +1178,11 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         XCTAssertFalse(names.contains("Export Bookmarked Variants\u{2026}"), "nothing bookmarked yet")
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Variant ID", in: rows[0]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs1")
+        XCTAssertEqual(pasteboard.string(forType: .string), "rs1")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Ref/Alt", in: rows[1]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "C > T")
+        XCTAssertEqual(pasteboard.string(forType: .string), "C > T")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy as VCF Line", in: rows[0]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "chr1\t10\trs1\tA\tG\t50.0\tPASS\t.")
+        XCTAssertEqual(pasteboard.string(forType: .string), "chr1\t10\trs1\tA\tG\t50.0\tPASS\t.")
     }
 
     func testVariantRowsAreReusedForTheRowTheyShowAfterAReorder() throws {
@@ -1176,13 +1194,14 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         drawer.tableView.layoutSubtreeIfNeeded()
         let rows = AccessibilityRowProbe.rowProxies(of: drawer.tableView)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Variant ID", in: rows[0]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs2")
+        XCTAssertEqual(pasteboard.string(forType: .string), "rs2")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy: Copy Variant ID", in: rows[1]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs1")
+        XCTAssertEqual(pasteboard.string(forType: .string), "rs1")
     }
 
     func testSamplesTabRowsPublishTheirContextCommandsOnce() throws {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        drawer.copyPasteboard = pasteboard
         drawer.activeTab = .samples
         drawer.configureColumnsForTab(.samples)
         drawer.displayedSamples = [
@@ -1198,7 +1217,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         XCTAssertEqual(Array(names.prefix(4)), ["Hide sample-2", "Show All Samples", "Hide All Samples", "Copy Sample Name"])
         XCTAssertTrue(names.contains("Create Group from Shown Results\u{2026}"))
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Sample Name", in: rows[1]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "sample-2")
+        XCTAssertEqual(pasteboard.string(forType: .string), "sample-2")
     }
 
     func testMenuBarRowCommandsFollowTheDrawerSelection() throws {
@@ -1231,7 +1250,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
             XCTAssertTrue(drawer.validateMenuItem(menuItem), "\(menuItem.action!) with one row selected")
         }
         drawer.copySelectedRowName(nil)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "gene-b")
+        XCTAssertEqual(pasteboard.string(forType: .string), "gene-b")
         drawer.extractSelectedRowsToNewBundle(nil)
         XCTAssertEqual(delegate.extractedAnnotations.map(\.name), ["gene-b"])
         drawer.deleteAnnotation(nil)
@@ -1256,6 +1275,6 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         XCTAssertFalse(variants.validateMenuItem(delete))
         XCTAssertTrue(variants.validateMenuItem(inspector))
         variants.copySelectedRowName(nil)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "rs1")
+        XCTAssertEqual(pasteboard.string(forType: .string), "rs1")
     }
 }

@@ -233,6 +233,9 @@ extension AnnotationTableDrawerDelegate {
 @MainActor
 public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
 
+    /// The pasteboard the copy commands write. Tests substitute a private one.
+    var copyPasteboard: NSPasteboard = .general
+
     static func defaultSampleDisplayState() -> SampleDisplayState {
         var state = SampleDisplayState()
         state.colorThemeName = AppSettings.shared.variantColorThemeName
@@ -1814,7 +1817,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     @objc func copyTranslationAction(_ sender: NSMenuItem) {
         guard let annotation = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
         guard let translation = lookupTranslation(for: annotation) else { return }
-        let pasteboard = NSPasteboard.general
+        let pasteboard = copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(translation, forType: .string)
         annotationDrawerLogger.info("AnnotationTableDrawerView: Copied translation for '\(annotation.name, privacy: .public)' (\(translation.count) amino acids)")
@@ -1822,7 +1825,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     @objc func copyNameAction(_ sender: NSMenuItem) {
         guard let annotation = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
-        let pasteboard = NSPasteboard.general
+        let pasteboard = copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(annotation.name, forType: .string)
     }
@@ -1835,7 +1838,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // everywhere else, so a copied coordinate string always matches what
         // Go to Location and the ruler accept.
         let region = GenomicRegion(chromosome: annotation.chromosome, start: annotation.start, end: annotation.end)
-        let pasteboard = NSPasteboard.general
+        let pasteboard = copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(region.displayString, forType: .string)
     }
@@ -2406,7 +2409,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     @objc func copyRefAltAction(_ sender: NSMenuItem) {
         guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
         let refAlt = "\(result.ref ?? "") > \(result.alt ?? "")"
-        let pasteboard = NSPasteboard.general
+        let pasteboard = copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(refAlt, forType: .string)
     }
@@ -2418,7 +2421,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let qual = result.quality.map { String(format: "%.1f", $0) } ?? "."
         let filt = result.filter ?? "."
         let vcfLine = "\(result.chromosome)\t\(pos1Based)\t\(result.name)\t\(result.ref ?? ".")\t\(result.alt ?? ".")\t\(qual)\t\(filt)\t."
-        let pasteboard = NSPasteboard.general
+        let pasteboard = copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(vcfLine, forType: .string)
     }
@@ -4010,7 +4013,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     @objc func copySampleNameAction(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
-        let pasteboard = NSPasteboard.general
+        let pasteboard = copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(name, forType: .string)
     }

@@ -18,7 +18,12 @@ final class AIMessageCopyButtonAccessibilityTests: XCTestCase {
     }
 
     func testCopyButtonIsLabelledCopyMessageAndCopiesThroughPress() throws {
+        // The general pasteboard is one per machine, so a copy made by a test
+        // in another parallel process would show up in the assertion.
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
         let bubble = AIMessageBubbleView(text: "Hello from the assistant", isUser: false)
+        bubble.pasteboard = pasteboard
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 120),
             styleMask: [.titled], backing: .buffered, defer: false
@@ -50,10 +55,10 @@ final class AIMessageCopyButtonAccessibilityTests: XCTestCase {
         if button.acceptsFirstResponder, window.firstResponder === button {
             XCTAssertEqual(button.alphaValue, 1.0, "keyboard focus lifts the icon to full strength")
         }
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         // NSButton performs the click and reports false from the press call.
         _ = AccessibilityTreeProbe.press(button)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Hello from the assistant")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Hello from the assistant")
     }
 
     func testUserMessagesHaveNoCopyButton() {

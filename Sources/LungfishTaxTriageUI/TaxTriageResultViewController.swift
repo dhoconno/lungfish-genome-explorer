@@ -5147,6 +5147,8 @@ public struct TaxTriageTableRow: Equatable {
 /// All columns are sortable and user-resizable.
 @MainActor
 final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation, ResultRowMenuActions {
+    /// The pasteboard the copy commands write. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
 
     // MARK: - Column Identifiers
 
@@ -5523,7 +5525,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     private func perform(_ command: ResultRowCommand, sender: Any?) {
         let rows = commandTargetRows(sender: sender)
         guard rows.count == 1, let index = rows.first else { return }
-        TaxTriageRowCommands.perform(command, on: subject(for: sortedRows[index]))
+        TaxTriageRowCommands.perform(command, on: subject(for: sortedRows[index]), pasteboard: pasteboard)
     }
 
     /// The context menu follows the selection (or the clicked row). The

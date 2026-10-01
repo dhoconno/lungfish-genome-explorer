@@ -19,6 +19,10 @@ final class NvdRowAccessibilityTests: XCTestCase {
     private var root: URL!
     private var window: NSWindow!
     private var vc: NvdResultViewController!
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private let pasteboard = NSPasteboard.withUniqueName()
     private var outline: NSOutlineView { vc.testOutlineView }
     private let contigCount = 40
 
@@ -57,6 +61,7 @@ final class NvdRowAccessibilityTests: XCTestCase {
         )
 
         vc = NvdResultViewController()
+        vc.pasteboard = pasteboard
         vc.onBlastVerification = { _, _ in }
         vc.onExportFASTARequested = { _ in }
         vc.onCreateBundleRequested = { _ in }
@@ -80,6 +85,7 @@ final class NvdRowAccessibilityTests: XCTestCase {
         window.contentViewController = nil
         window = nil
         vc = nil
+        pasteboard.releaseGlobally()
         try? FileManager.default.removeItem(at: root)
         try await super.tearDown()
     }
@@ -141,16 +147,16 @@ final class NvdRowAccessibilityTests: XCTestCase {
 
     func testCopyActionsWriteThePasteboard() throws {
         let name = try contigName(atRow: 3)
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(3)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), name)
+        XCTAssertEqual(pasteboard.string(forType: .string), name)
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Accession", in: try rowProxy(4)))
         let index = try XCTUnwrap(Int(try contigName(atRow: 4).dropFirst("contig_".count)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), String(format: "NC_%06d.1", index + 1))
+        XCTAssertEqual(pasteboard.string(forType: .string), String(format: "NC_%06d.1", index + 1))
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy FASTA", in: try rowProxy(5)))
-        let fasta = try XCTUnwrap(NSPasteboard.general.string(forType: .string))
+        let fasta = try XCTUnwrap(pasteboard.string(forType: .string))
         XCTAssertTrue(fasta.hasPrefix(">\(try contigName(atRow: 5))\nAACCGGTT"), fasta)
     }
 
@@ -169,9 +175,9 @@ final class NvdRowAccessibilityTests: XCTestCase {
     func testActionsOfARowFarDownActOnThatRow() throws {
         let far = 36
         let name = try contigName(atRow: far)
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(far)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), name)
+        XCTAssertEqual(pasteboard.string(forType: .string), name)
         XCTAssertEqual(outline.selectedRow, far)
     }
 
@@ -184,9 +190,9 @@ final class NvdRowAccessibilityTests: XCTestCase {
         // copies that row's contig.
         guard let shownRow = AccessibilityCellActions.currentRow(of: first) else { return }
         let action = try XCTUnwrap(first.accessibilityCustomActions()?.first { $0.name == "Copy Name" })
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertEqual(action.handler?(), true)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), try contigName(atRow: shownRow))
+        XCTAssertEqual(pasteboard.string(forType: .string), try contigName(atRow: shownRow))
     }
 
     // MARK: - Menu-bar validation

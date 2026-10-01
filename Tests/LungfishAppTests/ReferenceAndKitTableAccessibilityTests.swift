@@ -16,6 +16,15 @@ import XCTest
 /// copy commands on every cell.
 @MainActor
 final class ReferenceAndKitTableAccessibilityTests: XCTestCase {
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private let pasteboard = NSPasteboard.withUniqueName()
+
+    override func tearDown() {
+        pasteboard.releaseGlobally()
+        super.tearDown()
+    }
 
     private func summary(_ name: String, length: Int) -> BundleBrowserSequenceSummary {
         BundleBrowserSequenceSummary(
@@ -27,6 +36,7 @@ final class ReferenceAndKitTableAccessibilityTests: XCTestCase {
     private func makeRecordTable() -> (ReferenceBundleRecordTable, NSWindow) {
         _ = NSApplication.shared
         let table = ReferenceBundleRecordTable(frame: NSRect(x: 0, y: 0, width: 700, height: 300))
+        table.pasteboard = pasteboard
         let window = NSWindow(contentRect: table.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = table
@@ -58,7 +68,7 @@ final class ReferenceAndKitTableAccessibilityTests: XCTestCase {
         let names = try XCTUnwrap(listed, "the server lists the row's cell")
         XCTAssertEqual(names, ["Copy Name", "Copy Sequence", "Copy FASTA", "Extract to New Bundle\u{2026}"])
         XCTAssertTrue(AXProcessProbe.performRowCellAction("Copy Name", row: 2))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "chrM")
+        XCTAssertEqual(pasteboard.string(forType: .string), "chrM")
         table.tableView.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
         XCTAssertTrue(AXProcessProbe.performRowCellAction("Extract to New Bundle\u{2026}", row: 2))
         XCTAssertEqual(extracted.last, ["chrM"], "an unselected row is targeted alone")
@@ -88,7 +98,7 @@ final class ReferenceAndKitTableAccessibilityTests: XCTestCase {
         )
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: rows[2]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "chrM")
+        XCTAssertEqual(pasteboard.string(forType: .string), "chrM")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy FASTA", in: rows[0]))
         XCTAssertEqual(copied.last?.names, ["chr1"])
         XCTAssertEqual(copied.last?.fasta, true)
@@ -119,7 +129,7 @@ final class ReferenceAndKitTableAccessibilityTests: XCTestCase {
         XCTAssertTrue(table.validateMenuItem(copySequence))
         XCTAssertFalse(table.validateMenuItem(extract), "no extract handler wired")
         table.copySelectedRowName(nil)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "chr2\nchrM")
+        XCTAssertEqual(pasteboard.string(forType: .string), "chr2\nchrM")
         table.copySelectedRowSequence(nil)
         XCTAssertEqual(copied.last?.names, ["chr2", "chrM"])
         XCTAssertEqual(copied.last?.fasta, false)
@@ -129,6 +139,7 @@ final class ReferenceAndKitTableAccessibilityTests: XCTestCase {
         _ = NSApplication.shared
         let drawer = FASTQMetadataDrawerView()
         drawer.frame = NSRect(x: 0, y: 0, width: 800, height: 500)
+        drawer.pasteboard = pasteboard
         let window = NSWindow(contentRect: drawer.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = drawer
@@ -150,10 +161,10 @@ final class ReferenceAndKitTableAccessibilityTests: XCTestCase {
             }
         }
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Barcode IDs", in: rows[1]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "D702")
+        XCTAssertEqual(pasteboard.string(forType: .string), "D702")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Sequences", in: rows[0]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "ATTACTCG")
+        XCTAssertEqual(pasteboard.string(forType: .string), "ATTACTCG")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Selected Barcodes", in: rows[0]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "ID\tSequence\tSecondary\nD701\tATTACTCG\tTATAGCCT")
+        XCTAssertEqual(pasteboard.string(forType: .string), "ID\tSequence\tSecondary\nD701\tATTACTCG\tTATAGCCT")
     }
 }

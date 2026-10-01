@@ -178,6 +178,10 @@ public class SequenceViewerView: NSView {
     /// write / dialog presentation) after a newer request has superseded it.
     var fastaOperationFetchGeneration: Int = 0
 
+    /// The pasteboard the sequence and annotation copy commands write. Tests
+    /// substitute a private one.
+    var copyPasteboard: NSPasteboard = .general
+
     // MARK: - Read Alignment State
 
     /// Cached aligned reads for the current visible region

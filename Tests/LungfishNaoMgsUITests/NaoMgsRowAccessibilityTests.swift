@@ -19,6 +19,10 @@ final class NaoMgsRowAccessibilityTests: XCTestCase {
     private var root: URL!
     private var window: NSWindow!
     private var vc: NaoMgsResultViewController!
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private let pasteboard = NSPasteboard.withUniqueName()
     private var table: NSTableView { vc.testTaxonomyTableView }
     private let taxonCount = 40
 
@@ -37,6 +41,7 @@ final class NaoMgsRowAccessibilityTests: XCTestCase {
             taxonCount: taxonCount, topTaxon: "Taxon 0", topTaxonId: 1_000
         )
         vc = NaoMgsResultViewController()
+        vc.pasteboard = pasteboard
         vc.testDisableMiniBAMLoading = true
         vc.onBlastVerification = { _, _, _ in }
         vc.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 480)
@@ -56,6 +61,7 @@ final class NaoMgsRowAccessibilityTests: XCTestCase {
         window.contentView = nil
         window = nil
         vc = nil
+        pasteboard.releaseGlobally()
         try? FileManager.default.removeItem(at: root)
         try await super.tearDown()
     }
@@ -112,12 +118,12 @@ final class NaoMgsRowAccessibilityTests: XCTestCase {
     }
 
     func testCopyActionsWriteThePasteboard() throws {
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon ID", in: try rowProxy(4)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "\(try taxId(atRow: 4))")
+        XCTAssertEqual(pasteboard.string(forType: .string), "\(try taxId(atRow: 4))")
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Accession", in: try rowProxy(5)))
-        let accession = try XCTUnwrap(NSPasteboard.general.string(forType: .string))
+        let accession = try XCTUnwrap(pasteboard.string(forType: .string))
         XCTAssertTrue(accession.hasPrefix("NC_0000"), accession)
     }
 
@@ -135,9 +141,9 @@ final class NaoMgsRowAccessibilityTests: XCTestCase {
 
     func testActionsOfARowFarDownActOnThatRow() throws {
         let far = 36
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon ID", in: try rowProxy(far)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "\(try taxId(atRow: far))")
+        XCTAssertEqual(pasteboard.string(forType: .string), "\(try taxId(atRow: far))")
         XCTAssertEqual(table.selectedRow, far)
     }
 
@@ -147,9 +153,9 @@ final class NaoMgsRowAccessibilityTests: XCTestCase {
         table.layoutSubtreeIfNeeded()
         guard let shownRow = AccessibilityCellActions.currentRow(of: first) else { return }
         let action = try XCTUnwrap(first.accessibilityCustomActions()?.first { $0.name == "Copy Taxon ID" })
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertEqual(action.handler?(), true)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "\(try taxId(atRow: shownRow))")
+        XCTAssertEqual(pasteboard.string(forType: .string), "\(try taxId(atRow: shownRow))")
     }
 
     // MARK: - Menu-bar validation
@@ -214,9 +220,9 @@ final class NaoMgsRowAccessibilityTests: XCTestCase {
         XCTAssertEqual(names.filter { $0 == "Copy Accession" }.count, 1, "listed once at the AX element: \(names)")
         XCTAssertEqual(Set(names).count, names.count, "\(names)")
         let action = try XCTUnwrap(button.accessibilityCustomActions()?.first { $0.name == "Copy Accession" })
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertEqual(action.handler?(), true)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), button.title)
+        XCTAssertEqual(pasteboard.string(forType: .string), button.title)
     }
 
     private static func accessionButtons(in root: NSView) -> [NSButton] {

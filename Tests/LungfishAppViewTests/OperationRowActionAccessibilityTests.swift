@@ -11,12 +11,23 @@ import XCTest
 /// ``OperationsPanelViewController/perform(_:on:)``.
 @MainActor
 final class OperationRowActionAccessibilityTests: XCTestCase {
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private var pasteboard: NSPasteboard!
 
     override func setUp() {
         super.setUp()
+        pasteboard = NSPasteboard.withUniqueName()
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
+    }
+
+    override func tearDown() {
+        pasteboard.releaseGlobally()
+        pasteboard = nil
+        super.tearDown()
     }
 
     // MARK: - Shared availability model
@@ -219,14 +230,14 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
         XCTAssertEqual(Array(popupTitles), expected)
 
         // Performing the AX action runs the shared implementation.
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy CLI Command", in: rowProxy))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), command)
+        XCTAssertEqual(pasteboard.string(forType: .string), command)
 
         // The menu bar path lands on the same code for the selected row.
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         viewController.copySelectedOperationCLICommand(nil)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), command)
+        XCTAssertEqual(pasteboard.string(forType: .string), command)
     }
 
     // MARK: - Helpers
@@ -235,6 +246,7 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
         let controller = OperationsPanelController()
         let window = try XCTUnwrap(controller.window)
         let viewController = try XCTUnwrap(window.contentViewController as? OperationsPanelViewController)
+        viewController.pasteboard = pasteboard
         let view = viewController.view
         view.layoutSubtreeIfNeeded()
         let table = try XCTUnwrap(view.firstSubview(withAccessibilityIdentifier: "operations-table") as? NSTableView)

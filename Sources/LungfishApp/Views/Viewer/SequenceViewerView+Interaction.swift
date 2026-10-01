@@ -1211,7 +1211,7 @@ extension SequenceViewerView {
             }
         }
 
-        let pasteboard = NSPasteboard.general
+        let pasteboard = self.copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(String(complement), forType: .string)
         sequenceViewerLogger.info("Copied \(end - start) bases (complement) to clipboard")
@@ -1239,7 +1239,7 @@ extension SequenceViewerView {
             }
         }
 
-        let pasteboard = NSPasteboard.general
+        let pasteboard = self.copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(String(reverseComplement), forType: .string)
         sequenceViewerLogger.info("Copied \(end - start) bases (reverse complement) to clipboard")
@@ -1261,7 +1261,7 @@ extension SequenceViewerView {
 
     @objc func copyAnnotationName(_ sender: NSMenuItem?) {
         guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
-        let pasteboard = NSPasteboard.general
+        let pasteboard = self.copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(annotation.name, forType: .string)
         sequenceViewerLogger.info("Copied annotation name '\(annotation.name)' to clipboard")
@@ -1279,7 +1279,7 @@ extension SequenceViewerView {
                 return
             }
             guard thisGeneration == self.fastaOperationFetchGeneration else { return }
-            let pasteboard = NSPasteboard.general
+            let pasteboard = self.copyPasteboard
             pasteboard.clearContents()
             pasteboard.setString(bases, forType: .string)
             sequenceViewerLogger.info("Copied \(bases.count) bases from annotation '\(annotation.name)' to clipboard")
@@ -1292,7 +1292,7 @@ extension SequenceViewerView {
         // Same 1-based closed string the drawer's Copy Coordinates produces, so the
         // clipboard value pastes straight back into Go to Location.
         let coordString = GenomicRegion(chromosome: chrom, start: annotation.start, end: annotation.end).displayString
-        let pasteboard = NSPasteboard.general
+        let pasteboard = self.copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(coordString, forType: .string)
         sequenceViewerLogger.info("Copied coordinates '\(coordString)' to clipboard")
@@ -1311,7 +1311,7 @@ extension SequenceViewerView {
             }
             guard thisGeneration == self.fastaOperationFetchGeneration else { return }
             let complement = self.complementString(bases)
-            let pasteboard = NSPasteboard.general
+            let pasteboard = self.copyPasteboard
             pasteboard.clearContents()
             pasteboard.setString(complement, forType: .string)
             sequenceViewerLogger.info("Copied \(complement.count) bases (complement) from annotation '\(annotation.name)' to clipboard")
@@ -1331,7 +1331,7 @@ extension SequenceViewerView {
             }
             guard thisGeneration == self.fastaOperationFetchGeneration else { return }
             let revComp = self.reverseComplementString(bases)
-            let pasteboard = NSPasteboard.general
+            let pasteboard = self.copyPasteboard
             pasteboard.clearContents()
             pasteboard.setString(revComp, forType: .string)
             sequenceViewerLogger.info("Copied \(revComp.count) bases (reverse complement) from annotation '\(annotation.name)' to clipboard")
@@ -1400,7 +1400,7 @@ extension SequenceViewerView {
                 return
             }
             guard thisGeneration == self.fastaOperationFetchGeneration else { return }
-            let pasteboard = NSPasteboard.general
+            let pasteboard = self.copyPasteboard
             pasteboard.clearContents()
             pasteboard.setString(bases, forType: .string)
             sequenceViewerLogger.info("Copied \(bases.count) bases from annotation '\(annotation.name)' to clipboard")
@@ -1587,7 +1587,7 @@ extension SequenceViewerView {
             }
             guard thisGeneration == self.fastaOperationFetchGeneration else { return }
             let revComp = self.reverseComplementString(bases)
-            let pasteboard = NSPasteboard.general
+            let pasteboard = self.copyPasteboard
             pasteboard.clearContents()
             pasteboard.setString(revComp, forType: .string)
             sequenceViewerLogger.info("Copied \(revComp.count) bases (reverse complement) from annotation '\(annotation.name)' to clipboard")
@@ -1998,7 +1998,7 @@ extension SequenceViewerView {
         let selectedBases = seq[start..<end]
 
         // Copy to clipboard
-        let pasteboard = NSPasteboard.general
+        let pasteboard = self.copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(selectedBases, forType: .string)
 
