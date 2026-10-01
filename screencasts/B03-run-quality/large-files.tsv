@@ -1,0 +1,3 @@
+# Files for video B03 stored in the LGE LabKey folders (docs/development/large-files.md). public URLs need no sign-in; internal URLs need a signed-in member. Verify with shasum -a 256.
+area	remote_path	bytes	sha256	note	url
+internal	screencasts/B03-run-quality/takes/qc.mov	4352160389	efe2e1dcebb8e95dea76ce0db3dfa3f5517f2998ac32f3da7a5e2fb24f15603a	raw take, Lungfish 2026.9.72 (Stable)	https://dholk.primate.wisc.edu/_webdav/dho/public/lge/internal/%40files/screencasts/B03-run-quality/takes/qc.mov

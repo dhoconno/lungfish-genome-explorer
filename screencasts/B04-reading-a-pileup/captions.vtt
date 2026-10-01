@@ -1,0 +1,52 @@
+WEBVTT
+
+00:00:03.200 --> 00:00:07.690
+A pileup is reads stacked on the reference sequence they matched.
+
+00:00:07.690 --> 00:00:15.287
+Open the minimap2 result under Analyses, the program that lined the reads up, select its row, and click Focus.
+
+00:00:15.287 --> 00:00:20.813
+The curve shows coverage, also called depth, the number of reads over each base.
+
+00:00:20.813 --> 00:00:23.023
+Here it averages about 45 reads.
+
+00:00:24.120 --> 00:00:29.151
+Type a 300 base range into the position field above the viewer and press Return.
+
+00:00:29.151 --> 00:00:30.597
+Each read is now a bar.
+
+00:00:30.597 --> 00:00:33.490
+Where it matches the reference it stays plain.
+
+00:00:33.490 --> 00:00:35.502
+A different base shows in color.
+
+00:00:36.600 --> 00:00:39.625
+You carry two copies of each chromosome.
+
+00:00:39.625 --> 00:00:46.129
+At position 2,078 every read has A where the reference has G, so both copies carry it.
+
+00:00:46.129 --> 00:00:48.096
+This is called homozygous.
+
+00:00:49.200 --> 00:00:53.022
+At 2,162 about half the reads have T instead of A.
+
+00:00:53.022 --> 00:00:54.933
+Only one copy carries it.
+
+00:00:54.933 --> 00:00:57.073
+This is called heterozygous.
+
+00:00:57.073 --> 00:01:03.647
+The Variants tab under the viewer lists the calls a program made at these same places.
+
+00:01:04.750 --> 00:01:08.537
+To learn more, read the manual chapter Reading an Alignment.
+
+00:01:08.537 --> 00:01:11.692
+More videos are on the Videos page of the website.

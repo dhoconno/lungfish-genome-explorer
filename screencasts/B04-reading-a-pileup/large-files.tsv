@@ -1,0 +1,5 @@
+# Files for video B04 stored in the LGE LabKey folders (docs/development/large-files.md). public URLs need no sign-in; internal URLs need a signed-in member. Verify with shasum -a 256.
+area	remote_path	bytes	sha256	note	url
+internal	screencasts/B04-reading-a-pileup/takes/calls.mov	1652727241	10aee3aa961b81a048e05ddcd07d5a9e9a5af022744c90e23aaac3effa819c1f	raw take, Lungfish 2026.9.72 (Stable)	https://dholk.primate.wisc.edu/_webdav/dho/public/lge/internal/%40files/screencasts/B04-reading-a-pileup/takes/calls.mov
+internal	screencasts/B04-reading-a-pileup/takes/coverage.mov	1337371437	1ada9343b57fe9897ebd0b919b164db6479a202f7411387415aca0ff325f7792	raw take, Lungfish 2026.9.72 (Stable)	https://dholk.primate.wisc.edu/_webdav/dho/public/lge/internal/%40files/screencasts/B04-reading-a-pileup/takes/coverage.mov
+internal	screencasts/B04-reading-a-pileup/takes/reads.mov	2537241865	1cf998fc397228ec2b06a571352982829c568593ba6b246a152401ec8b442b57	raw take, Lungfish 2026.9.72 (Stable)	https://dholk.primate.wisc.edu/_webdav/dho/public/lge/internal/%40files/screencasts/B04-reading-a-pileup/takes/reads.mov

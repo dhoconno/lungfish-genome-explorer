@@ -1,0 +1,183 @@
+# B03: Judge a sequencing run. Learner track, after B02.
+# This file is the whole recipe (README, "The video spec").
+# Render: python3 screencasts/render.py screencasts/B03-run-quality/video.yaml
+
+slug: B03-run-quality
+title: Judge a sequencing run
+track: beginners
+purpose: >-
+  A learner opens a set of Illumina reads and judges the run from the summary cards and charts,
+  learning what the quality scores mean and what healthy values look like.
+audience: Undergraduate biology students and bench scientists new to bioinformatics.
+manual: 03-reads/03-quality-control
+demo: human-reads
+next: B04-reading-a-pileup
+
+filmed_with:
+  app: Lungfish
+  versions: ["2026.9.72"]
+  date: 2026-10-01
+
+narration:
+  engine: say
+  voice: Ava (Premium)
+  words_per_minute: 145
+  lead: 0.5
+  tail: 0.6
+  lexicon:
+    HG002: H G zero zero two
+    Q20: Q twenty
+    Q30: Q thirty
+    GC: G C
+    LGE: L G E
+
+setup:
+  window_points: [1440, 810]
+  projects:
+    - name: Human Reads.lungfish
+      from: lungfish-cli demo fetch human-reads --dest ~/LGEFilm/demos (Stable 2026.9.72)
+  notes:
+    - Check the cards read Mean Q 25.3, Q20 94.6% and Q30 91.3% before filming. Older imports showed 95.0 and 91.0.
+
+honesty:
+  - The 80 percent Q30 figure is a rule of thumb for Illumina, not a specification. Say so.
+  - Nanopore reads score lower on Q30 by design. Keep the threshold to Illumina.
+
+outputs: [wide]
+trim_top: 52
+window_points: [1440, 810]
+
+beats:
+  - {kind: card, id: title, duration: 3.0, icon: true, title: Judge a sequencing run, sub: Lungfish Genome Explorer
+      for beginners, shows: Title card., transition: fade}
+
+  - kind: take
+    id: cards
+    take: takes/qc.mov
+    duration: 10.0
+    caption: The cards sum up every read
+    kicker: Imports · HG002 reads
+    shows: Selecting the HG002 reads shows nine summary cards across the top of the viewer.
+    capture: Click HG002.chr20.10.0-10.5Mb under Imports and hold on the cards.
+    narration: Click the HG002 reads under Imports. HG002 is a well studied human sample. The cards across the top
+      sum up all the reads in this file, how many there are, how long they are, and how good their bases are.
+    in: 0.5
+    zoom:
+      at: 3.5
+      dur: 0.9
+      region: &id001 [0.2828, -0.0054, 0.4902, 0.22799999999999998]
+    highlights:
+    - at: 4.6
+      region: [0.2928, 0.0046, 0.4702, 0.122]
+
+  - kind: take
+    id: qscore
+    take: takes/qc.mov
+    duration: 10.0
+    caption: Q scores estimate each base's error
+    kicker: Q20 · Q30
+    shows: The Q20 and Q30 cards, outlined.
+    capture: Same take, held on the cards.
+    narration: Each base gets a quality score, the sequencer's own estimate of error, written Q. Q20 means one wrong
+      base in a hundred. Q30 means one in a thousand.
+    in: 11.0
+    zoom:
+      at: 0.0
+      dur: 0.3
+      region: *id001
+    highlights:
+    - at: 0.6
+      regions:
+      - [0.2928, 0.0705, 0.0746, 0.0561]
+      - &id002 [0.3721, 0.0705, 0.0746, 0.0561]
+
+  - kind: take
+    id: q30
+    take: takes/qc.mov
+    duration: 9.0
+    caption: Q30 shows how many bases you can trust
+    kicker: Q30 · 91.3%
+    shows: The Q30 card, outlined.
+    capture: Same take, held on the cards.
+    narration: Here 91 percent of bases reach Q30. For Illumina, the most common short read sequencer, a rule of thumb
+      calls above 80 percent healthy.
+    in: 21.0
+    zoom:
+      at: 0.0
+      dur: 0.3
+      region: *id001
+    highlights:
+    - at: 0.6
+      regions:
+      - *id002
+
+  - kind: take
+    id: meanq
+    take: takes/qc.mov
+    duration: 8.0
+    caption: A low Mean Q can be normal
+    kicker: Mean Q · 25.3
+    shows: The Mean Q card, outlined.
+    capture: Same take, held on the cards.
+    narration: Mean Q reads 25. It averages the chance of error, so a few poor bases pull it down. Judge the run by
+      Q30 instead.
+    in: 25.0
+    zoom:
+      at: 0.0
+      dur: 0.3
+      region: *id001
+    highlights:
+    - at: 0.6
+      regions:
+      - [0.6884, 0.0046, 0.0746, 0.0561]
+
+  - kind: take
+    id: position
+    take: takes/qc.mov
+    duration: 13.0
+    caption: Quality falls toward the end of each read
+    kicker: Q / Position
+    shows: A click on the Q / Position chart opens it full size, with quality dropping toward base 250 but staying
+      above Q20.
+    capture: Click the Q / Position chart. The popover is a separate window, so record with wincap --app-region. Click
+      outside it to close.
+    narration: Click the Q / Position chart to open it. Quality falls toward the end of each read, which is normal
+      for this kind of sequencing. Here it stays above Q20. Click outside the chart to close it.
+    in: 34.5
+    zoom:
+      at: 3.5
+      dur: 0.9
+      region: [0.32, 0.25, 0.42, 0.45]
+
+  - kind: take
+    id: length
+    take: takes/qc.mov
+    duration: 10.0
+    caption: Check read length and GC content
+    kicker: Length Dist. · GC
+    shows: The Length Dist. chart spikes at 250 bases and the GC card reads 39.4 percent.
+    capture: Reuses the cards section of takes/qc.mov from before the chart opens.
+    narration: Length Dist. peaks at 250 bases, the length the run was set to make. GC content, the share of bases
+      that are G or C, is 39 percent, close to the human average of about 41.
+    in: 12.0
+    zoom:
+      at: 0.0
+      dur: 0.3
+      region: *id001
+    highlights:
+    - at: 0.6
+      regions:
+      - [0.2928, 0.1416, 0.1532, 0.0711]
+      - [0.4515, 0.0705, 0.0746, 0.0561]
+
+  - kind: card
+    id: end
+    duration: 6.0
+    icon: true
+    title: Next, reading a pileup
+    shows: End card naming the next video and where to watch it, with the version line.
+    narration: Next, see these reads lined up against the human genome, on the Videos page of the website.
+    lines:
+    - {text: Watch it on the Videos page}
+    - {text: dhoconno.github.io/lungfish-genome-explorer/videos.html, style: url}
+    - {text: '{filmed_with}', style: version}

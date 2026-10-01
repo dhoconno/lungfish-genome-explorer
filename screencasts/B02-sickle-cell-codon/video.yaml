@@ -1,0 +1,143 @@
+# B02: Find the sickle cell codon. Learner track, after B01.
+# This file is the whole recipe (README, "The video spec").
+# Render: python3 screencasts/render.py screencasts/B02-sickle-cell-codon/video.yaml
+
+slug: B02-sickle-cell-codon
+title: Find the sickle cell codon
+track: beginners
+purpose: >-
+  A learner opens a real human gene record, jumps to one codon by its position, sees the DNA
+  shown as amino acids, learns that one changed base there causes sickle cell disease,
+  and marks the codon with an annotation.
+audience: Undergraduate biology students and bench scientists new to bioinformatics.
+manual: 02-sequences/01-importing-and-viewing
+demo: genes-and-sequences
+next: B03-run-quality
+
+filmed_with:
+  app: Lungfish
+  versions: ["2026.9.72"]
+  date: 2026-10-01
+
+narration:
+  engine: say
+  voice: Ava (Premium)
+  words_per_minute: 145
+  lead: 0.5
+  tail: 0.6
+  lexicon:
+    NG_000007.3: N G, seven, point three
+    GAG: G, A, G
+    GTG: G, T, G
+    LGE: L G E
+
+setup:
+  window_points: [1440, 810]
+  projects:
+    - name: Genes and Sequences.lungfish
+      from: lungfish-cli demo fetch genes-and-sequences --dest ~/LGEFilm/demos (Stable 2026.9.72). Fetch again with --force before each retake, because Add Annotation writes into the bundle.
+  notes:
+    - Open the project with nothing selected and the Inspector visible.
+
+honesty:
+  - The record is written along the gene's own strand, so the codon reads GAG on screen. Do not mention genome coordinates, where it reads the other way.
+  - Codon 7 of the gene is often called position 6 of the protein, because the first amino acid is removed. Do not number the amino acid on screen.
+
+outputs: [wide]
+trim_top: 52
+window_points: [1440, 810]
+
+beats:
+  - {kind: card, id: title, duration: 3.0, icon: true, title: Find the sickle cell codon, sub: Lungfish Genome Explorer
+      for beginners, shows: Title card., transition: fade}
+  - {kind: take, id: open, take: takes/open.mov, duration: 15.0, caption: Open a human gene record, kicker: Reference
+      Sequences · NG_000007.3, shows: Selecting NG_000007.3 and pressing Focus shows the human beta globin region
+      with its genes drawn as features., capture: 'Click NG_000007.3 under Reference Sequences, then Focus. Hold on
+      the whole record.', narration: 'Click NG_000007.3 under Reference Sequences, then Focus. It holds the beta globin
+      gene, which makes part of hemoglobin, the protein that carries oxygen in blood. Genes show as colored bars called
+      features.', in: 1.0}
+  - {kind: take, id: goto, take: takes/goto.mov, duration: 12.0, caption: Go straight to a position, kicker: Sequence
+      · Go to Location, shows: 'Sequence > Go to Location with NG_000007:70613-70615 frames three bases reading GAG.',
+    capture: 'Choose Sequence > Go to Location (Cmd-L), type NG_000007:70613-70615 and click Go.', narration: 'A codon
+      is three bases that code for one amino acid, a building block of protein. Choose Sequence, then Go to Location,
+      type the position of the codon that changes in sickle cell disease, and click Go. The viewer zooms to three
+      bases, GAG.', in: 1.5}
+
+  - kind: take
+    id: protein
+    take: takes/goto.mov
+    duration: 9.0
+    caption: GAG codes for glutamic acid
+    kicker: Translation · E
+    shows: The gene's red Translation row shows E under the codon GAG.
+    capture: The end of the goto take, held, with the Translation row outlined.
+    narration: The red row below the bases shows the amino acid each codon codes for. GAG codes for glutamic acid,
+      written E.
+    in: 14.0
+    highlights:
+    - at: 1.3
+      regions:
+      - [0.29, 0.15, 0.47, 0.035]
+      - [0.29, 0.255, 0.47, 0.025]
+    zoom:
+      at: 0.2
+      dur: 0.8
+      region: &id001 [0.28, 0.06, 0.5, 0.3]
+
+  - kind: take
+    id: sickle
+    take: takes/goto.mov
+    duration: 10.0
+    caption: One changed base causes sickle cell disease
+    kicker: GAG to GTG · glutamic acid to valine
+    shows: The same codon held while the narration explains the sickle cell change.
+    capture: The end of the goto take, held, with the middle base outlined.
+    narration: In sickle cell disease the middle A is a T. The codon becomes GTG, which codes for valine instead.
+      The changed hemoglobin sticks together and bends red blood cells into a sickle shape.
+    in: 20.0
+    highlights:
+    - at: 0.8
+      region: [0.447, 0.15, 0.155, 0.035]
+    zoom:
+      at: 0.0
+      dur: 0.3
+      region: *id001
+  - {kind: take, id: annotate, take: takes/annotate.mov, duration: 10.5, caption: Mark it with your own annotation,
+    kicker: Sequence · Add Annotation, shows: 'Dragging across the three bases and Sequence > Add Annotation with
+      a name, then Add.', capture: 'Drag across the three bases, choose Sequence > Add Annotation, type Sickle cell
+      codon, click Add. LGE then reloads the record at full width.', narration: 'To mark the codon, drag across the
+      three bases, choose Sequence, then Add Annotation, type a name, and click Add.', in: 0.5}
+
+  - kind: take
+    id: saved
+    take: takes/saved.mov
+    segments:
+    - [4.5, 6.0]
+    - [10.0, 18.0]
+    duration: 9.5
+    caption: Your annotation is saved in the project
+    kicker: Manual Annotations · Sickle cell codon
+    shows: Back at the codon, a Manual Annotations track shows Sickle cell codon under GAG, with the protein row reading
+      T P E E K.
+    capture: Click Focus, Go to Location NG_000007:70604-70624, Go.
+    narration: LGE saves your annotation in the project. Go back to the codon and it appears on its own track, under
+      the bases.
+    highlights:
+    - at: 2.6
+      region: [0.48, 0.34, 0.085, 0.04]
+    zoom:
+      at: 1.6
+      dur: 0.8
+      region: [0.28, 0.06, 0.5, 0.4]
+
+  - kind: card
+    id: end
+    duration: 6.0
+    icon: true
+    title: Next, judge a sequencing run
+    shows: End card naming the next video and where to watch it, with the version line.
+    narration: Next, learn to judge a sequencing run, on the Videos page of the website.
+    lines:
+    - {text: Watch it on the Videos page}
+    - {text: dhoconno.github.io/lungfish-genome-explorer/videos.html, style: url}
+    - {text: '{filmed_with}', style: version}

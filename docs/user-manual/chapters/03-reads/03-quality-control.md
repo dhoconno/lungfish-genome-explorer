@@ -165,7 +165,7 @@ The summary informs downstream operations and never blocks them. A bundle with a
 
 Four checks decide whether a bundle is ready for the next step.
 
-Check that Q30 sits where the platform puts it. Your sequencing provider's run report names the instrument that produced your files. On an Illumina run, a common rule of thumb rather than a published specification is that a Q30 above roughly 80% is healthy, and this fixture's 91.0% is comfortable. A figure well below that is worth raising with your provider before you analyse the data. Nanopore reads score much lower on Q30 by design, so judge those by Mean Q instead, and never hold the two platforms to one threshold.
+Check that Q30 sits where the platform puts it. Your sequencing provider's run report names the instrument that produced your files. On an Illumina run, a common rule of thumb rather than a published specification is that a Q30 above roughly 80% is healthy, and this fixture's 91.3% is comfortable. A figure well below that is worth raising with your provider before you analyse the data. Nanopore reads score much lower on Q30 by design, so judge those by Mean Q instead, and never hold the two platforms to one threshold.
 
 Check that Q / Position holds above Q20 for most of the read. A curve that sags only over the last few bases, as this fixture's does over its last seven, needs nothing done to it. A curve that crosses Q20 in the middle of the read is telling you to trim.
 

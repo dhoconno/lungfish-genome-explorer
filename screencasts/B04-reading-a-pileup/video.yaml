@@ -1,0 +1,134 @@
+# B04: Reading a pileup. Learner track, after B03.
+# This file is the whole recipe (README, "The video spec").
+# Render: python3 screencasts/render.py screencasts/B04-reading-a-pileup/video.yaml
+
+slug: B04-reading-a-pileup
+title: Reading a pileup
+track: beginners
+purpose: >-
+  A learner opens reads mapped to a reference, reads the coverage curve, zooms in until single reads
+  and changed bases show, tells a change on both chromosome copies from a change on one, and finds
+  the matching variant calls.
+audience: Undergraduate biology students and bench scientists new to bioinformatics.
+manual: 04-alignments/02-reading-an-alignment
+demo: human-mapping-and-variants-results
+
+filmed_with:
+  app: Lungfish
+  versions: ["2026.9.72"]
+  date: 2026-10-01
+
+narration:
+  engine: say
+  voice: Ava (Premium)
+  words_per_minute: 145
+  lead: 0.5
+  tail: 0.6
+  lexicon:
+    HG002: H G zero zero two
+    minimap2: mini map two
+    "0/1": zero slash one
+    "1/1": one slash one
+    LGE: L G E
+
+setup:
+  window_points: [1440, 810]
+  projects:
+    - name: Human Mapping and Variants (with results).lungfish
+      from: lungfish-cli demo fetch human-mapping-and-variants-results --dest ~/LGEFilm/demos (Stable 2026.9.72)
+
+honesty:
+  - Positions count from the start of the 500 kb slice, not from the start of chromosome 20. Do not call them chromosome positions.
+  - Sorting reads by the base at a position does not work in 2026.9.72, so the video does not show it.
+  - The variant calls are named, not filmed. The table drawer in 2026.9.72 opens too short to show rows, and resizing it needs a mouse drag. Re-film the calls beat once the drawer can be resized from the keyboard.
+
+outputs: [wide]
+trim_top: 52
+window_points: [1440, 810]
+
+beats:
+  - {kind: card, id: title, duration: 3.0, icon: true, title: Reading a pileup, sub: Lungfish Genome Explorer for
+      beginners, shows: Title card., transition: fade}
+
+  - kind: take
+    id: coverage
+    take: takes/coverage.mov
+    duration: 19.0
+    caption: Coverage counts the reads over each base
+    kicker: Analyses · minimap2 · Focus
+    shows: Opening the minimap2 result and Focus shows the coverage curve over the whole 500 kb slice, and a hover
+      reads the depth at one point.
+    capture: Click the minimap2 result under Analyses, select the chr20 row, click Focus. The overview shows the coverage
+      curve with its max and mean depth.
+    narration: A pileup is reads stacked on the reference sequence they matched. Open the minimap2 result under Analyses,
+      the program that lined the reads up, select its row, and click Focus. The curve shows coverage, also called
+      depth, the number of reads over each base. Here it averages about 45 reads.
+    segments:
+    - [0.5, 4.5]
+    - [14.5, 29.5]
+    zoom:
+      at: 9.0
+      dur: 0.9
+      region: [0.28, 0.08, 0.5, 0.35]
+    highlights:
+    - at: 10.2
+      region: [0.39, 0.262, 0.375, 0.078]
+  - {kind: take, id: reads, take: takes/reads.mov, duration: 12.0, caption: Each bar is one read, kicker: 'Position
+      field · 2,050 to 2,350', shows: 'Typing a 300 base range in the position field draws each read as a bar, with
+      matching bases plain and different bases in colour.', capture: 'Set the position field to chr20_10.0-10.5Mb:2050-2350
+      and confirm (drive/reads.json with axdrive; typing and Return in the background does not navigate).', narration: Type
+      a 300 base range into the position field above the viewer and press Return. Each read is now a bar. Where it
+      matches the reference it stays plain. A different base shows in color., in: 0.5}
+
+  - kind: take
+    id: both
+    take: takes/reads.mov
+    duration: 10.0
+    caption: Every read differs, so both copies do
+    kicker: Position 2,078 · homozygous
+    shows: The column at 2,078 where every read has A instead of G, outlined.
+    capture: Same take, held, with the 2,078 column outlined.
+    narration: You carry two copies of each chromosome. At position 2,078 every read has A where the reference has
+      G, so both copies carry it. This is called homozygous.
+    in: 10.0
+    zoom:
+      at: 0.0
+      dur: 0.6
+      region: [0.28, 0.3, 0.5, 0.6]
+    highlights:
+    - at: 0.9
+      region: [0.419, 0.364, 0.012, 0.52]
+
+  - kind: take
+    id: one
+    take: takes/reads.mov
+    duration: 9.0
+    caption: Half the reads differ, so one copy does
+    kicker: Position 2,162 · heterozygous
+    shows: The column at 2,162 where about half the reads have T instead of A, outlined.
+    capture: Same take, held, with the 2,162 column outlined.
+    narration: At 2,162 about half the reads have T instead of A. Only one copy carries it. This is called heterozygous.
+      The Variants tab under the viewer lists the calls a program made at these same places.
+    in: 18.0
+    zoom:
+      at: 0.0
+      dur: 0.3
+      region: [0.28, 0.3, 0.5, 0.6]
+    highlights:
+    - at: 0.6
+      region: [0.5222, 0.364, 0.012, 0.52]
+
+  - kind: card
+    id: end
+    duration: 6.0
+    icon: true
+    title: More videos and the manual
+    shows: End card pointing to the manual chapter and the Videos page, with the version line.
+    narration: To learn more, read the manual chapter Reading an Alignment. More videos are on the Videos page of
+      the website.
+    lines:
+    - {text: Chapter · Reading an Alignment}
+    - {text: lungfish-genome-explorer.readthedocs.io, style: url}
+    - {text: More videos}
+    - {text: dhoconno.github.io/lungfish-genome-explorer/videos.html, style: url}
+    - {text: '{filmed_with}', style: version}

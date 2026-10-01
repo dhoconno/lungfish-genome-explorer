@@ -1,0 +1,6 @@
+[
+  {"value": {"role": "AXTextField", "title": "Position", "text": "chr20_10.0-10.5Mb:2050-2350"}, "late": true},
+  {"wait": 1.5},
+  {"confirm": {"role": "AXTextField", "title": "Position"}, "late": true},
+  {"wait": 1}
+]
