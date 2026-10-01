@@ -527,8 +527,9 @@ struct GenotypeMatrixContextMenuBuilder {
                 ),
                 command: .editComment,
                 availability: capability.upsertComment,
-                keyEquivalent: "m",
-                keyModifierRawValue: snapshot.keyModifierRawValue
+                // No chord: ⌥⌘M is macOS's Minimize All.
+                keyEquivalent: "",
+                keyModifierRawValue: 0
             ),
             GenotypeMatrixContextMenuItemState(
                 title: selectionTargets.count == 1 ? "Remove Comment" : "Remove Comments",

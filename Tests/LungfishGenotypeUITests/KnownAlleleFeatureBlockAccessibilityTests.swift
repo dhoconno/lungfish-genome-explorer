@@ -6,7 +6,7 @@ import LungfishTestSupport
 
 /// The known-allele overview's feature blocks reach an AX client the way
 /// VoiceOver and AX-driven automation read them: as buttons with a press and
-/// highlight actions, in lanes the keyboard can focus.
+/// press and clear actions, in lanes the keyboard can focus.
 @MainActor
 final class KnownAlleleFeatureBlockAccessibilityTests: XCTestCase {
     private func makeOverview() -> GenotypeKnownAlleleOverviewView {
@@ -53,8 +53,8 @@ final class KnownAlleleFeatureBlockAccessibilityTests: XCTestCase {
         for block in cds {
             XCTAssertEqual(AccessibilityTreeProbe.role(block), NSAccessibility.Role.button.rawValue)
             XCTAssertEqual(
-                AccessibilityTreeProbe.customActionNames(block),
-                ["Highlight Feature", "Clear Highlight"]
+                AccessibilityTreeProbe.customActionNames(block), [],
+                "AXPress is the highlight action, and Clear Highlight waits for a highlight"
             )
         }
         XCTAssertEqual(cds.compactMap(AccessibilityTreeProbe.label), ["First", "Second"])
@@ -73,14 +73,20 @@ final class KnownAlleleFeatureBlockAccessibilityTests: XCTestCase {
         XCTAssertTrue(AccessibilityTreeProbe.isSelected(first))
         XCTAssertFalse(AccessibilityTreeProbe.isSelected(second))
 
-        XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Highlight Feature", on: second))
+        XCTAssertEqual(AccessibilityTreeProbe.customActionNames(first), ["Clear Highlight"])
+        XCTAssertEqual(AccessibilityTreeProbe.customActionNames(second), [])
+
+        XCTAssertTrue(AccessibilityTreeProbe.press(second))
         XCTAssertEqual(inspected.last, "Second")
         XCTAssertFalse(AccessibilityTreeProbe.isSelected(first))
         XCTAssertTrue(AccessibilityTreeProbe.isSelected(second))
+        XCTAssertEqual(AccessibilityTreeProbe.customActionNames(first), [])
+        XCTAssertEqual(AccessibilityTreeProbe.customActionNames(second), ["Clear Highlight"])
 
         XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Clear Highlight", on: second))
         XCTAssertEqual(inspected.last, .some(nil))
         XCTAssertFalse(AccessibilityTreeProbe.isSelected(second))
+        XCTAssertEqual(AccessibilityTreeProbe.customActionNames(second), [])
     }
 
     func testLaneTakesFocusAndMovesBetweenBlocksWithTheKeyboard() throws {
@@ -98,6 +104,9 @@ final class KnownAlleleFeatureBlockAccessibilityTests: XCTestCase {
 
         var inspected: [String?] = []
         view.onFeatureInspection = { inspected.append($0.flatMap { $0.qualifiers["product"]?.first }) }
+        var announcedFocus: [String?] = []
+        let laneView = try XCTUnwrap(lane as? FeatureLaneView)
+        laneView.accessibilityFocusPoster = { announcedFocus.append($0.accessibilityLabel()) }
 
         func press(_ keyCode: UInt16) {
             let event = NSEvent.keyEvent(
@@ -109,8 +118,10 @@ final class KnownAlleleFeatureBlockAccessibilityTests: XCTestCase {
         }
         press(124) // Right moves from the first block to the second
         XCTAssertEqual(inspected.last, "Second")
+        XCTAssertEqual(announcedFocus.last, "Second", "VoiceOver follows the arrow keys")
         press(123) // Left comes back
         XCTAssertEqual(inspected.last, "First")
+        XCTAssertEqual(announcedFocus.last, "First")
         press(36) // Return highlights it
         let first = try XCTUnwrap(blocks(in: view, kind: "CDS").first)
         XCTAssertTrue(AccessibilityTreeProbe.isSelected(first))

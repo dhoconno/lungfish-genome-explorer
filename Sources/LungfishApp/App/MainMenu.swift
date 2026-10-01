@@ -1054,7 +1054,7 @@ public final class MainMenu {
     // MARK: - Genotype Review Submenu
 
     /// The genotype review commands (`⌘R`, `⌘K`, `⇧⌘F`, `⇧⌘O`) and the
-    /// matrix's Selected Cell commands (`⌥⌘P`, `⌥⌘X`, `⌥⌘R`, `⌥⌘M`).
+    /// matrix's Selected Cell commands (`⌥⌘P`, `⌥⌘X`, `⌥⌘R`).
     ///
     /// These were previously implemented only as a
     /// `GenotypeResultViewController.performKeyEquivalent` override, which
@@ -1097,8 +1097,9 @@ public final class MainMenu {
         detailItem.keyEquivalentModifierMask = [.command, .shift]
 
         // Selected Cell: the matrix review commands. They carry the matrix's
-        // own chords (⌥⌘P, ⌥⌘X, ⌥⌘R, ⌥⌘M) and are enabled only while the
-        // genotype matrix has the keyboard focus and a selection.
+        // own chords (⌥⌘P, ⌥⌘X, ⌥⌘R) and are enabled only while the
+        // genotype matrix has the keyboard focus and a selection. Edit
+        // Comment stays unbound because ⌥⌘M is macOS's Minimize All.
         reviewMenu.addItem(.separator())
         let selectedCellItem = NSMenuItem(title: "Selected Cell", action: nil, keyEquivalent: "")
         selectedCellItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.genotypeSelectedCellMenu)
@@ -1107,7 +1108,7 @@ public final class MainMenu {
             ("Mark False Positive", #selector(GenotypeMatrixReviewMenuActions.markSelectionFalsePositive(_:)), "p", [.command, .option]),
             ("Mark False Negative", #selector(GenotypeMatrixReviewMenuActions.markSelectionFalseNegative(_:)), "x", [.command, .option]),
             ("Clear Review", #selector(GenotypeMatrixReviewMenuActions.clearSelectionReview(_:)), "r", [.command, .option]),
-            ("Edit Comment\u{2026}", #selector(GenotypeMatrixReviewMenuActions.editSelectionComment(_:)), "m", [.command, .option]),
+            ("Edit Comment\u{2026}", #selector(GenotypeMatrixReviewMenuActions.editSelectionComment(_:)), "", []),
             ("Remove Comments", #selector(GenotypeMatrixReviewMenuActions.removeSelectionComments(_:)), "", []),
         ]
         for (title, selector, key, modifiers) in cellCommands {

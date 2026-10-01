@@ -29,7 +29,7 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         let root: URL
     }
 
-    private func makeFixture() throws -> Fixture {
+    private func makeFixture(extraCalls: [(genotype: String, reads: Int)] = []) throws -> Fixture {
         let root = try TestTempDirectory.make(prefix: "MatrixRowAX")
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -41,7 +41,7 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
             calls: [
                 makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8),
                 makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7),
-            ]
+            ] + extraCalls.map { makeCall(sample: "AnimalA", genotype: $0.genotype, reads: $0.reads) }
         ))
         let matrix = controller.testingComparisonMatrix
         matrix.frame = NSRect(x: 0, y: 0, width: 900, height: 500)
@@ -55,11 +55,11 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         let table = try pinnedTable(in: fixture.matrix)
         table.layoutSubtreeIfNeeded()
         let row = try XCTUnwrap(AccessibilityRowProbe.rowProxies(of: table).first, "the matrix has no AX rows")
-        XCTAssertEqual(AccessibilityRowProbe.firstCellActionNames(row), ["Select Supported Cells", "Hide Row", "Show Only Row"])
+        XCTAssertEqual(AccessibilityRowProbe.firstCellActionNames(row), ["Select Supported Cells (≥ 1 read)", "Hide Selected Row", "Show Only Selected Row"])
 
         fixture.controller.testingSelectMatrixCell(genotype: "01_Mafa_A1", sample: "AnimalA")
         let names = AccessibilityRowProbe.firstCellActionNames(row)
-        for expected in ["Mark False Positive", "Edit Comment", "Hide Row", "Show Only Row"] {
+        for expected in ["Mark False Positive", "Add Comment…", "Hide Selected Row", "Show Only Selected Row"] {
             XCTAssertTrue(names.contains(expected), "\(expected) missing from \(names)")
         }
         let served = AccessibilityRowProbe.servedCellActionNames(row).first ?? []
@@ -76,7 +76,7 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         table.layoutSubtreeIfNeeded()
         let row = try XCTUnwrap(AccessibilityRowProbe.rowProxies(of: table).first)
         XCTAssertFalse(AccessibilityRowProbe.firstCellActionNames(row).contains("Mark False Positive"))
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Select Supported Cells", in: row))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Select Supported Cells (≥ 1 read)", in: row))
         XCTAssertTrue(AccessibilityRowProbe.firstCellActionNames(row).contains("Mark False Positive"))
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Mark False Positive", in: row))
         let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: fixture.bundleURL)
@@ -107,8 +107,52 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         XCTAssertEqual(Set(fixture.controller.testingVisibleMatrixGenotypes), ["01_Mafa_A1", "02_Mafa_B"])
         let rows = AccessibilityRowProbe.rowProxies(of: table)
         XCTAssertEqual(rows.count, 2)
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Hide Row", in: rows[1]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Hide Selected Row", in: rows[1]))
         XCTAssertEqual(fixture.controller.testingVisibleMatrixGenotypes, ["01_Mafa_A1"])
+    }
+
+    func testHideRowActsOnItsOwnRowWhenACellOfAnotherRowIsSelected() throws {
+        let fixture = try makeFixture()
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let table = try pinnedTable(in: fixture.matrix)
+        table.layoutSubtreeIfNeeded()
+        fixture.controller.testingSelectMatrixCell(genotype: "01_Mafa_A1", sample: "AnimalA")
+        let rows = AccessibilityRowProbe.rowProxies(of: table)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Hide Selected Row", in: rows[1]))
+        XCTAssertEqual(fixture.controller.testingVisibleMatrixGenotypes, ["01_Mafa_A1"], "the row hidden is the row acted on")
+    }
+
+    func testReviewMarkActionMarksOnlyItsOwnRowWhenCellsOfTwoRowsAreSelected() throws {
+        let fixture = try makeFixture(extraCalls: [("03_Mafa_A2", 8)])
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let table = try pinnedTable(in: fixture.matrix)
+        table.layoutSubtreeIfNeeded()
+        fixture.matrix.testingSelectMatrixTargets([
+            .cell(locus: "MHC-A", genotype: "01_Mafa_A1", sample: "AnimalA", stableClusterID: nil),
+            .cell(locus: "MHC-A", genotype: "03_Mafa_A2", sample: "AnimalA", stableClusterID: nil),
+        ])
+        let rows = AccessibilityRowProbe.rowProxies(of: table)
+        let names = AccessibilityRowProbe.firstCellActionNames(rows[0])
+        XCTAssertTrue(names.contains("Mark False Positive"), "\(names)")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Mark False Positive", in: rows[0]))
+        let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: fixture.bundleURL)
+        XCTAssertEqual(
+            sidecar.matrixReviews.map(\.target),
+            [.cell(locus: "MHC-A", genotype: "01_Mafa_A1", sample: "AnimalA")],
+            "the other row's selected cell is left alone"
+        )
+    }
+
+    func testSelectSupportedCellsAnnouncesTheSelection() throws {
+        let fixture = try makeFixture()
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let table = try pinnedTable(in: fixture.matrix)
+        table.layoutSubtreeIfNeeded()
+        var announcements: [String] = []
+        fixture.matrix.accessibilityAnnouncementPoster = .init { message, _ in announcements.append(message) }
+        let row = try XCTUnwrap(AccessibilityRowProbe.rowProxies(of: table).first)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Select Supported Cells (≥ 1 read)", in: row))
+        XCTAssertEqual(announcements, ["1 cell selected. Review actions available."])
     }
 
     func testChordIsLeftToTheMenuAndTheMenuItemReachesTheFocusedMatrix() throws {

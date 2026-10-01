@@ -56,6 +56,20 @@ struct PrimerReviewContextMenu: View {
     }
   }
 
+  /// The header lines under the item's name, for an accessibility value.
+  @MainActor
+  static func summaryLines(
+    target: PrimerTargetDesignReview,
+    item: Item,
+    context: PrimerReviewContextActions = .init()
+  ) -> [String] {
+    let builder = Builder(target: target, selection: .constant(nil), actions: context)
+    switch item {
+    case .primer(let primer): return builder.primerSummaryLines(primer)
+    case .amplicon(let interval): return builder.ampliconSummaryLines(interval)
+    }
+  }
+
   @MainActor
   private struct Builder {
     let target: PrimerTargetDesignReview
@@ -66,14 +80,7 @@ struct PrimerReviewContextMenu: View {
       let clicked = PrimerReviewSelection.selecting(primer: primer, in: target)
       let fasta = PrimerReviewClipboard.primerFASTA(primer, in: target)
       let associated = target.intervals.first { $0.id == clicked.ampliconID }
-      var result: [ContextAction] = [
-        .header(primer.name),
-        .header("\(primer.sequence.count) nt · \(primer.role == .probe ? "Probe" : primer.strand == "+" ? "Forward (+)" : "Reverse (−)") · \(primer.poolLabel ?? poolLabel(primer.pool))"),
-        .header("Binding site \(primer.start + 1)–\(primer.end) · 1-based inclusive"),
-      ]
-      if target.presentation == .schemeReference {
-        result.append(.header(candidateLabel(primer.candidateStatus, rank: primer.rank, noun: "assay oligo")))
-      }
+      var result: [ContextAction] = [.header(primer.name)] + primerSummaryLines(primer).map { .header($0) }
       result.append(.divider("summary"))
       result.append(.command("Inspect Primer") { inspect(clicked) })
       // Primer3 candidates designed from an alignment carry binding contexts too.
@@ -114,13 +121,7 @@ struct PrimerReviewContextMenu: View {
       let clicked = PrimerReviewSelection(targetID: target.id, primerID: nil, ampliconID: interval.id)
       let members = PrimerReviewClipboard.ampliconPrimers(interval, in: target)
       let fasta = PrimerReviewClipboard.ampliconFASTA(interval, in: target)
-      var result: [ContextAction] = [
-        .header(interval.name),
-        .header("\(interval.length) bp · \(interval.poolLabel ?? poolLabel(interval.pool))"),
-        .header("\(interval.sizeLabel) · \(interval.start + 1)–\(interval.end)"),
-        .header(members.map { target.presentation == .schemeReference
-          ? candidateMembershipLabel(count: $0.count, status: interval.candidateStatus, rank: interval.rank)
-          : "\($0.count) associated oligos" } ?? "Primer correspondence unavailable"),
+      var result: [ContextAction] = [.header(interval.name)] + ampliconSummaryLines(interval).map { .header($0) } + [
         .divider("summary"),
         .command("Inspect Amplicon") { inspect(clicked) },
       ]
@@ -129,7 +130,11 @@ struct PrimerReviewContextMenu: View {
         if !inspectable.isEmpty {
           let enabled = actions.onInspectBinding != nil
           result.append(.submenu("Inspect Primer in Alignment", inspectable.map { primer in
-            .command(primer.name, isEnabled: enabled, accessibilityTitle: "Inspect \(primer.name) in Alignment") {
+            // The menu lists the bare primer name under its submenu. The
+            // accessibility action lists commands flat, so it carries the full
+            // phrase on purpose. The id includes the primer id because two
+            // primers can share a name.
+            .command(primer.name, isEnabled: enabled, accessibilityTitle: "Inspect \(primer.name) in Alignment", id: "inspect-binding-\(primer.id)") {
               inspectBinding(.selecting(primer: primer, in: target))
             }
           }))
@@ -152,6 +157,31 @@ struct PrimerReviewContextMenu: View {
         export(.amplicon(targetID: target.id, ampliconID: interval.id), kind: .referenceAmplicon, clicked: clicked)
       })
       return result
+    }
+
+    /// The facts the menu header shows under a primer's name. The marks that
+    /// draw primers without text publish the same lines as their accessibility
+    /// value, so they do not rest on hover or the menu.
+    func primerSummaryLines(_ primer: PrimerReviewPrimer) -> [String] {
+      var lines = [
+        "\(primer.sequence.count) nt · \(primer.role == .probe ? "Probe" : primer.strand == "+" ? "Forward (+)" : "Reverse (−)") · \(primer.poolLabel ?? poolLabel(primer.pool))",
+        "Binding site \(primer.start + 1)–\(primer.end) · 1-based inclusive",
+      ]
+      if target.presentation == .schemeReference {
+        lines.append(candidateLabel(primer.candidateStatus, rank: primer.rank, noun: "assay oligo"))
+      }
+      return lines
+    }
+
+    func ampliconSummaryLines(_ interval: PrimerReviewInterval) -> [String] {
+      let members = PrimerReviewClipboard.ampliconPrimers(interval, in: target)
+      return [
+        "\(interval.length) bp · \(interval.poolLabel ?? poolLabel(interval.pool))",
+        "\(interval.sizeLabel) · \(interval.start + 1)–\(interval.end)",
+        members.map { target.presentation == .schemeReference
+          ? candidateMembershipLabel(count: $0.count, status: interval.candidateStatus, rank: interval.rank)
+          : "\($0.count) associated oligos" } ?? "Primer correspondence unavailable",
+      ]
     }
 
     private func poolSave(_ pool: String, clicked: PrimerReviewSelection) -> ContextAction {

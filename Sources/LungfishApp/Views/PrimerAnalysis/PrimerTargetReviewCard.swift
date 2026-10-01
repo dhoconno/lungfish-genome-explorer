@@ -187,6 +187,7 @@ struct PrimerReferenceCoverageTrack: View {
     .primerReviewContextActions(target: target, item: .amplicon(interval), selection: selection)
     .offset(x: position, y: 20)
     .help(label).accessibilityLabel(label)
+    .accessibilityValue(PrimerReviewContextMenu.summaryLines(target: target, item: .amplicon(interval)).joined(separator: ", "))
     .accessibilityIdentifier("primerReview.amplicon.\(interval.id)")
   }
 
@@ -211,6 +212,7 @@ struct PrimerReferenceCoverageTrack: View {
     .offset(x: x, y: y)
     .help(primerHelp(primer))
     .accessibilityLabel("\(primer.name), binding site \(primer.start + 1)–\(primer.end), \(primer.poolLabel ?? primer.pool.map { "pool \($0)" } ?? "candidate pair")")
+    .accessibilityValue(PrimerReviewContextMenu.summaryLines(target: target, item: .primer(primer)).joined(separator: ", "))
     .accessibilityIdentifier("primerReview.primer.\(primer.id)")
   }
 

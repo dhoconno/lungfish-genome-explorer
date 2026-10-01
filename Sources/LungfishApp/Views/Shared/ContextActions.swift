@@ -27,7 +27,9 @@ struct ContextAction: Identifiable {
     /// Alignment" submenu. Defaults to ``title``.
     var accessibilityTitle: String?
 
-    /// A command the menu and the accessibility actions both offer. A
+    /// A command the menu and the accessibility actions both offer. Pass `id`
+    /// when two commands can share a title, such as two primers with one name.
+    /// A
     /// disabled command stays in the menu, greyed, and is left out of the
     /// accessibility actions.
     static func command(
@@ -35,10 +37,11 @@ struct ContextAction: Identifiable {
         role: ButtonRole? = nil,
         isEnabled: Bool = true,
         accessibilityTitle: String? = nil,
+        id: String? = nil,
         _ perform: @escaping @MainActor () -> Void
     ) -> ContextAction {
         ContextAction(
-            id: accessibilityTitle ?? title, title: title,
+            id: id ?? accessibilityTitle ?? title, title: title,
             kind: .command(role: role, isEnabled: isEnabled, perform: perform),
             accessibilityTitle: accessibilityTitle
         )
@@ -119,7 +122,9 @@ private struct ContextActionMenuEntry: View {
         case .command:
             ContextActionButton(action: action)
         case .header:
-            Button(action.title) {}.disabled(true)
+            // A plain label, not a disabled button, so the line reads as
+            // information rather than as a command that cannot run.
+            Text(action.title)
         case let .submenu(children):
             Menu(action.title) {
                 ContextActionMenuContent(actions: children)

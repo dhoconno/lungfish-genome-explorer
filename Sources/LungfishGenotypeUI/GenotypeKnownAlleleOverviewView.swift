@@ -287,7 +287,7 @@ private final class NucleotideStripView: NSView {
 }
 
 @MainActor
-private final class FeatureLaneView: NSView {
+final class FeatureLaneView: NSView {
     struct Block {
         let start: Int
         let end: Int
@@ -372,12 +372,21 @@ private final class FeatureLaneView: NSView {
         }
     }
 
+    /// Tells assistive clients which block the keyboard focus moved to. Tests
+    /// replace the handler to observe the notification.
+    var accessibilityFocusPoster: (NSView) -> Void = { block in
+        NSAccessibility.post(element: block, notification: .focusedUIElementChanged)
+    }
+
     /// Moving the keyboard focus shows the feature the way hovering it does.
     private func focusChanged() {
         needsDisplay = true
         noteFocusRingMaskChanged()
         if let index = focusedIndex, index < blocks.count {
             onFeatureHover?(blocks[index].feature)
+            if index < subviews.count {
+                accessibilityFocusPoster(subviews[index])
+            }
         }
     }
 
@@ -482,6 +491,7 @@ private final class FeatureBlockView: NSView {
         didSet {
             guard isHighlighted != oldValue else { return }
             setAccessibilitySelected(isHighlighted)
+            updateAccessibilityActions()
             needsDisplay = true
         }
     }
@@ -502,10 +512,7 @@ private final class FeatureBlockView: NSView {
         super.init(frame: .zero)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        setAccessibilityCustomActions([
-            AccessibilityCellActions.makeAction(name: "Highlight Feature") { [weak self] in self?.onSelect() },
-            AccessibilityCellActions.makeAction(name: "Clear Highlight") { [weak self] in self?.onClear() },
-        ])
+        updateAccessibilityActions()
         toolTip = [label, help].compactMap { $0 }.joined(separator: " — ")
         labelField.font = .systemFont(ofSize: 9, weight: .semibold)
         labelField.textColor = .selectedControlTextColor
@@ -517,6 +524,15 @@ private final class FeatureBlockView: NSView {
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    /// AXPress already highlights the feature, so the only custom action is
+    /// the one press cannot express, and it is offered only while this block
+    /// is the highlighted one.
+    private func updateAccessibilityActions() {
+        setAccessibilityCustomActions(isHighlighted ? [
+            AccessibilityCellActions.makeAction(name: "Clear Highlight") { [weak self] in self?.onClear() },
+        ] : [])
     }
 
     override func updateTrackingAreas() {

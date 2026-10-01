@@ -221,6 +221,9 @@ struct PrimerBindingComparisonTable: View {
     let context: PrimerBindingInspectionContext
     let primer: PrimerBindingInspectionPrimer
     @State private var comparisons: [PrimerBindingRowComparison] = []
+    // Empty keeps the alignment's own row order. The site column is not
+    // sortable because its text is a drawn alignment, not a comparable value.
+    @State private var sortOrder: [KeyPathComparator<PrimerBindingRowComparison>] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
 
@@ -251,11 +254,11 @@ struct PrimerBindingComparisonTable: View {
                     .help(compatibility.help)
                 // A native Table: each alignment row is a table row with named
                 // cells. A mismatch is bold and underlined as well as orange.
-                Table(comparisons) {
-                    TableColumn("Alignment row") { row in
+                Table(comparisons.sorted(using: sortOrder), sortOrder: $sortOrder) {
+                    TableColumn("Alignment row", value: \.rowName) { row in
                         Text(row.rowName).textSelection(.enabled)
                     }
-                    TableColumn("Status") { row in
+                    TableColumn("Status", value: \.status) { row in
                         Text(row.status)
                             .foregroundStyle(row.mismatchCount.map { $0 > 0 } == true ? Color.orange : Color.secondary)
                             .textSelection(.enabled)

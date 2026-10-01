@@ -108,7 +108,7 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
     func testSelectedCellReviewItemsCarryTheMatrixChords() {
         let expected: [(String, String)] = [
             ("Mark False Positive", "p"), ("Mark False Negative", "x"),
-            ("Clear Review", "r"), ("Edit Comment\u{2026}", "m"),
+            ("Clear Review", "r"),
         ]
         let bound = menuBindings().filter { $0.path.contains("Genotype Review > Selected Cell") }
         for (title, key) in expected {
@@ -143,6 +143,8 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
         (Chord("h", [.command]), [], "Hide (title starts with Hide)"),
         (Chord("h", [.command, .option]), ["Hide Others"], "Hide Others"),
         (Chord("m", [.command]), ["Minimize"], "Minimize"),
+        (Chord("m", [.command, .option]), [], "Minimize All"),
+        (Chord("w", [.command, .option]), [], "Close All"),
         (Chord("n", [.command]), [], "New (title starts with New)"),
         (Chord("o", [.command]), [], "Open (title starts with Open)"),
         (Chord("p", [.command]), ["Print\u{2026}"], "Print"),
@@ -193,6 +195,7 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
         (Chord(" ", [.command]), "Spotlight"),
         (Chord(" ", [.command, .option]), "Finder search"),
         (Chord("\u{1b}", [.command, .option]), "Force Quit"),
+        (Chord("d", [.command, .option]), "Dock hide and show"),
         (Chord("3", [.command, .shift]), "screenshot"),
         (Chord("4", [.command, .shift]), "screenshot"),
         (Chord("5", [.command, .shift]), "screenshot"),

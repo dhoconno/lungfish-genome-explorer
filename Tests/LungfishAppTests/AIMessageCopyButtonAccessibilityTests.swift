@@ -40,6 +40,16 @@ final class AIMessageCopyButtonAccessibilityTests: XCTestCase {
         XCTAssertEqual(AccessibilityTreeProbe.role(button), NSAccessibility.Role.button.rawValue)
         XCTAssertEqual(AccessibilityTreeProbe.label(button), "Copy Message")
         XCTAssertNotNil(AccessibilityTreeProbe.help(button))
+        XCTAssertEqual(button.toolTip, AccessibilityTreeProbe.label(button), "label and tooltip share one title")
+        XCTAssertGreaterThanOrEqual(
+            button.alphaValue, 0.6,
+            "the resting icon must keep 3:1 non-text contrast"
+        )
+        _ = try XCTUnwrap(button as? AIMessageCopyButton)
+        _ = window.makeFirstResponder(button)
+        if button.acceptsFirstResponder, window.firstResponder === button {
+            XCTAssertEqual(button.alphaValue, 1.0, "keyboard focus lifts the icon to full strength")
+        }
         NSPasteboard.general.clearContents()
         // NSButton performs the click and reports false from the press call.
         _ = AccessibilityTreeProbe.press(button)

@@ -67,6 +67,8 @@ struct PrimerOrderResultView: View {
 struct PrimerOrderResultContent: View {
     let document: PrimerOrderDocument
     let orderURL: URL
+    // Empty keeps the saved order. Column headers sort for reading only.
+    @State private var sortOrder: [KeyPathComparator<PrimerOrderOligo>] = []
 
     private var poolNames: [String] {
         var seen: Set<String> = []
@@ -132,22 +134,24 @@ struct PrimerOrderResultContent: View {
                 }
                 // A native Table: every saved oligo is a row with named cells, so
                 // VoiceOver and AX clients read and navigate it as a table.
-                Table(document.oligos) {
-                    TableColumn("Name") { oligo in
+                Table(document.oligos.sorted(using: sortOrder), sortOrder: $sortOrder) {
+                    TableColumn("Name", value: \.name) { oligo in
                         Text(oligo.name).fontWeight(.medium).textSelection(.enabled)
                     }
-                    TableColumn("Pool") { oligo in
+                    TableColumn("Pool", value: \.poolName) { oligo in
                         Text(oligo.poolName).foregroundStyle(.secondary)
                     }
-                    TableColumn("Reference") { oligo in
+                    TableColumn("Reference", value: \.referenceID) { oligo in
                         Text("\(oligo.referenceID) · \(oligo.start + 1)–\(oligo.end) (\(oligo.strand))")
                             .foregroundStyle(.secondary).textSelection(.enabled)
                     }
-                    TableColumn("Sequence 5′–3′") { oligo in
+                    TableColumn("Sequence 5′–3′", value: \.sequence) { oligo in
                         Text(oligo.sequence).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                     }
                 }
-                .frame(minHeight: 280, idealHeight: 420)
+                // The page scrolls and the table scrolls inside it, so the
+                // table gets a bounded height instead of the page's unbounded one.
+                .frame(minHeight: 280, idealHeight: 420, maxHeight: 520)
                 .accessibilityIdentifier("primerOrderResult.oligos")
             }
             .padding(20)

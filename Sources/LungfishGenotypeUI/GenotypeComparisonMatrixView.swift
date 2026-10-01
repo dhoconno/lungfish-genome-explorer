@@ -3948,7 +3948,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     // MARK: - Review commands in the menu bar
 
-    // The review chords (⌥⌘P, ⌥⌘X, ⌥⌘R, ⌥⌘M) belong to Tools > Genotype
+    // The review chords (⌥⌘P, ⌥⌘X, ⌥⌘R) belong to Tools > Genotype
     // Review > Selected Cell. The matrix does not claim them in
     // `performKeyEquivalent`, so the key reaches the menu bar and the menu
     // item reaches this view through the responder chain, which enables it
@@ -3985,60 +3985,83 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
+    /// Announces results to VoiceOver. Tests replace the handler.
+    var accessibilityAnnouncementPoster = AccessibilityAnnouncementPoster()
+
+    static let selectSupportedCellsActionName = "Select Supported Cells (≥ 1 read)"
+    static let hideRowActionName = "Hide Selected Row"
+    static let showOnlyRowActionName = "Show Only Selected Row"
+
     /// The commands a matrix row offers to AX clients, computed when the
     /// client asks so the list follows the selection.
     ///
-    /// Review marks and comments act on the current selection, which the
-    /// product allows only on cells, so they are listed while the selection
-    /// touches this row and the command is enabled for it. Select Supported
-    /// Cells turns the row into the cells that carry reads, which is how an AX
-    /// client reaches the review marks, since cells have no AX selection of
-    /// their own. Select Supported Cells, Hide Row and Show Only Row are always
-    /// listed. Performing any of them on a row outside the
-    /// selection selects that row first, as a click on its selector would.
+    /// Each action carries the title of the matching menu item. Review marks
+    /// and comments act on the selected cells of this row, so they are listed
+    /// while the selection touches this row and the command is enabled.
+    /// Select Supported Cells turns the row into the cells that carry reads,
+    /// which is how an AX client reaches the review marks, since cells have no
+    /// AX selection of their own. Select Supported Cells, Hide Row and Show
+    /// Only Row are always listed and always act on this row alone.
     private func rowAccessibilityActions(rowID: GenotypeCandidateMatrixRowID) -> [NSAccessibilityCustomAction] {
         guard let row = visibleRows.first(where: { $0.id == rowID }) else { return [] }
-        var enabled: Set<GenotypeMatrixContextCommand> = []
+        var reviewTitles: [GenotypeMatrixContextCommand: String] = [:]
         if selectionTouchesRow(row) {
-            let state = makeContextMenuState()
-            let items = state.items + state.visibilityItems + state.visibilitySubmenus.flatMap(\.items)
-            enabled = Set(items.filter(\.availability.isEnabled).map(\.command))
+            for item in makeContextMenuState().items where item.availability.isEnabled {
+                reviewTitles[item.command] = item.title
+            }
         }
-        let commands: [(String, GenotypeMatrixContextCommand, Bool)] = [
-            ("Mark False Positive", .markFalsePositive, false),
-            ("Mark False Negative", .markFalseNegative, false),
-            ("Clear Review", .clearReview, false),
-            ("Edit Comment", .editComment, false),
-            ("Remove Comment", .removeComments, false),
-            ("Select Supported Cells", .selectSupportedCells, true),
-            ("Hide Row", .hideSelectedRows, true),
-            ("Show Only Row", .showOnlySelectedRows, true),
+        let reviewCommands: [GenotypeMatrixContextCommand] = [
+            .markFalsePositive, .markFalseNegative, .clearReview, .editComment, .removeComments,
         ]
-        return commands.compactMap { name, command, alwaysListed in
-            guard alwaysListed || enabled.contains(command) else { return nil }
-            return AccessibilityCellActions.makeAction(name: name) { [weak self] in
+        var commands: [(String, GenotypeMatrixContextCommand)] = reviewCommands.compactMap { command in
+            reviewTitles[command].map { ($0, command) }
+        }
+        commands += [
+            (Self.selectSupportedCellsActionName, .selectSupportedCells),
+            (Self.hideRowActionName, .hideSelectedRows),
+            (Self.showOnlyRowActionName, .showOnlySelectedRows),
+        ]
+        return commands.map { name, command in
+            AccessibilityCellActions.makeAction(name: name) { [weak self] in
                 self?.performRowAction(command, rowID: rowID)
             }
         }
     }
 
-    private func selectionTouchesRow(_ row: GenotypeCandidateMatrixRow) -> Bool {
-        selectedMatrixTargets.contains { target in
-            switch target {
-            case let .row(locus, genotype, _), let .cell(locus, genotype, _, _):
-                return locus == row.locus && genotype == row.genotype
-            case .column:
-                return false
-            }
+    private func target(_ target: GenotypeAnnotationSidecar.MatrixTarget, isIn row: GenotypeCandidateMatrixRow) -> Bool {
+        switch target {
+        case let .row(locus, genotype, _), let .cell(locus, genotype, _, _):
+            return locus == row.locus && genotype == row.genotype
+        case .column:
+            return false
         }
+    }
+
+    private func selectionTouchesRow(_ row: GenotypeCandidateMatrixRow) -> Bool {
+        selectedMatrixTargets.contains { target($0, isIn: row) }
     }
 
     private func performRowAction(_ command: GenotypeMatrixContextCommand, rowID: GenotypeCandidateMatrixRowID) {
         guard let row = visibleRows.firstIndex(where: { $0.id == rowID }) else { return }
-        if !selectionTouchesRow(visibleRows[row]) {
+        switch command {
+        case .markFalsePositive, .markFalseNegative, .clearReview, .editComment, .removeComments:
+            // Keep only this row's targets so the action cannot touch cells
+            // of other rows that happen to be selected.
+            let own = selectedMatrixTargets.filter { target($0, isIn: visibleRows[row]) }
+            if own.count != selectedMatrixTargets.count, !own.isEmpty {
+                publishMatrixTargetSelection(own, anchor: own.last)
+            }
+        default:
             selectRowFromDirectClick(row, modifiers: [])
         }
         performContextCommand(command)
+        if command == .selectSupportedCells {
+            let count = selectedMatrixTargets.count
+            accessibilityAnnouncementPoster.post(
+                "\(count) \(count == 1 ? "cell" : "cells") selected. Review actions available.",
+                priority: .medium
+            )
+        }
     }
 
     /// True when the window's first responder is this view or one of its

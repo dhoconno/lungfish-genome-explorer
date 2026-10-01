@@ -57,7 +57,7 @@ Defaults taken by the coordinator (not asked): retarget View > Expand All / Coll
 | Analyses section rows | Inspector/Sections/AnalysesSection.swift | `.accessibilityValue` and `.help` with the absolute timestamp |
 | Track header disclosure triangles | Viewer/TrackHeaderView.swift, EnhancedCoordinateRulerView.swift | NSAccessibilityElement per track (disclosure triangle, press toggles); focusable, Up/Down, Space; View > Toggle Annotations for Selected Track |
 | Welcome window | Welcome/WelcomeWindowController.swift | optional-tools LazyVGrid to Grid; verify tiles |
-| Known-allele feature blocks | LungfishGenotypeUI/GenotypeKnownAlleleOverviewView.swift | role button, press selects, Highlight Feature / Clear Highlight, Left/Right/Return |
+| Known-allele feature blocks | LungfishGenotypeUI/GenotypeKnownAlleleOverviewView.swift | role button, press selects, press highlights, Clear Highlight while highlighted, Left/Right/Return |
 | Tooltips | various | informational, out of scope; sunburst Zoom In / Zoom Out actions |
 
 ### 1c. Lazy stacks and grids
