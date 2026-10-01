@@ -135,8 +135,8 @@ The rest of the View menu acts on particular viewports.
 
 | Action | Shortcut | Where it acts |
 |---|---|---|
-| Expand All | Cmd-Shift-Right Arrow | Taxonomy table |
-| Collapse All | Cmd-Shift-Left Arrow | Taxonomy table |
+| Expand All | Cmd-Shift-Right Arrow | Taxonomy, EsViritu, NVD, and BLAST results tables |
+| Collapse All | Cmd-Shift-Left Arrow | Taxonomy, EsViritu, NVD, and BLAST results tables |
 | Next Sample | Cmd-right bracket | TaxTriage result window |
 | Previous Sample | Cmd-left bracket | TaxTriage result window |
 | All Samples | Cmd-Shift-0 | TaxTriage result window |
@@ -278,6 +278,12 @@ The comparison matrix inside that window, where each cell is one allele in one s
 
 The TaxTriage sample shortcuts live in the View menu, listed above. In the taxonomy sunburst, the circular chart of nested organism groups, Escape steps back up one level, from the group you zoomed into to the broader group around it, and Cmd-0 returns to the full chart in one press. Cmd-0 there is **View > Zoom to Fit**, which LGE hands to the chart. Click the chart first.
 
+Every result table in a classifier window answers **Selection > Table Row**. Click a row first, because the items work only while the table has focus. That covers the EsViritu detection list, the NVD contig list, the NAO-MGS and TaxTriage taxon tables, the 12S target and unresolved tables, the tree node table, and the BLAST results table that opens below any of them. Each table enables only the commands it supports, so **Copy Name** works in all of them, **Extract Reads...** in the classifier tables, and **Verify with BLAST...** wherever a row can be checked against NCBI. In NAO-MGS that item opens the read count popover, in place of the fixed 20, 50, and all-reads choices the right-click menu once listed. The same commands are VoiceOver actions on every row, under the same names.
+
+The EsViritu, NVD, and BLAST results tables are outlines, so **View > Expand All** (Cmd-Shift-Right Arrow) and **View > Collapse All** (Cmd-Shift-Left Arrow) work in them while they have focus. The NAO-MGS and TaxTriage tables are flat lists, so those two items stay greyed out there. In NAO-MGS, each accession button in the detail pane also offers **Copy Accession** as a VoiceOver action.
+
+The menus that open from a button have VoiceOver actions too. The BLAST table lists **Show** or **Hide** for each optional column on its header, and the 12S window does the same for the imported metadata columns on its **Sample Columns** button, with **Import Metadata...** beside them. The 12S Export button lists its three formats. **File > Export > 12S Result...** has no shortcut, shows the same three formats as a sheet on the result window, and stays greyed out until a 12S result is in front.
+
 ## Inside the sidebar
 
 Right-clicking in the sidebar opens a context menu, and four of its commands print shortcuts. **New Folder...** is Cmd-Shift-N, **Duplicate** is Cmd-D, **Move to Trash**, which reads **Move N Items to Trash** for several items, is Cmd-Delete, and **Select Siblings** is Cmd-Shift-A. The same four live in **Selection > Sidebar Item**, so they work whenever the sidebar list has focus, with no menu open, and **Selection > Show in Inspector** (Cmd-Opt-S) reveals the selected item in the Inspector from there too.
@@ -405,8 +411,8 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Arrow keys | Move the selection, Shift extends it | MSA viewport |
 | Return | Recentre the viewport on the selected row | Annotation table |
 | Opt-Right Arrow | Expand the selected row recursively | Taxonomy table |
-| Cmd-Shift-Right Arrow | Expand All | View menu, taxonomy table |
-| Cmd-Shift-Left Arrow | Collapse All | View menu, taxonomy table |
+| Cmd-Shift-Right Arrow | Expand All | View menu, outline result tables |
+| Cmd-Shift-Left Arrow | Collapse All | View menu, outline result tables |
 
 ## Accessibility
 
