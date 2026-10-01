@@ -96,14 +96,36 @@ beats:
     kicker: File · Export · Provenance · Methods Section
     square_focus: [0.15, 0.0, 0.62, 1.0]
 
+  # The three exports read in LGE's viewer (Preview 2026.9.74), one take cut into three beats.
+  # Nextflow and Snakemake are cropped below their generated header, which names the recording user.
   - kind: take
-    id: exports
-    take: takes-v2/exports.mov    # the three exports read in LGE's viewer (Preview 2026.9.74)
-    in: 1.6
-    duration: 13.5
-    caption: Read the methods, Nextflow and Snakemake exports
-    kicker: methods.md · main.nf · Snakefile
-    crop: [0.0, 0.064, 0.80, 0.62]
+    id: exports-methods
+    take: takes-v2/exports.mov
+    in: 1.4
+    duration: 4.9
+    caption: A methods paragraph naming every tool and version
+    kicker: methods.md
+    crop: [0.0, 0.064, 0.80, 0.50]
+    square_focus: [0.0, 0.0, 0.7, 1.0]
+
+  - kind: take
+    id: exports-nextflow
+    take: takes-v2/exports.mov
+    in: 6.3
+    duration: 4.4
+    caption: A Nextflow pipeline with pinned conda packages
+    kicker: main.nf
+    crop: [0.0, 0.33, 0.80, 0.55]
+    square_focus: [0.0, 0.0, 0.7, 1.0]
+
+  - kind: take
+    id: exports-snakemake
+    take: takes-v2/exports.mov
+    in: 10.8
+    duration: 4.6
+    caption: A Snakemake workflow from the same record
+    kicker: Snakefile
+    crop: [0.0, 0.33, 0.80, 0.55]
     square_focus: [0.0, 0.0, 0.7, 1.0]
 
   - kind: terminal
