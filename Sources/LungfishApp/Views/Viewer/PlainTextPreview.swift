@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 /// and reads a bounded, UTF-8 safe preview of it.
 ///
 /// Quick Look stays the primary path for every type macOS knows how to preview
-/// (.md, .txt, .py, .sh, .yaml, .json and so on). This fallback only applies to
+/// (.md, .txt, .py, .sh, .json and so on). This fallback only applies to
 /// workflow and script files the system has no preview for, such as Nextflow
 /// `main.nf`, Snakemake `Snakefile`, and unregistered extensions, plus small
 /// unknown files that sniff as UTF-8 text.
@@ -29,8 +29,9 @@ enum PlainTextPreview {
 
     /// Extensions always shown as text, even when an installed app maps them to
     /// a type Quick Look does not render (for example `.r` resolves to Rez
-    /// source and `.config` to TOML on a stock macOS).
-    static let workflowExtensions: Set<String> = ["nf", "smk", "config", "r"]
+    /// source, and `.yaml` shows only a generic icon when a third-party
+    /// text app owns the type).
+    static let workflowExtensions: Set<String> = ["nf", "smk", "config", "r", "yaml", "yml", "toml"]
 
     /// Extension-less file names always shown as text (lowercased).
     static let knownFileNames: Set<String> = [

@@ -25,7 +25,7 @@ final class PlainTextPreviewTests: XCTestCase {
     }
 
     func testWorkflowExtensionsRouteToText() throws {
-        for name in ["main.nf", "rules.smk", "nextflow.config", "custom.config", "analysis.R", "plot.r"] {
+        for name in ["main.nf", "rules.smk", "nextflow.config", "custom.config", "analysis.R", "plot.r", "env.yaml", "env.yml", "pyproject.toml"] {
             XCTAssertEqual(PlainTextPreview.decision(for: try write(name, "x = 1\n")), .text, name)
         }
     }
@@ -37,7 +37,7 @@ final class PlainTextPreviewTests: XCTestCase {
     }
 
     func testTypesQuickLookHandlesStayOnQuickLook() throws {
-        for name in ["README.md", "notes.txt", "run.sh", "tool.py", "env.yaml", "env.yml", "data.json", "run.log"] {
+        for name in ["README.md", "notes.txt", "run.sh", "tool.py", "data.json", "run.log"] {
             XCTAssertEqual(PlainTextPreview.decision(for: try write(name, "hello\n")), .quickLook, name)
         }
     }
