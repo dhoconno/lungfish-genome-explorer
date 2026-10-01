@@ -1,44 +1,51 @@
-// WorkflowExportGraph.swift - The file-name DAG behind the Nextflow and Snakemake exports
+// WorkflowExportGraph.swift - The file DAG behind the Nextflow and Snakemake exports
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// A provenance chain is a flat list of steps whose inputs and outputs are
-// file records. Two things about that list break a workflow engine when it
-// is transcribed one step per process or rule:
+// An export plan is a flat list of steps whose inputs and outputs are file
+// records. Two things about that list break a workflow engine when it is
+// transcribed one step per process or rule:
 //
 // 1. A wrapper step and the tool it ran both record the same output
 //    (`lungfish-cli import fastq` and the clumpify it launched both claim
 //    the bundle's FASTQ), so a file has several producers. Snakemake
-//    refuses an ambiguous producer; Nextflow does not care, but the
-//    previous renderer chained processes positionally (`NEXT(PREV.out)`)
-//    and so handed a two-input process one channel, which fails to compile.
+//    refuses an ambiguous producer; Nextflow does not care, but chaining
+//    processes positionally hands a two-input process one channel, which
+//    fails to compile.
 // 2. A step can record its own input among its outputs (samtools flagstat
 //    on a sorted BAM lists the BAM), which is a cycle to Snakemake.
 //
-// This graph settles both once, for both renderers: inputs and outputs are
-// deduplicated, a step's own inputs are dropped from its outputs, every
-// input is traced to the most recent earlier producer of that file (or to
-// a pipeline parameter when nothing earlier wrote it), and for Snakemake a
-// path keeps its earliest producer only (a `ruleorder` does not settle
-// two wildcard-free rules with the same output in Snakemake 9).
+// This graph settles both once, for both renderers, over the plan's
+// portable paths: inputs and outputs are deduplicated, a step's own inputs
+// are dropped from its outputs, every input is traced to the most recent
+// earlier producer of that file (or to a pipeline parameter when nothing
+// earlier wrote it), and for Snakemake a path keeps its earliest producer
+// only (a `ruleorder` does not settle two wildcard-free rules with the same
+// output in Snakemake 9).
 
 import Foundation
 
 struct WorkflowExportGraph {
+    typealias MappedPath = ProvenanceExportPlan.MappedPath
+
     struct Node {
+        /// The recorded 1-based number of the step (the first, for a pipe).
         let index: Int
-        let step: StepExecution
+        let step: ProvenanceExportPlan.Step
         /// Input file names, once each, in recorded order.
         let inputFilenames: [String]
         /// Output file names, once each, minus the step's own inputs.
         let outputFilenames: [String]
-        /// Input paths, once each, in recorded order.
-        let inputPaths: [String]
-        /// Output paths, once each, minus the step's own inputs.
-        let outputPaths: [String]
+        /// Portable input paths, once each, in recorded order, minus the
+        /// files an in-app step made (the export cannot produce them).
+        let inputPaths: [MappedPath]
+        /// Inputs an in-app step made, named in a comment instead.
+        let inAppInputPaths: [MappedPath]
+        /// Portable output paths, once each, minus the step's own inputs.
+        let outputPaths: [MappedPath]
         /// ``outputPaths`` minus the paths an earlier step already claims,
         /// so every path has one producing rule.
-        let uniqueOutputPaths: [String]
+        let uniqueOutputPaths: [MappedPath]
 
         var nextflowProcessName: String {
             "\(WorkflowExportGraph.sanitize(step.toolName).uppercased())_\(index)"
@@ -54,54 +61,67 @@ struct WorkflowExportGraph {
         case process(Node, outputIndex: Int)
         /// No earlier process wrote the file; it is a pipeline parameter.
         case parameter
+
+        var isParameter: Bool {
+            if case .parameter = self { return true }
+            return false
+        }
     }
 
     let nodes: [Node]
     /// File names read by some step that no earlier step wrote, once each,
     /// in first-use order. These are the pipeline's parameters.
     let parameterFilenames: [String]
-    private let parameterPaths: [String: String]
+    private let parameterPaths: [String: MappedPath]
 
-    /// Builds the graph from the steps `including` accepts. Nodes keep the
-    /// step's recorded 1-based number, so a skipped step leaves a gap
-    /// rather than renumbering the steps after it.
-    init(run: WorkflowRun, including: (StepExecution) -> Bool = { _ in true }) {
+    /// The graph of the replayable steps of `run`.
+    init(run: WorkflowRun) {
+        self.init(plan: ProvenanceExportPlan(run: run, replayArguments: { $0.durableReplayArgv ?? $0.command }))
+    }
+
+    /// The graph of the plan's replayable steps. Nodes keep the step's
+    /// recorded number, so a skipped step leaves a gap rather than
+    /// renumbering the steps after it.
+    init(plan: ProvenanceExportPlan) {
         var nodes: [Node] = []
         var producedFilenames = Set<String>()
         var parameterFilenames: [String] = []
-        var parameterPaths: [String: String] = [:]
-        var claimedPaths = Set<String>()
+        var parameterPaths: [String: MappedPath] = [:]
+        var claimedPaths: [MappedPath] = []
+        let inAppOutputs = Set(plan.inAppSteps.flatMap { $0.outputs.map { plan.map($0.path) } })
 
-        for (offset, step) in run.steps.enumerated() where including(step) {
-            let inputFilenames = Self.unique(step.inputs.map(\.filename))
-            let inputPaths = Self.unique(step.inputs.map(\.path))
+        for step in plan.replayableSteps {
+            let allInputs = step.inputs.filter { !$0.path.hasPrefix("pipe:") }
+            let inputs = allInputs.filter { !inAppOutputs.contains(plan.map($0.path)) }
+            let inAppInputPaths = Self.unique(allInputs.map { plan.map($0.path) }.filter { inAppOutputs.contains($0) })
+            let outputs = step.outputs.filter { !$0.path.hasPrefix("pipe:") }
+            let inputFilenames = Self.unique(inputs.map(\.filename))
+            let inputPaths = Self.unique(inputs.map { plan.map($0.path) })
             let inputFilenameSet = Set(inputFilenames)
-            let inputPathSet = Set(inputPaths)
-            let outputFilenames = Self.unique(step.outputs.map(\.filename)).filter { !inputFilenameSet.contains($0) }
-            let outputPaths = Self.unique(step.outputs.map(\.path)).filter { !inputPathSet.contains($0) }
+            let outputFilenames = Self.unique(outputs.map(\.filename)).filter { !inputFilenameSet.contains($0) }
+            let outputPaths = Self.unique(outputs.map { plan.map($0.path) }).filter { !inputPaths.contains($0) }
             let uniqueOutputPaths = outputPaths.filter { !claimedPaths.contains($0) }
             let node = Node(
-                index: offset + 1,
+                index: step.number,
                 step: step,
                 inputFilenames: inputFilenames,
                 outputFilenames: outputFilenames,
                 inputPaths: inputPaths,
+                inAppInputPaths: inAppInputPaths,
                 outputPaths: outputPaths,
                 uniqueOutputPaths: uniqueOutputPaths
             )
 
-            for input in step.inputs where !producedFilenames.contains(input.filename) {
+            for input in inputs where !producedFilenames.contains(input.filename) {
                 if parameterPaths[input.filename] == nil {
                     parameterFilenames.append(input.filename)
-                    parameterPaths[input.filename] = input.path
+                    parameterPaths[input.filename] = plan.map(input.path)
                 }
             }
             for output in outputFilenames {
                 producedFilenames.insert(output)
             }
-            for path in uniqueOutputPaths {
-                claimedPaths.insert(path)
-            }
+            claimedPaths += uniqueOutputPaths
             nodes.append(node)
         }
 
@@ -126,15 +146,15 @@ struct WorkflowExportGraph {
         Self.sanitize(filename.replacingOccurrences(of: ".", with: "_"))
     }
 
-    /// The recorded path behind a parameter file name.
-    func parameterPath(for filename: String) -> String? {
+    /// The portable path behind a parameter file name.
+    func parameterPath(for filename: String) -> MappedPath? {
         parameterPaths[filename]
     }
 
     /// The paths a Snakemake `rule all` asks for: every produced path that
     /// no later step reads, so the whole chain is planned.
-    var finalOutputPaths: [String] {
-        var terminal: [String] = []
+    var finalOutputPaths: [MappedPath] {
+        var terminal: [MappedPath] = []
         for node in nodes {
             for path in node.uniqueOutputPaths {
                 let consumedLater = nodes.contains { $0.index > node.index && $0.inputPaths.contains(path) }
@@ -149,15 +169,20 @@ struct WorkflowExportGraph {
     static func sanitize(_ name: String) -> String {
         var s = name.replacingOccurrences(of: " ", with: "_")
         s = s.replacingOccurrences(of: "-", with: "_")
+        s = s.replacingOccurrences(of: "|", with: "_")
         s = s.filter { $0.isLetter || $0.isNumber || $0 == "_" }
+        while s.contains("__") { s = s.replacingOccurrences(of: "__", with: "_") }
         if let first = s.first, first.isNumber {
             s = "_" + s
         }
         return s.lowercased()
     }
 
-    private static func unique(_ values: [String]) -> [String] {
-        var seen = Set<String>()
-        return values.filter { seen.insert($0).inserted }
+    private static func unique<T: Equatable>(_ values: [T]) -> [T] {
+        var result: [T] = []
+        for value in values where !result.contains(value) {
+            result.append(value)
+        }
+        return result
     }
 }

@@ -481,8 +481,8 @@ struct ProvenanceExportTests {
         #expect(script.contains("set -euo pipefail"))
         #expect(script.contains("fastp"))
         #expect(script.contains("samtools"))
-        #expect(script.contains("Step 1: fastp 0.23.4"))
-        #expect(script.contains("Step 2: samtools 1.21"))
+        #expect(script.contains("Step 1: fastp v0.23.4"))
+        #expect(script.contains("Step 2: samtools v1.21"))
         #expect(script.contains("Variant Calling Pipeline"))
     }
 
@@ -533,7 +533,7 @@ struct ProvenanceExportTests {
         #expect(methods.contains("samtools v1.21"))
         #expect(methods.contains("minimum quality score of 20"))
         #expect(methods.contains("minimum length of 50 bp"))
-        #expect(methods.contains("| Tool | Version | Container |"))
+        #expect(methods.contains("| Tool | Version | Package | Environment |"))
     }
 
     @Test("Export as JSON")

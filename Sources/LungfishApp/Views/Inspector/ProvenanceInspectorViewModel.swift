@@ -470,7 +470,7 @@ final class ProvenanceInspectorViewModel {
         apply(LookupOutcome(
             audit: .init(status: .present, requirement: .required("Verified scientific bundle"),
                          sidecarURL: record.sidecarURL, messages: []),
-            resolvedEnvelope: record.envelope, resolvedSidecarURL: record.sidecarURL), item: item)
+            resolvedEnvelope: record.envelope, resolvedSidecarURL: record.sidecarURL, upstreamRuns: []), item: item)
     }
 
     func presentUnavailableVerifiedRecord(item: ProvenanceInspectableItem, message: String) {
@@ -590,15 +590,31 @@ final class ProvenanceInspectorViewModel {
         let audit = monitor.audit(item)
         guard let url = item.url,
               let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) else {
-            return LookupOutcome(audit: audit, resolvedEnvelope: nil, resolvedSidecarURL: nil)
+            return LookupOutcome(audit: audit, resolvedEnvelope: nil, resolvedSidecarURL: nil, upstreamRuns: [])
         }
-        return LookupOutcome(audit: audit, resolvedEnvelope: resolved.envelope, resolvedSidecarURL: resolved.sidecarURL)
+        // The records that fed this one, upstream first, so the lineage
+        // starts at the reads rather than at the selected result.
+        let upstream = ProvenanceLineageResolver()
+            .resolve(envelope: resolved.envelope, sidecarURL: resolved.sidecarURL, sourceRootURL: url)
+            .dropLast()
+        return LookupOutcome(
+            audit: audit,
+            resolvedEnvelope: resolved.envelope,
+            resolvedSidecarURL: resolved.sidecarURL,
+            upstreamRuns: upstream.map { ProvenanceUpstreamRun(envelope: $0.envelope, sidecarURL: $0.sidecarURL) }
+        )
+    }
+
+    struct ProvenanceUpstreamRun: Sendable {
+        var envelope: ProvenanceEnvelope
+        var sidecarURL: URL?
     }
 
     private struct LookupOutcome: Sendable {
         var audit: ProvenanceAuditResult
         var resolvedEnvelope: ProvenanceEnvelope?
         var resolvedSidecarURL: URL?
+        var upstreamRuns: [ProvenanceUpstreamRun]
     }
 
     /// Applies a completed off-main lookup's result to published state. Must only be called
@@ -614,7 +630,7 @@ final class ProvenanceInspectorViewModel {
 
         resolvedEnvelope = envelope
         resolvedSidecarURL = sidecarURL
-        buildPresentState(envelope: envelope, sidecarURL: sidecarURL)
+        buildPresentState(envelope: envelope, sidecarURL: sidecarURL, upstreamRuns: outcome.upstreamRuns)
     }
 
     #if DEBUG
@@ -673,7 +689,11 @@ final class ProvenanceInspectorViewModel {
         copyableText = warnings.map { "\($0.title)\n\($0.message)" }.joined(separator: "\n\n")
     }
 
-    private func buildPresentState(envelope: ProvenanceEnvelope, sidecarURL: URL) {
+    private func buildPresentState(
+        envelope: ProvenanceEnvelope,
+        sidecarURL: URL,
+        upstreamRuns: [ProvenanceUpstreamRun] = []
+    ) {
         let deduplicatedDescriptors = deduplicatedFileDescriptors(allFileDescriptors(in: envelope))
         let fastqPresentation = ProvenanceFASTQBundlePresentation(
             envelope: envelope,
@@ -708,31 +728,8 @@ final class ProvenanceInspectorViewModel {
             + stepWarningRows(for: envelope)
             + fastqPresentation.warningRows()
             + presentationWarnings
-        lineageRuns = [
-            ProvenanceLineageRun(
-                id: envelope.id,
-                title: envelope.workflowName,
-                subtitle: "\(envelope.toolName) \(envelope.toolVersion)",
-                steps: envelope.steps.enumerated().map { index, step in
-                    ProvenanceLineageStep(
-                        id: step.id,
-                        ordinal: index + 1,
-                        toolName: step.toolName,
-                        toolVersion: step.toolVersion,
-                        command: step.reproducibleCommand,
-                        inputPaths: cappedPresentationPathList(
-                            step.inputs,
-                            fastqPresentation: fastqPresentation
-                        ),
-                        outputPaths: cappedPathList(step.outputs.map(\.path)),
-                        exitStatus: step.exitStatus,
-                        wallTimeSeconds: step.wallTimeSeconds,
-                        stderr: step.stderr?.strippingANSIEscapeSequences(),
-                        dependsOn: step.dependsOn
-                    )
-                }
-            )
-        ]
+        lineageRuns = upstreamRuns.map { lineageRun(for: $0.envelope, fastqPresentation: nil) }
+            + [lineageRun(for: envelope, fastqPresentation: fastqPresentation)]
         fileRows = Array(completeFileRows.prefix(Self.maximumDisplayedFileRows))
         optionRows = buildOptionRows(envelope.options)
         runtimeRows = buildRuntimeRows(envelope.runtimeIdentity)
@@ -740,6 +737,38 @@ final class ProvenanceInspectorViewModel {
             ? encodedJSON(envelope)
             : ""
         copyableText = buildCopyableText()
+    }
+
+    /// One lineage entry for a record: its steps in order, with the version
+    /// spelt as a reader should see it (`bcftools v1.24`, never `vLungfish dev (0)`).
+    private func lineageRun(
+        for envelope: ProvenanceEnvelope,
+        fastqPresentation: ProvenanceFASTQBundlePresentation?
+    ) -> ProvenanceLineageRun {
+        let identity = ProvenanceToolIdentityText.parse(toolName: envelope.toolName, toolVersion: envelope.toolVersion)
+        return ProvenanceLineageRun(
+            id: envelope.id,
+            title: envelope.workflowName,
+            subtitle: identity.displayLabel,
+            steps: envelope.steps.enumerated().map { index, step in
+                let stepIdentity = ProvenanceToolIdentityText.parse(toolName: step.toolName, toolVersion: step.toolVersion)
+                return ProvenanceLineageStep(
+                    id: step.id,
+                    ordinal: index + 1,
+                    toolName: step.toolName,
+                    toolVersion: stepIdentity.displayVersion,
+                    command: step.reproducibleCommand,
+                    inputPaths: fastqPresentation.map {
+                        cappedPresentationPathList(step.inputs, fastqPresentation: $0)
+                    } ?? cappedPathList(step.inputs.map(\.path)),
+                    outputPaths: cappedPathList(step.outputs.map(\.path)),
+                    exitStatus: step.exitStatus,
+                    wallTimeSeconds: step.wallTimeSeconds,
+                    stderr: step.stderr?.strippingANSIEscapeSequences(),
+                    dependsOn: step.dependsOn
+                )
+            }
+        )
     }
 
     private func warningRows(for audit: ProvenanceAuditResult) -> [ProvenanceWarningRow] {

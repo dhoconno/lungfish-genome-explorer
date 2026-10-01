@@ -212,7 +212,7 @@ struct SearchCommand: AsyncParsableCommand {
                     "matchCount": .integer(allMatches.count)
                 ],
                 toolName: "lungfish search",
-                toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                toolVersion: LungfishCLI.configuration.version,
                 command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
                 inputs: [
                     ProvenanceRecorder.fileRecord(url: inputURL, format: .fasta, role: .input)

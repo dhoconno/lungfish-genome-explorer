@@ -144,8 +144,10 @@ final class PortableProvenanceTests: XCTestCase {
             sourceSidecarURL: sidecar
         )
         let script = try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8)
-        XCTAssertTrue(script.contains(input.standardizedFileURL.path), script)
-        XCTAssertTrue(script.contains(samtools), script)
+        XCTAssertTrue(script.contains("$PROJECT/Imports/reads.lungfishfastq/reads.fastq.gz"), script)
+        XCTAssertTrue(script.contains("\nsamtools sort "), script)
+        XCTAssertFalse(script.contains(samtools), script)
+        XCTAssertFalse(script.contains(project.path), script)
         XCTAssertFalse(script.contains("@/Imports"), script)
         XCTAssertTrue(script.contains("<external>/external-reads.fastq.gz"), script)
         XCTAssertTrue(script.contains("Replace each <external>"), script)

@@ -170,7 +170,7 @@ extension ImportCommand {
                         databaseURLs: databaseURLs
                     ),
                     toolName: "lungfish import sample-metadata",
-                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    toolVersion: LungfishCLI.configuration.version,
                     command: sampleMetadataProvenanceCommand(inputURL: inputURL, bundleURL: bundleURL),
                     inputs: inputRecords,
                     outputs: outputRecords,
@@ -739,7 +739,7 @@ extension ImportCommand {
                         refContigs: refContigs
                     ),
                     toolName: "lungfish import bam",
-                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    toolVersion: LungfishCLI.configuration.version,
                     command: bamProvenanceCommand(inputURL: inputURL, outputDirectory: outputDirectory),
                     extraSteps: provenanceSteps,
                     inputs: inputRecords,
@@ -867,7 +867,7 @@ extension ImportCommand {
                     "unmappedReads": .integer(Int(attachment.unmappedReads))
                 ],
                 toolName: "lungfish import bam",
-                toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                toolVersion: LungfishCLI.configuration.version,
                 command: [CLICommandIdentity.executableName, "import", "bam", inputURL.path, "--output-dir", bundleURL.path]
                     + (name.map { ["--name", $0] } ?? []),
                 inputs: [ProvenanceRecorder.fileRecord(url: inputURL, format: alignmentFileFormat(forExtension: ext), role: .input)],
@@ -1195,7 +1195,7 @@ extension ImportCommand {
                         summary: summary
                     ),
                     toolName: "lungfish import vcf",
-                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    toolVersion: LungfishCLI.configuration.version,
                     command: vcfProvenanceCommand(inputURL: inputURL, outputDirectory: outputDirectory),
                     inputs: vcfInputRecords(inputURL: inputURL, format: variantFormat, indexArtifact: indexArtifact),
                     outputs: vcfOutputRecords(destURL: destURL, format: variantFormat, indexArtifact: indexArtifact),

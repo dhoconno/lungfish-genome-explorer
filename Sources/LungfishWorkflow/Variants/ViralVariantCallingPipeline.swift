@@ -809,7 +809,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 return [
                     VariantCallingProvenanceStep(
                         toolName: "lungfish alignment-staging",
-                        toolVersion: WorkflowRun.currentAppVersion,
+                        toolVersion: WorkflowRun.currentAppReleaseVersion,
                         command: [
                             "lungfish-internal", "stage-alignment",
                             "--input-bam", preflight.alignmentURL.path,
@@ -862,7 +862,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             return [
                 VariantCallingProvenanceStep(
                     toolName: "lungfish reference-staging",
-                    toolVersion: WorkflowRun.currentAppVersion,
+                    toolVersion: WorkflowRun.currentAppReleaseVersion,
                     command: [
                         "lungfish-internal", "stage-reference",
                         "--input", preflight.referenceFASTAURL.path,
@@ -1123,7 +1123,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             )
             let converterStep = VariantCallingProvenanceStep(
                 toolName: "lungfish ivar-tsv-to-vcf-converter",
-                toolVersion: WorkflowRun.currentAppVersion,
+                toolVersion: WorkflowRun.currentAppReleaseVersion,
                 command: [
                     "lungfish-internal", "ivar-tsv-to-vcf",
                     "--input", tsvURL.path,
@@ -1368,7 +1368,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             ),
             VariantCallingProvenanceStep(
                 toolName: "lungfish alignment-header-remap",
-                toolVersion: WorkflowRun.currentAppVersion,
+                toolVersion: WorkflowRun.currentAppReleaseVersion,
                 command: [
                     "lungfish-internal", "remap-sam-header",
                     "--input-header", rawHeaderURL.path,

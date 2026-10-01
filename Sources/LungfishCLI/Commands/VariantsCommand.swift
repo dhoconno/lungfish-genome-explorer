@@ -1093,7 +1093,7 @@ extension VariantsCommand {
                     steps: pipelineResult.provenanceSteps + [
                         VariantCallingProvenanceStep(
                             toolName: "lungfish variant-sqlite-import",
-                            toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                            toolVersion: LungfishCLI.configuration.version,
                             command: [
                                 "lungfish-internal",
                                 "variant-sqlite-import",

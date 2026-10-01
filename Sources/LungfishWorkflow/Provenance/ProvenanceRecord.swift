@@ -190,6 +190,21 @@ public struct WorkflowRun: Codable, Sendable, Identifiable, Equatable {
         return "Lungfish \(version) (\(build))"
     }
 
+    /// The release version alone (`2026.9.72`), for a step LGE itself
+    /// performed: a step's `toolVersion` names a version, not the app.
+    public static var currentAppReleaseVersion: String {
+        releaseVersion(from: currentAppVersion)
+    }
+
+    /// `2026.9.72` from `Lungfish 2026.9.72 (dev)`.
+    static func releaseVersion(from appVersion: String) -> String {
+        var value = appVersion.trimmingCharacters(in: .whitespaces)
+        if value.lowercased().hasPrefix("lungfish ") { value = String(value.dropFirst("lungfish ".count)) }
+        if let open = value.firstIndex(of: "(") { value = String(value[..<open]) }
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? LungfishAppVersion.short : trimmed
+    }
+
     public static var currentHostOS: String {
         let info = ProcessInfo.processInfo
         let os = info.operatingSystemVersion

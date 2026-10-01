@@ -261,7 +261,7 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
                 let context = SequenceExtractionBundleCommandContext(
                     workflowName: "lungfish extract sequence",
                     toolName: "lungfish extract sequence",
-                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    toolVersion: LungfishCLI.configuration.version,
                     argv: command,
                     explicitOptions: parameters,
                     defaultOptions: defaults,
@@ -296,7 +296,7 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
                     defaults: defaults,
                     resolved: resolved,
                     toolName: "lungfish extract sequence",
-                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    toolVersion: LungfishCLI.configuration.version,
                     command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
                     inputs: [
                         ProvenanceRecorder.fileRecord(url: inputURL, format: .fasta, role: .input)

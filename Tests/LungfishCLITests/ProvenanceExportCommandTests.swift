@@ -602,12 +602,10 @@ final class ProvenanceExportCommandTests: XCTestCase {
             contentsOf: outputDirectory.appendingPathComponent("run.sh"),
             encoding: .utf8
         )
-        XCTAssertTrue(script.contains("# Step 1: fastp 0.24.1"), script)
-        XCTAssertTrue(script.contains("# Step 2: minimap2 2.28"), script)
-        XCTAssertTrue(script.contains("fastp \\"), script)
-        XCTAssertTrue(script.contains("trimmed.fastq"), script)
-        XCTAssertTrue(script.contains("minimap2 \\"), script)
-        XCTAssertTrue(script.contains("aligned.sam"), script)
+        XCTAssertTrue(script.contains("# Step 1: fastp v0.24.1"), script)
+        XCTAssertTrue(script.contains("# Step 2: minimap2 v2.28"), script)
+        XCTAssertTrue(script.contains("\nfastp -i reads.fastq -o trimmed.fastq\n"), script)
+        XCTAssertTrue(script.contains("\nminimap2 reference.fasta trimmed.fastq -o aligned.sam\n"), script)
     }
 
     func testNextflowExportEscapesPortableCommands() async throws {

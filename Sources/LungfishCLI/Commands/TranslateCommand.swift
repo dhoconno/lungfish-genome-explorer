@@ -201,7 +201,7 @@ struct TranslateCommand: AsyncParsableCommand {
                     "translationCount": .integer(translationCount)
                 ],
                 toolName: "lungfish translate",
-                toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                toolVersion: LungfishCLI.configuration.version,
                 command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
                 inputs: [
                     ProvenanceRecorder.fileRecord(url: inputURL, format: .fasta, role: .input)

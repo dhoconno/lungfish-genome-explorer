@@ -245,7 +245,7 @@ struct ConvertCommand: AsyncParsableCommand {
                 "annotationCount": .integer(includeAnnotations ? annotations.count : 0)
             ],
             toolName: "lungfish convert",
-            toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+            toolVersion: LungfishCLI.configuration.version,
             command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
             inputs: provenanceInputs,
             outputs: [

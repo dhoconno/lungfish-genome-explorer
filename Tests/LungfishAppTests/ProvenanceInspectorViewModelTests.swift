@@ -934,6 +934,62 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.copyableText.contains("full-length-ont-mhc-genotype"))
     }
 
+    func testLineageWalksUpstreamThroughInputSidecars() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let project = dir.appendingPathComponent("Chained.lungfish", isDirectory: true)
+        let imports = project.appendingPathComponent("Imports/reads.lungfishfastq", isDirectory: true)
+        let analysis = project.appendingPathComponent("Analyses/minimap2-1", isDirectory: true)
+        try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: analysis, withIntermediateDirectories: true)
+        let reads = imports.appendingPathComponent("reads.fastq.gz")
+        let bam = analysis.appendingPathComponent("reads.sorted.bam")
+        try Data("@r\nACGT\n+\n!!!!\n".utf8).write(to: reads)
+        try Data("bam".utf8).write(to: bam)
+
+        let readsOut = try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .output)
+        try ProvenanceWriter(signingProvider: nil).write(
+            ProvenanceEnvelope(
+                workflowName: "lungfish import fastq", toolName: "clumpify.sh", toolVersion: "40.02",
+                argv: ["clumpify.sh", "in=raw.fastq.gz", "out=\(reads.path)"],
+                runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+                files: [readsOut], output: readsOut, outputs: [readsOut],
+                steps: [ProvenanceStep(toolName: "clumpify.sh", toolVersion: "40.02", argv: ["clumpify.sh"], outputs: [readsOut], exitStatus: 0, wallTimeSeconds: 1)],
+                wallTimeSeconds: 1, exitStatus: 0, stderr: ""
+            ),
+            to: imports
+        )
+        let readsIn = try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .input)
+        let bamOut = try ProvenanceFileDescriptor.file(url: bam, format: .bam, role: .output)
+        try ProvenanceWriter(signingProvider: nil).write(
+            ProvenanceEnvelope(
+                workflowName: "lungfish map", toolName: "minimap2", toolVersion: "2.31",
+                argv: ["minimap2", "-a", reads.path],
+                runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+                files: [readsIn, bamOut], output: bamOut, outputs: [bamOut],
+                steps: [ProvenanceStep(toolName: "minimap2", toolVersion: "2.31", argv: ["minimap2", "-a", reads.path], inputs: [readsIn], outputs: [bamOut], exitStatus: 0, wallTimeSeconds: 2)],
+                wallTimeSeconds: 2, exitStatus: 0, stderr: ""
+            ),
+            to: analysis
+        )
+
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(
+            item: ProvenanceInspectableItem(
+                url: analysis,
+                sidebarType: .analysisResult,
+                contentMode: .empty,
+                displayName: "minimap2-1"
+            )
+        )
+        try await waitUntilLoadCompletes(viewModel)
+
+        XCTAssertEqual(viewModel.summary.workflowName, "lungfish map")
+        XCTAssertEqual(viewModel.lineageRuns.map(\.title), ["lungfish import fastq", "lungfish map"])
+        XCTAssertEqual(viewModel.lineageRuns.last?.steps.map(\.toolName), ["minimap2"])
+        XCTAssertTrue(viewModel.copyableText.contains("clumpify.sh"), viewModel.copyableText)
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("provenance-inspector-\(UUID().uuidString)", isDirectory: true)

@@ -88,6 +88,7 @@ struct ProvenanceWorkflowExportGoldenTests {
         let keys = config.split(separator: "\n").map { $0.split(separator: ":", maxSplits: 1)[0] }
         #expect(keys.count == Set(keys).count, "config.yaml repeats a key: \(config)")
         #expect(config.contains("reference_fasta: \"/data/inputs/reference.fasta\""), Comment(rawValue: config))
+        #expect(config.contains("project: \".\""), Comment(rawValue: config))
     }
 
     @Test("Graph drops a step's own inputs from its outputs and traces producers")
@@ -109,7 +110,7 @@ struct ProvenanceWorkflowExportGoldenTests {
             return
         }
         #expect(graph.parameterFilenames == ["reference.fasta", "reads_R1.fastq.gz", "reads_R2.fastq.gz"])
-        #expect(graph.finalOutputPaths.contains("/data/project/Analyses/minimap2/mapping-result.json"))
+        #expect(graph.finalOutputPaths.contains(.project("Analyses/minimap2/mapping-result.json")))
     }
 
     // MARK: - Fixture
@@ -127,16 +128,16 @@ struct ProvenanceWorkflowExportGoldenTests {
             runtime: WorkflowRuntime(appVersion: "Lungfish 2026.9.52 (1)", hostOS: "macOS 26.6.2 (arm64)", user: nil)
         )
         let inputs = "/data/inputs"
-        let reference = "/data/project/Reference Sequences/reference.lungfishref"
-        let bundle = "/data/project/Imports/reads.lungfishfastq"
-        let analysis = "/data/project/Analyses/minimap2"
+        let reference = "/data/project.lungfish/Reference Sequences/reference.lungfishref"
+        let bundle = "/data/project.lungfish/Imports/reads.lungfishfastq"
+        let analysis = "/data/project.lungfish/Analyses/minimap2"
         func file(_ path: String, _ role: FileRole = .input) -> FileRecord {
             FileRecord(path: path, role: role)
         }
         let steps: [StepExecution] = [
             StepExecution(
                 toolName: "lungfish import fasta", toolVersion: "Lungfish 2026.9.52 (1)",
-                command: ["lungfish-cli", "import", "fasta", "\(inputs)/reference.fasta", "--output-dir", "/data/project", "--name", "reference"],
+                command: ["lungfish-cli", "import", "fasta", "\(inputs)/reference.fasta", "--output-dir", "/data/project.lungfish", "--name", "reference"],
                 inputs: [file("\(inputs)/reference.fasta")],
                 outputs: [file("\(reference)/genome/sequence.fa.gz", .output)],
                 exitCode: 0, wallTime: 0.2
@@ -167,7 +168,7 @@ struct ProvenanceWorkflowExportGoldenTests {
             ),
             StepExecution(
                 toolName: "lungfish import fastq", toolVersion: "Lungfish 2026.9.52 (1)",
-                command: ["lungfish-cli", "import", "fastq", "\(inputs)/reads_R1.fastq.gz", "\(inputs)/reads_R2.fastq.gz", "--project", "/data/project", "--recipe", "none"],
+                command: ["lungfish-cli", "import", "fastq", "\(inputs)/reads_R1.fastq.gz", "\(inputs)/reads_R2.fastq.gz", "--project", "/data/project.lungfish", "--recipe", "none"],
                 inputs: [file("\(inputs)/reads_R1.fastq.gz"), file("\(inputs)/reads_R2.fastq.gz")],
                 outputs: [file("\(bundle)/reads.fastq.gz", .output)],
                 exitCode: 0, wallTime: 0.04
