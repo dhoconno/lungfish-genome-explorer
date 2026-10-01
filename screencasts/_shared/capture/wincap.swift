@@ -5,6 +5,9 @@
 //   swiftc -O -o .build-wincap/wincap screencasts/_shared/capture/wincap.swift
 //   wincap --list [owner-substring]
 //   wincap --window <CGWindowID> --out take.mov [--seconds 8] [--fps 60]
+//   wincap --app-region <CGWindowID> --out take.mov [--seconds 8]
+//        records every window of that window's app (menus, sheets, alerts, panels) inside the
+//        window's frame, and nothing from any other app
 //
 // Stops after --seconds, or on SIGINT/SIGTERM. The output is ProRes 422 .mov at the window's backing resolution.
 
@@ -18,6 +21,7 @@ struct Options {
     var list = false
     var owner: String?
     var windowID: CGWindowID?
+    var appRegion = false
     var out: URL?
     var seconds: Double?
     var fps = 60
@@ -30,6 +34,7 @@ func parse() -> Options {
         switch a {
         case "--list": o.list = true
         case "--window": o.windowID = CGWindowID(it.next() ?? "")
+        case "--app-region": o.windowID = CGWindowID(it.next() ?? ""); o.appRegion = true
         case "--out": o.out = URL(fileURLWithPath: it.next() ?? "")
         case "--seconds": o.seconds = Double(it.next() ?? "")
         case "--fps": o.fps = Int(it.next() ?? "") ?? 60
@@ -113,12 +118,22 @@ struct WinCap {
         guard let id = o.windowID, let out = o.out else { fail("need --window and --out, or --list") }
         guard let window = content.windows.first(where: { $0.windowID == id }) else { fail("window \(id) not found") }
 
-        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let filter: SCContentFilter
+        let config = SCStreamConfiguration()
+        if o.appRegion {
+            // Only this app's windows on the window's display, cropped to the window's frame.
+            guard let app = window.owningApplication,
+                  let display = content.displays.first(where: { $0.frame.intersects(window.frame) }) else { fail("no app or display for window \(id)") }
+            filter = SCContentFilter(display: display, including: [app], exceptingWindows: [])
+            config.sourceRect = CGRect(x: window.frame.minX - display.frame.minX, y: window.frame.minY - display.frame.minY,
+                                       width: window.frame.width, height: window.frame.height)
+        } else {
+            filter = SCContentFilter(desktopIndependentWindow: window)
+        }
         let scale = CGFloat(filter.pointPixelScale)
         let width = Int(window.frame.width * scale) / 2 * 2
         let height = Int(window.frame.height * scale) / 2 * 2
 
-        let config = SCStreamConfiguration()
         config.width = width
         config.height = height
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(o.fps))

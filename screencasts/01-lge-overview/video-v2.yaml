@@ -18,37 +18,25 @@ beats:
     sub: Sequence analysis, native to the Mac
     transition: fade
 
-  # Help > Demo Projects lists the same ten projects. The sheet cannot be filmed with the app in the
-  # background, so this replays the CLI that backs it (real output, 2026-10-01; fetch took 24 s).
-  - kind: terminal
+  - kind: take
     id: demo
-    title: Terminal
-    prompt: "$ "
-    type_cps: 90
-    line_interval: 0.07
-    session:
-      - command: lungfish-cli demo list --dest /tmp/demos
-        output_file: terminal-v2/demo-list.txt
-        max_lines: 13
-      - command: lungfish-cli demo fetch human-reads --dest /tmp/demos
-        output_file: terminal-v2/demo-fetch.txt
-        pause: 0.8
-    duration: 8.5
+    take: takes-v2/demo.mov       # Help > Demo Projects, filmed with the app frontmost
+    in: 0.4
+    duration: 9.0
     caption: Start with real public datasets
     kicker: Help · Demo Projects
-    square_focus: [0.0, 0.0, 0.62, 1.0]
+    crop: [0.0, 0.205, 1.0, 0.75]  # below the Save to row (it shows the owner's home folder)
+    square_focus: [0.0, 0.0, 0.75, 1.0]
 
-  - kind: terminal
+  - kind: take
     id: sra
-    title: Terminal
-    prompt: "$ "
-    type_cps: 60
-    command: lungfish-cli fetch sra search SRR36291587
-    output_file: terminal-v2/sra-search.txt
-    duration: 6.0
+    take: takes-v2/sra.mov        # Tools > Search Online Databases > Search SRA
+    in: 2.0
+    duration: 14.0
     caption: Search SRA and download runs into a project
     kicker: Tools · Search Online Databases · SRA
-    square_focus: [0.0, 0.0, 0.62, 1.0]
+    crop: [0.18, 0.085, 0.64, 0.645]
+    square_focus: [0.0, 0.0, 1.0, 1.0]
     transition: fade
 
   - kind: take
@@ -90,34 +78,23 @@ beats:
     square_focus: [0.0, 0.0, 1.0, 1.0]
 
   - kind: take
-    id: folder
-    take: takes/folder.mov
-    in: 1
-    duration: 6.5
-    caption: Your project is a folder of standard files
-    kicker: Finder · Analyses/minimap2
-    crop: [0.185, 0.035, 0.805, 0.525]
-    square_focus: [0.0, 0.0, 0.62, 1.0]
+    id: files
+    take: takes-v2/files.mov      # Inspector > Provenance > Files & Outputs
+    in: 1.2
+    duration: 8.0
+    caption: Every input and output is listed with its checksum
+    kicker: Inspector · Provenance · Files & Outputs
+    crop: [0.56, 0.064, 0.44, 0.915]
+    square_focus: [0.0, 0.0, 1.0, 1.0]
 
-  - kind: document
+  - kind: take
     id: export
-    # Real output of lungfish-cli provenance export from Preview 2026.9.73 (exports-v2/ is not
-    # committed, it holds machine paths; regenerate as in video.yaml).
-    pages:
-      - file: exports-v2/methods/methods.md
-        title: methods.md
-        style: prose
-        from: 9
-        to: 9
-      - file: exports-v2/snakemake/Snakefile
-        title: Snakefile
-        style: code
-        from: 207
-        to: 221
-    duration: 7.5
+    take: takes-v2/export.mov     # File > Export > Provenance > Methods Section…, app-region capture
+    in: 6.5
+    duration: 8.0
     caption: Export the history as a script or methods text
-    kicker: File · Export · Provenance
-    square_focus: [0.0, 0.0, 0.62, 1.0]
+    kicker: File · Export · Provenance · Methods Section
+    square_focus: [0.15, 0.0, 0.62, 1.0]
 
   - kind: terminal
     id: cli
