@@ -1,0 +1,17 @@
+Starting bcftools variant calling
+Checking bundle and alignment inputs
+Preflight checks passed
+Running caller workflow
+Staging reference and alignment inputs
+Running bcftools
+Normalizing VCF headers
+Sorting VCF
+Removing machine-specific paths from VCF header
+Compressing normalized VCF
+Indexing compressed VCF
+Caller workflow completed
+…
+Imported 1056 variants into SQLite
+Attaching variant track to bundle
+Attached variant track HG002 bcftools rerun
+Variant calling complete

@@ -1,0 +1,13 @@
+Demo projects in /tmp/demos
+
+ID                                  TITLE                                      SIZE      STATUS          PATH
+genes-and-sequences                 Genes and Sequences                        201 KB    Not downloaded  -
+human-reads                         Human Reads                                50.9 MB   Not downloaded  -
+human-mapping-and-variants          Human Mapping and Variants                 32.8 MB   Not downloaded  -
+human-mapping-and-variants-results  Human Mapping and Variants (with results)  26 MB     Not downloaded  -
+long-reads-and-assembly             Long Reads and Assembly                    17.9 MB   Not downloaded  -
+sarscov2-amplicons                  SARS-CoV-2 Amplicons                       16.6 MB   Not downloaded  -
+pathogen-detection                  Pathogen Detection                         243.7 MB  Not downloaded  -
+mhc-genotyping                      MHC Genotyping                             111 KB    Not downloaded  -
+primer-design                       Primer Design                              72 KB     Not downloaded  -
+twelve-s-metabarcoding              12S Metabarcoding                          109 KB    Not downloaded  -

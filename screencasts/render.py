@@ -208,28 +208,35 @@ def render_terminal(beat, video_dir: Path, ov: Overlays, work: Path, fps: int) -
     what the tool printed, only paced for reading.
     """
     size = (2880, 1620)  # same shape as a 1440x810 pt window at 2x
-    out_lines = (video_dir / beat["output_file"]).read_text().rstrip("\n").splitlines()
-    out_lines = out_lines[: beat.get("max_lines", 14)]
-    cmd, cps = beat["command"], beat.get("type_cps", 42)
+    # A beat replays one command (command + output_file) or a session of several, in order.
+    session = beat.get("session") or [{"command": beat["command"], "output_file": beat["output_file"],
+                                       "max_lines": beat.get("max_lines", 14)}]
+    cps = beat.get("type_cps", 42)
     t_type, line_dt = beat.get("start_delay", 0.6), beat.get("line_interval", 0.18)
-    states = []  # (typed, n_lines, caret, seconds)
-    states.append(("", 0, True, t_type))
-    step = max(1, round(cps / 15))  # redraw 15 times a second while typing
-    for i in range(step, len(cmd) + step, step):
-        states.append((cmd[:i], 0, True, step / cps))
-    states.append((cmd, 0, False, 0.35))
-    for n in range(1, len(out_lines) + 1):
-        states.append((cmd, n, False, line_dt))
-    total = sum(d for *_, d in states)
+    states = []  # (history, typed, lines, caret, seconds)
+    history = []
+    for k, entry in enumerate(session):
+        cmd = entry["command"]
+        out_lines = (video_dir / entry["output_file"]).read_text().rstrip("\n").splitlines()[: entry.get("max_lines", 14)]
+        hist = list(history)
+        states.append((hist, "", [], True, t_type if k == 0 else entry.get("pause", 1.2)))
+        step = max(1, round(cps / 15))  # redraw 15 times a second while typing
+        for i in range(step, len(cmd) + step, step):
+            states.append((hist, cmd[:i], [], True, step / cps))
+        states.append((hist, cmd, [], False, 0.35))
+        for n in range(1, len(out_lines) + 1):
+            states.append((hist, cmd, out_lines[:n], False, line_dt))
+        history.append({"command": cmd, "output": out_lines})
+    total = sum(s[-1] for s in states)
     hold = float(beat.get("in", 0)) + float(beat["duration"]) - total
-    states[-1] = (*states[-1][:3], states[-1][3] + max(hold, 0.5))
+    states[-1] = (*states[-1][:4], states[-1][4] + max(hold, 0.5))
 
     listing = work / f"term-{beat['id']}.txt"
     rows = []
-    for i, (typed, n, caret, dur) in enumerate(states):
+    for i, (hist, typed, lines, caret, dur) in enumerate(states):
         png = ov.render(f"term-{beat['id']}-{i:04d}", size, {
             "kind": "terminal", "unit": 2, "title": beat.get("title", ""), "prompt": beat.get("prompt", "$ "),
-            "typed": typed, "output": out_lines[:n], "caret": caret})
+            "history": hist, "typed": typed, "output": lines, "caret": caret})
         rows.append(f"file '{png}'\nduration {dur:.4f}")
     rows.append(f"file '{png}'")  # concat demuxer needs the last file repeated
     listing.write_text("\n".join(rows) + "\n")
@@ -312,7 +319,8 @@ def main():
     out_dir.mkdir(exist_ok=True)
 
     missing = [b["id"] for b in cfg["beats"] if b["kind"] == "take" and not (video_dir / b["take"]).exists()]
-    missing += [b["id"] for b in cfg["beats"] if b["kind"] == "terminal" and not (video_dir / b["output_file"]).exists()]
+    missing += [b["id"] for b in cfg["beats"] if b["kind"] == "terminal" and not all(
+        (video_dir / e["output_file"]).exists() for e in (b.get("session") or [b]))]
     if missing:
         print(f"placeholders for uncaptured takes: {', '.join(missing)}")
 
@@ -331,7 +339,7 @@ def main():
                     if beat["id"] not in terminals:
                         terminals[beat["id"]] = render_document(beat, video_dir, ov, work, fps)
                     render_take({**beat, "take": str(terminals[beat["id"]]), "trim_top": 0}, cfg, layout, brand, ov, video_dir, work, fps, seg)
-                elif beat["kind"] == "terminal" and not (video_dir / beat["output_file"]).exists():
+                elif beat["kind"] == "terminal" and not all((video_dir / e["output_file"]).exists() for e in (beat.get("session") or [beat])):
                     render_take({**beat, "take": "missing"}, cfg, layout, brand, ov, video_dir, work, fps, seg)
                 elif beat["kind"] == "terminal":
                     if beat["id"] not in terminals:

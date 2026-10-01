@@ -1,0 +1,8 @@
+[
+  {"wait": 1.5},
+  {"focusTable": {"table": 1, "outline": true}},
+  {"row": {"table": 1, "outline": true, "index": 3}},
+  {"wait": 3.5},
+  {"press": {"role": "AXRadioButton", "title": "Variants"}, "late": true},
+  {"wait": 6}
+]

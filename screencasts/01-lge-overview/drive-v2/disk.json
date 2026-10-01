@@ -1,0 +1,7 @@
+[
+  {"wait": 2.0},
+  {"press": {"role": "AXDisclosureTriangle", "title": "Ingestion"}},
+  {"wait": 1.6},
+  {"press": {"role": "AXDisclosureTriangle", "title": "Dataset Statistics"}},
+  {"wait": 6}
+]

@@ -1,0 +1,11 @@
+[
+  {"focusTable": {"table": 1, "outline": true}},
+  {"row": {"table": 1, "outline": true, "index": 2}},
+  {"wait": 3},
+  {"row": {"table": 1, "index": 1}, "late": true},
+  {"wait": 2},
+  {"press": {"role": "AXButton", "title": "Focus"}, "late": true},
+  {"wait": 3},
+  {"press": {"role": "AXRadioButton", "title": "Variants"}, "late": true},
+  {"wait": 5}
+]

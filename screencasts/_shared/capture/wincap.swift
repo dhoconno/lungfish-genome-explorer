@@ -81,6 +81,8 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
     }
 
     func finish() async {
+        // A window that never produced a complete frame leaves the writer unstarted.
+        guard started else { return }
         input.markAsFinished()
         await writer.finishWriting()
     }

@@ -1,0 +1,7 @@
+ℹ Searching SRA for: SRR36291587
+SRA Search Results
+Found 1 runs
+
+Accession    Organism              Platform  Strategy  Layout  Reads        Size 
+─────────────────────────────────────────────────────────────────────────────────
+SRR36291587  Severe acute respira  ILLUMINA  AMPLICON  PAIRED  85.2K reads  21 MB

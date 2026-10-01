@@ -1,0 +1,2 @@
+[{"press": {"role": "AXButton", "title": "Bundle"}}, {"wait": 1},
+ {"focusTable": {"table": 1, "outline": true}}, {"row": {"table": 1, "outline": true, "index": 5}}, {"wait": 3}]

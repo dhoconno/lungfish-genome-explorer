@@ -95,8 +95,11 @@
       // Replay of a real CLI session: Deep Ink window, Cream text, accent prompt.
       const lines = (spec.output || []).map((l) => `<div class="out">${esc(l) || "&nbsp;"}</div>`).join("");
       const caret = spec.caret ? `<span class="caret"></span>` : "";
+      // Earlier commands of the same session stay on screen above the current one.
+      const history = (spec.history || []).map((h) => `<div class="cmd"><span class="prompt">${esc(spec.prompt)}</span>${esc(h.command)}</div>` +
+        h.output.map((l) => `<div class="out">${esc(l) || "&nbsp;"}</div>`).join("") + `<div class="out">&nbsp;</div>`).join("");
       root.innerHTML = `<div class="term"><div class="bar"><i></i><i></i><i></i><span>${esc(spec.title || "")}</span></div>
-        <div class="body"><div class="cmd"><span class="prompt">${esc(spec.prompt)}</span>${esc(spec.typed)}${caret}</div>${lines}</div></div>`;
+        <div class="body">${history}<div class="cmd"><span class="prompt">${esc(spec.prompt)}</span>${esc(spec.typed)}${caret}</div>${lines}</div></div>`;
     } else if (spec.kind === "document") {
       // A real exported file shown as a page: prose in Inter, code in IBM Plex Mono.
       const body = (spec.lines || []).map((l) => `<div class="${spec.style === "code" ? "code" : "prose"}">${esc(l) || "&nbsp;"}</div>`).join("");

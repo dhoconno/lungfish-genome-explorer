@@ -1,0 +1,150 @@
+# Quick video 01, v2: the longer overview, filmed on Lungfish Preview 2026.9.73.
+# Render: python3 screencasts/render.py screencasts/01-lge-overview/video-v2.yaml
+# Plan and honesty rules: STORYBOARD-v2.md. Takes are driven by drive-v2/*.json (axdrive) and
+# recorded with wincap. Terminal beats replay real lungfish-cli output saved in terminal-v2/.
+
+slug: 01-lge-overview-v2
+app: Lungfish Preview 2026.9.73
+window_points: [1440, 810]
+trim_top: 52          # hide the title bar in every app take
+outputs: [wide, square]
+
+beats:
+  - kind: card
+    id: title
+    duration: 2.8
+    icon: true
+    title: Lungfish Genome Explorer
+    sub: Sequence analysis, native to the Mac
+    transition: fade
+
+  # Help > Demo Projects lists the same ten projects. The sheet cannot be filmed with the app in the
+  # background, so this replays the CLI that backs it (real output, 2026-10-01; fetch took 24 s).
+  - kind: terminal
+    id: demo
+    title: Terminal
+    prompt: "$ "
+    type_cps: 90
+    line_interval: 0.07
+    session:
+      - command: lungfish-cli demo list --dest /tmp/demos
+        output_file: terminal-v2/demo-list.txt
+        max_lines: 13
+      - command: lungfish-cli demo fetch human-reads --dest /tmp/demos
+        output_file: terminal-v2/demo-fetch.txt
+        pause: 0.8
+    duration: 8.5
+    caption: Start with real public datasets
+    kicker: Help · Demo Projects
+    square_focus: [0.0, 0.0, 0.62, 1.0]
+
+  - kind: terminal
+    id: sra
+    title: Terminal
+    prompt: "$ "
+    type_cps: 60
+    command: lungfish-cli fetch sra search SRR36291587
+    output_file: terminal-v2/sra-search.txt
+    duration: 6.0
+    caption: Search SRA and download runs into a project
+    kicker: Tools · Search Online Databases · SRA
+    square_focus: [0.0, 0.0, 0.62, 1.0]
+    transition: fade
+
+  - kind: take
+    id: disk
+    take: takes-v2/disk.mov
+    in: 1.6
+    duration: 8.0
+    caption: Clump reads and bin qualities to save space
+    kicker: HG002 reads · 18 MB stored as 5.8 MB
+    crop: [0.62, 0.064, 0.38, 0.62]
+    square_focus: [0.0, 0.0, 1.0, 1.0]
+
+  - kind: take
+    id: viewer
+    take: takes-v2/viewer.mov
+    in: 1.6
+    duration: 9.0
+    caption: Reads, alignments and variants in one window
+    kicker: HG002 · chr20
+    square_focus: [0.22, 0.05, 0.56, 1.0]
+
+  - kind: take
+    id: pipeline
+    take: takes-v2/pipeline.mov
+    in: 1.2
+    duration: 9.5
+    caption: Run nf-core pipelines in Docker containers
+    kicker: Viral Recon · Nextflow · Docker
+    square_focus: [0.40, 0.0, 0.60, 1.0]
+
+  - kind: take
+    id: provenance
+    take: takes-v2/provenance.mov
+    in: 2.1
+    duration: 8.8
+    caption: Each result records its tool, version and command
+    kicker: Inspector · Provenance · Lineage
+    crop: [0.56, 0.064, 0.44, 0.915]
+    square_focus: [0.0, 0.0, 1.0, 1.0]
+
+  - kind: take
+    id: folder
+    take: takes/folder.mov
+    in: 1
+    duration: 6.5
+    caption: Your project is a folder of standard files
+    kicker: Finder · Analyses/minimap2
+    crop: [0.185, 0.035, 0.805, 0.525]
+    square_focus: [0.0, 0.0, 0.62, 1.0]
+
+  - kind: document
+    id: export
+    # Real output of lungfish-cli provenance export from Preview 2026.9.73 (exports-v2/ is not
+    # committed, it holds machine paths; regenerate as in video.yaml).
+    pages:
+      - file: exports-v2/methods/methods.md
+        title: methods.md
+        style: prose
+        from: 9
+        to: 9
+      - file: exports-v2/snakemake/Snakefile
+        title: Snakefile
+        style: code
+        from: 207
+        to: 221
+    duration: 7.5
+    caption: Export the history as a script or methods text
+    kicker: File · Export · Provenance
+    square_focus: [0.0, 0.0, 0.62, 1.0]
+
+  - kind: terminal
+    id: cli
+    title: HG002 chr20.lungfish
+    prompt: "$ "
+    # Real run with the Preview 2026.9.73 CLI on the project copy. cli-full.txt is the complete
+    # output; cli-output.txt keeps the first 12 and last 4 lines with an explicit "…" between.
+    command: lungfish-cli variants call --bundle Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref --alignment-track aln_DC100740 --caller bcftools --name "HG002 bcftools rerun"
+    output_file: terminal-v2/cli-output.txt
+    max_lines: 18
+    type_cps: 120
+    line_interval: 0.12
+    duration: 8.0
+    caption: The same analysis from the app or terminal
+    kicker: lungfish-cli
+    square_focus: [0.0, 0.0, 0.62, 1.0]
+    transition: fade
+
+  - kind: card
+    id: end
+    duration: 4.5
+    icon: true
+    title: Lungfish Genome Explorer
+    lines:
+      - text: Free and open source, MIT license
+      - text: For Apple Silicon Macs running macOS 26
+      - text: github.com/dhoconno/lungfish-genome-explorer
+        style: url
+      - text: lungfish-genome-explorer.readthedocs.io
+        style: url
