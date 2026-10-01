@@ -9,6 +9,13 @@ Owner rule: every surface that is mouse-only gets keyboard and accessibility con
 - **Native SwiftUI `Table`** for the MSA pairwise list, primer binding rows and primer order oligos.
 - **Focused table** routing: menu-bar row commands validate and act on the first-responder table (like Operations). Automation focuses the table first.
 
+Later owner decisions (2026-09-30, after Lane 0):
+
+- Keep `TableCellProxyActionFix` (guarded runtime patch of the private `NSTableViewCellMockElement` so each row action is listed once) and file an Apple Feedback report; remove the patch when Apple fixes it. Draft: docs/reports/2026-09-30-apple-feedback-table-cell-ax-actions.md.
+- Remove the Cmd-Opt-D shortcut from View > Document Inspector (macOS reserves it for Show/Hide Dock). The item stays, unbound.
+- Cmd-Shift-A stays with the sidebar's Select Siblings, which becomes a real Selection > Sidebar Item menu item with that chord (Lane A). View > AI Assistant moves to Cmd-Opt-A.
+- Lane 0 deviations accepted: one top-level Selection > Show in Inspector (Cmd-Opt-S); "12S Result…" under File > Export.
+
 Defaults taken by the coordinator (not asked): retarget View > Expand All / Collapse All to a shared outline protocol so every outline answers. Sunburst gets only Zoom In / Zoom Out custom actions. Table header column menus get the menu mirror helper (custom actions on the header). Drawer resize handles stay drag-only (layout, no command lost). 12S export formats get custom actions on the export button plus one menu-bar "Export 12S Result…" item that presents the format list as a sheet. Leave the genotype comparison row list lazy (children already hidden, no actions lost).
 
 ## 0. Ground truth
