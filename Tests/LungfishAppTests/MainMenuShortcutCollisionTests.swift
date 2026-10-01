@@ -141,10 +141,11 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
         (Chord(",", [.command]), ["Settings\u{2026}", "Preferences\u{2026}"], "Settings"),
         (Chord("?", [.command, .shift]), [], "Help (title ends with Help)"),
         (Chord("f", [.command, .control]), ["Enter Full Screen", "Exit Full Screen"], "Full Screen"),
-        (Chord("n", [.command, .shift]), ["New Folder"], "New Folder (Finder)"),
+        (Chord("n", [.command, .shift]), ["New Folder\u{2026}", "New Folder"], "New Folder (Finder)"),
         (Chord("\u{8}", [.command]), ["Move to Trash"], "Move to Trash (Finder)"),
         (Chord("t", [.command]), ["New Tab"], "New Tab"),
         (Chord("i", [.command]), ["Get Info", "Italic"], "Get Info"),
+        (Chord("d", [.command]), ["Duplicate"], "Duplicate (Finder)"),
     ]
 
     private static func titleMatches(_ title: String, standard: String) -> Bool {
@@ -206,8 +207,8 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
         let bound = Dictionary(grouping: menuBindings(), by: \.chord)
         let expected: [(Chord, String)] = [
             (Chord("s", [.command, .option]), "Selection > Show in Inspector"),
-            (Chord("n", [.command, .shift]), "Selection > Sidebar Item > New Folder"),
-            (Chord("d", [.command, .shift]), "Selection > Sidebar Item > Duplicate"),
+            (Chord("n", [.command, .shift]), "Selection > Sidebar Item > New Folder\u{2026}"),
+            (Chord("d", [.command]), "Selection > Sidebar Item > Duplicate"),
             (Chord("\u{8}", [.command]), "Selection > Sidebar Item > Move to Trash"),
             (Chord("a", [.command, .shift]), "Selection > Sidebar Item > Select Siblings"),
             (Chord("a", [.command, .option]), "View > AI Assistant"),

@@ -76,10 +76,13 @@ final class InspectorSectionAccessibilityTests: XCTestCase {
             AccessibilityTreeProbe.element(in: window, offering: "Remove Attachment"),
             "no element offers the attachment commands; tree:\n" + AccessibilityTreeProbe.dump(window)
         )
-        // SwiftUI serves the actions in its own order; VoiceOver lists them
-        // as a set, so the order is not asserted.
-        XCTAssertEqual(Set(AccessibilityTreeProbe.customActionNames(row)), ["Reveal in Finder", "Quick Look", "Remove Attachment"])
-        XCTAssertEqual(AccessibilityTreeProbe.customActionNames(row).count, 3, "each command once")
+        // VoiceOver's Actions menu lists the actions as the bridge serves
+        // them, so the order must equal the context menu's.
+        XCTAssertEqual(
+            AccessibilityTreeProbe.customActionNames(row),
+            ["Reveal in Finder", "Quick Look", "Remove Attachment"],
+            "the Actions menu must list the commands in context-menu order, each once"
+        )
         XCTAssertEqual(AccessibilityTreeProbe.label(row), "notes.txt")
         assertNoOpaqueProviderGroup(in: window)
 
@@ -94,7 +97,7 @@ final class InspectorSectionAccessibilityTests: XCTestCase {
 
     // MARK: - Document section
 
-    func testDerivedAlignmentRowOffersRemoveAsACustomAction() throws {
+    func testDerivedAlignmentRemoveIsOneVisibleButtonAndNotRepeatedAsAnAction() throws {
         let viewModel = DocumentSectionViewModel()
         viewModel.alignmentTrackRows = [
             AlignmentTrackInventoryRow(id: "raw", name: "reads.bam", summary: "all reads", isDerived: false),
@@ -108,19 +111,16 @@ final class InspectorSectionAccessibilityTests: XCTestCase {
         })
         let title = "Remove Derived Alignment\u{2026}"
         AccessibilityTreeProbe.waitUntil { AccessibilityTreeProbe.element(in: window, offering: title) != nil }
-        // The row's track button carries the command (the visible Remove
-        // button beside it does too, which is harmless); the raw track's
-        // button does not.
+        // The command is reachable exactly once, through the visible Remove
+        // button, and is not spread onto the row's other children.
+        let buttons = AccessibilityTreeProbe.all(in: window).filter {
+            AccessibilityTreeProbe.label($0) == title || AccessibilityTreeProbe.label($0) == "Remove Derived Alignment\u{2026}"
+        }
+        XCTAssertEqual(buttons.count, 1, "one visible Remove button; tree:\n" + AccessibilityTreeProbe.dump(window))
         let offering = AccessibilityTreeProbe.all(in: window).filter { AccessibilityTreeProbe.customActionNames($0).contains(title) }
-        let row = try XCTUnwrap(
-            offering.first { AccessibilityTreeProbe.label($0)?.contains("reads.q30.bam") == true },
-            "the derived track's button must offer it; tree:\n" + AccessibilityTreeProbe.dump(window)
-        )
-        XCTAssertFalse(
-            offering.contains { AccessibilityTreeProbe.label($0)?.hasPrefix("reads.bam") == true },
-            "the raw track must not; tree:\n" + AccessibilityTreeProbe.dump(window)
-        )
-        XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: title, on: row))
+        XCTAssertTrue(offering.isEmpty, "no element repeats the command as a custom action; tree:\n" + AccessibilityTreeProbe.dump(window))
+        let button = try XCTUnwrap(buttons.first)
+        XCTAssertTrue(AccessibilityTreeProbe.press(button))
         XCTAssertEqual(removed, ["filtered"])
         assertNoOpaqueProviderGroup(in: window)
     }
@@ -164,7 +164,7 @@ final class InspectorSectionAccessibilityTests: XCTestCase {
             "tree:\n" + AccessibilityTreeProbe.dump(window)
         )
         XCTAssertTrue(
-            (AccessibilityTreeProbe.label(cap) ?? AccessibilityTreeProbe.value(cap) ?? "").contains("Showing 100 of 150 selected rows"),
+            (AccessibilityTreeProbe.label(cap) ?? AccessibilityTreeProbe.value(cap) ?? "").contains("Showing 100 of 150 selected variants"),
             "label: \(AccessibilityTreeProbe.label(cap) ?? "nil") value: \(AccessibilityTreeProbe.value(cap) ?? "nil")"
         )
 
@@ -211,9 +211,41 @@ final class InspectorSectionAccessibilityTests: XCTestCase {
         XCTAssertEqual(rows.count, 3, "one AX row per pair")
         XCTAssertEqual(table.tableColumns.map(\.title), ["Sequence A", "Sequence B", model.model.displayName, "Sites"])
 
-        // Sorting still goes through the model's comparator list.
-        model.sortOrder = [KeyPathComparator(\.sortableValue, order: .forward)]
-        XCTAssertEqual(model.sortedPairs.first.map { "\($0.rowName)/\($0.columnName)" }, "seq1/seq3", "the least identical pair first")
+        // Sorting goes through the table header's AX press, as VoiceOver does.
+        let header = try XCTUnwrap(table.headerView, "the table has a header")
+        // The header cells are legacy AX proxies: read AXTitle and
+        // AXSortDirection and press them, as VoiceOver does.
+        func headerCell(_ title: String) throws -> NSObject {
+            try XCTUnwrap(
+                AccessibilityTreeProbe.children(of: header).first {
+                    ($0.accessibilityAttributeValue(.title) as? String) == title
+                },
+                "no header cell titled \(title)"
+            )
+        }
+        func sortDirection(_ cell: NSObject) -> String? {
+            cell.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: "AXSortDirection")) as? String
+        }
+        func press(_ cell: NSObject) {
+            cell.accessibilityPerformAction(.press)
+        }
+        let sequenceA = try headerCell("Sequence A")
+        press(sequenceA)
+        AccessibilityTreeProbe.waitUntil { sortDirection(try! headerCell("Sequence A")) == "AXAscendingSortDirection" }
+        XCTAssertEqual(sortDirection(try headerCell("Sequence A")), "AXAscendingSortDirection", "the header exposes the sort state")
+        XCTAssertEqual(model.sortedPairs.map(\.rowName), ["seq1", "seq1", "seq2"], "sorted by Sequence A ascending")
+        // The sorted order is what the table's AX rows show.
+        let firstRow = try XCTUnwrap(AccessibilityRowProbe.rowProxies(of: table).first as? NSObject)
+        let cellTexts = AccessibilityTreeProbe.all(in: firstRow)
+            .compactMap { AccessibilityTreeProbe.value($0) ?? AccessibilityTreeProbe.label($0) }
+        XCTAssertTrue(cellTexts.contains("seq1"), "first AX row: \(cellTexts)")
+
+        // Numeric columns sort descending on their first press.
+        let sites = try headerCell("Sites")
+        press(sites)
+        AccessibilityTreeProbe.waitUntil { sortDirection(try! headerCell("Sites")) == "AXDescendingSortDirection" }
+        XCTAssertEqual(sortDirection(try headerCell("Sites")), "AXDescendingSortDirection", "a numeric column opens descending")
+
     }
 
     private func tableView(in window: NSWindow) -> NSTableView? {
@@ -223,6 +255,79 @@ final class InspectorSectionAccessibilityTests: XCTestCase {
             return nil
         }
         return window.contentView.flatMap(find)
+    }
+
+    // MARK: - Filter chips and the option picker
+
+    func testAnnotationFilterChipsExposeShownAndHiddenAsStateNotJustColour() throws {
+        let viewModel = AnnotationSectionViewModel()
+        viewModel.visibleTypes = [.gene]
+        viewModel.availableVariantTypes = ["SNV", "DEL"]
+        viewModel.visibleVariantTypes = ["SNV"]
+        let window = host(ScrollView { AnnotationSection(viewModel: viewModel) })
+        AccessibilityTreeProbe.waitUntil {
+            AccessibilityTreeProbe.all(in: window).contains { AccessibilityTreeProbe.label($0)?.hasPrefix("Type Visibility") == true }
+        }
+        let disclosure = try XCTUnwrap(
+            AccessibilityTreeProbe.all(in: window).first { AccessibilityTreeProbe.label($0)?.hasPrefix("Type Visibility") == true },
+            AccessibilityTreeProbe.dump(window)
+        )
+        XCTAssertTrue(AccessibilityTreeProbe.press(disclosure))
+        AccessibilityTreeProbe.waitUntil {
+            !AccessibilityTreeProbe.elements(in: window, labelled: "Gene").isEmpty
+                && !AccessibilityTreeProbe.elements(in: window, labelled: "SNV").isEmpty
+        }
+        func chip(_ name: String) throws -> NSObject {
+            try XCTUnwrap(
+                AccessibilityTreeProbe.elements(in: window, labelled: name)
+                    .first { AccessibilityTreeProbe.value($0) == "Shown" || AccessibilityTreeProbe.value($0) == "Hidden" },
+                "no chip named \(name); tree:\n" + AccessibilityTreeProbe.dump(window)
+            )
+        }
+        for (name, shown) in [("Gene", true), ("Exon", false), ("SNV", true), ("DEL", false)] {
+            let element = try chip(name)
+            XCTAssertEqual(AccessibilityTreeProbe.value(element), shown ? "Shown" : "Hidden", name)
+            XCTAssertEqual(AccessibilityTreeProbe.isSelected(element), shown, "\(name) selected state")
+        }
+        // Pressing through the bridge toggles it and the state follows.
+        XCTAssertTrue(AccessibilityTreeProbe.press(try chip("Exon")))
+        AccessibilityTreeProbe.waitUntil { viewModel.visibleTypes.contains(.exon) }
+        XCTAssertTrue(viewModel.visibleTypes.contains(.exon))
+        AccessibilityTreeProbe.waitUntil { AccessibilityTreeProbe.value((try? chip("Exon")) ?? window) == "Shown" }
+        XCTAssertEqual(AccessibilityTreeProbe.value(try chip("Exon")), "Shown")
+    }
+
+    func testOptionPickerKeepsEachOptionsOwnNameAndExposesSelection() throws {
+        let window = host(OptionPickerHarness())
+        AccessibilityTreeProbe.waitUntil { !AccessibilityTreeProbe.elements(in: window, labelled: "Beta").isEmpty }
+        for name in ["Alpha", "Beta", "Gamma"] {
+            let matches = AccessibilityTreeProbe.elements(in: window, labelled: name)
+            XCTAssertEqual(matches.count, 1, "option \(name) keeps its own name; tree:\n" + AccessibilityTreeProbe.dump(window))
+        }
+        let beta = try XCTUnwrap(AccessibilityTreeProbe.elements(in: window, labelled: "Beta").first)
+        XCTAssertTrue(AccessibilityTreeProbe.isSelected(beta))
+        let alpha = try XCTUnwrap(AccessibilityTreeProbe.elements(in: window, labelled: "Alpha").first)
+        XCTAssertFalse(AccessibilityTreeProbe.isSelected(alpha))
+        XCTAssertTrue(
+            AccessibilityTreeProbe.all(in: window).contains { AccessibilityTreeProbe.label($0) == "Mode" },
+            "the group carries the picker label; tree:\n" + AccessibilityTreeProbe.dump(window)
+        )
+        XCTAssertFalse(
+            AccessibilityTreeProbe.all(in: window).contains { AccessibilityTreeProbe.label($0) == "Mode, Alpha" },
+            "the picker label must not be prepended to an option"
+        )
+    }
+
+    private struct OptionPickerHarness: View {
+        @State private var selection = "Beta"
+        var body: some View {
+            LungfishInspectorSegmentedButtonGrid(
+                options: ["Alpha", "Beta", "Gamma"],
+                selection: $selection,
+                accessibilityLabel: "Mode",
+                label: { $0 }
+            )
+        }
     }
 
     // MARK: - Run Inputs
@@ -256,7 +361,7 @@ final class InspectorSectionAccessibilityTests: XCTestCase {
             "no caption carries the recorded path as its value; tree:\n" + AccessibilityTreeProbe.dump(window)
         )
         XCTAssertEqual(AccessibilityTreeProbe.label(caption), "Imports/reads.lungfishfastq", "the caption reads project-relative")
-        XCTAssertEqual(AccessibilityTreeProbe.help(caption), readsURL.path)
+        XCTAssertNil(AccessibilityTreeProbe.help(caption), "the path is the value; the tooltip would repeat it")
         XCTAssertFalse(
             AccessibilityTreeProbe.all(in: window).contains { AccessibilityTreeProbe.label($0) == readsURL.path },
             "the absolute path is no longer the visible text"

@@ -171,13 +171,13 @@ Commands that act on whatever you have selected in the sidebar or in a result ta
 
 | Action | Shortcut | Origin |
 |---|---|---|
-| Sidebar Item > New Folder | Cmd-Shift-N | Standard macOS (Finder) |
-| Sidebar Item > Duplicate | Cmd-Shift-D | LGE's own |
+| Sidebar Item > New Folder... | Cmd-Shift-N | Standard macOS (Finder) |
+| Sidebar Item > Duplicate | Cmd-D | Standard macOS (Finder) |
 | Sidebar Item > Move to Trash | Cmd-Delete | Standard macOS (Finder) |
 | Sidebar Item > Select Siblings | Cmd-Shift-A | LGE's own |
 | Show in Inspector | Cmd-Opt-S | LGE's own |
 
-The **Sidebar Item** submenu works while the sidebar list has focus, so click a sidebar row first. Its items are greyed out whenever they do not apply to the selected rows, so **Open Bundle** stays disabled on a folder and **Reassemble...** stays disabled on anything that is not an assembly. The first three shortcuts carry the meanings Finder gives them. Cmd-Delete moves the selected rows to the Trash, and inside a text field it keeps its usual meaning of deleting to the start of the line, because the sidebar command is disabled while a text field has focus. **Select Siblings** selects every item beside the selected one in the same folder, which is the quick way to pick every barcode of a run.
+The **Sidebar Item** submenu works while the sidebar list has focus, so click a sidebar row first. Its items are greyed out whenever they do not apply to the selected rows, so **Open Bundle** stays disabled on a folder and **Reassemble...** stays disabled on anything that is not an assembly. Cmd-Shift-N New Folder, Cmd-D Duplicate, and Cmd-Delete Move to Trash carry the meanings Finder gives them. Cmd-Delete moves the selected rows to the Trash, and inside a text field it keeps its usual meaning of deleting to the start of the line, because the sidebar command is disabled while a text field has focus. **Select Siblings** selects every item beside the selected one in the same folder, which is the quick way to pick every barcode of a run.
 
 The **Table Row** submenu works while a result table has focus, such as the taxonomy table of a classifier result or the annotation table below a sequence. It holds the commands those tables offer on a right-click, from **Extract Reads...** and **Verify with BLAST...** to the copy commands and the NCBI and PubMed links, and each table enables only the ones it supports.
 
@@ -280,7 +280,7 @@ The TaxTriage sample shortcuts live in the View menu, listed above. In the taxon
 
 ## Inside the sidebar
 
-Right-clicking in the sidebar opens a context menu, and four of its commands print shortcuts. **New Folder** is Cmd-Shift-N, **Duplicate** is Cmd-Shift-D, **Move to Trash**, which reads **Move N Items to Trash** for several items, is Cmd-Delete, and **Select Siblings** is Cmd-Shift-A. The same four live in **Selection > Sidebar Item**, so they work whenever the sidebar list has focus, with no menu open, and **Selection > Show in Inspector** (Cmd-Opt-S) reveals the selected item in the Inspector from there too.
+Right-clicking in the sidebar opens a context menu, and four of its commands print shortcuts. **New Folder...** is Cmd-Shift-N, **Duplicate** is Cmd-D, **Move to Trash**, which reads **Move N Items to Trash** for several items, is Cmd-Delete, and **Select Siblings** is Cmd-Shift-A. The same four live in **Selection > Sidebar Item**, so they work whenever the sidebar list has focus, with no menu open, and **Selection > Show in Inspector** (Cmd-Opt-S) reveals the selected item in the Inspector from there too.
 
 One more works whenever the sidebar list has focus and appears in no menu. Delete or Forward Delete moves the selected items to the Trash. Moving an item to the Trash removes it from the project, and recovering it means retrieving it from the Trash yourself.
 
@@ -346,7 +346,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-C | Copy | Edit menu, sequence viewport, MSA viewport |
 | Cmd-Opt-C | Selected Operation, Copy CLI Command | Operations menu |
 | Cmd-Shift-C | Copy Visible Region as FASTA | Sequence menu |
-| Cmd-Shift-D | Sidebar Item, Duplicate | Selection menu, sidebar list |
+| Cmd-D | Sidebar Item, Duplicate | Selection menu, sidebar list |
 | Cmd-Delete | Sidebar Item, Move to Trash | Selection menu, sidebar list |
 | Delete | Move to Trash | Sidebar list |
 | Cmd-Shift-E | Extract Visible Region... | Sequence menu |
@@ -372,7 +372,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Opt-M | Add or edit a comment | Genotype comparison matrix |
 | Cmd-N | New Project | File menu |
 | Cmd-Opt-N | New Window for Current Project | Window menu |
-| Cmd-Shift-N | Sidebar Item, New Folder | Selection menu, sidebar list |
+| Cmd-Shift-N | Sidebar Item, New Folder... | Selection menu, sidebar list |
 | Cmd-O | Open Project Folder... | File menu |
 | Cmd-Opt-O | Selected Operation, Reveal Output Files | Operations menu |
 | Cmd-Shift-O | Sample Detail… | Tools menu, Genotype Review |
@@ -410,7 +410,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 
 ## Accessibility
 
-VoiceOver, the screen reader built into macOS, reads every LGE menu item with its shortcut. Inspector rows publish their right-click commands as VoiceOver actions, so Reveal in Finder, Copy Command, or Remove Attachment is reachable from the actions rotor without a mouse. Turn it on with Cmd-F5, adding fn on a laptop keyboard whose F5 key is a media key, then press Ctrl-Opt-M to move into the menu bar. Full Keyboard Access, in System Settings under Keyboard, lets Tab move between controls and Space activate the one with focus. When interface text is too small, use **View > Content Text Size**, where Cmd-Opt-plus enlarges LGE's own text everywhere, Cmd-Opt-minus shrinks it, and the Default item restores it. That is separate from the viewport zoom and from macOS display scaling.
+VoiceOver, the screen reader built into macOS, reads every LGE menu item with its shortcut. Inspector rows publish their right-click commands as VoiceOver actions, so Reveal in Finder, Copy Command, or Remove Attachment is reachable from the VoiceOver Actions menu (VO-Command-Space) without a mouse. Turn it on with Cmd-F5, adding fn on a laptop keyboard whose F5 key is a media key, then press Ctrl-Opt-M to move into the menu bar. Full Keyboard Access, in System Settings under Keyboard, lets Tab move between controls and Space activate the one with focus. When interface text is too small, use **View > Content Text Size**, where Cmd-Opt-plus enlarges LGE's own text everywhere, Cmd-Opt-minus shrinks it, and the Default item restores it. That is separate from the viewport zoom and from macOS display scaling.
 
 ## Next
 

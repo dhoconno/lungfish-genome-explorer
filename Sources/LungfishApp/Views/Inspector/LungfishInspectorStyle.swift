@@ -49,6 +49,7 @@ struct LungfishInspectorSegmentedButtonGrid<Option: Hashable>: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
     }
 

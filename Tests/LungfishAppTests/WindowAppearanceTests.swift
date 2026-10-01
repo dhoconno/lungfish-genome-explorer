@@ -263,7 +263,8 @@ final class WindowAppearanceTests: XCTestCase {
         // sidecar-width-focused conversion. Kept as a source check for that one file.
         XCTAssertTrue(captionSource.contains(".lineLimit(2)"))
         XCTAssertTrue(captionSource.contains(".truncationMode(.middle)"))
-        XCTAssertTrue(captionSource.contains(".help(presentation.helpText)"))
+        XCTAssertTrue(captionSource.contains(".accessibilityValue(presentation.accessibilityValue)"))
+        XCTAssertFalse(captionSource.contains(".help("), "the path is the AX value; a tooltip would repeat it")
     }
 
     func testInspectorControlsDoNotScaleIndividualLabelsToFitSidecar() throws {

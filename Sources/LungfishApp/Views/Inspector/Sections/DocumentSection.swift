@@ -1403,7 +1403,7 @@ public struct DocumentSection: View {
                                                 NSPasteboard.general.setString(commandLine, forType: .string)
                                             },
                                         ])
-                                        .help("Right-click to copy")
+                                        .help(commandLine)
                                 }
                             }
                             Spacer()
@@ -1809,9 +1809,14 @@ struct AlignmentTrackInventorySection: View {
                 .buttonStyle(.borderless)
             }
         }
-        .contextActions(removeAction.map { remove in
-            [.command("Remove Derived Alignment\u{2026}") { remove() }]
-        } ?? [])
+        // A plain context menu: the visible Remove button already carries the
+        // command for VoiceOver, so publishing it as an action on the whole
+        // row would repeat it on every child.
+        .contextMenu {
+            if let removeAction {
+                Button("Remove Derived Alignment\u{2026}") { removeAction() }
+            }
+        }
     }
 
     @ViewBuilder

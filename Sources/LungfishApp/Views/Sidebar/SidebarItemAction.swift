@@ -53,7 +53,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
         case .openBundle: return "Open Bundle"
         case .showPackageContents: return "Show Package Contents"
         case .getBundleInfo: return "Get Bundle Info"
-        case .newFolder: return "New Folder"
+        case .newFolder: return "New Folder\u{2026}"
         case .rename: return "Rename\u{2026}"
         case .duplicate: return "Duplicate"
         case .moveToTrash: return "Move to Trash"
@@ -124,8 +124,9 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
         }
     }
 
-    /// The hoisted sidebar chords (owner decision, 2026-09-30): the Finder
-    /// meanings of Cmd-Shift-N, Cmd-Shift-D and Cmd-Delete, plus Cmd-Opt-S
+    /// The hoisted sidebar chords (owner decision, 2026-09-30): Finder's
+    /// meanings of Cmd-Shift-N (New Folder), Cmd-D (Duplicate) and
+    /// Cmd-Delete (Move to Trash), plus Cmd-Opt-S
     /// for Show in Inspector, the one new chord of this pass. Cmd-Shift-A
     /// stays with Select Siblings, which the sidebar handled in its own
     /// key monitor before it became a menu item (View > AI Assistant moved
@@ -133,7 +134,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
     var keyEquivalent: RowCommandKeyEquivalent? {
         switch self {
         case .newFolder: return RowCommandKeyEquivalent("n", [.command, .shift])
-        case .duplicate: return RowCommandKeyEquivalent("d", [.command, .shift])
+        case .duplicate: return RowCommandKeyEquivalent("d", [.command])
         case .moveToTrash: return RowCommandKeyEquivalent("\u{8}", [.command])
         case .selectSiblings: return RowCommandKeyEquivalent("a", [.command, .shift])
         case .showInInspector: return RowCommandKeyEquivalent("s", [.command, .option])

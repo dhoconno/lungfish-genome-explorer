@@ -493,16 +493,16 @@ public struct VariantSection: View {
                 // hundreds of rows from building hundreds of disclosure
                 // groups. The summary above and Copy Selection still cover
                 // the whole selection.
+                if viewModel.selectionEntries.count > Self.selectionEntryDisplayCap {
+                    Text("Showing \(Self.selectionEntryDisplayCap) of \(viewModel.selectionEntries.count) selected variants")
+                        .font(LungfishInspectorStyle.controlFont)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("variant-selection-cap")
+                }
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(viewModel.selectionEntries.prefix(Self.selectionEntryDisplayCap)) { entry in
                         variantSelectionEntry(entry)
                     }
-                }
-                if viewModel.selectionEntries.count > Self.selectionEntryDisplayCap {
-                    Text("Showing \(Self.selectionEntryDisplayCap) of \(viewModel.selectionEntries.count) selected rows")
-                        .font(LungfishInspectorStyle.controlFont)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("variant-selection-cap")
                 }
                 Button {
                     viewModel.onCopyVariantInfo?(viewModel.copySelectionText())
@@ -541,7 +541,7 @@ public struct VariantSection: View {
         }
     }
 
-    /// The most selected rows the section lists one by one.
+    /// The most selected variants the section lists one by one.
     static let selectionEntryDisplayCap = 100
 
     private func variantSelectionEntry(_ entry: VariantSelectionEntry) -> some View {

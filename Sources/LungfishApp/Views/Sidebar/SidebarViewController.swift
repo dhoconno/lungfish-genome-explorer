@@ -443,7 +443,7 @@ public class SidebarViewController: NSViewController {
 
         // Plain Delete and Forward Delete move the selection to the Trash
         // while the outline has focus, as in Finder. The chorded commands
-        // (Cmd-Delete, Cmd-Shift-N, Cmd-Shift-D, Cmd-Shift-A) are menu-bar
+        // (Cmd-Delete, Cmd-Shift-N, Cmd-D, Cmd-Shift-A) are menu-bar
         // items under Selection > Sidebar Item, validated against the
         // outline's focus, so the monitor leaves anything with Command to
         // the menu bar.

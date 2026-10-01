@@ -402,11 +402,11 @@ extension MSAPairwiseIdentitySection {
                 nameCell(pair.columnName)
             }
             .width(min: Self.minimumNameColumnWidth)
-            TableColumn(model.model.displayName, value: \.sortableValue) { pair in
+            TableColumn(model.model.displayName, sortUsing: KeyPathComparator(\.sortableValue, order: .reverse)) { pair in
                 numericCell(pair.formattedValue)
             }
             .width(widths.value)
-            TableColumn("Sites", value: \.comparableSites) { pair in
+            TableColumn("Sites", sortUsing: KeyPathComparator(\.comparableSites, order: .reverse)) { pair in
                 numericCell("\(pair.comparableSites)")
             }
             .width(widths.sites)

@@ -26,7 +26,6 @@ struct ProvenancePathCaption: View {
             .lineLimit(2)
             .truncationMode(.middle)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .help(presentation.helpText)
             .accessibilityValue(presentation.accessibilityValue)
     }
 }

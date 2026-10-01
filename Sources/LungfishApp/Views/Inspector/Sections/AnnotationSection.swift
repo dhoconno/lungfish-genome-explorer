@@ -461,9 +461,16 @@ public struct AnnotationSection: View {
         Button {
             viewModel.toggleVariantType(vtype)
         } label: {
-            Text(vtype)
-                .font(LungfishInspectorStyle.controlFont)
-                .lineLimit(1)
+            HStack(spacing: 3) {
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .accessibilityHidden(true)
+                }
+                Text(vtype)
+                    .font(LungfishInspectorStyle.controlFont.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(isSelected ? Color.orange.opacity(0.2) : Color(nsColor: .controlBackgroundColor))
@@ -475,6 +482,8 @@ public struct AnnotationSection: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityValue(isSelected ? "Shown" : "Hidden")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: - Type Filter Grid
@@ -520,9 +529,16 @@ public struct AnnotationSection: View {
         Button {
             viewModel.toggleType(type)
         } label: {
-            Text(type.displayName)
-                .font(LungfishInspectorStyle.controlFont)
-                .lineLimit(1)
+            HStack(spacing: 3) {
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .accessibilityHidden(true)
+                }
+                Text(type.displayName)
+                    .font(LungfishInspectorStyle.controlFont.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(isSelected ? Color.accentColor.opacity(0.2) : Color(nsColor: .controlBackgroundColor))
@@ -534,6 +550,8 @@ public struct AnnotationSection: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityValue(isSelected ? "Shown" : "Hidden")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

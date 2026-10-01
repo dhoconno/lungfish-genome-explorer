@@ -165,7 +165,7 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         let titles = commandTitles(contextMenu(sidebar, for: sidebar.selectedItems()))
         for expected in [
             "Export Sequences\u{2026}", "Open Bundle", "Show Package Contents", "Get Bundle Info",
-            "Import Sample Metadata\u{2026}", "New Folder", "Show in Finder", "Copy Path",
+            "Import Sample Metadata\u{2026}", "New Folder\u{2026}", "Show in Finder", "Copy Path",
             "Show in Inspector", "Rename\u{2026}", "Move to Trash",
         ] {
             XCTAssertTrue(titles.contains(expected), "missing \(expected) in \(titles)")
@@ -181,7 +181,7 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         select(folderURL, in: sidebar)
         let titles = commandTitles(contextMenu(sidebar, for: sidebar.selectedItems()))
         XCTAssertFalse(titles.contains("Edit Folder Sample Metadata\u{2026}"), "titles: \(titles)")
-        XCTAssertTrue(titles.contains("New Folder"), "titles: \(titles)")
+        XCTAssertTrue(titles.contains("New Folder\u{2026}"), "titles: \(titles)")
         XCTAssertTrue(titles.contains("Duplicate"), "titles: \(titles)")
         XCTAssertFalse(titles.contains("Open Bundle"), "titles: \(titles)")
     }
@@ -248,6 +248,41 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         sidebar.outlineView.deselectAll(nil)
         XCTAssertFalse(sidebar.validateMenuItem(moveToTrash))
         XCTAssertFalse(sidebar.validateMenuItem(copyPath))
+    }
+
+    /// Cmd-Delete in a text field is the field's own (delete to the start of
+    /// the line). A real key event goes through the application's key
+    /// handling, the menu bar first, and must neither move an item to the
+    /// Trash nor lose its text editing meaning.
+    func testCommandDeleteInATextFieldEditsTextAndTrashesNothing() throws {
+        let (sidebar, textField) = makeSidebar(hosted: true)
+        defer { sidebar.closeProject() }
+        let field = try XCTUnwrap(textField)
+        let window = try XCTUnwrap(sidebar.view.window)
+        let previousMenu = NSApp.mainMenu
+        NSApp.mainMenu = MainMenu.createMainMenu()
+        defer { NSApp.mainMenu = previousMenu }
+        window.makeKeyAndOrderFront(nil)
+        select(bundleURL, in: sidebar)
+
+        field.stringValue = "hello world"
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.setSelectedRange(NSRange(location: 11, length: 0))
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, characters: "\u{7f}", charactersIgnoringModifiers: "\u{7f}",
+            isARepeat: false, keyCode: 51
+        ))
+        // The menu bar sees the chord first and declines it.
+        XCTAssertFalse(NSApp.mainMenu?.performKeyEquivalent(with: event) ?? true, "the sidebar command is disabled in a text field")
+        // Then the focused field handles it.
+        window.sendEvent(event)
+        XCTAssertEqual(field.stringValue, "", "Cmd-Delete deleted to the start of the line")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path), "nothing was moved to the Trash")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folderURL.path))
+        XCTAssertEqual(sidebar.selectedItems().compactMap { $0.url?.lastPathComponent }, ["Ref.lungfishref"])
     }
 
     func testContextMenuItemsValidateFromTheSelectionAlone() throws {

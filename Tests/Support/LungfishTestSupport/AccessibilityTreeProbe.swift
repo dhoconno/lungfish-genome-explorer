@@ -93,6 +93,13 @@ public enum AccessibilityTreeProbe {
         return element.accessibilityAttributeValue(.value) as? String
     }
 
+    /// The element's AXSelected state, which a SwiftUI `.isSelected` trait
+    /// reaches an AX client as.
+    public static func isSelected(_ element: NSObject) -> Bool {
+        if let selected = (element as AnyObject).isAccessibilitySelected?() { return selected }
+        return (element.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: "AXSelected")) as? Bool) ?? false
+    }
+
     public static func help(_ element: NSObject) -> String? {
         (element as AnyObject).accessibilityHelp?() ?? nil
     }

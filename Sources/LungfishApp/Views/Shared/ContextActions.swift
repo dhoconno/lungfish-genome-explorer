@@ -55,7 +55,9 @@ extension View {
             }
         }
         .accessibilityActions {
-            ForEach(ContextAction.commands(in: actions)) { action in
+            // SwiftUI serves accessibility actions in reverse, so feed them
+            // reversed to make VoiceOver's Actions menu match the context menu.
+            ForEach(ContextAction.commands(in: actions).reversed()) { action in
                 ContextActionButton(action: action)
             }
         }

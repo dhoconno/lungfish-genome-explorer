@@ -88,7 +88,7 @@ final class SelectionMenuTests: XCTestCase {
 
     func testHoistedSidebarChordsMatchTheOwnerDecision() {
         XCTAssertEqual(SidebarItemAction.newFolder.keyEquivalent, RowCommandKeyEquivalent("n", [.command, .shift]))
-        XCTAssertEqual(SidebarItemAction.duplicate.keyEquivalent, RowCommandKeyEquivalent("d", [.command, .shift]))
+        XCTAssertEqual(SidebarItemAction.duplicate.keyEquivalent, RowCommandKeyEquivalent("d", [.command]))
         XCTAssertEqual(SidebarItemAction.moveToTrash.keyEquivalent, RowCommandKeyEquivalent("\u{8}", [.command]))
         XCTAssertEqual(SidebarItemAction.showInInspector.keyEquivalent, RowCommandKeyEquivalent("s", [.command, .option]))
         XCTAssertEqual(
