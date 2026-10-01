@@ -1,0 +1,49 @@
+WEBVTT
+
+00:00:03.200 --> 00:00:05.431
+Choose Help, then Demo Projects.
+
+00:00:05.431 --> 00:00:07.663
+Each one holds real public data.
+
+00:00:07.663 --> 00:00:12.892
+Find Human Mapping and Variants, with results, and click Download and Open.
+
+00:00:12.892 --> 00:00:15.124
+You need an internet connection.
+
+00:00:16.220 --> 00:00:18.786
+A project is one folder on your Mac.
+
+00:00:18.786 --> 00:00:21.994
+The sidebar on the left shows what is inside.
+
+00:00:21.994 --> 00:00:26.627
+Imports holds the reads, short pieces of DNA read by a sequencer.
+
+00:00:28.220 --> 00:00:30.059
+Click HG002 under Imports.
+
+00:00:30.059 --> 00:00:33.667
+These are reads from one anonymous human volunteer.
+
+00:00:33.667 --> 00:00:39.538
+The Inspector on the right shows how many reads there are and their quality scores.
+
+00:00:41.220 --> 00:00:45.196
+Results go under Analyses, and these were made in advance.
+
+00:00:45.196 --> 00:00:47.732
+Open the minimap2 result and zoom in.
+
+00:00:47.732 --> 00:00:53.078
+Each read sits where it matches the reference, a slice of human chromosome 20.
+
+00:00:56.220 --> 00:00:58.417
+Click Operations in the toolbar.
+
+00:00:58.417 --> 00:01:05.009
+The Operations Panel lists every task the app runs, like this download, and whether it finished.
+
+00:01:06.220 --> 00:01:10.770
+To learn more about projects, read the manual chapter The Lungfish Project.

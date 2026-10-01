@@ -26,6 +26,11 @@ Every `video.yaml` records what the video is for, what it was filmed with, and h
 | per beat `shows` | What the beat demonstrates, in words that stay true when the UI changes. |
 | per beat `capture` | How to film the take again: the axdrive file, or the steps for an attended take. |
 | per beat `verify` | Facts on screen to re-check on a new version, such as sizes, labels or version strings. |
+| per beat `narration` | The spoken line for a narrated video. The beat is lengthened to fit it. |
+| per beat `zoom`, `highlights` | An eased punch-in to a region, and accent outlines around the items that matter. |
+| per beat `blur` | Regions of the footage to blur, for home-folder paths or rows from unrelated work. |
+
+A beat longer than its footage holds the last frame. Narrated renders also write `<slug>-wide.vtt` and `<slug>-transcript.md`. Copy both next to the spec as `captions.vtt` and `transcript.md`, since caption tracks are served beside the page that embeds the video. `--draft-voice <name>` renders a draft with another installed voice.
 
 The version tag is written three ways: in `filmed_with`, in the MP4's title and comment metadata, and as a small "Filmed with ..." line on the end card (write `"{filmed_with}"` as a card line with `style: version`). The public render keeps its plain name. Its row in `large-files.tsv` names the version too.
 

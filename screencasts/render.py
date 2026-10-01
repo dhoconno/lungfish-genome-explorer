@@ -10,6 +10,7 @@ ffmpeg then composites app footage onto a Cream canvas and joins the beats.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -78,6 +79,79 @@ def print_status():
         print(f"  {cfg.get('slug', spec.parent.name):<28} filmed {', '.join(versions) or '-':<24} {state}")
 
 
+# ---------------------------------------------------------------- narration
+# A narrated video sets top-level `narration: {engine: say, voice, words_per_minute, lead, tail,
+# lexicon}` and a `narration` line on each beat that speaks. Each line is synthesised with the
+# macOS `say` command (an on-device voice, so a remake sounds the same), cached by its text and
+# voice, and placed `lead` seconds into its beat. A beat is lengthened to fit its line.
+
+def narration_settings(cfg: dict) -> dict | None:
+    n = cfg.get("narration")
+    return n if isinstance(n, dict) else None
+
+
+def installed_voices() -> set[str]:
+    out = subprocess.run(["say", "-v", "?"], capture_output=True, text=True).stdout
+    return {re.split(r"\s{2,}", line.strip())[0] for line in out.splitlines() if line.strip()}
+
+
+def spoken_text(text: str, lexicon: dict[str, str]) -> str:
+    """Apply the spec's pronunciation lexicon to the words the voice reads."""
+    for word, spoken in sorted(lexicon.items(), key=lambda kv: -len(kv[0])):
+        text = re.sub(rf"(?<![\w-]){re.escape(word)}(?![\w-])", spoken, text)
+    return " ".join(text.split())
+
+
+def synthesize(text: str, settings: dict, cache: Path) -> tuple[Path, float]:
+    """WAV for one narration line, cached by voice, rate and spoken text."""
+    spoken = spoken_text(text, settings.get("lexicon") or {})
+    voice, wpm = settings["voice"], int(settings.get("words_per_minute", 145))
+    key = hashlib.sha256(f"{voice}|{wpm}|{spoken}".encode()).hexdigest()[:20]
+    wav = cache / f"{key}.wav"
+    if not wav.exists():
+        cache.mkdir(parents=True, exist_ok=True)
+        aiff = cache / f"{key}.aiff"
+        subprocess.run(["say", "-v", voice, "-r", str(wpm), "-o", str(aiff), spoken], check=True)
+        ffmpeg(["-i", str(aiff), "-ar", "48000", "-ac", "1", str(wav)])
+        aiff.unlink()
+    seconds = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                    "-of", "csv=p=0", str(wav)], capture_output=True, text=True).stdout)
+    return wav, seconds
+
+
+def vtt_time(t: float) -> str:
+    h, rem = divmod(max(t, 0.0), 3600)
+    m, sec = divmod(rem, 60)
+    return f"{int(h):02d}:{int(m):02d}:{sec:06.3f}"
+
+
+def narration_cues(text: str, start: float, seconds: float) -> list[tuple[float, float, str]]:
+    """Split a line into sentence cues, timed in proportion to their length."""
+    sentences = [s.strip() for s in re.split(r"(?<=[.])\s+", " ".join(text.split())) if s.strip()]
+    total = sum(len(s) for s in sentences) or 1
+    cues, t = [], start
+    for sentence in sentences:
+        span = seconds * len(sentence) / total
+        cues.append((t, t + span, sentence))
+        t += span
+    return cues
+
+
+def mix_narration(video: Path, clips: list[tuple[Path, float]], length: float, out: Path):
+    """Lay each clip at its start time over silence, normalise to -16 LUFS, and mux with the video."""
+    inputs = ["-i", str(video)]
+    graph, labels = [], []
+    for i, (wav, at) in enumerate(clips, start=1):
+        inputs += ["-i", str(wav)]
+        ms = int(round(at * 1000))
+        graph.append(f"[{i}:a]adelay={ms}|{ms}[n{i}]")
+        labels.append(f"[n{i}]")
+    graph.append(f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0,apad=whole_dur={length:.3f},"
+                 f"atrim=0:{length:.3f},loudnorm=I=-16:TP=-1:LRA=11,aresample=48000[a]")
+    ffmpeg([*inputs, "-filter_complex", ";".join(graph), "-map", "0:v", "-map", "[a]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out)])
+
+
 # ---------------------------------------------------------------- lint
 
 def lint_text(beats: list[dict]) -> list[str]:
@@ -89,7 +163,7 @@ def lint_text(beats: list[dict]) -> list[str]:
             words.append(line.lower())
     problems = []
     for beat in beats:
-        strings = [beat.get("caption"), beat.get("title"), beat.get("sub"), beat.get("kicker")]
+        strings = [beat.get("caption"), beat.get("title"), beat.get("sub"), beat.get("kicker"), beat.get("narration")]
         strings += [l["text"] for l in beat.get("lines", [])]
         for s in filter(None, strings):
             if re.search(r"[\u2014\u2013;!?]", s) or re.search(r"\w:\s", s):
@@ -244,8 +318,8 @@ def render_take(beat, cfg, layout, brand, ov: Overlays, video_dir: Path, work: P
         segments = beat.get("segments")
         if segments:
             spliced = sum(b - a for a, b in segments)
-            if abs(spliced - dur) > 0.05:
-                sys.exit(f"{beat['id']}: duration {dur} must equal the spliced segments ({spliced:.2f} s)")
+            if dur < spliced - 0.05:
+                sys.exit(f"{beat['id']}: duration {dur} is shorter than the spliced segments ({spliced:.2f} s)")
             inputs += ["-i", str(take)]
         else:
             inputs += ["-ss", str(beat.get("in", 0)), "-t", str(dur), "-i", str(take)]
@@ -266,14 +340,28 @@ def render_take(beat, cfg, layout, brand, ov: Overlays, video_dir: Path, work: P
             src_w, src_h = int(tw * fw) // 2 * 2, int(th * fh) // 2 * 2
             crop = f"crop={src_w}:{src_h}:{left + int(tw * fx)}:{top + int(th * fy)},"
         fw_, fh_ = fit(int(cw - 2 * margin), int(ch - 2 * margin), src_w, src_h)
+        # A beat longer than its footage holds the last frame (tpad), for example while
+        # narration finishes over a panel that has stopped changing.
+        hold = f"tpad=stop_mode=clone:stop_duration={dur},"
         if segments:
             parts = []
             for k, (a, b) in enumerate(segments):
                 pre.append(f"[0:v]trim=start={a}:end={b},setpts=PTS-STARTPTS[seg{k}]")
                 parts.append(f"[seg{k}]")
-            pre.append(f"{''.join(parts)}concat=n={len(segments)}:v=1:a=0,fps={fps},{crop}{footage_scaler(beat, fw_, fh_, fps)},format=rgba[foot]")
+            pre.append(f"{''.join(parts)}concat=n={len(segments)}:v=1:a=0,fps={fps},{hold}{crop}null[src0]")
         else:
-            pre.append(f"[0:v]fps={fps},{crop}{footage_scaler(beat, fw_, fh_, fps)},format=rgba[foot]")
+            pre.append(f"[0:v]fps={fps},{hold}{crop}null[src0]")
+        # blur: [[x, y, w, h], ...] (fractions of the cropped footage) hides private or
+        # distracting parts of the window, such as home-folder paths or unrelated rows.
+        src = "src0"
+        for k, (bx, by, bw, bh) in enumerate(beat.get("blur", [])):
+            x0, y0 = int(src_w * bx) // 2 * 2, int(src_h * by) // 2 * 2
+            w0, h0 = max(int(src_w * bw) // 2 * 2, 2), max(int(src_h * bh) // 2 * 2, 2)
+            pre.append(f"[{src}]split[ba{k}][bb{k}]")
+            pre.append(f"[bb{k}]crop={w0}:{h0}:{x0}:{y0},gblur=sigma=24[bl{k}]")
+            pre.append(f"[ba{k}][bl{k}]overlay={x0}:{y0}[src{k + 1}]")
+            src = f"src{k + 1}"
+        pre.append(f"[{src}]{footage_scaler(beat, fw_, fh_, fps)},format=rgba[foot]")
     else:
         # Placeholder sized like the window (or its square crop), so layout matches the real cut.
         src_w, src_h = window_aspect
@@ -423,6 +511,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video", type=Path, nargs="?")
     ap.add_argument("--status", action="store_true", help="list each video's filmed version against the current app")
+    ap.add_argument("--draft-voice", help="narrate with this installed voice instead of the spec's (drafts only)")
     ap.add_argument("--only", choices=list(LAYOUTS))
     ap.add_argument("--lint-only", action="store_true")
     args = ap.parse_args()
@@ -455,6 +544,27 @@ def main():
         print("lint: no issues found")
         return
 
+    # Narration: synthesise every line first, so each beat can be lengthened to fit its words.
+    narration = narration_settings(cfg)
+    spoken: dict[str, tuple[Path, float]] = {}
+    if narration:
+        if args.draft_voice:
+            narration = {**narration, "voice": args.draft_voice}
+            print(f"draft narration with {args.draft_voice}, not the spec's voice")
+        if narration["voice"] not in installed_voices():
+            sys.exit(f"voice '{narration['voice']}' is not installed. Download it in System Settings > Accessibility > "
+                     "Read & Speak > System voice > Manage Voices, or render a draft with --draft-voice.")
+        lead, tail = float(narration.get("lead", 0.5)), float(narration.get("tail", 0.6))
+        for beat in cfg["beats"]:
+            if not beat.get("narration"):
+                continue
+            wav, seconds = synthesize(beat["narration"], narration, video_dir / ".narration")
+            spoken[beat["id"]] = (wav, seconds)
+            need = round(lead + seconds + tail, 2)
+            if float(beat["duration"]) < need:
+                print(f"  {beat['id']}: lengthened to {need} s for its narration ({float(beat['duration'])} s in the spec)")
+                beat["duration"] = need
+
     out_dir = video_dir / "out"
     work = video_dir / ".work"
     shutil.rmtree(work, ignore_errors=True)
@@ -473,6 +583,10 @@ def main():
         for name in [args.only] if args.only else cfg.get("outputs", ["wide"]):
             layout = {**LAYOUTS[name], "name": name}
             segments = []
+            starts, t = [], 0.0
+            for beat in cfg["beats"]:
+                starts.append(t)
+                t += float(beat["duration"]) - (brand["timing"]["crossfade"] if beat.get("transition") == "fade" else 0.0)
             for i, beat in enumerate(cfg["beats"]):
                 seg = work / f"{i:02d}-{beat['id']}-{name}.mp4"
                 print(f"[{name}] {beat['id']}")
@@ -492,10 +606,24 @@ def main():
                     render_take(beat, cfg, layout, brand, ov, video_dir, work, fps, seg)
                 segments.append((seg, float(beat["duration"]), beat.get("transition", "cut")))
             final = out_dir / f"{cfg['slug']}-{name}.mp4"
-            length = join(segments, brand["timing"]["crossfade"], final, fps, metadata={
+            silent = work / f"silent-{name}.mp4" if spoken else final
+            length = join(segments, brand["timing"]["crossfade"], silent, fps, metadata={
                 "title": cfg["title"],
                 "comment": f"{filmed_with_text(cfg)}. Spec: screencasts/{video_dir.name}/video.yaml",
             })
+            if spoken:
+                lead = float(narration.get("lead", 0.5))
+                clips, cues, transcript = [], [], [f"# {cfg['title']}", "", f"{filmed_with_text(cfg)}. The narration is a synthetic voice.", ""]
+                for beat, start in zip(cfg["beats"], starts):
+                    if beat["id"] in spoken:
+                        wav, seconds = spoken[beat["id"]]
+                        clips.append((wav, start + lead))
+                        cues += narration_cues(beat["narration"], start + lead, seconds)
+                        transcript += [" ".join(beat["narration"].split()), ""]
+                mix_narration(silent, clips, length, final)
+                vtt = ["WEBVTT", ""] + [f"{vtt_time(a)} --> {vtt_time(b)}\n{text}\n" for a, b, text in cues]
+                (out_dir / f"{cfg['slug']}-{name}.vtt").write_text("\n".join(vtt))
+                (out_dir / f"{cfg['slug']}-transcript.md").write_text("\n".join(transcript))
             poster = out_dir / f"{cfg['slug']}-{name}-poster.png"
             ffmpeg(["-ss", "1.6", "-i", str(final), "-frames:v", "1", str(poster)])
             shown = final.relative_to(REPO) if final.is_relative_to(REPO) else final

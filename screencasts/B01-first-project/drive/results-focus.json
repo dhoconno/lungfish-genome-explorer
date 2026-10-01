@@ -1,0 +1,7 @@
+[
+  {"press": {"role": "AXButton", "title": "Focus"}, "late": true},
+  {"wait": 2},
+  {"value": {"role": "AXTextField", "title": "Position", "text": "chr20_10.0-10.5Mb:2094-2394"}, "late": true},
+  {"confirm": {"role": "AXTextField", "title": "Position"}, "late": true},
+  {"wait": 1}
+]
