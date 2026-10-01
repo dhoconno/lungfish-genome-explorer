@@ -432,6 +432,10 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return ["version"]
         case .seqkit:
             return ["version"]
+        case .lofreq:
+            // `lofreq --version` fails with "FATAL ... Unrecognized command";
+            // the `version` subcommand prints "version: 2.1.5".
+            return ["version"]
         case .ribodetector:
             return ["-v"]
         case .blastn:
@@ -785,22 +789,50 @@ public actor NativeToolRunner {
         // Run the tool's version probe and parse output. Most tools respond to
         // --version, but each tool can override `versionArguments` if needed
         // (e.g., iVar rejects --version and uses the `version` subcommand).
-        guard let result = try? await run(tool, arguments: tool.versionArguments, timeout: 10) else {
+        guard let result = try? await run(tool, arguments: tool.versionArguments, timeout: 10),
+              let version = Self.parseVersionProbe(exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr)
+        else {
             return nil
         }
-        let output = result.isSuccess ? result.stdout : result.stderr
-        guard let firstLine = output.split(separator: "\n").first else { return nil }
-        // Extract version: look for a pattern like "1.2.3" or "v1.2.3" in the first line
-        let versionPattern = /v?(\d+\.\d+(?:\.\d+)?)/
-        if let match = String(firstLine).firstMatch(of: versionPattern) {
-            let version = String(match.1)
-            runtimeVersionCache[tool] = version
-            return version
-        }
-        // Fallback: use the entire first line trimmed
-        let version = String(firstLine).trimmingCharacters(in: .whitespaces)
         runtimeVersionCache[tool] = version
         return version
+    }
+
+    /// The version a probe printed, or nil when it printed none: a tool
+    /// that rejects the probe ("FATAL ... Unrecognized command", usage text,
+    /// a non-zero exit with no version number) is recorded as unknown rather
+    /// than as its error message.
+    ///
+    /// The first lines of stdout and then stderr are scanned for a dotted
+    /// number, so `samtools 1.24`, `version: 2.1.5` (lofreq), `BBMap version
+    /// 40.02` on stderr and bwa's `Version: 0.7.17-r1188` after a usage exit
+    /// all resolve. A line that reads as an error never contributes. Without
+    /// a number, a successful probe's plain first line is kept as recorded.
+    public static func parseVersionProbe(exitCode: Int32, stdout: String, stderr: String) -> String? {
+        let versionPattern = /v?(\d+\.\d+(?:\.\d+)?)/
+        for output in [stdout, stderr] {
+            let lines = output.split(separator: "\n", omittingEmptySubsequences: true).prefix(8)
+            for line in lines where !looksLikeProbeError(String(line)) {
+                if let match = String(line).firstMatch(of: versionPattern) {
+                    return String(match.1)
+                }
+            }
+        }
+        guard exitCode == 0,
+              let firstLine = stdout.split(separator: "\n").first?.trimmingCharacters(in: .whitespaces),
+              !firstLine.isEmpty, !looksLikeProbeError(firstLine)
+        else { return nil }
+        return firstLine
+    }
+
+    private static let probeErrorMarkers = [
+        "fatal", "error", "unrecognized", "unrecognised", "unknown command", "unknown option",
+        "usage", "invalid", "no such", "not found", "illegal",
+    ]
+
+    private static func looksLikeProbeError(_ line: String) -> Bool {
+        let lowered = line.lowercased()
+        return probeErrorMarkers.contains { lowered.contains($0) }
     }
     
     // MARK: - Tool Execution

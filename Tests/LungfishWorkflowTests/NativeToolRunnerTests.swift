@@ -151,6 +151,37 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertEqual(NativeTool.seqkit.versionArguments, ["version"])
     }
 
+    /// `lofreq --version` is rejected with "FATAL ... Unrecognized command";
+    /// the tool prints its version with the `version` subcommand.
+    func testLofreqUsesVersionSubcommandForProvenanceProbe() {
+        XCTAssertEqual(NativeTool.lofreq.versionArguments, ["version"])
+    }
+
+    func testVersionProbeParsesVersionFromStdoutOrStderr() {
+        XCTAssertEqual(NativeToolRunner.parseVersionProbe(exitCode: 0, stdout: "samtools 1.24\nUsing htslib 1.24\n", stderr: ""), "1.24")
+        XCTAssertEqual(NativeToolRunner.parseVersionProbe(exitCode: 0, stdout: "version: 2.1.5\ncommit: abc\n", stderr: ""), "2.1.5")
+        XCTAssertEqual(NativeToolRunner.parseVersionProbe(exitCode: 0, stdout: "", stderr: "BBMap version 40.02\n"), "40.02")
+        XCTAssertEqual(NativeToolRunner.parseVersionProbe(exitCode: 0, stdout: "iVar version 1.4.4\nPlease raise issues...\n", stderr: ""), "1.4.4")
+        XCTAssertEqual(NativeToolRunner.parseVersionProbe(exitCode: 1, stdout: "", stderr: "Program: bwa\nVersion: 0.7.17-r1188\n"), "0.7.17")
+    }
+
+    func testVersionProbeTreatsErrorsAndUsageAsUnknown() {
+        XCTAssertNil(NativeToolRunner.parseVersionProbe(
+            exitCode: 1, stdout: "", stderr: "FATAL(lofreq_main.c|main:336): Unrecognized command '--version'\n"
+        ))
+        XCTAssertNil(NativeToolRunner.parseVersionProbe(
+            exitCode: 0, stdout: "FATAL(lofreq_main.c|main:336): Unrecognized command '--version'\n", stderr: ""
+        ))
+        XCTAssertNil(NativeToolRunner.parseVersionProbe(exitCode: 1, stdout: "", stderr: "Usage: tool [options]\n"))
+        XCTAssertNil(NativeToolRunner.parseVersionProbe(exitCode: 2, stdout: "", stderr: "error: unknown option --version\n"))
+        XCTAssertNil(NativeToolRunner.parseVersionProbe(exitCode: 0, stdout: "", stderr: ""))
+        XCTAssertNil(NativeToolRunner.parseVersionProbe(exitCode: 1, stdout: "some banner without a number\n", stderr: ""))
+    }
+
+    func testVersionProbeKeepsPlainFirstLineOnlyOnSuccess() {
+        XCTAssertEqual(NativeToolRunner.parseVersionProbe(exitCode: 0, stdout: "nightly-build\n", stderr: ""), "nightly-build")
+    }
+
     func testBBMapToolsResolveFromManagedBBToolsEnvironment() {
         switch NativeTool.bbmap.location {
         case .managed(let environment, let executableName):
