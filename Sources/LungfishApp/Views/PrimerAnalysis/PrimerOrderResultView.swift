@@ -67,6 +67,8 @@ struct PrimerOrderResultView: View {
 struct PrimerOrderResultContent: View {
     let document: PrimerOrderDocument
     let orderURL: URL
+    // Empty keeps the saved order. Column headers sort for reading only.
+    @State private var sortOrder: [KeyPathComparator<PrimerOrderOligo>] = []
 
     private var poolNames: [String] {
         var seen: Set<String> = []
@@ -107,7 +109,8 @@ struct PrimerOrderResultContent: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text(isNormalizedAssaySelection ? "Assay order groups" : "Pools in this order").font(.headline)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), alignment: .leading)], alignment: .leading, spacing: 8) {
+                    // An eager stack so every pool is in the accessibility tree.
+                    VStack(alignment: .leading, spacing: 8) {
                         ForEach(poolNames, id: \.self) { poolName in
                             HStack(alignment: .firstTextBaseline) {
                                 Text(poolName).textSelection(.enabled)
@@ -118,6 +121,7 @@ struct PrimerOrderResultContent: View {
                             .font(.caption)
                             .padding(10)
                             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                            .accessibilityElement(children: .combine)
                         }
                     }
                 }
@@ -128,25 +132,27 @@ struct PrimerOrderResultContent: View {
                     Text("All \(document.oligos.count) saved order entries · sequences 5′–3′")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(document.oligos) { oligo in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(alignment: .firstTextBaseline, spacing: 16) {
-                                Text(oligo.name).fontWeight(.medium).textSelection(.enabled)
-                                Spacer(minLength: 12)
-                                Text(oligo.poolName).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
-                            }.font(.callout)
-                            Text("Reference: \(oligo.referenceID) · \(oligo.start + 1)–\(oligo.end) (\(oligo.strand))")
-                                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                            Text(oligo.sequence).font(.system(.callout, design: .monospaced))
-                                .textSelection(.enabled)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                        .accessibilityIdentifier("primerOrderResult.oligo.\(oligo.id)")
+                // A native Table: every saved oligo is a row with named cells, so
+                // VoiceOver and AX clients read and navigate it as a table.
+                Table(document.oligos.sorted(using: sortOrder), sortOrder: $sortOrder) {
+                    TableColumn("Name", value: \.name) { oligo in
+                        Text(oligo.name).fontWeight(.medium).textSelection(.enabled)
+                    }
+                    TableColumn("Pool", value: \.poolName) { oligo in
+                        Text(oligo.poolName).foregroundStyle(.secondary)
+                    }
+                    TableColumn("Reference", value: \.referenceID) { oligo in
+                        Text("\(oligo.referenceID) · \(oligo.start + 1)–\(oligo.end) (\(oligo.strand))")
+                            .foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    TableColumn("Sequence 5′–3′", value: \.sequence) { oligo in
+                        Text(oligo.sequence).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                     }
                 }
+                // The page scrolls and the table scrolls inside it, so the
+                // table gets a bounded height instead of the page's unbounded one.
+                .frame(minHeight: 280, idealHeight: 420, maxHeight: 520)
+                .accessibilityIdentifier("primerOrderResult.oligos")
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -193,7 +193,7 @@ This row works whenever a project window is in front.
 
 The Plugin Manager installs and removes [plugin packs](../../GLOSSARY.md#plugin-pack). B is not a mnemonic.
 
-The **Genotype Review** submenu of the Tools menu holds four more. They act on the genotype result window described in [Inside the genotype result window](#inside-the-genotype-result-window), and they stay greyed out until a sample is selected there.
+The **Genotype Review** submenu of the Tools menu holds four more, plus a **Selected Cell** submenu for the comparison matrix. They act on the genotype result window described in [Inside the genotype result window](#inside-the-genotype-result-window), and they stay greyed out until a sample is selected there.
 
 | Action | Shortcut | Origin |
 |---|---|---|
@@ -278,7 +278,9 @@ The genotype result window shows the alleles LGE [called](../../GLOSSARY.md#call
 
 The four **Genotype Review** commands in the Tools menu work once a sample is selected in the window's Review lens, or a call is selected in a MiSeq result, and stay greyed out otherwise. Cmd-R marks the sample reviewed, Cmd-K marks it confirmed, Cmd-Shift-F flags it for review, and Cmd-Shift-O opens its Sample Detail sheet.
 
-The comparison matrix inside that window, where each cell is one allele in one sample, takes four shortcuts, all of them holding Cmd and Opt together. They work only while the matrix has keyboard focus, so click a cell first. Cmd-Opt-P marks the selected cell a false positive, Cmd-Opt-X marks it a false negative, Cmd-Opt-R clears the review mark, and Cmd-Opt-M adds or edits a comment on the selection. These four also appear on the matrix's right-click menu.
+The comparison matrix inside that window, where each cell is one allele in one sample, has three review commands that hold Cmd and Opt together. They live in **Tools > Genotype Review > Selected Cell**, and they work only while the matrix has keyboard focus and a selection, so click a cell first. Cmd-Opt-P marks the selected cell a false positive, Cmd-Opt-X marks it a false negative, and Cmd-Opt-R clears the review mark. Edit Comment… and Remove Comments sit in the same Selected Cell menu with no shortcut, because Cmd-Opt-M belongs to macOS as Minimize All. All five also appear on the matrix's right-click menu. VoiceOver lists the commands that apply to a row, such as Select Supported Cells, Mark False Positive, Add Comment…, Hide Selected Row, and Show Only Selected Row, as actions on that row, and the **Columns** pull-down lists its items as actions on the button.
+
+The known-allele overview, which draws a reference allele's gene, CDS, and exon blocks, is reachable from the keyboard. Tab moves into a lane that has blocks, and the Left Arrow and Right Arrow keys move between its blocks and show each block's details. Return or Space highlights the focused block, and Escape clears the highlight. VoiceOver reads each block as a button, and pressing a block highlights it, and a **Clear Highlight** action appears while it is highlighted.
 
 ## Inside a classifier result window
 
@@ -383,18 +385,17 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-L | Go to Location... | Sequence menu |
 | Cmd-Opt-L | Selected Operation, View Log | Operations menu |
 | Cmd-M | Minimize | Window menu |
-| Cmd-Opt-M | Add or edit a comment | Genotype comparison matrix |
 | Cmd-N | New Project | File menu |
 | Cmd-Opt-N | New Window for Current Project | Window menu |
 | Cmd-Shift-N | Sidebar Item, New Folder... | Selection menu, sidebar list |
 | Cmd-O | Open Project Folder... | File menu |
 | Cmd-Opt-O | Selected Operation, Reveal Output Files | Operations menu |
 | Cmd-Shift-O | Sample Detail… | Tools menu, Genotype Review |
-| Cmd-Opt-P | Mark the cell a false positive | Genotype comparison matrix |
+| Cmd-Opt-P | Selected Cell, Mark False Positive | Tools menu, Genotype Review, genotype comparison matrix |
 | Cmd-Shift-P | Show Operations Panel | Operations menu |
 | Cmd-Q | Quit Lungfish Genome Explorer | Application menu |
 | Cmd-R | Mark Sample Reviewed | Tools menu, Genotype Review |
-| Cmd-Opt-R | Clear the review mark | Genotype comparison matrix |
+| Cmd-Opt-R | Selected Cell, Clear Review | Tools menu, Genotype Review, genotype comparison matrix |
 | Cmd-Shift-R | Reverse Complement... | Sequence menu |
 | Ctrl-Cmd-S | Show Sidebar | View menu |
 | Cmd-Opt-S | Show in Inspector | Selection menu, sidebar list and result tables |
@@ -404,7 +405,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Opt-V | Provenance Inspector | View menu |
 | Cmd-W | Close | File menu |
 | Cmd-X | Cut | Edit menu |
-| Cmd-Opt-X | Mark the cell a false negative | Genotype comparison matrix |
+| Cmd-Opt-X | Selected Cell, Mark False Negative | Tools menu, Genotype Review, genotype comparison matrix |
 | Cmd-Z | Undo | Edit menu |
 | Cmd-Shift-Z | Redo | Edit menu |
 | Cmd-comma | Settings... | Application menu |

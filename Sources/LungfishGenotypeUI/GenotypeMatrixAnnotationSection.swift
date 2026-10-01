@@ -358,26 +358,15 @@ public struct GenotypeMatrixAnnotationSection: View {
             Text(title)
                 .font(contentBodyFont)
                 .foregroundStyle(.secondary)
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(18), spacing: 4), count: 8), spacing: 4) {
-                ForEach(Array(colors.enumerated()), id: \.offset) { index, color in
-                    Button {
-                        viewModel.applyMatrixPaletteColor(color)
-                    } label: {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(swiftUIColor(from: color))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .stroke(Color(nsColor: NSColor.separatorColor), lineWidth: 0.5)
-                            )
-                            .frame(width: 26, height: 26)
-                    }
-                    .buttonStyle(.plain)
-                    .help("\(title) color \(index + 1) \(color.hexString)")
-                    .accessibilityLabel("\(title) color \(index + 1)")
-                    .accessibilityValue(color.hexString)
-                    .accessibilityHint("Apply this color to the selected palette target.")
-                }
-            }
+            GenotypePaletteSwatchGrid(
+                swatches: colors.enumerated().map {
+                    GenotypePaletteSwatch(name: "\(title) \($0.offset + 1)", color: $0.element)
+                },
+                columns: 8,
+                swatchSize: 18,
+                spacing: 4,
+                apply: { viewModel.applyMatrixPaletteColor($0) }
+            )
         }
     }
 

@@ -52,13 +52,13 @@ final class PrimerReviewContextMenuTests: XCTestCase {
 
     let primerMenu = try PrimerReviewContextMenu(target: target, item: .primer(primer), selection: .constant(nil))
       .environment(\.primerReviewActions, actions).inspect()
-    XCTAssertNoThrow(try primerMenu.find(button: "Alternative assay oligo · rank 2"))
+    XCTAssertNoThrow(try primerMenu.find(text: "Alternative assay oligo · rank 2"))
     XCTAssertThrowsError(try primerMenu.find(button: "Copy All Pool 7 Oligos as FASTA"))
     XCTAssertThrowsError(try primerMenu.find(button: "Save Pool 7 Primer FASTA Bundle in Project"))
 
     let ampliconMenu = try PrimerReviewContextMenu(target: target, item: .amplicon(interval), selection: .constant(nil))
       .environment(\.primerReviewActions, actions).inspect()
-    XCTAssertNoThrow(try ampliconMenu.find(button: "1 oligo in alternative assay · rank 2"))
+    XCTAssertNoThrow(try ampliconMenu.find(text: "1 oligo in alternative assay · rank 2"))
     XCTAssertThrowsError(try ampliconMenu.find(button: "Save Pool 7 Primer FASTA Bundle in Project"))
   }
 

@@ -255,7 +255,8 @@ struct MHCReferenceBundleViewport: View {
                 .controlSize(.small)
             }
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                // Eager, so every definition row is in the accessibility tree.
+                VStack(alignment: .leading, spacing: 10) {
                     ForEach(model.definitionSummaries) { summary in
                         definitionRow(summary)
                     }

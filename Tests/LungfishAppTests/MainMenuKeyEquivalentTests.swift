@@ -39,7 +39,8 @@ final class MainMenuKeyEquivalentTests: XCTestCase {
             ("Flag Sample for Review", "f", [.command, .shift], #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:))),
             ("Sample Detail\u{2026}", "o", [.command, .shift], #selector(GenotypeResultViewController.openSelectedSampleDetail(_:))),
         ]
-        XCTAssertEqual(submenu.items.map(\.title), expected.map(\.0))
+        // The sample commands, then a separator and the matrix's Selected Cell submenu.
+        XCTAssertEqual(submenu.items.map(\.title), expected.map(\.0) + ["", "Selected Cell"])
         for (title, key, modifiers, action) in expected {
             let item = try XCTUnwrap(submenu.items.first { $0.title == title }, title)
             XCTAssertEqual(item.keyEquivalent, key, title)
@@ -79,9 +80,11 @@ final class MainMenuKeyEquivalentTests: XCTestCase {
         XCTAssertEqual(newWindow?.keyEquivalentModifierMask, [.command, .option])
     }
 
-    /// The genotype matrix's own shortcuts must not collide with the menu
-    /// bar either: its false-negative command moved from ⌥⌘N (New Window for
-    /// Current Project) to ⌥⌘X.
+    /// The genotype matrix's shortcuts are real menu items now (Tools >
+    /// Genotype Review > Selected Cell), so each matrix chord must be bound
+    /// in the menu bar exactly once, to the item of the same command. The
+    /// false-negative command moved from ⌥⌘N (New Window for Current Project)
+    /// to ⌥⌘X earlier.
     func testGenotypeMatrixShortcutsDoNotCollideWithMenuBarShortcuts() {
         let menu = MainMenu.createMainMenu()
         let menuBindings = Set(allItems(in: menu).filter { !$0.keyEquivalent.isEmpty }.map {
@@ -102,9 +105,19 @@ final class MainMenuKeyEquivalentTests: XCTestCase {
         let matrixKeys = state.items.filter { !$0.keyEquivalent.isEmpty }
         XCTAssertFalse(matrixKeys.isEmpty)
         for item in matrixKeys {
-            let binding = Binding(key: item.keyEquivalent.lowercased(), modifiers: matrixModifiers.rawValue)
-            XCTAssertFalse(menuBindings.contains(binding), "matrix '\(item.title)' (⌥⌘\(item.keyEquivalent.uppercased())) collides with a menu bar item")
+            let owners = allItems(in: menu).filter {
+                $0.keyEquivalent.lowercased() == item.keyEquivalent.lowercased()
+                    && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == matrixModifiers
+            }
+            XCTAssertEqual(owners.count, 1, "matrix '\(item.title)' (⌥⌘\(item.keyEquivalent.uppercased())) must be bound once in the menu bar")
+            let ownerTitle = owners.first?.title.replacingOccurrences(of: "\u{2026}", with: "") ?? ""
+            let matrixTitle = item.title.replacingOccurrences(of: "\u{2026}", with: "")
+            XCTAssertTrue(
+                matrixTitle.hasSuffix(ownerTitle) || ownerTitle.hasSuffix(matrixTitle.replacingOccurrences(of: "Add ", with: "Edit ")),
+                "menu item '\(ownerTitle)' should be the matrix command '\(matrixTitle)'"
+            )
         }
+        _ = menuBindings
         XCTAssertEqual(matrixKeys.first { $0.command == .markFalseNegative }?.keyEquivalent, "x")
     }
 }

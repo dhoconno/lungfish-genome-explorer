@@ -92,15 +92,25 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
     /// Chords handled inside a view's keyDown or a view-local context menu,
     /// which the menu bar must not bind to something else.
     private static let viewLocalChords: [(Chord, String)] = [
-        (Chord("p", [.command, .option]), "genotype matrix: mark false positive"),
-        (Chord("x", [.command, .option]), "genotype matrix: mark false negative"),
-        (Chord("r", [.command, .option]), "genotype matrix: clear review mark"),
-        (Chord("m", [.command, .option]), "genotype matrix: add or edit comment"),
         (Chord("\u{8}", []), "sidebar: move to Trash"),
         (Chord("\u{7f}", []), "sidebar: move to Trash"),
         (Chord(String(Character(UnicodeScalar(NSRightArrowFunctionKey)!)), [.option]), "taxonomy table: expand row recursively"),
         (Chord("\r", []), "annotation table: activate row"),
     ]
+
+    /// The matrix review chords moved from a view-level key handler to
+    /// Tools > Genotype Review > Selected Cell, so the menu bar documents them.
+    func testSelectedCellReviewItemsCarryTheMatrixChords() {
+        let expected: [(String, String)] = [
+            ("Mark False Positive", "p"), ("Mark False Negative", "x"),
+            ("Clear Review", "r"),
+        ]
+        let bound = menuBindings().filter { $0.path.contains("Genotype Review > Selected Cell") }
+        for (title, key) in expected {
+            let binding = bound.first { $0.title == title }
+            XCTAssertEqual(binding?.chord, Chord(key, [.command, .option]), "\(title) must carry the matrix chord")
+        }
+    }
 
     /// No view-local chord is also a menu-bar chord. Cmd-Shift-A used to be
     /// both (View > AI Assistant and the sidebar's select-siblings monitor);
@@ -132,6 +142,8 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
         (Chord("h", [.command]), [], "Hide (title starts with Hide)"),
         (Chord("h", [.command, .option]), ["Hide Others"], "Hide Others"),
         (Chord("m", [.command]), ["Minimize"], "Minimize"),
+        (Chord("m", [.command, .option]), [], "Minimize All"),
+        (Chord("w", [.command, .option]), [], "Close All"),
         (Chord("n", [.command]), [], "New (title starts with New)"),
         (Chord("o", [.command]), [], "Open (title starts with Open)"),
         (Chord("p", [.command]), ["Print\u{2026}"], "Print"),
@@ -183,6 +195,7 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
         (Chord(" ", [.command]), "Spotlight"),
         (Chord(" ", [.command, .option]), "Finder search"),
         (Chord("\u{1b}", [.command, .option]), "Force Quit"),
+        (Chord("d", [.command, .option]), "Dock hide and show"),
         (Chord("3", [.command, .shift]), "screenshot"),
         (Chord("4", [.command, .shift]), "screenshot"),
         (Chord("5", [.command, .shift]), "screenshot"),

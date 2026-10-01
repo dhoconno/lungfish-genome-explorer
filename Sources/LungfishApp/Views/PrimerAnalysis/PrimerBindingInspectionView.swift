@@ -217,10 +217,13 @@ struct PrimerBindingAlignmentCanvas: NSViewControllerRepresentable {
     }
 }
 
-private struct PrimerBindingComparisonTable: View {
+struct PrimerBindingComparisonTable: View {
     let context: PrimerBindingInspectionContext
     let primer: PrimerBindingInspectionPrimer
     @State private var comparisons: [PrimerBindingRowComparison] = []
+    // Empty keeps the alignment's own row order. The site column is not
+    // sortable because its text is a drawn alignment, not a comparable value.
+    @State private var sortOrder: [KeyPathComparator<PrimerBindingRowComparison>] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
 
@@ -249,23 +252,25 @@ private struct PrimerBindingComparisonTable: View {
                 Text(compatibility.label)
                     .font(.subheadline.weight(.medium)).monospacedDigit()
                     .help(compatibility.help)
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 14) {
-                            Text("Alignment row").frame(maxWidth: .infinity, alignment: .leading)
-                            Text("Reference-oriented site").frame(maxWidth: .infinity, alignment: .leading)
-                        }.font(.caption.weight(.semibold))
-                        ForEach(comparisons) { row in
-                            HStack(alignment: .top, spacing: 14) {
-                                Text(row.rowName).frame(maxWidth: .infinity, alignment: .leading)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(row.status).foregroundStyle(row.mismatchCount.map { $0 > 0 } == true ? Color.orange : Color.secondary)
-                                    highlightedSite(row).font(.system(.caption, design: .monospaced))
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                            }.font(.caption).padding(.vertical, 4).textSelection(.enabled)
-                        }
+                // A native Table: each alignment row is a table row with named
+                // cells. A mismatch is bold and underlined as well as orange.
+                Table(comparisons.sorted(using: sortOrder), sortOrder: $sortOrder) {
+                    TableColumn("Alignment row", value: \.rowName) { row in
+                        Text(row.rowName).textSelection(.enabled)
                     }
-                }.accessibilityIdentifier("primerAnalysisViewer.bindingRows")
+                    TableColumn("Status", value: \.status) { row in
+                        Text(row.status)
+                            .foregroundStyle(row.mismatchCount.map { $0 > 0 } == true ? Color.orange : Color.secondary)
+                            .textSelection(.enabled)
+                    }
+                    TableColumn("Reference-oriented site") { row in
+                        highlightedSite(row).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                            .accessibilityLabel(row.alignedSite)
+                            .accessibilityValue(row.mismatchPositions.isEmpty ? "" : "Mismatches at positions " + row.mismatchPositions.sorted().map { String($0 + 1) }.joined(separator: ", "))
+                    }
+                }
+                .frame(minHeight: 120, idealHeight: 260, maxHeight: 420)
+                .accessibilityIdentifier("primerAnalysisViewer.bindingRows")
             }
         }.task(id: primer.id) {
             comparisons = []

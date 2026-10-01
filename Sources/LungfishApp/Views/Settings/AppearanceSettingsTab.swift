@@ -118,13 +118,14 @@ struct AppearanceSettingsTab: View {
             }
 
             Section("Annotation Type Colors") {
-                LazyVGrid(columns: [
-                    GridItem(.flexible()),
-                    GridItem(.flexible()),
-                    GridItem(.flexible()),
-                ], spacing: 8) {
-                    ForEach(annotationTypeOrder, id: \.self) { type in
-                        annotationColorPicker(type)
+                // An eager Grid keeps all nine pickers in the accessibility tree.
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                    ForEach(Array(stride(from: 0, to: annotationTypeOrder.count, by: 3)), id: \.self) { start in
+                        GridRow {
+                            ForEach(annotationTypeOrder[start..<min(start + 3, annotationTypeOrder.count)], id: \.self) { type in
+                                annotationColorPicker(type)
+                            }
+                        }
                     }
                 }
                 .padding(.vertical, 4)
@@ -263,7 +264,7 @@ struct AppearanceSettingsTab: View {
             Text(base)
                 .font(.system(.body, design: .monospaced, weight: .bold))
             ColorPicker(
-                "",
+                "Base \(base) color",
                 selection: persistedBaseColorBinding(base, color: color),
                 supportsOpacity: false
             )
@@ -274,7 +275,7 @@ struct AppearanceSettingsTab: View {
     private func annotationColorPicker(_ type: String) -> some View {
         HStack(spacing: 6) {
             ColorPicker(
-                "",
+                "\(type) annotation color",
                 selection: annotationColorBinding(for: type),
                 supportsOpacity: false
             )

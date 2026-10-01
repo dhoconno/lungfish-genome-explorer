@@ -117,11 +117,10 @@ struct PrimalSchemeResultsView: View {
                 .background(activeSelection.wrappedValue?.primerID == reviewID(for: primer, in: result) ? Color.accentColor.opacity(0.12) : .clear,
                             in: RoundedRectangle(cornerRadius: 5))
             }.buttonStyle(.plain)
-              .contextMenu {
+              .primerReviewContextActions(selection: activeSelection) {
                 let review = target(for: primer, in: result)
-                if let record = review.primers.first(where: { $0.id == reviewID(for: primer, in: result) }) {
-                  PrimerReviewContextMenu(target: review, item: .primer(record), selection: activeSelection)
-                }
+                return review.primers.first(where: { $0.id == reviewID(for: primer, in: result) })
+                  .map { (review, .primer($0)) }
               }
               .accessibilityIdentifier("primerResults.primer.\(result.id)-\(primer.id)")
           }

@@ -235,6 +235,7 @@ enum MainMenuAccessibilityID {
     static let freyjaDemix = "tools-menu-freyja-demix"
     static let haplotypeDefinitions = "tools-menu-haplotype-definitions"
     static let genotypeReviewMenu = "tools-menu-genotype-review"
+    static let genotypeSelectedCellMenu = "tools-menu-genotype-selected-cell"
     static let workflows = "tools-menu-workflows"
     static let workflowLibrary = "tools-menu-workflow-library"
 

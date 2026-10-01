@@ -683,7 +683,9 @@ extension AIAssistantViewController: NSTextFieldDelegate {
 final class AIMessageBubbleView: NSView {
     let isWelcome: Bool
     private var rawText: String = ""
-    private var copyButton: NSButton?
+    private var copyButton: AIMessageCopyButton?
+    private var isHoveringCopyArea = false
+    private var displayOptionsObserver: NSObjectProtocol?
     private weak var textLabel: NSTextField?
     private var lastPreferredTextWidth: CGFloat = 0
 
@@ -738,18 +740,31 @@ final class AIMessageBubbleView: NSView {
 
         // Add copy button for AI responses (not user messages, not welcome)
         if !isUser && !isWelcome {
-            let btn = NSButton()
+            let btn = AIMessageCopyButton()
             btn.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
             btn.bezelStyle = .toolbar
             btn.isBordered = false
             btn.imageScaling = .scaleProportionallyDown
-            btn.toolTip = "Copy response"
+            btn.toolTip = Self.copyButtonTitle
+            btn.setAccessibilityElement(true)
+            btn.setAccessibilityRole(.button)
+            btn.setAccessibilityLabel(Self.copyButtonTitle)
+            btn.setAccessibilityHelp("Copies this response to the clipboard.")
+            btn.setAccessibilityIdentifier("ai-message-copy-button")
             btn.target = self
             btn.action = #selector(copyText)
             btn.translatesAutoresizingMaskIntoConstraints = false
-            btn.alphaValue = 0.4
+            btn.onFocusChange = { [weak self] in self?.updateCopyButtonAlpha(animated: false) }
             addSubview(btn)
             copyButton = btn
+            updateCopyButtonAlpha(animated: false)
+            displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateCopyButtonAlpha(animated: false) }
+            }
 
             NSLayoutConstraint.activate([
                 btn.topAnchor.constraint(equalTo: topAnchor, constant: 4),
@@ -902,6 +917,28 @@ final class AIMessageBubbleView: NSView {
         return result
     }
 
+    /// One title for the label and the tooltip.
+    static let copyButtonTitle = "Copy Message"
+
+    /// Alpha of the icon at rest. 0.6 of the label colour keeps the icon above
+    /// the 3:1 non-text contrast ratio on the bubble background in light and
+    /// dark appearances, so the control is legible without hovering.
+    static let restingCopyButtonAlpha: CGFloat = 0.6
+
+    /// Full strength while hovered, focused, or when Increase Contrast is on.
+    private func updateCopyButtonAlpha(animated: Bool) {
+        guard let button = copyButton else { return }
+        let full = isHoveringCopyArea
+            || button.hasKeyboardFocus
+            || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        let alpha = full ? 1.0 : Self.restingCopyButtonAlpha
+        if animated {
+            button.animator().alphaValue = alpha
+        } else {
+            button.alphaValue = alpha
+        }
+    }
+
     @objc private func copyText() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(rawText, forType: .string)
@@ -929,10 +966,44 @@ final class AIMessageBubbleView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        copyButton?.animator().alphaValue = 1.0
+        isHoveringCopyArea = true
+        updateCopyButtonAlpha(animated: true)
     }
 
     override func mouseExited(with event: NSEvent) {
-        copyButton?.animator().alphaValue = 0.4
+        isHoveringCopyArea = false
+        updateCopyButtonAlpha(animated: true)
+    }
+
+    isolated deinit {
+        if let displayOptionsObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver)
+        }
+    }
+}
+
+/// The copy icon reports keyboard focus changes so the bubble can lift it to
+/// full strength while Full Keyboard Access is on it.
+@MainActor
+final class AIMessageCopyButton: NSButton {
+    var onFocusChange: (() -> Void)?
+    private(set) var hasKeyboardFocus = false
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            hasKeyboardFocus = true
+            onFocusChange?()
+        }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted {
+            hasKeyboardFocus = false
+            onFocusChange?()
+        }
+        return accepted
     }
 }

@@ -72,6 +72,7 @@ final class GenotypeMatrixKeyEquivalentTests: XCTestCase {
         XCTAssertEqual(key(.markFalsePositive), "p")
         XCTAssertEqual(key(.markFalseNegative), "x")
         XCTAssertEqual(key(.clearReview), "r")
+        XCTAssertEqual(key(.editComment), "", "Option-Command-M is macOS Minimize All")
         XCTAssertFalse(state.items.contains { $0.keyEquivalent == "n" })
     }
 }
