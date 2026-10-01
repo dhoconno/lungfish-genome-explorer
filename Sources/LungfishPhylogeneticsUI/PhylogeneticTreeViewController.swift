@@ -64,6 +64,9 @@ private enum PhylogeneticTreeCanvasMetrics {
 
 @MainActor
 public final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation, ResultRowMenuActions {
+    /// The pasteboard the copy commands write. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
+
     public private(set) var bundleURL: URL?
     public private(set) var bundle: PhylogeneticTreeBundle?
     public var onSelectionStateChanged: ((PhylogeneticTreeSelectionState?) -> Void)?
@@ -939,16 +942,16 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         adoptContextTarget(sender: sender)
         guard let selectedNodeID,
               let node = nodesByID[selectedNodeID] else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(node.displayLabel, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(node.displayLabel, forType: .string)
     }
 
     @objc func copySelectedSubtreeNewick(_ sender: Any?) {
         adoptContextTarget(sender: sender)
         guard let selectedNodeID,
               let newick = try? bundle?.subtreeNewick(nodeID: selectedNodeID) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(newick, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(newick, forType: .string)
     }
 
     @objc func rerootSelectedNode(_ sender: Any?) {
@@ -986,8 +989,8 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         adoptContextTarget(sender: sender)
         let labels = selectedTipLabels()
         guard !labels.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(labels.joined(separator: "\n"), forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(labels.joined(separator: "\n"), forType: .string)
     }
 
     private func requestTreeBundleOperation(_ operation: TreeBundleOperation) {

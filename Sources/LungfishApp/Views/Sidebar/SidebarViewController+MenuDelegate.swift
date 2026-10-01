@@ -720,7 +720,7 @@ extension SidebarViewController: NSMenuDelegate {
         let items = selectedItems()
         guard let item = items.first, let url = item.url else { return }
 
-        let pasteboard = NSPasteboard.general
+        let pasteboard = copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(url.path, forType: .string)
 
@@ -743,7 +743,7 @@ extension SidebarViewController: NSMenuDelegate {
             return
         }
 
-        let pasteboard = NSPasteboard.general
+        let pasteboard = copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(command, forType: .string)
 

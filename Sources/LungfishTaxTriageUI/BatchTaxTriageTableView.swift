@@ -38,6 +38,8 @@ private extension NSUserInterfaceItemIdentifier {
 /// owning view controller. Call ``reloadUniqueReadsColumn()`` after updating it.
 @MainActor
 public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric>, ResultRowMenuActions {
+    /// The pasteboard the copy commands write. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
 
     // MARK: - Callbacks
 
@@ -122,7 +124,7 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric>, Res
     private func perform(_ command: ResultRowCommand, sender: Any?) {
         let rows = commandTargetRows(sender: sender)
         guard rows.count == 1, let index = rows.first else { return }
-        TaxTriageRowCommands.perform(command, on: subject(for: displayedRows[index]))
+        TaxTriageRowCommands.perform(command, on: subject(for: displayedRows[index]), pasteboard: pasteboard)
     }
 
     @objc public func extractReadsForSelectedRows(_ sender: Any?) {

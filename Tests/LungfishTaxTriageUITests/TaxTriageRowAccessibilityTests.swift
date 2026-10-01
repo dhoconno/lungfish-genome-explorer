@@ -17,6 +17,10 @@ import XCTest
 final class TaxTriageRowAccessibilityTests: XCTestCase {
     private let rowCount = 40
     private var windows: [NSWindow] = []
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private let pasteboard = NSPasteboard.withUniqueName()
 
     override func setUp() async throws {
         try await super.setUp()
@@ -29,6 +33,7 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
             window.contentView = nil
         }
         windows.removeAll()
+        pasteboard.releaseGlobally()
         try await super.tearDown()
     }
 
@@ -46,6 +51,7 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
 
     private func makeBatchTable() -> (BatchTaxTriageTableView, NSWindow) {
         let table = BatchTaxTriageTableView(frame: NSRect(x: 0, y: 0, width: 760, height: 220))
+        table.pasteboard = pasteboard
         table.configure(rows: (0..<rowCount).map { index in
             TaxTriageMetric(
                 sample: "sample-\(index)", taxId: 5_000 + index, organism: "Organism \(index)", rank: "S",
@@ -61,6 +67,7 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
 
     private func makeOrganismTable() -> (TaxTriageOrganismTableView, NSWindow) {
         let table = TaxTriageOrganismTableView(frame: NSRect(x: 0, y: 0, width: 640, height: 220))
+        table.pasteboard = pasteboard
         table.rows = (0..<rowCount).map { index in
             TaxTriageTableRow(
                 organism: "Organism \(index)", tassScore: 0.9 - Double(index) / 100, reads: 1_000 + index,
@@ -111,15 +118,15 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
 
     func testBatchCopyActionsWriteThePasteboard() throws {
         let (table, _) = makeBatchTable()
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(3, in: table.tableView)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), table.displayedRows[3].organism)
+        XCTAssertEqual(pasteboard.string(forType: .string), table.displayedRows[3].organism)
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon ID", in: try rowProxy(4, in: table.tableView)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), table.displayedRows[4].taxId.map(String.init))
+        XCTAssertEqual(pasteboard.string(forType: .string), table.displayedRows[4].taxId.map(String.init))
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Row as TSV", in: try rowProxy(5, in: table.tableView)))
-        XCTAssertTrue(NSPasteboard.general.string(forType: .string)?.contains(table.displayedRows[5].organism) == true)
+        XCTAssertTrue(pasteboard.string(forType: .string)?.contains(table.displayedRows[5].organism) == true)
     }
 
     func testBatchExtractReadsActionUsesTheRowsSelection() throws {
@@ -133,9 +140,9 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
     func testBatchActionsOfARowFarDownActOnThatRow() throws {
         let (table, _) = makeBatchTable()
         let far = 36
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(far, in: table.tableView)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), table.displayedRows[far].organism)
+        XCTAssertEqual(pasteboard.string(forType: .string), table.displayedRows[far].organism)
         XCTAssertEqual(table.tableView.selectedRow, far)
     }
 
@@ -146,9 +153,9 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
         table.tableView.layoutSubtreeIfNeeded()
         guard let shownRow = AccessibilityCellActions.currentRow(of: first) else { return }
         let action = try XCTUnwrap(first.accessibilityCustomActions()?.first { $0.name == "Copy Name" })
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertEqual(action.handler?(), true)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), table.displayedRows[shownRow].organism)
+        XCTAssertEqual(pasteboard.string(forType: .string), table.displayedRows[shownRow].organism)
     }
 
     func testBatchSelectionTableRowItemsFollowSelectionAndFocus() throws {
@@ -210,11 +217,11 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
     func testOrganismCopyActionsWriteThePasteboard() throws {
         let (table, _) = makeOrganismTable()
         let view = table.testingTableView
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(3, in: view)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Organism 3")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Organism 3")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon ID", in: try rowProxy(4, in: view)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "5004")
+        XCTAssertEqual(pasteboard.string(forType: .string), "5004")
         XCTAssertFalse(
             AccessibilityRowProbe.performCellAction(named: "Copy Accession", in: try rowProxy(5, in: view)),
             "a TaxTriage row has no accession, so Copy Taxon ID covers it"
@@ -234,11 +241,11 @@ final class TaxTriageRowAccessibilityTests: XCTestCase {
     func testOrganismActionsOfARowFarDownActOnThatRow() throws {
         let (table, _) = makeOrganismTable()
         let far = 37
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(
             named: "Copy Name", in: try rowProxy(far, in: table.testingTableView)
         ))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Organism \(far)")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Organism \(far)")
         XCTAssertEqual(table.testingTableView.selectedRow, far)
     }
 

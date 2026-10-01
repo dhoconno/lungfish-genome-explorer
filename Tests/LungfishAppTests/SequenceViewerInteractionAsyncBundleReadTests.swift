@@ -288,7 +288,9 @@ final class SequenceViewerInteractionAsyncBundleReadTests: XCTestCase {
         )
         XCTAssertNotEqual(staleExpectedBases, freshExpectedBases, "Precondition: fixtures must be distinguishable")
 
-        let pasteboard = NSPasteboard.general
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        viewer.copyPasteboard = pasteboard
         pasteboard.clearContents()
         pasteboard.setString("sentinel-before-either-fetch", forType: .string)
 

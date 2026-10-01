@@ -23,10 +23,15 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
     private var fastaURL: URL!
     private var secondFastaURL: URL!
     private var windows: [NSWindow] = []
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private var pasteboard: NSPasteboard!
 
     override func setUp() async throws {
         try await super.setUp()
         _ = NSApplication.shared
+        pasteboard = NSPasteboard.withUniqueName()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("SidebarItemActionAccessibilityTests-\(UUID().uuidString)", isDirectory: true)
         projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
@@ -43,6 +48,8 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
     override func tearDown() async throws {
         for window in windows { window.orderOut(nil) }
         windows.removeAll()
+        pasteboard.releaseGlobally()
+        pasteboard = nil
         try? FileManager.default.removeItem(at: tempRoot)
         try await super.tearDown()
     }
@@ -74,6 +81,7 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
     /// laid out in a window).
     private func makeSidebar(hosted: Bool = false) -> (SidebarViewController, NSTextField?) {
         let sidebar = SidebarViewController()
+        sidebar.copyPasteboard = pasteboard
         sidebar.loadViewIfNeeded()
         var textField: NSTextField?
         if hosted {
@@ -304,7 +312,7 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         defer { sidebar.closeProject() }
         select(bundleURL, in: sidebar)
 
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         sidebar.copySelectedSidebarItemPath(nil)
         XCTAssertEqual(copiedPath(), bundleURL.resolvingSymlinksInPath().path)
 
@@ -323,7 +331,7 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
     /// The pasteboard's string with its symlinks resolved, so a temporary
     /// directory under /var compares equal to the same path under /private.
     private func copiedPath() -> String? {
-        NSPasteboard.general.string(forType: .string).map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
+        pasteboard.string(forType: .string).map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
     }
 
     // MARK: - The outline probe (go/no-go for every NSOutlineView surface)
@@ -354,7 +362,7 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         // Perform through the proxy, as an AX client would, with another row
         // selected first: the action resolves its own row.
         select(fastaURL, in: sidebar)
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Path", in: rowProxy))
         XCTAssertEqual(copiedPath(), bundleURL.resolvingSymlinksInPath().path)
         XCTAssertEqual(

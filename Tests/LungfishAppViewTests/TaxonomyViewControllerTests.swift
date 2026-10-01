@@ -1553,10 +1553,20 @@ final class TaxonomyLayoutPreferenceTests: XCTestCase {
 /// offers Zoom Into Selected Group and Zoom Out to Parent Group as custom actions.
 @MainActor
 final class TaxonomyTableAccessibilityTests: XCTestCase {
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private let pasteboard = NSPasteboard.withUniqueName()
+
+    override func tearDown() {
+        pasteboard.releaseGlobally()
+        super.tearDown()
+    }
 
     private func makeHostedTable() -> (TaxonomyTableView, TaxonTree, NSWindow) {
         _ = NSApplication.shared
         let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 700, height: 500))
+        table.pasteboard = pasteboard
         let tree = makeTestTree()
         table.tree = tree
         let window = NSWindow(contentRect: table.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -1678,7 +1688,7 @@ final class TaxonomyTableAccessibilityTests: XCTestCase {
         var rows = AccessibilityRowProbe.outlineRowProxies(of: table.outlineView)
         let ecoliRow = table.outlineView.row(forItem: ecoli)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon Name", in: rows[ecoliRow]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Escherichia coli")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Escherichia coli")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Look Up on NCBI: NCBI Taxonomy", in: rows[ecoliRow]))
         XCTAssertEqual(ncbi, ["Escherichia coli"])
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "BLAST Matching Reads\u{2026}", in: rows[ecoliRow]))
@@ -1695,7 +1705,7 @@ final class TaxonomyTableAccessibilityTests: XCTestCase {
         let archaeaRow = table.outlineView.row(forItem: tree.node(taxId: 2157)!)
         XCTAssertEqual(archaeaRow, bacteriaRow + 1)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon Name", in: rows[archaeaRow]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Archaea")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Archaea")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Expand All Below", in: rows[bacteriaRow]))
         XCTAssertGreaterThanOrEqual(table.outlineView.row(forItem: ecoli), 0, "Expand All Below reopens the clade")
     }
@@ -1726,7 +1736,7 @@ final class TaxonomyTableAccessibilityTests: XCTestCase {
         XCTAssertTrue(table.validateMenuItem(blast))
         XCTAssertTrue(table.validateMenuItem(extract))
         table.copySelectedRowName(nil)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Escherichia coli")
+        XCTAssertEqual(pasteboard.string(forType: .string), "Escherichia coli")
         table.searchPubMedForSelectedRow(nil)
         XCTAssertEqual(pubmed, ["Escherichia coli"])
         table.extractReadsForSelectedRows(nil)

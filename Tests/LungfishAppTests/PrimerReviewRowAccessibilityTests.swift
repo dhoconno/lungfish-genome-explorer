@@ -10,10 +10,15 @@ import LungfishWorkflow
 @MainActor
 final class PrimerReviewRowAccessibilityTests: XCTestCase {
     private var windows: [NSWindow] = []
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private let pasteboard = NSPasteboard.withUniqueName()
 
     override func tearDown() {
         windows.forEach { $0.orderOut(nil) }
         windows.removeAll()
+        pasteboard.releaseGlobally()
         super.tearDown()
     }
 
@@ -32,7 +37,7 @@ final class PrimerReviewRowAccessibilityTests: XCTestCase {
     private func host(_ target: PrimerTargetDesignReview, selection: Binding<PrimerReviewSelection?>) -> NSWindow {
         let window = AccessibilityTreeProbe.host(
             PrimerTargetReviewCard(target: target, selection: selection)
-                .environment(\.primerReviewActions, PrimerReviewContextActions(targets: [target], onInspectDetails: {}, onExportRequested: { _, _ in })),
+                .environment(\.primerReviewActions, PrimerReviewContextActions(targets: [target], onInspectDetails: {}, onExportRequested: { _, _ in }, pasteboard: pasteboard)),
             size: CGSize(width: 700, height: 600)
         )
         windows.append(window)
@@ -71,9 +76,9 @@ final class PrimerReviewRowAccessibilityTests: XCTestCase {
             AccessibilityTreeProbe.element(in: window, identifier: "primerReview.primer.right") != nil
         }
         let mark = try XCTUnwrap(AccessibilityTreeProbe.element(in: window, identifier: "primerReview.primer.right"))
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Copy Name", on: mark))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "scheme_1_RIGHT_1")
+        XCTAssertEqual(pasteboard.string(forType: .string), "scheme_1_RIGHT_1")
         XCTAssertEqual(selected?.primerID, "right")
     }
 

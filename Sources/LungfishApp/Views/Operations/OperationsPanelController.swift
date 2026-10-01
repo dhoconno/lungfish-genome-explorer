@@ -54,6 +54,9 @@ private final class OperationsPanelBackgroundView: NSView {
 @MainActor
 final class OperationsPanelViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSSplitViewDelegate {
 
+    /// The pasteboard the copy commands write. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
+
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
     private let footerView = NSView()
@@ -599,20 +602,20 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
             WorkflowOperationsWindowController.showPreviousRun(at: source, routeContext: item.routeContext)
         case .copyCLICommand:
             guard let cmd = item.cliCommand else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(cmd, forType: .string)
+            pasteboard.clearContents()
+            pasteboard.setString(cmd, forType: .string)
         case .copyLog:
             let logText = formatLogEntries(item.logEntries)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(logText, forType: .string)
+            pasteboard.clearContents()
+            pasteboard.setString(logText, forType: .string)
         case .viewLog:
             viewLog(for: item)
         case .revealLog:
             revealLog(for: item)
         case .copyFailureReport:
             let report = buildFailureReport(for: item)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(report, forType: .string)
+            pasteboard.clearContents()
+            pasteboard.setString(report, forType: .string)
         case .openGitHubIssue:
             openGitHubIssue(for: item)
         case .revealFailureReport:

@@ -682,6 +682,8 @@ extension AIAssistantViewController: NSTextFieldDelegate {
 @MainActor
 final class AIMessageBubbleView: NSView {
     let isWelcome: Bool
+    /// The pasteboard the copy button writes. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
     private var rawText: String = ""
     private var copyButton: AIMessageCopyButton?
     private var isHoveringCopyArea = false
@@ -940,8 +942,8 @@ final class AIMessageBubbleView: NSView {
     }
 
     @objc private func copyText() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(rawText, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(rawText, forType: .string)
 
         // Briefly show checkmark icon for feedback
         copyButton?.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")

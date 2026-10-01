@@ -8,6 +8,8 @@ struct PrimerReviewContextActions {
   var onInspectDetails: (() -> Void)?
   var onInspectBinding: ((PrimerReviewSelection) -> Void)?
   var onExportRequested: ((PrimerAnalysisExportSelection, PrimerAnalysisExportKind) -> Void)?
+  /// The pasteboard the copy commands write. Tests substitute a private one.
+  var pasteboard: NSPasteboard = .general
 }
 
 private struct PrimerReviewContextActionsKey: EnvironmentKey {
@@ -224,8 +226,8 @@ struct PrimerReviewContextMenu: View {
     private func copy(_ text: String?, clicked: PrimerReviewSelection) {
       guard let text else { return }
       selection.wrappedValue = clicked
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(text, forType: .string)
+      actions.pasteboard.clearContents()
+      actions.pasteboard.setString(text, forType: .string)
     }
 
     private func export(_ exportSelection: PrimerAnalysisExportSelection, kind: PrimerAnalysisExportKind,

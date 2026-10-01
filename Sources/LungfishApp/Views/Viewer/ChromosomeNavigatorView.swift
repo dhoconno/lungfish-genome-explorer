@@ -75,6 +75,9 @@ protocol ChromosomeNavigatorDelegate: AnyObject {
 @MainActor
 public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation, ResultRowMenuActions {
 
+    /// The pasteboard the copy commands write. Tests substitute a private one.
+    var copyPasteboard: NSPasteboard = .general
+
     // MARK: - Properties
 
     weak var delegate: ChromosomeNavigatorDelegate?
@@ -329,7 +332,7 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     }
 
     private func copyName(of chromosome: ChromosomeInfo) {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString(chromosome.name, forType: .string)
         logger.info("ChromosomeNavigatorView: Copied chromosome name '\(chromosome.name, privacy: .public)' to clipboard")
@@ -342,7 +345,7 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     }
 
     private func copyLength(of chromosome: ChromosomeInfo) {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = copyPasteboard
         pasteboard.clearContents()
         pasteboard.setString("\(chromosome.length)", forType: .string)
         logger.info("ChromosomeNavigatorView: Copied chromosome length \(chromosome.length) to clipboard")

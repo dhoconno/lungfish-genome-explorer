@@ -6,7 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
-import LungfishPhylogeneticsUI
+@testable import LungfishPhylogeneticsUI
 
 // Disambiguate DocumentType: LungfishApp.DocumentType (file format type used by DocumentManager)
 // vs LungfishCore.DocumentCategory (genomic document classification). We test the LungfishApp one.
@@ -2138,7 +2138,10 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testPhylogeneticTreeViewportSupportsTipMultiSelectionAndCopyNames() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
         let controller = PhylogeneticTreeViewController()
+        controller.pasteboard = pasteboard
         _ = controller.view
         let bundleURL = try makePhylogeneticTreeBundle()
 
@@ -2148,7 +2151,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
 
         XCTAssertEqual(controller.testingSelectedTipLabels, ["A", "B"])
         controller.testingCopySelectedTipNames()
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "A\nB")
+        XCTAssertEqual(pasteboard.string(forType: .string), "A\nB")
     }
 
     func testPhylogeneticTreeViewportRelabelsTipsFromMetadataColumn() throws {

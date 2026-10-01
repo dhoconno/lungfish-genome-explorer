@@ -44,6 +44,8 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
     var onDisplayedRowsChanged: (() -> Void)?
     var displaysAlleles = false
     var onCopySequences: (([ReferenceBundleRecordRow], Bool) -> Void)?
+    /// The pasteboard the Copy Name command writes. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
     var onExtractSequences: (([ReferenceBundleRecordRow]) -> Void)?
     private let sequenceMenu = NSMenu()
 
@@ -150,8 +152,8 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
     }
 
     private func copyText(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     /// The reference bundle's user-facing `manifest.name`, used as the

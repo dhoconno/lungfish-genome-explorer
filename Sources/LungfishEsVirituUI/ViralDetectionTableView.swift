@@ -47,6 +47,9 @@ import LungfishKit
 @MainActor
 public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation, ColumnFilterMenuHost, ResultRowMenuActions, OutlineExpandCollapseActions {
 
+    /// The pasteboard the copy commands write. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
+
     /// Shared column-header sort/filter menu (see `LungfishKit.ColumnHeaderFilterMenu`).
     private lazy var columnHeaderFilterMenuController = ColumnHeaderFilterMenu(host: self)
 
@@ -1162,8 +1165,8 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     }
 
     private func writeToPasteboard(_ string: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
     }
 
     private func singleSubject(_ sender: Any?) -> (item: Any, subject: RowSubject)? {

@@ -17,6 +17,10 @@ import XCTest
 final class ViralDetectionRowAccessibilityTests: XCTestCase {
     private var window: NSWindow!
     private var table: ViralDetectionTableView!
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private let pasteboard = NSPasteboard.withUniqueName()
     private var outline: NSOutlineView { table.testOutlineView }
     private var names: [String] = []
 
@@ -25,6 +29,7 @@ final class ViralDetectionRowAccessibilityTests: XCTestCase {
         _ = NSApplication.shared
         names = (0..<40).map { String(format: "Virus %02d", $0) }
         table = ViralDetectionTableView(frame: NSRect(x: 0, y: 0, width: 760, height: 220))
+        table.pasteboard = pasteboard
         var assemblies = names.enumerated().map { index, name in
             Self.assembly(sample: "S1", name: name, reads: 1_000 - index, accession: String(format: "NC_%06d", index))
         }
@@ -66,6 +71,7 @@ final class ViralDetectionRowAccessibilityTests: XCTestCase {
         window.orderOut(nil)
         window = nil
         table = nil
+        pasteboard.releaseGlobally()
         try await super.tearDown()
     }
 
@@ -130,19 +136,19 @@ final class ViralDetectionRowAccessibilityTests: XCTestCase {
     }
 
     func testCopyNameActionWritesThePasteboard() throws {
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(2)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), names[2])
+        XCTAssertEqual(pasteboard.string(forType: .string), names[2])
 
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Accession", in: try rowProxy(3)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "GCF_NC_000003")
+        XCTAssertEqual(pasteboard.string(forType: .string), "GCF_NC_000003")
     }
 
     func testRowActionSelectsItsRowBeforeActing() throws {
         XCTAssertTrue(outline.selectedRowIndexes.isEmpty)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Row as TSV", in: try rowProxy(4)))
         XCTAssertEqual(outline.selectedRow, 4)
-        XCTAssertTrue(NSPasteboard.general.string(forType: .string)?.hasPrefix(names[4] + "\t") == true)
+        XCTAssertTrue(pasteboard.string(forType: .string)?.hasPrefix(names[4] + "\t") == true)
     }
 
     // MARK: - Row reuse
@@ -151,9 +157,9 @@ final class ViralDetectionRowAccessibilityTests: XCTestCase {
         let far = 33
         outline.scrollRowToVisible(far)
         outline.layoutSubtreeIfNeeded()
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: try rowProxy(far)))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), names[far])
+        XCTAssertEqual(pasteboard.string(forType: .string), names[far])
     }
 
     // MARK: - Menu-bar validation follows the selection and the focus

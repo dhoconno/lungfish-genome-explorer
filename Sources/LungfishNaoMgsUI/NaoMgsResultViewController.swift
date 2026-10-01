@@ -48,6 +48,9 @@ private typealias DBAccessionSummary = LungfishIO.NaoMgsAccessionSummary
 @MainActor
 public final class NaoMgsResultViewController: NSViewController, NSSplitViewDelegate, NSPopoverDelegate, SampleMetadataPresentationConsumer, ColumnFilterMenuHost, NSMenuItemValidation, ResultRowMenuActions {
 
+    /// The pasteboard the copy commands write. Tests substitute a private one.
+    var pasteboard: NSPasteboard = .general
+
     // MARK: - Data (Database-backed)
 
     /// SQLite database for virus hits and taxon summaries.
@@ -2249,8 +2252,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     private func writeToPasteboard(_ string: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
     }
 
     private func openExternal(_ urlString: String) {
@@ -2507,8 +2510,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     @objc func contextCopyAccession(_ sender: NSMenuItem) {
         guard let accession = sender.representedObject as? String else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(accession, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(accession, forType: .string)
     }
 
     @objc func contextViewAccessionOnNCBI(_ sender: NSMenuItem) {

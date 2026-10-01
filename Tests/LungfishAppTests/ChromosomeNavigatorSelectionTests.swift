@@ -7,12 +7,23 @@ import LungfishTestSupport
 
 @MainActor
 final class ChromosomeNavigatorSelectionTests: XCTestCase {
+    /// A pasteboard of this test's own. The general pasteboard is one per
+    /// machine, so a copy made by a test running in another process at the
+    /// same time would show up here.
+    private let pasteboard = NSPasteboard.withUniqueName()
+
+    override func tearDown() {
+        pasteboard.releaseGlobally()
+        super.tearDown()
+    }
+
     private func chromosome(_ name: String, _ length: Int64) -> ChromosomeInfo {
         ChromosomeInfo(name: name, length: length, offset: 0, lineBases: 60, lineWidth: 61)
     }
 
     private func makeNavigator() -> ChromosomeNavigatorView {
         let navigator = ChromosomeNavigatorView(frame: NSRect(x: 0, y: 0, width: 240, height: 400))
+        navigator.copyPasteboard = pasteboard
         navigator.chromosomes = [
             chromosome("seg1", 1741),
             chromosome("seg2", 1497),
@@ -142,9 +153,9 @@ final class ChromosomeNavigatorSelectionTests: XCTestCase {
 
         let rows = AccessibilityRowProbe.rowProxies(of: navigator.testingTableView)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: rows[2]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "seg3")
+        XCTAssertEqual(pasteboard.string(forType: .string), "seg3")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Length", in: rows[1]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "1497")
+        XCTAssertEqual(pasteboard.string(forType: .string), "1497")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Navigate to Chromosome", in: rows[2]))
         XCTAssertEqual(spy.selected.last, "seg3")
 
@@ -163,9 +174,9 @@ final class ChromosomeNavigatorSelectionTests: XCTestCase {
         navigator.testingTableView.layoutSubtreeIfNeeded()
         let sorted = AccessibilityRowProbe.rowProxies(of: navigator.testingTableView)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: sorted[0]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "seg1")
+        XCTAssertEqual(pasteboard.string(forType: .string), "seg1")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: sorted[2]))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "seg3")
+        XCTAssertEqual(pasteboard.string(forType: .string), "seg3")
     }
 
     func testMenuBarRowCommandsFollowTheSelection() throws {
@@ -193,7 +204,7 @@ final class ChromosomeNavigatorSelectionTests: XCTestCase {
         XCTAssertFalse(navigator.responds(to: copyTaxon.action!), "a chromosome has no taxon ID")
 
         navigator.copySelectedRowName(nil)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "seg2")
+        XCTAssertEqual(pasteboard.string(forType: .string), "seg2")
         spy.selected.removeAll()
         navigator.activateSelectedRow(nil)
         XCTAssertEqual(spy.selected, ["seg2"])
@@ -222,7 +233,7 @@ final class ChromosomeNavigatorSelectionTests: XCTestCase {
         XCTAssertTrue(names.contains("Copy Name"), "\(names)")
         XCTAssertEqual(Set(names).count, names.count, "each action listed once: \(names)")
         XCTAssertTrue(AXProcessProbe.performRowCellAction("Copy Name", row: 1))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "seg2")
+        XCTAssertEqual(pasteboard.string(forType: .string), "seg2")
 
         let sort = AXProcessProbe.Query(role: "AXPopUpButton")
         XCTAssertEqual(AXProcessProbe.customActionNames(sort), ["Natural", "A-Z", "Size"])
