@@ -2097,9 +2097,9 @@ final class ViewerBundleRoutingTests: XCTestCase {
             controller.testingNodeContextMenuTitles,
             [
                 "Show in Inspector",
-                "Copy Node Label",
+                "Copy Name",
                 "Copy Subtree as Newick",
-                "Root on Branch to Here",
+                "Root on Selected Branch",
                 "Collapse Clade",
                 "Extract Subtree as New Bundle…",
                 "Export Subtree…",

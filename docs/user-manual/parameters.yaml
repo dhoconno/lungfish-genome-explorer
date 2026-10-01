@@ -6088,7 +6088,7 @@ operations:
       grows if you re-root more than once. The new bundle keeps exactly the
       source tree's tips and is marked rooted (measured 2026-09-24 on the
       five-tip primate tree, which stays at 5 tips and 3 internal nodes). Related items in the same context
-      menu are Collapse Clade, Copy Subtree as Newick, Copy Node Label, Center
+      menu are Collapse Clade, Copy Subtree as Newick, Copy Name, Center
       Node, and Reveal Provenance.
 
   tree.extract-subtree:

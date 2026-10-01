@@ -23,7 +23,7 @@ illustrations:
   - id: tree-anatomy
     caption: "Anatomy of a rectangular phylogram, showing tips, internal nodes, branch lengths, and support values."
   - id: tree-unrooted-to-rooted
-    brief: "The five-tip primate tree drawn twice, side by side. Left panel, unrooted, as IQ-TREE returns it: human and chimpanzee meeting at one internal node, gorilla joining next, and the two macaques (rhesus and cynomolgus) joined to the rest by one long branch, with no root marked. Right panel, the same tree rooted on the branch to the macaque clade, as Root on Branch to Here draws it: a new root point placed at the midpoint of that long branch, the two macaques as one clade on one side of the root, and the three apes as the other clade with human and chimpanzee paired inside it. Label the long branch 0.8982 in the left panel and its two halves 0.4491 each in the right panel, and mark the root with a small filled circle. Use Deep Ink for branches and labels, Lungfish Creamsicle for the root marker and the split branch, IBM Plex Mono for the numbers and tip names."
+    brief: "The five-tip primate tree drawn twice, side by side. Left panel, unrooted, as IQ-TREE returns it: human and chimpanzee meeting at one internal node, gorilla joining next, and the two macaques (rhesus and cynomolgus) joined to the rest by one long branch, with no root marked. Right panel, the same tree rooted on the branch to the macaque clade, as Root on Selected Branch draws it: a new root point placed at the midpoint of that long branch, the two macaques as one clade on one side of the root, and the three apes as the other clade with human and chimpanzee paired inside it. Label the long branch 0.8982 in the left panel and its two halves 0.4491 each in the right panel, and mark the root with a small filled circle. Use Deep Ink for branches and labels, Lungfish Creamsicle for the root marker and the split branch, IBM Plex Mono for the numbers and tip names."
 glossary_refs: [iqtree, phylogram, cladogram, clade, newick, support-value, sh-alrt, bootstrap, maximum-likelihood, substitution-model, tip, internal-node, branch-length, topology, rooting, outgroup, msa, alignment-column, mitochondrial-genome, accession, plugin-pack, provenance, checksum, bundle, sidebar, inspector, operations-panel, import-center, p-distance]
 features_refs: []
 fixtures_refs: [primate-mito]
@@ -113,7 +113,7 @@ The dialog has no outgroup field. Rooting is a separate step you take on the fin
 
 ### Root the tree on the macaques
 
-Click the internal node where the rhesus macaque and cynomolgus macaque branches join, so the detail line below the tree names it, then right-click the node and choose **Root on Branch to Here**. No dialog opens, and a new bundle named `primate-mito-rerooted` appears under `Phylogenetic Trees/`, leaving the original tree as it was.
+Click the internal node where the rhesus macaque and cynomolgus macaque branches join, so the detail line below the tree names it, then right-click the node and choose **Root on Selected Branch**. No dialog opens, and a new bundle named `primate-mito-rerooted` appears under `Phylogenetic Trees/`, leaving the original tree as it was.
 
 LGE places the new root on the branch above the node you chose, halfway along it. On this tree that is the long branch between the macaques and the apes. The macaque clade, the outgroup, becomes one side of the root and everything else becomes the other, which is the outgroup root a textbook draws. Branch lengths and support values are kept, and the two halves of the split branch add back up to its old length.
 
@@ -167,7 +167,7 @@ The Phylogenetic Tree Operations dialog holds thirteen settings. Eleven sit in p
 
 **IQ-TREE Parameters.** Passes text straight to IQ-TREE after the settings above, and LGE checks only that the text splits into valid command-line words. The default is empty, which is right for almost every run. Use it only for an IQ-TREE option the dialog does not show, after reading IQ-TREE's own documentation. On the command line this is `--extra-iqtree-options`.
 
-### Root on Branch to Here
+### Root on Selected Branch
 
 **Node to root on.** Sets the node whose branch carries the new root, which LGE places halfway along the branch between that node and its parent, so every branch is drawn leading away from it. The default is the selected node, since rooting has no dialog. Select the outgroup before you right-click, such as the macaque clade when the question is about the apes. On the command line this is `--on`.
 
@@ -223,11 +223,11 @@ If the `Support` column is empty from top to bottom, the bootstrap box was left 
 
 ### Rooted and unrooted
 
-The summary line's last word says whether the tree has a root. IQ-TREE produces unrooted trees, so `unrooted` on a freshly built tree is the expected outcome, not a failure. The apparent root at the left edge of the canvas is a drawing convention with no biological meaning. Only a tree rooted on an outgroup can say which lineage branched off first. A bundle made by extracting a clade or relabelling tips keeps the word its source tree had, so a clade taken from the unrooted tree reads `unrooted` and one taken from the rooted tree reads `rooted`. Only **Root on Branch to Here** gives an unrooted tree a root.
+The summary line's last word says whether the tree has a root. IQ-TREE produces unrooted trees, so `unrooted` on a freshly built tree is the expected outcome, not a failure. The apparent root at the left edge of the canvas is a drawing convention with no biological meaning. Only a tree rooted on an outgroup can say which lineage branched off first. A bundle made by extracting a clade or relabelling tips keeps the word its source tree had, so a clade taken from the unrooted tree reads `unrooted` and one taken from the rooted tree reads `rooted`. Only **Root on Selected Branch** gives an unrooted tree a root.
 
 ### Acting on a node
 
-Right-click the canvas or the Nodes drawer for ten items that act on the selected node, so click the node first. **Show in Inspector**, **Copy Node Label**, and **Center Node** do what their names say. **Copy Subtree as Newick** puts that clade's Newick text on the clipboard. **Root on Branch to Here**, **Extract Subtree as New Bundle...**, and **Export Subtree...** are the operations in the Procedure.
+Right-click the canvas or the Nodes drawer for ten items that act on the selected node, so click the node first. **Show in Inspector**, **Copy Name**, and **Center Node** do what their names say. **Copy Subtree as Newick** puts that clade's Newick text on the clipboard. **Root on Selected Branch**, **Extract Subtree as New Bundle...**, and **Export Subtree...** are the operations in the Procedure.
 
 **Collapse Clade** folds an internal node's descendants into a single point on screen, and the same item then reads **Expand Clade** to undo it. It changes the drawing only, never the saved tree, and it is unavailable on a tip. To copy several names, click a tip, Shift-click more tips, and choose **Copy Selected Tip Names**, which puts one name per line on the clipboard.
 
@@ -306,7 +306,7 @@ lungfish-cli tree relabel \
 lungfish-cli import tree "$HOME/Desktop/my-tree.nwk" --project "$PROJECT"
 ```
 
-The window always passes the rows you selected as `--rows`, while a command without `--rows` uses every row in the alignment, which gives the same tree here because all five rows were selected. Leaving out `--seed` behaves like the blank Seed field, so drop it only if you accept a slightly different tree on every run. `tree reroot` also takes a tip label for `--on`, which roots the tree on that one sequence's branch, and it places the root at the midpoint of the branch exactly as **Root on Branch to Here** does.
+The window always passes the rows you selected as `--rows`, while a command without `--rows` uses every row in the alignment, which gives the same tree here because all five rows were selected. Leaving out `--seed` behaves like the blank Seed field, so drop it only if you accept a slightly different tree on every run. `tree reroot` also takes a tip label for `--on`, which roots the tree on that one sequence's branch, and it places the root at the midpoint of the branch exactly as **Root on Selected Branch** does.
 
 ## Next
 

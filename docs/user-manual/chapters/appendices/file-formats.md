@@ -455,7 +455,7 @@ primate-mito.lungfishtree/
 
 The canonical tree is `tree/primary.nwk`. The `artifacts/iqtree/` folder keeps the inference tool's own output untouched, including its log and its full report, so you can read exactly what IQ-TREE decided rather than only LGE's summary of it. The tree manifest records `bundleKind` as `phylogenetic-tree`, plus `tipCount`, `internalNodeCount`, `treeCount`, `isRooted`, `sourceFormat`, and the same `checksums` and `fileSizes` maps the alignment manifest carries.
 
-The primate tree reports five tips, three internal nodes, one tree, and `isRooted` false. A tip is one of the input sequences at the end of a branch, and an internal node is a branching point standing for a shared ancestor. An unrooted tree of five tips has three internal nodes rather than four, since it has no separate node at the top. The copy **Root on Branch to Here** writes, `primate-mito-rerooted.lungfishtree`, reports four internal nodes and `isRooted` true, because the new root is a node of its own.
+The primate tree reports five tips, three internal nodes, one tree, and `isRooted` false. A tip is one of the input sequences at the end of a branch, and an internal node is a branching point standing for a shared ancestor. An unrooted tree of five tips has three internal nodes rather than four, since it has no separate node at the top. The copy **Root on Selected Branch** writes, `primate-mito-rerooted.lungfishtree`, reports four internal nodes and `isRooted` true, because the new root is a node of its own.
 
 ## The primer scheme bundle
 

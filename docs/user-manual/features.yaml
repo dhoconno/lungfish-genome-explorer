@@ -1067,7 +1067,7 @@ features:
       - Sources/LungfishCLI/Commands/TreeCommand.swift
     notes: >-
       Roots a tree on the branch above a chosen node (outgroup rooting, as
-      the viewport's Root on Branch to Here does), extracts a selected clade
+      the viewport's Root on Selected Branch does), extracts a selected clade
       as a subtree named from its tip labels, and relabels tips from bundle
       metadata, writing new bundles with provenance. Chapter: 02-sequences/05.
 

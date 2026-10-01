@@ -63,7 +63,7 @@ private enum PhylogeneticTreeCanvasMetrics {
 }
 
 @MainActor
-public final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+public final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation, ResultRowMenuActions {
     public private(set) var bundleURL: URL?
     public private(set) var bundle: PhylogeneticTreeBundle?
     public var onSelectionStateChanged: ((PhylogeneticTreeSelectionState?) -> Void)?
@@ -195,7 +195,9 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         default:
             value = node.support?.rawValue ?? ""
         }
-        return tableCell(identifier: identifier, value: value)
+        let cell = tableCell(identifier: identifier, value: value)
+        AccessibilityCellActions.install(accessibilityActions(forRow: row, cellView: cell), on: cell)
+        return cell
     }
 
     public func tableViewSelectionDidChange(_ notification: Notification) {
@@ -764,128 +766,202 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         treeCanvasView.menu = menu
     }
 
+    // MARK: - Node Commands
+
+    /// One command of the tree node menus: a shared ``ResultRowCommand`` or one
+    /// of the tree's own. The context menu, Selection > Table Row validation
+    /// and each node row's accessibility actions all read
+    /// ``availableNodeActions(forNodeID:selectedTipCount:)``, so they list the
+    /// same commands under the same titles.
+    enum NodeAction: Hashable {
+        case command(ResultRowCommand)
+        case copySubtreeNewick
+        case rootOnSelectedBranch
+        case toggleClade(collapsed: Bool)
+        case extractSubtree
+        case exportSubtree
+        case copySelectedTipNames
+        case centerNode
+        case revealProvenance
+
+        var title: String {
+            switch self {
+            case .command(let command): return command.title
+            case .copySubtreeNewick: return "Copy Subtree as Newick"
+            case .rootOnSelectedBranch: return "Root on Selected Branch"
+            case .toggleClade(let collapsed): return collapsed ? "Expand Clade" : "Collapse Clade"
+            case .extractSubtree: return "Extract Subtree as New Bundle\u{2026}"
+            case .exportSubtree: return "Export Subtree\u{2026}"
+            case .copySelectedTipNames: return "Copy Selected Tip Names"
+            case .centerNode: return "Center Node"
+            case .revealProvenance: return "Reveal Provenance"
+            }
+        }
+
+        var selector: Selector {
+            switch self {
+            case .command(let command): return command.menuSelector
+            case .copySubtreeNewick: return #selector(PhylogeneticTreeViewController.copySelectedSubtreeNewick(_:))
+            case .rootOnSelectedBranch: return #selector(PhylogeneticTreeViewController.rerootSelectedNode(_:))
+            case .toggleClade: return #selector(PhylogeneticTreeViewController.toggleSelectedCladeCollapse(_:))
+            case .extractSubtree: return #selector(PhylogeneticTreeViewController.extractSelectedSubtreeBundle(_:))
+            case .exportSubtree: return #selector(PhylogeneticTreeViewController.exportSelectedSubtree(_:))
+            case .copySelectedTipNames: return #selector(PhylogeneticTreeViewController.copySelectedTipNames(_:))
+            case .centerNode: return #selector(PhylogeneticTreeViewController.centerSelectedNodeFromMenu(_:))
+            case .revealProvenance: return #selector(PhylogeneticTreeViewController.revealTreeProvenance(_:))
+            }
+        }
+
+        /// True for the same command whatever the clade's collapsed state.
+        func matches(_ other: NodeAction) -> Bool {
+            if case .toggleClade = self, case .toggleClade = other { return true }
+            return self == other
+        }
+
+        static func action(for selector: Selector?) -> NodeAction? {
+            guard let selector else { return nil }
+            if let command = ResultRowCommand.command(for: selector) { return .command(command) }
+            return [
+                NodeAction.copySubtreeNewick, .rootOnSelectedBranch, .toggleClade(collapsed: false), .extractSubtree,
+                .exportSubtree, .copySelectedTipNames, .centerNode, .revealProvenance,
+            ].first { $0.selector == selector }
+        }
+    }
+
+    /// The context menu's commands, in display order.
+    private static let nodeMenuOrder: [NodeAction] = [
+        .command(.showInInspector), .command(.copyName), .copySubtreeNewick, .rootOnSelectedBranch,
+        .toggleClade(collapsed: false), .extractSubtree, .exportSubtree, .copySelectedTipNames, .centerNode,
+        .revealProvenance,
+    ]
+
+    /// The commands that apply with node `nodeID` selected and
+    /// `selectedTipCount` tips in the selection. Reveal Provenance needs only
+    /// the bundle.
+    func availableNodeActions(forNodeID nodeID: String?, selectedTipCount: Int) -> [NodeAction] {
+        var actions: [NodeAction] = []
+        let node = nodeID.flatMap { nodesByID[$0] }
+        if node != nil {
+            actions.append(.command(.showInInspector))
+            actions.append(.command(.copyName))
+            if bundle != nil { actions.append(.copySubtreeNewick) }
+            if bundleURL != nil { actions.append(.rootOnSelectedBranch) }
+            if let node, !node.isTip { actions.append(.toggleClade(collapsed: collapsedNodeIDs.contains(node.id))) }
+            if bundleURL != nil { actions.append(.extractSubtree) }
+            if bundle != nil { actions.append(.exportSubtree) }
+        }
+        if selectedTipCount > 0 { actions.append(.copySelectedTipNames) }
+        if node != nil { actions.append(.centerNode) }
+        if bundleURL != nil { actions.append(.revealProvenance) }
+        return actions
+    }
+
+    /// The node a menu command acts on. A context-menu command from the node
+    /// table acts on the clicked row; every other command acts on the
+    /// selected node, because `clickedRow` outlives the click that set it.
+    private func targetNodeID(sender: Any?) -> String? {
+        if let menuItem = sender as? NSMenuItem,
+           ResultRowMenuValidation.isContextMenuItem(menuItem, in: [nodeTableView.menu]),
+           nodeTableView.clickedRow >= 0, nodes.indices.contains(nodeTableView.clickedRow),
+           !selectedNodeIDs.contains(nodes[nodeTableView.clickedRow].id) {
+            return nodes[nodeTableView.clickedRow].id
+        }
+        return selectedNodeID
+    }
+
+    /// Makes the clicked table row the selected node when a context-menu
+    /// command was aimed at it, so the selection-based handlers act on it.
+    private func adoptContextTarget(sender: Any?) {
+        guard let id = targetNodeID(sender: sender), id != selectedNodeID else { return }
+        selectNode(id: id, center: false)
+    }
+
     private func nodeContextMenu() -> NSMenu {
         let menu = NSMenu(title: "Tree Node")
-        let showItem = NSMenuItem(
-            title: "Show in Inspector",
-            action: #selector(showSelectedNodeInInspector(_:)),
-            keyEquivalent: ""
-        )
-        showItem.target = self
-        showItem.isEnabled = selectedNodeID != nil
-        menu.addItem(showItem)
-
-        let copyLabelItem = NSMenuItem(
-            title: "Copy Node Label",
-            action: #selector(copySelectedNodeLabel(_:)),
-            keyEquivalent: ""
-        )
-        copyLabelItem.target = self
-        copyLabelItem.isEnabled = selectedNodeID != nil
-        menu.addItem(copyLabelItem)
-
-        let copySubtreeItem = NSMenuItem(
-            title: "Copy Subtree as Newick",
-            action: #selector(copySelectedSubtreeNewick(_:)),
-            keyEquivalent: ""
-        )
-        copySubtreeItem.target = self
-        copySubtreeItem.isEnabled = bundle != nil && selectedNodeID != nil
-        menu.addItem(copySubtreeItem)
-
-        let rerootItem = NSMenuItem(
-            title: "Root on Branch to Here",
-            action: #selector(rerootSelectedNode(_:)),
-            keyEquivalent: ""
-        )
-        rerootItem.target = self
-        rerootItem.isEnabled = bundleURL != nil && selectedNodeID != nil
-        menu.addItem(rerootItem)
-
-        let collapseTitle = selectedNodeID.map { collapsedNodeIDs.contains($0) } == true ? "Expand Clade" : "Collapse Clade"
-        let collapseItem = NSMenuItem(
-            title: collapseTitle,
-            action: #selector(toggleSelectedCladeCollapse(_:)),
-            keyEquivalent: ""
-        )
-        collapseItem.target = self
-        collapseItem.isEnabled = selectedNodeID.flatMap { nodesByID[$0] }?.isTip == false
-        menu.addItem(collapseItem)
-
-        let extractBundleItem = NSMenuItem(
-            title: "Extract Subtree as New Bundle…",
-            action: #selector(extractSelectedSubtreeBundle(_:)),
-            keyEquivalent: ""
-        )
-        extractBundleItem.target = self
-        extractBundleItem.isEnabled = bundleURL != nil && selectedNodeID != nil
-        menu.addItem(extractBundleItem)
-
-        let exportSubtreeItem = NSMenuItem(
-            title: "Export Subtree…",
-            action: #selector(exportSelectedSubtree(_:)),
-            keyEquivalent: ""
-        )
-        exportSubtreeItem.target = self
-        exportSubtreeItem.isEnabled = bundle != nil && selectedNodeID != nil
-        menu.addItem(exportSubtreeItem)
-
-        let copySelectedTipsItem = NSMenuItem(
-            title: "Copy Selected Tip Names",
-            action: #selector(copySelectedTipNames(_:)),
-            keyEquivalent: ""
-        )
-        copySelectedTipsItem.target = self
-        copySelectedTipsItem.isEnabled = !selectedTipLabels().isEmpty
-        menu.addItem(copySelectedTipsItem)
-
-        let centerItem = NSMenuItem(
-            title: "Center Node",
-            action: #selector(centerSelectedNodeFromMenu(_:)),
-            keyEquivalent: ""
-        )
-        centerItem.target = self
-        centerItem.isEnabled = selectedNodeID != nil
-        menu.addItem(centerItem)
-
-        let revealProvenanceItem = NSMenuItem(
-            title: "Reveal Provenance",
-            action: #selector(revealTreeProvenance(_:)),
-            keyEquivalent: ""
-        )
-        revealProvenanceItem.target = self
-        revealProvenanceItem.isEnabled = bundleURL != nil
-        menu.addItem(revealProvenanceItem)
+        let collapsedSelected = selectedNodeID.map { collapsedNodeIDs.contains($0) } ?? false
+        for action in Self.nodeMenuOrder {
+            let resolved: NodeAction = {
+                if case .toggleClade = action { return .toggleClade(collapsed: collapsedSelected) }
+                return action
+            }()
+            let item = NSMenuItem(title: resolved.title, action: resolved.selector, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
         return menu
     }
 
-    @objc private func showSelectedNodeInInspector(_ sender: Any?) {
+    /// The context menu follows the selected node (or the clicked node row).
+    /// The menu-bar items under Selection > Table Row are enabled only while
+    /// the node table has keyboard focus.
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let action = NodeAction.action(for: menuItem.action) else { return true }
+        if case .command(let command) = action, ![.showInInspector, .copyName].contains(command) { return false }
+        let inContextMenu = ResultRowMenuValidation.isContextMenuItem(
+            menuItem, in: [nodeTableView.menu, treeCanvasView.menu]
+        )
+        guard inContextMenu || ResultRowMenuValidation.tableHasKeyboardFocus(nodeTableView) else { return false }
+        let id = targetNodeID(sender: menuItem)
+        let tipCount = id == selectedNodeID ? selectedTipLabels().count : (id.flatMap { nodesByID[$0]?.isTip } == true ? 1 : 0)
+        let available = availableNodeActions(forNodeID: id, selectedTipCount: tipCount)
+        if case .toggleClade = action, let available = available.first(where: { $0.matches(action) }) {
+            menuItem.title = available.title
+            return true
+        }
+        return available.contains { $0.matches(action) }
+    }
+
+    /// The accessibility custom actions of the node row at `row`: every
+    /// command the context menu offers with that node selected, named the
+    /// same. The handlers resolve the row from `cellView` when they run and
+    /// select its node first.
+    private func accessibilityActions(forRow row: Int, cellView: NSView) -> [NSAccessibilityCustomAction] {
+        guard nodes.indices.contains(row) else { return [] }
+        let node = nodes[row]
+        return availableNodeActions(forNodeID: node.id, selectedTipCount: node.isTip ? 1 : 0).map { action in
+            AccessibilityCellActions.makeAction(name: action.title) { [weak self, weak cellView] in
+                guard let self, let cellView,
+                      let current = AccessibilityCellActions.currentRow(of: cellView),
+                      self.nodes.indices.contains(current) else { return }
+                self.selectNode(id: self.nodes[current].id, center: false)
+                _ = NSApp.sendAction(action.selector, to: self, from: nil)
+            }
+        }
+    }
+
+    @objc public func showSelectedRowInInspector(_ sender: Any?) {
+        adoptContextTarget(sender: sender)
         notifySelectionStateIfAvailable()
     }
 
-    @objc private func copySelectedNodeLabel(_ sender: Any?) {
+    @objc public func copySelectedRowName(_ sender: Any?) {
+        adoptContextTarget(sender: sender)
         guard let selectedNodeID,
               let node = nodesByID[selectedNodeID] else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(node.displayLabel, forType: .string)
     }
 
-    @objc private func copySelectedSubtreeNewick(_ sender: Any?) {
+    @objc func copySelectedSubtreeNewick(_ sender: Any?) {
+        adoptContextTarget(sender: sender)
         guard let selectedNodeID,
               let newick = try? bundle?.subtreeNewick(nodeID: selectedNodeID) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(newick, forType: .string)
     }
 
-    @objc private func rerootSelectedNode(_ sender: Any?) {
+    @objc func rerootSelectedNode(_ sender: Any?) {
+        adoptContextTarget(sender: sender)
         requestTreeBundleOperation(.reroot)
     }
 
-    @objc private func extractSelectedSubtreeBundle(_ sender: Any?) {
+    @objc func extractSelectedSubtreeBundle(_ sender: Any?) {
+        adoptContextTarget(sender: sender)
         requestTreeBundleOperation(.extractSubtree)
     }
 
-    @objc private func toggleSelectedCladeCollapse(_ sender: Any?) {
+    @objc func toggleSelectedCladeCollapse(_ sender: Any?) {
+        adoptContextTarget(sender: sender)
         guard let selectedNodeID,
               let node = nodesByID[selectedNodeID],
               !node.isTip else { return }
@@ -898,7 +974,8 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         refreshNodeContextMenu()
     }
 
-    @objc private func copySelectedTipNames(_ sender: Any?) {
+    @objc func copySelectedTipNames(_ sender: Any?) {
+        adoptContextTarget(sender: sender)
         let labels = selectedTipLabels()
         guard !labels.isEmpty else { return }
         NSPasteboard.general.clearContents()
@@ -939,7 +1016,8 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             .sorted()
     }
 
-    @objc private func exportSelectedSubtree(_ sender: Any?) {
+    @objc func exportSelectedSubtree(_ sender: Any?) {
+        adoptContextTarget(sender: sender)
         guard let selectedNodeID,
               let bundle else { return }
         do {
@@ -1021,11 +1099,13 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         }
     }
 
-    @objc private func centerSelectedNodeFromMenu(_ sender: Any?) {
+    @objc func centerSelectedNodeFromMenu(_ sender: Any?) {
+        adoptContextTarget(sender: sender)
         centerSelectedNode()
     }
 
-    @objc private func revealTreeProvenance(_ sender: Any?) {
+    @objc func revealTreeProvenance(_ sender: Any?) {
+        adoptContextTarget(sender: sender)
         guard let provenanceURL = bundleURL?.appendingPathComponent(".lungfish-provenance.json") else { return }
         NSWorkspace.shared.activateFileViewerSelecting([provenanceURL])
     }
@@ -1360,6 +1440,10 @@ public extension PhylogeneticTreeViewController {
     var testingDetailToolTip: String {
         detailLabel.toolTip ?? ""
     }
+
+    var testingNodeTableView: NSTableView { nodeTableView }
+
+    var testingNodeTableContextMenu: NSMenu? { nodeTableView.menu }
 
     var testingNodeContextMenuTitles: [String] {
         nodeContextMenu().items.map(\.title)
