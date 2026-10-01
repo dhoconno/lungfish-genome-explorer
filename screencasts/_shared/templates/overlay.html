@@ -28,9 +28,8 @@
   /* Lower third: Deep Ink panel with an accent edge, one line of Inter SemiBold. */
   .lower { position: absolute; left: calc(var(--lx) * var(--u)); bottom: calc(var(--ly) * var(--u));
            background: rgba(31, 26, 23, 0.94); border-radius: calc(14 * var(--u));
-           padding: calc(18 * var(--u)) calc(30 * var(--u)) calc(18 * var(--u)) calc(34 * var(--u));
+           padding: calc(18 * var(--u)) calc(30 * var(--u));
            box-shadow: 0 calc(8 * var(--u)) calc(28 * var(--u)) rgba(31, 26, 23, 0.25); overflow: hidden; max-width: 86%; }
-  .lower::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: calc(5 * var(--u)); background: var(--accent); }
   .lower .kicker { font-family: "IBM Plex Mono"; color: var(--peach); font-size: calc(19 * var(--u));
                    letter-spacing: 0.04em; margin-bottom: calc(6 * var(--u)); }
   .lower .text { font-family: "Inter"; font-weight: 600; color: var(--cream); font-size: calc(34 * var(--u)); line-height: 1.2; }

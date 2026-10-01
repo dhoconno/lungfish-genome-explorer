@@ -21,8 +21,8 @@ beats:
   - kind: take
     id: demo
     take: takes-v2/demo.mov       # Help > Demo Projects, filmed with the app frontmost
-    in: 0.4
-    duration: 9.0
+    in: 1.5
+    duration: 6.0
     caption: Start with real public datasets
     kicker: Help · Demo Projects
     crop: [0.0, 0.205, 1.0, 0.75]  # below the Save to row (it shows the owner's home folder)
@@ -30,9 +30,9 @@ beats:
 
   - kind: take
     id: sra
+    segments: [[2.0, 5.6], [13.2, 16.2]]   # jump cut over the loading wait
     take: takes-v2/sra.mov        # Tools > Search Online Databases > Search SRA
-    in: 2.0
-    duration: 14.0
+    duration: 6.6
     caption: Search SRA and download runs into a project
     kicker: Tools · Search Online Databases · SRA
     crop: [0.18, 0.085, 0.64, 0.645]
@@ -43,7 +43,7 @@ beats:
     id: disk
     take: takes-v2/disk.mov
     in: 1.6
-    duration: 8.0
+    duration: 5.0
     caption: Clump reads and bin qualities to save space
     kicker: HG002 reads · 18 MB stored as 5.8 MB
     crop: [0.62, 0.064, 0.38, 0.62]
@@ -52,8 +52,8 @@ beats:
   - kind: take
     id: viewer
     take: takes-v2/viewer.mov
-    in: 1.6
-    duration: 9.0
+    in: 2.4
+    duration: 7.0
     caption: Reads, alignments and variants in one window
     kicker: HG002 · chr20
     square_focus: [0.22, 0.05, 0.56, 1.0]
@@ -61,17 +61,18 @@ beats:
   - kind: take
     id: pipeline
     take: takes-v2/pipeline.mov
-    in: 1.2
-    duration: 9.5
-    caption: Run nf-core pipelines in Docker containers
+    in: 1.4
+    duration: 6.8
+    caption: Browse nf-core pipeline results run in Docker
     kicker: Viral Recon · Nextflow · Docker
     square_focus: [0.40, 0.0, 0.60, 1.0]
 
   - kind: take
     id: provenance
+    transition: fade
     take: takes-v2/provenance.mov
-    in: 2.1
-    duration: 8.8
+    in: 3.0
+    duration: 6.3
     caption: Each result records its tool, version and command
     kicker: Inspector · Provenance · Lineage
     crop: [0.56, 0.064, 0.44, 0.915]
@@ -81,7 +82,7 @@ beats:
     id: files
     take: takes-v2/files.mov      # Inspector > Provenance > Files & Outputs
     in: 1.2
-    duration: 8.0
+    duration: 5.0
     caption: Every input and output is listed with its checksum
     kicker: Inspector · Provenance · Files & Outputs
     crop: [0.56, 0.064, 0.44, 0.915]
@@ -90,19 +91,20 @@ beats:
   - kind: take
     id: export
     take: takes-v2/export.mov     # File > Export > Provenance > Methods Section…, app-region capture
-    in: 6.5
-    duration: 8.0
+    in: 7.2
+    duration: 5.3
     caption: Export the history as a script or methods text
     kicker: File · Export · Provenance · Methods Section
     square_focus: [0.15, 0.0, 0.62, 1.0]
 
   # The three exports read in LGE's viewer (Preview 2026.9.74), one take cut into three beats.
-  # Nextflow and Snakemake are cropped below their generated header, which names the recording user.
+  # Nextflow and Snakemake takes are scrolled past their generated header (it names the recording user)
+  # to a process or rule with its pinned conda environment.
   - kind: take
     id: exports-methods
-    take: takes-v2/exports.mov
-    in: 1.4
-    duration: 4.9
+    take: takes-v2/methods.mov
+    in: 1.3
+    duration: 6.5
     caption: A methods paragraph naming every tool and version
     kicker: methods.md
     crop: [0.0, 0.064, 0.80, 0.50]
@@ -110,22 +112,22 @@ beats:
 
   - kind: take
     id: exports-nextflow
-    take: takes-v2/exports.mov
-    in: 6.3
-    duration: 4.4
+    take: takes-v2/nextflow.mov
+    in: 0.5
+    duration: 5.0
     caption: A Nextflow pipeline with pinned conda packages
     kicker: main.nf
-    crop: [0.0, 0.33, 0.80, 0.55]
+    crop: [0.0, 0.064, 0.80, 0.62]
     square_focus: [0.0, 0.0, 0.7, 1.0]
 
   - kind: take
     id: exports-snakemake
-    take: takes-v2/exports.mov
-    in: 10.8
-    duration: 4.6
+    take: takes-v2/snakemake.mov
+    in: 0.5
+    duration: 5.0
     caption: A Snakemake workflow from the same record
     kicker: Snakefile
-    crop: [0.0, 0.33, 0.80, 0.55]
+    crop: [0.0, 0.064, 0.80, 0.62]
     square_focus: [0.0, 0.0, 0.7, 1.0]
 
   - kind: terminal
@@ -139,7 +141,7 @@ beats:
     max_lines: 18
     type_cps: 120
     line_interval: 0.12
-    duration: 8.0
+    duration: 6.5
     caption: The same analysis from the app or terminal
     kicker: lungfish-cli
     square_focus: [0.0, 0.0, 0.62, 1.0]

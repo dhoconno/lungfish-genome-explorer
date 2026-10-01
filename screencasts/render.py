@@ -142,7 +142,16 @@ def render_take(beat, cfg, layout, brand, ov: Overlays, video_dir: Path, work: P
     inputs, pre = [], []
     if take.exists():
         tw, th = probe_size(take)
-        inputs += ["-ss", str(beat.get("in", 0)), "-t", str(dur), "-i", str(take)]
+        # `segments: [[in, out], ...]` splices parts of the take together (jump cuts over dead
+        # time such as a loading spinner); otherwise the beat plays from `in` for `duration`.
+        segments = beat.get("segments")
+        if segments:
+            spliced = sum(b - a for a, b in segments)
+            if abs(spliced - dur) > 0.05:
+                sys.exit(f"{beat['id']}: duration {dur} must equal the spliced segments ({spliced:.2f} s)")
+            inputs += ["-i", str(take)]
+        else:
+            inputs += ["-ss", str(beat.get("in", 0)), "-t", str(dur), "-i", str(take)]
         # trim_top drops the window title bar (points, scaled to the take's pixels).
         # crop [x, y, w, h] (fractions of the take) keeps part of a window, e.g. a Finder file list.
         left = 0
@@ -160,7 +169,14 @@ def render_take(beat, cfg, layout, brand, ov: Overlays, video_dir: Path, work: P
             src_w, src_h = int(tw * fw) // 2 * 2, int(th * fh) // 2 * 2
             crop = f"crop={src_w}:{src_h}:{left + int(tw * fx)}:{top + int(th * fy)},"
         fw_, fh_ = fit(int(cw - 2 * margin), int(ch - 2 * margin), src_w, src_h)
-        pre.append(f"[0:v]fps={fps},{crop}scale={fw_}:{fh_}:flags=lanczos,format=rgba[foot]")
+        if segments:
+            parts = []
+            for k, (a, b) in enumerate(segments):
+                pre.append(f"[0:v]trim=start={a}:end={b},setpts=PTS-STARTPTS[seg{k}]")
+                parts.append(f"[seg{k}]")
+            pre.append(f"{''.join(parts)}concat=n={len(segments)}:v=1:a=0,fps={fps},{crop}scale={fw_}:{fh_}:flags=lanczos,format=rgba[foot]")
+        else:
+            pre.append(f"[0:v]fps={fps},{crop}scale={fw_}:{fh_}:flags=lanczos,format=rgba[foot]")
     else:
         # Placeholder sized like the window (or its square crop), so layout matches the real cut.
         src_w, src_h = window_aspect
