@@ -49,24 +49,40 @@ beats:
     placeholder: Variant track selected. Inspector Provenance lineage with the bcftools step expanded to its command and conda build.
     square_focus: [0.44, 0.0, 0.56, 1.0]
 
-  - kind: take
+  - kind: document
     id: export
-    take: takes/export.mov
-    in: 0
-    duration: 7.0
+    # Real output of File > Export > Provenance (same exporter as lungfish-cli provenance export).
+    # Regenerate (exports/ is not committed, it holds machine paths):
+    #   lungfish-cli provenance export <variants/vc-7bcd…lungfish-provenance.json> --format methods|snakemake --output exports/<format>
+    pages:
+      - file: exports/methods/methods.md
+        title: methods.md
+        style: prose
+        from: 9
+        to: 9
+      - file: exports/snakemake/Snakefile
+        title: Snakefile
+        style: code
+        from: 207
+        to: 221
+    duration: 7.5
     caption: Export the history as a script or methods text
     kicker: File · Export · Provenance
-    placeholder: Methods Section paragraph, then the Snakemake workflow it exports.
-    square_focus: [0.22, 0.0, 0.56, 1.0]
+    square_focus: [0.0, 0.0, 0.62, 1.0]
 
   - kind: terminal
     id: cli
     title: HG002 chr20.lungfish
     prompt: "$ "
-    # Replace with the exact command and the captured output of a real run on the project copy.
-    command: lungfish-cli variants call --bundle Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref --alignment-track aln_DC100740 --caller bcftools --name "HG002 bcftools"
+    # Real run on the project copy, 2026-09-30 (4 s). cli-full.txt is the complete output,
+    # cli-output.txt keeps the first 12 and last 4 lines with an explicit "…" between them.
+    command: lungfish-cli variants call --bundle Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref --alignment-track aln_DC100740 --caller bcftools --name "HG002 bcftools CLI"
     output_file: terminal/cli-output.txt
-    duration: 6.5
+    max_lines: 18
+    type_cps: 120
+    line_interval: 0.12
+    duration: 8.0
+    square_focus: [0.0, 0.0, 0.62, 1.0]
     caption: The same analysis from the app or terminal
     kicker: lungfish-cli
     placeholder: The variant call re-run with lungfish-cli, output captured from a real run.

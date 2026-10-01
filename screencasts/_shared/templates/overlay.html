@@ -42,11 +42,21 @@
                border-bottom: 1px solid rgba(138, 132, 122, 0.25); }
   .term .bar i { width: calc(12 * var(--u)); height: calc(12 * var(--u)); border-radius: 50%; background: rgba(138, 132, 122, 0.55); }
   .term .bar span { margin-left: calc(14 * var(--u)); color: var(--grey); font-size: calc(17 * var(--u)); }
-  .term .body { padding: calc(28 * var(--u)) calc(34 * var(--u)); font-size: calc(21 * var(--u)); line-height: 1.55; }
+  .term .body { padding: calc(24 * var(--u)) calc(34 * var(--u)); font-size: calc(19 * var(--u)); line-height: 1.5; }
   .term .cmd { white-space: pre-wrap; word-break: break-all; margin-bottom: calc(10 * var(--u)); }
   .term .prompt { color: var(--accent); }
   .term .out { color: #D9D2C6; white-space: pre; overflow: hidden; }
   .term .caret { display: inline-block; width: 0.6em; height: 1.1em; vertical-align: text-bottom; background: var(--peach); margin-left: 2px; }
+
+  /* Document page. */
+  .doc { position: absolute; inset: 0; background: #FFFDF8; border-radius: calc(14 * var(--u)); overflow: hidden; border: 1px solid rgba(138,132,122,0.35); }
+  .doc .bar { height: calc(44 * var(--u)); display: flex; align-items: center; padding: 0 calc(22 * var(--u)); background: #F3ECE0;
+              border-bottom: 1px solid rgba(138,132,122,0.3); font-family: "IBM Plex Mono"; font-size: calc(17 * var(--u)); color: var(--grey); }
+  .doc .page { padding: calc(36 * var(--u)) calc(56 * var(--u)); color: var(--ink); }
+  .doc .page.prose { font-family: "Inter"; font-size: calc(25 * var(--u)); line-height: 1.6; }
+  .doc .page.prose .prose { margin-bottom: calc(14 * var(--u)); }
+  .doc .page.code { font-family: "IBM Plex Mono"; font-size: calc(19 * var(--u)); line-height: 1.55; }
+  .doc .page.code .code { white-space: pre; overflow: hidden; }
 
   /* Light lower third, for beats whose footage is already dark (terminal replays). */
   .lower.light { background: rgba(250, 244, 234, 0.96); box-shadow: 0 calc(8 * var(--u)) calc(28 * var(--u)) rgba(31, 26, 23, 0.35); }
@@ -87,6 +97,10 @@
       const caret = spec.caret ? `<span class="caret"></span>` : "";
       root.innerHTML = `<div class="term"><div class="bar"><i></i><i></i><i></i><span>${esc(spec.title || "")}</span></div>
         <div class="body"><div class="cmd"><span class="prompt">${esc(spec.prompt)}</span>${esc(spec.typed)}${caret}</div>${lines}</div></div>`;
+    } else if (spec.kind === "document") {
+      // A real exported file shown as a page: prose in Inter, code in IBM Plex Mono.
+      const body = (spec.lines || []).map((l) => `<div class="${spec.style === "code" ? "code" : "prose"}">${esc(l) || "&nbsp;"}</div>`).join("");
+      root.innerHTML = `<div class="doc"><div class="bar"><span>${esc(spec.title || "")}</span></div><div class="page ${spec.style}">${body}</div></div>`;
     } else if (spec.kind === "ring") {
       root.innerHTML = `<div class="ring" style="left:${spec.x}px;top:${spec.y}px"></div>`;
     }

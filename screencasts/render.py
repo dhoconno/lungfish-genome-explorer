@@ -238,6 +238,28 @@ def render_terminal(beat, video_dir: Path, ov: Overlays, work: Path, fps: int) -
     return out
 
 
+def render_document(beat, video_dir: Path, ov: Overlays, work: Path, fps: int) -> Path:
+    """Show real exported files as pages, one after another, each for an equal share of the beat."""
+    size = (2880, 1620)
+    pages = beat["pages"]
+    share = (float(beat.get("in", 0)) + float(beat["duration"])) / len(pages)
+    rows = []
+    for i, page in enumerate(pages):
+        lines = (video_dir / page["file"]).read_text().splitlines()
+        lines = lines[page.get("from", 1) - 1: page.get("to", len(lines))]
+        if page.get("style", "prose") == "prose":
+            lines = [l for l in lines if l.strip()]
+        png = ov.render(f"doc-{beat['id']}-{i}", size, {"kind": "document", "unit": 2, "title": page.get("title", ""),
+                                                        "style": page.get("style", "prose"), "lines": lines})
+        rows.append(f"file '{png}'\nduration {share:.4f}")
+    rows.append(f"file '{png}'")
+    listing = work / f"doc-{beat['id']}.txt"
+    listing.write_text("\n".join(rows) + "\n")
+    out = work / f"doc-{beat['id']}.mov"
+    ffmpeg(["-f", "concat", "-safe", "0", "-i", str(listing), "-vf", f"fps={fps},format=yuv420p", *ENCODE, str(out)])
+    return out
+
+
 def join(segments: list[tuple[Path, float, str]], xfade: float, out: Path, fps: int):
     """Join segments, crossfading after a beat marked transition: fade and hard-cutting otherwise."""
     inputs, graph = [], []
@@ -305,6 +327,10 @@ def main():
                 print(f"[{name}] {beat['id']}")
                 if beat["kind"] == "card":
                     render_card(beat, layout, ov, work, fps, seg)
+                elif beat["kind"] == "document":
+                    if beat["id"] not in terminals:
+                        terminals[beat["id"]] = render_document(beat, video_dir, ov, work, fps)
+                    render_take({**beat, "take": str(terminals[beat["id"]]), "trim_top": 0}, cfg, layout, brand, ov, video_dir, work, fps, seg)
                 elif beat["kind"] == "terminal" and not (video_dir / beat["output_file"]).exists():
                     render_take({**beat, "take": "missing"}, cfg, layout, brand, ov, video_dir, work, fps, seg)
                 elif beat["kind"] == "terminal":
