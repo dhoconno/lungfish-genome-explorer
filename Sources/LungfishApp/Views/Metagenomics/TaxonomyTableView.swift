@@ -44,7 +44,8 @@ import LungfishKit
 /// }
 /// ```
 @MainActor
-public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation, ColumnFilterMenuHost {
+public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation, ColumnFilterMenuHost,
+    ResultRowMenuActions, OutlineExpandCollapseActions {
 
     /// Shared column-header sort/filter menu (see `LungfishKit.ColumnHeaderFilterMenu`).
     private lazy var columnHeaderFilterMenuController = ColumnHeaderFilterMenu(host: self)
@@ -743,10 +744,10 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
                      keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Expand All",
-                     action: #selector(contextExpandAll(_:)),
+                     action: #selector(expandAllOutlineItems(_:)),
                      keyEquivalent: "")
         menu.addItem(withTitle: "Collapse All",
-                     action: #selector(contextCollapseAll(_:)),
+                     action: #selector(collapseAllOutlineItems(_:)),
                      keyEquivalent: "")
 
         menu.addItem(.separator())
@@ -790,86 +791,185 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     // MARK: - Menu Item Validation
 
-    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let clickedNode = actionableNode(at: outlineView.clickedRow)
-
-        if menuItem.action == #selector(contextBlastReads(_:)) {
-            // BLAST requires exactly one selected row
-            guard readLevelActionsAvailable else { return false }
-            return clickedNode != nil && selectedActionableNodesByIdentity().count <= 1
-        }
-        if menuItem.action == #selector(contextOpenNCBITaxonomy(_:))
-            || menuItem.action == #selector(contextOpenNCBIGenBank(_:))
-            || menuItem.action == #selector(contextOpenNCBIPubMed(_:))
-            || menuItem.action == #selector(contextCopyName(_:))
-        {
-            return clickedNode != nil
-        }
-        if menuItem.action == #selector(contextExtractReads(_:)) {
-            guard readLevelActionsAvailable else { return false }
-            return !selectedActionableNodesByIdentity().isEmpty || clickedNode != nil
-        }
-        return true
+    /// The row a command acts on: the right-clicked row while a context
+    /// menu is up, otherwise the selected row (the menu bar and keyboard
+    /// route).
+    private var commandRow: Int {
+        outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
     }
 
-    @objc private func contextExtractReads(_ sender: Any?) {
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let node = actionableNode(at: commandRow)
+
+        switch menuItem.action {
+        case #selector(contextBlastReads(_:)), #selector(blastVerifySelectedRow(_:)):
+            // BLAST requires exactly one selected row
+            guard readLevelActionsAvailable else { return false }
+            return node != nil && selectedActionableNodesByIdentity().count <= 1
+        case #selector(contextOpenNCBITaxonomy(_:)), #selector(contextOpenNCBIGenBank(_:)),
+             #selector(contextOpenNCBIPubMed(_:)), #selector(contextCopyName(_:)),
+             #selector(openSelectedRowTaxonomyOnNCBI(_:)), #selector(openSelectedRowGenBank(_:)),
+             #selector(searchPubMedForSelectedRow(_:)), #selector(copySelectedRowName(_:)):
+            return node != nil
+        case #selector(contextExtractReads(_:)), #selector(extractReadsForSelectedRows(_:)):
+            guard readLevelActionsAvailable else { return false }
+            return !selectedActionableNodesByIdentity().isEmpty || node != nil
+        case #selector(expandAllOutlineItems(_:)), #selector(collapseAllOutlineItems(_:)):
+            return tree != nil
+        default:
+            return true
+        }
+    }
+
+    // MARK: - Row commands
+
+    /// Extracts the reads of the selected taxa, or of `row` alone when
+    /// nothing actionable is selected.
+    private func extractReads(targeting row: Int) {
         if selectedActionableNodesByIdentity().isEmpty {
-            selectClickedRowForContextMenuIfNeeded(outlineView.clickedRow)
+            selectClickedRowForContextMenuIfNeeded(row)
         }
         onExtractReadsRequested?()
     }
 
-    @objc private func contextCopyName(_ sender: Any?) {
-        guard let node = actionableNode(at: outlineView.clickedRow) else { return }
+    private func copyName(ofRow row: Int) {
+        guard let node = actionableNode(at: row) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(node.name, forType: .string)
     }
 
-    @objc private func contextExpandItem(_ sender: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0, let node = outlineView.item(atRow: row) else { return }
-        outlineView.expandItem(node)
+    private func blastReads(ofRow row: Int) {
+        guard let node = actionableNode(at: row) else { return }
+        selectClickedRowForContextMenuIfNeeded(row)
+        onBlastRequested?(node)
     }
 
-    @objc private func contextExpandAllBelow(_ sender: Any?) {
-        let row = outlineView.clickedRow
+    private func expand(row: Int, children: Bool) {
         guard row >= 0, let node = outlineView.item(atRow: row) else { return }
-        outlineView.expandItem(node, expandChildren: true)
+        outlineView.expandItem(node, expandChildren: children)
     }
 
-    @objc private func contextCollapseItem(_ sender: Any?) {
-        let row = outlineView.clickedRow
+    private func collapse(row: Int) {
         guard row >= 0, let node = outlineView.item(atRow: row) else { return }
         outlineView.collapseItem(node)
     }
 
-    @objc private func contextExpandAll(_ sender: Any?) {
+    @objc private func contextExtractReads(_ sender: Any?) {
+        extractReads(targeting: commandRow)
+    }
+
+    @objc private func contextCopyName(_ sender: Any?) {
+        copyName(ofRow: commandRow)
+    }
+
+    @objc private func contextExpandItem(_ sender: Any?) {
+        expand(row: commandRow, children: false)
+    }
+
+    @objc private func contextExpandAllBelow(_ sender: Any?) {
+        expand(row: commandRow, children: true)
+    }
+
+    @objc private func contextCollapseItem(_ sender: Any?) {
+        collapse(row: commandRow)
+    }
+
+    /// View > Expand All and the context menu's Expand All.
+    @objc public func expandAllOutlineItems(_ sender: Any?) {
         expandAll()
     }
 
-    @objc private func contextCollapseAll(_ sender: Any?) {
+    /// View > Collapse All and the context menu's Collapse All.
+    @objc public func collapseAllOutlineItems(_ sender: Any?) {
         collapseAll()
     }
 
     @objc private func contextBlastReads(_ sender: Any?) {
-        guard let node = actionableNode(at: outlineView.clickedRow) else { return }
-        selectClickedRowForContextMenuIfNeeded(outlineView.clickedRow)
-        onBlastRequested?(node)
+        blastReads(ofRow: commandRow)
     }
 
     @objc private func contextOpenNCBITaxonomy(_ sender: Any?) {
-        guard let node = actionableNode(at: outlineView.clickedRow) else { return }
+        guard let node = actionableNode(at: commandRow) else { return }
         onNCBITaxonomyRequested?(node)
     }
 
     @objc private func contextOpenNCBIGenBank(_ sender: Any?) {
-        guard let node = actionableNode(at: outlineView.clickedRow) else { return }
+        guard let node = actionableNode(at: commandRow) else { return }
         onNCBIGenBankRequested?(node)
     }
 
     @objc private func contextOpenNCBIPubMed(_ sender: Any?) {
-        guard let node = actionableNode(at: outlineView.clickedRow) else { return }
+        guard let node = actionableNode(at: commandRow) else { return }
         onNCBIPubMedRequested?(node)
+    }
+
+    // MARK: - Selection > Table Row (ResultRowMenuActions)
+
+    @objc public func extractReadsForSelectedRows(_ sender: Any?) {
+        extractReads(targeting: outlineView.selectedRow)
+    }
+
+    @objc public func blastVerifySelectedRow(_ sender: Any?) {
+        blastReads(ofRow: outlineView.selectedRow)
+    }
+
+    @objc public func copySelectedRowName(_ sender: Any?) {
+        copyName(ofRow: outlineView.selectedRow)
+    }
+
+    @objc public func openSelectedRowTaxonomyOnNCBI(_ sender: Any?) {
+        guard let node = actionableNode(at: outlineView.selectedRow) else { return }
+        onNCBITaxonomyRequested?(node)
+    }
+
+    @objc public func openSelectedRowGenBank(_ sender: Any?) {
+        guard let node = actionableNode(at: outlineView.selectedRow) else { return }
+        onNCBIGenBankRequested?(node)
+    }
+
+    @objc public func searchPubMedForSelectedRow(_ sender: Any?) {
+        guard let node = actionableNode(at: outlineView.selectedRow) else { return }
+        onNCBIPubMedRequested?(node)
+    }
+
+    // MARK: - Accessibility cell actions
+
+    /// The commands every cell of an actionable row publishes to AX clients,
+    /// named as the context menu names them. Handlers resolve the row from
+    /// the cell when they run; the outline rebuilds its cells on every
+    /// reload, and a row's index moves as the tree expands and collapses.
+    private func accessibilityActions(for cellView: NSView, node: TaxonNode) -> [NSAccessibilityCustomAction] {
+        guard actionableNode(node) != nil else { return [] }
+        func action(_ name: String, _ body: @escaping @MainActor (TaxonomyTableView, Int) -> Void) -> NSAccessibilityCustomAction {
+            AccessibilityCellActions.makeAction(name: name) { [weak self, weak cellView] in
+                guard let self, let cellView, let row = AccessibilityCellActions.currentRow(of: cellView) else { return }
+                body(self, row)
+            }
+        }
+        var actions: [NSAccessibilityCustomAction] = []
+        if readLevelActionsAvailable {
+            actions.append(action("Extract Reads\u{2026}") { table, row in table.extractReads(targeting: row) })
+        }
+        actions.append(action("Expand") { table, row in table.expand(row: row, children: false) })
+        actions.append(action("Expand All Below") { table, row in table.expand(row: row, children: true) })
+        actions.append(action("Collapse") { table, row in table.collapse(row: row) })
+        if readLevelActionsAvailable {
+            actions.append(action("BLAST Matching Reads\u{2026}") { table, row in table.blastReads(ofRow: row) })
+        }
+        actions.append(action("NCBI Taxonomy") { table, row in
+            guard let node = table.actionableNode(at: row) else { return }
+            table.onNCBITaxonomyRequested?(node)
+        })
+        actions.append(action("GenBank Sequences") { table, row in
+            guard let node = table.actionableNode(at: row) else { return }
+            table.onNCBIGenBankRequested?(node)
+        })
+        actions.append(action("PubMed Literature") { table, row in
+            guard let node = table.actionableNode(at: row) else { return }
+            table.onNCBIPubMedRequested?(node)
+        })
+        actions.append(action("Copy Taxon Name") { table, row in table.copyName(ofRow: row) })
+        return actions
     }
 
     // MARK: - NSOutlineViewDataSource
@@ -972,7 +1072,12 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     ) -> NSView? {
         guard let node = item as? TaxonNode,
               let column = tableColumn else { return nil }
+        guard let cell = makeCell(for: node, column: column, in: outlineView) else { return nil }
+        AccessibilityCellActions.install(accessibilityActions(for: cell, node: node), on: cell)
+        return cell
+    }
 
+    private func makeCell(for node: TaxonNode, column: NSTableColumn, in outlineView: NSOutlineView) -> NSView? {
         let colID = column.identifier.rawValue
 
         switch colID {

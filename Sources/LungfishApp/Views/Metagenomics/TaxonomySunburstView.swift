@@ -705,6 +705,34 @@ public class TaxonomySunburstView: NSView {
 
     // MARK: - Zoom Actions
 
+    /// Zooms into the selected node, so its subtree fills the chart, the
+    /// way a double-click on its segment does. No-op without a selected
+    /// node that has children and is not already the centre.
+    public func zoomIntoSelectedNode() {
+        guard let node = selectedNode, node !== centerNode, !node.children.isEmpty else { return }
+        centerNode = node
+        onZoomChanged?(node)
+    }
+
+    /// Zoom In (into the selected node) and Zoom Out (one level) as
+    /// accessibility custom actions, each listed only while it applies, so
+    /// AX clients that cannot double-click or press Escape can still move
+    /// through the chart.
+    public override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        var actions: [NSAccessibilityCustomAction] = []
+        if let node = selectedNode, node !== centerNode, !node.children.isEmpty {
+            actions.append(AccessibilityCellActions.makeAction(name: "Zoom In") { [weak self] in
+                self?.zoomIntoSelectedNode()
+            })
+        }
+        if centerNode != nil {
+            actions.append(AccessibilityCellActions.makeAction(name: "Zoom Out") { [weak self] in
+                self?.zoomOut()
+            })
+        }
+        return actions.isEmpty ? nil : actions
+    }
+
     /// Zooms out one level toward the root.
     ///
     /// If already at root, this is a no-op.

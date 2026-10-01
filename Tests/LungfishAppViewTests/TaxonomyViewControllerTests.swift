@@ -8,6 +8,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 
 // MARK: - Test Helpers
 
@@ -1542,5 +1543,172 @@ final class TaxonomyLayoutPreferenceTests: XCTestCase {
         XCTAssertFalse(vc.testSplitView.isVertical)
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[0].subviews.contains(vc.testTableView))
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[1].subviews.contains(vc.testSunburstView))
+    }
+}
+
+// MARK: - TaxonomyTableAccessibilityTests
+
+/// The taxonomy outline's rows publish their context commands to AX clients,
+/// the Selection > Table Row items act on the selected row, and the sunburst
+/// offers Zoom In and Zoom Out as custom actions.
+@MainActor
+final class TaxonomyTableAccessibilityTests: XCTestCase {
+
+    private func makeHostedTable() -> (TaxonomyTableView, TaxonTree, NSWindow) {
+        _ = NSApplication.shared
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 700, height: 500))
+        let tree = makeTestTree()
+        table.tree = tree
+        let window = NSWindow(contentRect: table.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = table
+        table.expandAll()
+        table.layoutSubtreeIfNeeded()
+        table.outlineView.layoutSubtreeIfNeeded()
+        return (table, tree, window)
+    }
+
+    private static let expectedRowActions = [
+        "Extract Reads\u{2026}", "Expand", "Expand All Below", "Collapse", "BLAST Matching Reads\u{2026}",
+        "NCBI Taxonomy", "GenBank Sequences", "PubMed Literature", "Copy Taxon Name",
+    ]
+
+    func testOutlineRowsPublishTheContextCommandsOnceAndInParity() throws {
+        let (table, tree, window) = makeHostedTable()
+        defer { window.close() }
+        let ecoli = tree.node(taxId: 562)!
+        let row = table.outlineView.row(forItem: ecoli)
+        XCTAssertGreaterThanOrEqual(row, 0)
+
+        let rows = AccessibilityRowProbe.outlineRowProxies(of: table.outlineView)
+        XCTAssertEqual(rows.count, table.outlineView.numberOfRows)
+        XCTAssertEqual(AccessibilityRowProbe.firstCellActionNames(rows[row]), Self.expectedRowActions)
+        for served in AccessibilityRowProbe.servedCellActionNames(rows[row]) {
+            XCTAssertEqual(served, Self.expectedRowActions, "the AX server lists each action once")
+        }
+        XCTAssertEqual(AccessibilityRowProbe.firstCellActionNames(rows[0]), Self.expectedRowActions, "the outline's first row is a domain, the root is not shown")
+
+        ContextMenuParityAssert.assertParity(
+            contextMenu: try XCTUnwrap(table.testingContextMenu),
+            cellActionNames: Self.expectedRowActions,
+            mainMenu: MainMenu.createMainMenu()
+        )
+
+        // The NCBI submenu's commands are the cell actions of the same titles.
+        let ncbi = try XCTUnwrap(table.testingContextMenu?.items.first { $0.title == "Look Up on NCBI" }?.submenu)
+        for item in ncbi.items {
+            XCTAssertTrue(Self.expectedRowActions.contains(item.title), item.title)
+        }
+
+        table.readLevelActionsAvailable = false
+        table.outlineView.reloadData()
+        table.outlineView.layoutSubtreeIfNeeded()
+        let withoutReads = AccessibilityRowProbe.outlineRowProxies(of: table.outlineView)
+        XCTAssertFalse(AccessibilityRowProbe.firstCellActionNames(withoutReads[row]).contains("Extract Reads\u{2026}"))
+        XCTAssertFalse(AccessibilityRowProbe.firstCellActionNames(withoutReads[row]).contains("BLAST Matching Reads\u{2026}"))
+    }
+
+    func testCellActionsPerformOnTheRowTheCellShowsNow() throws {
+        let (table, tree, window) = makeHostedTable()
+        defer { window.close() }
+        var ncbi: [String] = []
+        table.onNCBITaxonomyRequested = { ncbi.append($0.name) }
+        var blasted: [String] = []
+        table.onBlastRequested = { blasted.append($0.name) }
+
+        let ecoli = tree.node(taxId: 562)!
+        var rows = AccessibilityRowProbe.outlineRowProxies(of: table.outlineView)
+        let ecoliRow = table.outlineView.row(forItem: ecoli)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon Name", in: rows[ecoliRow]))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Escherichia coli")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "NCBI Taxonomy", in: rows[ecoliRow]))
+        XCTAssertEqual(ncbi, ["Escherichia coli"])
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "BLAST Matching Reads\u{2026}", in: rows[ecoliRow]))
+        XCTAssertEqual(blasted, ["Escherichia coli"])
+        XCTAssertEqual(table.outlineView.selectedRow, ecoliRow, "BLAST selects the row it acts on")
+
+        // Collapse the clade above E. coli: the rows shift, and the action
+        // on the row index that now shows Archaea must act on Archaea.
+        let bacteria = tree.node(taxId: 2)!
+        let bacteriaRow = table.outlineView.row(forItem: bacteria)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Collapse", in: rows[bacteriaRow]))
+        table.outlineView.layoutSubtreeIfNeeded()
+        rows = AccessibilityRowProbe.outlineRowProxies(of: table.outlineView)
+        let archaeaRow = table.outlineView.row(forItem: tree.node(taxId: 2157)!)
+        XCTAssertEqual(archaeaRow, bacteriaRow + 1)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon Name", in: rows[archaeaRow]))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Archaea")
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Expand All Below", in: rows[bacteriaRow]))
+        XCTAssertGreaterThanOrEqual(table.outlineView.row(forItem: ecoli), 0, "Expand All Below reopens the clade")
+    }
+
+    func testMenuBarRowCommandsFollowTheSelectionWithNoClickedRow() throws {
+        let (table, tree, window) = makeHostedTable()
+        defer { window.close() }
+        var pubmed: [String] = []
+        table.onNCBIPubMedRequested = { pubmed.append($0.name) }
+        var extracted = 0
+        table.onExtractReadsRequested = { extracted += 1 }
+        func item(_ selector: Selector) -> NSMenuItem { NSMenuItem(title: "", action: selector, keyEquivalent: "") }
+        let copyName = item(#selector(ResultRowMenuActions.copySelectedRowName(_:)))
+        let blast = item(#selector(ResultRowMenuActions.blastVerifySelectedRow(_:)))
+        let extract = item(#selector(ResultRowMenuActions.extractReadsForSelectedRows(_:)))
+        let pubmedItem = item(#selector(ResultRowMenuActions.searchPubMedForSelectedRow(_:)))
+        let expandAll = item(#selector(OutlineExpandCollapseActions.expandAllOutlineItems(_:)))
+
+        table.outlineView.deselectAll(nil)
+        XCTAssertFalse(table.validateMenuItem(copyName))
+        XCTAssertFalse(table.validateMenuItem(blast))
+        XCTAssertFalse(table.validateMenuItem(extract))
+        XCTAssertTrue(table.validateMenuItem(expandAll))
+
+        let ecoliRow = table.outlineView.row(forItem: tree.node(taxId: 562)!)
+        table.outlineView.selectRowIndexes(IndexSet(integer: ecoliRow), byExtendingSelection: false)
+        XCTAssertTrue(table.validateMenuItem(copyName))
+        XCTAssertTrue(table.validateMenuItem(blast))
+        XCTAssertTrue(table.validateMenuItem(extract))
+        table.copySelectedRowName(nil)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Escherichia coli")
+        table.searchPubMedForSelectedRow(nil)
+        XCTAssertEqual(pubmed, ["Escherichia coli"])
+        table.extractReadsForSelectedRows(nil)
+        XCTAssertEqual(extracted, 1)
+
+        let fergusoniiRow = table.outlineView.row(forItem: tree.node(taxId: 564)!)
+        table.outlineView.selectRowIndexes(IndexSet([ecoliRow, fergusoniiRow]), byExtendingSelection: false)
+        XCTAssertFalse(table.validateMenuItem(blast), "BLAST takes one row")
+        XCTAssertTrue(table.validateMenuItem(extract))
+
+    }
+
+    func testSunburstOffersZoomInAndZoomOutOnlyWhileTheyApply() throws {
+        let sunburst = TaxonomySunburstView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        let tree = makeTestTree()
+        sunburst.tree = tree
+        XCTAssertNil(sunburst.accessibilityCustomActions(), "at the root with nothing selected")
+
+        sunburst.selectedNode = tree.node(taxId: 562)
+        XCTAssertNil(sunburst.accessibilityCustomActions(), "a leaf cannot be zoomed into")
+
+        let bacteria = tree.node(taxId: 2)!
+        sunburst.selectedNode = bacteria
+        var actions = try XCTUnwrap(sunburst.accessibilityCustomActions())
+        XCTAssertEqual(actions.map(\.name), ["Zoom In"])
+        var zoomed: [String?] = []
+        sunburst.onZoomChanged = { zoomed.append($0?.name) }
+        XCTAssertEqual(actions[0].handler?(), true)
+        XCTAssertTrue(sunburst.centerNode === bacteria)
+        XCTAssertEqual(zoomed, ["Bacteria"])
+
+        actions = try XCTUnwrap(sunburst.accessibilityCustomActions())
+        XCTAssertEqual(actions.map(\.name), ["Zoom Out"], "the centre node is not zoomed into again")
+        XCTAssertEqual(actions[0].handler?(), true)
+        XCTAssertTrue(sunburst.centerNode === tree.root, "Zoom Out steps up one level, to the root node")
+        XCTAssertEqual(zoomed, ["Bacteria", "root"])
+        actions = try XCTUnwrap(sunburst.accessibilityCustomActions())
+        XCTAssertEqual(actions.map(\.name), ["Zoom In", "Zoom Out"], "at the root node the selected domain can be zoomed into again")
+        XCTAssertEqual(try XCTUnwrap(actions.first { $0.name == "Zoom Out" }).handler?(), true)
+        XCTAssertNil(sunburst.centerNode, "a second Zoom Out leaves the root view")
+        XCTAssertEqual(sunburst.accessibilityCustomActions()?.map(\.name), ["Zoom In"])
     }
 }

@@ -33,8 +33,12 @@ struct ReferenceBundleRecordRow: Sendable, Equatable {
     }
 }
 
+/// The reference bundle's record table. Its rows offer the shared FASTA
+/// commands from the context menu, from every cell's accessibility actions
+/// (``accessibilityActions(forRow:cellView:)``) and, for the selected rows,
+/// from Selection > Table Row (``ResultRowMenuActions``).
 @MainActor
-final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow> {
+final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>, ResultRowMenuActions {
     private(set) var dynamicFields: [GenBankRecordDatabase.FieldDefinition] = []
     private var numericDynamicColumnIdentifiers = Set<String>()
     var onDisplayedRowsChanged: (() -> Void)?
@@ -61,11 +65,23 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
 
     func sequenceActionMenu(clickedRow: Int) -> NSMenu {
         guard displayedRows.indices.contains(clickedRow) else { return NSMenu() }
-        if !tableView.selectedRowIndexes.contains(clickedRow) {
-            tableView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
-        }
+        targetSelection(toRow: clickedRow)
         let rows = selectedSequenceRows
-        return FASTASequenceActionMenuBuilder.buildMenu(selectionCount: rows.count, handlers: .init(
+        return FASTASequenceActionMenuBuilder.buildMenu(selectionCount: rows.count, handlers: makeActionHandlers(rows: rows))
+    }
+
+    /// Makes `row` the whole selection unless it is already part of it, the
+    /// reconciliation a right-click outside the selection performs.
+    private func targetSelection(toRow row: Int) {
+        guard !tableView.selectedRowIndexes.contains(row) else { return }
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    /// The shared FASTA commands acting on `rows`. The context menu, the
+    /// cell actions and the Selection > Table Row items are all built from
+    /// these.
+    private func makeActionHandlers(rows: [ReferenceBundleRecordRow]) -> FASTASequenceActionHandlers {
+        .init(
             onCopyNames: { [weak self] in
                 self?.copyText(rows.map { self?.displaysAlleles == true ? Self.alleleName(for: $0) : $0.summary.name }.joined(separator: "\n"))
             },
@@ -73,7 +89,64 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
             onCopyFullNames: displaysAlleles ? { [weak self] in self?.copyText(rows.map(Self.fullReferenceName).joined(separator: "\n")) } : nil,
             onCopy: onCopySequences == nil ? nil : { [weak self] in self?.onCopySequences?(rows, true) },
             onCreateBundle: onExtractSequences == nil ? nil : { [weak self] in self?.onExtractSequences?(rows) }
-        ))
+        )
+    }
+
+    /// The row's commands as cell actions. A selected row offers the
+    /// selection's commands, an unselected row its own, and performing one
+    /// first makes the cell's row the selection unless it already is.
+    override func accessibilityActions(forRow row: Int, cellView: NSView) -> [NSAccessibilityCustomAction] {
+        let isSelected = tableView.selectedRowIndexes.contains(row)
+        let count = isSelected ? max(1, tableView.numberOfSelectedRows) : 1
+        func targeting(_ pick: @escaping (FASTASequenceActionHandlers) -> (() -> Void)?) -> (() -> Void)? {
+            guard let template = displayedRow(at: row), pick(makeActionHandlers(rows: [template])) != nil else { return nil }
+            return { [weak self, weak cellView] in
+                guard let self, let cellView,
+                      let current = AccessibilityCellActions.currentRow(of: cellView) else { return }
+                self.targetSelection(toRow: current)
+                pick(self.makeActionHandlers(rows: self.selectedSequenceRows))?()
+            }
+        }
+        let handlers = FASTASequenceActionHandlers(
+            onCopyNames: targeting { $0.onCopyNames },
+            onCopySequences: targeting { $0.onCopySequences },
+            onCopyFullNames: targeting { $0.onCopyFullNames },
+            onCopy: targeting { $0.onCopy },
+            onCreateBundle: targeting { $0.onCreateBundle }
+        )
+        return FASTASequenceActionMenuBuilder.accessibilityActions(selectionCount: count, handlers: handlers)
+    }
+
+    // MARK: - Selection > Table Row (ResultRowMenuActions)
+
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let selected = selectedSequenceRows
+        switch menuItem.action {
+        case #selector(copySelectedRowName(_:)):
+            return !selected.isEmpty
+        case #selector(copySelectedRowSequence(_:)), #selector(copySelectedRowFASTA(_:)):
+            return onCopySequences != nil && !selected.isEmpty
+        case #selector(extractSelectedRowsToNewBundle(_:)):
+            return onExtractSequences != nil && !selected.isEmpty
+        default:
+            return super.validateMenuItem(menuItem)
+        }
+    }
+
+    @objc func copySelectedRowName(_ sender: Any?) {
+        makeActionHandlers(rows: selectedSequenceRows).onCopyNames?()
+    }
+
+    @objc func copySelectedRowSequence(_ sender: Any?) {
+        makeActionHandlers(rows: selectedSequenceRows).onCopySequences?()
+    }
+
+    @objc func copySelectedRowFASTA(_ sender: Any?) {
+        makeActionHandlers(rows: selectedSequenceRows).onCopy?()
+    }
+
+    @objc func extractSelectedRowsToNewBundle(_ sender: Any?) {
+        makeActionHandlers(rows: selectedSequenceRows).onCreateBundle?()
     }
 
     private func copyText(_ text: String) {

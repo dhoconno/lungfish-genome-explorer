@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 
 private enum FASTQMetadataExportError: LocalizedError {
@@ -173,6 +174,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     // Inline kit reference split
     private let kitDetailScrollView = NSScrollView()
     private let kitDetailTable = NSTableView()
+    private lazy var kitDetailTableSource = KitDetailTableSource(drawer: self)
     private let kitDetailLabel = NSTextField(labelWithString: "Select a kit to view its barcodes.")
 
     // Demux: config panel + pattern table + inline kit reference
@@ -502,8 +504,8 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         kitDetailTable.usesAlternatingRowBackgroundColors = true
         kitDetailTable.rowHeight = 22
         kitDetailTable.allowsMultipleSelection = true
-        kitDetailTable.dataSource = self
-        kitDetailTable.delegate = self
+        kitDetailTable.dataSource = kitDetailTableSource
+        kitDetailTable.delegate = kitDetailTableSource
         kitDetailTable.menu = buildKitDetailContextMenu()
         kitDetailScrollView.documentView = kitDetailTable
 
@@ -1251,7 +1253,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         }
     }
 
-    private func kitDetailValue(column: String, row: Int) -> Any? {
+    func kitDetailValue(column: String, row: Int) -> Any? {
         guard row >= 0, row < selectedKitBarcodes.count else { return nil }
         let bc = selectedKitBarcodes[row]
         switch column {
@@ -2108,7 +2110,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         copySelectedBarcodes(sender)
     }
 
-    @objc private func copySelectedBarcodes(_ sender: Any?) {
+    @objc func copySelectedBarcodes(_ sender: Any?) {
         let rows = kitDetailTable.selectedRowIndexes
         guard !rows.isEmpty else { return }
         var lines: [String] = ["ID\tSequence\tSecondary"]
@@ -2123,7 +2125,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         statusLabel.stringValue = "Copied \(rows.count) barcode(s) to clipboard."
     }
 
-    @objc private func copyBarcodeIDs(_ sender: Any?) {
+    @objc func copyBarcodeIDs(_ sender: Any?) {
         let rows = kitDetailTable.selectedRowIndexes
         guard !rows.isEmpty else { return }
         let ids = rows.compactMap { row -> String? in
@@ -2135,7 +2137,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         statusLabel.stringValue = "Copied \(ids.count) barcode ID(s) to clipboard."
     }
 
-    @objc private func copyBarcodeSequences(_ sender: Any?) {
+    @objc func copyBarcodeSequences(_ sender: Any?) {
         let rows = kitDetailTable.selectedRowIndexes
         guard !rows.isEmpty else { return }
         var lines: [String] = []
@@ -2158,6 +2160,93 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     }
 
     var testDrawerDivider: FASTQDrawerDividerView { drawerDivider }
+
+    /// The barcode table of the selected kit, for AX assertions.
+    var testKitDetailTable: NSTableView { kitDetailTable }
+
+    /// The number of barcodes the kit table shows.
+    var kitDetailRowCount: Int { selectedKitBarcodes.count }
+
+    /// Makes `row` the kit table's whole selection unless it is already
+    /// part of it, so a row command acts on that row.
+    func targetKitDetailSelection(toRow row: Int) {
+        guard !kitDetailTable.selectedRowIndexes.contains(row) else { return }
+        kitDetailTable.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    #if DEBUG
+    /// Test-only: shows `entries` in the kit table with the three barcode
+    /// columns, as selecting a kit on the Demultiplex tab does.
+    func testShowKitBarcodes(_ entries: [BarcodeEntry]) {
+        selectedKitBarcodes = entries
+        if kitDetailTable.tableColumns.isEmpty {
+            addColumn(to: kitDetailTable, id: "bcID", title: "ID", width: 80, editable: false)
+            addColumn(to: kitDetailTable, id: "bcSequence", title: "Sequence", width: 260, editable: false)
+            addColumn(to: kitDetailTable, id: "bcSecondary", title: "Secondary", width: 260, editable: false)
+        }
+        kitDetailScrollView.isHidden = false
+        kitDetailTable.reloadData()
+    }
+    #endif
+}
+
+/// The kit barcode table's data source and delegate. The table is
+/// view-based (unlike the drawer's editable sample table, which stays
+/// cell-based) so every cell can carry the three copy commands as
+/// accessibility custom actions. Performing one first makes the cell's row
+/// the selection unless it already is, then copies the selection the way
+/// the context menu does.
+@MainActor
+private final class KitDetailTableSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    private weak var drawer: FASTQMetadataDrawerView?
+    private static let cellIdentifier = NSUserInterfaceItemIdentifier("kit-barcode-cell")
+
+    init(drawer: FASTQMetadataDrawerView) {
+        self.drawer = drawer
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        drawer?.kitDetailRowCount ?? 0
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let drawer, let column = tableColumn else { return nil }
+        let cell = tableView.makeView(withIdentifier: Self.cellIdentifier, owner: nil) as? NSTableCellView ?? {
+            let cell = NSTableCellView()
+            cell.identifier = Self.cellIdentifier
+            let field = NSTextField(labelWithString: "")
+            field.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+            field.lineBreakMode = .byTruncatingTail
+            field.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(field)
+            cell.textField = field
+            NSLayoutConstraint.activate([
+                field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                field.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
+                field.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            ])
+            return cell
+        }()
+        cell.textField?.stringValue = (drawer.kitDetailValue(column: column.identifier.rawValue, row: row) as? String) ?? ""
+        AccessibilityCellActions.install(accessibilityActions(for: cell), on: cell)
+        return cell
+    }
+
+    private func accessibilityActions(for cellView: NSView) -> [NSAccessibilityCustomAction] {
+        func action(_ name: String, _ body: @escaping @MainActor (FASTQMetadataDrawerView) -> Void) -> NSAccessibilityCustomAction {
+            AccessibilityCellActions.makeAction(name: name) { [weak self, weak cellView] in
+                guard let drawer = self?.drawer, let cellView,
+                      let row = AccessibilityCellActions.currentRow(of: cellView) else { return }
+                drawer.targetKitDetailSelection(toRow: row)
+                body(drawer)
+            }
+        }
+        return [
+            action("Copy Selected Barcodes") { $0.copySelectedBarcodes(nil) },
+            action("Copy Barcode IDs") { $0.copyBarcodeIDs(nil) },
+            action("Copy Sequences") { $0.copyBarcodeSequences(nil) },
+        ]
+    }
 }
 
 private extension String {
