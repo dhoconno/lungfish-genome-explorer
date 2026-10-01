@@ -445,7 +445,10 @@ private struct PacksTabView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 16) {
+                        // An eager stack: a lazy one hides the cards it has not
+                        // built behind an opaque accessibility provider, and a
+                        // pack list is short.
+                        VStack(alignment: .leading, spacing: 16) {
                             if let required = viewModel.requiredSetupPack {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("Required Setup")

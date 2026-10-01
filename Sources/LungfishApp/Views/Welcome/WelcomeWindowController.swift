@@ -963,18 +963,33 @@ struct WelcomeView: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 180)
             } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 320), spacing: 18)],
-                    spacing: 18
-                ) {
-                    ForEach(viewModel.optionalPackStatuses) { status in
-                        OptionalToolCard(
-                            status: status,
-                            onOpenPack: { viewModel.onOpenOptionalPack?($0) }
-                        )
+                // An eager Grid, two tiles to a row, so every tool's Open
+                // button is in the accessibility tree. A lazy grid hides the
+                // tiles it has not built behind an opaque provider.
+                Grid(alignment: .top, horizontalSpacing: 18, verticalSpacing: 18) {
+                    ForEach(Array(optionalToolRows.enumerated()), id: \.offset) { _, row in
+                        GridRow {
+                            ForEach(row) { status in
+                                OptionalToolCard(
+                                    status: status,
+                                    onOpenPack: { viewModel.onOpenOptionalPack?($0) }
+                                )
+                            }
+                            if row.count == 1 {
+                                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /// The optional tool tiles in rows of two.
+    private var optionalToolRows: [[PluginPackStatus]] {
+        let statuses = viewModel.optionalPackStatuses
+        return stride(from: 0, to: statuses.count, by: 2).map {
+            Array(statuses[$0..<min($0 + 2, statuses.count)])
         }
     }
 
@@ -1579,7 +1594,7 @@ private struct OptionalToolCard: View {
                     onOpenPack(status.pack.id)
                 }
                 .accessibilityIdentifier("welcome-optional-tool-open-\(status.pack.id)")
-                .accessibilityLabel("Open optional tool")
+                .accessibilityLabel("Open \(status.pack.name)")
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .tint(.lungfishCreamsicleFallback)

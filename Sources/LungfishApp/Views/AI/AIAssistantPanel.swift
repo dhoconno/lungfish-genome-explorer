@@ -744,10 +744,16 @@ final class AIMessageBubbleView: NSView {
             btn.isBordered = false
             btn.imageScaling = .scaleProportionallyDown
             btn.toolTip = "Copy response"
+            btn.setAccessibilityElement(true)
+            btn.setAccessibilityRole(.button)
+            btn.setAccessibilityLabel("Copy Message")
+            btn.setAccessibilityHelp("Copies this response to the clipboard.")
+            btn.setAccessibilityIdentifier("ai-message-copy-button")
             btn.target = self
             btn.action = #selector(copyText)
             btn.translatesAutoresizingMaskIntoConstraints = false
-            btn.alphaValue = 0.4
+            // Dimmed until hovered, unless the user asked for more contrast.
+            btn.alphaValue = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 1.0 : 0.4
             addSubview(btn)
             copyButton = btn
 
@@ -933,6 +939,6 @@ final class AIMessageBubbleView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        copyButton?.animator().alphaValue = 0.4
+        copyButton?.animator().alphaValue = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 1.0 : 0.4
     }
 }
