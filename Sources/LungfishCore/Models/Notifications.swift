@@ -133,6 +133,11 @@ extension Notification.Name {
     /// "consensusUseAmbiguity" (Bool)
     public static let readDisplaySettingsChanged = Notification.Name("readDisplaySettingsChanged")
 
+    /// Posted by the sequence viewer when the user chooses "Sort Reads by Base Here",
+    /// so the Inspector's Sort reads by picker can show Base at Position.
+    /// userInfo: `NotificationUserInfoKey.readSortPosition` (Int, 0-based reference position).
+    public static let readSortPositionChosen = Notification.Name("readSortPositionChosen")
+
     /// Posted by the MSA Inspector's Discriminating Sites section when the set of
     /// columns to highlight in the alignment viewport changes, or when the highlight
     /// is switched off.

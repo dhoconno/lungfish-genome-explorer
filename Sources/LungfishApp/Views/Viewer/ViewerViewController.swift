@@ -1160,6 +1160,12 @@ public class ViewerViewController: NSViewController {
         multipleSequenceAlignmentViewController?.focusAlignmentColumn(oneBased: column)
     }
 
+    /// The 0-based reference position at the centre of the visible range.
+    static func readSortCenterPosition(for frame: ReferenceFrame) -> Int {
+        let center = Int(((frame.start + frame.end) / 2).rounded(.down))
+        return max(0, min(max(0, frame.sequenceLength - 1), center))
+    }
+
     func applyReadDisplaySettings(_ userInfo: [AnyHashable: Any]) {
         if let modeRaw = userInfo[NotificationUserInfoKey.msaNumberingMode] as? String,
            let mode = MSAAlignmentNumberingMode(rawValue: modeRaw) {
@@ -1215,6 +1221,11 @@ public class ViewerViewController: NSViewController {
         }
         if let sortPosition = userInfo[NotificationUserInfoKey.readSortPosition] as? Int {
             viewerView.readSortPositionSetting = sortPosition
+        } else if viewerView.readSortModeSetting == .baseAtPosition,
+                  viewerView.readSortPositionSetting == nil,
+                  let frame = referenceFrame {
+            // Chosen from the Inspector without a column: sort at the centre of the view.
+            viewerView.readSortPositionSetting = Self.readSortCenterPosition(for: frame)
         }
         if let colorModeRaw = userInfo[NotificationUserInfoKey.readColorMode] as? String,
            let colorMode = ReadColorMode(rawValue: colorModeRaw) {

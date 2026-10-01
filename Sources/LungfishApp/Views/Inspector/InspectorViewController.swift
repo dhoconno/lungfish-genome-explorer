@@ -258,6 +258,14 @@ public class InspectorViewController: NSViewController {
             object: nil
         )
 
+        // Listen for "Sort Reads by Base Here" from the viewer
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleReadSortPositionChosen(_:)),
+            name: .readSortPositionChosen,
+            object: nil
+        )
+
         // Listen for annotation selection from viewer
         NotificationCenter.default.addObserver(
             self,

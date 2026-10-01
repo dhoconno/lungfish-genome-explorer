@@ -645,9 +645,11 @@ extension SequenceViewerView {
             generalInspectorTitle = "Show in Inspector"
         case .read(let read):
             menu = buildReadContextMenu(for: read) ?? NSMenu(title: "Read Selection")
+            addSortReadsByBaseHereMenuItem(to: menu)
             generalInspectorTitle = "Show in Inspector"
         case .alignment(let entries):
             menu = buildAlignmentContextMenu(for: entries)
+            addSortReadsByBaseHereMenuItem(to: menu)
             generalInspectorTitle = "Show in Inspector"
         case .variant(let result):
             menu = buildVariantContextMenu(for: result)
@@ -1092,6 +1094,57 @@ extension SequenceViewerView {
         let genomicPos = Int(frame.genomicPosition(for: clampedX).rounded(.down))
         let maxPos = max(0, frame.sequenceLength - 1)
         return max(0, min(maxPos, genomicPos))
+    }
+
+    /// VoiceOver's show-menu action (VO-Shift-M) opens the same context menu a
+    /// right-click would, for the column at the centre of the view.
+    public override func accessibilityPerformShowMenu() -> Bool {
+        guard let menu = keyboardContextMenu() else { return false }
+        menu.popUp(positioning: nil, at: NSPoint(x: bounds.midX, y: bounds.midY), in: self)
+        return true
+    }
+
+    /// The context menu for the centre column, used when there is no pointer.
+    func keyboardContextMenu() -> NSMenu? {
+        guard let frame = viewController?.referenceFrame else { return nil }
+        contextMenuGenomicPosition = ViewerViewController.readSortCenterPosition(for: frame)
+        let target: SequenceViewerContextTarget = (showReads && !alignmentDataProviders.isEmpty)
+            ? .alignment(Self.alignmentFileMenuEntries(
+                bundle: currentReferenceBundle,
+                activeTrackIds: activeAlignmentProviders().map(\.trackId)))
+            : .sequence
+        return buildContextMenu(for: target)
+    }
+
+    /// Adds "Sort Reads by Base Here" for the right-clicked reference column.
+    func addSortReadsByBaseHereMenuItem(to menu: NSMenu) {
+        guard showReads, !alignmentDataProviders.isEmpty, let position = contextMenuGenomicPosition else { return }
+        if let last = menu.items.last, !last.isSeparatorItem {
+            menu.addItem(NSMenuItem.separator())
+        }
+        let item = NSMenuItem(title: "Sort Reads by Base Here", action: #selector(sortReadsByBaseHereAction(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = position
+        item.toolTip = "Groups the reads by the base they carry at position \((position + 1).formatted()), rarest base first."
+        menu.addItem(item)
+    }
+
+    @objc func sortReadsByBaseHereAction(_ sender: NSMenuItem) {
+        guard let position = sender.representedObject as? Int else { return }
+        sortReadsByBase(at: position)
+    }
+
+    /// Sorts the read track by the base each read carries at `position`
+    /// (0-based), and tells the Inspector so its Sort reads by picker matches.
+    func sortReadsByBase(at position: Int) {
+        readSortModeSetting = .baseAtPosition
+        readSortPositionSetting = position
+        setNeedsDisplay(bounds)
+        NotificationCenter.default.post(
+            name: .readSortPositionChosen,
+            object: self,
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.readSortPosition: position])
+        )
     }
 
     func addCenterViewMenuItem(to menu: NSMenu) {

@@ -581,7 +581,7 @@ extension InspectorViewController {
     }
 
     func makeReadDisplaySettingsPayload(from vm: ReadStyleSectionViewModel) -> [AnyHashable: Any] {
-        [
+        var payload: [AnyHashable: Any] = [
             NotificationUserInfoKey.showReads: vm.showReads,
             NotificationUserInfoKey.maxReadRows: Int(vm.maxReadRows),
             NotificationUserInfoKey.maxDisplayedDepth: ReadViewportPolicy.clampMaxDisplayedDepth(Int(vm.maxDisplayedDepth)),
@@ -614,6 +614,10 @@ extension InspectorViewController {
             NotificationUserInfoKey.msaReferenceRowID: vm.selectedMSAReferenceRowID ?? "",
             NotificationUserInfoKey.msaResidueIdentityDisplayMode: vm.msaResidueIdentityDisplayMode.rawValue,
         ]
+        if let position = vm.readSortPosition {
+            payload[NotificationUserInfoKey.readSortPosition] = position
+        }
+        return payload
     }
 
     /// Updates the Inspector from explicit detached-evidence capabilities.  This

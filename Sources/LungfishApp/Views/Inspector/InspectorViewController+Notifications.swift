@@ -405,6 +405,20 @@ extension InspectorViewController {
         viewModel.selectedTab = tab
     }
 
+    /// The viewer sorted the reads by the base at a column. Show that in the
+    /// Sort reads by picker. If the picker's change sends the settings back,
+    /// they carry the same mode and position, so the viewer is unchanged.
+    @objc func handleReadSortPositionChosen(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification),
+              let position = notification.userInfo?[NotificationUserInfoKey.readSortPosition] as? Int else { return }
+        Self.applyChosenReadSortPosition(position, to: viewModel.readStyleSectionViewModel)
+    }
+
+    static func applyChosenReadSortPosition(_ position: Int, to vm: ReadStyleSectionViewModel) {
+        vm.readSortPosition = position
+        vm.readSortMode = .baseAtPosition
+    }
+
     func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
         guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
             return true

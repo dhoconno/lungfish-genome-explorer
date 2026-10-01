@@ -123,8 +123,9 @@ public final class ReadStyleSectionViewModel {
     /// How reads are ordered before packing into rows (FEA-08).
     public var readSortMode: ReadSortMode = .position
 
-    /// Reference position `readSortMode == .baseAtPosition` sorts by, set from
-    /// the alignment context menu's "Sort by Base Here".
+    /// Reference position (0-based) `readSortMode == .baseAtPosition` sorts by, set
+    /// from the read track's "Sort Reads by Base Here". When nil, the viewer
+    /// sorts at the centre of the visible range.
     public var readSortPosition: Int?
 
     /// How reads are colored (FEA-08).
@@ -2099,7 +2100,7 @@ public struct ReadStyleSection: View {
                     }
                 }
                 .accessibilityIdentifier("read-sort-mode-picker")
-                .help("Position matches samtools order. Base at Position surfaces minority/variant alleles at the clicked column first.")
+                .help("Position matches samtools order. Base at Position groups reads by the base they carry at one column, rarest base first. Right-click a column and choose Sort Reads by Base Here to pick it, or choose Base at Position here to sort at the centre of the view.")
 
                 HStack {
                     Text("Color reads by")

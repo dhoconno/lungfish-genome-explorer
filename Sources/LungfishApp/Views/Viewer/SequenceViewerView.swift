@@ -462,7 +462,8 @@ public class SequenceViewerView: NSView {
     var readSortModeSetting: ReadSortMode = .position
 
     /// Reference position `readSortModeSetting == .baseAtPosition` sorts by.
-    /// Set from the alignment context menu's "Sort by Base Here".
+    /// Set from the read track's "Sort Reads by Base Here", or the centre of the
+    /// view when Base at Position is chosen in the Inspector.
     var readSortPositionSetting: Int?
 
     /// How reads are colored (FEA-08: `ReadTrackRenderer.readColors(for:colorMode:)`
