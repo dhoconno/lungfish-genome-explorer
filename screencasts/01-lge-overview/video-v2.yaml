@@ -42,11 +42,15 @@ beats:
   - kind: take
     id: disk
     take: takes-v2/disk.mov
-    in: 1.6
-    duration: 5.0
+    in: 2.6
+    duration: 6.0
     caption: Clump reads and bin qualities to save space
     kicker: HG002 reads · 18 MB stored as 5.8 MB
     crop: [0.62, 0.064, 0.38, 0.62]
+    # The Inspector settles about 3 s in, then the view closes on Ingestion and marks the sizes.
+    zoom: {at: 3.0, dur: 0.8, region: [0.36, 0.42, 0.55, 0.55]}
+    highlights:
+      - {at: 3.9, region: [0.385, 0.743, 0.265, 0.075]}
     square_focus: [0.0, 0.0, 1.0, 1.0]
 
   - kind: take
@@ -108,6 +112,9 @@ beats:
     caption: A methods paragraph naming every tool and version
     kicker: methods.md
     crop: [0.0, 0.064, 0.80, 0.50]
+    zoom: {at: 2.0, dur: 0.9, region: [0.29, 0.5, 0.52, 0.4]}
+    highlights:
+      - {at: 3.0, region: [0.296, 0.62, 0.5, 0.255]}
     square_focus: [0.0, 0.0, 0.7, 1.0]
 
   - kind: take
@@ -118,6 +125,9 @@ beats:
     caption: A Nextflow pipeline with pinned conda packages
     kicker: main.nf
     crop: [0.0, 0.064, 0.80, 0.62]
+    zoom: {at: 0.6, dur: 0.8, region: [0.29, 0.33, 0.45, 0.2]}
+    highlights:
+      - {at: 1.6, region: [0.297, 0.435, 0.33, 0.07]}
     square_focus: [0.0, 0.0, 0.7, 1.0]
 
   - kind: take
@@ -128,6 +138,9 @@ beats:
     caption: A Snakemake workflow from the same record
     kicker: Snakefile
     crop: [0.0, 0.064, 0.80, 0.62]
+    zoom: {at: 0.6, dur: 0.8, region: [0.29, 0.45, 0.45, 0.3]}
+    highlights:
+      - {at: 1.6, regions: [[0.300, 0.462, 0.32, 0.035], [0.31, 0.69, 0.18, 0.06]]}
     square_focus: [0.0, 0.0, 0.7, 1.0]
 
   - kind: terminal

@@ -122,6 +122,59 @@ def probe_size(path: Path) -> tuple[int, int]:
     return int(w), int(h)
 
 
+# ---------------------------------------------------------------- focus (zoom and highlight)
+# Regions are [x, y, w, h] fractions of the footage after crop. A zoom keeps the footage's
+# aspect, so it shows the smallest window with equal width and height fractions that holds
+# the region. Highlights are placed in the zoomed view, so they must start once the zoom ends.
+
+def zoom_window(zoom: dict) -> tuple[float, float, float]:
+    x, y, w, h = zoom["region"]
+    wf = max(w, h)
+    left = min(max(x + w / 2 - wf / 2, 0.0), 1.0 - wf)
+    top = min(max(y + h / 2 - wf / 2, 0.0), 1.0 - wf)
+    return left, top, wf
+
+
+def footage_scaler(beat: dict, fw: int, fh: int, fps: int) -> str:
+    """Scale the cropped take to the footage box, with an eased punch-in when `zoom` is set."""
+    zoom = beat.get("zoom")
+    if not zoom:
+        return f"scale={fw}:{fh}:flags=lanczos"
+    left, top, wf = zoom_window(zoom)
+    at, d = float(zoom["at"]), float(zoom.get("dur", 0.8))
+    u = f"clip((on/{fps}-{at})/{d},0,1)"
+    ease = f"({u})*({u})*(3-2*({u}))"
+    # Upscale first so zoompan's whole-pixel panning does not shimmer.
+    return (f"scale={fw * 3}:{fh * 3}:flags=lanczos,"
+            f"zoompan=z='1/(1-{1 - wf}*{ease})':x='iw*{left}*{ease}':y='ih*{top}*{ease}'"
+            f":d=1:s={fw}x{fh}:fps={fps}")
+
+
+def highlight_png(beat: dict, hl: dict, size: tuple[int, int], unit: float, brand: dict, path: Path) -> Path:
+    """Accent outline around each region, with the rest of the footage washed toward Cream."""
+    zoom = beat.get("zoom")
+    left, top, wf = zoom_window(zoom) if zoom else (0.0, 0.0, 1.0)
+    if zoom and float(hl["at"]) < float(zoom["at"]) + float(zoom.get("dur", 0.8)) - 0.01:
+        sys.exit(f"{beat['id']}: a highlight starts before the zoom ends")
+    k = 4
+    w, h = size[0] * k, size[1] * k
+    hexrgb = lambda c: tuple(int(c.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    img = Image.new("RGBA", (w, h), (*hexrgb(brand["colors"]["cream"]), int(255 * hl.get("wash", 0.45))))
+    draw = ImageDraw.Draw(img)
+    pad, radius, line = 8 * unit * k, 10 * unit * k, 3 * unit * k
+    boxes = hl["regions"] if "regions" in hl else [hl["region"]]
+    rects = []
+    for x, y, bw, bh in boxes:
+        x0, y0 = (x - left) / wf * w - pad, (y - top) / wf * h - pad
+        x1, y1 = (x + bw - left) / wf * w + pad, (y + bh - top) / wf * h + pad
+        rects.append([x0, y0, x1, y1])
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=(0, 0, 0, 0))
+    for r in rects:
+        draw.rounded_rectangle(r, radius=radius, outline=(*hexrgb(brand["colors"]["accent"]), 255), width=int(line))
+    img.resize(size, Image.LANCZOS).save(path)
+    return path
+
+
 def render_card(beat, layout, ov: Overlays, work: Path, fps: int, out: Path):
     spec = {"kind": "card", "unit": layout["unit"], "title": beat["title"], "sub": beat.get("sub"),
             "lines": beat.get("lines", []), "icon": APP_ICON.as_uri() if beat.get("icon") else None}
@@ -174,9 +227,9 @@ def render_take(beat, cfg, layout, brand, ov: Overlays, video_dir: Path, work: P
             for k, (a, b) in enumerate(segments):
                 pre.append(f"[0:v]trim=start={a}:end={b},setpts=PTS-STARTPTS[seg{k}]")
                 parts.append(f"[seg{k}]")
-            pre.append(f"{''.join(parts)}concat=n={len(segments)}:v=1:a=0,fps={fps},{crop}scale={fw_}:{fh_}:flags=lanczos,format=rgba[foot]")
+            pre.append(f"{''.join(parts)}concat=n={len(segments)}:v=1:a=0,fps={fps},{crop}{footage_scaler(beat, fw_, fh_, fps)},format=rgba[foot]")
         else:
-            pre.append(f"[0:v]fps={fps},{crop}scale={fw_}:{fh_}:flags=lanczos,format=rgba[foot]")
+            pre.append(f"[0:v]fps={fps},{crop}{footage_scaler(beat, fw_, fh_, fps)},format=rgba[foot]")
     else:
         # Placeholder sized like the window (or its square crop), so layout matches the real cut.
         src_w, src_h = window_aspect
@@ -188,10 +241,23 @@ def render_take(beat, cfg, layout, brand, ov: Overlays, video_dir: Path, work: P
         inputs += ["-loop", "1", "-framerate", str(fps), "-t", str(dur), "-i", str(png)]
         pre.append("[0:v]format=rgba[foot]")
 
+    # highlights: [{at, until?, region | regions, wash?}] draw the eye to one part of the footage.
+    foot = "foot"
+    for k, hl in enumerate(beat.get("highlights", [])):
+        png = highlight_png(beat, hl, (fw_, fh_), layout["unit"], brand, work / f"{beat['id']}-{layout['name']}-hl{k}.png")
+        idx = inputs.count("-i")
+        inputs += ["-loop", "1", "-framerate", str(fps), "-t", str(dur), "-i", str(png)]
+        fades = f"fade=t=in:st={hl['at']}:d=0.35:alpha=1"
+        if hl.get("until"):
+            fades += f",fade=t=out:st={hl['until']}:d=0.3:alpha=1"
+        pre.append(f"[{idx}:v]format=rgba,{fades}[hl{k}]")
+        pre.append(f"[{foot}][hl{k}]overlay=0:0:shortest=1[foot{k}]")
+        foot = f"foot{k}"
+    mask_idx = inputs.count("-i")
     mask = rounded_mask((fw_, fh_), brand["canvas"]["footage_radius"], work / f"{beat['id']}-{layout['name']}-mask.png")
     inputs += ["-loop", "1", "-framerate", str(fps), "-t", str(dur), "-i", str(mask)]
-    pre.append("[1:v]format=gray[mask]")
-    pre.append("[foot][mask]alphamerge[rounded]")
+    pre.append(f"[{mask_idx}:v]format=gray[mask]")
+    pre.append(f"[{foot}][mask]alphamerge[rounded]")
     pre.append(f"color=c=0x{cream}:s={cw}x{ch}:r={fps}:d={dur}[bg]")
     x, y = (cw - fw_) // 2, (ch - fh_) // 2
     pre.append(f"[bg][rounded]overlay={x}:{y}:shortest=1[base]")
@@ -208,8 +274,9 @@ def render_take(beat, cfg, layout, brand, ov: Overlays, video_dir: Path, work: P
         need = len(beat["caption"].split()) / t["words_per_second"] + t["min_caption_hold"]
         if hold < need:
             print(f"  warning: {beat['id']} caption holds {hold:.1f}s, needs {need:.1f}s")
+        cap_idx = inputs.count("-i")
         inputs += ["-loop", "1", "-framerate", str(fps), "-t", str(dur), "-i", str(png)]
-        pre.append(f"[2:v]format=rgba,fade=t=in:st={start}:d={t['caption_in']}:alpha=1,"
+        pre.append(f"[{cap_idx}:v]format=rgba,fade=t=in:st={start}:d={t['caption_in']}:alpha=1,"
                    f"fade=t=out:st={end}:d={t['caption_out']}:alpha=1[cap]")
         pre.append(f"[{last}][cap]overlay=0:0:shortest=1[withcap]")
         last = "withcap"
