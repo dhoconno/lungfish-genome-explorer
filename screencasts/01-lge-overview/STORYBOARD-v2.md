@@ -18,6 +18,8 @@ Target about 75 to 80 s. Same brand system, silent, captioned. Facts verified 20
 | 10 | Terminal | real lungfish-cli variants call, re-run with the Preview CLI | The same analysis from the app or terminal | lungfish-cli |
 | 11 | End card | | Free and open source, MIT license / For Apple Silicon Macs running macOS 26 / URLs | |
 
+Footage rule (owner, 2026-10-01): in-app footage only, except a beat that is about a CLI feature (the terminal beat). The demo, SRA, folder and export beats are filmed in the app (Help > Demo Projects, Tools > Search Online Databases, the Inspector's file list, File > Export > Provenance).
+
 Honesty rules for the new beats:
 - Quality binning is lossy and off by default. The kicker states the measured numbers for this dataset only, never a general percentage.
 - SRA and demo downloads need a network connection (not claimed otherwise).
