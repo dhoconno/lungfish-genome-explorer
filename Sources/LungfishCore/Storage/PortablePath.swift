@@ -371,14 +371,139 @@ public enum PortablePath {
         return try encoder.encode(rewritten)
     }
 
-    /// Resolves the JSON record stored at `url` for decoding.
+    /// Resolves the JSON record stored at `url` for decoding: placeholders
+    /// become real paths, and a path recorded under another project root
+    /// (another machine, or a record older than this sanitizer) whose tail
+    /// exists inside the enclosing project reads as that file.
     public static func resolveJSON(
         _ data: Data,
         forFileAt url: URL,
         encoder: JSONEncoder = defaultJSONEncoder
     ) -> Data {
-        guard dataMayContainPlaceholder(data) else { return data }
-        return (try? resolveJSON(data, context: .forFile(at: url), encoder: encoder)) ?? data
+        let hasPlaceholder = dataMayContainPlaceholder(data)
+        let hasForeignProject = dataMayContainProjectRoot(data)
+        guard hasPlaceholder || hasForeignProject else { return data }
+        let context = Context.forFile(at: url)
+        var result = data
+        if hasPlaceholder {
+            result = (try? resolveJSON(result, context: context, encoder: encoder)) ?? result
+        }
+        if hasForeignProject, context.projectURL != nil {
+            result = (try? rerootForeignProjectPathsJSON(result, context: context, encoder: encoder)) ?? result
+        }
+        return result
+    }
+
+    // MARK: - Re-rooting foreign project paths
+
+    /// The `.lungfish/` marker as JSON may spell it (a slash is escaped as
+    /// `\/` by Foundation's encoder).
+    static func dataMayContainProjectRoot(_ data: Data) -> Bool {
+        [".lungfish/", ".lungfish\\/"].contains { data.range(of: Data($0.utf8)) != nil }
+    }
+
+    /// Rewrites every string value that names a path under some other
+    /// `.lungfish` project root when the same relative file exists under
+    /// `context.projectURL`. Data without such a path is returned unchanged.
+    public static func rerootForeignProjectPathsJSON(
+        _ data: Data,
+        context: Context,
+        encoder: JSONEncoder = defaultJSONEncoder
+    ) throws -> Data {
+        guard context.projectURL != nil,
+              dataMayContainProjectRoot(data),
+              let node = try? JSONDecoder().decode(JSONNode.self, from: data) else { return data }
+        var changed = false
+        let rewritten = node.mapStrings(dropping: { _, _ in false }) { text in
+            let result = rerootForeignProjectPaths(text: text, context: context)
+            if result != text { changed = true }
+            return result
+        }
+        guard changed else { return data }
+        return try encoder.encode(rewritten)
+    }
+
+    /// Re-roots the absolute paths in `text` (one path, or free text) that
+    /// lie under a `.lungfish` project other than `context.projectURL` when
+    /// the file exists at the same relative place inside that project. A
+    /// path whose tail is absent here is returned as recorded.
+    public static func rerootForeignProjectPaths(text: String, context: Context) -> String {
+        guard let project = context.projectURL, text.contains(".lungfish/") else { return text }
+        let projectPath = trimmed(project.standardizedFileURL.path)
+        if Roots.isSinglePath(text) {
+            return rerootSinglePath(text, projectPath: projectPath) ?? text
+        }
+        return rerootFreeText(text, projectPath: projectPath)
+    }
+
+    /// The re-rooted form of one absolute path, or nil when no `.lungfish/`
+    /// component of it has a tail that exists under `projectPath`.
+    private static func rerootSinglePath(_ path: String, projectPath: String) -> String? {
+        var searchStart = path.startIndex
+        while let range = path.range(of: ".lungfish/", range: searchStart ..< path.endIndex) {
+            let tail = String(path[range.upperBound...])
+            if !tail.isEmpty {
+                let candidate = projectPath + "/" + tail
+                if candidate == path { return nil }
+                if FileManager.default.fileExists(atPath: candidate) {
+                    return candidate
+                }
+            }
+            searchStart = range.upperBound
+        }
+        return nil
+    }
+
+    /// Characters that end a foreign-path span in free text before spaces
+    /// are considered: a span may hold spaces (a project folder named with
+    /// them), so the longest span up to one of these is tried first and then
+    /// shortened at each space until the tail exists.
+    private static let hardTerminators: Set<Character> = ["\n", "\r", "\"", "'", ",", ";", "<", ">", "|", ")", "]", "}"]
+
+    private static func rerootFreeText(_ text: String, projectPath: String) -> String {
+        let characters = Array(text)
+        var output = ""
+        output.reserveCapacity(text.utf8.count)
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
+            let startsPath = character == "/"
+                && (index == 0 || pathLeadIns.contains(characters[index - 1]))
+            guard startsPath else {
+                output.append(character)
+                index += 1
+                continue
+            }
+            var limit = index
+            while limit < characters.count, !hardTerminators.contains(characters[limit]) {
+                limit += 1
+            }
+            var end = limit
+            var replaced = false
+            while end > index {
+                let span = String(characters[index ..< end])
+                if span.contains(".lungfish/"), let rerooted = rerootSinglePath(span, projectPath: projectPath) {
+                    output += rerooted
+                    index = end
+                    replaced = true
+                    break
+                }
+                guard let space = characters[index ..< end].lastIndex(of: " ") else { break }
+                end = space
+            }
+            if !replaced {
+                // Copy the shortest token through and carry on scanning
+                // after it, so a later path on the same line is still tried.
+                var tokenEnd = index
+                while tokenEnd < characters.count, !pathTerminators.contains(characters[tokenEnd]) {
+                    tokenEnd += 1
+                }
+                if tokenEnd == index { tokenEnd = index + 1 }
+                output += String(characters[index ..< tokenEnd])
+                index = tokenEnd
+            }
+        }
+        return output
     }
 
     /// True when `text` holds a placeholder that `resolve` could not turn
@@ -392,6 +517,11 @@ public enum PortablePath {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return encoder
+    }
+
+    /// True when `value` reads as one absolute path, which may hold spaces.
+    public static func isSingleAbsolutePath(_ value: String) -> Bool {
+        Roots.isSinglePath(value)
     }
 
     public static func mayContainPlaceholder(_ text: String) -> Bool {
