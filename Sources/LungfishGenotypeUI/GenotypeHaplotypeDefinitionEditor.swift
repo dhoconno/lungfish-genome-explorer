@@ -465,13 +465,17 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
             DisclosureGroup("Color palettes") {
                 paletteSection(
                     title: "MCM",
-                    colors: HaplotypeColorToken.canonicalBudde2010Tokens.map(\.fillColor),
+                    swatches: HaplotypeColorToken.canonicalBudde2010Tokens.map {
+                        GenotypePaletteSwatch(name: $0.displayName, color: $0.fillColor)
+                    },
                     hIndex: hIndex,
                     selectedColor: haplotype.effectiveFillColor
                 )
                 paletteSection(
                     title: "General",
-                    colors: HaplotypeColorToken.genericOptimizedAnnotationPalette,
+                    swatches: HaplotypeColorToken.genericOptimizedAnnotationPalette.enumerated().map {
+                        GenotypePaletteSwatch(name: "General \($0.offset + 1)", color: $0.element)
+                    },
                     hIndex: hIndex,
                     selectedColor: haplotype.effectiveFillColor
                 )
@@ -483,7 +487,7 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
 
     private func paletteSection(
         title: String,
-        colors: [AnnotationColor],
+        swatches: [GenotypePaletteSwatch],
         hIndex: Int,
         selectedColor: AnnotationColor
     ) -> some View {
@@ -493,29 +497,15 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 54, alignment: .leading)
                 .fixedSize(horizontal: true, vertical: false)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 20, maximum: 20), spacing: 5)], alignment: .leading, spacing: 5) {
-                    ForEach(Array(colors.enumerated()), id: \.offset) { index, color in
-                        Button {
-                            setHaplotypeColor(locusIndex: selectedLocusIndex, hIndex: hIndex, color: color)
-                        } label: {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(swiftUIColor(color))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .stroke(
-                                            color == selectedColor
-                                                ? Color.primary
-                                                : Color.secondary.opacity(0.3),
-                                            lineWidth: color == selectedColor ? 2 : 1
-                                        )
-                                )
-                                .frame(width: 14, height: 14)
-                        }
-                        .buttonStyle(.plain)
-                        .help("\(title) \(index + 1): \(color.hexString)")
-                        .disabled(isReadOnly)
-                    }
-            }
+            GenotypePaletteSwatchGrid(
+                swatches: swatches,
+                columns: 12,
+                selected: selectedColor,
+                swatchSize: 14,
+                spacing: 5,
+                isDisabled: isReadOnly,
+                apply: { setHaplotypeColor(locusIndex: selectedLocusIndex, hIndex: hIndex, color: $0) }
+            )
             .padding(.vertical, 2)
         }
     }

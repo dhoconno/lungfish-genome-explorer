@@ -269,7 +269,10 @@ struct GenotypeSampleComparisonPanel: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 5) {
+                        // Eager so every candidate is in the accessibility
+                        // tree. A lazy stack hides the rows it has not built
+                        // behind an opaque provider.
+                        VStack(alignment: .leading, spacing: 5) {
                             ForEach(model.filteredCandidates) { candidate in
                                 Button {
                                     keyboardHighlightedSource =
@@ -378,7 +381,7 @@ struct GenotypeSampleComparisonPanel: View {
             .font(captionFont)
             .foregroundStyle(.secondary)
 
-            LazyVStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                 ForEach(
                     GenotypeManualHaplotypeLocus.allCases,
                     id: \.self
