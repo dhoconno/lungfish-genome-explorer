@@ -18,7 +18,7 @@ Every beat shows the app itself, filmed from a released Lungfish build. The only
 
 ## Storage
 
-Renders, posters and raw takes are not committed. They are stored in the LGE LabKey folder under `screencasts/<slug>/` with `scripts/lge-files/lge-files.sh` (contract: `docs/development/large-files.md`), and each video's `large-files.tsv` lists them with size, SHA-256 and download URL.
+Renders, posters and raw takes are not committed. The public LGE LabKey folder holds only the current wide render of each video, `screencasts/<slug>/renders/<slug>.mp4`, and its poster. Raw takes go to the internal folder (`--internal`). Use `scripts/lge-files/lge-files.sh` (contract: `docs/development/large-files.md`); each video's `large-files.tsv` lists what is stored with size, SHA-256 and URL. Videos render wide only (`outputs: [wide]`).
 
 ## Style
 

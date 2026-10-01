@@ -7,7 +7,7 @@ app: Lungfish Preview 2026.9.71
 project: ~/Desktop/lge-docs/screencast/HG002 chr20.lungfish
 window_points: [1440, 810]
 trim_top: 52          # hide the title bar (and the Debug build name) in every take
-outputs: [wide, square]
+outputs: [wide]
 
 beats:
   - kind: card

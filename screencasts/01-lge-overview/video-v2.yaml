@@ -7,7 +7,7 @@ slug: 01-lge-overview-v2
 app: Lungfish Preview 2026.9.73 (exports beat 2026.9.74)
 window_points: [1440, 810]
 trim_top: 52          # hide the title bar in every app take
-outputs: [wide, square]
+outputs: [wide]
 
 beats:
   - kind: card

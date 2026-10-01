@@ -28,7 +28,7 @@ side-by-side caveats live in `.codex/skills/releasing-lungfish/SKILL.md` and
 
 Generated, recorded or downloaded files that must be kept but do not belong in
 git (videos and takes, DMGs, large inputs, exported packages) are stored in the
-public LGE LabKey folder with `scripts/lge-files/lge-files.sh`, which reads the
+LGE LabKey folders (public, or `--internal` for non-public material) with `scripts/lge-files/lge-files.sh`, which reads the
 API key from `~/.env` at run time without exposing it. Uploads the repository
 depends on are listed in a committed manifest. Contract and rules:
 `docs/development/large-files.md`.

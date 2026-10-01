@@ -4,6 +4,10 @@
 # Files live in the LGE LabKey folder (https://dholk.primate.wisc.edu/dho/public/lge/project-begin.view),
 # reached over WebDAV. See docs/development/large-files.md for the contract.
 #
+#   lge-files.sh [--internal] <command> ...
+#     --internal (or LGE_FILES_AREA=internal) uses the non-public subfolder
+#     https://dholk.primate.wisc.edu/dho/public/lge/internal/project-begin.view instead of the public one.
+#
 #   lge-files.sh ls    [remote-dir]          list a folder (default: the root)
 #   lge-files.sh mkdir <remote-dir>          create a folder and any missing parents
 #   lge-files.sh put   <local-file> <remote-path>   upload (creates parent folders, verifies size)
@@ -19,7 +23,15 @@
 
 set -euo pipefail
 
-ROOT="${LGE_FILES_WEBDAV:-https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files}"
+PUBLIC_ROOT="https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files"
+INTERNAL_ROOT="https://dholk.primate.wisc.edu/_webdav/dho/public/lge/internal/%40files"
+AREA="${LGE_FILES_AREA:-public}"
+if [[ "${1:-}" == "--internal" ]]; then AREA=internal; shift; fi
+case "$AREA" in
+  public) ROOT="${LGE_FILES_WEBDAV:-$PUBLIC_ROOT}" ;;
+  internal) ROOT="$INTERNAL_ROOT" ;;
+  *) echo "lge-files: LGE_FILES_AREA must be public or internal" >&2; exit 64 ;;
+esac
 ROOT="${ROOT%/}"
 ENV_FILE="${LGE_FILES_ENV:-$HOME/.env}"
 
