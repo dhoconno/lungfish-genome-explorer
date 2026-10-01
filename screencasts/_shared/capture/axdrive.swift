@@ -14,12 +14,17 @@
 //   {"menu": ["View", "Provenance Inspector"]}                    menu bar path
 //   {"row": {"table": 1, "index": 3}}                             select row 3 of the Nth AXTable (1-based)
 //   {"rowAction": {"table": 1, "index": 3, "action": "Zoom to Variant"}}
+//   {"row": {"table": 1, "index": 3, "outline": true}}            same, but the Nth AXOutline (sidebar, taxonomy)
+//   {"elementAction": {"role": "AXButton", "title": "Export", "action": "Export CSV"}}
+//                                                                 a named custom action on a non-table element
 //   {"focus": {"role": "AXTextField", "title": "Position"}}
 //   {"value": {"role": "AXTextField", "title": "Position", "text": "chr1:1-100"}}
 //   {"confirm": {"role": "AXTextField", "title": "Position"}}      AXConfirm (Return in a field)
 //   {"focusTable": {"table": 1}}                                  make the Nth AXTable take keyboard focus
 //   {"key": "return"}  {"key": "cmd+opt+v"}                        keystroke posted to the app's process only
 // Matching is on AXTitle, AXDescription or AXIdentifier (substring, case-insensitive).
+// row, rowAction and focusTable take "outline": true to address the Nth AXOutline instead of the
+// Nth AXTable; without it, a "table" index with no AXTable to match falls back to the Nth AXOutline.
 
 import AppKit
 import ApplicationServices
@@ -95,8 +100,32 @@ func element(_ spec: [String: Any], _ win: AXUIElement) -> AXUIElement {
     return el
 }
 
+/// The Nth AXTable, or the Nth AXOutline with "outline": true. A table index that
+/// matches no AXTable falls back to the Nth AXOutline, so a step written for a
+/// table keeps working on a surface that is really an outline.
 func table(_ spec: [String: Any], _ win: AXUIElement) -> AXUIElement {
-    element(["role": "AXTable", "title": spec["title"] as? String ?? "", "nth": spec["table"] as? Int ?? 1], win)
+    let title = spec["title"] as? String ?? "", nth = spec["table"] as? Int ?? 1
+    let roles = (spec["outline"] as? Bool ?? false) ? ["AXOutline"] : ["AXTable", "AXOutline"]
+    for role in roles {
+        let key = "\(role)|\(title)|\(nth)"
+        if let hit = cache[key] { return hit }
+        if let el = find(in: win, role: role, title: title, nth: nth) {
+            cache[key] = el
+            return el
+        }
+    }
+    fail("no \(roles.joined(separator: " or ")) title=\(title) nth=\(nth)")
+}
+
+/// Performs the custom action whose name contains `wanted` (case-insensitive) on `target`.
+func performNamedAction(on target: AXUIElement, named wanted: String, what: String) {
+    var names: CFArray?
+    AXUIElementCopyActionNames(target, &names)
+    let needle = wanted.lowercased()
+    guard let name = (names as? [String])?.first(where: { $0.lowercased().contains(needle) }) else {
+        fail("\(what) has no action \(wanted); has \(names as? [String] ?? [])")
+    }
+    check(AXUIElementPerformAction(target, name as CFString), what)
 }
 
 /// The Nth row currently on screen (1-based). Off-screen rows are not realised views.
@@ -147,7 +176,7 @@ func check(_ err: AXError, _ what: String) {
 func prepare(_ app: AXUIElement, _ steps: [[String: Any]]) {
     let win = mainWindow(app)
     for step in steps {
-        for key in ["press", "focus", "value", "confirm"] { if let s = step[key] as? [String: Any] { _ = element(s, win) } }
+        for key in ["press", "focus", "value", "confirm", "elementAction"] { if let s = step[key] as? [String: Any] { _ = element(s, win) } }
         for key in ["row", "rowAction", "focusTable"] { if let s = step[key] as? [String: Any] { _ = table(s, win) } }
     }
 }
@@ -187,14 +216,9 @@ func run(pid: pid_t, steps: [[String: Any]], record: [String]?) {
         } else if let spec = step["rowAction"] as? [String: Any] {
             // AppKit exposes row custom actions on the row's cell children, not on the AXRow.
             let r = row(spec, win)
-            let target = children(r).first ?? r
-            var names: CFArray?
-            AXUIElementCopyActionNames(target, &names)
-            let wanted = (spec["action"] as? String ?? "").lowercased()
-            guard let name = (names as? [String])?.first(where: { $0.lowercased().contains(wanted) }) else {
-                fail("row has no action \(wanted); has \(names as? [String] ?? [])")
-            }
-            check(AXUIElementPerformAction(target, name as CFString), "row action")
+            performNamedAction(on: children(r).first ?? r, named: spec["action"] as? String ?? "", what: "row action")
+        } else if let spec = step["elementAction"] as? [String: Any] {
+            performNamedAction(on: element(spec, win), named: spec["action"] as? String ?? "", what: "element action")
         } else if let spec = step["focus"] as? [String: Any] {
             check(AXUIElementSetAttributeValue(element(spec, win), kAXFocusedAttribute as CFString, kCFBooleanTrue), "focus")
         } else if let spec = step["value"] as? [String: Any] {
