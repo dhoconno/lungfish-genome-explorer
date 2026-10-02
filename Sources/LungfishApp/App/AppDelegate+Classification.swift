@@ -758,43 +758,20 @@ extension AppDelegate {
     ///
     /// Called at the start of `runClassification` / `runEsViritu` / `runTaxTriage`
     /// so that dialogs appear instantly and materialization happens as the first
-    /// pipeline step after the user clicks Run.
+    /// pipeline step after the user clicks Run. The resolution itself is
+    /// ``ResolvedSequenceInputs``, shared with the Map Reads window, with the
+    /// derivative service's tool runner as the materializer.
     internal func resolveInputFiles(
         _ inputFiles: [URL],
         tempDirectory: URL,
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws -> [URL] {
-        let resolver = FASTQSourceResolver()
-        resolver.materializer = { bundleURL, tempDir, progressCallback in
-            try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
-                fromBundle: bundleURL,
-                tempDirectory: tempDir,
-                progress: { msg in progressCallback(msg) }
-            )
-        }
-
-        var resolved: [URL] = []
-        for inputURL in inputFiles {
-            try Task.checkCancellation()
-
-            if let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: inputURL) {
-                let urls = try await resolver.resolve(
-                    bundleURL: bundleURL,
-                    tempDirectory: tempDirectory,
-                    progress: { _, msg in progress?(msg) }
-                )
-                resolved.append(contentsOf: urls)
-                continue
-            }
-
-            if let resolvedSequenceURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) {
-                resolved.append(resolvedSequenceURL)
-                continue
-            }
-
-            resolved.append(inputURL)
-        }
-        return resolved
+        try await ResolvedSequenceInputs.resolve(
+            inputURLs: inputFiles,
+            materializationDirectory: tempDirectory,
+            materializer: FASTQCLIMaterializer(runner: FASTQDerivativeService.shared.runner),
+            progress: progress
+        ).executionInputURLs
     }
 
     internal func runClassification(

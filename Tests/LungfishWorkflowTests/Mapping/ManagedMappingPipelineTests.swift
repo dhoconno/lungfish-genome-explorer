@@ -970,12 +970,19 @@ private struct SamtoolsFixture {
         try fm.createDirectory(at: tempRoot, withIntermediateDirectories: true)
 
         let homeDirectory = tempRoot.appendingPathComponent("home", isDirectory: true)
-        let samtoolsDir = homeDirectory
-            .appendingPathComponent(".lungfish/conda/envs/samtools/bin", isDirectory: true)
-        try fm.createDirectory(at: samtoolsDir, withIntermediateDirectories: true)
+        // The runner resolves the managed samtools under the test process's
+        // app identity namespace (Stable, Preview or Debug), the way
+        // ManagedSamtoolsHome does, so the stub lives at that path and not
+        // under a hard-coded `.lungfish`.
+        let scriptURL = CoreToolLocator.managedExecutableURL(
+            environment: "samtools",
+            executableName: "samtools",
+            homeDirectory: homeDirectory,
+            appIdentity: .current
+        )
+        try fm.createDirectory(at: scriptURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         logURL = tempRoot.appendingPathComponent("samtools.log")
-        let scriptURL = samtoolsDir.appendingPathComponent("samtools")
         try Self.scriptBody(
             logURL: logURL,
             failingSubcommand: failingSubcommand

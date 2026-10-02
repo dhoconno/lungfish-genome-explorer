@@ -184,6 +184,35 @@ public enum CLISequenceInputMaterialization {
         )
     }
 
+    /// The concatenation `executionURL` was written by (``ResolvedSequenceInputs``
+    /// joins the unpaired files of one bundle for a mapper), or nil.
+    public static func concatenation(forExecutionURL executionURL: URL) -> SequenceInputConcatenation? {
+        SequenceInputConcatenation.load(for: executionURL)
+    }
+
+    /// The member files of a concatenation, with the bundle as their origin.
+    public static func concatenationMemberDescriptors(
+        for concatenation: SequenceInputConcatenation
+    ) throws -> [ProvenanceFileDescriptor] {
+        try concatenation.memberURLs.map { memberURL in
+            try ProvenanceFileDescriptor.file(
+                url: memberURL,
+                format: provenanceFormat(for: memberURL),
+                role: .input,
+                originPath: concatenation.bundlePath
+            )
+        }
+    }
+
+    /// The bundle an execution file was made from, when it was made for
+    /// the run: a materialized virtual bundle or a concatenation.
+    private static func materializedSourceBundle(originalURL: URL, executionURL: URL) -> URL? {
+        if let bundleURL = bundleRequiringMaterialization(for: originalURL) {
+            return bundleURL
+        }
+        return concatenation(forExecutionURL: executionURL)?.bundleURL
+    }
+
     public static func materializedInputPairs(
         originalInputURLs: [URL],
         executionInputURLs: [URL]
@@ -194,7 +223,7 @@ public enum CLISequenceInputMaterialization {
                 : executionURL.standardizedFileURL
             let executionURL = executionURL.standardizedFileURL
             guard originalURL != executionURL,
-                  let bundleURL = bundleRequiringMaterialization(for: originalURL) else {
+                  let bundleURL = materializedSourceBundle(originalURL: originalURL, executionURL: executionURL) else {
                 return nil
             }
             return CLISequenceInputMaterializationPair(
@@ -205,6 +234,9 @@ public enum CLISequenceInputMaterialization {
     }
 
     public static func materializationCommand(originalURL: URL, executionURL: URL) -> [String] {
+        if let concatenation = concatenation(forExecutionURL: executionURL) {
+            return concatenation.command
+        }
         let bundleURL = bundleRequiringMaterialization(for: originalURL) ?? originalURL.standardizedFileURL
         return [
             CLICommandIdentity.executableName,
@@ -229,7 +261,7 @@ public enum CLISequenceInputMaterialization {
                 : executionURL.standardizedFileURL
             let executionURL = executionURL.standardizedFileURL
             guard originalURL != executionURL,
-                  let bundleURL = bundleRequiringMaterialization(for: originalURL) else {
+                  let bundleURL = materializedSourceBundle(originalURL: originalURL, executionURL: executionURL) else {
                 continue
             }
             let durablePath = executionURL.path
@@ -275,13 +307,16 @@ public enum CLISequenceInputMaterialization {
                 originalURL: pair.originalURL,
                 executionURL: pair.executionURL
             )
+            let concatenation = concatenation(forExecutionURL: pair.executionURL)
+            let inputs = try concatenation.map(concatenationMemberDescriptors(for:))
+                ?? originalInputDescriptors(for: pair.originalURL)
             return ProvenanceStep(
-                toolName: materializationToolName,
+                toolName: concatenation == nil ? materializationToolName : SequenceInputConcatenation.toolName,
                 toolVersion: ProvenanceVersion.required(workflowVersion),
                 argv: command,
                 durableReplayArgv: command,
                 reproducibleCommand: command.map(shellEscape).joined(separator: " "),
-                inputs: try originalInputDescriptors(for: pair.originalURL),
+                inputs: inputs,
                 outputs: [
                     try executionInputDescriptor(
                         originalURL: pair.originalURL,
@@ -409,6 +444,7 @@ public enum CLISequenceInputMaterialization {
         )
         for pair in pairs {
             try? fileManager.removeItem(at: pair.executionURL)
+            try? fileManager.removeItem(at: SequenceInputConcatenation.sidecarURL(for: pair.executionURL))
             let parentDirectory = pair.executionURL.deletingLastPathComponent()
             if (try? fileManager.contentsOfDirectory(atPath: parentDirectory.path).isEmpty) == true {
                 try? fileManager.removeItem(at: parentDirectory)
@@ -465,6 +501,10 @@ public enum CLISequenceInputMaterialization {
             guard executionInputURLs.indices.contains(index) else { continue }
             let executionURL = executionInputURLs[index].standardizedFileURL
             if executionURL != originalURL.standardizedFileURL {
+                // A concatenated file names every member it was made from.
+                if let concatenation = concatenation(forExecutionURL: executionURL) {
+                    records.append(contentsOf: try concatenationMemberDescriptors(for: concatenation).map(fileRecord))
+                }
                 records.append(
                     fileRecord(
                         try executionInputDescriptor(

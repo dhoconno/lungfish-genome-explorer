@@ -273,6 +273,39 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         )
     }
 
+    /// Records where `inputFASTQURLs` came from. Call it with the resolution
+    /// that produced them (``withInputFASTQURLs(_:pairedEnd:)`` with
+    /// `resolved.executionInputURLs`). `resolved.originalInputURLs` has one
+    /// entry per execution file, which is how ``ManagedMappingPipeline``
+    /// pairs each file with the bundle it came from when it records the
+    /// bundle, its derived manifest, the root FASTQ, the payload and the
+    /// materialization step.
+    public func withInputLineage(_ resolved: ResolvedSequenceInputs) -> MappingRunRequest {
+        MappingRunRequest(
+            tool: tool,
+            modeID: modeID,
+            inputFASTQURLs: inputFASTQURLs,
+            originalInputFASTQURLs: resolved.originalInputURLs,
+            inputMaterializationStartedAt: resolved.materializationStartedAt,
+            inputMaterializationEndedAt: resolved.materializationEndedAt,
+            referenceFASTAURL: referenceFASTAURL,
+            sourceReferenceBundleURL: sourceReferenceBundleURL,
+            projectURL: projectURL,
+            outputDirectory: outputDirectory,
+            sampleName: sampleName,
+            readGroup: readGroup,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            includeSecondary: includeSecondary,
+            includeSupplementary: includeSupplementary,
+            minimumMappingQuality: minimumMappingQuality,
+            advancedArguments: advancedArguments,
+            compatibilityReadClassOverride: compatibilityReadClassOverride,
+            inputLayout: inputLayout,
+            outputTrackName: outputTrackName
+        )
+    }
+
     /// The layout the command builder acts on: the resolved `inputLayout`,
     /// else what the `pairedEnd` flag and file count already say.
     public var effectiveInputLayout: FASTQInputLayout {

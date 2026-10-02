@@ -4000,9 +4000,10 @@ final class MapCommandRegressionTests: XCTestCase {
             materializer: materializer
         )
 
-        XCTAssertEqual(resolved.inputURLs.map(\.standardizedFileURL), [materializedURL.standardizedFileURL])
+        XCTAssertEqual(resolved.executionInputURLs.map(\.standardizedFileURL), [materializedURL.standardizedFileURL])
+        XCTAssertEqual(resolved.originalInputURLs, [fixture.derivedBundleURL.standardizedFileURL])
         XCTAssertEqual(materializer.bundleURLs, [fixture.derivedBundleURL.standardizedFileURL])
-        XCTAssertFalse(resolved.inputURLs.map(\.standardizedFileURL).contains(fixture.rootFASTQURL.standardizedFileURL))
+        XCTAssertFalse(resolved.executionInputURLs.map(\.standardizedFileURL).contains(fixture.rootFASTQURL.standardizedFileURL))
     }
 
     func testMapProvenanceRecordsOriginalVirtualBundleAndMaterializedExecutionInput() throws {
@@ -4556,9 +4557,16 @@ private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing {
     }
 }
 
-private final class RecordingCLISequenceMaterializer: CLISequenceInputMaterializing {
+/// Sendable because `MapCommand.resolveExecutionInputs` hands the
+/// materializer to the shared resolver's `@Sendable` closure.
+private final class RecordingCLISequenceMaterializer: CLISequenceInputMaterializing, @unchecked Sendable {
     let materializedURL: URL
-    private(set) var bundleURLs: [URL] = []
+    private let lock = NSLock()
+    private var recordedBundleURLs: [URL] = []
+
+    var bundleURLs: [URL] {
+        lock.withLock { recordedBundleURLs }
+    }
 
     init(materializedURL: URL) {
         self.materializedURL = materializedURL
@@ -4569,7 +4577,7 @@ private final class RecordingCLISequenceMaterializer: CLISequenceInputMaterializ
         tempDirectory: URL,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
-        bundleURLs.append(bundleURL.standardizedFileURL)
+        lock.withLock { recordedBundleURLs.append(bundleURL.standardizedFileURL) }
         return materializedURL
     }
 }
