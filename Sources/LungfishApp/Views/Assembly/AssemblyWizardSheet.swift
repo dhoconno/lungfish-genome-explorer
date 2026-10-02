@@ -160,7 +160,7 @@ struct AssemblyWizardSheet: View {
     /// `Run1_R2.lungfishfastq`, and matching on that would silently merge
     /// two different samples into one fabricated "pair". Per-bundle
     /// resolution and true pairedEnd detection happen later, one bundle at a
-    /// time, in `AppDelegate.resolvedAssemblyPairedEnd(for:)`.
+    /// time, in `lungfish-cli assemble`, which reads the bundle each run names.
     private var bundleCount: Int { inputFiles.count }
 
     /// This round locks the picker to `.perBundle` only: implementing true
