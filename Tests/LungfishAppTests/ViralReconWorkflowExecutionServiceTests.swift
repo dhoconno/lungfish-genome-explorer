@@ -380,6 +380,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
 
         let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let stderr = (1...45).map { "stderr line \($0)" }.joined(separator: "\n") + "\nbad params"
         let runner = StubViralReconProcessRunner(result: .init(
             exitCode: 2,
@@ -422,6 +423,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
 
         let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubViralReconProcessRunner(result: .init(
             exitCode: 2,
             standardOutput: "",

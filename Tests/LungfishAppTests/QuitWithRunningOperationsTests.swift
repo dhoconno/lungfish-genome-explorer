@@ -9,6 +9,11 @@ import LungfishKit
 /// `.terminateLater`) never received a reply and the app never quit.
 @MainActor
 final class QuitWithRunningOperationsTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
     func testConfirmingQuitWithRunningOperationRepliesTrue() async throws {
         let delegate = AppDelegate()
         let operationID = OperationCenter.shared.start(title: "Long running test op", detail: "running")

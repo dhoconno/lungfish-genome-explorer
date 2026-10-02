@@ -54,6 +54,6 @@ Targets LungfishAppTests (515 files), LungfishAppViewTests and LungfishAppWorkfl
 | View controllers run tools in process | Views/Viewer/FASTQDatasetViewController.swift lines 1378, 1535 and 1643 (R3) |
 | Scoped notifications fail open in seven copied filters | Views/MainWindow/MainSplitViewController.swift line 817 and six others (R9) |
 | FASTQ-family and Workflow Operations runners start their own `Process` instead of using `CLISubprocessTransport`. Do not copy this into a new runner | `LungfishCLIProcessRunner` in Services/FASTQOperationExecutionService.swift line 800, `ProcessViralReconWorkflowProcessRunner` in Services/ViralReconWorkflowExecutionService.swift line 772 (R7, Phase 2) |
-| Test runner code inside production | App/AppDelegate.swift line 2723 (R10) |
+| A test that routes a file to Quick Look starts real Quick Look in the test process unless it installs a preview renderer double | `embeddedFilePreviewRenderer` in Views/Viewer/ViewerViewController.swift and `RecordingFilePreviewRenderer` in Tests/LungfishAppTests (R10) |
 
 Every viewport switch clears transient state through `clearTransientViewportState` (Views/MainWindow/MainSplitViewController.swift line 526, memory file known-issues.md).

@@ -19,6 +19,11 @@ import XCTest
 
 @MainActor
 final class ExtractOverlappingReadsFailureTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
     private struct StubExtractionError: LocalizedError {
         var errorDescription: String? { "stub samtools failure: region not found" }
     }

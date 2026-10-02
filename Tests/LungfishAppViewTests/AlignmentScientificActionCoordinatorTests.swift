@@ -21,6 +21,7 @@ private final class TestMutableBox<Value>: @unchecked Sendable {
 @MainActor final class AlignmentScientificActionCoordinatorTests: XCTestCase {
     func testOperationReporterRetainsCapturedWindowAndProjectRoute() {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let scope = WindowStateScope()
         let origin = OperationRouteContext(projectURL: URL(fileURLWithPath: "/tmp/origin.lungfish"), windowStateScope: scope)
         let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: origin, center: center)

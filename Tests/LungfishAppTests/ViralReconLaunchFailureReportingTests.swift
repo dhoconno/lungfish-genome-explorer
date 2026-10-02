@@ -10,6 +10,7 @@ import XCTest
 final class ViralReconLaunchFailureReportingTests: XCTestCase {
     func testLaunchFailureCreatesAFailedOperationRow() throws {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
 
         AppDelegate.reportViralReconLaunchFailure(
             ViralReconWorkflowExecutionError.missingWorkflowDefinition,
@@ -24,6 +25,7 @@ final class ViralReconLaunchFailureReportingTests: XCTestCase {
 
     func testFailureRowCarriesTheUnderlyingReason() throws {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
 
         AppDelegate.reportViralReconLaunchFailure(
             ViralReconWorkflowExecutionError.noProjectForResults,
@@ -39,6 +41,7 @@ final class ViralReconLaunchFailureReportingTests: XCTestCase {
 
     func testFailureIsAlsoLoggedOnTheRow() throws {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
 
         AppDelegate.reportViralReconLaunchFailure(
             ViralReconWorkflowExecutionError.missingWorkflowDefinition,
@@ -59,6 +62,7 @@ final class ViralReconLaunchFailureReportingTests: XCTestCase {
     // the second one carrying strictly less information than the first.
     func testAFailureTheRunAlreadyReportedDoesNotCreateASecondRow() {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
 
         let reported = AppDelegate.reportViralReconLaunchFailure(
             ViralReconWorkflowExecutionError.nonZeroExit(2),
@@ -74,6 +78,7 @@ final class ViralReconLaunchFailureReportingTests: XCTestCase {
     // failed row behind.
     func testCancellationIsNotReportedAsAFailure() {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
 
         AppDelegate.reportViralReconLaunchFailure(
             CancellationError(),

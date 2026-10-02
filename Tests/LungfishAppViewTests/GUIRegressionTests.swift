@@ -752,6 +752,10 @@ final class UnifiedWizardTests: XCTestCase {
 /// Regression: 2026-03-28 — Panel was difficult to dismiss, and empty panel
 /// still showed table headers consuming viewport space.
 final class OperationsPanelTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        await OperationCenter.useTemporaryFailureReportsForTesting()
+    }
 
     /// Verifies OperationType includes classification.
     func testClassificationOperationType() {

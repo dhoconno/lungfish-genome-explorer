@@ -5,6 +5,11 @@ import LungfishKit
 
 @MainActor
 final class OperationsLiveInspectorTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
     private func find<T: NSView>(_ root: NSView, _ identifier: String, as type: T.Type) -> T? {
         if root.accessibilityIdentifier() == identifier { return root as? T }
         return root.subviews.compactMap { find($0, identifier, as: type) }.first
@@ -422,6 +427,7 @@ final class OperationsLiveInspectorTests: XCTestCase {
     /// the overflow is clipped from the bottom of the drawer instead.
     func testTitleKeepsItsFullLineWhenDrawerIsShorterThanItsHeader() throws {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let id = center.start(title: "FASTQ: fastp Adapter + Quality Trim", detail: "Preparing...",
                               operationType: .fastqOperation,
                               cliCommand: "lungfish-cli fastq fastp-trim HG002.lungfishfastq")
@@ -519,6 +525,7 @@ final class OperationsLiveInspectorTests: XCTestCase {
     /// inspector. The log must give up height instead.
     func testShortInspectorKeepsTitleOnScreenForFailedOperation() throws {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let id = center.start(title: "Map Reads (minimap2): short drawer", detail: "Mapping",
                               cliCommand: "lungfish-cli map reads.fastq --reference ref.fasta")
         center.log(id: id, level: .info, message: "Running minimap2...")

@@ -115,6 +115,9 @@ final class RoutingTableSafetyNetTests: XCTestCase {
 
         let split = MainSplitViewController()
         split.loadViewIfNeeded()
+        // A row routed to Quick Look is recorded rather than drawn, with the
+        // status line a finished preview shows.
+        RecordingFilePreviewRenderer.install(on: split.viewerController)
         let recorder = LoadedDocumentRecorder()
         let loader = split.externalDocumentLoader
         split.externalDocumentLoader = { url in

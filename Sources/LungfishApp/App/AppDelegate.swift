@@ -2718,25 +2718,3 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
 }
-
-@MainActor
-internal struct AppUITestViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning {
-    func runLungfishCLI(
-        arguments: [String],
-        workingDirectory: URL,
-        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
-    ) async throws -> ViralReconWorkflowProcessResult {
-        AppUITestConfiguration.current.appendEvent("viralrecon.cli.invoked \(arguments.joined(separator: " "))")
-        outputHandler?(.standardOutput("deterministic Viral Recon completed"))
-        return ViralReconWorkflowProcessResult(
-            exitCode: 0,
-            standardOutput: "deterministic Viral Recon completed",
-            standardError: "",
-            didStreamOutput: true
-        )
-    }
-
-    func cancel() {
-        AppUITestConfiguration.current.appendEvent("viralrecon.cli.cancelled")
-    }
-}

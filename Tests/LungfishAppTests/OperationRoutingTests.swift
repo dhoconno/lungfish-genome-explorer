@@ -8,6 +8,7 @@ import LungfishTestSupport
 final class OperationRoutingTests: XCTestCase {
     func testBundleCompletionDeliversOriginRouteContext() throws {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let projectURL = URL(fileURLWithPath: "/tmp/shared.lungfish", isDirectory: true)
         let scope = WindowStateScope()
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScope: scope)
@@ -35,6 +36,7 @@ final class OperationRoutingTests: XCTestCase {
 
     func testLegacyBundleCallbackStillFiresWhenNoContextAwareCallbackIsRegistered() {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let bundleURL = URL(fileURLWithPath: "/tmp/example.lungfishref", isDirectory: true)
         var deliveredURLs: [URL]?
         center.onBundleReady = { deliveredURLs = $0 }
@@ -47,6 +49,7 @@ final class OperationRoutingTests: XCTestCase {
 
     func testBundleCompletionKeepsRouteContextWhenTrimReordersItems() {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let projectURL = URL(fileURLWithPath: "/tmp/shared.lungfish", isDirectory: true)
         let firstContext = OperationRouteContext(
             projectURL: projectURL,
@@ -983,6 +986,7 @@ final class OperationRoutingTests: XCTestCase {
     func testAwaitOperationTerminalDoesNotResumeUntilOperationReachesTerminalState() async throws {
         let controller = MainSplitViewController()
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let opID = center.start(title: "Test Assembly", detail: "Running", operationType: .assembly)
 
         var events: [String] = []
@@ -1011,6 +1015,7 @@ final class OperationRoutingTests: XCTestCase {
     func testAwaitOperationTerminalResumesOnCompletionAndOnAlreadyAbsentItem() async throws {
         let controller = MainSplitViewController()
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
 
         let completingOpID = center.start(title: "Test Assembly A", detail: "Running", operationType: .assembly)
         let completionWaiter = Task { @MainActor in
@@ -1038,6 +1043,7 @@ final class OperationRoutingTests: XCTestCase {
     func testSequentialFanoutGateOrdersChildrenWhileIsolatingAMiddleFailure() async throws {
         let controller = MainSplitViewController()
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         var startedOrder: [String] = []
         var finishedOrder: [String] = []
 

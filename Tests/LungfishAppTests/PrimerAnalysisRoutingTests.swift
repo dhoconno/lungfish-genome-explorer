@@ -102,9 +102,11 @@ final class PrimerAnalysisRoutingTests: XCTestCase {
         try Data("preview".utf8).write(to: file)
         let viewer = ViewerViewController()
         viewer.loadViewIfNeeded()
+        let previews = RecordingFilePreviewRenderer.install(on: viewer)
         viewer.displayPrimerAnalysisBundle(at: URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
         viewer.displayQuickLookPreview(url: file)
         XCTAssertNil(viewer.primerAnalysisViewController)
+        XCTAssertEqual(previews.renderedURLs, [file])
         viewer.clearViewport()
     }
 }

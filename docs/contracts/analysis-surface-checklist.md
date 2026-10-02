@@ -36,7 +36,7 @@ Copy this file into the plan for a new surface in Lungfish Genome Explorer (LGE)
 - [ ] A FASTQ-input tool is a `FASTQOperationToolID` case listed in `toolIDs(for:)`, with no hand-written menu item.
 - [ ] Every new CLI command and `NativeTool` case has an entry in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift`.
 - [ ] A run on a project bundle records an entry with `AnalysisManifestStore.recordAnalysis` so the bundle's Inspector lists it.
-- [ ] An operation driven by XCUI tests has a deterministic backend gated on `AppUITestConfiguration`, like `Sources/LungfishApp/App/AppUITestMappingBackend.swift`.
+- [ ] An operation driven by XCUI tests has a deterministic backend gated on `AppUITestConfiguration`, like `Sources/LungfishApp/UITestSupport/AppUITestMappingBackend.swift`.
 
 ## Viewport, Inspector and sidebar
 

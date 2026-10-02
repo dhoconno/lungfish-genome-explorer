@@ -632,6 +632,7 @@ final class PluginPackVisibilityTests: XCTestCase {
             ]
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let viewModel = PluginManagerViewModel(
             packStatusProvider: provider,
             automaticallyRefresh: false,
@@ -688,6 +689,7 @@ final class PluginPackVisibilityTests: XCTestCase {
             ]
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let viewModel = PluginManagerViewModel(
             packStatusProvider: provider,
             automaticallyRefresh: false,
@@ -732,6 +734,7 @@ final class PluginPackVisibilityTests: XCTestCase {
             failure: TestPluginPackInstallError(message: "mafft solver failed")
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let viewModel = PluginManagerViewModel(
             packStatusProvider: provider,
             automaticallyRefresh: false,

@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishKit
 
 /// Thread-safe capture box for observations made from inside the merge's `@Sendable`
 /// probe closure, which fires on whatever thread the merge body is running on.
@@ -33,6 +34,11 @@ private final class MarkerObservationBox: @unchecked Sendable {
 
 @MainActor
 final class ReferenceBundleMergeServiceTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
     private enum FixtureError: Error {
         case provenanceWriteFailed
     }

@@ -162,6 +162,14 @@ public class ViewerViewController: NSViewController {
     /// URL currently being previewed with QuickLook or PDFKit
     private var quickLookURL: URL?
 
+    /// Draws the embedded PDFKit or Quick Look preview once
+    /// `displayQuickLookPreview(url:)` has routed a file to it. Production
+    /// keeps this default. Unit tests install a recorder instead, so they check
+    /// the routing without starting Quick Look in the test process.
+    var embeddedFilePreviewRenderer: @MainActor (ViewerViewController, URL) -> Void = { viewer, fileURL in
+        viewer.renderEmbeddedFilePreview(url: fileURL)
+    }
+
     /// FASTQ dataset dashboard (shown in place of sequence viewer for FASTQ files)
     var fastqDatasetController: FASTQDatasetViewController?
 
@@ -3335,15 +3343,11 @@ public class ViewerViewController: NSViewController {
             return
         }
 
-#if DEBUG
-        if Self.isRunningUnderXCTest {
-            logger.debug("displayQuickLookPreview: Skipping embedded preview rendering under XCTest")
-            statusBar.positionLabel.stringValue = "Previewing: \(fileURL.lastPathComponent)"
-            statusBar.selectionLabel.stringValue = ""
-            return
-        }
-#endif
+        embeddedFilePreviewRenderer(self, fileURL)
+    }
 
+    /// The production `embeddedFilePreviewRenderer`.
+    private func renderEmbeddedFilePreview(url fileURL: URL) {
         // For PDFs, use PDFKit (more reliable than QLPreviewView for embedded use)
         let ext = fileURL.pathExtension.lowercased()
 
@@ -3607,17 +3611,8 @@ public class ViewerViewController: NSViewController {
 
         if let ql = quickLookView {
             logger.debug("removePreviewViews: Removing QuickLook view from hierarchy")
-#if DEBUG
-            if Self.isRunningUnderXCTest {
-                ql.removeFromSuperview()
-            } else {
-                ql.close()
-                ql.removeFromSuperview()
-            }
-#else
             ql.close()
             ql.removeFromSuperview()
-#endif
         }
         quickLookView = nil
 
@@ -4345,13 +4340,6 @@ extension ViewerViewController {
 
     var testPreviewStatusText: String {
         statusBar.positionLabel.stringValue
-    }
-
-    // The environment half of the old check never fired under SwiftPM, which
-    // sets no XCTEST* variables; only the process-name fallback was carrying
-    // it. Probing for the loaded framework works under both runners.
-    private static var isRunningUnderXCTest: Bool {
-        TestHarness.isRunning
     }
 
     func testTapBundleBackNavigation() {

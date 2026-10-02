@@ -201,16 +201,16 @@ final class OperationFailureReportStoreTests: XCTestCase {
         )
     }
 
-    /// The shared center is used by hundreds of tests that fail operations on
-    /// purpose; those must never land in the developer's real logs directory.
-    func testDefaultDirectoryIsRedirectedToTempUnderXCTest() {
-        let directory = OperationFailureReportStore.defaultDirectory()
+    /// The default is the user's real logs directory whatever process asks.
+    /// Tests keep out of it by injecting a store, never by a branch in the
+    /// store, so this only computes the path and writes nothing.
+    func testDefaultDirectoryIsTheUsersLogsDirectory() throws {
+        let library = try XCTUnwrap(FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first)
 
-        XCTAssertTrue(
-            directory.path.hasPrefix(NSTemporaryDirectory()),
-            "Expected a temporary directory under test, got \(directory.path)"
+        XCTAssertEqual(
+            OperationFailureReportStore.defaultDirectory(appIdentity: .stable),
+            library.appendingPathComponent("Logs/Lungfish/Operations/Failures", isDirectory: true)
         )
-        XCTAssertFalse(directory.path.contains(FileManager.default.homeDirectoryForCurrentUser.path + "/Library/Logs"))
     }
 
     // MARK: - OperationCenter integration

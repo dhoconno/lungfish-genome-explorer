@@ -244,8 +244,8 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         var mainActorHeartbeat = false
         DispatchQueue.main.async { mainActorHeartbeat = true }
 
-        controller.testingDisplayGenotypeResultBundle(staleURL)
-        _ = controller.testingBeginDisplayRequest(
+        controller.displayGenotypeResultBundleFromSidebar(at: staleURL)
+        _ = controller.beginDisplayRequest(
             identity: ContentSelectionIdentity(
                 url: URL(fileURLWithPath: "/tmp/newer.nvd"),
                 kind: "nvdResult"
@@ -324,17 +324,17 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
             kind: "nvdResult"
         )
 
-        let firstToken = controller.testingBeginDisplayRequest(identity: first)
-        let secondToken = controller.testingBeginDisplayRequest(identity: second)
+        let firstToken = controller.beginDisplayRequest(identity: first)
+        let secondToken = controller.beginDisplayRequest(identity: second)
         controller.inspectorController.viewModel.selectedItem = "Current"
 
-        controller.testingCommitDisplayRequest(firstToken, identity: first) {
+        if controller.canCommitDisplayRequest(firstToken, identity: first) {
             controller.inspectorController.viewModel.selectedItem = "Stale"
         }
 
         XCTAssertEqual(controller.inspectorController.viewModel.selectedItem, "Current")
 
-        controller.testingCommitDisplayRequest(secondToken, identity: second) {
+        if controller.canCommitDisplayRequest(secondToken, identity: second) {
             controller.inspectorController.viewModel.selectedItem = "Fresh"
         }
 
@@ -767,11 +767,11 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        controller.testingRequestInspectorDocumentModeAfterDownload()
+        controller.requestInspectorDocumentModeAfterDownload()
 
         XCTAssertEqual(
             capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope,
-            controller.testingWindowStateScope
+            controller.windowStateScope
         )
     }
 
@@ -780,11 +780,11 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         _ = controller.view
 
         let resultURL = URL(fileURLWithPath: "/tmp/kraken2-batch-stale")
-        let databaseBuildRequest = controller.testingBeginDatabaseBuildRequest(
+        let databaseBuildRequest = controller.beginDatabaseBuildRequest(
             tool: "Kraken2",
             resultURL: resultURL
         )
-        _ = controller.testingBeginDisplayRequest(
+        _ = controller.beginDisplayRequest(
             identity: ContentSelectionIdentity(
                 url: URL(fileURLWithPath: "/tmp/newer.fasta"),
                 kind: "sequence"
@@ -792,7 +792,7 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         )
 
         var didCommit = false
-        controller.testingCommitDatabaseBuildCompletion(databaseBuildRequest) {
+        controller.commitDatabaseBuildCompletion(databaseBuildRequest) {
             didCommit = true
         }
 

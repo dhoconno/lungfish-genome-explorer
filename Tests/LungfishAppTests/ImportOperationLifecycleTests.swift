@@ -8,6 +8,7 @@ import LungfishWorkflow
 final class ImportOperationLifecycleTests: XCTestCase {
     func testReferenceImportSuccessAttachesFinalBundleAndDeliversOnce() async throws {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let source = URL(fileURLWithPath: "/tmp/synthetic.fa")
         let output = URL(fileURLWithPath: "/tmp/synthetic.lungfishref")
         var deliveries: [[URL]] = []
@@ -31,6 +32,7 @@ final class ImportOperationLifecycleTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let stage = directory.appendingPathComponent("staged")
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let result = await ReferenceImportOperationLifecycle.run(
             center: center, sourceURL: directory.appendingPathComponent("synthetic.fa"), outputDirectory: directory, routeContext: nil
         ) { _ in

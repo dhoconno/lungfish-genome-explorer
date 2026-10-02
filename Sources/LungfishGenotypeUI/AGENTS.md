@@ -36,7 +36,7 @@ Target LungfishGenotypeUITests in Tests/LungfishGenotypeUITests. Run only it wit
 |---|---|
 | The two largest files in the repo, about 125K tokens for the first | GenotypeResultViewController.swift is 11,937 lines, GenotypeComparisonMatrixView.swift is 9,386 (R6) |
 | Hundreds of testing-only identifiers and 54 `#if DEBUG` blocks inside production views | REVIEW.md R6 |
-| Under XCTest the manual-haplotype alert resolves to cancel instead of showing, so tests skip the modal path | `TestHarness.isRunning` at GenotypeResultViewController.swift line 8759 (R10) |
+| A test that leaves a manual-haplotype draft unsaved while the controller sits in a window reaches the real save alert, which hangs the suite unless the test installs a decision provider or an alert presenter double | `testingSetManualHaplotypeDraftDecisionProvider` and `manualHaplotypeDraftAlertPresenter`, GenotypeResultViewController.swift (R10) |
 | A scoped-notification filter that accepts unscoped posts | `shouldAcceptScopedNotification`, GenotypeResultViewController.swift line 876 (R9) |
 | A notebook-compatible MHC-A rule is hard-coded in the analyzer | Sources/LungfishIO/Bundles/GenotypeHaplotypeAnalyzer.swift lines 709 to 722 (R18) |
 

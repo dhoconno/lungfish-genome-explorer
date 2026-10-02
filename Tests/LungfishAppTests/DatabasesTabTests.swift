@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishWorkflow
 @testable import LungfishApp
 @testable import LungfishCore
+import LungfishKit
 
 // MARK: - DatabasesTabTests
 
@@ -683,8 +684,11 @@ final class DatabasesTabTests: XCTestCase {
     func testUpdateFailureIsRecordedAsAnError() async throws {
         let database = try outdatedStandard8()
         struct Boom: LocalizedError { var errorDescription: String? { "network went away" } }
+        let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let vm = PluginManagerViewModel(
             automaticallyRefresh: false,
+            operationCenter: center,
             updateDatabaseAction: { _, _ in throw Boom() }
         )
 

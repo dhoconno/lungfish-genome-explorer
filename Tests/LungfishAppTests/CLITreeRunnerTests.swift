@@ -9,6 +9,11 @@ import LungfishWorkflow
 /// "tree infer" and "tree transform" launch sites, so one parameterized suite
 /// covers both labels against the shared `CLIEvent` wire schema.
 final class CLITreeRunnerTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        await OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
     private var cleanupURLs: [URL] = []
 
     override func tearDownWithError() throws {

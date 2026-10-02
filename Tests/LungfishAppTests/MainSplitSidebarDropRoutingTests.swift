@@ -50,6 +50,7 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
 
         let controller = MainSplitViewController()
         _ = controller.view
+        let previews = RecordingFilePreviewRenderer.install(on: controller.viewerController)
         controller.sidebarController.openProject(at: projectURL)
 
         defer {
@@ -57,7 +58,7 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
             try? FileManager.default.removeItem(at: tempRoot)
         }
 
-        controller.testingDisplayImportedProjectFile(csvURL)
+        controller.displayImportedProjectFile(at: csvURL)
         // Reaching the fully-displayed state takes two hops: the sidebar's own
         // async filesystem scan sets `selectedFileURL`, and outline-view
         // selection then fires `sidebarDidSelectItem`, which debounces its
@@ -87,9 +88,10 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
             controller.viewerController.testQuickLookURL?.resolvingSymlinksInPath(),
             expectedCSVURL
         )
+        XCTAssertEqual(previews.renderedURLs.last?.resolvingSymlinksInPath(), expectedCSVURL)
         XCTAssertFalse(
             controller.viewerController.testHasQuickLookView,
-            "Unit tests should verify routing without instantiating embedded QuickLook views."
+            "The recording renderer stands in for Quick Look, so no embedded view is created."
         )
     }
 
@@ -131,10 +133,13 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
         // Mirror the drop routing: dropping onto the project root passes targetDir =
         // projectURL, but the bundle must land in Reference allele databases/, not
         // the generic targetDir.
-        await controller.testingImportNonFASTQFile(
+        await controller.importNonFASTQFile(
             url: bundleURL,
             projectURL: projectURL,
-            targetDir: projectURL
+            targetDir: projectURL,
+            destinationItem: nil,
+            requestID: nil,
+            displayAfterImport: false
         )
 
         let installedBundleURL = projectURL
@@ -184,7 +189,7 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
                 "urls": [archiveURL],
                 "destination": NSNull(),
                 "requestID": UUID().uuidString,
-                NotificationUserInfoKey.windowStateScope: controller.testingWindowStateScope
+                NotificationUserInfoKey.windowStateScope: controller.windowStateScope
             ]
         )
 

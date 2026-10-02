@@ -241,7 +241,9 @@ class GenotypeResultViewportTestCase: XCTestCase {
             call("AnimalB", "03_Mafa_B_TARGET", 5),
             call("AnimalC", "04_Mafa_B_OTHER", 30),
         ]
-        let controller = makeMatrixAnnotationGuardedController()
+        // The draft stays dirty while the trigger runs in a key window, so a
+        // transition that asks about it must get an answer without a sheet.
+        let controller = makeManualHaplotypeGuardedController()
         let window = NSWindow(
             contentRect: NSRect(
                 x: 0,

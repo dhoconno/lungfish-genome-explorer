@@ -78,6 +78,7 @@ final class WorkflowRunAgainControllerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let runtime = try makeRuntime(in: fixture.root)
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let delegate = makeAppDelegateWithTemporaryState()
         let owner = delegate.createAndShowMainWindow()
         owner.window?.setFrameAutosaveName("")
@@ -122,6 +123,7 @@ final class WorkflowRunAgainControllerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let runtime = try makeRuntime(in: fixture.root)
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let delegate = makeAppDelegateWithTemporaryState()
         let owner = delegate.createAndShowMainWindow()
         owner.window?.setFrameAutosaveName("")
@@ -182,6 +184,7 @@ final class WorkflowRunAgainControllerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let runtime = try makeRuntime(in: fixture.root)
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let delegate = makeAppDelegateWithTemporaryState()
         let owner = delegate.createAndShowMainWindow()
         owner.window?.setFrameAutosaveName("")
@@ -214,6 +217,7 @@ final class WorkflowRunAgainControllerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let runtime = try makeRuntime(in: fixture.root)
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let delegate = makeAppDelegateWithTemporaryState()
         let owner = delegate.createAndShowMainWindow()
         owner.window?.setFrameAutosaveName("")
@@ -255,6 +259,7 @@ final class WorkflowRunAgainControllerTests: XCTestCase {
         let route = try XCTUnwrap(delegate.currentOperationRouteContext(for: owner))
         let runtime = try makeRuntime(in: fixture.root)
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let runner = ControllerReplayCLI(identity: fixture.configuration.identity)
         let controller = WorkflowOperationsWindowController(projectURL: projectURL, routeContext: route, selectedReadURLs: [],
             sidebarInputSelection: nil, initialToolID: nil, serviceFactory: {
@@ -276,6 +281,7 @@ final class WorkflowRunAgainControllerTests: XCTestCase {
 
     func testOperationsReplayCandidateUsesTerminalRunTargetWithoutParsingCapturedShell() {
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let source = URL(fileURLWithPath: "/tmp/invented-history.lungfishrun")
         let id = center.start(title: "Local run", detail: "Fixture", operationType: .workflow,
             targetBundleURL: source, cliCommand: "never parse this shell")

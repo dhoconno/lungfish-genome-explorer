@@ -35,19 +35,17 @@ public final class OperationFailureReportStore: @unchecked Sendable {
         self.fileManager = fileManager
     }
 
+    /// A store rooted in the user's real logs directory, the one
+    /// ``defaultDirectory(appIdentity:libraryDirectory:fileManager:)`` names.
+    /// ``OperationCenter`` starts with this store.
+    ///
+    /// Tests never write here. A test that can fail an operation gives its
+    /// center a store rooted in a temporary directory, through
+    /// ``init(directory:retentionLimit:fileManager:)`` and
+    /// ``OperationCenter/failureReportStore``.
     public convenience init() {
         self.init(directory: OperationFailureReportStore.defaultDirectory())
     }
-
-    /// True when running under a test harness, where the shared
-    /// ``OperationCenter`` is exercised by hundreds of tests that deliberately
-    /// fail operations. Those must not deposit reports in the developer's real
-    /// logs directory.
-    ///
-    /// Detected by looking for a loaded test framework rather than the usual
-    /// `XCTestConfigurationFilePath` environment variable, because the SwiftPM
-    /// runner used by this package sets no `XCTEST*` variables at all.
-    private static var isRunningUnderTests: Bool { TestHarness.isRunning }
 
     /// The directory reports are written to, exposed so the UI can tell the
     /// user where to look without duplicating the path construction.
@@ -64,10 +62,6 @@ public final class OperationFailureReportStore: @unchecked Sendable {
         fileManager: FileManager = .default
     ) -> URL {
         let library = libraryDirectory
-            ?? (isRunningUnderTests
-                ? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-                    .appendingPathComponent("LungfishTestLibrary", isDirectory: true)
-                : nil)
             ?? fileManager.urls(for: .libraryDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library", isDirectory: true)
         return library
