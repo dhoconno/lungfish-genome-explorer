@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 import os
@@ -223,20 +224,38 @@ enum ReferenceBundleImportHelperLauncher {
 /// helper has no cancellation contract, so the operation deliberately has none.
 @MainActor
 enum ReferenceImportOperationLifecycle {
+    /// Registers the Reference Import row, runs `importer` and reports its
+    /// outcome through `center`. `outputDirectory` is the project's Reference
+    /// Sequences folder, which is where the helper writes. A refused row runs
+    /// no importer and returns `OperationRefusedError`.
+    ///
+    /// The row is the one `AppDelegate.beginReferenceImportOperation`
+    /// registers, so both launch sites record the same
+    /// `lungfish-cli import fasta <source> --output-dir <project>` command.
+    /// The run has no preferred bundle name, so the command carries no `--name`.
     static func run(
-        center: OperationCenter,
+        center: any OperationReporting,
         sourceURL: URL,
         outputDirectory: URL,
         routeContext: OperationRouteContext?,
         importer: (UUID) async throws -> URL
     ) async -> Result<URL, Error> {
-        let id = center.start(
-            title: "Reference Import",
-            detail: "Importing \(sourceURL.lastPathComponent)...",
-            operationType: .bundleBuild,
-            cliCommand: OperationCenter.buildCLICommand(subcommand: "import", args: ["fasta", sourceURL.path, "--output-dir", outputDirectory.path]),
-            routeContext: routeContext
-        )
+        // The importer is async and its outcome decides the row's end, so the
+        // launch closure has nothing to do. The switch below gates the importer.
+        let id: UUID
+        switch AppDelegate.beginReferenceImportOperation(
+            sourceURL: sourceURL,
+            projectURL: projectURL(forReferenceSequencesFolder: outputDirectory),
+            preferredBundleName: nil,
+            routeContext: routeContext,
+            reporter: center,
+            launch: { _ in }
+        ) {
+        case .started(let operationID):
+            id = operationID
+        case .refused(let refusal):
+            return .failure(OperationRefusedError(refusal))
+        }
         do {
             let output = try await importer(id)
             guard center.complete(id: id, detail: "Imported \(output.lastPathComponent)", bundleURLs: [output]) else {
@@ -247,5 +266,15 @@ enum ReferenceImportOperationLifecycle {
             center.fail(id: id, detail: error.localizedDescription)
             return .failure(error)
         }
+    }
+
+    /// The project that owns `folder`. `lungfish-cli import fasta --output-dir`
+    /// names the project and adds the Reference Sequences folder itself, so the
+    /// recorded command names the parent of that folder. A folder under any
+    /// other name is returned as given, because no project can be derived from it.
+    static func projectURL(forReferenceSequencesFolder folder: URL) -> URL {
+        folder.lastPathComponent == ReferenceSequenceFolder.folderName
+            ? folder.deletingLastPathComponent()
+            : folder
     }
 }

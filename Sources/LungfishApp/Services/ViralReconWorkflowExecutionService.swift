@@ -62,14 +62,12 @@ final class ViralReconWorkflowExecutionService {
         let persistedRequest = try persistGeneratedInputs(from: referencedRequest, in: bundleURL)
         try writeRunBundle(for: persistedRequest, to: bundleURL)
 
-        let commandPreview = cliCommandPreview(for: persistedRequest, bundleURL: bundleURL)
-        let operationID = operationCenter.start(
-            title: "Viral Recon",
-            detail: initialDetail(for: persistedRequest),
-            operationType: .viralRecon,
-            targetBundleURL: bundleURL,
-            cliCommand: commandPreview,
-            routeContext: routeContext
+        let commandPreview = Self.cliCommandPreview(for: persistedRequest, bundleURL: bundleURL)
+        let operationID = try Self.beginViralReconOperation(
+            request: persistedRequest,
+            bundleURL: bundleURL,
+            routeContext: routeContext,
+            reporter: operationCenter
         )
         let cancellation = ViralReconWorkflowProcessCancellation(runner: processRunner, operationCenter: operationCenter, operationID: operationID)
         operationCenter.setCancelCallback(for: operationID) {
@@ -549,7 +547,7 @@ final class ViralReconWorkflowExecutionService {
         }
     }
 
-    private func cliCommandPreview(for request: ViralReconRunRequest, bundleURL: URL) -> String {
+    static func cliCommandPreview(for request: ViralReconRunRequest, bundleURL: URL) -> String {
         ViralReconWorkflowCommandPreview.build(
             executableName: CLICommandIdentity.executableName,
             arguments: request.cliArguments(bundlePath: bundleURL)
@@ -561,7 +559,7 @@ final class ViralReconWorkflowExecutionService {
         return lines.suffix(40).joined(separator: "\n")
     }
 
-    private func initialDetail(for request: ViralReconRunRequest) -> String {
+    static func initialDetail(for request: ViralReconRunRequest) -> String {
         "\(request.platform.rawValue) · \(request.samples.count) sample(s) · \(referenceDisplayName(request.reference))"
     }
 
@@ -611,7 +609,7 @@ final class ViralReconWorkflowExecutionService {
         return "Viral Recon failed with exit code \(exitCode). \(trimmedTail)"
     }
 
-    private func referenceDisplayName(_ reference: ViralReconReference) -> String {
+    private static func referenceDisplayName(_ reference: ViralReconReference) -> String {
         switch reference {
         case .genome(let accession):
             return accession
