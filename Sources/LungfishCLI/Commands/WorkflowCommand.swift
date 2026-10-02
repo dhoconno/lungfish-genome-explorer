@@ -533,6 +533,8 @@ struct RunSubcommand: AsyncParsableCommand {
         // only Docker reaches a working run, so refuse conda/local before a
         // run bundle is written rather than letting Nextflow fail later.
         try Self.requireSupportedExecutor(request)
+        let stagedAnnotation = try NFCoreLaunchStaging.stageAnnotation(params: params, runBundleURL: runBundleURL)
+        if let stagedAnnotation, !globalOptions.quiet { print(formatter.info(stagedAnnotation.summary)) }
         let bundleCreatedAt = Date()
         try NFCoreRunBundleStore.write(
             request.manifest(createdAt: bundleCreatedAt, executionStatus: .prepared),
@@ -553,7 +555,8 @@ struct RunSubcommand: AsyncParsableCommand {
                 wallTime: Date().timeIntervalSince(bundleCreatedAt),
                 stderr: nil,
                 readPairing: pairingDecisions,
-                effectiveSamplesheetURL: nil
+                effectiveSamplesheetURL: nil,
+                stagedAnnotation: stagedAnnotation
             )
             print(runBundleURL.path)
             return
@@ -591,7 +594,8 @@ struct RunSubcommand: AsyncParsableCommand {
                 wallTime: endedAt.timeIntervalSince(processStartedAt),
                 stderr: error.localizedDescription,
                 readPairing: pairingDecisions,
-                effectiveSamplesheetURL: nil
+                effectiveSamplesheetURL: nil,
+                stagedAnnotation: stagedAnnotation
             )
             throw error
         }
@@ -642,7 +646,8 @@ struct RunSubcommand: AsyncParsableCommand {
         // large, so they live under the whitespace-free staging root (the
         // samplesheet schema rejects a FASTQ path with a space) and go away
         // with it. The samplesheet viralrecon reads is kept in the bundle.
-        var launchRequest = request
+        // Nextflow also reads the staged annotation in place of the caller's.
+        var launchRequest = request.replacing(params: ViralReconAnnotationStaging.launchParams(request.params, using: stagedAnnotation))
         var effectiveSamplesheetURL: URL?
         if let samples = resolvedInputs.illuminaSamples, pairingDecisions.contains(where: \.needsSplit) {
             let splitRoot = stagingRoot.root.appendingPathComponent(
@@ -679,7 +684,8 @@ struct RunSubcommand: AsyncParsableCommand {
                     wallTime: Date().timeIntervalSince(processStartedAt),
                     stderr: error.localizedDescription,
                     readPairing: pairingDecisions,
-                    effectiveSamplesheetURL: nil
+                    effectiveSamplesheetURL: nil,
+                    stagedAnnotation: stagedAnnotation
                 )
                 throw CLIError.workflowFailed(reason: error.localizedDescription)
             }
@@ -692,18 +698,7 @@ struct RunSubcommand: AsyncParsableCommand {
             )
             effectiveSamplesheetURL = pairedSamplesheetURL
             reportReadPairing(pairingDecisions, formatter: formatter)
-            launchRequest = NFCoreRunRequest(
-                workflow: request.workflow,
-                version: request.version,
-                executor: request.executor,
-                inputURLs: [pairedSamplesheetURL],
-                outputDirectory: request.outputDirectory,
-                expectedOutputURLs: request.expectedOutputURLs,
-                params: request.params,
-                resume: request.resume,
-                workDirectory: request.workDirectory,
-                presentationMode: request.presentationMode
-            )
+            launchRequest = launchRequest.replacing(inputURLs: [pairedSamplesheetURL])
         }
 
         let stagedRequest = try NFCoreLaunchStaging.stage(launchRequest, in: stagingRoot.root)
@@ -744,7 +739,8 @@ struct RunSubcommand: AsyncParsableCommand {
             wallTime: processCompletedAt.timeIntervalSince(processStartedAt),
             stderr: processResult.standardError,
             readPairing: pairingDecisions,
-            effectiveSamplesheetURL: effectiveSamplesheetURL
+            effectiveSamplesheetURL: effectiveSamplesheetURL,
+            stagedAnnotation: stagedAnnotation
         )
         if processResult.exitCode != 0 {
             throw CLIError.workflowFailed(
@@ -877,7 +873,8 @@ struct RunSubcommand: AsyncParsableCommand {
         wallTime: TimeInterval,
         stderr: String?,
         readPairing: [ViralReconReadPairingDecision] = [],
-        effectiveSamplesheetURL: URL? = nil
+        effectiveSamplesheetURL: URL? = nil,
+        stagedAnnotation: ViralReconStagedAnnotation? = nil
     ) throws {
         let command = [CLICommandIdentity.executableName] + request.cliArguments(
             bundlePath: bundleURL,
@@ -911,6 +908,9 @@ struct RunSubcommand: AsyncParsableCommand {
         }
         if let effectiveSamplesheetURL {
             parameters["effectiveSamplesheet"] = .file(effectiveSamplesheetURL)
+        }
+        if let stagedAnnotation {
+            parameters[ViralReconAnnotationStaging.provenanceKey] = stagedAnnotation.provenanceValue
         }
 
         let step = StepExecution(
