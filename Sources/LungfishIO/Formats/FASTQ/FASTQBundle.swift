@@ -169,6 +169,66 @@ public enum FASTQBundle {
         return nil
     }
 
+    /// The sequence files of a root bundle that a derived manifest's
+    /// `rootFASTQFilename` names, in the order a tool reads them.
+    ///
+    /// A single-file root is its one recorded file. A root that holds several
+    /// files (`source-files.json`, an ONT import or a merged bundle) is every
+    /// member in manifest order when the recorded file is one of them, by
+    /// path or, when the recorded value has no folder and no file of that
+    /// name exists, by name (the dashboard recorded `run_0.fastq` for
+    /// `chunks/run_0.fastq` before lane 1x). A root missing a member is never
+    /// read as a shorter bundle: it throws ``FASTQBundlePathError/missingMember(bundle:path:)``.
+    /// The one recorded file of a single-file root may not exist, and the
+    /// caller checks that, so a wrong record fails loudly rather than silently.
+    ///
+    /// Reading every member for a sidecar keyed by read ID (a read-ID list,
+    /// an orientation map, a trim table keyed by `id#ordinal`) selects the
+    /// same records as reading the one file the sidecar was made from, plus
+    /// any record in another member that repeats a listed ID, which is the
+    /// rule a single file that repeats an ID already follows (R3).
+    public static func rootSequenceURLs(rootFASTQFilename: String, in rootBundleURL: URL) throws -> [URL] {
+        let recordedURL = try validatedBundleMemberURL(
+            for: rootFASTQFilename,
+            in: rootBundleURL,
+            field: "rootFASTQFilename",
+            allowExistingSymlinkEscape: true
+        )
+        let fm = FileManager.default
+        guard isMultiFileBundle(rootBundleURL),
+              let members = resolveAllFASTQURLs(for: rootBundleURL),
+              !members.isEmpty else {
+            return [recordedURL]
+        }
+        if let missing = members.first(where: { !fm.fileExists(atPath: $0.path) }) {
+            throw FASTQBundlePathError.missingMember(
+                bundle: rootBundleURL.lastPathComponent,
+                path: bundleRelativePath(of: missing, in: rootBundleURL) ?? missing.lastPathComponent
+            )
+        }
+        let memberPaths = Set(members.map { $0.standardizedFileURL.path })
+        if memberPaths.contains(recordedURL.standardizedFileURL.path) {
+            return members
+        }
+        if !fm.fileExists(atPath: recordedURL.path),
+           !rootFASTQFilename.contains("/"),
+           members.contains(where: { $0.lastPathComponent == rootFASTQFilename }) {
+            return members
+        }
+        return [recordedURL]
+    }
+
+    /// `fileURL`'s path inside `bundleURL`, the form `rootFASTQFilename`
+    /// records (`chunks/run_0.fastq` for a member of a multi-file bundle), or
+    /// nil when the file is the bundle itself or lies outside it.
+    public static func bundleRelativePath(of fileURL: URL, in bundleURL: URL) -> String? {
+        guard let relative = CanonicalFilePath.relativePath(of: fileURL, within: bundleURL),
+              !relative.isEmpty else {
+            return nil
+        }
+        return relative
+    }
+
     /// Returns true when a bundle stores a derived pointer manifest.
     public static func isDerivedBundle(_ bundleURL: URL) -> Bool {
         guard isBundleURL(bundleURL) else { return false }
@@ -574,11 +634,16 @@ public enum FASTQBundle {
 public enum FASTQBundlePathError: Error, LocalizedError, Sendable, Equatable {
     /// Manifest path is absolute, escapes the bundle, or targets reserved control metadata.
     case invalidPath(field: String, path: String)
+    /// A file that `source-files.json` lists is not on disk, so the bundle
+    /// cannot be read as the whole it describes.
+    case missingMember(bundle: String, path: String)
 
     public var errorDescription: String? {
         switch self {
         case .invalidPath(let field, let path):
             return "Manifest path '\(field)' is not a safe FASTQ bundle-relative path: '\(path)'"
+        case .missingMember(let bundle, let path):
+            return "\(bundle) lists '\(path)' in source-files.json, but the file is missing"
         }
     }
 }

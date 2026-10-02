@@ -122,7 +122,10 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
     /// Relative path from this bundle to the root (physical FASTQ payload) bundle.
     public let rootBundleRelativePath: String
 
-    /// FASTQ filename inside the root bundle (first file for multi-file bundles).
+    /// Bundle-relative path of the root's primary sequence file. For a root
+    /// that holds several files (its `source-files.json`), this is the first
+    /// member (`chunks/run_0.fastq`) and the derivative's reads come from
+    /// every member, resolved through `FASTQBundle.rootSequenceURLs`.
     public let rootFASTQFilename: String
 
     /// What this derivative stores on disk (read ID list or trim positions).
