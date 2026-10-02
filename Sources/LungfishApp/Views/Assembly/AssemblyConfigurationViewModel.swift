@@ -432,6 +432,7 @@ public enum AssemblyRunner {
                     originalInputURLs: materializationResult.originalInputURLs,
                     executionInputURLs: executionRequest.inputURLs
                 ),
+                requestedInputURLs: request.inputURLs,
                 steps: try managedAssemblyMaterializationSteps(
                     originalInputURLs: materializationResult.originalInputURLs,
                     executionInputURLs: executionRequest.inputURLs,

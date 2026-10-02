@@ -80,6 +80,13 @@ public struct AssemblyProvenance: Codable, Sendable, Equatable {
     /// Input file records with checksums.
     public let inputs: [InputFileRecord]
 
+    /// The inputs the user chose for the run, as absolute paths in the order
+    /// they were given. ``inputs`` also records their lineage (a virtual
+    /// bundle comes with the root FASTQ it was cut from and the copy the run
+    /// materialized), so Reassemble reads this instead
+    /// (``reassemblyInputPaths``). Nil in records written before the field.
+    public let requestedInputs: [String]?
+
     /// Ordered reproducibility steps for app-managed assembly workflows.
     public let steps: [ProvenanceStep]
 
@@ -107,6 +114,7 @@ public struct AssemblyProvenance: Codable, Sendable, Equatable {
         case commandLine = "command_line"
         case parameters
         case inputs
+        case requestedInputs = "requested_inputs"
         case steps
         case statistics
     }
@@ -128,6 +136,7 @@ public struct AssemblyProvenance: Codable, Sendable, Equatable {
         commandLine: String,
         parameters: AssemblyParameters,
         inputs: [InputFileRecord],
+        requestedInputs: [String]? = nil,
         steps: [ProvenanceStep] = [],
         statistics: AssemblyStatistics?
     ) {
@@ -147,6 +156,7 @@ public struct AssemblyProvenance: Codable, Sendable, Equatable {
         self.commandLine = commandLine
         self.parameters = parameters
         self.inputs = inputs
+        self.requestedInputs = requestedInputs
         self.steps = steps
         self.statistics = statistics
     }
@@ -172,6 +182,7 @@ public struct AssemblyProvenance: Codable, Sendable, Equatable {
         self.commandLine = try container.decode(String.self, forKey: .commandLine)
         self.parameters = try container.decode(AssemblyParameters.self, forKey: .parameters)
         self.inputs = try container.decode([InputFileRecord].self, forKey: .inputs)
+        self.requestedInputs = try container.decodeIfPresent([String].self, forKey: .requestedInputs)
         self.steps = try container.decodeIfPresent([ProvenanceStep].self, forKey: .steps) ?? []
         self.statistics = try container.decodeIfPresent(AssemblyStatistics.self, forKey: .statistics)
     }
@@ -322,6 +333,85 @@ extension AssemblyProvenance {
     }
 }
 
+// MARK: - Reassembly Inputs
+
+extension AssemblyProvenance {
+
+    /// The inputs the user chose for this run, and nothing else, in the order
+    /// they were given: what Reassemble hands the assembly wizard again (R3).
+    ///
+    /// ``requestedInputs`` names them when the record has it. An older record
+    /// lists them in ``inputs`` among their lineage, so they are read from
+    /// what it records. A path one of this run's own ``steps`` wrote (a
+    /// materialized or joined copy) is not an input. Nor is a path a step read
+    /// only to write the copy of another input, which the step names as its
+    /// origin (the root FASTQ of a virtual bundle), unless the assembler's
+    /// ``commandLine`` names it too, so the run also assembled it directly. A
+    /// record without a path gives its file name.
+    public var reassemblyInputPaths: [String] {
+        if let requestedInputs { return requestedInputs }
+        let written = Set(steps.flatMap(\.outputs).map { Self.standardizedPath($0.path) })
+        let lineage = Set(
+            steps.flatMap(\.inputs)
+                .filter { $0.originPath != nil }
+                .map { Self.standardizedPath($0.path) }
+        )
+        let assembled = Self.pathsNamed(by: commandLine)
+        var seen = Set<String>()
+        var paths: [String] = []
+        for record in inputs {
+            guard let recordedPath = record.originalPath else {
+                if seen.insert(record.filename).inserted { paths.append(record.filename) }
+                continue
+            }
+            let path = Self.standardizedPath(recordedPath)
+            guard !written.contains(path) else { continue }
+            guard !lineage.contains(path) || assembled.contains(path) else { continue }
+            if seen.insert(path).inserted { paths.append(recordedPath) }
+        }
+        return paths
+    }
+
+    /// ``reassemblyInputPaths`` found on disk, each at its recorded path or,
+    /// when it has moved, by name in the project folder, its FASTQ folder or
+    /// its Reads folder, as Reassemble has always looked. `missing` holds the
+    /// recorded paths found nowhere.
+    public func reassemblyInputFiles(projectURL: URL?) -> (found: [URL], missing: [String]) {
+        var found: [URL] = []
+        var missing: [String] = []
+        for path in reassemblyInputPaths {
+            let recordedURL = URL(fileURLWithPath: path)
+            let folders = projectURL.map { [$0, $0.appendingPathComponent("FASTQ"), $0.appendingPathComponent("Reads")] } ?? []
+            let candidates = (path.hasPrefix("/") ? [recordedURL] : [])
+                + folders.map { $0.appendingPathComponent(recordedURL.lastPathComponent) }
+            if let file = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+                found.append(file)
+            } else {
+                missing.append(path)
+            }
+        }
+        return (found, missing)
+    }
+
+    private static func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    /// The absolute paths `commandLine` hands the assembler: each argument,
+    /// and each comma-separated part of one, since SKESA and MEGAHIT can name
+    /// several files in one argument.
+    private static func pathsNamed(by commandLine: String) -> Set<String> {
+        guard let arguments = try? AdvancedCommandLineOptions.parse(commandLine) else { return [] }
+        var paths = Set<String>()
+        for argument in arguments {
+            for part in [argument] + argument.split(separator: ",").map(String.init) where part.hasPrefix("/") {
+                paths.insert(standardizedPath(part))
+            }
+        }
+        return paths
+    }
+}
+
 // MARK: - ProvenanceBuilder
 
 /// Helper to construct provenance records from pipeline results.
@@ -369,10 +459,15 @@ public enum ProvenanceBuilder {
     }
 
     /// Creates a provenance record from a managed assembly request and result.
+    ///
+    /// `request` is the request the assembler ran, whose inputs are the
+    /// execution files. `requestedInputURLs` are the inputs the user chose,
+    /// recorded as ``AssemblyProvenance/requestedInputs``.
     public static func build(
         request: AssemblyRunRequest,
         result: AssemblyResult,
         inputRecords: [InputFileRecord],
+        requestedInputURLs: [URL]? = nil,
         steps: [ProvenanceStep] = [],
         lungfishVersion: String = "1.0.0"
     ) -> AssemblyProvenance {
@@ -405,6 +500,7 @@ public enum ProvenanceBuilder {
             commandLine: result.commandLine,
             parameters: parameters,
             inputs: inputRecords,
+            requestedInputs: requestedInputURLs?.map(\.standardizedFileURL.path),
             steps: steps,
             statistics: result.statistics
         )
