@@ -28,6 +28,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, AppKit, SwiftUI and Combine. Never L
 | Type | Path |
 |---|---|
 | Window-scoped notification key | `WindowStateScope`, Sources/LungfishKit/WindowStateScope.swift line 3 |
+| Window or application scope of every notification name, and the accept rule | `ScopedEventFilter`, Sources/LungfishKit/ScopedEventFilter.swift |
 | Shared result table | Sources/LungfishKit/BatchTableView.swift |
 | Row commands for menus and accessibility | `RowCommand`, Sources/LungfishKit/Accessibility/RowCommand.swift line 35 |
 | BLAST results drawer | `BlastResultsDrawerContainerView`, Sources/LungfishKit/BlastResultsDrawerContainerView.swift line 68 |
@@ -38,6 +39,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, AppKit, SwiftUI and Combine. Never L
 - Bundle locks serialize operations on one bundle (`canStartOperation`, `activeLockHolder`, OperationCenter.swift lines 513 and 518). `OperationReporting` exposes no lock calls, so lock rules stay inside `OperationCenter`.
 - Every operation records a non-nil CLI command (REVIEW.md invariants).
 - Kit types are `public` and free of App types.
+- Every `Notification.Name` declared under Sources is a window event or an application event in `ScopedEventFilter.classifications` (R9). The poster of a window event attaches its window's scope through `ScopedEventFilter.scopedUserInfo(_:scope:)`. An observer that belongs to a window checks `ScopedEventFilter.accept(_:for:)` with its own scope and drops a window event that carries no scope or another window's scope. An application event reaches every observer. A view that a container embeds without a scope finds its window's scope with `ScopedEventFilter.hostingWindowScope(of:)`. `ScopedEventClassificationTests` fails when a declared name is missing from the table or a table entry is no longer declared.
 
 ## Tests
 
