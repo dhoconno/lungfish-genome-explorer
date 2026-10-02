@@ -7,10 +7,11 @@ REL, SCI, SIMP, TST, UX and WFL. Hundreds of comments cited those tags, and the 
 report that explained them is deleted, so a tag left in a comment points at nothing.
 Each comment must state its own rule or reason in a self-contained sentence instead.
 
-This check scans every text file under Sources, Tests and scripts for a tag, allowing
-one lowercase letter after the number for sub-items. Only those twelve prefixes match,
-so look-alikes such as UTF-8, SHA-256, GPL-3, BY-NC and HSV-1 pass. Binary files and
-the directories .git, .build, .swiftpm, node_modules and __pycache__ are skipped.
+This check scans every text file under Sources, Tests, scripts, agents, .github and
+.codex for a tag, allowing one lowercase letter after the number for sub-items. Only
+those twelve prefixes match, so look-alikes such as UTF-8, SHA-256, GPL-3, BY-NC and
+HSV-1 pass. Binary files and the directories .git, .build, .swiftpm, node_modules and
+__pycache__ are skipped.
 
 A tag that cannot be reworded stays on purpose. Examples are a tag inside a string literal
 that reaches exported output and a tag in a bundled script whose digest is recorded in
@@ -37,7 +38,7 @@ from pathlib import Path
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ALLOWLIST = Path(__file__).resolve().with_suffix(".allowlist")
 
-SCAN_ROOTS = ("Sources", "Tests", "scripts")
+SCAN_ROOTS = ("Sources", "Tests", "scripts", "agents", ".github", ".codex")
 SKIP_DIRS = {".git", ".build", ".swiftpm", "node_modules", "__pycache__"}
 PREFIXES = ("ARC", "FEA", "GEN", "NEW", "PERF", "REC", "REL", "SCI", "SIMP", "TST", "UX", "WFL")
 # Built from the prefixes so this file holds no literal tag and never matches itself.
@@ -145,7 +146,7 @@ def main(argv=None) -> int:
         )
         return 1
 
-    print(f"audit-tags: no audit finding tags in Sources, Tests or scripts ({scanned} files scanned, {len(used)} allowlisted).")
+    print(f"audit-tags: no audit finding tags in Sources, Tests, scripts, agents, .github or .codex ({scanned} files scanned, {len(used)} allowlisted).")
     return 0
 
 
