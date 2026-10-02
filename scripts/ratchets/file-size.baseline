@@ -13,7 +13,7 @@ Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
 Sources/LungfishApp/Services/FASTQBundleMergeService.swift 861
 Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1747
 Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 1014
-Sources/LungfishApp/Services/FASTQIngestionService.swift 1619
+Sources/LungfishApp/Services/FASTQIngestionService.swift 1608
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 906
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1337
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1266
@@ -195,7 +195,7 @@ Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift 954
 Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1155
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 937
-Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 3058
+Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 3049
 Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 1487
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 1019
 Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1316
