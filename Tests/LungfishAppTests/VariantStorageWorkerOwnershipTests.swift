@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 import LungfishIO
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 

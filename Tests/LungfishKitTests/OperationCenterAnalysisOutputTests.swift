@@ -5,6 +5,7 @@
 import XCTest
 import LungfishCore
 @testable import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class OperationCenterAnalysisOutputTests: XCTestCase {
@@ -35,7 +36,12 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testCompletingTheOperationMarksTheRunComplete() throws {
         let dir = try makeIncompleteRun()
-        let id = center.start(title: "TaxTriage", detail: "Running", cliCommand: "lungfish-cli taxtriage --input a.fastq")
+        let id = center.begin(
+            title: "TaxTriage",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: "lungfish-cli taxtriage --input a.fastq"
+        ).rowID
         center.trackAnalysisOutput(dir, for: id)
         XCTAssertTrue(center.isTrackingAnalysisOutput(dir))
         XCTAssertEqual(AnalysisRunRecord.load(from: dir)?.command, "lungfish-cli taxtriage --input a.fastq")
@@ -52,7 +58,12 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testCompletingWithWarningsIsASuccessfulRun() throws {
         let dir = try makeIncompleteRun()
-        let id = center.start(title: "Viral Recon", detail: "Running")
+        let id = center.begin(
+            title: "Viral Recon",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.trackAnalysisOutput(dir, for: id)
         XCTAssertTrue(center.completeWithWarning(id: id, detail: "2 samples skipped"))
         XCTAssertFalse(AnalysisRunRecord.isIncomplete(dir))
@@ -60,7 +71,12 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testCompletingWithWarningsAndOutputsIsASuccessfulRun() throws {
         let dir = try makeIncompleteRun()
-        let id = center.start(title: "Viral Recon", detail: "Running")
+        let id = center.begin(
+            title: "Viral Recon",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.trackAnalysisOutput(dir, for: id)
         XCTAssertTrue(center.completeWithWarning(id: id, detail: "advisories", bundleURLs: [dir]))
         XCTAssertFalse(AnalysisRunRecord.isIncomplete(dir))
@@ -68,7 +84,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testFailedRunStaysIncomplete() throws {
         let dir = try makeIncompleteRun()
-        let id = center.start(title: "TaxTriage", detail: "Running")
+        let id = center.begin(title: "TaxTriage", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir, for: id)
         XCTAssertTrue(center.fail(id: id, detail: "Nextflow exited 1"))
         XCTAssertTrue(AnalysisRunRecord.isIncomplete(dir))
@@ -77,7 +93,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testCancelledRunStaysIncomplete() throws {
         let dir = try makeIncompleteRun()
-        let id = center.start(title: "TaxTriage", detail: "Running")
+        let id = center.begin(title: "TaxTriage", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir, for: id)
         XCTAssertTrue(center.acknowledgeCancellation(id: id))
         XCTAssertTrue(AnalysisRunRecord.isIncomplete(dir))
@@ -90,8 +106,18 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
         try FileManager.default.createDirectory(at: sampleA, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: sampleB, withIntermediateDirectories: true)
 
-        let first = center.start(title: "Assemble A", detail: "Running")
-        let second = center.start(title: "Assemble B", detail: "Running")
+        let first = center.begin(
+            title: "Assemble A",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
+        let second = center.begin(
+            title: "Assemble B",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.trackAnalysisOutput(sampleA, for: first)
         center.trackAnalysisOutput(sampleB, for: second)
 
@@ -103,8 +129,18 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testEveryChildFailingKeepsTheBatchIncomplete() throws {
         let batch = try makeIncompleteRun("spades-batch-2026-09-28T10-00-00")
-        let first = center.start(title: "Assemble A", detail: "Running")
-        let second = center.start(title: "Assemble B", detail: "Running")
+        let first = center.begin(
+            title: "Assemble A",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
+        let second = center.begin(
+            title: "Assemble B",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.trackAnalysisOutput(batch, for: first)
         center.trackAnalysisOutput(batch, for: second)
         center.fail(id: first, detail: "failed")
@@ -115,7 +151,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
     func testHoldKeepsASequentialBatchHiddenUntilReleased() throws {
         let batch = try makeIncompleteRun("minimap2-batch-2026-09-28T10-00-00")
         let hold = center.holdAnalysisOutput(batch)
-        let child = center.start(title: "Map A", detail: "Running")
+        let child = center.begin(title: "Map A", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(batch, for: child)
         center.complete(id: child, detail: "Done")
         XCTAssertTrue(AnalysisRunRecord.isIncomplete(batch))
@@ -127,7 +163,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testTrackingAfterTheOperationCompletedMarksImmediately() throws {
         let dir = try makeIncompleteRun()
-        let id = center.start(title: "Kraken2", detail: "Running")
+        let id = center.begin(title: "Kraken2", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.complete(id: id, detail: "Done")
         center.trackAnalysisOutput(dir, for: id)
         XCTAssertFalse(AnalysisRunRecord.isIncomplete(dir))
@@ -136,7 +172,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
     func testTrackingACompleteDirectoryIsANoOp() throws {
         let dir = root.appendingPathComponent("Analyses/legacy", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let id = center.start(title: "Kraken2", detail: "Running")
+        let id = center.begin(title: "Kraken2", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir, for: id)
         XCTAssertFalse(center.isTrackingAnalysisOutput(dir))
     }
@@ -168,7 +204,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testTrackedRunsAreNeverListedAsInterrupted() throws {
         let dir = try makeIncompleteRun()
-        let id = center.start(title: "TaxTriage", detail: "Running")
+        let id = center.begin(title: "TaxTriage", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir, for: id)
         let run = OperationCenter.InterruptedAnalysisRun(
             directory: dir,
@@ -189,13 +225,13 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
         let sample2 = dir.appendingPathComponent("S2", isDirectory: true)
         let batch = SequentialAnalysisBatchHold(directory: dir, childCount: 2, center: center)
 
-        let first = center.start(title: "S1", detail: "Running")
+        let first = center.begin(title: "S1", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(sample1, for: first)
         batch.didLaunchChild()
         XCTAssertTrue(center.complete(id: first, detail: "Done"))
         XCTAssertTrue(AnalysisRunRecord.isIncomplete(dir), "hidden between children")
 
-        let second = center.start(title: "S2", detail: "Running")
+        let second = center.begin(title: "S2", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(sample2, for: second)
         batch.didLaunchChild()
         XCTAssertTrue(AnalysisRunRecord.isIncomplete(dir), "hidden while the last child runs")
@@ -209,11 +245,11 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
     func testSequentialBatchWhoseLastChildFailsStillCompletesOnAnEarlierSuccess() throws {
         let dir = try makeIncompleteRun("spades-batch-2026-09-28T10-00-00")
         let batch = SequentialAnalysisBatchHold(directory: dir, childCount: 2, center: center)
-        let first = center.start(title: "S1", detail: "Running")
+        let first = center.begin(title: "S1", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir.appendingPathComponent("S1"), for: first)
         batch.didLaunchChild()
         center.complete(id: first, detail: "Done")
-        let second = center.start(title: "S2", detail: "Running")
+        let second = center.begin(title: "S2", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir.appendingPathComponent("S2"), for: second)
         batch.didLaunchChild()
         center.fail(id: second, detail: "boom")
@@ -223,7 +259,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
     func testSequentialBatchCancelledBeforeItsLastChildStaysHidden() throws {
         let dir = try makeIncompleteRun("minimap2-batch-2026-09-28T11-00-00")
         let batch = SequentialAnalysisBatchHold(directory: dir, childCount: 3, center: center)
-        let first = center.start(title: "S1", detail: "Running")
+        let first = center.begin(title: "S1", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir.appendingPathComponent("S1"), for: first)
         batch.didLaunchChild()
         center.cancel(id: first)
@@ -240,7 +276,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
     /// row, so a tracked analysis directory becomes the row's result.
     func testCompletingATrackedRunWithoutURLsRecordsTheDirectoryAsItsResult() throws {
         let dir = try makeIncompleteRun("kraken2-2026-09-29T05-27-31")
-        let id = center.start(title: "Kraken2", detail: "Running")
+        let id = center.begin(title: "Kraken2", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir, for: id)
         XCTAssertTrue(center.complete(id: id, detail: "Classified 98%"))
         let item = try XCTUnwrap(center.items.first { $0.id == id })
@@ -249,7 +285,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testCompletingWithWarningsRecordsTheTrackedDirectory() throws {
         let dir = try makeIncompleteRun("esviritu-batch-2026-09-29T05-27-31")
-        let id = center.start(title: "EsViritu", detail: "Running")
+        let id = center.begin(title: "EsViritu", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir.appendingPathComponent("S1", isDirectory: true), for: id)
         XCTAssertTrue(center.completeWithWarning(id: id, detail: "1 sample skipped"))
         let item = try XCTUnwrap(center.items.first { $0.id == id })
@@ -259,7 +295,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
     func testExplicitResultURLsWinOverTheTrackedDirectory() throws {
         let dir = try makeIncompleteRun("minimap2-2026-09-29T05-27-31")
         let bundle = dir.appendingPathComponent("viewer.lungfishref", isDirectory: true)
-        let id = center.start(title: "minimap2", detail: "Running")
+        let id = center.begin(title: "minimap2", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir, for: id)
         XCTAssertTrue(center.complete(id: id, detail: "Mapped", bundleURLs: [bundle]))
         let item = try XCTUnwrap(center.items.first { $0.id == id })
@@ -268,7 +304,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testFailedTrackedRunRecordsNoResult() throws {
         let dir = try makeIncompleteRun("kraken2-2026-09-29T05-27-31")
-        let id = center.start(title: "Kraken2", detail: "Running")
+        let id = center.begin(title: "Kraken2", detail: "Running", operationType: .download, cliCommand: nil).rowID
         center.trackAnalysisOutput(dir, for: id)
         XCTAssertTrue(center.fail(id: id, detail: "exit 1"))
         let item = try XCTUnwrap(center.items.first { $0.id == id })
@@ -277,7 +313,7 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
 
     func testTrackingAfterCompletionRecordsTheDirectoryAsTheResult() throws {
         let dir = try makeIncompleteRun("kraken2-2026-09-29T05-27-31")
-        let id = center.start(title: "Kraken2", detail: "Running")
+        let id = center.begin(title: "Kraken2", detail: "Running", operationType: .download, cliCommand: nil).rowID
         XCTAssertTrue(center.complete(id: id, detail: "Done"))
         center.trackAnalysisOutput(dir, for: id)
         let item = try XCTUnwrap(center.items.first { $0.id == id })

@@ -8,6 +8,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 import LungfishKit
+import LungfishKitTestSupport
 
 // MARK: - DatabasesTabTests
 

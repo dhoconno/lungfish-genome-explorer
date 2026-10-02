@@ -67,7 +67,9 @@ final class OperationFailureIssueReporterTests: XCTestCase {
             title: longTitle,
             detail: "Failed",
             progress: 1,
-            state: .failed
+            state: .failed,
+            operationType: .download,
+            cliCommand: nil
         )
 
         let title = OperationFailureIssueReporter.issueTitle(for: item)

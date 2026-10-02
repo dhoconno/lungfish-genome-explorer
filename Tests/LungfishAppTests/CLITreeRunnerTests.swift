@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishWorkflow
 
 /// Replaces `CLITreeInferenceRunnerTests` and `CLITreeTransformRunnerTests`,
@@ -52,11 +53,12 @@ final class CLITreeRunnerTests: XCTestCase {
             let readyBundles = ReadyBundleCapture()
             let opID = await MainActor.run {
                 OperationCenter.shared.onBundleReady = { readyBundles.set($0) }
-                return OperationCenter.shared.start(
+                return OperationCenter.shared.begin(
                     title: "Run \(fixture.label)",
                     detail: "Launching...",
-                    operationType: fixture.operationType
-                )
+                    operationType: fixture.operationType,
+                    cliCommand: nil
+                ).rowID
             }
 
             let result = try await CLITreeRunner(label: fixture.label, cliURLOverride: fakeCLI)
@@ -97,11 +99,12 @@ final class CLITreeRunnerTests: XCTestCase {
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
 
             let opID = await MainActor.run {
-                OperationCenter.shared.start(
+                OperationCenter.shared.begin(
                     title: "Run \(fixture.label)",
                     detail: "Launching...",
-                    operationType: fixture.operationType
-                )
+                    operationType: fixture.operationType,
+                    cliCommand: nil
+                ).rowID
             }
 
             do {

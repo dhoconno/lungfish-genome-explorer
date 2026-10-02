@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishKit
+import LungfishKitTestSupport
 
 /// A failed minimap2 run's log used to end at "Running minimap2..." and the
 /// row's latest-line kept saying so; the "unknown option" error showed only
@@ -28,7 +29,12 @@ final class OperationCenterFailureLogTests: XCTestCase {
     }
 
     func testFailureAppendsErrorMessageAndDetailToLog() throws {
-        let id = center.start(title: "Map Reads (minimap2): S1", detail: "Mapping")
+        let id = center.begin(
+            title: "Map Reads (minimap2): S1",
+            detail: "Mapping",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.log(id: id, level: .info, message: "Running minimap2...")
 
         XCTAssertTrue(center.fail(
@@ -51,7 +57,7 @@ final class OperationCenterFailureLogTests: XCTestCase {
     }
 
     func testFailureWithOnlyDetailLogsIt() throws {
-        let id = center.start(title: "Map Reads", detail: "Mapping")
+        let id = center.begin(title: "Map Reads", detail: "Mapping", operationType: .download, cliCommand: nil).rowID
         center.log(id: id, level: .info, message: "Running minimap2...")
 
         center.fail(id: id, detail: "minimap2: unknown option --bogus")
@@ -63,7 +69,12 @@ final class OperationCenterFailureLogTests: XCTestCase {
     }
 
     func testFailureDoesNotRepeatAnErrorTheWorkerAlreadyLogged() throws {
-        let id = center.start(title: "EsViritu S1", detail: "Running")
+        let id = center.begin(
+            title: "EsViritu S1",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.log(id: id, level: .error, message: "EsViritu exited 2")
 
         center.fail(id: id, detail: "EsViritu exited 2", errorMessage: "EsViritu exited 2")
@@ -73,12 +84,22 @@ final class OperationCenterFailureLogTests: XCTestCase {
     }
 
     func testCompletionAndCancellationDoNotAppendFailureLines() throws {
-        let completed = center.start(title: "Done", detail: "Running")
+        let completed = center.begin(
+            title: "Done",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.log(id: completed, level: .info, message: "step")
         center.complete(id: completed, detail: "All good")
         XCTAssertEqual(try item(completed).logEntries.map(\.message), ["step"])
 
-        let cancelled = center.start(title: "Cancelled", detail: "Running")
+        let cancelled = center.begin(
+            title: "Cancelled",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.log(id: cancelled, level: .info, message: "step")
         center.acknowledgeCancellation(id: cancelled)
         XCTAssertEqual(try item(cancelled).logEntries.map(\.message), ["step"])

@@ -9,6 +9,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishKit
 @testable import LungfishWorkflow
+import LungfishKitTestSupport
 
 @MainActor
 final class SavontBatchOutputLayoutTests: XCTestCase {
@@ -239,8 +240,18 @@ final class SavontBatchOutputLayoutTests: XCTestCase {
     /// analogous `.assemble` barrier tests).
     func testBarrierRunsCleanupOnlyAfterBothChildrenReachTerminalStateNotOnFirst() async throws {
         let center = OperationCenter()
-        let opA = center.start(title: "Savont A", detail: "Running", operationType: .fastqOperation)
-        let opB = center.start(title: "Savont B", detail: "Running", operationType: .fastqOperation)
+        let opA = center.begin(
+            title: "Savont A",
+            detail: "Running",
+            operationType: .fastqOperation,
+            cliCommand: nil
+        ).rowID
+        let opB = center.begin(
+            title: "Savont B",
+            detail: "Running",
+            operationType: .fastqOperation,
+            cliCommand: nil
+        ).rowID
 
         var cleanupRan = false
         let barrier = Task {
@@ -276,8 +287,18 @@ final class SavontBatchOutputLayoutTests: XCTestCase {
     /// completing).
     func testBarrierAllowsBothChildrenToBeSimultaneouslyRunning() async throws {
         let center = OperationCenter()
-        let opA = center.start(title: "Savont A", detail: "Running", operationType: .fastqOperation)
-        let opB = center.start(title: "Savont B", detail: "Running", operationType: .fastqOperation)
+        let opA = center.begin(
+            title: "Savont A",
+            detail: "Running",
+            operationType: .fastqOperation,
+            cliCommand: nil
+        ).rowID
+        let opB = center.begin(
+            title: "Savont B",
+            detail: "Running",
+            operationType: .fastqOperation,
+            cliCommand: nil
+        ).rowID
 
         // Both children are concurrently in the `.running` state at once --
         // the concurrent-dispatch precondition the barrier must tolerate

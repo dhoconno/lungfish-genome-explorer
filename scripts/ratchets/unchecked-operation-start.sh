@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
-"""unchecked-operation-start.sh - Ratchet on deprecated OperationCenter.start(...) calls
-that carry a bundle target.
+"""unchecked-operation-start.sh - Guard against OperationCenter.start(...) calls that carry a
+bundle target.
 
-Background: OperationCenter.start(...)
-returns a plain UUID even when the requested bundle lock is refused, and every existing
-caller that passed targetBundleURL/additionalLockedBundleURLs had to hand-roll its own
-pre-check (canStartOperation) or post-check (state == .running / .isActive) to notice a
-refusal before mutating the bundle or launching a subprocess. OperationCenter.begin(...)
-replaces this: it returns an OperationStartResult the caller must switch on, so a refusal
-cannot be silently ignored. start(...) is now @available(*, deprecated) precisely for the
-targetBundleURL / additionalLockedBundleURLs overload.
+Background: OperationCenter.start(...) returned a plain UUID even when the requested bundle
+lock was refused, so every caller that passed targetBundleURL/additionalLockedBundleURLs had
+to hand-roll its own pre-check (canStartOperation) or post-check (state == .running /
+.isActive) to notice a refusal before mutating the bundle or launching a subprocess.
+OperationCenter.begin(...) replaces it. It returns an OperationStartResult the caller must
+switch on, so a refusal cannot be silently ignored. Phase 1 of the architecture program
+(finding R4) moved every caller to begin(...) and deleted start(...), so the baseline is 0.
 
-This script counts call sites that still invoke the deprecated start(...) with a bundle
-target. That count must never rise: new bundle-mutating callers must use begin(...)
-instead. Existing callers may remain on start(...) only because they already carry a
-correct pre-check or post-check (verified by hand); migrating them
-to begin(...) is encouraged but not required by this ratchet.
+This script stays as a guard. It counts call sites that invoke start(...) with a bundle
+target, and that count must stay 0. A restored start(...) method, or a new bundle-mutating
+caller that skips begin(...), fails the pre-push check.
 
 Usage:
     scripts/ratchets/unchecked-operation-start.sh              # check against the recorded baseline
@@ -23,8 +20,8 @@ Usage:
     scripts/ratchets/unchecked-operation-start.sh --update      # rewrite the recorded baseline to the current count
                                                                   (only for a deliberate, reviewed increase)
 
-Exit codes: 0 = at or under baseline, 1 = over baseline (a new unchecked caller was
-added, or an existing one was migrated backwards from begin to start).
+Exit codes: 0 = at or under baseline, 1 = over baseline (a start(...) call with a bundle
+target was added).
 """
 import re
 import subprocess
@@ -100,7 +97,7 @@ def main(argv):
 
     if "--update" in argv:
         BASELINE_FILE.write_text(f"{count}\n", encoding="utf-8")
-        print(f"Updated baseline to {count} unchecked OperationCenter.start(...) call sites.")
+        print(f"Updated baseline to {count} OperationCenter.start(...) call sites with a bundle target.")
         return 0
 
     baseline = read_baseline()
@@ -114,16 +111,16 @@ def main(argv):
 
     if count > baseline:
         print(
-            f"unchecked-operation-start: {count} call sites still pass targetBundleURL/"
-            f"additionalLockedBundleURLs to the deprecated OperationCenter.start(...), "
+            f"unchecked-operation-start: {count} call sites pass targetBundleURL/"
+            f"additionalLockedBundleURLs to OperationCenter.start(...), "
             f"up from the recorded baseline of {baseline}.",
             file=sys.stderr,
         )
         print(
-            "New bundle-mutating callers must use OperationCenter.begin(...) instead, "
+            "Bundle-mutating callers must use OperationCenter.begin(...) instead, "
             "whose OperationStartResult the caller must switch on before launching a "
-            "transport/subprocess or mutating the bundle. start(...) returns a plain UUID "
-            "even when the requested bundle lock is refused, so a refusal can be silently ignored.",
+            "transport/subprocess or mutating the bundle. A start(...) that returns a plain UUID "
+            "even when the requested bundle lock is refused lets a refusal be silently ignored.",
             file=sys.stderr,
         )
         print("Offending call sites:", file=sys.stderr)

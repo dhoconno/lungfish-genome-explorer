@@ -6,13 +6,19 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class RunningOperationsWarningTests: XCTestCase {
 
     func testWarningPointsAtTheOperationsPanelInterruptedRow() {
         let center = OperationCenter()
-        let id = center.start(title: "EsViritu SRR12486983", detail: "Running")
+        let id = center.begin(
+            title: "EsViritu SRR12486983",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         let items = center.activeItems
         XCTAssertEqual(items.map(\.id), [id])
         for kind in [RunningOperationsWarning.Kind.quit, .closeWindow] {
@@ -31,8 +37,18 @@ final class RunningOperationsWarningTests: XCTestCase {
 
     func testOpenWarningDropsRunsThatFinishAndSaysWhenNothingIsLeft() {
         let center = OperationCenter()
-        let kraken = center.start(title: "Kraken2 SRR12486989", detail: "Running")
-        let esviritu = center.start(title: "EsViritu SRR12486983", detail: "Running")
+        let kraken = center.begin(
+            title: "Kraken2 SRR12486989",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
+        let esviritu = center.begin(
+            title: "EsViritu SRR12486983",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         let alert = NSAlert()
         alert.addButton(withTitle: "Cancel Operations and Quit").hasDestructiveAction = true
         alert.addButton(withTitle: "Don't Quit")

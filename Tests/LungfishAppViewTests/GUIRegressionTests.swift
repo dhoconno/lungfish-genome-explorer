@@ -20,6 +20,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishTestSupport
 
 final class GUIRegressionTests: XCTestCase {
@@ -776,12 +777,13 @@ final class OperationsPanelTests: XCTestCase {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Reference download",
             detail: "Downloading",
             operationType: .download,
+            cliCommand: nil,
             onCancel: {}
-        )
+        ).rowID
         defer {
             _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
@@ -808,11 +810,12 @@ final class OperationsPanelTests: XCTestCase {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Find ORFs",
             detail: "Running",
-            operationType: .bundleBuild
-        )
+            operationType: .bundleBuild,
+            cliCommand: nil
+        ).rowID
         defer {
             _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
@@ -838,11 +841,12 @@ final class OperationsPanelTests: XCTestCase {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Find ORFs",
             detail: "Running",
-            operationType: .bundleBuild
-        )
+            operationType: .bundleBuild,
+            cliCommand: nil
+        ).rowID
         defer {
             _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
@@ -869,12 +873,13 @@ final class OperationsPanelTests: XCTestCase {
     func testCompletedCallbacksDoNotOverwriteCancelledOperationRows() async throws {
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Reference download",
             detail: "Downloading",
             operationType: .download,
+            cliCommand: nil,
             onCancel: {}
-        )
+        ).rowID
         OperationCenter.shared.cancel(id: operationID)
 
         _ = OperationCenter.shared.complete(id: operationID, detail: "Complete after cancellation")
@@ -894,11 +899,12 @@ final class OperationsPanelTests: XCTestCase {
         OperationCenter.shared.clearCompleted()
 
         let outputURL = URL(fileURLWithPath: "/tmp/lungfish-operations/export/report.tsv")
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Export report",
             detail: "Writing report",
-            operationType: .export
-        )
+            operationType: .export,
+            cliCommand: nil
+        ).rowID
         _ = OperationCenter.shared.complete(
             id: operationID,
             detail: "Export complete",
@@ -945,11 +951,12 @@ final class OperationsPanelTests: XCTestCase {
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
 
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Classify reads",
             detail: "Running classifier",
-            operationType: .classification
-        )
+            operationType: .classification,
+            cliCommand: nil
+        ).rowID
         OperationCenter.shared.log(
             id: operationID,
             level: .info,

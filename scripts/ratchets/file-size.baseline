@@ -171,7 +171,7 @@ Sources/LungfishKit/LungfishHelpContent.swift 1052
 Sources/LungfishKit/MetadataColumnController.swift 895
 Sources/LungfishKit/MiniBAMViewController.swift 1013
 Sources/LungfishKit/MiniPileupView.swift 861
-Sources/LungfishKit/OperationCenter.swift 1409
+Sources/LungfishKit/OperationCenter.swift 1381
 Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift 3289
 Sources/LungfishNvdUI/NvdResultViewController.swift 3193
 Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 2015
