@@ -737,6 +737,10 @@ struct AssembleCommand: AsyncParsableCommand {
         materializer: any AssemblyInputMaterializing,
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws -> ResolvedSequenceInputs {
+        // Files of one bundle given separately (the app's per-bundle batch names a pair's R1 and R2) are that bundle, once.
+        var seen = Set<String>()
+        let inputURLs = inputURLs.map { SequenceInputResolver.enclosingFASTQBundleURL(for: $0) ?? $0.standardizedFileURL }
+            .filter { seen.insert($0.path).inserted }
         for inputURL in inputURLs where !AssemblyInputMaterialization.requiresMaterialization(inputURL) {
             guard SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) != nil else {
                 throw AssembleInputResolutionError.unreadableBundlePayload(inputURL.standardizedFileURL.path)

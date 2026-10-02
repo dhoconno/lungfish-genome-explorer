@@ -149,6 +149,40 @@ final class AssembleCommandResolutionTests: XCTestCase {
         XCTAssertFalse(envelope.steps.contains { $0.toolName == SequenceInputConcatenation.toolName })
     }
 
+    /// The app's per-bundle batch launch hands this command files that live
+    /// inside a bundle: one chunk per run for a multi-file bundle, the R1 and
+    /// R2 of a fullPaired bundle with --paired, the merged file of a fullMixed
+    /// bundle. Each names its whole bundle, once.
+    func testFilesOfOneBundleGivenSeparatelyAreAssembledAsThatBundleOnce() async throws {
+        let chunk = try await resolve([shapes.multiFileChunks[1]])
+        XCTAssertEqual(chunk.originalInputURLs, [shapes.multiFile.standardizedFileURL])
+        XCTAssertEqual(chunk.executionInputURLs.count, 1)
+        XCTAssertEqual(
+            try BundleShapeFixtures.readNames(in: try XCTUnwrap(chunk.executionInputURLs.first)),
+            ["m1", "m2", "m3", "m4", "m5"],
+            "a chunk's run assembles the whole bundle, not chunk 0"
+        )
+
+        let mates = try await resolve(shapes.pairedFiles)
+        XCTAssertEqual(mates.originalInputURLs, [shapes.paired.standardizedFileURL, shapes.paired.standardizedFileURL])
+        XCTAssertEqual(mates.executionInputURLs, shapes.pairedFiles.map(\.standardizedFileURL))
+        XCTAssertTrue(mates.resolvedAsMatePair)
+        let pairedRun = try await assemble(shapes.pairedFiles, pairedFlag: true, label: "batch fullPaired")
+        XCTAssertEqual(pairedRun.spades.forward, ["p1/1", "p2/1"], "R1 is the forward file, not assembled against itself")
+        XCTAssertEqual(pairedRun.spades.reverse, ["p1/2", "p2/2"])
+        XCTAssertEqual(pairedRun.spades.singleFiles, [])
+
+        let merged = try await resolve([shapes.mixedFiles[0]])
+        XCTAssertEqual(merged.originalInputURLs, [shapes.mixed.standardizedFileURL])
+        XCTAssertEqual(
+            try BundleShapeFixtures.readNames(in: try XCTUnwrap(merged.executionInputURLs.first)),
+            ["x1", "x2", "x3", "u1/1", "u1/2"]
+        )
+
+        let twoBundles = try await resolve([shapes.single, shapes.full.appendingPathComponent("full.fastq")])
+        XCTAssertEqual(twoBundles.originalInputURLs, [shapes.single.standardizedFileURL, shapes.full.standardizedFileURL])
+    }
+
     func testAnUnreadableInputIsRefusedBeforeAnythingIsWritten() async throws {
         let emptyBundle = shapes.single.deletingLastPathComponent().appendingPathComponent("empty.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: emptyBundle, withIntermediateDirectories: true)
@@ -179,8 +213,12 @@ final class AssembleCommandResolutionTests: XCTestCase {
     }
 
     private func resolve(_ bundle: URL) async throws -> ResolvedSequenceInputs {
+        try await resolve([bundle])
+    }
+
+    private func resolve(_ inputs: [URL]) async throws -> ResolvedSequenceInputs {
         try await AssembleCommand.resolveExecutionInputs(
-            for: [bundle],
+            for: inputs,
             tempDirectory: root.appendingPathComponent("resolve-\(UUID().uuidString)/.lungfish-assembly-inputs", isDirectory: true),
             materializer: FASTQCLIMaterializer(runner: .shared)
         )
@@ -208,15 +246,19 @@ final class AssembleCommandResolutionTests: XCTestCase {
     /// its own resolution, pairing and layout, and `ManagedAssemblyPipeline`
     /// with a stand-in SPAdes.
     private func assemble(_ bundle: URL, label: String) async throws -> AssembleRun {
+        try await assemble([bundle], pairedFlag: false, label: label)
+    }
+
+    private func assemble(_ inputs: [URL], pairedFlag: Bool, label: String) async throws -> AssembleRun {
         let runRoot = root.appendingPathComponent("run-\(UUID().uuidString)", isDirectory: true)
         let spades = try StandInSPAdes(root: runRoot)
         let outputDirectory = runRoot.appendingPathComponent("assembly", isDirectory: true)
         let resolved = try await AssembleCommand.resolveExecutionInputs(
-            for: [bundle],
+            for: inputs,
             tempDirectory: outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
             materializer: FASTQCLIMaterializer(runner: .shared)
         )
-        let pairedEnd = resolved.resolvedAsMatePair
+        let pairedEnd = pairedFlag || resolved.resolvedAsMatePair
         let layout = AssembleCommand.resolveInputLayout(
             tool: .spades,
             readType: .illuminaShortReads,
