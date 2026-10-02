@@ -28,6 +28,40 @@ final class LocalWorkflowExecutionService {
         self.runtimeResolver = runtimeResolver
     }
 
+    /// Registers the Local Workflow row and returns the result of `begin`, so
+    /// the async `prepare` and `run` switch on it themselves. The row locks
+    /// `bundleURL`, the run bundle. A replayed run also locks the whole output
+    /// directory, and registers `onCancel` when the caller passes one. A
+    /// prepare-only row locks the bundle alone.
+    ///
+    /// The row records the `lungfish-cli workflow run` command for the same
+    /// request, with `--prepare-only` for a prepare-only row. The command
+    /// carries `--repeat-from` for a replayed run.
+    @discardableResult
+    static func beginLocalWorkflowOperation(
+        request: LocalWorkflowRunRequest,
+        bundleURL: URL,
+        prepareOnly: Bool,
+        routeContext: OperationRouteContext?,
+        reporter: any OperationReporting = OperationCenter.shared,
+        onCancel: (@Sendable () -> Void)? = nil
+    ) -> OperationStartResult {
+        let replay = !prepareOnly && request.replaySourceBundleURL != nil
+        return reporter.begin(
+            title: "Local Workflow",
+            detail: "\(prepareOnly ? "Preparing" : "Running") \(request.engine.displayName) workflow",
+            operationType: .workflow,
+            targetBundleURL: bundleURL,
+            additionalLockedBundleURLs: replay ? [request.outputDirectory] : [],
+            cliCommand: cliCommandPreview(for: request, bundleURL: bundleURL, prepareOnly: prepareOnly),
+            routeContext: routeContext,
+            onCancel: onCancel
+        )
+    }
+
+    /// Writes a prepared run bundle without launching the workflow. Throws
+    /// `OperationRefusedError` when the run bundle is locked. The bundle is
+    /// written before the row is registered, as before.
     func prepare(
         _ request: LocalWorkflowRunRequest,
         bundleRoot: URL,
@@ -51,15 +85,14 @@ final class LocalWorkflowExecutionService {
             wallTime: Date().timeIntervalSince(createdAt)
         )
 
-        let commandPreview = cliCommandPreview(for: request, bundleURL: bundleURL, prepareOnly: true)
-        let operationID = operationCenter.start(
-            title: "Local Workflow",
-            detail: "Preparing \(request.engine.displayName) workflow",
-            operationType: .workflow,
-            targetBundleURL: bundleURL,
-            cliCommand: commandPreview,
-            routeContext: routeContext
-        )
+        let commandPreview = Self.cliCommandPreview(for: request, bundleURL: bundleURL, prepareOnly: true)
+        let operationID = try Self.beginLocalWorkflowOperation(
+            request: request,
+            bundleURL: bundleURL,
+            prepareOnly: true,
+            routeContext: routeContext,
+            reporter: operationCenter
+        ).requireStarted()
         operationCenter.log(id: operationID, level: .info, message: "Prepared run bundle at \(bundleURL.path)")
         operationCenter.log(id: operationID, level: .info, message: request.commandPreview)
         operationCenter.log(id: operationID, level: .info, message: "Status: prepared")
@@ -100,7 +133,7 @@ final class LocalWorkflowExecutionService {
             try Task.checkCancellation()
             try beforeRegister()
         }
-        let commandPreview = cliCommandPreview(for: request, bundleURL: bundleURL, prepareOnly: false)
+        let commandPreview = Self.cliCommandPreview(for: request, bundleURL: bundleURL, prepareOnly: false)
         let cancelWorker: (@Sendable () -> Void)?
         if replay {
             cancelWorker = { [weak self] in
@@ -109,17 +142,15 @@ final class LocalWorkflowExecutionService {
         } else {
             cancelWorker = nil
         }
-        let operationID = operationCenter.start(
-            title: "Local Workflow",
-            detail: "Running \(request.engine.displayName) workflow",
-            operationType: .workflow,
-            targetBundleURL: bundleURL,
-            additionalLockedBundleURLs: replay ? [request.outputDirectory] : [],
-            cliCommand: commandPreview,
+        // A refused row launches nothing, and the panel already shows it.
+        guard case .started(let operationID) = Self.beginLocalWorkflowOperation(
+            request: request,
+            bundleURL: bundleURL,
+            prepareOnly: false,
             routeContext: routeContext,
+            reporter: operationCenter,
             onCancel: cancelWorker
-        )
-        guard operationCenter.items.first(where: { $0.id == operationID })?.state == .running else {
+        ) else {
             throw LocalWorkflowReplayError.repairRequired("The output or run bundle is busy. Wait for its current operation to finish.")
         }
         operationCenter.log(id: operationID, level: .info, message: "Run bundle: \(bundleURL.path)")
@@ -217,7 +248,7 @@ final class LocalWorkflowExecutionService {
         throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: base.path])
     }
 
-    private func cliCommandPreview(
+    static func cliCommandPreview(
         for request: LocalWorkflowRunRequest,
         bundleURL: URL,
         prepareOnly: Bool

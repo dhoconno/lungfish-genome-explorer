@@ -10,17 +10,24 @@ import LungfishKit
 
 @MainActor
 public final class ONTImportOperationCoordinator {
-    private let operationCenter: OperationCenter
+    /// Every report goes through this reporter, so a test can watch the row
+    /// without touching `OperationCenter.shared` (finding R4).
+    private let operationCenter: any OperationReporting
     private let workflow: ONTImportWorkflow
 
     public init(
-        operationCenter: OperationCenter = .shared,
+        operationCenter: any OperationReporting = OperationCenter.shared,
         workflow: ONTImportWorkflow = ONTImportWorkflow()
     ) {
         self.operationCenter = operationCenter
         self.workflow = workflow
     }
 
+    /// Imports an ONT output directory and reports the run in the Operations
+    /// panel. The row locks no bundle and records the
+    /// `lungfish-cli fastq import-ont` command that reproduces the run.
+    /// Throws `OperationRefusedError`, having imported nothing, when `begin`
+    /// is refused.
     @discardableResult
     public func importDirectory(
         sourceURL: URL,
@@ -50,13 +57,13 @@ public final class ONTImportOperationCoordinator {
             subcommand: "fastq import-ont",
             args: cliArgs
         )
-        let opID = operationCenter.start(
+        let opID = try operationCenter.begin(
             title: "ONT Import: \(sourceURL.lastPathComponent)",
             detail: "Detecting layout...",
             operationType: .ingestion,
             cliCommand: cliCommand,
             routeContext: routeContext
-        )
+        ).requireStarted()
 
         do {
             let config = ONTImportConfig(
