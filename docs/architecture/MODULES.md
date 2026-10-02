@@ -93,12 +93,12 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| App | 54 | 22950 |
+| App | 51 | 22500 |
 | Services | 117 | 38423 |
 | Services/AI | 4 | 1929 |
 | StateManagement | 7 | 589 |
 | Support | 2 | 94 |
-| UITestSupport | 1 | 35 |
+| UITestSupport | 4 | 485 |
 | ViewModels | 4 | 2397 |
 | Views | 347 | 169840 |
 | Views/AI | 1 | 1011 |
