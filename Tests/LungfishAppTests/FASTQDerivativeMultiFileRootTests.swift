@@ -179,4 +179,103 @@ final class FASTQDerivativeMultiFileRootTests: XCTestCase {
         let names = try await records(materialized).map(\.id)
         XCTAssertEqual(names, ["m1", "m3", "m5"])
     }
+
+    /// The derivative's provenance names the bundle, every member the
+    /// operation read with the bundle as its origin, and the join that wrote
+    /// the file the operation read, with no temporary path in a durable
+    /// field (R8). The first member alone used to stand for the bundle.
+    func testTheProvenanceNamesEveryRootFileAndTheJoin() async throws {
+        let derivative = try await FASTQDerivativeService.shared.createDerivative(from: multiFile, request: .reverseComplement)
+        let envelope = try loadProvenance(from: derivative)
+
+        let inputs = envelope.files.filter { $0.role == .input }
+        XCTAssertTrue(inputs.contains { recordedPath($0.path, names: multiFile) }, "the bundle aggregate in \(inputs.map(\.path))")
+        for chunk in chunks {
+            let member = try XCTUnwrap(
+                inputs.first { recordedPath($0.path, names: chunk) },
+                "\(chunk.lastPathComponent) in \(inputs.map(\.path))"
+            )
+            XCTAssertTrue(
+                recordedPath(member.originPath ?? "", names: multiFile),
+                "the member names its bundle as its origin, not \(member.originPath ?? "nil")"
+            )
+            XCTAssertNotNil(member.checksumSHA256, "the member is hashed")
+        }
+
+        let join = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == SequenceInputConcatenation.toolName },
+            "a join step in \(envelope.steps.map(\.toolName))"
+        )
+        XCTAssertEqual(join.inputs.count, chunks.count, "every member: \(join.inputs.map(\.path))")
+        for (recorded, chunk) in zip(join.inputs, chunks) {
+            XCTAssertTrue(recordedPath(recorded.path, names: chunk), "\(recorded.path) is not \(chunk.lastPathComponent), the source-files.json order")
+        }
+        XCTAssertEqual(join.exitStatus, 0)
+        XCTAssertNil(join.durableReplayArgv, "the joined file is temporary, so the step offers no durable replay")
+        XCTAssertTrue(join.argv.joined(separator: " ").contains("chunks/run_1.fastq"), "the argv names the files it ran with: \(join.argv)")
+        assertNoTemporaryPaths(in: envelope)
+    }
+
+    /// A native tool read the joined copy, which no durable file stands
+    /// for, so its step keeps the argv it ran with, offers no durable replay
+    /// and names every member among its inputs (R8).
+    func testANativeStepOverTheJoinedCopyNamesEveryMemberWithoutADurableReplay() async throws {
+        try await requireTool(.seqkit)
+        let derivative = try await FASTQDerivativeService.shared.createDerivative(from: multiFile, request: .lengthFilter(min: 8, max: nil))
+        let envelope = try loadProvenance(from: derivative)
+
+        let seqkit = try XCTUnwrap(
+            envelope.steps.first { $0.toolName.contains("seqkit") },
+            "a seqkit step in \(envelope.steps.map(\.toolName))"
+        )
+        XCTAssertNil(seqkit.durableReplayArgv, "no one durable file stands for the joined copy")
+        for chunk in chunks {
+            XCTAssertTrue(
+                seqkit.inputs.contains { recordedPath($0.path, names: chunk) },
+                "\(chunk.lastPathComponent) among \(seqkit.inputs.map(\.path))"
+            )
+        }
+        XCTAssertNotNil(envelope.steps.first { $0.toolName == SequenceInputConcatenation.toolName }, "the join step")
+        assertNoTemporaryPaths(in: envelope)
+    }
+
+    private func loadProvenance(from bundleURL: URL) throws -> ProvenanceEnvelope {
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        return try ProvenanceEnvelopeReader.decode(Data(contentsOf: provenanceURL))
+    }
+
+    private func samePathForm(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// Whether a recorded path names `url`. The derivative envelope records a
+    /// file inside the project folder project-relative (`@/Imports/...`) and
+    /// any other file absolute.
+    private func recordedPath(_ recorded: String, names url: URL) -> Bool {
+        if recorded.hasPrefix("@/") {
+            return samePathForm(url.path).hasSuffix(String(recorded.dropFirst(1)))
+        }
+        return samePathForm(recorded) == samePathForm(url.path)
+    }
+
+    /// The durable fields of the envelope and its steps name no file of the
+    /// run's temporary folder, the rule the derivative provenance keeps for
+    /// every source shape.
+    private func assertNoTemporaryPaths(in envelope: ProvenanceEnvelope, file: StaticString = #filePath, line: UInt = #line) {
+        let durableValues = envelope.argv
+            + (envelope.durableReplayArgv ?? [])
+            + [envelope.reproducibleCommand]
+            + envelope.files.map(\.path)
+            + envelope.outputs.map(\.path)
+            + envelope.steps.flatMap { step in
+                (step.durableReplayArgv ?? [])
+                    + [step.reproducibleCommand]
+                    + step.inputs.map(\.path)
+                    + step.outputs.map(\.path)
+            }
+        for value in durableValues {
+            XCTAssertFalse(value.contains("fastq-derive-"), value, file: file, line: line)
+            XCTAssertFalse(value.contains("transformed.fastq"), value, file: file, line: line)
+        }
+    }
 }

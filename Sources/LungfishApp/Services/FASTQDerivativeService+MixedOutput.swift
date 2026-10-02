@@ -627,10 +627,66 @@ extension FASTQDerivativeService {
            ) {
             replacements[transformedFASTQ.path] = durableOutputFASTQ.path
         }
+        // A source read through a file the materializer wrote (inside one of
+        // the run's temporary roots) is recorded with the step that wrote it.
+        let wasWrittenForTheRun = temporaryPathRoots.contains { root in
+            CanonicalFilePath.isPath(sourceFASTQ, within: URL(fileURLWithPath: root, isDirectory: true))
+        }
         return FASTQDerivativeNativeReplayContext(
             pathReplacements: replacements,
-            temporaryPathRoots: temporaryPathRoots
+            temporaryPathRoots: temporaryPathRoots,
+            sourceExecutionURL: wasWrittenForTheRun ? sourceFASTQ : nil
         )
+    }
+
+    /// The step that wrote the source's execution file for the run: a `cat`
+    /// of a multi-file bundle's members, or a `lungfish-cli fastq
+    /// materialize` of a virtual bundle, as `lungfish-cli` records the same
+    /// step for its own runs. Empty when the source was read in place or the
+    /// file is unknown (R8, lane 1x).
+    func sourceMaterializationSteps(
+        sourceBundleURL: URL,
+        replayContext: FASTQDerivativeNativeReplayContext,
+        startedAt: Date,
+        completedAt: Date
+    ) -> [ProvenanceStep] {
+        guard let sourceExecutionURL = replayContext.sourceExecutionURL,
+              FileManager.default.fileExists(atPath: sourceExecutionURL.path) else {
+            return []
+        }
+        let steps = (try? CLISequenceInputMaterialization.materializationProvenanceSteps(
+            workflowVersion: WorkflowRun.currentAppVersion,
+            originalInputURLs: [sourceBundleURL],
+            executionInputURLs: [sourceExecutionURL],
+            startedAt: startedAt,
+            endedAt: completedAt
+        )) ?? []
+        // The file the step wrote sits in the run's temporary folder, so the
+        // step gets no durable replay and no output record, as a native step
+        // that read a temporary file gets none. Its argv keeps the paths it
+        // ran with and its inputs name every file it read.
+        return steps.map { step in
+            ProvenanceStep(
+                id: step.id,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                githubReleaseVersion: step.githubReleaseVersion,
+                argv: step.argv,
+                durableReplayArgv: nil,
+                reproducibleCommand: "",
+                resolvedOptions: step.resolvedOptions,
+                runtimeIdentity: step.runtimeIdentity,
+                inputs: step.inputs,
+                outputs: [],
+                exitStatus: step.exitStatus,
+                wallTimeSeconds: step.wallTimeSeconds,
+                peakMemoryBytes: step.peakMemoryBytes,
+                stderr: step.stderr,
+                dependsOn: step.dependsOn,
+                startedAt: step.startedAt,
+                completedAt: step.completedAt
+            )
+        }
     }
 
     func durableNativeSourceFASTQURL(
@@ -653,7 +709,11 @@ extension FASTQDerivativeService {
             }
             return nil
         }
-        guard let url = FASTQBundle.resolvePrimarySequenceURL(for: sourceBundleURL),
+        // A bundle that holds several files was read as a joined copy, which
+        // no one durable file stands for, so the native argv keeps the path
+        // it ran with and gets no durable replay (R8, lane 1x).
+        guard !sourceBundleHoldsSeveralFiles(sourceBundleURL),
+              let url = FASTQBundle.resolvePrimarySequenceURL(for: sourceBundleURL),
               SequenceFormat.from(url: url) == .fastq else {
             return nil
         }
@@ -767,11 +827,15 @@ extension FASTQDerivativeService {
             sequenceFormat: sourceSequenceFormat
         )
         let sourceInput = ProvenanceFileDescriptor(fileRecord: sourceInputRecord)
+        // Every root file the operation read, so a derivative of an ONT
+        // import names each chunk and a derivative of a virtual bundle names
+        // the root's files (R8).
+        let rootInputs = try derivativeRootFileDescriptors(for: sourceBundleURL)
         let additionalInputs = try await derivativeAdditionalInputDescriptors(
             for: request,
             sourceBundleURL: sourceBundleURL
         )
-        let inputDescriptors = deduplicatedProvenanceDescriptors([sourceInput] + additionalInputs)
+        let inputDescriptors = deduplicatedProvenanceDescriptors([sourceInput] + rootInputs + additionalInputs)
         let outputs = try derivativeOutputDescriptors(in: outputBundleURL)
         let argv = derivativeProvenanceArgv(
             request: request,
@@ -780,7 +844,13 @@ extension FASTQDerivativeService {
             outputBundleURL: outputBundleURL
         )
         let wallTimeSeconds = completedAt.timeIntervalSince(startedAt)
-        let nativeSteps = nativeProvenanceSteps(
+        let materializationSteps = sourceMaterializationSteps(
+            sourceBundleURL: sourceBundleURL,
+            replayContext: nativeReplayContext,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let nativeSteps = materializationSteps + nativeProvenanceSteps(
             from: nativeExecutions,
             inputs: inputDescriptors,
             replayContext: nativeReplayContext
@@ -1149,11 +1219,17 @@ extension FASTQDerivativeService {
         )
     }
 
+    /// The durable record of the source the derivative read: a single-file
+    /// bundle's file, a full derivative's payload, or the bundle itself with
+    /// a checksum over every file it holds, which is what a bundle that holds
+    /// several files (an ONT import) or a virtual derivative amounts to. The
+    /// first file alone used to stand for a multi-file bundle (R8, lane 1x).
     func durableSourceInputRecord(
         for sourceBundleURL: URL,
         sequenceFormat: SequenceFormat
     ) throws -> FileRecord {
         if !FASTQBundle.isDerivedBundle(sourceBundleURL),
+           !sourceBundleHoldsSeveralFiles(sourceBundleURL),
            let primaryURL = FASTQBundle.resolvePrimarySequenceURL(for: sourceBundleURL) {
             return ProvenanceRecorder.fileRecord(
                 url: primaryURL,
@@ -1189,6 +1265,59 @@ extension FASTQDerivativeService {
             for: sourceBundleURL,
             format: provenanceFileFormat(for: sequenceFormat)
         )
+    }
+
+    /// Whether a physical bundle lists several files in `source-files.json`.
+    func sourceBundleHoldsSeveralFiles(_ bundleURL: URL) -> Bool {
+        FASTQBundle.isMultiFileBundle(bundleURL)
+            && (FASTQBundle.resolveAllFASTQURLs(for: bundleURL)?.count ?? 0) > 1
+    }
+
+    /// Every root file the derivative read, each with the bundle it belongs
+    /// to as its origin (R8): the members of a physical bundle, the payload
+    /// files of a full derivative, or the root bundle's files of a virtual
+    /// one, resolved as the materializer resolves them
+    /// (`FASTQBundle.rootSequenceURLs`).
+    func derivativeRootFileDescriptors(for sourceBundleURL: URL) throws -> [ProvenanceFileDescriptor] {
+        var fileURLs: [URL] = []
+        var originURL = sourceBundleURL
+        if let manifest = FASTQBundle.loadDerivedManifest(in: sourceBundleURL) {
+            switch manifest.payload {
+            case .full, .fullFASTA, .fullPaired, .fullMixed:
+                fileURLs = derivativePayloadURLs(in: sourceBundleURL, manifest: manifest)
+            case .demuxGroup:
+                fileURLs = []
+            case .subset, .trim, .demuxedVirtual, .orientMap:
+                let rootBundleURL = FASTQBundle.resolveBundle(
+                    relativePath: manifest.rootBundleRelativePath,
+                    from: sourceBundleURL
+                )
+                originURL = rootBundleURL
+                fileURLs = (try? FASTQBundle.rootSequenceURLs(
+                    rootFASTQFilename: manifest.rootFASTQFilename,
+                    in: rootBundleURL
+                )) ?? []
+            }
+        } else {
+            fileURLs = FASTQBundle.resolveAllFASTQURLs(for: sourceBundleURL) ?? []
+        }
+        let fm = FileManager.default
+        return try fileURLs
+            .filter { fm.fileExists(atPath: $0.path) }
+            .map { url in
+                let format: FileFormat
+                switch SequenceFormat.from(url: url) {
+                case .fasta: format = .fasta
+                case .fastq: format = .fastq
+                case .none: format = .unknown
+                }
+                return try ProvenanceFileDescriptor.file(
+                    url: url,
+                    format: format,
+                    role: .input,
+                    originPath: originURL.standardizedFileURL.path
+                )
+            }
     }
 
     func durableBundleInputRecord(for bundleURL: URL, format: FileFormat) throws -> FileRecord {

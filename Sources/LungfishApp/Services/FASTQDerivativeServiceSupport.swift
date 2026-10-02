@@ -34,13 +34,21 @@ struct FASTQDerivativeNativeToolExecution: Sendable {
 struct FASTQDerivativeNativeReplayContext: Sendable {
     let pathReplacements: [String: String]
     let temporaryPathRoots: [String]
+    /// The file the operation read for its source bundle, when the
+    /// materializer wrote it for the run (a multi-file bundle's joined copy,
+    /// a virtual bundle's materialized reads), so the provenance can record
+    /// the step that wrote it (R8, lane 1x). Nil when the source was read
+    /// in place.
+    let sourceExecutionURL: URL?
 
     init(
         pathReplacements: [String: String] = [:],
-        temporaryPathRoots: [String] = []
+        temporaryPathRoots: [String] = [],
+        sourceExecutionURL: URL? = nil
     ) {
         self.pathReplacements = pathReplacements
         self.temporaryPathRoots = temporaryPathRoots.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        self.sourceExecutionURL = sourceExecutionURL
     }
 }
 
