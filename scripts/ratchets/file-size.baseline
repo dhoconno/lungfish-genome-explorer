@@ -1,5 +1,5 @@
 # file-size baseline: Swift files over 800 lines (path, length). Lengths may only fall.
-Sources/LungfishApp/App/AppDelegate+Classification.swift 2714
+Sources/LungfishApp/App/AppDelegate+Classification.swift 2703
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3390
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
@@ -95,7 +95,7 @@ Sources/LungfishCLI/Commands/BuildDbCommand.swift 2173
 Sources/LungfishCLI/Commands/BundleCommand.swift 1254
 Sources/LungfishCLI/Commands/ClassifyCommand.swift 1712
 Sources/LungfishCLI/Commands/ExtractReadsCommand.swift 1196
-Sources/LungfishCLI/Commands/FastqCommand.swift 4114
+Sources/LungfishCLI/Commands/FastqCommand.swift 4113
 Sources/LungfishCLI/Commands/FetchCommand.swift 2296
 Sources/LungfishCLI/Commands/GATKCommand.swift 1094
 Sources/LungfishCLI/Commands/GenotypeAIHaplotypingSubcommand.swift 1387
