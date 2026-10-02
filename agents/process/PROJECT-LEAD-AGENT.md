@@ -95,7 +95,7 @@ LGE targets macOS 26 on Apple Silicon only, with Swift 6.2 strict concurrency. S
 
 Every operation follows `docs/contracts/ADDING-AN-OPERATION.md`, and `docs/contracts/README.md` indexes all the contracts. In short:
 
-1. Register with `OperationCenter.shared.begin(...)`, pass `operationType` and `cliCommand`, and launch nothing unless it returns `.started`. New code never calls the deprecated `start()`.
+1. Register with `OperationCenter.shared.begin(...)`, name `operationType` and `cliCommand` because neither has a default, and launch nothing unless it returns `.started`.
 2. Report progress with both `OperationCenter.shared.update` and `OperationCenter.shared.log`, because only logged lines persist in the row history.
 3. Finish with `complete` or `fail`, and support cancellation through `setCancelCallback`.
 4. Write a provenance envelope with the exact command, resolved defaults, tool versions, runtime identity, input and output checksums, exit status and wall time, pointing at the stored payload rather than at scratch files.

@@ -24,6 +24,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class ImportCenterSequentialBundleImportTests: XCTestCase {
@@ -56,8 +57,8 @@ final class ImportCenterSequentialBundleImportTests: XCTestCase {
             maxConcurrentInFlight = max(maxConcurrentInFlight, inFlight)
             startedURLsInOrder.append(url)
 
-            let opID = center.start(title: "Importing \(url.lastPathComponent)", detail: "Importing...",
-                                     operationType: .bamImport, targetBundleURL: bundleURL)
+            let opID = center.begin(title: "Importing \(url.lastPathComponent)", detail: "Importing...",
+                                     operationType: .bamImport, targetBundleURL: bundleURL, cliCommand: nil).rowID
             activeOpIDs.append(opID)
             // Simulate the real import's async completion, exactly like
             // `performBAMImport`'s "detached work, then complete on the main actor" shape,
@@ -99,7 +100,12 @@ final class ImportCenterSequentialBundleImportTests: XCTestCase {
             // reaching `OperationCenter` -- exactly what `importBAMFromURL` returns `nil`
             // for today (no bundle loaded, a write-lock conflict elsewhere, etc).
             guard url.lastPathComponent == "accepted.sorted.bam" else { return nil }
-            let opID = center.start(title: "Importing", detail: "Importing...", operationType: .bamImport)
+            let opID = center.begin(
+                title: "Importing",
+                detail: "Importing...",
+                operationType: .bamImport,
+                cliCommand: nil
+            ).rowID
             _ = center.complete(id: opID, detail: "Imported")
             return opID
         }

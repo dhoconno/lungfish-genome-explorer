@@ -15,7 +15,7 @@ LungfishCLI only. Do not add code here.
 | Type | Path |
 |---|---|
 | `EntryPoint` | Sources/LungfishCLIExecutable/EntryPoint.swift |
-| `LungfishCLIMain` | Sources/LungfishCLI/LungfishCLI.swift line 129 |
+| `LungfishCLIMain` | Sources/LungfishCLI/LungfishCLI.swift line 128 |
 
 ## Contracts this module owns
 

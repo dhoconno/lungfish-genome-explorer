@@ -61,7 +61,7 @@ These rules are not optional. Each one exists because breaking it caused a shipp
 
 | Rule | What it means |
 |---|---|
-| `OperationCenter.begin`, never `start` | Register every operation with `OperationCenter.shared.begin(...)` and switch on the result. A `.refused` result means a bundle lock conflicted, so launch nothing. `start` is deprecated, and `scripts/ratchets/unchecked-operation-start.sh` stops new bundle-targeted callers. Always pass `operationType` and `cliCommand`. |
+| Register with `OperationCenter.begin` | Register every operation with `OperationCenter.shared.begin(...)` and switch on the result. A `.refused` result means a bundle lock conflicted, so launch nothing. `begin` has no default for `operationType` or `cliCommand`, so name both on every call, and pass `nil` for a run that no CLI command reproduces. `scripts/ratchets/unchecked-operation-start.sh` stays as a guard and reports 0. |
 | CLI parity | Every GUI operation must have a `lungfish-cli` equivalent that produces the same result, and the GUI records that command in the Operations panel. Shared logic lives in LungfishWorkflow so both paths run it. |
 | Provenance envelope is mandatory | Every operation writes a provenance record through `ProvenanceEnvelope`. A run without provenance is a defect. |
 | BAM, never SAM | Alignments are stored as sorted, indexed BAM. Convert any SAM with samtools sort and index, then delete the SAM. |

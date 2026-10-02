@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 import LungfishIO
 import LungfishKit
+import LungfishKitTestSupport
 @testable import LungfishApp
 
 /// A completed FASTQ operation must record what it produced so the
@@ -34,12 +35,13 @@ final class FASTQOperationCompletionOutputsTests: XCTestCase {
     }
 
     private func startOperation(in center: OperationCenter, project: URL) -> UUID {
-        center.start(
+        center.begin(
             title: "FASTQ: fastp Adapter + Quality Trim",
             detail: "Preparing...",
             operationType: .fastqOperation,
+            cliCommand: nil,
             routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil)
-        )
+        ).rowID
     }
 
     func testCompletedDerivativeOperationCarriesItsOutputBundle() throws {
@@ -116,12 +118,14 @@ final class FASTQOperationCompletionOutputsTests: XCTestCase {
         ]
         // A launch registers its row with a `start` call that names
         // `.fastqOperation`, or with a begin helper that registers one. The
-        // helpers live in MainSplitViewController+GenomicsDisplayOperationBegin.swift,
-        // so the launch-site file names the helper call instead.
+        // helpers live in MainSplitViewController+GenomicsDisplayOperationBegin.swift
+        // and MainSplitViewController+FASTQImportOperationBegin.swift, so the
+        // launch-site file names the helper call instead.
         let launchMarkers = [
             "operationType: .fastqOperation",
             "Self.beginFASTQDerivativeOperation(",
             "Self.beginFASTQLaunchRequestOperation(",
+            "Self.beginONTImportRecipeOperation(",
         ]
         var launchCount = 0
         for file in files {

@@ -127,73 +127,69 @@ extension ViewerViewController {
             return
         }
 
-        let operationID = OperationCenter.shared.start(
-            title: "Generate Alignment Consensus",
-            detail: "Calling evidence-only consensus…",
-            operationType: .export,
-            cliCommand: "Lungfish.app alignment consensus --scope \(exportRequest.region.scope.rawValue) --region \(exportRequest.region.contig):\(exportRequest.region.start)-\(exportRequest.region.end) --reference-fill never"
-        )
         let coordinator = AlignmentScientificActionCoordinator()
-        activeConsensusGenerationOperationID = operationID
-        let task = Task { @MainActor [weak self] in
-            do {
-                let generation = try await coordinator.generateConsensus(
-                    context: context,
-                    exportRequest: exportRequest
-                )
-                for record in generation.result.executionRecords {
-                    OperationCenter.shared.log(
-                        id: operationID,
-                        level: record.exitStatus == 0 ? .info : .error,
-                        message: "\(record.reproducibleCommand)\n\(record.stderr ?? "")"
+        Self.beginAlignmentConsensusGenerationOperation(region: exportRequest.region) { operationID in
+            activeConsensusGenerationOperationID = operationID
+            let task = Task { @MainActor [weak self] in
+                do {
+                    let generation = try await coordinator.generateConsensus(
+                        context: context,
+                        exportRequest: exportRequest
                     )
-                }
-                guard let self else {
-                    OperationCenter.shared.acknowledgeCancellation(id: operationID, detail: "Originating viewer closed")
-                    return
-                }
-                if generation.requiresAllLowDepthWarning {
-                    guard let window = view.window else {
-                        throw AlignmentScientificActionError.destinationUnavailable(
-                            "An application window is required to confirm an all-N consensus."
+                    for record in generation.result.executionRecords {
+                        OperationCenter.shared.log(
+                            id: operationID,
+                            level: record.exitStatus == 0 ? .info : .error,
+                            message: "\(record.reproducibleCommand)\n\(record.stderr ?? "")"
                         )
                     }
-                    guard await confirmAllLowDepthConsensus(
-                        generation,
-                        on: window,
-                        operationID: operationID
-                    ) else {
-                        self.finishConsensusWorkflow(operationID: operationID, cancellation: true)
+                    guard let self else {
+                        OperationCenter.shared.acknowledgeCancellation(id: operationID, detail: "Originating viewer closed")
                         return
                     }
+                    if generation.requiresAllLowDepthWarning {
+                        guard let window = view.window else {
+                            throw AlignmentScientificActionError.destinationUnavailable(
+                                "An application window is required to confirm an all-N consensus."
+                            )
+                        }
+                        guard await confirmAllLowDepthConsensus(
+                            generation,
+                            on: window,
+                            operationID: operationID
+                        ) else {
+                            self.finishConsensusWorkflow(operationID: operationID, cancellation: true)
+                            return
+                        }
+                    }
+                    try Task.checkCancellation()
+                    presentAlignmentConsensusDestinationDialog(
+                        generation,
+                        coordinator: coordinator,
+                        operationID: operationID
+                    )
+                } catch is CancellationError {
+                    OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                    self?.clearConsensusWorkflow(operationID: operationID)
+                } catch {
+                    self?.logConsensusFailure(error, operationID: operationID)
+                    let accepted = OperationCenter.shared.fail(
+                        id: operationID,
+                        detail: "Alignment consensus failed",
+                        errorMessage: error.localizedDescription
+                    )
+                    self?.clearConsensusWorkflow(operationID: operationID)
+                    guard accepted else { return }
+                    self?.presentExtractionFailureAlert(
+                        title: "Generate Consensus Failed",
+                        message: error.localizedDescription
+                    )
+                    self?.clearConsensusWorkflow(operationID: operationID)
                 }
-                try Task.checkCancellation()
-                presentAlignmentConsensusDestinationDialog(
-                    generation,
-                    coordinator: coordinator,
-                    operationID: operationID
-                )
-            } catch is CancellationError {
-                OperationCenter.shared.acknowledgeCancellation(id: operationID)
-                self?.clearConsensusWorkflow(operationID: operationID)
-            } catch {
-                self?.logConsensusFailure(error, operationID: operationID)
-                let accepted = OperationCenter.shared.fail(
-                    id: operationID,
-                    detail: "Alignment consensus failed",
-                    errorMessage: error.localizedDescription
-                )
-                self?.clearConsensusWorkflow(operationID: operationID)
-                guard accepted else { return }
-                self?.presentExtractionFailureAlert(
-                    title: "Generate Consensus Failed",
-                    message: error.localizedDescription
-                )
-                self?.clearConsensusWorkflow(operationID: operationID)
             }
+            activeConsensusGenerationTask = task
+            OperationCenter.shared.setCancelCallback(for: operationID) { task.cancel() }
         }
-        activeConsensusGenerationTask = task
-        OperationCenter.shared.setCancelCallback(for: operationID) { task.cancel() }
     }
 
     private func confirmAllLowDepthConsensus(
@@ -738,40 +734,34 @@ extension ViewerViewController {
     func extractOverlappingReads(from annotation: SequenceAnnotation) {
         guard let config = mappingExtractionConfiguration(for: annotation) else { return }
 
-        let command = "# Extract Overlapping Reads for annotation '\(annotation.name)' (samtools region extraction; see output provenance for replay details)"
-        let opID = OperationCenter.shared.start(
-            title: "Extract Overlapping Reads",
-            detail: "Extracting reads overlapping \(annotation.name)…",
-            operationType: .taxonomyExtraction,
-            cliCommand: command
-        )
-
         let runner = overlappingReadsExtractionRunner
         let annotationName = annotation.name
-        let task = Task { [weak self] in
-            do {
-                let result = try await runner(config)
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Extracted \(result.readCount) read\(result.readCount == 1 ? "" : "s") overlapping \(annotationName)",
-                        outputURLs: result.fastqURLs
-                    )
-                }}
-            } catch {
-                mappingDisplayLogger.error("extractOverlappingReads failed: \(error.localizedDescription, privacy: .public)")
-                DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated {
-                    guard OperationCenter.shared.fail(
-                        id: opID,
-                        detail: "Extract Overlapping Reads failed",
-                        errorMessage: error.localizedDescription
-                    ) else { return }
-                    self?.presentExtractOverlappingReadsFailureAlert(error)
-                }}
+        Self.beginOverlappingReadsExtractionOperation(annotationName: annotationName, config: config) { opID in
+            let task = Task { [weak self] in
+                do {
+                    let result = try await runner(config)
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        _ = OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Extracted \(result.readCount) read\(result.readCount == 1 ? "" : "s") overlapping \(annotationName)",
+                            outputURLs: result.fastqURLs
+                        )
+                    }}
+                } catch {
+                    mappingDisplayLogger.error("extractOverlappingReads failed: \(error.localizedDescription, privacy: .public)")
+                    DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated {
+                        guard OperationCenter.shared.fail(
+                            id: opID,
+                            detail: "Extract Overlapping Reads failed",
+                            errorMessage: error.localizedDescription
+                        ) else { return }
+                        self?.presentExtractOverlappingReadsFailureAlert(error)
+                    }}
+                }
             }
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            activeOverlappingReadsExtractionTask = task
         }
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-        activeOverlappingReadsExtractionTask = task
     }
 
     private func presentExtractOverlappingReadsFailureAlert(_ error: Error) {

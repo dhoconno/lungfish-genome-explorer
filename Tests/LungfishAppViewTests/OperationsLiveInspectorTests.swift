@@ -1,6 +1,7 @@
 import AppKit
 import XCTest
 import LungfishKit
+import LungfishKitTestSupport
 @testable import LungfishApp
 
 @MainActor
@@ -38,7 +39,12 @@ final class OperationsLiveInspectorTests: XCTestCase {
     }
 
     func testContinuousUpdatesRenderLatestLineWithoutWaitingForSilence() async throws {
-        let id = OperationCenter.shared.start(title: "Live inspector fixture", detail: "Working", operationType: .assembly)
+        let id = OperationCenter.shared.begin(
+            title: "Live inspector fixture",
+            detail: "Working",
+            operationType: .assembly,
+            cliCommand: nil
+        ).rowID
         defer {
             _ = OperationCenter.shared.complete(id: id, detail: "Done")
             OperationCenter.shared.clearItem(id: id)
@@ -70,8 +76,18 @@ final class OperationsLiveInspectorTests: XCTestCase {
     }
 
     func testLogSelectionPausesFollowingAndSurvivesNewLinesAndSwitching() async throws {
-        let other = OperationCenter.shared.start(title: "Other fixture", detail: "Working", operationType: .assembly)
-        let id = OperationCenter.shared.start(title: "Reading fixture", detail: "Working", operationType: .assembly)
+        let other = OperationCenter.shared.begin(
+            title: "Other fixture",
+            detail: "Working",
+            operationType: .assembly,
+            cliCommand: nil
+        ).rowID
+        let id = OperationCenter.shared.begin(
+            title: "Reading fixture",
+            detail: "Working",
+            operationType: .assembly,
+            cliCommand: nil
+        ).rowID
         defer {
             for value in [id, other] {
                 _ = OperationCenter.shared.complete(id: value, detail: "Done")
@@ -125,7 +141,12 @@ final class OperationsLiveInspectorTests: XCTestCase {
         XCTAssertFalse(jump.title.contains("new"))
     }
     func testUserScrollPausesButResizeKeepsFollowing() async throws {
-        let id = OperationCenter.shared.start(title: "Resize fixture", detail: "Graph construction", operationType: .assembly)
+        let id = OperationCenter.shared.begin(
+            title: "Resize fixture",
+            detail: "Graph construction",
+            operationType: .assembly,
+            cliCommand: nil
+        ).rowID
         defer {
             _ = OperationCenter.shared.complete(id: id, detail: "Done")
             OperationCenter.shared.clearItem(id: id)
@@ -161,10 +182,10 @@ final class OperationsLiveInspectorTests: XCTestCase {
     }
 
     func testNarrowInspectorKeepsFailureDetailsAndLogInsideWindow() async throws {
-        let id = OperationCenter.shared.start(
+        let id = OperationCenter.shared.begin(
             title: "SPAdes assembly: sample 01", detail: "Preparing assembly", operationType: .assembly,
             cliCommand: "lungfish-cli assemble --assembler spades --input /project/reads/sample-01.fastq --threads 8"
-        )
+        ).rowID
         defer { OperationCenter.shared.clearItem(id: id) }
         for index in 0..<80 {
             OperationCenter.shared.log(id: id, level: .info, message: "Assembly log line \(index): constructing graph")
@@ -199,16 +220,16 @@ final class OperationsLiveInspectorTests: XCTestCase {
     /// The details-pane title was clipped at the top on finished and failed
     /// rows. Every header control must sit fully inside the inspector.
     func testInspectorTitleIsNotClippedForFinishedAndFailedRows() async throws {
-        let completed = OperationCenter.shared.start(
+        let completed = OperationCenter.shared.begin(
             title: "Map Reads (minimap2): finished fixture", detail: "Mapping", operationType: .fastqOperation,
             cliCommand: "lungfish-cli map reads.fastq --reference ref.fasta"
-        )
+        ).rowID
         OperationCenter.shared.log(id: completed, level: .info, message: "Running minimap2...")
         _ = OperationCenter.shared.complete(id: completed, detail: "Mapping complete: 10/10 reads mapped")
-        let failed = OperationCenter.shared.start(
+        let failed = OperationCenter.shared.begin(
             title: "Map Reads (minimap2): failed fixture", detail: "Mapping", operationType: .fastqOperation,
             cliCommand: "lungfish-cli map reads.fastq --reference ref.fasta --extra-args --bogus"
-        )
+        ).rowID
         OperationCenter.shared.log(id: failed, level: .info, message: "Running minimap2...")
         _ = OperationCenter.shared.fail(
             id: failed, detail: "minimap2 failed",
@@ -255,18 +276,18 @@ final class OperationsLiveInspectorTests: XCTestCase {
     /// bottom by the Command label. Each header row must get its full
     /// height and sit strictly above the next one.
     func testDrawerHeaderRowsDoNotOverlapAtManualCaptureSize() async throws {
-        let completed = OperationCenter.shared.start(
+        let completed = OperationCenter.shared.begin(
             title: "FASTQ: fastp Adapter + Quality Trim", detail: "Preparing...", operationType: .fastqOperation,
             cliCommand: "lungfish-cli fastq fastp-trim HG002.lungfishfastq --output <derived>"
-        )
+        ).rowID
         for index in 0..<200 {
             OperationCenter.shared.log(id: completed, level: .info, message: "fastp: Read1 before filtering: total reads \(index) quality and length filtering ongoing with a long line of output text")
         }
         OperationCenter.shared.log(id: completed, level: .info, message: "Completed in 4.2s")
-        let failed = OperationCenter.shared.start(
+        let failed = OperationCenter.shared.begin(
             title: "FASTQ: fastp Adapter + Quality Trim", detail: "Preparing...", operationType: .fastqOperation,
             cliCommand: "lungfish-cli fastq fastp-trim HG002.lungfishfastq --output <derived>"
-        )
+        ).rowID
         _ = OperationCenter.shared.fail(id: failed, detail: "fastp failed", errorMessage: "fastp exited with status 1")
         defer {
             OperationCenter.shared.clearItem(id: completed)
@@ -314,8 +335,8 @@ final class OperationsLiveInspectorTests: XCTestCase {
     /// on the blue selection. Selected, it takes the selected-text color;
     /// unselected, it keeps the danger color.
     func testFailedRowSubtitleIsReadableWhenSelected() throws {
-        let failed = OperationCenter.shared.start(
-            title: "Selected failure fixture", detail: "Preparing...", operationType: .assembly)
+        let failed = OperationCenter.shared.begin(
+            title: "Selected failure fixture", detail: "Preparing...", operationType: .assembly, cliCommand: nil).rowID
         _ = OperationCenter.shared.fail(id: failed, detail: "failed", errorMessage: "tool exited with status 1")
         defer { OperationCenter.shared.clearItem(id: failed) }
 
@@ -338,8 +359,8 @@ final class OperationsLiveInspectorTests: XCTestCase {
     /// on one line, and the whole message remains in the tooltip.
     func testMultiLineFailureStaysOnOneRowLine() throws {
         let message = "tool exited with status 64: first line\nsecond line\nthird line"
-        let failed = OperationCenter.shared.start(
-            title: "Multi-line failure fixture", detail: "Preparing...", operationType: .assembly)
+        let failed = OperationCenter.shared.begin(
+            title: "Multi-line failure fixture", detail: "Preparing...", operationType: .assembly, cliCommand: nil).rowID
         _ = OperationCenter.shared.fail(id: failed, detail: "failed", errorMessage: message)
         defer { OperationCenter.shared.clearItem(id: failed) }
 
@@ -362,10 +383,10 @@ final class OperationsLiveInspectorTests: XCTestCase {
     /// drawer running down under the "Clear Completed" footer. The drawer and
     /// everything drawn in it must end at the footer's top edge.
     func testFailedRunDrawerStaysAboveTheFooterAtManualCaptureSize() async throws {
-        let failed = OperationCenter.shared.start(
+        let failed = OperationCenter.shared.begin(
             title: "Viral Recon: SARS-CoV-2 Amplicons", detail: "Preparing...", operationType: .assembly,
             cliCommand: "lungfish-cli workflow viralrecon --input samplesheet.csv --outdir <run>"
-        )
+        ).rowID
         for index in 0..<120 {
             OperationCenter.shared.log(id: failed, level: .info, message: "[nf-core/viralrecon] process \(index) submitted with a long line of executor output text")
         }
@@ -428,9 +449,9 @@ final class OperationsLiveInspectorTests: XCTestCase {
     func testTitleKeepsItsFullLineWhenDrawerIsShorterThanItsHeader() throws {
         let center = OperationCenter()
         center.failureReportStore = .temporaryForTesting()
-        let id = center.start(title: "FASTQ: fastp Adapter + Quality Trim", detail: "Preparing...",
+        let id = center.begin(title: "FASTQ: fastp Adapter + Quality Trim", detail: "Preparing...",
                               operationType: .fastqOperation,
-                              cliCommand: "lungfish-cli fastq fastp-trim HG002.lungfishfastq")
+                              cliCommand: "lungfish-cli fastq fastp-trim HG002.lungfishfastq").rowID
         center.log(id: id, level: .info, message: "Completed in 4.2s")
         center.complete(id: id, detail: "Done in 4.2s")
         let item = try XCTUnwrap(center.items.first { $0.id == id })
@@ -471,10 +492,10 @@ final class OperationsLiveInspectorTests: XCTestCase {
 
     func testDrawerShowsCommandSupportsTextSizingAndClosesFromInspector() throws {
         let command = "lungfish-cli fastq orient --input /project/reads.fastq --output /project/oriented.fastq"
-        let id = OperationCenter.shared.start(
+        let id = OperationCenter.shared.begin(
             title: "Command fixture", detail: "Orienting reads", operationType: .fastqOperation,
             cliCommand: command
-        )
+        ).rowID
         defer {
             _ = OperationCenter.shared.complete(id: id, detail: "Done")
             OperationCenter.shared.clearItem(id: id)
@@ -526,8 +547,9 @@ final class OperationsLiveInspectorTests: XCTestCase {
     func testShortInspectorKeepsTitleOnScreenForFailedOperation() throws {
         let center = OperationCenter()
         center.failureReportStore = .temporaryForTesting()
-        let id = center.start(title: "Map Reads (minimap2): short drawer", detail: "Mapping",
-                              cliCommand: "lungfish-cli map reads.fastq --reference ref.fasta")
+        let id = center.begin(title: "Map Reads (minimap2): short drawer", detail: "Mapping",
+                              operationType: .download,
+                              cliCommand: "lungfish-cli map reads.fastq --reference ref.fasta").rowID
         center.log(id: id, level: .info, message: "Running minimap2...")
         center.fail(id: id, detail: "minimap2 failed",
                     errorMessage: "minimap2 exited with status 1: [E::main] unknown option --bogus. The run stopped before any reads were mapped and no result was written.",

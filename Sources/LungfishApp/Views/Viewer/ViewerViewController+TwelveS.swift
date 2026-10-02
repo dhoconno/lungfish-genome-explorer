@@ -34,123 +34,109 @@ extension ViewerViewController {
         controller.onUnresolvedBlastRequested = { [weak controller] request in
             guard let controller else { return }
             let minimumReads = max(0, request.minimumReads)
-            controller.showBlastLoading(phase: .submitting, requestId: nil)
             let exportURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("lungfish-12s-blast-\(UUID().uuidString)", isDirectory: true)
                 .appendingPathComponent("unresolved-min\(minimumReads).fasta")
-            let selectedSequenceIDs = request.sequences.map(\.sequenceID)
-            var arguments = [
-                "fastq", "12s-export-unresolved",
-                "--bundle", request.bundleURL.path,
-                "--min-reads", String(minimumReads),
-                "--output", exportURL.path,
-                "--include-chimera-candidates",
-                "--force",
-            ]
-            for sequenceID in selectedSequenceIDs {
-                arguments += ["--sequence-id", sequenceID]
-            }
-            let cliCommand = ViralReconWorkflowCommandPreview.build(
-                executableName: CLICommandIdentity.executableName,
-                arguments: arguments
+            let arguments = Self.twelveSUnresolvedExportArguments(
+                bundleURL: request.bundleURL,
+                minimumReads: minimumReads,
+                exportURL: exportURL,
+                sequenceIDs: request.sequences.map(\.sequenceID)
             )
-            let operationID = OperationCenter.shared.start(
-                title: "BLAST 12S Unresolved",
-                detail: "Preparing unresolved sequence FASTA...",
-                operationType: .blastVerification,
-                cliCommand: cliCommand
-            )
-            controller.onUnresolvedBlastCancelRequested = {
-                OperationCenter.shared.cancel(id: operationID)
-            }
-
-            let cliCancellation = LungfishCLIRunner.CancellationHandle()
-            let task = Task.detached {
-                defer {
-                    try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
+            Self.beginTwelveSUnresolvedBlastOperation(cliArguments: arguments) { operationID in
+                controller.showBlastLoading(phase: .submitting, requestId: nil)
+                controller.onUnresolvedBlastCancelRequested = {
+                    OperationCenter.shared.cancel(id: operationID)
                 }
-                do {
-                    try FileManager.default.createDirectory(
-                        at: exportURL.deletingLastPathComponent(),
-                        withIntermediateDirectories: true
-                    )
-                    _ = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
-                    try Self.verifyTwelveSBlastPreparationProvenance(
-                        sidecarURL: exportURL.appendingPathExtension("lungfish-provenance.json"),
-                        outputURL: exportURL
-                    )
-                    let sequences = try Self.twelveSBlastSequences(fromFasta: exportURL)
-                    guard !sequences.isEmpty else {
-                        throw BlastServiceError.noSequences
+
+                let cliCancellation = LungfishCLIRunner.CancellationHandle()
+                let task = Task.detached {
+                    defer {
+                        try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
                     }
-                    let blastRequest = BlastVerificationRequest(
-                        taxonName: "12S unresolved sequences",
-                        taxId: 0,
-                        sequences: sequences,
-                        database: BlastDatabaseID.coreNT.rawValue,
-                        entrezQuery: nil
-                    )
-                    let result = try await BlastService.shared.verify(
-                        request: blastRequest,
-                        progress: { fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    guard OperationCenter.shared.update(id: operationID, progress: fraction, detail: message) else {
-                                        return
-                                    }
-                                    let lower = message.lowercased()
-                                    if lower.contains("waiting") {
-                                        controller.showBlastLoading(phase: .waiting, requestId: nil)
-                                    } else if lower.contains("parsing") {
-                                        controller.showBlastLoading(phase: .parsing, requestId: nil)
-                                    } else {
-                                        controller.showBlastLoading(phase: .submitting, requestId: nil)
+                    do {
+                        try FileManager.default.createDirectory(
+                            at: exportURL.deletingLastPathComponent(),
+                            withIntermediateDirectories: true
+                        )
+                        _ = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
+                        try Self.verifyTwelveSBlastPreparationProvenance(
+                            sidecarURL: exportURL.appendingPathExtension("lungfish-provenance.json"),
+                            outputURL: exportURL
+                        )
+                        let sequences = try Self.twelveSBlastSequences(fromFasta: exportURL)
+                        guard !sequences.isEmpty else {
+                            throw BlastServiceError.noSequences
+                        }
+                        let blastRequest = BlastVerificationRequest(
+                            taxonName: "12S unresolved sequences",
+                            taxId: 0,
+                            sequences: sequences,
+                            database: BlastDatabaseID.coreNT.rawValue,
+                            entrezQuery: nil
+                        )
+                        let result = try await BlastService.shared.verify(
+                            request: blastRequest,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        guard OperationCenter.shared.update(id: operationID, progress: fraction, detail: message) else {
+                                            return
+                                        }
+                                        let lower = message.lowercased()
+                                        if lower.contains("waiting") {
+                                            controller.showBlastLoading(phase: .waiting, requestId: nil)
+                                        } else if lower.contains("parsing") {
+                                            controller.showBlastLoading(phase: .parsing, requestId: nil)
+                                        } else {
+                                            controller.showBlastLoading(phase: .submitting, requestId: nil)
+                                        }
                                     }
                                 }
                             }
+                        )
+                        try Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                let accepted = OperationCenter.shared.complete(
+                                    id: operationID,
+                                    detail: "BLAST results ready for \(sequences.count) unresolved sequence\(sequences.count == 1 ? "" : "s")"
+                                )
+                                controller.onUnresolvedBlastCancelRequested = nil
+                                guard accepted else { return }
+                                controller.showBlastResults(result)
+                            }
                         }
-                    )
-                    try Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            let accepted = OperationCenter.shared.complete(
-                                id: operationID,
-                                detail: "BLAST results ready for \(sequences.count) unresolved sequence\(sequences.count == 1 ? "" : "s")"
-                            )
-                            controller.onUnresolvedBlastCancelRequested = nil
-                            guard accepted else { return }
-                            controller.showBlastResults(result)
+                    } catch LungfishCLIRunner.RunError.cancelled {
+                        try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                                OperationCenter.shared.log(id: operationID, level: .info, message: "12S BLAST preparation cancelled")
+                                controller.onUnresolvedBlastCancelRequested = nil
+                            }
                         }
-                    }
-                } catch LungfishCLIRunner.RunError.cancelled {
-                    try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.acknowledgeCancellation(id: operationID)
-                            OperationCenter.shared.log(id: operationID, level: .info, message: "12S BLAST preparation cancelled")
-                            controller.onUnresolvedBlastCancelRequested = nil
-                        }
-                    }
-                } catch {
-                    try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
-                    let message = error.localizedDescription
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            let accepted = OperationCenter.shared.fail(
-                                id: operationID,
-                                detail: message,
-                                errorMessage: message
-                            )
-                            controller.onUnresolvedBlastCancelRequested = nil
-                            guard accepted else { return }
-                            controller.showBlastFailure(message)
+                    } catch {
+                        try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
+                        let message = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                let accepted = OperationCenter.shared.fail(
+                                    id: operationID,
+                                    detail: message,
+                                    errorMessage: message
+                                )
+                                controller.onUnresolvedBlastCancelRequested = nil
+                                guard accepted else { return }
+                                controller.showBlastFailure(message)
+                            }
                         }
                     }
                 }
-            }
-            OperationCenter.shared.setCancelCallback(for: operationID) {
-                task.cancel()
-                cliCancellation.cancel()
+                OperationCenter.shared.setCancelCallback(for: operationID) {
+                    task.cancel()
+                    cliCancellation.cancel()
+                }
             }
         }
 
@@ -205,6 +191,69 @@ extension ViewerViewController {
         geneTabBarView?.isHidden = (geneTabBarView?.selectedGeneRegion == nil)
         revealAnnotationDrawerUnlessNativeBundleInstalled()
         fastqMetadataDrawerView?.isHidden = false
+    }
+
+    /// The `lungfish-cli fastq 12s-export-unresolved` argv that the BLAST
+    /// preparation runs. It writes the unresolved sequences with at least
+    /// `minimumReads` identical reads to a FASTA file at `exportURL`, chimera
+    /// candidates included and limited to `sequenceIDs` when that list is not
+    /// empty.
+    nonisolated static func twelveSUnresolvedExportArguments(
+        bundleURL: URL,
+        minimumReads: Int,
+        exportURL: URL,
+        sequenceIDs: [String]
+    ) -> [String] {
+        var arguments = [
+            "fastq", "12s-export-unresolved",
+            "--bundle", bundleURL.path,
+            "--min-reads", String(minimumReads),
+            "--output", exportURL.path,
+            "--include-chimera-candidates",
+            "--force",
+        ]
+        for sequenceID in sequenceIDs {
+            arguments += ["--sequence-id", sequenceID]
+        }
+        return arguments
+    }
+
+    /// Registers the 12S unresolved-sequence BLAST row and, only when it
+    /// starts, calls `launch` with the operation ID. The row locks no bundle.
+    ///
+    /// `cliArguments` is the argv the run executes first, which
+    /// ``twelveSUnresolvedExportArguments(bundleURL:minimumReads:exportURL:sequenceIDs:)``
+    /// builds. The row records it as the
+    /// `lungfish-cli fastq 12s-export-unresolved` command it is.
+    ///
+    /// Partial CLI parity gap. That command exports the unresolved sequences
+    /// to a FASTA file and stops there. The run then submits the sequences to
+    /// NCBI BLAST through `BlastService`, and no lungfish-cli command does
+    /// that. The closest BLAST command is `blast verify`, which covers one
+    /// Kraken2 taxon. A command that submits sequences would extend or
+    /// replace the recorded one.
+    @discardableResult
+    static func beginTwelveSUnresolvedBlastOperation(
+        cliArguments: [String],
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: "BLAST 12S Unresolved",
+            detail: "Preparing unresolved sequence FASTA...",
+            operationType: .blastVerification,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "fastq 12s-export-unresolved",
+                args: Array(cliArguments.dropFirst(2))
+            )
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
     }
 
     private nonisolated static func twelveSBlastSequences(fromFasta fastaURL: URL) throws -> [(id: String, sequence: String)] {

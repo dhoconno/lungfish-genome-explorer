@@ -51,17 +51,32 @@ private func defaultDestination(
 @MainActor
 struct AlignmentScientificActionReporter {
     enum Terminal: Equatable { case success(AlignmentReadExtractionPublicationResult), failure(String), cancelled(String) }
-    let start: (_ title: String, _ detail: String) -> UUID
+    /// Registers the row. A `.refused` result means the launch functions start nothing.
+    let begin: (_ title: String, _ detail: String) -> OperationStartResult
     let installCancellation: (_ id: UUID, _ cancellation: @escaping @Sendable () -> Void) -> Void
     let log: (_ id: UUID, _ message: String) -> Void
     let finish: (_ id: UUID, _ terminal: Terminal) -> Void
 
     static let operationCenter = operationCenter(routeContext: nil)
 
-    static func operationCenter(routeContext: OperationRouteContext?, center: OperationCenter = .shared) -> Self {
+    /// The reporter that sends every report to `center`. Its `begin` locks no
+    /// bundle and records no command.
+    ///
+    /// CLI parity gap. The closest commands are `extract reads --by-region`
+    /// for a region and `extract reads --by-id --bam` for selected reads, and
+    /// neither reproduces the run. The region run applies the evidence's
+    /// minimum map quality, excluded flags and read groups, reads its
+    /// explicit index and publishes a `.lungfishfastq` bundle at the chosen
+    /// destination with provenance. `extract reads --by-region` has no option
+    /// for the filters or the index, picks its own flag filter (0x400 or
+    /// 0x404) and cannot publish to that destination with that provenance.
+    /// The selected reads reach the run as read names in memory, and `--by-id`
+    /// reads them from a file. The row keeps recording no command until a
+    /// command can express them.
+    static func operationCenter(routeContext: OperationRouteContext?, center: any OperationReporting = OperationCenter.shared) -> Self {
         Self(
-        start: { title, detail in
-            center.start(title: title, detail: detail, operationType: .taxonomyExtraction, routeContext: routeContext)
+        begin: { title, detail in
+            center.begin(title: title, detail: detail, operationType: .taxonomyExtraction, cliCommand: nil, routeContext: routeContext)
         },
         installCancellation: { id, cancellation in
             center.setCancelCallback(for: id, callback: cancellation)
@@ -222,7 +237,8 @@ final class AlignmentScientificActionCoordinator {
     /// Registers one visible operation before validation/staging. The adapter is
     /// deliberately injected so AppKit/OperationCenter composition stays out of
     /// the scientific transaction boundary and every terminal transition is
-    /// owned by this single launch wrapper.
+    /// owned by this single launch wrapper. Returns nil when the row was
+    /// refused, and then nothing was launched.
     @discardableResult
     func launchRegion(
         context: AlignmentActionContext,
@@ -230,8 +246,10 @@ final class AlignmentScientificActionCoordinator {
         destination: AlignmentReadExtractionPublicationDestination,
         outputBaseName: String,
         reporter: AlignmentScientificActionReporter
-    ) -> Task<Void, Never> {
-        let operationID = reporter.start("Extract Reads in Selected Region", "Preparing alignment read extraction…")
+    ) -> Task<Void, Never>? {
+        guard case .started(let operationID) = reporter.begin("Extract Reads in Selected Region", "Preparing alignment read extraction…") else {
+            return nil // The panel already shows the refused row. Nothing was launched.
+        }
         reporter.log(operationID, "alignment evidence: \(evidenceIdentityLabel(context.identity))")
         let task = Task {
             do {
@@ -254,6 +272,8 @@ final class AlignmentScientificActionCoordinator {
         return task
     }
 
+    /// Registers the selected-read extraction like ``launchRegion(context:region:destination:outputBaseName:reporter:)``
+    /// and returns nil, with nothing launched, when the row was refused.
     @discardableResult
     func launchSelectedReads(
         context: AlignmentActionContext,
@@ -261,8 +281,10 @@ final class AlignmentScientificActionCoordinator {
         destination: AlignmentReadExtractionPublicationDestination,
         outputBaseName: String,
         reporter: AlignmentScientificActionReporter
-    ) -> Task<Void, Never> {
-        let operationID = reporter.start("Extract Selected Reads", "Preparing selected-read extraction…")
+    ) -> Task<Void, Never>? {
+        guard case .started(let operationID) = reporter.begin("Extract Selected Reads", "Preparing selected-read extraction…") else {
+            return nil // The panel already shows the refused row. Nothing was launched.
+        }
         reporter.log(operationID, "alignment evidence: \(evidenceIdentityLabel(context.identity))")
         let task = Task {
             do {

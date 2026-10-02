@@ -14,7 +14,6 @@ demo: human-reads
 next: B04-reading-a-pileup
 
 site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
-  section: Reads
   summary: >-
     Judge a run of Illumina reads from its summary cards and charts, and learn what the quality scores mean and what healthy values look like.
 

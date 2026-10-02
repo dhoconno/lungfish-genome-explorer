@@ -5,6 +5,7 @@ import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
 import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class WorkflowOperationExecutionServiceTests: XCTestCase {

@@ -540,77 +540,73 @@ final class PluginManagerViewModel {
 
     /// Installs or reinstalls a plugin pack through the shared status service.
     func installPack(_ pack: PluginPack, reinstall: Bool = false) {
-        installingPacks.insert(pack.id)
-        packProgressMessage[pack.id] = reinstall ? "Reinstalling..." : "Installing..."
-        let operationID = startPluginPackOperation(pack: pack, reinstall: reinstall)
-        let progressLog = PluginPackInstallProgressLog()
-        let packID = pack.id
+        startPluginPackOperation(pack: pack, reinstall: reinstall) { operationID in
+            installingPacks.insert(pack.id)
+            packProgressMessage[pack.id] = reinstall ? "Reinstalling..." : "Installing..."
+            let progressLog = PluginPackInstallProgressLog()
+            let packID = pack.id
 
-        Task {
-            var didSucceed = false
-            defer {
-                installingPacks.remove(pack.id)
-                packProgressMessage.removeValue(forKey: pack.id)
-            }
+            Task {
+                var didSucceed = false
+                defer {
+                    installingPacks.remove(pack.id)
+                    packProgressMessage.removeValue(forKey: pack.id)
+                }
 
-            do {
-                try await packStatusProvider.install(pack: pack, reinstall: reinstall) { [weak self, progressLog] event in
-                    progressLog.append(event)
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            guard let self else { return }
-                            self.packProgressMessage[packID] = event.message
-                            self.updatePluginPackOperationProgress(operationID: operationID, event: event)
+                do {
+                    try await packStatusProvider.install(pack: pack, reinstall: reinstall) { [weak self, progressLog] event in
+                        progressLog.append(event)
+                        DispatchQueue.main.async { [weak self] in
+                            MainActor.assumeIsolated {
+                                guard let self else { return }
+                                self.packProgressMessage[packID] = event.message
+                                self.updatePluginPackOperationProgress(operationID: operationID, event: event)
+                            }
                         }
                     }
+                    recordPluginPackProgressEvents(progressLog.snapshot(), operationID: operationID)
+                    let finalStatus = await packStatusProvider.status(for: pack)
+                    recordPluginPackStatus(finalStatus, operationID: operationID)
+                    completePluginPackOperation(pack: pack, status: finalStatus, operationID: operationID)
+                    didSucceed = true
+                } catch {
+                    recordPluginPackProgressEvents(progressLog.snapshot(), operationID: operationID)
+                    operationCenter.log(
+                        id: operationID,
+                        level: .error,
+                        message: "Install failed: \(error.localizedDescription)"
+                    )
+                    _ = operationCenter.fail(
+                        id: operationID,
+                        detail: "Failed to \(reinstall ? "reinstall" : "install") \(pack.name)",
+                        errorMessage: error.localizedDescription,
+                        errorDetail: pluginPackDiagnosticText(pack: pack)
+                    )
+                    handleError(error, context: "\(reinstall ? "reinstalling" : "installing") '\(pack.name)'")
                 }
-                recordPluginPackProgressEvents(progressLog.snapshot(), operationID: operationID)
-                let finalStatus = await packStatusProvider.status(for: pack)
-                recordPluginPackStatus(finalStatus, operationID: operationID)
-                completePluginPackOperation(pack: pack, status: finalStatus, operationID: operationID)
-                didSucceed = true
-            } catch {
-                recordPluginPackProgressEvents(progressLog.snapshot(), operationID: operationID)
-                operationCenter.log(
-                    id: operationID,
-                    level: .error,
-                    message: "Install failed: \(error.localizedDescription)"
-                )
-                _ = operationCenter.fail(
-                    id: operationID,
-                    detail: "Failed to \(reinstall ? "reinstall" : "install") \(pack.name)",
-                    errorMessage: error.localizedDescription,
-                    errorDetail: pluginPackDiagnosticText(pack: pack)
-                )
-                handleError(error, context: "\(reinstall ? "reinstalling" : "installing") '\(pack.name)'")
-            }
-            refreshInstalled()
-            await loadPackStatuses()
-            if didSucceed {
-                postManagedResourcesDidChange()
+                refreshInstalled()
+                await loadPackStatuses()
+                if didSucceed {
+                    postManagedResourcesDidChange()
+                }
             }
         }
     }
 
-    private func startPluginPackOperation(pack: PluginPack, reinstall: Bool) -> UUID {
-        let operationID = operationCenter.start(
-            title: "Plugin Pack: \(pack.name)",
-            detail: "\(reinstall ? "Preparing to reinstall" : "Preparing to install") \(pack.name)",
-            operationType: .condaPluginPack,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "conda install",
-                args: ["--pack", pack.id]
+    /// Registers the pack row, writes its opening log lines, and calls `launch`
+    /// with the operation ID only when the row started.
+    private func startPluginPackOperation(pack: PluginPack, reinstall: Bool, launch: (UUID) -> Void) {
+        Self.beginPluginPackOperation(pack: pack, reinstall: reinstall, reporter: operationCenter) { operationID in
+            operationCenter.log(
+                id: operationID,
+                level: .info,
+                message: "Action: \(reinstall ? "Reinstall" : "Install") requested from Plugin Manager"
             )
-        )
-        operationCenter.log(
-            id: operationID,
-            level: .info,
-            message: "Action: \(reinstall ? "Reinstall" : "Install") requested from Plugin Manager"
-        )
-        for line in pluginPackDiagnosticLines(pack: pack) {
-            operationCenter.log(id: operationID, level: .info, message: line)
+            for line in pluginPackDiagnosticLines(pack: pack) {
+                operationCenter.log(id: operationID, level: .info, message: line)
+            }
+            launch(operationID)
         }
-        return operationID
     }
 
     private func updatePluginPackOperationProgress(
@@ -837,67 +833,65 @@ final class PluginManagerViewModel {
         let name = database.name
         let targetVersion = database.availableUpdateVersion ?? "latest"
 
-        updatingDatabases.insert(name)
-        databaseUpdateNotice.removeValue(forKey: name)
-        downloadError.removeValue(forKey: name)
+        Self.beginDatabaseUpdateOperation(
+            name: name,
+            catalogID: catalogID,
+            targetVersion: targetVersion,
+            reporter: operationCenter
+        ) { operationID in
+            updatingDatabases.insert(name)
+            databaseUpdateNotice.removeValue(forKey: name)
+            downloadError.removeValue(forKey: name)
 
-        let operationID = operationCenter.start(
-            title: "Update Database: \(name)",
-            detail: "Updating \(name) to \(targetVersion)",
-            operationType: .download,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "conda db update",
-                args: [catalogID, "--yes"]
+            operationCenter.log(
+                id: operationID,
+                level: .info,
+                message: "Updating \(name) from \(database.version ?? "unknown") to \(targetVersion) (\(catalogID))"
             )
-        )
-        operationCenter.log(
-            id: operationID,
-            level: .info,
-            message: "Updating \(name) from \(database.version ?? "unknown") to \(targetVersion) (\(catalogID))"
-        )
 
-        Task {
-            defer {
-                updatingDatabases.remove(name)
-                downloadProgress.removeValue(forKey: name)
-                downloadMessage.removeValue(forKey: name)
-            }
+            Task {
+                defer {
+                    updatingDatabases.remove(name)
+                    downloadProgress.removeValue(forKey: name)
+                    downloadMessage.removeValue(forKey: name)
+                }
 
-            do {
-                try await updateDatabaseAction(catalogID) { [weak self] fraction, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard let self else { return }
-                            self.downloadProgress[name] = fraction
-                            self.downloadMessage[name] = message
-                            _ = self.operationCenter.update(
-                                id: operationID,
-                                progress: fraction,
-                                detail: message
-                            )
+                do {
+                    try await updateDatabaseAction(catalogID) { [weak self] fraction, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard let self else { return }
+                                self.downloadProgress[name] = fraction
+                                self.downloadMessage[name] = message
+                                _ = self.operationCenter.update(
+                                    id: operationID,
+                                    progress: fraction,
+                                    detail: message
+                                )
+                            }
                         }
                     }
-                }
-                operationCenter.log(id: operationID, level: .info, message: "\(name) updated to \(targetVersion)")
-                _ = operationCenter.complete(id: operationID, detail: "\(name) is now \(targetVersion)")
-                logger.info("Database '\(name, privacy: .public)' updated to \(targetVersion, privacy: .public)")
-                refreshDatabases()
-                postManagedResourcesDidChange()
-            } catch let error as MetagenomicsDatabaseRegistryError {
-                if case .updateNotSupported = error {
-                    databaseUpdateNotice[name] = error.localizedDescription
-                    operationCenter.log(id: operationID, level: .warning, message: error.localizedDescription)
-                    _ = operationCenter.completeWithWarning(
-                        id: operationID,
-                        detail: "\(name) cannot be updated in place"
-                    )
-                } else {
+                    operationCenter.log(id: operationID, level: .info, message: "\(name) updated to \(targetVersion)")
+                    _ = operationCenter.complete(id: operationID, detail: "\(name) is now \(targetVersion)")
+                    logger.info("Database '\(name, privacy: .public)' updated to \(targetVersion, privacy: .public)")
+                    refreshDatabases()
+                    postManagedResourcesDidChange()
+                } catch let error as MetagenomicsDatabaseRegistryError {
+                    if case .updateNotSupported = error {
+                        databaseUpdateNotice[name] = error.localizedDescription
+                        operationCenter.log(id: operationID, level: .warning, message: error.localizedDescription)
+                        _ = operationCenter.completeWithWarning(
+                            id: operationID,
+                            detail: "\(name) cannot be updated in place"
+                        )
+                    } else {
+                        recordDatabaseUpdateFailure(error, name: name, operationID: operationID)
+                    }
+                    refreshDatabases()
+                } catch {
                     recordDatabaseUpdateFailure(error, name: name, operationID: operationID)
+                    refreshDatabases()
                 }
-                refreshDatabases()
-            } catch {
-                recordDatabaseUpdateFailure(error, name: name, operationID: operationID)
-                refreshDatabases()
             }
         }
     }

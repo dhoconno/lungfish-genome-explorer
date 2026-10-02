@@ -1,11 +1,35 @@
-# The Videos page (docs/site/videos.qmd) is generated from this file and from every video that has
-# a published.yaml. Edit the intro or the section order here, then run
+# The Videos page (docs/site/videos.qmd) and the video list at the bottom of the home page
+# (docs/site/index.qmd, between its videos:begin and videos:end markers) are generated from this
+# file and from every video that has a published.yaml. Edit the intros or the track order here,
+# then run
 #   python3 screencasts/publish.py --page
-# A video names its section in its own spec (site.section). Videos in a section are ordered by slug.
+# Videos are grouped by the `track` in their own spec, in the order of `tracks` below, and ordered
+# by slug within a track. A track with no published video is left off both pages, so a new track
+# can be listed here before its first video ships.
 
 title: Videos
 intro: >-
-  Short videos that show Lungfish Genome Explorer (LGE) at work. Each one names the version it was
-  filmed with. The learner videos have a synthetic narrator and on-screen captions. The overview is
-  silent, with its captions on screen.
-sections: [Getting started, Sequences, Reads, Alignments, Overview]
+  Short videos that show Lungfish Genome Explorer (LGE) at work, grouped by who they are for. Each
+  one names the version it was filmed with. New videos join these groups as they are made.
+home_intro: >-
+  Start with the overview, then work through the beginner screencasts in order.
+
+tracks:
+  - track: overview
+    heading: Overview
+    intro: >-
+      A short tour of what sets LGE apart. It is silent, with its captions on screen.
+  - track: beginners
+    heading: Beginner screencasts
+    intro: >-
+      For students and scientists new to bioinformatics. Watch them in order, starting with
+      installing LGE. Each has a synthetic narrator and captions, and points to the manual chapter
+      that goes further.
+  - track: switching
+    heading: Switching from other apps
+    intro: >-
+      Where a familiar sequence analysis task lives in LGE, one task per video.
+  - track: command-line
+    heading: Command-line users
+    intro: >-
+      How the app and lungfish-cli work together, for people who also work in a terminal.

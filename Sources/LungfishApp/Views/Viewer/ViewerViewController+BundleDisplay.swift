@@ -807,65 +807,61 @@ extension ViewerViewController {
             bundleName: suggestedName
         ) + ["--quiet"]
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
-        let operationID = OperationCenter.shared.start(
-            title: "Extract Sequences",
-            detail: "Extracting \(names.count) selected sequence(s) into a new bundle...",
-            operationType: .bundleBuild,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "extract contigs",
-                args: Array(arguments.dropFirst(2))
-            ),
+        Self.beginSelectedChromosomeExtractionOperation(
+            cliArguments: arguments,
+            selectedCount: names.count,
             routeContext: routeContext
-        )
-        OperationCenter.shared.log(
-            id: operationID,
-            level: .info,
-            message: "Extracting: \(names.joined(separator: ", "))"
-        )
-        let cancellation = LungfishCLIRunner.CancellationHandle()
-        OperationCenter.shared.setCancelCallback(for: operationID) { cancellation.cancel() }
+        ) { operationID in
+            OperationCenter.shared.log(
+                id: operationID,
+                level: .info,
+                message: "Extracting: \(names.joined(separator: ", "))"
+            )
+            let cancellation = LungfishCLIRunner.CancellationHandle()
+            OperationCenter.shared.setCancelCallback(for: operationID) { cancellation.cancel() }
 
-        Task.detached { [weak self] in
-            do {
-                let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
-                guard let newBundleURL = FASTASelectionReferenceBundleCLI.bundleURL(from: output.stdout) else {
-                    throw LungfishCLIRunner.RunError.invalidInvocation(
-                        "The sequence-extraction command completed without reporting its bundle path."
-                    )
-                }
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(
-                            id: operationID,
-                            progress: 1.0,
-                            detail: "Created \(newBundleURL.lastPathComponent)"
-                        )
-                        OperationCenter.shared.log(
-                            id: operationID,
-                            level: .info,
-                            message: "Created \(newBundleURL.lastPathComponent)"
-                        )
-                        _ = OperationCenter.shared.complete(
-                            id: operationID,
-                            detail: "Created \(newBundleURL.lastPathComponent)",
-                            bundleURLs: [newBundleURL]
+            Task.detached { [weak self] in
+                do {
+                    let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
+                    guard let newBundleURL = FASTASelectionReferenceBundleCLI.bundleURL(from: output.stdout) else {
+                        throw LungfishCLIRunner.RunError.invalidInvocation(
+                            "The sequence-extraction command completed without reporting its bundle path."
                         )
                     }
-                }
-            } catch LungfishCLIRunner.RunError.cancelled {
-                await MainActor.run { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
-            } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.fail(
-                            id: operationID,
-                            detail: "Sequence extraction failed",
-                            errorMessage: error.localizedDescription
-                        ) else { return }
-                        self?.presentBlockingAlert(
-                            title: "Extract Sequences Failed",
-                            message: error.localizedDescription
-                        )
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.update(
+                                id: operationID,
+                                progress: 1.0,
+                                detail: "Created \(newBundleURL.lastPathComponent)"
+                            )
+                            OperationCenter.shared.log(
+                                id: operationID,
+                                level: .info,
+                                message: "Created \(newBundleURL.lastPathComponent)"
+                            )
+                            _ = OperationCenter.shared.complete(
+                                id: operationID,
+                                detail: "Created \(newBundleURL.lastPathComponent)",
+                                bundleURLs: [newBundleURL]
+                            )
+                        }
+                    }
+                } catch LungfishCLIRunner.RunError.cancelled {
+                    await MainActor.run { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.fail(
+                                id: operationID,
+                                detail: "Sequence extraction failed",
+                                errorMessage: error.localizedDescription
+                            ) else { return }
+                            self?.presentBlockingAlert(
+                                title: "Extract Sequences Failed",
+                                message: error.localizedDescription
+                            )
+                        }
                     }
                 }
             }

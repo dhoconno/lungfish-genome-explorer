@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishKitTestSupport
 
 private actor StubPluginManagerPackStatusProvider: PluginPackStatusProviding {
     let statuses: [PluginPackStatus]

@@ -37,6 +37,7 @@ features:
       - Sources/LungfishIO/Formats/VCF/VCFReferenceInference.swift
       - Sources/LungfishApp/App/VCFImportHelper.swift
       - Sources/LungfishApp/App/VCFAutoIngestor.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportCenterOperationBegin.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift
     module: [LungfishIO, LungfishApp, LungfishCLI]
     notes: >-
@@ -78,6 +79,7 @@ features:
       - Sources/LungfishApp/Views/DatabaseBrowser/GenBankGenomesSearchPane.swift
       - Sources/LungfishApp/ViewModels/GenomeDownloadViewModel.swift
       - Sources/LungfishApp/Services/DownloadCenter.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController+OperationBegin.swift
     module: [LungfishApp, LungfishCLI]
     notes: >-
       Downloads one or more NCBI records through the CLI or database search UI.
@@ -98,6 +100,7 @@ features:
       - Sources/LungfishApp/Views/DatabaseBrowser/SRARunsSearchPane.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
       - Sources/LungfishApp/Services/DownloadCenter.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController+OperationBegin.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     notes: >-
@@ -117,6 +120,7 @@ features:
       - Sources/LungfishCLI/Commands/MapCommand.swift
       - Sources/LungfishCLI/Commands/BAMAdoptMappingSubcommand.swift
       - Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift
+      - Sources/LungfishApp/App/AppDelegate+ToolsMenuOperationBegin.swift
       - Sources/LungfishWorkflow/Mapping/MappingViewerBundlePreparer.swift
       - Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift
       - Sources/LungfishWorkflow/Mapping/MappingResult.swift
@@ -193,6 +197,7 @@ features:
       - Sources/LungfishApp/Views/BAM/BAMPrimerTrimToolPanes.swift
       - Sources/LungfishApp/Views/BAM/PrimerSchemePickerView.swift
       - Sources/LungfishApp/Views/Inspector/InspectorViewController.swift
+      - Sources/LungfishApp/Views/Inspector/InspectorViewController+OperationBegin.swift
       - Sources/LungfishApp/Services/CLIPrimerTrimRunner.swift
       - Sources/LungfishWorkflow/Primers/BAMPrimerTrimPipeline.swift
       - Sources/LungfishWorkflow/Primers/BAMPrimerTrimRequest.swift
@@ -234,6 +239,7 @@ features:
     sources:
       - Sources/LungfishApp/App/ReferenceImportHelper.swift
       - Sources/LungfishApp/App/GenBankSynchronousParser.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportCenterOperationBegin.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift
       - Sources/LungfishCLI/Commands/BundleCommand.swift
       - Sources/LungfishCore/Bundles/BundleManifest.swift
@@ -251,8 +257,10 @@ features:
     viewport_class: sequence
     sources:
       - Sources/LungfishApp/Views/Viewer/ViewerViewController.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+OperationBegin.swift
       - Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift
       - Sources/LungfishApp/App/ViewerGraphicsExportPanelController.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplayOperationBegin.swift
     module: [LungfishApp]
     notes: >-
       Renders a scrollable base-level sequence track with annotation lanes,
@@ -300,7 +308,9 @@ features:
     viewport_class: sequence
     sources:
       - Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift
+      - Sources/LungfishApp/App/AppDelegate+SequenceMenuOperationBegin.swift
       - Sources/LungfishApp/Views/Sequence/SequenceORFOperationDialog.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawerOperationBegin.swift
       - Sources/LungfishCLI/Commands/SequenceCommand.swift
       - Sources/LungfishWorkflow/SequenceAnnotation
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
@@ -351,6 +361,8 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
+      - Sources/LungfishApp/Services/FASTQIngestionService+OperationBegin.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImportOperationBegin.swift
       - Sources/LungfishCLI/Commands/ImportFastqCommand.swift
       - Sources/LungfishCLI/Commands/FastqMaterializeSubcommand.swift
     module: [LungfishCLI, LungfishApp]
@@ -367,6 +379,7 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift
+      - Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController+OperationBegin.swift
       - Sources/LungfishApp/Services/FASTQStatisticsService.swift
       - Sources/LungfishKit/FASTQDisplayNameResolver.swift
     module: [LungfishApp, LungfishKit]
@@ -386,6 +399,7 @@ features:
       - Sources/LungfishCLI/Commands/FastqQCSummarySubcommand.swift
       - Sources/LungfishCLI/Commands/OpsCommand.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplayOperationBegin.swift
     module: [LungfishCLI, LungfishApp]
     notes: >-
       Computes a JSON QC summary and optional clumpify, compress, and index
@@ -402,6 +416,7 @@ features:
     sources:
       - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
       - Sources/LungfishApp/Services/FASTQOperationPlanner.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplayOperationBegin.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
       - Sources/LungfishCLI/Commands/FastqSequenceFilterSubcommand.swift
     module: [LungfishApp, LungfishCLI]
@@ -442,6 +457,7 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplayOperationBegin.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
     module: [LungfishApp, LungfishCLI]
     notes: >-
@@ -477,6 +493,7 @@ features:
       - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplayOperationBegin.swift
     module: [LungfishWorkflow, LungfishCLI, LungfishApp]
     notes: >-
       Demultiplexes reads by internal barcode kit with multi-step support,
@@ -538,6 +555,7 @@ features:
     sources:
       - Sources/LungfishApp/Views/DatabaseBrowser/GenBankGenomesSearchPane.swift
       - Sources/LungfishApp/ViewModels/GenBankBundleDownloadViewModel.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController+OperationBegin.swift
       - Sources/LungfishCLI/Commands/FetchCommand.swift
     module: [LungfishApp, LungfishCLI]
     notes: >-
@@ -585,6 +603,7 @@ features:
     viewport_class: alignment
     sources:
       - Sources/LungfishApp/App/BAMImportHelper.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportCenterOperationBegin.swift
       - Sources/LungfishWorkflow/Mapping/BAMImportService.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift
     module: [LungfishApp, LungfishWorkflow, LungfishCLI]
@@ -601,6 +620,7 @@ features:
     sources:
       - Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift
       - Sources/LungfishApp/Views/Viewer/ClassifierAlignmentEvidenceViewportController.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+MappingOperationBegin.swift
       - Sources/LungfishAlignmentUI/AlignmentResultViewController.swift
       - Sources/LungfishWorkflow/Mapping/MappingViewerBundlePreparer.swift
     module: [LungfishApp, LungfishAlignmentUI, LungfishWorkflow]
@@ -660,6 +680,8 @@ features:
     viewport_class: variant
     sources:
       - Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift
+      - Sources/LungfishApp/App/AppDelegate+ToolsMenuOperationBegin.swift
+      - Sources/LungfishApp/Services/ViralReconWorkflowExecutionService+OperationBegin.swift
       - Sources/LungfishWorkflow/ViralRecon
     module: [LungfishApp, LungfishWorkflow]
     notes: >-
@@ -727,6 +749,7 @@ features:
       - Sources/LungfishCLI/Commands/ImportCommand.swift
       - Sources/LungfishCLI/Commands/MetadataCommand.swift
       - Sources/LungfishApp/Views/Sidebar/FolderMetadataEditorSheet.swift
+      - Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+OperationBegin.swift
     module: [LungfishCLI, LungfishApp]
     notes: >-
       Imports a CSV or TSV metadata table into variant tracks or FASTQ folders
@@ -744,6 +767,7 @@ features:
     sources:
       - Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
+      - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
       - Sources/LungfishCLI/Commands/ClassifyCommand.swift
     module: [LungfishApp, LungfishCLI]
     cli:
@@ -766,6 +790,7 @@ features:
     viewport_class: taxonomy
     sources:
       - Sources/LungfishApp/Views/Metagenomics/EsVirituWizardSheet.swift
+      - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
       - Sources/LungfishEsVirituUI/EsVirituResultViewController.swift
       - Sources/LungfishCLI/Commands/EsVirituCommand.swift
     module: [LungfishApp, LungfishEsVirituUI, LungfishCLI]
@@ -790,6 +815,7 @@ features:
     viewport_class: taxonomy
     sources:
       - Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift
+      - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
       - Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift
       - Sources/LungfishCLI/Commands/TaxTriageCommand.swift
     module: [LungfishApp, LungfishTaxTriageUI, LungfishCLI]
@@ -847,6 +873,7 @@ features:
     viewport_class: taxonomy
     sources:
       - Sources/LungfishApp/Views/Metagenomics/NvdImportSheet.swift
+      - Sources/LungfishApp/App/AppDelegate+ToolsMenuOperationBegin.swift
       - Sources/LungfishNvdUI/NvdResultViewController.swift
       - Sources/LungfishCLI/Commands/NvdCommand.swift
     module: [LungfishApp, LungfishNvdUI, LungfishCLI]
@@ -865,6 +892,7 @@ features:
     sources:
       - Sources/LungfishApp/Views/Metagenomics/CzIdImportSheet.swift
       - Sources/LungfishApp/Views/Metagenomics/CzIdResultViewController.swift
+      - Sources/LungfishApp/App/AppDelegate+ToolsMenuOperationBegin.swift
       - Sources/LungfishCLI/Commands/CzIdCommand.swift
       - Sources/LungfishCLI/Commands/ImportCzIdSubcommand.swift
     module: [LungfishApp, LungfishCLI]
@@ -914,6 +942,7 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift
+      - Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction+OperationBegin.swift
       - Sources/LungfishApp/Views/Metagenomics/ClassifierExtractionDialog.swift
       - Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline.swift
     module: [LungfishApp, LungfishWorkflow]
@@ -933,6 +962,7 @@ features:
     sources:
       - Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift
       - Sources/LungfishApp/Views/Assembly/AssemblyConfigurationViewController.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplayOperationBegin.swift
       - Sources/LungfishCLI/Commands/AssembleCommand.swift
       - Sources/LungfishWorkflow/Assembly
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
@@ -1091,6 +1121,7 @@ features:
     viewport_class: sequence
     sources:
       - Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift
+      - Sources/LungfishApp/App/AppDelegate+ToolsMenuOperationBegin.swift
       - Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift
       - Sources/LungfishCLI/Commands/AlignCommand.swift
     module: [LungfishApp, LungfishWorkflow, LungfishCLI]
@@ -1329,13 +1360,11 @@ features:
   tools.provision:
     title: Provision managed tools
     entry_points:
-      - "CLI: lungfish provision-tools"
       - "CLI: lungfish conda install"
     inputs: [tool-catalog]
     outputs: [conda-environment, managed-tool]
     viewport_class: none
     sources:
-      - Sources/LungfishCLI/Commands/ProvisionToolsCommand.swift
       - Sources/LungfishCLI/Commands/CondaCommand.swift
       - Sources/LungfishKit/CLIBinaryLocator.swift
     module: [LungfishCLI, LungfishKit]
@@ -1353,6 +1382,7 @@ features:
     sources:
       - Sources/LungfishApp/Views/PluginManager/PluginManagerWindowController.swift
       - Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift
+      - Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel+OperationBegin.swift
       - Sources/LungfishCLI/Commands/CondaCommand.swift
     module: [LungfishApp, LungfishCLI]
     notes: >-

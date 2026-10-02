@@ -4,7 +4,7 @@
 
 slug: B00-example
 title: Example title
-track: beginners                 # beginners, switching, command-line or overview
+track: beginners                 # a track in screencasts/_shared/site.yaml (overview, beginners, switching, command-line); it picks the page group
 purpose: >-
   What a viewer can do after watching. A remake has to meet this brief.
 audience: Undergraduate biology students and bench scientists new to bioinformatics.
@@ -12,7 +12,6 @@ manual: 01-foundations/06-the-lungfish-project   # manual chapter the video belo
 demo: human-mapping-and-variants-results         # demo project the takes use, if any
 
 site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
-  section: Getting started       # one of the sections in screencasts/_shared/site.yaml
   summary: >-
     One or two sentences on what the video shows. The length and version are added after it.
 

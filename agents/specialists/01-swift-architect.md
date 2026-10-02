@@ -31,7 +31,7 @@ You own the module stack and its direction of dependency, `Package.swift` and th
 ## Rules that do not change
 
 - Strict concurrency stays on. The escape hatches counted by the concurrency ratchet may only fall, and `docs/contracts/CONCURRENCY-PLAYBOOK.md` says when one is acceptable.
-- Every operation registers with `OperationCenter.shared.begin(...)`, never the deprecated `start`, and passes an explicit operation type and CLI command.
+- Every operation registers with `OperationCenter.shared.begin(...)` and passes an explicit operation type and CLI command, since `begin` has no default for either.
 - Every operation writes a provenance envelope, and the lock manifest stays the single source of tool versions.
 - A commit that moves or splits code carries no logic change, and scientific output stays byte-identical across it.
 - The deployment target is macOS 26. Do not add availability checks for older systems.

@@ -4,6 +4,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class MappingResultViewControllerTests: XCTestCase {
@@ -30,11 +31,12 @@ final class MappingResultViewControllerTests: XCTestCase {
         OperationCenter.shared.clearCompleted()
         let viewer = ViewerViewController()
         _ = viewer.view
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Generate Alignment Consensus",
             detail: "Choose a destination",
-            operationType: .export
-        )
+            operationType: .export,
+            cliCommand: nil
+        ).rowID
         viewer.activeConsensusGenerationOperationID = operationID
         viewer.installConsensusDestinationCancellation(
             operationID: operationID,
@@ -80,11 +82,12 @@ final class MappingResultViewControllerTests: XCTestCase {
         let viewer = ViewerViewController()
         let window = NSWindow(contentViewController: viewer)
         _ = viewer.view
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Generate Alignment Consensus",
             detail: "Confirm all-N consensus",
-            operationType: .export
-        )
+            operationType: .export,
+            cliCommand: nil
+        ).rowID
         viewer.activeConsensusGenerationOperationID = operationID
         let cancelledTerminalCount = LockedTestCounter()
         let publisherInvocationCount = LockedTestCounter()
@@ -143,11 +146,12 @@ final class MappingResultViewControllerTests: XCTestCase {
         let viewer = ViewerViewController()
         let window = NSWindow(contentViewController: viewer)
         _ = viewer.view
-        let oldOperationID = OperationCenter.shared.start(
+        let oldOperationID = OperationCenter.shared.begin(
             title: "Old Alignment Consensus",
             detail: "Confirm all-N consensus",
-            operationType: .export
-        )
+            operationType: .export,
+            cliCommand: nil
+        ).rowID
         viewer.activeConsensusGenerationOperationID = oldOperationID
         let oldTask = Task { @MainActor in
             let accepted = await viewer.presentAlignmentConsensusAllLowDepthConfirmation(
@@ -163,11 +167,12 @@ final class MappingResultViewControllerTests: XCTestCase {
         try await waitUntil { window.attachedSheet != nil }
 
         OperationCenter.shared.cancel(id: oldOperationID)
-        let newOperationID = OperationCenter.shared.start(
+        let newOperationID = OperationCenter.shared.begin(
             title: "New Alignment Consensus",
             detail: "Generating",
-            operationType: .export
-        )
+            operationType: .export,
+            cliCommand: nil
+        ).rowID
         let newTaskWasCancelled = LockedTestBoolean()
         let newTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 200_000_000)

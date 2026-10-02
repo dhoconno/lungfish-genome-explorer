@@ -15,7 +15,6 @@ demo: genes-and-sequences
 next: B03-run-quality
 
 site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
-  section: Sequences
   summary: >-
     Open the human beta-globin record, go to one codon by its position, read its amino acid and see the single base change behind sickle cell disease.
 

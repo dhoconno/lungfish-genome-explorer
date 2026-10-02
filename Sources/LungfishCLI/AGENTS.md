@@ -15,12 +15,12 @@ LungfishCore, LungfishIO, LungfishWorkflow and ArgumentParser. Never LungfishKit
 | Type | Path |
 |---|---|
 | Root command and subcommand list | `LungfishCLI`, Sources/LungfishCLI/LungfishCLI.swift line 19 |
-| Process entry used by the executable | `LungfishCLIMain`, LungfishCLI.swift line 129 |
+| Process entry used by the executable | `LungfishCLIMain`, LungfishCLI.swift line 128 |
 | Shared options | Sources/LungfishCLI/Options/GlobalOptions.swift |
 | Output formatting | Sources/LungfishCLI/Output/CLIOutput.swift |
 | Provenance helpers for commands | Sources/LungfishCLI/Support/CLIProvenanceSupport.swift |
 
-The 104 command files live in Sources/LungfishCLI/Commands, one top-level command or subcommand per file.
+The 103 command files live in Sources/LungfishCLI/Commands, one top-level command or subcommand per file.
 
 ## Where a Kraken2 run starts in the CLI
 
@@ -42,13 +42,12 @@ Target LungfishCLITests in Tests/LungfishCLITests. Run only it with `swift test 
 | Trap | Evidence |
 |---|---|
 | EsViritu CLI writes no SQLite, manifest or batch provenance while the GUI does | Commands/EsVirituCommand.swift compared with Sources/LungfishApp/App/AppDelegate+Classification.swift lines 1042 to 1290 (R3) |
-| Only 9 of 104 command files emit `CLIEvent`, and at least 15 private NDJSON schemas exist | Commands/BAMCommand.swift and others (R16) |
+| Only 9 of 103 command files emit `CLIEvent`, and at least 15 private NDJSON schemas exist | Commands/BAMCommand.swift and others (R16) |
 | Global mutable runner overrides | Commands/WorkflowCommand.swift lines 85 to 89, Commands/CondaCommand.swift lines 50 to 52 (R10) |
 | The app spawns the CLI with Finder's bare PATH, so an unresolved tool exits 127 | memory file project_cli_subprocess_bare_path.md |
 | nf-core schemas reject paths with spaces, so inputs are staged | Commands/NFCoreLaunchStaging.swift (memory file project_cli_subprocess_bare_path.md) |
 | `GlobalOptions()` direct init crashes, use `GlobalOptions.parse([])` | memory file reference_runtime_patterns.md |
 | Very large command files | Commands/FastqCommand.swift is 4,114 lines (R6) |
 | A new top-level command without a `cliCommandPolicies` entry fails the coverage test, and one listed in `canonicalCLICommandNames` but not registered fails it as stale. A non-scientific command goes in the test's `nonScientificTopLevelCommands` set | Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift line 86, Tests/LungfishCLITests/ScientificCLIProvenanceCoverageTests.swift line 103 |
-| `provision-tools` is the only route into Native/ToolProvisioning | Commands/ProvisionToolsCommand.swift (R15) |
 
 Commands/WorkflowEngineLaunch.swift is only a typealias for the LungfishWorkflow type of the same name.

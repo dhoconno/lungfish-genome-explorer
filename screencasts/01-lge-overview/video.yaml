@@ -16,7 +16,6 @@ audience: Scientists and learners who work with sequencing data, most of them ne
 narration: none           # silent overview, captions only (focus group 2026-10-01)
 
 site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
-  section: Overview
   heading: What LGE is for
   summary: >-
     Real data to start from, compact read storage, one window for reads and variants, nf-core pipelines, and a recorded history that exports as methods text, Nextflow or Snakemake.

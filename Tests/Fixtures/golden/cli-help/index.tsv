@@ -93,7 +93,6 @@ lungfish-cli project	shown	0	lungfish-cli.project.txt
 lungfish-cli project lock	shown	0	lungfish-cli.project.lock.txt
 lungfish-cli project unlock	shown	0	lungfish-cli.project.unlock.txt
 lungfish-cli project migrate	shown	0	lungfish-cli.project.migrate.txt
-lungfish-cli provision-tools	shown	0	lungfish-cli.provision-tools.txt
 lungfish-cli tools	shown	0	lungfish-cli.tools.txt
 lungfish-cli tools update	shown	0	lungfish-cli.tools.update.txt
 lungfish-cli conda	shown	0	lungfish-cli.conda.txt

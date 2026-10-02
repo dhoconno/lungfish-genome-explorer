@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishKit
+import LungfishKitTestSupport
 
 final class CLINativeBundleImportRunnerTests: XCTestCase {
     private var temporaryURLs: [URL] = []
@@ -76,11 +77,12 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
 
         let opID = await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "MSA Import",
                 detail: "Launching...",
-                operationType: .multipleSequenceAlignmentImport
-            )
+                operationType: .multipleSequenceAlignmentImport,
+                cliCommand: nil
+            ).rowID
         }
 
         let result = try await CLINativeBundleImportRunner(cliURLOverride: fakeCLI)

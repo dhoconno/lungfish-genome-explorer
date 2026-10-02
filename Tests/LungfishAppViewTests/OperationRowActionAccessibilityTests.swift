@@ -1,5 +1,6 @@
 import AppKit
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishTestSupport
 import XCTest
 @testable import LungfishApp
@@ -69,6 +70,7 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
             progress: 0,
             state: .failed,
             operationType: .assembly,
+            cliCommand: nil,
             errorMessage: "boom"
         )
         XCTAssertEqual(
@@ -157,13 +159,13 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
     // MARK: - Panel validation and row accessibility
 
     func testMenuBarItemsValidateAgainstTheSelectedRow() throws {
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Call variants",
             detail: "Running bcftools",
             operationType: .assembly,
             cliCommand: "lungfish call-variants sample.bam",
             onCancel: {}
-        )
+        ).rowID
         defer {
             _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
@@ -191,12 +193,12 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
 
     func testRowExposesCustomAccessibilityActionsThatShareTheMenuImplementation() throws {
         let command = "lungfish call-variants --reference chr20.fa sample.bam"
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Call variants",
             detail: "Running bcftools",
             operationType: .assembly,
             cliCommand: command
-        )
+        ).rowID
         OperationCenter.shared.log(id: operationID, level: .info, message: "bcftools mpileup started")
         defer {
             _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
@@ -261,13 +263,13 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
 
 extension OperationRowActionAccessibilityTests {
     func testOperationsCellActionsFollowTheOperationStateThroughTheAXBridge() throws {
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Call variants",
             detail: "Running bcftools",
             operationType: .assembly,
             cliCommand: "lungfish call-variants sample.bam",
             onCancel: {}
-        )
+        ).rowID
         defer { OperationCenter.shared.clearCompleted() }
 
         let (controller, _, table) = try makePanel()

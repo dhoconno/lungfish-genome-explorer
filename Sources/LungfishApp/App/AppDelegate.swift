@@ -1657,7 +1657,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             title: "Update Annotation",
             detail: "Updating \(annotation.name)...",
             operationType: .bundleBuild,
-            targetBundleURL: bundleURL,
+            targetBundleURL: bundleURL, cliCommand: nil,
             routeContext: routeContext
         ) {
         case .started(let id):
@@ -1711,7 +1711,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             title: "Delete Annotation",
             detail: "Deleting annotation...",
             operationType: .bundleBuild,
-            targetBundleURL: bundleURL,
+            targetBundleURL: bundleURL, cliCommand: nil,
             routeContext: routeContext
         ) {
         case .started(let id):
