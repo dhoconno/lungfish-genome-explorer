@@ -302,10 +302,12 @@ public struct ManagedAssemblyPipeline: Sendable {
             withIntermediateDirectories: true
         )
         let paired = try pairedReadsIfNeeded(for: request)
-        let readsArgument = paired.map { "\($0.forward.path),\($0.reverse.path)" }
-            ?? request.inputURLs.map(\.path).joined(separator: ",")
-        var arguments: [String] = [
-            "--reads", readsArgument,
+        // SKESA reads a comma-separated `--reads` value as the R1 and R2 files
+        // of one pair, so each unpaired file is its own `--reads`, the form
+        // its usage gives for several runs (R3).
+        let readsArguments = paired.map { ["--reads", "\($0.forward.path),\($0.reverse.path)"] }
+            ?? request.inputURLs.flatMap { ["--reads", $0.path] }
+        var arguments: [String] = readsArguments + [
             "--contigs_out", request.outputDirectory.appendingPathComponent("contigs.fasta").path,
             "--cores", "\(request.threads)",
         ]

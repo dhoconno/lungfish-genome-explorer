@@ -155,6 +155,33 @@ final class AssemblyReadPairingTests: XCTestCase {
         }
     }
 
+    /// SKESA reads a comma-separated `--reads` value as the R1 and R2 files
+    /// of one pair. SKESA 2.5.1 refuses two unpaired files of different
+    /// sizes ("contain different number of mates") and pairs two of the same
+    /// size read for read, so each unpaired file is its own `--reads`, the
+    /// form SKESA's usage gives for several runs (R3, lane 1q).
+    func testSkesaReadsEachUnpairedFileAsItsOwnRunNotAsMates() throws {
+        let files = ["/tmp/run_a.fastq", "/tmp/run_b.fastq", "/tmp/run_c.fastq.gz"].map { URL(fileURLWithPath: $0) }
+        let unpaired = try ManagedAssemblyPipeline.buildCommand(for: request(tool: .skesa, inputURLs: files))
+        XCTAssertEqual(readsValues(in: unpaired.arguments), files.map(\.path))
+        XCTAssertFalse(unpaired.arguments.contains { $0.contains(",") }, "no comma list, which SKESA reads as mates")
+        XCTAssertFalse(unpaired.arguments.contains("--use_paired_ends"))
+
+        let mates = [URL(fileURLWithPath: "/tmp/R1.fastq"), URL(fileURLWithPath: "/tmp/R2.fastq")]
+        let paired = try ManagedAssemblyPipeline.buildCommand(
+            for: request(tool: .skesa, inputURLs: mates, pairedEnd: true)
+        )
+        XCTAssertEqual(readsValues(in: paired.arguments), ["/tmp/R1.fastq,/tmp/R2.fastq"], "a pair stays one value")
+
+        let single = try ManagedAssemblyPipeline.buildCommand(for: request(tool: .skesa))
+        XCTAssertEqual(readsValues(in: single.arguments), ["/tmp/hg002.fastq"])
+    }
+
+    /// Every value that follows a `--reads` flag, in order.
+    private func readsValues(in arguments: [String]) -> [String] {
+        zip(arguments, arguments.dropFirst()).filter { $0.0 == "--reads" }.map(\.1)
+    }
+
     func testR1R2FilesStillTakePrecedenceOverALayout() throws {
         let command = try ManagedAssemblyPipeline.buildCommand(
             for: request(
