@@ -1,67 +1,67 @@
 WEBVTT
 
-00:00:03.200 --> 00:00:08.829
+00:00:03.200 --> 00:00:09.705
 This video uses the Human Mapping and Variants demo project, the version with results.
 
-00:00:08.829 --> 00:00:13.477
+00:00:09.705 --> 00:00:15.076
 Choose Help, then Demo Projects, and click Download and Open beside it.
 
-00:00:13.477 --> 00:00:16.422
+00:00:15.076 --> 00:00:18.480
 The video Your first project shows each step.
 
-00:00:17.520 --> 00:00:22.497
+00:00:19.580 --> 00:00:25.262
 A pileup shows aligned reads stacked at their positions on the reference.
 
-00:00:22.497 --> 00:00:25.293
+00:00:25.262 --> 00:00:28.453
 Under Analyses, open the minimap2 result.
 
-00:00:25.293 --> 00:00:28.770
+00:00:28.453 --> 00:00:32.422
 minimap2 is the read aligner that placed each read.
 
-00:00:28.770 --> 00:00:30.883
+00:00:32.422 --> 00:00:34.835
 Select its row and click Focus.
 
-00:00:30.883 --> 00:00:35.452
+00:00:34.835 --> 00:00:40.049
 The curve shows read depth, the number of reads covering each base.
 
-00:00:35.452 --> 00:00:37.633
+00:00:40.049 --> 00:00:42.540
 Here the mean depth is about 45.
 
-00:00:38.730 --> 00:00:45.021
+00:00:43.640 --> 00:00:50.494
 Type positions 2,050 to 2,350 into the position field above the viewer and press Return.
 
-00:00:45.021 --> 00:00:46.666
+00:00:50.494 --> 00:00:52.286
 Each read is now a bar.
 
-00:00:46.666 --> 00:00:52.528
+00:00:52.286 --> 00:00:58.672
 Bases that match the reference are drawn plain, and bases that differ are colored.
 
-00:00:52.528 --> 00:00:56.603
+00:00:58.672 --> 00:01:03.112
 A colored base in one read is usually a sequencing error.
 
-00:00:56.603 --> 00:01:00.392
+00:01:03.112 --> 00:01:07.240
 A column where many reads differ is a likely variant.
 
-00:01:01.490 --> 00:01:10.252
+00:01:08.340 --> 00:01:18.149
 Most human chromosomes come in two copies, one from each parent, and the version of a base on each copy is an allele.
 
-00:01:10.252 --> 00:01:18.640
+00:01:18.149 --> 00:01:27.539
 At position 2,078 of this slice, every read has A where the reference has G, so both copies most likely carry A.
 
-00:01:18.640 --> 00:01:21.786
+00:01:27.539 --> 00:01:31.060
 This is homozygous alternate, written 1/1.
 
-00:01:22.890 --> 00:01:31.499
+00:01:32.160 --> 00:01:42.089
 At 2,162, 28 of 51 reads have T instead of A, so one copy most likely carries T and the other the reference A.
 
-00:01:31.499 --> 00:01:38.309
+00:01:42.089 --> 00:01:49.942
 This is heterozygous, written 0/1, where 0 is the reference allele and 1 the alternate.
 
-00:01:38.309 --> 00:01:46.683
+00:01:49.942 --> 00:01:59.600
 The Variants tab below the viewer lists the variants a variant-calling program found, with their genotypes.
 
-00:01:47.780 --> 00:01:51.567
+00:02:00.700 --> 00:02:04.758
 To learn more, read the manual chapter Reading an Alignment.
 
-00:01:51.567 --> 00:01:54.722
+00:02:04.758 --> 00:02:08.140
 More videos are on the Videos page of the website.

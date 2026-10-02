@@ -1,4 +1,6 @@
-# Narration voices (decision pending, 2026-10-02)
+# Narration voices (decided 2026-10-02)
+
+The learner videos use the ElevenLabs stock voice Matilda (`voice_id: XrExE9yKIg1WjnnlVkGX`) with `eleven_v4`. It is a built-in voice, so it cannot be withdrawn from the shared library. The key `ELEVENLABS_API_KEY` in `~/.env` needs Text to Speech access and Voices read.
 
 The learner videos (B00 to B04) were drafted with the macOS voice Ava (Premium) through `say`. Two problems make that a draft-only voice.
 

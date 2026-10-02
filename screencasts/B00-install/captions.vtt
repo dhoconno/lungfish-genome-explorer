@@ -1,46 +1,46 @@
 WEBVTT
 
-00:00:03.200 --> 00:00:09.130
+00:00:03.200 --> 00:00:09.088
 Go to the Lungfish Genome Explorer website and click the current Stable release.
 
-00:00:09.130 --> 00:00:11.724
+00:00:09.088 --> 00:00:11.664
 If Safari asks, allow the download.
 
-00:00:11.724 --> 00:00:16.172
+00:00:11.664 --> 00:00:16.080
 It needs a Mac with Apple Silicon running macOS 26 or later.
 
-00:00:17.270 --> 00:00:21.389
+00:00:17.180 --> 00:00:21.959
 Double-click the downloaded disk image, the file ending in .dmg.
 
-00:00:21.389 --> 00:00:25.959
+00:00:21.959 --> 00:00:27.260
 In the window that appears, drag Lungfish onto the Applications folder.
 
-00:00:27.060 --> 00:00:30.983
+00:00:28.360 --> 00:00:32.488
 Open the app named Lungfish from your Applications folder.
 
-00:00:30.983 --> 00:00:36.260
+00:00:32.488 --> 00:00:38.040
 If macOS asks whether to open an app downloaded from the internet, click Open.
 
-00:00:37.360 --> 00:00:39.162
+00:00:39.140 --> 00:00:41.002
 The Welcome window opens.
 
-00:00:39.162 --> 00:00:41.973
+00:00:41.002 --> 00:00:43.907
 Under Third-Party Tools, click Install.
 
-00:00:41.973 --> 00:00:48.243
+00:00:43.907 --> 00:00:50.387
 LGE downloads the analysis programs it runs, such as read aligners and variant callers.
 
-00:00:48.243 --> 00:00:51.991
+00:00:50.387 --> 00:00:54.260
 This takes several minutes, and you do it only once.
 
-00:00:53.090 --> 00:00:56.479
+00:00:55.360 --> 00:00:59.600
 Click Create Project, type a name, and click Save.
 
-00:01:02.290 --> 00:01:04.710
+00:01:04.560 --> 00:01:07.097
 A project is one folder on your Mac.
 
-00:01:04.710 --> 00:01:07.937
+00:01:07.097 --> 00:01:10.480
 It holds your data and your results as you work.
 
-00:01:09.040 --> 00:01:15.209
+00:01:11.580 --> 00:01:17.580
 Next, watch Your first project on the Videos page of the Lungfish Genome Explorer website.
