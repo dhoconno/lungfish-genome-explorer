@@ -126,6 +126,18 @@ struct FASTQSubcommandInput: Sendable {
         }
     }
 
+    /// The prologue of a single-input subcommand: validates `output`, then
+    /// resolves `path` beside it. The output is checked first, so a bundle
+    /// is never joined for a run the output check refuses.
+    static func resolve(
+        _ path: String,
+        operationName: String,
+        output: OutputOptions
+    ) async throws -> FASTQSubcommandInput {
+        try output.validateOutput()
+        return try await resolve(path, operationName: operationName, contextURL: URL(fileURLWithPath: output.output))
+    }
+
     /// Resolves several paths in order, cleaning up the ones already
     /// resolved when a later one fails.
     static func resolve(

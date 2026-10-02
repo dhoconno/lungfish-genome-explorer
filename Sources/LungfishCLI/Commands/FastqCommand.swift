@@ -122,8 +122,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "trim", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "trim", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         let started = Date()
@@ -370,8 +369,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "subsample", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "subsample", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         let runner = NativeToolRunner.shared
@@ -543,8 +541,7 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "length-filter", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "length-filter", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         guard minLength != nil || maxLength != nil else {
@@ -656,8 +653,7 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "quality-trim", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "quality-trim", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         let options = try fastpOptions()
@@ -1169,8 +1165,7 @@ struct FastqReverseComplementSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "reverse-complement", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "reverse-complement", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         let outputURL = URL(fileURLWithPath: output.output)
@@ -1239,8 +1234,7 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "translate", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "translate", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         guard (1...6).contains(frame) else {
@@ -1373,8 +1367,7 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "adapter-trim", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "adapter-trim", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
 
@@ -1481,8 +1474,7 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "fixed-trim", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "fixed-trim", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         guard front >= 0 else { throw ValidationError("--front must be >= 0") }
@@ -1648,8 +1640,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "contaminant-filter", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "contaminant-filter", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         guard kmerSize > 0 else { throw ValidationError("--kmer must be > 0") }
@@ -1828,8 +1819,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "entropy-filter", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "entropy-filter", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         try Self.validate(entropy: entropy, window: window, kmer: kmer)
@@ -1979,8 +1969,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "primer-remove", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "primer-remove", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         guard kmerSize > 0 else { throw ValidationError("--kmer must be > 0") }
@@ -2228,8 +2217,7 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "error-correct", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "error-correct", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         guard kmerSize > 0, kmerSize <= 62 else {
@@ -2318,8 +2306,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "merge", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "merge", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         guard minOverlap > 0 else { throw ValidationError("--min-overlap must be > 0") }
@@ -2535,8 +2522,7 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "repair", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "repair", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         let runner = NativeToolRunner.shared
@@ -2898,8 +2884,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "deduplicate", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "deduplicate", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         let runner = NativeToolRunner.shared

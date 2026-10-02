@@ -37,8 +37,7 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         let referenceURL = try validateInput(reference)
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "orient", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "orient", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
 

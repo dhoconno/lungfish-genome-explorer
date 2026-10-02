@@ -49,8 +49,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
     @OptionGroup var pairing: FASTQPairingOptions
 
     func run() async throws {
-        try output.validateOutput()
-        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "scrub-human", contextURL: URL(fileURLWithPath: output.output))
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "scrub-human", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
         _ = compatibilityRemoveReads
