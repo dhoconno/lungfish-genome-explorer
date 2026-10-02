@@ -1,10 +1,10 @@
 # LungfishApp
 
-Line numbers were checked at commit a0eec8b32. When a line has moved, search for the named symbol.
+Line numbers were checked at commit a0eec8b32, and the family sizes and the Kraken2 path again in Phase 1 lane 1a.3. When a line has moved, search for the named symbol.
 
 ## Purpose
 
-The composition root of the macOS app. It wires windows, menus, the sidebar, the viewer, the Inspector and the operation launches to the leaf modules and to LungfishWorkflow. It holds about 533 files. New feature logic belongs in a leaf module or in LungfishWorkflow, never here. Add only the registration glue that wires a leaf in (see docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md for the touch-point list).
+The composition root of the macOS app. It wires windows, menus, the sidebar, the viewer, the Inspector and the operation launches to the leaf modules and to LungfishWorkflow. It holds about 551 files. New feature logic belongs in a leaf module or in LungfishWorkflow, never here. Add only the registration glue that wires a leaf in (see docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md for the touch-point list).
 
 ## Allowed imports
 
@@ -14,11 +14,11 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit and the nine leaf UI mod
 
 | Family | Main file | Size |
 |---|---|---|
-| AppDelegate | Sources/LungfishApp/App/AppDelegate.swift and 11 `AppDelegate+*.swift` extensions | 13,967 lines |
-| MainSplitViewController | Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift and 10 extensions | 8,484 lines |
-| ViewerViewController | Sources/LungfishApp/Views/Viewer/ViewerViewController.swift and 21 extensions | 11,409 lines |
+| AppDelegate | Sources/LungfishApp/App/AppDelegate.swift and 16 `AppDelegate+*.swift` extensions | 14,654 lines |
+| MainSplitViewController | Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift and 11 extensions | 8,656 lines |
+| ViewerViewController | Sources/LungfishApp/Views/Viewer/ViewerViewController.swift and 25 extensions | 11,995 lines |
 | MainWindowController | Sources/LungfishApp/Views/MainWindow/MainWindowController.swift | 1,149 lines |
-| InspectorViewController | Sources/LungfishApp/Views/Inspector/InspectorViewController.swift and 9 extensions | 5,150 lines |
+| InspectorViewController | Sources/LungfishApp/Views/Inspector/InspectorViewController.swift and 10 extensions | 5,388 lines |
 | SidebarViewController | Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift, SidebarItem.swift, SidebarProjectScanner.swift | 5,614 lines in the controller family |
 
 Each leaf is wired by one `ViewerViewController+<Feature>.swift` file in Views/Viewer that connects the leaf's callbacks to app services.
@@ -27,8 +27,8 @@ Each leaf is wired by one `ViewerViewController+<Feature>.swift` file in Views/V
 
 1. The Tools menu item calls `launchFASTQOperationToolFromMenu` (App/AppDelegate+ToolsMenu.swift line 85) and the sidebar Run button calls `launchKraken2Classification` (App/AppDelegate+Classification.swift line 188). Both open the FASTQ operations dialog with tool `.kraken2` through `showFASTQOperationsDialog` (AppDelegate+ToolsMenu.swift line 107).
 2. On submit the dialog hands `pendingClassificationConfigs` to `runClassification(configs:...)` in the same ToolsMenu file.
-3. `runClassification(config:...)` (AppDelegate+Classification.swift line 800) creates the `kraken2` analysis folder, registers the operation with `OperationCenter.shared.start` and the command from `ClassificationCLIInvocationBuilder`, materializes virtual inputs through `resolveInputFiles` (line 762), then runs `ClassificationPipeline` in process.
-4. Batches go through `runClassificationBatch` (line 1331). EsViritu and TaxTriage follow the same file (`runEsViritu`, `runTaxTriage`).
+3. `runClassification(config:...)` (AppDelegate+Classification.swift line 777) creates the `kraken2` analysis folder and registers the operation through `beginClassificationOperation` (AppDelegate+ClassificationOperationBegin.swift), which calls `begin` with the command from `ClassificationCLIInvocationBuilder` and runs its launch closure only when the row started. The closure materializes virtual inputs through `resolveInputFiles` (line 764), then runs `ClassificationPipeline` in process.
+4. Batches go through `runClassificationBatch` (line 1285). EsViritu and TaxTriage follow the same file (`runEsViritu`, `runTaxTriage`).
 
 The pipeline side is in Sources/LungfishWorkflow/AGENTS.md and the CLI side in Sources/LungfishCLI/AGENTS.md.
 
@@ -40,7 +40,7 @@ A read tool joins the FASTQ operation dialog family instead. Its Tools menu item
 
 ## Tests
 
-Targets LungfishAppTests (515 files), LungfishAppViewTests and LungfishAppWorkflowTests. A whole-target filter is a selection large enough to hit ARG_MAX when run serially, so iterate per suite with `swift test --skip-update --filter LungfishAppTests.<SuiteName>` (memory file reference_swiftpm_tooling_gotchas.md).
+Targets LungfishAppTests (573 files), LungfishAppViewTests and LungfishAppWorkflowTests. A whole-target filter is a selection large enough to hit ARG_MAX when run serially, so iterate per suite with `swift test --skip-update --filter LungfishAppTests.<SuiteName>` (memory file reference_swiftpm_tooling_gotchas.md).
 
 ## Known traps
 

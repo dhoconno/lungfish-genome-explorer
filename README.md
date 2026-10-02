@@ -100,7 +100,7 @@ This is my answer to the Geneious-folder problem above. Every operation writes a
 
 ### The assistant and the command line
 
-An AI assistant panel can search genes and variants, summarize what is on screen, navigate the genome view, and query PubMed. It supports Anthropic, OpenAI (including Azure endpoints), and Google Gemini with your own API key. It stays hidden until you turn on AI-powered search in Settings > AI Services and add a key, and it lets you preview the context it would send before you ask anything. Almost everything in the app is also reachable from `lungfish-cli`, which has 44 top-level commands and, not a typo, 44 `fastq` subcommands. Run `lungfish-cli --help` to see what is there, `lungfish-cli version --tools` for the core tool versions in your build, and `lungfish-cli tools` for the rest.
+An AI assistant panel can search genes and variants, summarize what is on screen, navigate the genome view, and query PubMed. It supports Anthropic, OpenAI (including Azure endpoints), and Google Gemini with your own API key. It stays hidden until you turn on AI-powered search in Settings > AI Services and add a key, and it lets you preview the context it would send before you ask anything. Almost everything in the app is also reachable from `lungfish-cli`, which has 45 top-level commands and 43 `fastq` subcommands. Run `lungfish-cli --help` to see what is there, `lungfish-cli version --tools` for the core tool versions in your build, and `lungfish-cli tools` for the rest.
 
 ## Getting the app
 
