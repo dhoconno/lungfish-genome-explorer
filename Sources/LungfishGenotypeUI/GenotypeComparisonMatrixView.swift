@@ -502,6 +502,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var testingCommitToVisibleCount = 0
     private var testingCommitToVisibleTotalSeconds: TimeInterval = 0
     private var testingCommitToVisibleMaximumSeconds: TimeInterval = 0
+    /// Clock behind the derived-projection and commit-to-visible seconds counters. The default is the continuous clock. Seconds-budget tests swap in the main thread's CPU clock.
+    var testingProjectionPerformanceClock: @MainActor () -> Duration = { ContinuousClock.now - GenotypeComparisonMatrixView.testingPerformanceClockOrigin }
+    private static let testingPerformanceClockOrigin = ContinuousClock.now
     /// Synchronous per-call counter (unlike ``testingCommitToVisibleCount``,
     /// which coalesces same-runloop-turn calls via a settlement generation).
     /// Used to verify keystroke-triggered filter recomputes are debounced.
@@ -2342,7 +2345,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return
         }
 #if DEBUG
-        let derivedStart = ContinuousClock.now
+        let derivedStart = testingProjectionPerformanceClock()
 #endif
         let derived = baseProjection.derive(.init(
             globalMinimumPercent: displayState.activeMinimumSupportPercent,
@@ -2374,7 +2377,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             $0.localizedStandardCompare($1) == .orderedAscending
         })
 #if DEBUG
-        let elapsed = Self.seconds(ContinuousClock.now - derivedStart)
+        let elapsed = Self.seconds(testingProjectionPerformanceClock() - derivedStart)
         testingDerivedProjectionPassCount += 1
         testingDerivedProjectionTotalSeconds += elapsed
         testingDerivedProjectionMaximumSeconds = max(
@@ -2564,7 +2567,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let semanticScrollAnchor = semanticScrollAnchor ?? captureSemanticScrollAnchor()
         let previousVisibleRows = visibleRows
 #if DEBUG
-        let commitStart = ContinuousClock.now
+        let commitStart = testingProjectionPerformanceClock()
         testingApplyFilterAndSortInvocationCount += 1
 #endif
         let normalizedFilter = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2638,7 +2641,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 return
             }
             self.layoutSubtreeIfNeeded()
-            let elapsed = Self.seconds(ContinuousClock.now - commitStart)
+            let elapsed = Self.seconds(self.testingProjectionPerformanceClock() - commitStart)
             self.testingCommitToVisibleCount += 1
             self.testingCommitToVisibleTotalSeconds += elapsed
             self.testingCommitToVisibleMaximumSeconds = max(

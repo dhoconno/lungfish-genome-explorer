@@ -879,6 +879,34 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
+    // MARK: - Seconds budgets
+    //
+    // The seconds budgets in these tests read main-thread CPU time, the matrix counters
+    // through `testingProjectionPerformanceClock`. On wall time they also counted the time
+    // the main thread waited for a core. Under the loaded parallel unit gate (gate 10,
+    // 2026-10-02) commit-to-visible reached 0.61 s and 1.71 s against a median of about
+    // 0.08 s over 45 gate runs, while every count assertion passed.
+
+    /// Wall-time ceiling beside each CPU-time budget here. It catches only a hang, such
+    /// as the main thread blocked on a wait, which CPU time does not count. The slowest
+    /// measured window seen under the gate was about 5 s.
+    private static let wallHangCeiling: TimeInterval = 30
+
+    /// Runs `edit`, yields once so the matrix's visible-settlement block runs, and
+    /// returns the wall and main-thread CPU seconds the whole window took.
+    private func measureEditToVisible(_ edit: () -> Void) async -> (wall: TimeInterval, cpu: TimeInterval) {
+        let wallStart = ContinuousClock.now
+        let cpuStart = currentThreadCPUTime()
+        edit()
+        await Task.yield()
+        return (Self.seconds(ContinuousClock.now - wallStart), Self.seconds(currentThreadCPUTime() - cpuStart))
+    }
+
+    private static func seconds(_ duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
+    }
+
     func testConfigureRetainedDemuxSizedBundleDoesNotBlockViewportLoad() {
         let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
@@ -903,12 +931,15 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             }
         }
 
-        let start = Date()
+        let wallStart = ContinuousClock.now
+        let cpuStart = currentThreadCPUTime()
         controller.configure(result: makeResult(samples: [], calls: calls))
         controller.testingRenderVisibleCells(rowLimit: 30)
-        let elapsed = Date().timeIntervalSince(start)
+        let cpu = Self.seconds(currentThreadCPUTime() - cpuStart)
+        let wall = Self.seconds(ContinuousClock.now - wallStart)
 
-        XCTAssertLessThan(elapsed, 5.0, "Genotype viewport configuration and cell rendering should not rescan support denominators per row")
+        XCTAssertLessThan(cpu, 5.0, "Genotype viewport configuration and cell rendering should not rescan support denominators per row")
+        XCTAssertLessThan(wall, Self.wallHangCeiling, "Configuration and cell rendering took \(wall) s of wall time")
         XCTAssertFalse(controller.testingVisibleGenotypes.isEmpty)
     }
 
@@ -938,6 +969,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let expectedSamples = matrix.testingVisibleSampleNames
         let expectedAnchor = matrix.testingSemanticScrollAnchor
         let expectedRowOrder = matrix.testingVisibleRows.map(\.id)
+        matrix.testingProjectionPerformanceClock = { currentThreadCPUTime() }
         controller.testingResetProjectionPerformanceCounters()
 
         let scheduler = MatrixProjectionManualNumericScheduler()
@@ -952,9 +984,10 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             viewModel.updateMatrixMinimumReadsDraft(String(threshold))
         }
 
-        scheduler.runPending()
-        matrix.layoutSubtreeIfNeeded()
-        await Task.yield()
+        let timing = await measureEditToVisible {
+            scheduler.runPending()
+            matrix.layoutSubtreeIfNeeded()
+        }
 
         let aggregate = controller.testingProjectionPerformanceSnapshot
         let performance = aggregate.matrix
@@ -967,6 +1000,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertEqual(performance.commitToVisibleCount, 1)
         XCTAssertLessThanOrEqual(performance.commitToVisibleTotalSeconds, 0.5)
         XCTAssertLessThanOrEqual(performance.commitToVisibleMaximumSeconds, 0.5)
+        XCTAssertLessThanOrEqual(timing.wall, Self.wallHangCeiling, "The edit took \(timing.wall) s of wall time to reach the screen")
         XCTAssertEqual(aggregate.anchorLensRebuildCount, 0)
         XCTAssertEqual(aggregate.consumerLensRebuildCount, 0)
         XCTAssertEqual(aggregate.cohortSummaryRebuildCount, 0)
@@ -992,10 +1026,11 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             }
         )
         print(
-            "Task6 52x120 Debug metrics: derived_total=\(performance.derivedProjectionTotalSeconds), "
+            "Task6 52x120 Debug metrics (main-thread CPU s): derived_total=\(performance.derivedProjectionTotalSeconds), "
                 + "derived_max=\(performance.derivedProjectionMaximumSeconds), "
                 + "visible_total=\(performance.commitToVisibleTotalSeconds), "
-                + "visible_max=\(performance.commitToVisibleMaximumSeconds)"
+                + "visible_max=\(performance.commitToVisibleMaximumSeconds), "
+                + "edit_to_visible_wall=\(timing.wall), edit_to_visible_cpu=\(timing.cpu)"
         )
     }
 
@@ -1019,6 +1054,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let expectedSelection = matrix.testingSelectedMatrixTargets
         let expectedSortKey = matrix.testingActiveSortDescriptorKey
         let expectedAnchor = matrix.testingSemanticScrollAnchor
+        matrix.testingProjectionPerformanceClock = { currentThreadCPUTime() }
         controller.testingResetProjectionPerformanceCounters()
 
         let scheduler = MatrixProjectionManualNumericScheduler()
@@ -1033,9 +1069,10 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             viewModel.updateMatrixMinimumReadsDraft(String(threshold))
         }
 
-        scheduler.runPending()
-        matrix.layoutSubtreeIfNeeded()
-        await Task.yield()
+        let timing = await measureEditToVisible {
+            scheduler.runPending()
+            matrix.layoutSubtreeIfNeeded()
+        }
 
         let aggregate = controller.testingProjectionPerformanceSnapshot
         let performance = aggregate.matrix
@@ -1048,6 +1085,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertEqual(performance.commitToVisibleCount, 1)
         XCTAssertLessThanOrEqual(performance.commitToVisibleTotalSeconds, 0.5)
         XCTAssertLessThanOrEqual(performance.commitToVisibleMaximumSeconds, 0.5)
+        XCTAssertLessThanOrEqual(timing.wall, Self.wallHangCeiling, "The edit took \(timing.wall) s of wall time to reach the screen")
         XCTAssertEqual(aggregate.anchorLensRebuildCount, 0)
         XCTAssertEqual(aggregate.consumerLensRebuildCount, 0)
         XCTAssertEqual(aggregate.cohortSummaryRebuildCount, 0)
@@ -1071,10 +1109,11 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             accuracy: 0.5
         )
         print(
-            "Task6 150-column Debug metrics: derived_total=\(performance.derivedProjectionTotalSeconds), "
+            "Task6 150-column Debug metrics (main-thread CPU s): derived_total=\(performance.derivedProjectionTotalSeconds), "
                 + "derived_max=\(performance.derivedProjectionMaximumSeconds), "
                 + "visible_total=\(performance.commitToVisibleTotalSeconds), "
-                + "visible_max=\(performance.commitToVisibleMaximumSeconds)"
+                + "visible_max=\(performance.commitToVisibleMaximumSeconds), "
+                + "edit_to_visible_wall=\(timing.wall), edit_to_visible_cpu=\(timing.cpu)"
         )
     }
 
@@ -1143,6 +1182,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertEqual(matrix.testingVisibleRows.count, 119)
         XCTAssertEqual(matrix.testingVisibleSampleNames.count, 51)
 
+        matrix.testingProjectionPerformanceClock = { currentThreadCPUTime() }
         controller.testingResetProjectionPerformanceCounters()
         let scheduler = MatrixProjectionManualNumericScheduler()
         let viewModel = GenotypeResultDisplaySectionViewModel(
@@ -1156,9 +1196,10 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             viewModel.updateMatrixMinimumReadsDraft(String(threshold))
         }
 
-        scheduler.runPending()
-        matrix.layoutSubtreeIfNeeded()
-        await Task.yield()
+        let timing = await measureEditToVisible {
+            scheduler.runPending()
+            matrix.layoutSubtreeIfNeeded()
+        }
 
         let aggregate = controller.testingProjectionPerformanceSnapshot
         let performance = aggregate.matrix
@@ -1181,6 +1222,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             performance.commitToVisibleMaximumSeconds,
             visibleCeiling
         )
+        XCTAssertLessThanOrEqual(timing.wall, Self.wallHangCeiling, "The edit took \(timing.wall) s of wall time to reach the screen")
         XCTAssertEqual(performance.columnRebuildCount, 0)
         XCTAssertLessThanOrEqual(performance.pinnedFullReloadCount, 1)
         XCTAssertLessThanOrEqual(performance.sampleFullReloadCount, 1)
@@ -1195,11 +1237,12 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertEqual(matrix.testingVisibleSampleNames.count, 51)
         XCTAssertEqual(try recursiveBytes(), before)
         print(
-            "Complete pipeline \(enforcesReleaseBudget ? "Release" : "Debug") metrics: "
+            "Complete pipeline \(enforcesReleaseBudget ? "Release" : "Debug") metrics (main-thread CPU s): "
                 + "derived_total=\(performance.derivedProjectionTotalSeconds), "
                 + "derived_max=\(performance.derivedProjectionMaximumSeconds), "
                 + "visible_total=\(performance.commitToVisibleTotalSeconds), "
-                + "visible_max=\(performance.commitToVisibleMaximumSeconds)"
+                + "visible_max=\(performance.commitToVisibleMaximumSeconds), "
+                + "edit_to_visible_wall=\(timing.wall), edit_to_visible_cpu=\(timing.cpu)"
         )
     }
 
