@@ -663,18 +663,7 @@ public enum FASTQIngestionService {
     }
 
     nonisolated static func cliPlatformString(for platform: LungfishIO.SequencingPlatform) -> String {
-        switch platform {
-        case .illumina:
-            return "illumina"
-        case .oxfordNanopore:
-            return "ont"
-        case .pacbio:
-            return "pacbio"
-        case .ultima:
-            return "ultima"
-        default:
-            return "illumina"
-        }
+        IngestionPlatform(importing: platform).rawValue
     }
 
     nonisolated static func resolvedRecipeName(for importConfig: FASTQImportConfiguration) -> String? {

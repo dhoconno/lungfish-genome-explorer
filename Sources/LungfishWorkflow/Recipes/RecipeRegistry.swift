@@ -72,7 +72,7 @@ public enum RecipeRegistryV2 {
     ///
     /// - Parameter platform: When non-nil, only recipes that list this platform
     ///   are returned.
-    public static func allRecipes(platform: SequencingPlatform? = nil) -> [Recipe] {
+    public static func allRecipes(platform: IngestionPlatform? = nil) -> [Recipe] {
         var recipes = builtinRecipes() + userRecipes()
         if let platform {
             recipes = recipes.filter { $0.platforms.contains(platform) }

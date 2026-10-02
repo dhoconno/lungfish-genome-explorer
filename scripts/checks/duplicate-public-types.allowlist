@@ -1,6 +1,5 @@
 # Known cross-target duplicate public type names. Format: <TypeName>  # reason
 # Remove an entry when the duplicate is resolved (the check warns when one is stale).
-SequencingPlatform  # LungfishIO and LungfishWorkflow define separate enums until R15 reconciles them (Phase 1, lane 1e)
 EsVirituDatabaseError  # LungfishIO vs LungfishWorkflow, found when the check was added; unresolved, needs owner review
 EsVirituResult  # LungfishIO (ViralDetection.swift) vs LungfishWorkflow (EsVirituPipeline.swift), found when the check was added
 ExtractionError  # LungfishCore (SequenceExtractor) vs LungfishWorkflow (ExtractionConfig), found when the check was added
