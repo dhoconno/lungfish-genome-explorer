@@ -151,7 +151,7 @@ features:
       - Sources/LungfishApp/Views/BAM/BAMVariantCallingCatalog.swift
       - Sources/LungfishApp/Views/BAM/BAMVariantCallingEligibility.swift
       - Sources/LungfishApp/Views/BAM/BAMVariantCallingToolPanes.swift
-      - Sources/LungfishApp/Views/Inspector/InspectorViewController.swift
+      - Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift
       - Sources/LungfishApp/Services/CLIVariantCallingRunner.swift
       - Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift
       - Sources/LungfishWorkflow/Variants/BAMVariantCallingPreflight.swift
