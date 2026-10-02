@@ -563,7 +563,7 @@ struct AssembleCommand: AsyncParsableCommand {
             return parsedReadType
         }
 
-        let inputDetections = zipOriginalAndExecutionInputs(
+        let inputDetections = CLISequenceInputMaterialization.originalAndExecutionInputs(
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs
         ).map { originalURL, executionURL in
@@ -808,7 +808,7 @@ struct AssembleCommand: AsyncParsableCommand {
             )
         )
 
-        let inputPairs = zipOriginalAndExecutionInputs(
+        let inputPairs = CLISequenceInputMaterialization.originalAndExecutionInputs(
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs
         )
@@ -890,16 +890,6 @@ struct AssembleCommand: AsyncParsableCommand {
             endedAt: endedAt
         )
         return try writer.write(envelope, to: request.outputDirectory)
-    }
-
-    private static func zipOriginalAndExecutionInputs(
-        originalInputURLs: [URL],
-        executionInputURLs: [URL]
-    ) -> [(originalURL: URL, executionURL: URL)] {
-        executionInputURLs.enumerated().map { index, executionURL in
-            let originalURL = originalInputURLs.indices.contains(index) ? originalInputURLs[index] : executionURL
-            return (originalURL, executionURL)
-        }
     }
 
     private static func assemblyDefaultOptions() -> [String: ParameterValue] {

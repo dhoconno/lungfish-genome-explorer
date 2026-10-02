@@ -673,7 +673,7 @@ struct ClassifyCommand: AsyncParsableCommand {
                 }
             }
         } else {
-            for pair in zipOriginalAndExecutionInputs(
+            for pair in CLISequenceInputMaterialization.originalAndExecutionInputs(
                 originalInputURLs: context.originalInputURLs,
                 executionInputURLs: effectiveExecutionInputURLs
             ) {
@@ -1047,7 +1047,7 @@ struct ClassifyCommand: AsyncParsableCommand {
     ) throws -> URL {
         let config = result.config
         let pipelineEnvelope = ProvenanceRecorder.loadEnvelope(from: config.outputDirectory)
-        let inputPairs = zipOriginalAndExecutionInputs(
+        let inputPairs = CLISequenceInputMaterialization.originalAndExecutionInputs(
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs
         )
@@ -1166,16 +1166,6 @@ struct ClassifyCommand: AsyncParsableCommand {
             result: result
         ).droppingMissingRunLevelFiles()
         return try writer.write(envelope, to: config.outputDirectory)
-    }
-
-    private static func zipOriginalAndExecutionInputs(
-        originalInputURLs: [URL],
-        executionInputURLs: [URL]
-    ) -> [(originalURL: URL, executionURL: URL)] {
-        executionInputURLs.enumerated().map { index, executionURL in
-            let originalURL = originalInputURLs.indices.contains(index) ? originalInputURLs[index] : executionURL
-            return (originalURL, executionURL)
-        }
     }
 
     private static func classificationDefaultOptions(
