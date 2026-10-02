@@ -46,6 +46,41 @@ final class AssemblyRunPlanningTests: XCTestCase {
         XCTAssertEqual(bundles.map(\.reads), [[["s1", "s2", "s3"]], [["m1", "m2", "m3", "m4", "m5"]]])
     }
 
+    /// Flye and hifiasm take one input. The chunks of one bundle are one
+    /// input, the bundle, whose chunks `lungfish-cli assemble` joins.
+    func testFlyeAndHifiasmAssembleTheFilesOfOneBundleAsThatBundle() async throws {
+        for (tool, readType) in [(AssemblyTool.flye, AssemblyReadType.ontReads), (.hifiasm, .pacBioHiFi)] {
+            let runs = try await cliRuns(of: assembly(tool, readType, inputs: shapes.multiFileChunks))
+            XCTAssertEqual(runs.map(\.reads), [[["m1", "m2", "m3", "m4", "m5"]]], tool.rawValue)
+            XCTAssertEqual(runs.first?.pairs, false, tool.rawValue)
+        }
+    }
+
+    /// The R1 and R2 files of one bundle bound with `pairedEnd` stay one run,
+    /// which `lungfish-cli assemble` assembles as that bundle's pairs.
+    func testTheR1AndR2FilesOfOneBundleAreOneRunAssembledAsPairs() async throws {
+        let runs = try await cliRuns(
+            of: assembly(.spades, .illuminaShortReads, inputs: shapes.pairedFiles, pairedEnd: true)
+        )
+        XCTAssertEqual(runs.map(\.reads), [[["p1/1", "p2/1"], ["p1/2", "p2/2"]]])
+        XCTAssertEqual(runs.map(\.pairs), [true])
+    }
+
+    /// Several loose files are still several inputs, which Flye and hifiasm refuse.
+    func testFlyeAndHifiasmStillRefuseSeveralLooseFiles() async throws {
+        for (tool, readType) in [(AssemblyTool.flye, AssemblyReadType.ontReads), (.hifiasm, .pacBioHiFi)] {
+            do {
+                _ = try await cliRuns(of: assembly(tool, readType, inputs: shapes.looseFiles))
+                XCTFail("\(tool.rawValue) must refuse two loose files")
+            } catch let error as FASTQOperationExecutionError {
+                guard case .unsupportedAssembly(let reason) = error else {
+                    return XCTFail("unexpected error \(error)")
+                }
+                XCTAssertTrue(reason.contains("expects a single"), reason)
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     /// One `lungfish-cli assemble` run as the CLI reads it.

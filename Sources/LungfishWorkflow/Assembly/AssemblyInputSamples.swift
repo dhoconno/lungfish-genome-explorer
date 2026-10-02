@@ -28,4 +28,39 @@ public enum AssemblyInputSamples {
         }
         return keys.compactMap { positions[$0] }
     }
+
+    /// Each sample once, in the order it first appears.
+    public static func sampleURLs(_ inputURLs: [URL]) -> [URL] {
+        groups(inputURLs).map { sampleURL(for: inputURLs[$0[0]]) }
+    }
+}
+
+public extension AssemblyRunRequest {
+    /// The run that assembles the inputs at `positions`. Several files of
+    /// one `.lungfishfastq` bundle are named as that bundle, once, without
+    /// `pairedEnd` or a one-file `inputLayout`: `lungfish-cli assemble`
+    /// reads the files of a bundle as the bundle and pairs its R1 and R2
+    /// files itself, and its one-input check for Flye and hifiasm then sees
+    /// one input.
+    func run(ofInputsAt positions: [Int]) -> AssemblyRunRequest {
+        let inputs = positions.map { inputURLs[$0] }
+        let bundleURL = inputs.count > 1 && AssemblyInputSamples.groups(inputs).count == 1
+            ? SequenceInputResolver.enclosingFASTQBundleURL(for: inputs[0])
+            : nil
+        return AssemblyRunRequest(
+            tool: tool,
+            readType: readType,
+            inputURLs: bundleURL.map { [$0] } ?? inputs,
+            projectName: projectName,
+            outputDirectory: outputDirectory,
+            pairedEnd: bundleURL == nil && pairedEnd,
+            threads: threads,
+            memoryGB: memoryGB,
+            minContigLength: minContigLength,
+            selectedProfileID: selectedProfileID,
+            extraArguments: extraArguments,
+            profileSelectionBasis: profileSelectionBasis,
+            inputLayout: bundleURL == nil ? inputLayout : nil
+        )
+    }
 }

@@ -571,21 +571,16 @@ struct FASTQOperationExecutionService {
             )
         }
 
-        switch assemblyRequest.tool {
-        case .flye:
-            guard !assemblyRequest.pairedEnd, assemblyRequest.inputURLs.count == 1 else {
-                throw FASTQOperationExecutionError.unsupportedAssembly(
-                    "Flye expects a single ONT sequence input in v1."
-                )
-            }
-        case .hifiasm:
-            guard !assemblyRequest.pairedEnd, assemblyRequest.inputURLs.count == 1 else {
-                throw FASTQOperationExecutionError.unsupportedAssembly(
-                    "Hifiasm expects a single ONT or PacBio HiFi/CCS sequence input in v1."
-                )
-            }
-        case .spades, .megahit, .skesa:
-            break
+        // Flye and hifiasm take one input. The files of one bundle are one
+        // input, the bundle, whose files lungfish-cli assemble joins (R3).
+        let oneInputMessage: String? = switch assemblyRequest.tool {
+        case .flye: "Flye expects a single ONT sequence input in v1."
+        case .hifiasm: "Hifiasm expects a single ONT or PacBio HiFi/CCS sequence input in v1."
+        case .spades, .megahit, .skesa: nil
+        }
+        if let oneInputMessage,
+           assemblyRequest.pairedEnd || AssemblyInputSamples.sampleURLs(assemblyRequest.inputURLs).count != 1 {
+            throw FASTQOperationExecutionError.unsupportedAssembly(oneInputMessage)
         }
     }
 }

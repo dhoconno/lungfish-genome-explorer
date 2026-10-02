@@ -344,33 +344,24 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             .assemble(let originalAssemblyRequest, let outputMode),
             .assemble(let resolvedAssemblyRequest, let resolvedOutputMode)
         )
-            where outputMode == .perInput &&
-                  resolvedOutputMode == .perInput &&
-                  !originalAssemblyRequest.pairedEnd &&
-                  !resolvedAssemblyRequest.pairedEnd &&
-                  originalAssemblyRequest.inputURLs.count > 1 &&
-                  originalAssemblyRequest.inputURLs.count == resolvedAssemblyRequest.inputURLs.count:
-            // One run per sample (R3). Each loose file and each bundle is its
-            // own run, and the files of one bundle stay one run, because
-            // `lungfish-cli assemble` reads any file of a bundle as the whole
-            // bundle: one run per file assembled that bundle once per file.
-            // `pairedEnd` keeps two R1/R2 files in one run, and the wizard's
-            // per-bundle batch splits its bundles earlier, in
-            // `FASTQOperationLaunchRequest.independentAssembleLaunchRequests`.
-            return AssemblyInputSamples.groups(originalAssemblyRequest.inputURLs).map { positions in
+            where originalAssemblyRequest.inputURLs.count == resolvedAssemblyRequest.inputURLs.count:
+            // One run per sample (R3). The files of one bundle are one run that
+            // names the bundle, because `lungfish-cli assemble` reads any file
+            // of a bundle as the whole bundle: one run per file assembled that
+            // bundle once per file, and Flye and hifiasm refused the files. In
+            // per-input mode each loose file and each bundle is its own run.
+            // `pairedEnd` keeps two R1/R2 files in one run, a combined request
+            // is one run, and the wizard's per-bundle batch splits its bundles
+            // earlier, in `FASTQOperationLaunchRequest.independentAssembleLaunchRequests`.
+            let splitsPerSample = outputMode == .perInput && resolvedOutputMode == .perInput
+                && !originalAssemblyRequest.pairedEnd && !resolvedAssemblyRequest.pairedEnd
+            let runs = splitsPerSample
+                ? AssemblyInputSamples.groups(originalAssemblyRequest.inputURLs)
+                : [Array(originalAssemblyRequest.inputURLs.indices)]
+            return runs.map { positions in
                 (
-                    .assemble(
-                        request: originalAssemblyRequest.replacingInputURLs(
-                            with: positions.map { originalAssemblyRequest.inputURLs[$0] }
-                        ),
-                        outputMode: outputMode
-                    ),
-                    .assemble(
-                        request: resolvedAssemblyRequest.replacingInputURLs(
-                            with: positions.map { resolvedAssemblyRequest.inputURLs[$0] }
-                        ),
-                        outputMode: resolvedOutputMode
-                    )
+                    .assemble(request: originalAssemblyRequest.run(ofInputsAt: positions), outputMode: outputMode),
+                    .assemble(request: resolvedAssemblyRequest.run(ofInputsAt: positions), outputMode: resolvedOutputMode)
                 )
             }
 
