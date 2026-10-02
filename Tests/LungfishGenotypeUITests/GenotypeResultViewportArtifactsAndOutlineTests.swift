@@ -2001,7 +2001,11 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         let baselineOverviewConfigurationCount = detail.testingOverviewConfigurationCount
         var maximumDescendantCount = baselineDescendantCount
 
-        let start = CFAbsoluteTimeGetCurrent()
+        // The budget reads main-thread CPU time, so time spent waiting for a core on a
+        // loaded machine does not count. The wall-time ceiling catches only a hang, such
+        // as the main thread blocked on a wait.
+        let wallStart = ContinuousClock.now
+        let cpuStart = currentThreadCPUTime()
         for iteration in 0..<12 {
             controller.testingSelectMatrixCell(genotype: firstID, sample: sampleNames[0])
             controller.testingSelectMatrixRows(genotypes: [secondID], sample: nil)
@@ -2021,11 +2025,13 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             )
             maximumDescendantCount = max(maximumDescendantCount, descendants(of: current).count)
         }
-        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        let cpu = currentThreadCPUTime() - cpuStart
+        let wall = ContinuousClock.now - wallStart
 
         XCTAssertEqual(maximumDescendantCount, baselineDescendantCount)
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
-        XCTAssertLessThan(elapsed, 5, "Repeated known selections took \(elapsed) seconds")
+        XCTAssertLessThan(cpu, .seconds(5), "Repeated known selections used \(cpu) of main-thread CPU time")
+        XCTAssertLessThan(wall, .seconds(30), "Repeated known selections took \(wall) of wall time")
         assertNoKnownAggregateEvidence(in: visibleText(in: detail))
     }
 
