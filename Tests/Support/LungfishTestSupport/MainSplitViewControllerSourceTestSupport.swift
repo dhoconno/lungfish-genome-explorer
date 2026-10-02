@@ -37,7 +37,6 @@ private let mainSplitViewControllerOrderedSourceFiles: [String] = [
     "MainSplitViewController+MultiDocument.swift",
     "MainSplitViewController+FASTQImport.swift",
     "MainSplitViewController+ShellLayout.swift",
-    "MainSplitViewController+Testing.swift",
     "MainSplitViewController+SidebarSelection.swift",
     "MainSplitViewController+ContentDisplay.swift",
     "MainSplitViewController+ClassifierDisplay.swift",

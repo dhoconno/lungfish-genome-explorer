@@ -661,8 +661,8 @@ final class MainWindowSessionRoutingTests: XCTestCase {
 
         controller.applyProjectSessionState(restoring: snapshot)
 
-        XCTAssertEqual(controller.testingSidebarConstraintWidth, 320, accuracy: 0.5)
-        XCTAssertEqual(controller.testingInspectorConstraintWidth, 420, accuracy: 0.5)
+        XCTAssertEqual(controller.sidebarWidthConstraint?.constant ?? 0, 320, accuracy: 0.5)
+        XCTAssertEqual(controller.inspectorWidthConstraint?.constant ?? 0, 420, accuracy: 0.5)
     }
 
     func testProjectSessionStateRestoreAppliesSavedDocumentContent() throws {

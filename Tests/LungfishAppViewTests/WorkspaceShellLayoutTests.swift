@@ -548,3 +548,74 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         return CGFloat(number.doubleValue)
     }
 }
+
+/// Shell-layout probes and drivers for these tests. They read and drive
+/// internal `MainSplitViewController` state through `@testable import`.
+private extension MainSplitViewController {
+    var testingShellLayoutState: WorkspaceShellLayoutState {
+        shellLayoutCoordinator.state
+    }
+
+    var testingSidebarWidth: CGFloat {
+        sidebarContainerView?.frame.width ?? 0
+    }
+
+    var testingInspectorWidth: CGFloat {
+        inspectorContainerView?.frame.width ?? 0
+    }
+
+    var testingSidebarConstraintWidth: CGFloat {
+        sidebarWidthConstraint?.constant ?? 0
+    }
+
+    var testingInspectorConstraintWidth: CGFloat {
+        inspectorWidthConstraint?.constant ?? 0
+    }
+
+    func testingSetShellFrames(
+        sidebarWidth: CGFloat,
+        inspectorWidth: CGFloat,
+        totalWidth: CGFloat,
+        height: CGFloat = 900
+    ) {
+        guard let sidebarContainerView, let viewerContainerView, let inspectorContainerView else { return }
+
+        let dividerThickness = splitView.dividerThickness
+        let viewerWidth = totalWidth - sidebarWidth - inspectorWidth - (dividerThickness * 2)
+        let resolvedViewerWidth = max(viewerWidth, viewerMinWidth)
+        let resolvedTotalWidth = sidebarWidth + resolvedViewerWidth + inspectorWidth + (dividerThickness * 2)
+        view.frame = NSRect(x: 0, y: 0, width: resolvedTotalWidth, height: height)
+        splitView.frame = view.bounds
+        splitView.bounds = view.bounds
+        sidebarContainerView.frame = NSRect(x: 0, y: 0, width: sidebarWidth, height: height)
+        viewerContainerView.frame = NSRect(
+            x: sidebarWidth + dividerThickness,
+            y: 0,
+            width: resolvedViewerWidth,
+            height: height
+        )
+        inspectorContainerView.frame = NSRect(
+            x: resolvedTotalWidth - inspectorWidth,
+            y: 0,
+            width: inspectorWidth,
+            height: height
+        )
+    }
+
+    func testingProcessShellResize() {
+        splitViewDidResizeSubviews(Notification(name: Notification.Name("WorkspaceShellLayoutTests.Resize"), object: splitView))
+    }
+
+    func testingRestorePersistedShellLayout() {
+        restorePanelState()
+        restorePersistedShellLayout()
+    }
+
+    func testingForceStaleInspectorTransitionSuppression() {
+        inspectorTransitionInFlight = true
+        inspectorTransitionStartTime = ProcessInfo.processInfo.systemUptime - 1.0
+        inspectorTransitionTargetCollapsedState = inspectorItem.isCollapsed
+        queuedInspectorCollapsedState = nil
+        programmaticShellResizeSuppressionDepth = 1
+    }
+}

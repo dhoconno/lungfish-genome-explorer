@@ -115,7 +115,7 @@ final class PlainTextPreviewViewTests: XCTestCase {
         let controller = MainSplitViewController()
         _ = controller.view
         controller.sidebarController.openProject(at: projectURL)
-        controller.testingDisplayImportedProjectFile(fileURL)
+        controller.displayImportedProjectFile(at: fileURL)
 
         let deadline = Date().addingTimeInterval(10)
         while controller.viewerController.testQuickLookURL == nil, Date() < deadline {

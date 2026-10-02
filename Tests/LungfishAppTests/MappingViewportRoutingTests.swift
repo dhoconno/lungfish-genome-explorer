@@ -34,7 +34,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let bundle = try makeGenotypeResultBundle(root: root, name: "one-way", haplotypeAnalysisPath: nil)
         let split = MainSplitViewController()
         _ = split.view
-        await split.testingDisplayGenotypeResultBundleAndWait(bundle)
+        await split.displayGenotypeResultBundleAndWait(bundle)
         return (split, try XCTUnwrap(split.viewerController.genotypeResultViewController))
     }
 
@@ -748,7 +748,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let controller = MainSplitViewController()
         _ = controller.view
 
-        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        await controller.displayGenotypeResultBundleAndWait(bundleURL)
 
         XCTAssertEqual(
             controller.viewerController.testQuickLookURL?.standardizedFileURL,
@@ -772,7 +772,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         _ = controller.viewerController.displayGenotypeResult(makeNativeHaplotypedResult())
         XCTAssertNotNil(controller.viewerController.genotypeResultViewController)
 
-        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        await controller.displayGenotypeResultBundleAndWait(bundleURL)
 
         XCTAssertNil(controller.viewerController.genotypeResultViewController)
         XCTAssertEqual(
@@ -819,7 +819,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let controller = MainSplitViewController()
         _ = controller.view
 
-        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        await controller.displayGenotypeResultBundleAndWait(bundleURL)
 
         XCTAssertNil(controller.viewerController.testQuickLookURL)
         let resultController = try XCTUnwrap(controller.viewerController.genotypeResultViewController)
@@ -850,7 +850,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let controller = MainSplitViewController()
         _ = controller.view
 
-        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        await controller.displayGenotypeResultBundleAndWait(bundleURL)
 
         XCTAssertNil(controller.viewerController.testQuickLookURL)
         let resultController = try XCTUnwrap(
@@ -872,7 +872,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let splitController = MainSplitViewController()
         _ = splitController.view
 
-        await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        await splitController.displayGenotypeResultBundleAndWait(bundleURL)
 
         let resultController = try XCTUnwrap(
             splitController.viewerController.genotypeResultViewController
@@ -924,7 +924,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let splitController = MainSplitViewController()
         _ = splitController.view
 
-        await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        await splitController.displayGenotypeResultBundleAndWait(bundleURL)
 
         let resultController = try XCTUnwrap(
             splitController.viewerController.genotypeResultViewController
@@ -994,7 +994,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
         let splitController = MainSplitViewController()
         _ = splitController.view
-        await splitController.testingDisplayGenotypeResultBundleAndWait(firstBundle)
+        await splitController.displayGenotypeResultBundleAndWait(firstBundle)
         let firstController = try XCTUnwrap(
             splitController.viewerController.genotypeResultViewController
         )
@@ -1013,7 +1013,7 @@ final class MappingViewportRoutingTests: XCTestCase {
             .genotypeResultDisplaySectionViewModel
             .onMatrixVisibilityCommandRequested
 
-        await splitController.testingDisplayGenotypeResultBundleAndWait(secondBundle)
+        await splitController.displayGenotypeResultBundleAndWait(secondBundle)
         let secondController = try XCTUnwrap(
             splitController.viewerController.genotypeResultViewController
         )
@@ -1063,8 +1063,8 @@ final class MappingViewportRoutingTests: XCTestCase {
         let second = MainSplitViewController()
         _ = first.view
         _ = second.view
-        await first.testingDisplayGenotypeResultBundleAndWait(firstBundle)
-        await second.testingDisplayGenotypeResultBundleAndWait(secondBundle)
+        await first.displayGenotypeResultBundleAndWait(firstBundle)
+        await second.displayGenotypeResultBundleAndWait(secondBundle)
         let firstResult = try XCTUnwrap(
             first.viewerController.genotypeResultViewController
         )
@@ -1110,7 +1110,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
         let splitController = MainSplitViewController()
         _ = splitController.view
-        await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        await splitController.displayGenotypeResultBundleAndWait(bundleURL)
         let resultController = try XCTUnwrap(
             splitController.viewerController.genotypeResultViewController
         )
@@ -1147,7 +1147,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
         let splitController = MainSplitViewController()
         _ = splitController.view
-        await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        await splitController.displayGenotypeResultBundleAndWait(bundleURL)
         var resultController = splitController.viewerController.genotypeResultViewController
         let scheduler = MatrixRetryScheduler()
         resultController?.matrixAnnotationRetryScheduler = scheduler
@@ -1162,7 +1162,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
         let weakResultController = WeakReference(resultController)
 
-        await splitController.testingDisplayGenotypeResultBundleAndWait(
+        await splitController.displayGenotypeResultBundleAndWait(
             secondBundleURL
         )
         resultController = nil
@@ -2008,5 +2008,15 @@ enum MappingRoutingFixture {
             wallClockSeconds: 1.0,
             contigs: []
         )
+    }
+}
+
+private extension MainSplitViewController {
+    /// Routes a genotype result bundle the way a sidebar selection does and
+    /// waits for the load it starts.
+    func displayGenotypeResultBundleAndWait(_ url: URL) async {
+        displayGenotypeResultBundleFromSidebar(at: url)
+        let displayTask = genotypeResultLoadTask
+        await displayTask?.value
     }
 }
