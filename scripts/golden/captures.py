@@ -20,6 +20,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import threading
 import urllib.request
 import zipfile
 from dataclasses import dataclass, field
@@ -59,6 +60,52 @@ _LOG_LABEL = re.compile(r"[^A-Za-z0-9._-]+")
 
 class CaptureError(RuntimeError):
     """A capture could not produce its outputs."""
+
+
+class DuringRunCopies:
+    """Copies files that a command writes and deletes before it exits.
+
+    A thread reads each watched file every few milliseconds while the command
+    runs and keeps the last bytes it read. The command finishes writing such a
+    file long before it deletes it, so the last read is the finished file. The
+    run's provenance records the digest of each one, and
+    CaptureContext.check_recorded_digests compares those digests with the
+    copies, so a copy taken at the wrong moment shows up as a problem.
+    """
+
+    POLL_SECONDS = 0.005
+
+    def __init__(self, watched: dict[Path, Path]):
+        self.watched = watched  # file the command writes -> where its copy goes
+        self.latest: dict[Path, bytes] = {}
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.poll, daemon=True)
+
+    def poll(self) -> None:
+        while not self.stop.is_set():
+            for path in self.watched:
+                try:
+                    data = path.read_bytes()
+                except OSError:
+                    continue
+                if data:
+                    self.latest[path] = data
+            self.stop.wait(self.POLL_SECONDS)
+
+    def __enter__(self) -> "DuringRunCopies":
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.stop.set()
+        self.thread.join()
+        for path, copy in self.watched.items():
+            if path in self.latest:
+                copy.parent.mkdir(parents=True, exist_ok=True)
+                copy.write_bytes(self.latest[path])
+
+    def missing(self) -> list[Path]:
+        return [path for path in self.watched if path not in self.latest]
 
 
 @dataclass
@@ -211,9 +258,14 @@ class CaptureContext:
         self.put_text(relpath, f"exit: {exit_status}\n--- stdout\n{stdout.decode('utf-8', 'replace')}"
                                f"--- stderr\n{stderr.decode('utf-8', 'replace')}")
 
-    def register_file(self, path: Path, rule: str, label: str, *, mask_size: bool = False, pending: bool = False) -> None:
+    def register_file(self, path: Path, rule: str, label: str, *, mask_size: bool = False,
+                      strict_skip: bool = False) -> None:
         """Mask every occurrence of this file's SHA-256 (identity mask)."""
-        self.normalizer.register(normalize.VolatileDigest(sha256_file(path), rule, label, mask_size, pending))
+        self.normalizer.register(normalize.VolatileDigest(sha256_file(path), rule, label, mask_size, strict_skip))
+
+    def during_run_copy(self, path: Path) -> Path:
+        """Where the copy of a file the run deletes is kept (see DuringRunCopies)."""
+        return self.work / "logs" / "during-run" / path.relative_to(self.work)
 
     # Finish -------------------------------------------------------------------
 
@@ -247,6 +299,9 @@ class CaptureContext:
                     volatile[key] = self.holds_run_dependent_field(golden)
                 if volatile[key]:
                     entry = normalize.VolatileDigest(sha256_file(golden.source), "R10", golden.relpath, mask_size=True)
+                    existing = n.digests.get(entry.digest)
+                    if existing is not None and (existing.rule, existing.mask_size) != (entry.rule, entry.mask_size):
+                        continue  # registered explicitly in collect with its own treatment
                     changed |= n.register(entry)
         for golden in self.queue:
             for relpath, data in self.normalized(golden).items():
@@ -295,18 +350,21 @@ class CaptureContext:
         return {golden.relpath: n.text(text).encode("utf-8")}
 
     def resolve_record_path(self, recorded: str, golden: Golden) -> Path | None:
-        """The file a provenance record names, when its path form can be resolved."""
+        """The file a provenance record names, when its path form can be
+        resolved. A file the run deleted resolves to its during-run copy."""
         run_root = str(self.run_root)
+        path = None
         if recorded.startswith(run_root + "/"):
-            return self.work.parent / recorded[len(run_root) + 1:]
-        if recorded.startswith("@/") and golden.source is not None:
-            for parent in golden.source.parents:
-                if parent.suffix == ".lungfish":
-                    return parent / recorded[2:]
-            return None
-        if not recorded.startswith(("/", "<", "@", "file:")) and golden.source is not None:
-            return golden.source.parent / recorded
-        return None
+            path = self.work.parent / recorded[len(run_root) + 1:]
+        elif recorded.startswith("@/") and golden.source is not None:
+            path = next((parent / recorded[2:] for parent in golden.source.parents if parent.suffix == ".lungfish"), None)
+        elif not recorded.startswith(("/", "<", "@", "file:")) and golden.source is not None:
+            path = golden.source.parent / recorded
+        if path is not None and not path.exists() and path.is_relative_to(self.work):
+            copy = self.during_run_copy(path)
+            if copy.exists():
+                return copy
+        return path
 
     def check_recorded_digests(self) -> None:
         """R10 asks that a masked record's hash match the file on disk at capture
@@ -363,14 +421,14 @@ class CaptureContext:
         or not a golden records its digest, because that does not change from
         run to run while digest coincidences can."""
         n = self.normalizer
-        rows = ["rule\tfile, payload or record path\tsize masked\tstatus"]
+        rows = ["rule\tfile, payload or record path\tsize masked\tleft out by --strict"]
         for rule in n.path_rules:
             for suffix in rule.suffixes:
                 rows.append(f"{rule.rule}\trecords whose path ends in {suffix}\t"
-                            f"{'yes' if rule.mask_size else 'no'}\t{'pending' if rule.pending else 'ruled'}")
+                            f"{'yes' if rule.mask_size else 'no'}\t{'yes' if rule.strict_skip else 'no'}")
         for entry in sorted(n.items, key=lambda e: (e.rule, e.label)):
             rows.append(f"{entry.rule}\t{entry.label}\t{'yes' if entry.mask_size else 'no'}\t"
-                        f"{'pending' if entry.pending else 'ruled'}")
+                        f"{'yes' if entry.strict_skip else 'no'}")
         return ("\n".join(rows) + "\n").encode("utf-8")
 
 
@@ -434,17 +492,19 @@ def managed_samtools(ctx: CaptureContext) -> Path:
     return samtools
 
 
-def put_alignment(ctx: CaptureContext, prefix: str, bam: Path, *, header_filter: Callable[[str], str] | None = None) -> dict:
-    """Header without samtools' own @PG line, and a SHA-256 of the records in a
-    canonical text form, in BAM order."""
+def put_alignment(ctx: CaptureContext, prefix: str, bam: Path, *, header: bool = True, index_stats: bool = False) -> None:
+    """A SHA-256 of the records as `samtools view --no-PG` prints them, in BAM
+    order, and optionally the header without samtools' own @PG line and the
+    per-reference counts `samtools idxstats` reads from the index."""
     samtools = managed_samtools(ctx)
-    header = ctx.tool([samtools, "view", "-H", "--no-PG", bam]).decode("utf-8")
-    ctx.put_text(f"{prefix}header.sam", header_filter(header) if header_filter else header)
+    if header:
+        ctx.put_text(f"{prefix}header.sam", ctx.tool([samtools, "view", "-H", "--no-PG", bam]).decode("utf-8"))
     records = ctx.tool([samtools, "view", "--no-PG", bam])
     count = records.count(b"\n")
     ctx.put_text(f"{prefix}records.sha256",
                  f"{hashlib.sha256(records).hexdigest()}  samtools view --no-PG ({count} records)\n")
-    return {"records": count}
+    if index_stats:
+        ctx.put_text(f"{prefix}idxstats.tsv", ctx.tool([samtools, "idxstats", bam]).decode("utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -783,6 +843,15 @@ def extract(archive: Path, destination: Path) -> list[Path]:
         return [destination / member for member in zf.namelist()]
 
 
+def genotype_intermediates(result: Path) -> list[Path]:
+    """Files `fastq genotype-cohort` writes and deletes before it exits."""
+    return [
+        result / ".amplicon-genotyping" / "inputs" / "illumina-sample-manifest.json",
+        result / f"{GENOTYPE_NAME}.md.sorted.bam",
+        result / f"{GENOTYPE_NAME}.md.sorted.bam.bai",
+    ]
+
+
 def run_genotype(ctx: CaptureContext) -> None:
     for path in extract(demo_archive(ctx), ctx.work):
         if path.is_file():
@@ -795,13 +864,21 @@ def run_genotype(ctx: CaptureContext) -> None:
     reference = project / "Reference allele databases" / "SIMULATED-MHC-MCM-teaching.lungfishmhcref"
     result = ctx.work / "out" / f"{GENOTYPE_NAME}.lungfishgenotype"
     result.parent.mkdir()
-    ctx.cli_run(
-        ["fastq", "genotype-cohort", *bundles, "--reference", reference,
-         "--mode", "illumina-paired", "--read-type", "illumina",
-         "--output-dir", result, "--output-name", GENOTYPE_NAME,
-         "--threads", THREADS, "--sort-threads", THREADS, "--min-support", "1"],
-        label="genotype-cohort",
-    )
+    # The run deletes these intermediates, but its provenance records their
+    # digests. The copies let the goldens compare their content (N2 needs a
+    # records hash of every masked BAM, and the manifest holds the bbmerge
+    # staging folder that N3 treats as a run ID).
+    with DuringRunCopies({path: ctx.during_run_copy(path) for path in genotype_intermediates(result)}) as copies:
+        ctx.cli_run(
+            ["fastq", "genotype-cohort", *bundles, "--reference", reference,
+             "--mode", "illumina-paired", "--read-type", "illumina",
+             "--output-dir", result, "--output-name", GENOTYPE_NAME,
+             "--threads", THREADS, "--sort-threads", THREADS, "--min-support", "1"],
+            label="genotype-cohort",
+        )
+    if copies.missing():
+        raise CaptureError("genotype: the run deleted these files before they could be copied: "
+                           + ", ".join(str(path.relative_to(ctx.work)) for path in copies.missing()))
     exports = ctx.work / "exports"
     exports.mkdir()
     ctx.cli_run(["genotype", "export-xlsx", "--bundle", result, "--output", exports / "workbook.xlsx"],
@@ -843,24 +920,26 @@ def collect_genotype(ctx: CaptureContext) -> None:
     result = ctx.work / "out" / f"{GENOTYPE_NAME}.lungfishgenotype"
     exports = ctx.work / "exports"
 
-    # N2 (pending): samtools merge gives colliding @PG IDs a random suffix, so
-    # the merged BAM, the genotyping-evidence BAM filtered from it and their
-    # indexes change bytes from run to run. The header (suffix masked) and
-    # records goldens cover the evidence BAM's content. The merged BAM is
-    # deleted at the end of the run, so its records are matched by path.
-    bam = result / f"{GENOTYPE_NAME}.retained.demuxed.bam"
-    ctx.register_file(bam, "N2", bam.name, mask_size=True, pending=True)
-    ctx.register_file(bam.with_suffix(".bam.bai"), "N2", bam.name + ".bai", mask_size=True, pending=True)
-    ctx.normalizer.add_path_rule(normalize.PathRule(
-        "N2", (f"/{GENOTYPE_NAME}.md.sorted.bam", f"/{GENOTYPE_NAME}.md.sorted.bam.bai"), pending=True))
-    # N3 (pending): the sample manifest records the per-run bbmerge staging
-    # folder (the demo project's path holds a space) and is deleted at the end
-    # of the run.
-    ctx.normalizer.add_path_rule(normalize.PathRule(
-        "N3", ("/.amplicon-genotyping/inputs/illumina-sample-manifest.json",), mask_size=False, pending=True))
-    put_alignment(ctx, "bundle-bam/", bam,
-                  header_filter=None if ctx.strict else normalize.mask_merge_pg_suffixes)
+    manifest, merged, _ = (ctx.during_run_copy(path) for path in genotype_intermediates(result))
 
+    # N2: samtools merge gives colliding @PG IDs a random suffix (lrand48), so
+    # the merged BAM and the genotyping-evidence BAM filtered from it change
+    # bytes from run to run. Each one's records hash is a golden, so only its
+    # hash and size are masked where a record names it. Their indexes hold
+    # offsets that move with the header length, so their hashes are masked too,
+    # and their per-reference counts are goldens. No header golden is kept for
+    # these BAMs, because the suffix would need a mask of its own.
+    for prefix, bam in (("bundle-bam/", result / f"{GENOTYPE_NAME}.retained.demuxed.bam"), ("merged-bam/", merged)):
+        put_alignment(ctx, prefix, bam, header=False, index_stats=True)
+        ctx.register_file(bam, "N2", prefix + bam.name, mask_size=True, strict_skip=True)
+        ctx.register_file(bam.with_suffix(".bam.bai"), "N2", prefix + bam.name + ".bai", strict_skip=True)
+
+    # N3: the sample manifest records the per-run bbmerge-<UUID> staging folder
+    # (the demo project's path holds a space). The binding run ID rule masks
+    # that token in this golden, and R10 covers the manifest's recorded hash.
+    # The token has a fixed length, so the manifest's size stays compared.
+    ctx.put_file("run/illumina-sample-manifest.json", manifest)
+    ctx.register_file(manifest, "R10", "run/illumina-sample-manifest.json")
     ctx.put_text("run/cli-report.json", ctx.stdout("genotype-cohort"))
     put_tree(ctx, "bundle/", result, _EXPORT_FOLDER_SKIP)
     for label in ("export-xlsx", "export-pivot-xlsx", "export-tsv", "export-csv"):

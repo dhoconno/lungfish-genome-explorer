@@ -4,7 +4,7 @@
       "bai" : {
         "path" : "SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
         "sha256" : "<SHA256-N2>",
-        "size_bytes" : "<SIZE-N2>"
+        "size_bytes" : 256
       },
       "bam" : {
         "path" : "SIMULATED-MHC-haplotypes.retained.demuxed.bam",

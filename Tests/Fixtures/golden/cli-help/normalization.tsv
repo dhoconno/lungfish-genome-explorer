@@ -1,1 +1,1 @@
-rule	file, payload or record path	size masked	status
+rule	file, payload or record path	size masked	left out by --strict

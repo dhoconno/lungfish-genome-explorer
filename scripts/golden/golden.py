@@ -7,8 +7,9 @@
 `compare` reruns every capture through lungfish-cli in a fresh scratch folder,
 normalizes the outputs and diffs them against Tests/Fixtures/golden. It prints a
 unified diff and exits 1 on any difference. `capture` rewrites the goldens and
-is only for a deliberate, reviewed update. --strict leaves out the normalization
-rules that still wait for a ruling, to show what they hide.
+is only for a deliberate, reviewed update. --strict leaves out N1 and N2, the
+rules for nondeterminism in the app and random identifiers in tool output, to
+show what they hide.
 
 Without --cli the command builds lungfish-cli from this checkout with
 `swift build --skip-update --product lungfish-cli --package-path <repo root>`.
@@ -174,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="run only this capture (repeatable): " + ", ".join(captures.CAPTURES))
     parser.add_argument("--cli", type=Path, help="use this lungfish-cli instead of building one from this checkout")
     parser.add_argument("--strict", action="store_true",
-                        help="leave out the normalization rules that still wait for a ruling")
+                        help="leave out rules N1 and N2 to show what they hide")
     parser.add_argument("--golden-dir", type=Path, default=GOLDEN_ROOT, help=argparse.SUPPRESS)
     parser.add_argument("--replay", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -269,9 +270,9 @@ def main(argv: list[str] | None = None) -> int:
     (CACHE_ROOT / f"last-{args.mode}.json").write_text(json.dumps(summary, indent=2) + "\n")
     if failures:
         sys.stdout.write("\n" + "\n".join(failures))
-    if not args.strict and normalize.PENDING_RULES:
-        print(f"golden: rules waiting for a ruling were applied ({', '.join(normalize.PENDING_RULES)}), "
-              "see Tests/Fixtures/golden/README.md or run with --strict", flush=True)
+    if args.strict:
+        print(f"golden: --strict left out {', '.join(normalize.STRICT_SKIP_RULES)}, "
+              "so differences they mask are expected", flush=True)
     print(f"golden: {args.mode} {'passed' if not failures else 'FAILED'} in {total:.1f} s "
           f"({', '.join(f'{n} {s:.1f} s' for n, s in timings.items())})", flush=True)
     return 0 if not failures else 1

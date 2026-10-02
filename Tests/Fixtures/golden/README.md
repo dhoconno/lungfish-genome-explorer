@@ -12,7 +12,7 @@ Run the compare from the root of any checkout:
 python3 scripts/golden/golden.py compare                  # builds lungfish-cli from this checkout first
 python3 scripts/golden/golden.py compare --cli PATH       # use a lungfish-cli that is already built
 python3 scripts/golden/golden.py compare --only mapping   # one capture, repeatable
-python3 scripts/golden/golden.py compare --strict         # leave out the rules that wait for a ruling
+python3 scripts/golden/golden.py compare --strict         # leave out rules N1 and N2 to show what they hide
 ```
 
 Without `--cli` the command runs `swift build --skip-update --product lungfish-cli --package-path <repo root>`. The compare prints a unified diff and exits 1 when any golden differs, when a fresh output has no golden, when a golden is not produced, or when a self-check fails. It prints the wall time of each capture and of the whole run and writes them to `~/Library/Caches/lungfish-golden/last-compare.json`. The four captures take 25 to 60 seconds on the Mac they were captured on, depending on load, plus the build.
@@ -41,7 +41,9 @@ Kraken2 runs through `lungfish-cli conda classify` on the bundle, which material
 
 The capture downloads the mhc-genotyping demo project 2026.9.58, extracts it into the scratch folder and runs `lungfish-cli fastq genotype-cohort` with the options the demo verifier uses. It then exports the workbook with `genotype export-xlsx` and `genotype export-pivot-xlsx`, and the matrix with `genotype export` as TSV and CSV. The demo project in `~/Documents/LGE Demo Projects` is never opened.
 
-The goldens hold every text file of the result bundle under `bundle/` and every export under `exports/`, the evidence BAM as a header and a records hash under `bundle-bam/`, and the stdout of each command. A workbook is stored as its XML parts in sorted name order, under `<name>.xlsx.parts/`, because an `.xlsx` is a zip whose entry order and dates are container details. The base64 scientific inputs of each export snapshot are also stored decoded under `captured-inputs/`, so a change in them reads as a plain diff. Input copies named `input-N.bin` and the workbook renderer script are left out, because they repeat files that are compared elsewhere or ship with the app.
+The goldens hold every text file of the result bundle under `bundle/` and every export under `exports/`, and the stdout of each command. The genotyping-evidence BAM and the merged BAM it is filtered from each get a records hash and the per-reference counts `samtools idxstats` reads from the index, under `bundle-bam/` and `merged-bam/`. A workbook is stored as its XML parts in sorted name order, under `<name>.xlsx.parts/`, because an `.xlsx` is a zip whose entry order and dates are container details. The base64 scientific inputs of each export snapshot are also stored decoded under `captured-inputs/`, so a change in them reads as a plain diff. Input copies named `input-N.bin` and the workbook renderer script are left out, because they repeat files that are compared elsewhere or ship with the app.
+
+The run deletes three intermediates whose digests its provenance records. They are the sample manifest `.amplicon-genotyping/inputs/illumina-sample-manifest.json`, the merged BAM and the merged BAM's index. The capture copies them while the run is going, keeping the last bytes it read before the run deleted them, and checks each copy against the digest the provenance records. The manifest is stored as `run/illumina-sample-manifest.json`, and the merged BAM feeds the `merged-bam/` goldens.
 
 Paths in the goldens drop a leading dot and a trailing UUID from each folder or file name, so `.lungfish-provenance.json` is stored as `lungfish-provenance.json` and `workbook.xlsx.export-<UUID>` as `workbook.xlsx.export`.
 
@@ -81,7 +83,7 @@ The program manager ruled on these on 2026-10-02. Each one names the row of the 
 | R12 | Hash of the Kraken2 read index | The index stores its creation time, and its dump is a golden |
 | R13 | The partial last line of a stderr value the app truncated, as `<TRUNCATED-LINE>` | The cut at 10,240 characters moves with the length of every masked number before it |
 | R14 | Date-times in worksheet cells | The workbook records when it was generated |
-| R15, R16 | Digests of export inputs that hold a run-dependent field, and the base64 inputs decoded, normalized and encoded again | Their bytes change with the masked fields, which the decoded inputs compare |
+| R15, R16 | Digests of export inputs that hold a run-dependent field, and the base64 inputs of each snapshot and request file decoded, normalized and encoded again | Their bytes change with the masked fields, which the decoded inputs compare |
 | Q3 | The exact version `lungfish-cli --version` prints, under the keys that record the LGE app or CLI version, as `<APP_VERSION>` | It changes with every release |
 
 A masked digest becomes `<SHA256-R10>` or the token of its rule, and a masked size becomes `<SIZE-R10>` or the like. The token names only the rule. The record's path or the key next to it says what the digest belongs to. A file or input counts as holding a masked field only when that field changes from run to run, so a timestamp copied from the inputs, such as the `lastModified` date of the demo's definition set, does not mask its file's digest. The digest is replaced only where it equals the digest of the file on disk at capture time, so a record that names the file with any other digest shows in the diff.
@@ -97,18 +99,21 @@ Each capture writes `normalization.tsv`, the list of every masked file, input an
 | genotype, bundle | `genotype-result.json`, `lungfish-provenance.json`, `retained-demux-genotyping-provenance.json`, the haplotype analysis, the hyphen and underscore stats files, the underscore provenance file, both minimap2 stderr logs, the workbook, its receipt and its export folder's `replay.sh`, `request.json` and `snapshot.json` |
 | genotype, provenance | All 26 per-file provenance records under `bundle/provenance/` |
 | genotype, exports | `lungfish-provenance.json`, both matrix provenance files, both workbooks, both receipts, and the `replay.sh`, `request.json` and `snapshot.json` of both export folders |
+| genotype, run | `run/illumina-sample-manifest.json`, digest only, because its size never changes (see N3) |
 
 R16 masks the digests of the `analysis.json`, `annotations.json`, `capture-context.json` and `result.json` inputs of the bundle's own workbook, and of the `annotations.json` and `result.json` inputs of both exports. The other inputs keep their digests because they hold no run-dependent field.
 
-### Rules that wait for a ruling
+### Rules from the second ruling round
 
-These three rules cover fields that changed between runs of unmodified code and that the lane could not tie to an approved rule. They apply by default so the compare passes, and `--strict` leaves them out. The program manager rules on each one.
+The program manager ruled on these on 2026-10-02 as well. N1 and N2 cover nondeterminism in the app and random identifiers in tool output, so `--strict` leaves them out to show what they hide.
 
 | Rule | What it masks | Why it varies |
 |---|---|---|
-| N1 | Member order of the JSON objects stored as strings under `stats.rawMetrics` in each export's `result.json` input, sorted by key | `ONTGenotypeRunStats.load` serializes nested dictionaries without sorted keys, so the order changes with each process |
-| N2 | The suffix `samtools merge` adds to colliding `@PG` IDs, as `<MERGE-ID>`, and the hash and size of the merged BAM, the evidence BAM and their indexes | The suffix comes from `lrand48`, and the header and records goldens compare the evidence BAM |
-| N3 | Hash of the records of the deleted `.amplicon-genotyping/inputs/illumina-sample-manifest.json` | The manifest records the per-run bbmerge staging folder, needed because the demo project's path holds a space |
+| N1 | Member order inside the JSON strings stored under `stats.rawMetrics` in each export's `result.json` input, put in sorted key order with values and array order untouched | `ONTGenotypeRunStats.load` serializes nested dictionaries without sorted keys, so the order changes with each process |
+| N2 | Hash and size of the evidence BAM and the merged BAM wherever a record names them, the hash of their indexes, and their base64 copies in the request files | `samtools merge` names colliding `@PG` IDs with a suffix from `lrand48`, and the index offsets move with the header length |
+| N3 | Nothing beyond the binding run ID rule and R10 | The manifest records the per-run `bbmerge-<UUID>` staging folder, needed because the demo project's path holds a space |
+
+N2 keeps a records hash and index statistics of both BAMs as goldens, so their content is compared, and the size of each index stays compared. No header golden is kept for these two BAMs, because the suffix would need a mask of its own. For N3 the capture keeps the copy of the deleted manifest as a golden, where the run ID rule masks the staging folder, and R10 masks the digest the provenance records for it.
 
 ### What stays unmasked
 

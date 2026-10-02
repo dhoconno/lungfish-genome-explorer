@@ -96,11 +96,11 @@
     },
     {
       "checksumSHA256" : "<SHA256-N2>",
-      "fileSize" : "<SIZE-N2>",
+      "fileSize" : 256,
       "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
       "role" : "index",
       "sha256" : "<SHA256-N2>",
-      "sizeBytes" : "<SIZE-N2>"
+      "sizeBytes" : 256
     },
     {
       "checksumSHA256" : "41e227bf91fbd77f94e2cc710340829f446eda26a2711fd9765978ac2980f5c5",
@@ -1458,11 +1458,11 @@
         },
         {
           "checksumSHA256" : "<SHA256-N2>",
-          "fileSize" : "<SIZE-N2>",
+          "fileSize" : 256,
           "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
           "role" : "index",
           "sha256" : "<SHA256-N2>",
-          "sizeBytes" : "<SIZE-N2>"
+          "sizeBytes" : 256
         }
       ],
       "outputs" : [

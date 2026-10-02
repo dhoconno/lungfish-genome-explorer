@@ -43,14 +43,14 @@
       "exists": true,
       "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
       "role": "input",
-      "sha256": "<SHA256-N3>",
+      "sha256": "<SHA256-R10>",
       "sizeBytes": 4898
     },
     {
       "exists": true,
       "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
       "role": "input",
-      "sha256": "<SHA256-N3>",
+      "sha256": "<SHA256-R10>",
       "sizeBytes": 4898
     }
   ],
@@ -89,7 +89,7 @@
       "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
       "role": "output",
       "sha256": "<SHA256-N2>",
-      "sizeBytes": "<SIZE-N2>"
+      "sizeBytes": 256
     },
     {
       "exists": true,

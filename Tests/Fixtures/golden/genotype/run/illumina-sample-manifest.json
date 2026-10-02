@@ -1,0 +1,90 @@
+{
+  "inputReadCount" : 376,
+  "inputReadCountUnit" : "fragments",
+  "inputRecordCount" : 752,
+  "mode" : "illumina-paired",
+  "pairMergePerformedDuringRun" : true,
+  "pairMergeSummary" : {
+    "mergedFragments" : 376,
+    "mergedSampleCount" : 2,
+    "mergedSamples" : [
+      {
+        "disposition" : "bbmerge-merged",
+        "mappedRecordCount" : 204,
+        "mergedFragments" : 204,
+        "sample" : "SIMULATED-MHC-A-pairs",
+        "unmergedReads" : 0
+      },
+      {
+        "disposition" : "bbmerge-merged",
+        "mappedRecordCount" : 172,
+        "mergedFragments" : 172,
+        "sample" : "SIMULATED-MHC-B-pairs",
+        "unmergedReads" : 0
+      }
+    ],
+    "reason" : "inputs were not merged at import; run the Illumina Amplicon Merge recipe to merge at import time",
+    "tool" : "bbmerge.sh",
+    "totalSampleCount" : 2,
+    "unmergedReads" : 0
+  },
+  "requiresBothEndSoftclips" : false,
+  "samples" : [
+    {
+      "fastq" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq\/SIMULATED-MHC-A-pairs.fastq.gz",
+      "inputBundle" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq",
+      "mappingInput" : "stdin-sample-prefixed-fastq",
+      "mappingInputLabel" : "SIMULATED-MHC-A-pairs.sample-prefixed.fastq",
+      "pairMerge" : {
+        "arguments" : [
+          "in=<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-1>\/SIMULATED-MHC-A-pairs.input.fastq.gz",
+          "out=<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-1>\/SIMULATED-MHC-A-pairs.merged.fastq",
+          "outu=<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-1>\/SIMULATED-MHC-A-pairs.unmerged.fastq",
+          "interleaved=t",
+          "threads=2"
+        ],
+        "disposition" : "bbmerge-merged",
+        "mappedRecordCount" : 204,
+        "mappingFASTQ" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-A-pairs.for-mapping.fastq",
+        "mergedFragments" : 204,
+        "stagingReason" : "bbmerge.sh word-splits its arguments, so a path containing whitespace was staged on a whitespace-free temporary path",
+        "stagingRoot" : "<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-1>",
+        "unmergedReads" : 0
+      },
+      "readCount" : 408,
+      "readCountSource" : "fastq-metadata-computed-statistics",
+      "readCountUnit" : "fragments",
+      "retainsFullReadContext" : false,
+      "sample" : "SIMULATED-MHC-A-pairs",
+      "totalPairs" : 204
+    },
+    {
+      "fastq" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq\/SIMULATED-MHC-B-pairs.fastq.gz",
+      "inputBundle" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq",
+      "mappingInput" : "stdin-sample-prefixed-fastq",
+      "mappingInputLabel" : "SIMULATED-MHC-B-pairs.sample-prefixed.fastq",
+      "pairMerge" : {
+        "arguments" : [
+          "in=<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-2>\/SIMULATED-MHC-B-pairs.input.fastq.gz",
+          "out=<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-2>\/SIMULATED-MHC-B-pairs.merged.fastq",
+          "outu=<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-2>\/SIMULATED-MHC-B-pairs.unmerged.fastq",
+          "interleaved=t",
+          "threads=2"
+        ],
+        "disposition" : "bbmerge-merged",
+        "mappedRecordCount" : 172,
+        "mappingFASTQ" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-B-pairs.for-mapping.fastq",
+        "mergedFragments" : 172,
+        "stagingReason" : "bbmerge.sh word-splits its arguments, so a path containing whitespace was staged on a whitespace-free temporary path",
+        "stagingRoot" : "<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-2>",
+        "unmergedReads" : 0
+      },
+      "readCount" : 344,
+      "readCountSource" : "fastq-metadata-computed-statistics",
+      "readCountUnit" : "fragments",
+      "retainsFullReadContext" : false,
+      "sample" : "SIMULATED-MHC-B-pairs",
+      "totalPairs" : 172
+    }
+  ]
+}

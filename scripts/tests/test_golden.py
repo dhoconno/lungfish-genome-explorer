@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -14,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "golden"))
 sys.dont_write_bytecode = True
 
+import captures  # noqa: E402
 import golden  # noqa: E402
 import normalize  # noqa: E402
 
@@ -263,7 +265,7 @@ def test_bare_dates_in_worksheet_cells_are_kept():
     assert b"2026-09-29" in parts["xl/worksheets/sheet1.xml"]
 
 
-# Captured inputs (R16) and pending rules ------------------------------------
+# Captured inputs (R16) and the second ruling round (N1 to N3) ---------------
 
 
 def snapshot_text(payloads: dict[str, str]) -> str:
@@ -293,34 +295,115 @@ def test_snapshot_inputs_are_decoded_normalized_and_reencoded():
     assert result["sourceRevision"]["definition.json"] == sha(payloads["definition.json"])
 
 
-def test_stringified_raw_metric_objects_are_sorted_without_touching_values_when_not_strict():
-    first = '{"stats":{"rawMetrics":{"pairMergeSummary":"{\\"tool\\":\\"bbmerge.sh\\",\\"mergedFragments\\":376}"}}}'
-    second = '{"stats":{"rawMetrics":{"pairMergeSummary":"{\\"mergedFragments\\":376,\\"tool\\":\\"bbmerge.sh\\"}"}}}'
-    assert normalize.sort_raw_metric_objects(first) == second
-    assert normalize.sort_raw_metric_objects(second) == second
+def test_request_inputs_are_decoded_normalized_and_reencoded():
+    provenance = '{\n  "createdAt" : "2026-10-02T13:12:35Z",\n  "status" : "completed"\n}\n'
+    stable = '{"name":"teaching set"}'
+    request = json.dumps({"inputs": [
+        {"data": base64.b64encode(provenance.encode()).decode(), "path": f"{RUN_ROOT}/x/.lungfish-provenance.json"},
+        {"data": base64.b64encode(stable.encode()).decode(), "path": f"{RUN_ROOT}/x/definition.json"},
+    ], "toolVersion": "2026.9.78"}, indent=2, sort_keys=True).replace("/", "\\/")
+    result = json.loads(normalizer().request(request))
+    assert base64.b64decode(result["inputs"][0]["data"]).decode() == provenance.replace(
+        "2026-10-02T13:12:35Z", "<TIMESTAMP>")
+    assert base64.b64decode(result["inputs"][1]["data"]).decode() == stable
+    assert result["inputs"][0]["path"] == "<RUN_ROOT>/x/.lungfish-provenance.json"
+    assert result["toolVersion"] == "<APP_VERSION>"
+
+
+def raw_metrics(member: str) -> str:
+    return '{"stats":{"rawMetrics":{"pairMergeSummary":"' + member.replace('"', '\\"') + '"}},"other":"{\\"b\\":1,\\"a\\":2}"}'
+
+
+def test_n1_sorts_only_the_stringified_json_under_raw_metrics():
+    scrambled = raw_metrics('{"tool":"bbmerge.sh","mergedSamples":[{"sample":"A","disposition":"merged"}],"mergedFragments":376}')
+    sorted_text = raw_metrics('{"mergedFragments":376,"mergedSamples":[{"disposition":"merged","sample":"A"}],"tool":"bbmerge.sh"}')
+    assert normalize.sort_raw_metric_objects(scrambled) == sorted_text
+    assert normalize.sort_raw_metric_objects(sorted_text) == sorted_text
+    # The stringified object outside stats.rawMetrics keeps its order.
+    assert '"other":"{\\"b\\":1,\\"a\\":2}"' in normalize.sort_raw_metric_objects(scrambled)
+
+
+def test_n1_sorts_objects_inside_stringified_arrays_and_keeps_array_order():
+    text = '{"stats":{"rawMetrics":{"groups":"[{\\"z\\":1,\\"a\\":2},{\\"y\\":3,\\"b\\":4}]"}}}'
+    assert normalize.sort_raw_metric_objects(text) == (
+        '{"stats":{"rawMetrics":{"groups":"[{\\"a\\":2,\\"z\\":1},{\\"b\\":4,\\"y\\":3}]"}}}')
+
+
+def test_n1_applies_to_the_result_payload_and_strict_leaves_it_out():
+    first = raw_metrics('{"tool":"bbmerge.sh","mergedFragments":376}')
+    second = raw_metrics('{"mergedFragments":376,"tool":"bbmerge.sh"}')
     assert normalizer().payload("result.json", first.encode()) == second.encode()
+    assert normalizer().payload("annotations.json", first.encode()) == first.encode()
     assert normalizer(strict=True).payload("result.json", first.encode()) == first.encode()
 
 
-def test_merge_suffixes_on_pg_ids_are_masked_and_other_ids_kept():
-    header = (
-        "@HD\tVN:1.6\n@PG\tPN:minimap2\tID:minimap2\tVN:2.31\n"
-        "@PG\tPN:minimap2\tID:minimap2-7976BC8F\tVN:2.31\n"
-        "@PG\tPN:samtools\tID:samtools.2\tPP:samtools-28922CC\tVN:1.24\n"
-    )
-    assert normalize.mask_merge_pg_suffixes(header) == (
-        "@HD\tVN:1.6\n@PG\tPN:minimap2\tID:minimap2\tVN:2.31\n"
-        "@PG\tPN:minimap2\tID:minimap2-<MERGE-ID>\tVN:2.31\n"
-        "@PG\tPN:samtools\tID:samtools.2\tPP:samtools-<MERGE-ID>\tVN:1.24\n"
-    )
+def test_n2_masks_the_bam_hash_and_size_and_only_the_index_hash():
+    bam, bai, other = sha("bam bytes"), sha("bai bytes"), sha("other bam bytes")
+    text = json.dumps({"files": [record("/x/evidence.bam", bam, 3739), record("/x/evidence.bam.bai", bai, 256),
+                                 record("/x/stable.bam", other, 100)]}, indent=2, sort_keys=True)
+    n = normalizer()
+    n.register(normalize.VolatileDigest(bam, "N2", "bundle-bam/evidence.bam", mask_size=True, strict_skip=True))
+    n.register(normalize.VolatileDigest(bai, "N2", "bundle-bam/evidence.bam.bai", strict_skip=True))
+    evidence, index, stable = json.loads(n.text(text))["files"]
+    assert (evidence["sha256"], evidence["sizeBytes"]) == ("<SHA256-N2>", "<SIZE-N2>")
+    assert (index["sha256"], index["sizeBytes"]) == ("<SHA256-N2>", 256)
+    assert stable == record("/x/stable.bam", other, 100)
 
 
-def test_pending_registrations_are_left_out_in_strict_mode():
-    digest = sha("bam with a random merge suffix")
+def test_n2_replaces_the_base64_copy_of_a_masked_bam_in_request_inputs():
+    bam_bytes = b"\x1f\x8b\x08\x04BAM with a random merge suffix"
+    request = json.dumps({"inputs": [{"data": base64.b64encode(bam_bytes).decode(), "path": "/x/evidence.bam"}]})
+    n = normalizer()
+    n.register(normalize.VolatileDigest(hashlib.sha256(bam_bytes).hexdigest(), "N2", "evidence.bam",
+                                        mask_size=True, strict_skip=True))
+    assert json.loads(n.request(request))["inputs"][0]["data"] == "<BASE64-N2>"
+    assert json.loads(normalizer().request(request))["inputs"][0]["data"] == base64.b64encode(bam_bytes).decode()
+
+
+def test_n1_and_n2_registrations_are_left_out_in_strict_mode():
     strict = normalizer(strict=True)
-    strict.register(normalize.VolatileDigest(digest, "N2", "x.bam", mask_size=True, pending=True))
-    strict.add_path_rule(normalize.PathRule("N3", ("/manifest.json",), pending=True))
-    assert strict.digests == {} and strict.path_rules == []
+    strict.register(normalize.VolatileDigest(sha("bam"), "N2", "x.bam", mask_size=True, strict_skip=True))
+    strict.add_path_rule(normalize.PathRule("N2", ("/merged.bam",), strict_skip=True))
+    assert strict.digests == {} and strict.path_rules == [] and strict.items == set()
+    assert set(normalize.STRICT_SKIP_RULES) == {"N1", "N2"}
+
+
+def test_n3_staging_folder_token_is_masked_as_a_run_id_and_the_manifest_hash_by_r10():
+    first = ('{\n  "stagingRoot" : "' + RUN_ROOT.replace("/", "\\/")
+             + '\\/genotype\\/tmp\\/bbmerge-476FA6BC-135D-4F17-8BA2-781285AA3D69",\n  "totalPairs" : 204\n}\n')
+    second = first.replace("476FA6BC-135D-4F17-8BA2-781285AA3D69", "FDC9F431-A86C-4665-8E0F-2A0BA9FD446D")
+    assert normalizer().text(first) == normalizer().text(second)
+    assert "bbmerge-<UUID-1>" in normalizer().text(first) and '"totalPairs" : 204' in normalizer().text(first)
+    # The manifest is deleted by the run, so its golden comes from the copy and
+    # R10 masks the digest the provenance records for it.
+    n = normalizer()
+    assert n.holds_run_dependent_field(first)
+    n.register(normalize.VolatileDigest(sha(first), "R10", "run/illumina-sample-manifest.json", mask_size=True))
+    provenance = json.dumps({"inputs": [record("/x/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
+                                               sha(first), len(first))]})
+    assert json.loads(n.text(provenance))["inputs"][0]["sha256"] == "<SHA256-R10>"
+
+
+def wait_until(predicate, timeout: float = 10.0) -> bool:
+    """Poll predicate until it holds or the timeout passes (no fixed sleeps)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.001)
+    return predicate()
+
+
+def test_during_run_copies_keep_the_last_bytes_of_a_file_deleted_before_exit(tmp_path):
+    written, copy, never = tmp_path / "manifest.json", tmp_path / "copies" / "manifest.json", tmp_path / "never.bam"
+    with captures.DuringRunCopies({written: copy, never: tmp_path / "copies" / "never.bam"}) as copies:
+        written.write_bytes(b"first")
+        assert wait_until(lambda: copies.latest.get(written) == b"first")
+        written.write_bytes(b"final")
+        assert wait_until(lambda: copies.latest.get(written) == b"final")
+        written.unlink()
+    assert copy.read_bytes() == b"final"
+    assert copies.missing() == [never]
 
 
 def test_run_dependent_test_ignores_values_copied_from_inputs_and_the_app_version():

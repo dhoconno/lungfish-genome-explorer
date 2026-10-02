@@ -8,7 +8,9 @@ Rules come in three classes. Tests/Fixtures/golden/README.md lists every rule.
 - Ruled rules were approved by the program manager on 2026-10-02. Each one
   carries the row of the two-run volatility catalog it was approved for (R5 to
   R16) or the question it answers (Q3).
-- Pending rules wait for a ruling. `golden.py compare --strict` leaves them out.
+- The second ruling round approved N1 and N2, which cover nondeterminism in
+  the app and random identifiers in tool output. `golden.py compare --strict`
+  leaves them out to show what they hide.
 
 Every rule works on the raw text, so formatting, key order and escaping of
 everything a rule does not touch are still compared byte for byte.
@@ -409,12 +411,12 @@ def file_records(root: Node) -> Iterable[Node]:
 class PathRule:
     """Mask the hash (and optionally size) of file records whose path ends in
     one of the suffixes. Used for files whose bytes change from run to run and
-    that are deleted or binary, so they cannot be captured themselves."""
+    that are deleted before the capture reads them."""
 
     rule: str
     suffixes: tuple[str, ...]
     mask_size: bool = True
-    pending: bool = False
+    strict_skip: bool = False
 
 
 # R8: minimap2 records the per-run reference staging folder in the @PG CL line,
@@ -481,7 +483,7 @@ class VolatileDigest:
     rule: str
     label: str
     mask_size: bool = False
-    pending: bool = False
+    strict_skip: bool = False
 
     @property
     def token(self) -> str:
@@ -498,43 +500,50 @@ def mask_digests(text: str, digests: dict[str, VolatileDigest]) -> str:
 
 
 def mask_digest_record_sizes(root: Node, digests: dict[str, VolatileDigest]) -> dict[tuple[int, int], str]:
-    """Size fields of the file records whose digest was masked."""
-    sized_rules = {entry.token: entry.rule for entry in digests.values() if entry.mask_size}
+    """Size fields of the file records whose registered digest masks its size.
+
+    This runs before mask_digests replaces the digests, because the token names
+    only the rule and one rule can mask the size of one file and keep the size
+    of another (N2 masks a BAM's size but keeps its index's).
+    """
     edits = {}
     for record in file_records(root):
-        rule = next((sized_rules[node.value] for key in HASH_KEYS
-                     if (node := record.get(key)) is not None and node.value in sized_rules), None)
-        if rule is None:
+        entry = next((digests[node.value] for key in HASH_KEYS
+                      if (node := record.get(key)) is not None and node.value in digests), None)
+        if entry is None or not entry.mask_size:
             continue
         for key in SIZE_KEYS:
             node = record.get(key)
             if node is not None:
-                edits[(node.start, node.end)] = f'"<SIZE-{rule}>"'
+                edits[(node.start, node.end)] = f'"<SIZE-{entry.rule}>"'
     return edits
 
 
 # ---------------------------------------------------------------------------
-# Pending rules (wait for the program manager's ruling)
+# Rules from the second ruling round (program manager, 2026-10-02). They cover
+# nondeterminism in the app and random identifiers in tool output, so
+# `golden.py compare --strict` leaves them out to show what they hide. N3 needs
+# no rule of its own. The run copies the deleted sample manifest while it
+# exists, the binding run ID rule masks its bbmerge-<UUID> staging folder, and
+# R10 covers its recorded hash.
 
-PENDING_RULES = {
-    "N1": "stringified JSON objects under stats.rawMetrics in a captured result.json are written "
-          "with per-process key order, so their members are put in sorted key order",
-    "N2": "samtools merge gives colliding @PG IDs a random suffix (minimap2-7976BC8F), so the "
-          "suffix is masked in the genotype BAM header, and the hash and size of the merged BAM, "
-          "the retained BAM and their indexes are masked",
-    "N3": "the deleted .amplicon-genotyping/inputs/illumina-sample-manifest.json records the "
-          "per-run bbmerge staging folder (TMPDIR/bbtools-<UUID>), so its hash is masked",
+STRICT_SKIP_RULES = {
+    "N1": "stringified JSON under stats.rawMetrics in a captured result.json is written with "
+          "per-process key order, so its object members are put in sorted key order",
+    "N2": "samtools merge gives colliding @PG IDs a random suffix, so the hash and size of the "
+          "merged BAM and the genotyping-evidence BAM are masked where their records hashes are "
+          "goldens, with the hash of their indexes and their base64 copies in request.json",
 }
 
 
 def sort_object_members(text: str) -> str | None:
     """The JSON text with the members of every object in sorted key order.
 
-    Each member keeps its raw bytes, only the order changes. Returns None when
-    the text is not a compact JSON object.
+    Each member keeps its raw bytes, only the order changes. Array order is
+    kept. Returns None when the text is not compact JSON.
     """
     root = parse_json(text)
-    if root is None or root.kind != "object":
+    if root is None:
         return None
 
     def render(node: Node) -> str:
@@ -551,7 +560,13 @@ def sort_object_members(text: str) -> str | None:
 
 
 def sort_raw_metric_objects(text: str) -> str:
-    """N1: canonical member order of the stringified JSON objects in stats.rawMetrics."""
+    """N1: canonical member order of the stringified JSON in stats.rawMetrics.
+
+    ONTGenotypeRunStats.load turns each nested dictionary or array of the run
+    stats into a string with JSONSerialization and no sorted keys, so the order
+    of object members follows the per-process hash seed. Only those strings are
+    rewritten, with their members in sorted key order. Every other byte stays.
+    """
     root = parse_json(text)
     if root is None:
         return text
@@ -561,7 +576,7 @@ def sort_raw_metric_objects(text: str) -> str:
         return text
     edits = {}
     for _, node in metrics.members:
-        if node.kind != "string" or not str(node.value).startswith("{"):
+        if node.kind != "string" or not str(node.value).startswith(("{", "[")):
             continue
         canonical = sort_object_members(str(node.value))
         if canonical is None or canonical == node.value:
@@ -570,21 +585,6 @@ def sort_raw_metric_objects(text: str) -> str:
         if literal is not None:
             edits[(node.start, node.end)] = literal
     return apply_edits(text, edits)
-
-
-# samtools merge writes the suffix with "%s-%0lX" from lrand48(), so it is one
-# to eight uppercase hexadecimal digits.
-_MERGE_PG_SUFFIX = re.compile(r"((?:^|\t)(?:ID|PP):[^\t\n]*?)-[0-9A-F]{1,8}(?=\t|\n|$)", re.MULTILINE)
-
-
-def mask_merge_pg_suffixes(header: str) -> str:
-    """N2: the random hexadecimal suffix samtools merge adds to colliding @PG IDs."""
-    lines = []
-    for line in header.splitlines(keepends=True):
-        if line.startswith("@PG\t"):
-            line = _MERGE_PG_SUFFIX.sub(lambda m: m.group(1) + "-<MERGE-ID>", line)
-        lines.append(line)
-    return "".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -625,7 +625,7 @@ class Normalizer:
 
     def register(self, entry: VolatileDigest) -> bool:
         """Mask entry.digest. Returns True when the digest was not masked yet."""
-        if entry.pending and self.strict:
+        if entry.strict_skip and self.strict:
             return False
         self.items.add(entry)
         existing = self.digests.get(entry.digest)
@@ -638,7 +638,7 @@ class Normalizer:
         return True
 
     def add_path_rule(self, rule: PathRule) -> None:
-        if rule.pending and self.strict:
+        if rule.strict_skip and self.strict:
             return
         self.path_rules.append(rule)
 
@@ -655,14 +655,13 @@ class Normalizer:
         text = mask_minimap2_resources(text)
         text = mask_kraken2_rates(text)
         text = mask_app_version(text, self.app_version)
-        text = mask_digests(text, self.digests)
         root = parse_json(text)
         if root is not None:
             edits = drop_truncated_partial_lines(text, root)
             edits.update(mask_records_by_path(root, self.path_rules))
             edits.update(mask_digest_record_sizes(root, self.digests))
             text = apply_edits(text, edits)
-        return text
+        return mask_digests(text, self.digests)
 
     # Captured scientific inputs (R16) ---------------------------------------
 
@@ -740,8 +739,8 @@ class Normalizer:
                 # The payload holds a masked field whose value changes per run.
                 entry = VolatileDigest(digest, "R16", f"{folder}:{name}")
             elif not self.strict and sort_raw_metric_objects(payload_text) != payload_text:
-                # Only the pending member reordering changes it.
-                entry = VolatileDigest(digest, "N1", f"{folder}:{name}", pending=True)
+                # Only the N1 member reordering changes it.
+                entry = VolatileDigest(digest, "N1", f"{folder}:{name}", strict_skip=True)
             else:
                 continue
             if self.register(entry):
