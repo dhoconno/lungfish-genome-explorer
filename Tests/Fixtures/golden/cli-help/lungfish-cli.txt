@@ -46,7 +46,6 @@ SUBCOMMANDS:
   fetch                   Fetch sequences from remote databases
   bundle                  Manage reference genome bundles (.lungfishref)
   project                 Manage shared project locks and bundle migrations
-  provision-tools         Provision the bundled micromamba bootstrap tool
   tools                   Inspect and update managed third-party tools
   conda                   Manage bioconda tool plugins via micromamba
   blast                   BLAST verification of classified reads

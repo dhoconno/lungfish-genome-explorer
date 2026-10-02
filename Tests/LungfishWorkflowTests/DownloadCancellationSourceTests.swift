@@ -19,20 +19,6 @@ final class DownloadCancellationSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("return state.cancelled"))
     }
 
-    func testToolProvisionerDownloadIsCancellableAndProgressive() throws {
-        let source = try workflowSource("Native/ToolProvisioning/ToolProvisioner.swift")
-
-        XCTAssertTrue(source.contains("withTaskCancellationHandler"))
-        XCTAssertTrue(source.contains("URLSessionDownloadTask"))
-        XCTAssertTrue(source.contains(".cancel()"))
-        XCTAssertTrue(source.contains("didWriteData"))
-        XCTAssertTrue(source.contains("resumeOnce"))
-        XCTAssertTrue(source.contains("try Task.checkCancellation()"))
-        XCTAssertTrue(source.contains("var cancelled = false"))
-        XCTAssertTrue(source.contains("state.cancelled = true"))
-        XCTAssertTrue(source.contains("return state.cancelled"))
-    }
-
     func testManagedDatabaseDownloadsUseCancellationBox() throws {
         let paths = [
             "Databases/DatabaseRegistry.swift",

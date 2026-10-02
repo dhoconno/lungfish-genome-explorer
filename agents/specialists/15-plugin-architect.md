@@ -9,7 +9,7 @@ Code facts drift, so read them from these files before you advise.
 | Document | What it settles |
 |---|---|
 | `Sources/LungfishWorkflow/AGENTS.md` | The conda and native tool runners, the lock manifest and the provenance policy trap |
-| `Sources/LungfishCLI/AGENTS.md` | `provision-tools` and the `conda` command group |
+| `Sources/LungfishCLI/AGENTS.md` | The `conda` command group |
 | `docs/contracts/ADDING-AN-OPERATION.md` | Adding a tool environment and its provenance policy |
 | `docs/release/dependency-sweep.md` | The procedure for bumping pinned tool versions |
 | `docs/user-manual/features.yaml` | The `plugins.manage`, `tools.provision` and `containers.run` entries |

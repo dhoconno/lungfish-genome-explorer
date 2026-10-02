@@ -1329,13 +1329,11 @@ features:
   tools.provision:
     title: Provision managed tools
     entry_points:
-      - "CLI: lungfish provision-tools"
       - "CLI: lungfish conda install"
     inputs: [tool-catalog]
     outputs: [conda-environment, managed-tool]
     viewport_class: none
     sources:
-      - Sources/LungfishCLI/Commands/ProvisionToolsCommand.swift
       - Sources/LungfishCLI/Commands/CondaCommand.swift
       - Sources/LungfishKit/CLIBinaryLocator.swift
     module: [LungfishCLI, LungfishKit]

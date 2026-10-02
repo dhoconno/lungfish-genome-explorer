@@ -17,7 +17,6 @@ final class DocumentationAccuracyTests: XCTestCase {
         )
 
         XCTAssertTrue(readme.contains("BBMap"))
-        XCTAssertTrue(readme.contains("provision-tools"))
         XCTAssertFalse(readme.contains("GenBank, 2bit"))
         XCTAssertFalse(readme.contains("| Coverage    | BigWig, bedGraph"))
         XCTAssertTrue(readme.contains("BigWig detection only"))

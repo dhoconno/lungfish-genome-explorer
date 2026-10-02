@@ -30,7 +30,6 @@ final class BundledDatabaseManifestTests: XCTestCase {
     func testMicromambaVersionAgreesAcrossManifestAndToolVersions() throws {
         let manifest = try ManagedToolLock.loadFromBundle()
         let expected = try XCTUnwrap(manifest.bootstrap?.micromamba.version)
-        XCTAssertEqual(BundledToolSpec.micromamba().version, expected)
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let data = try Data(contentsOf: root.appendingPathComponent("Sources/LungfishWorkflow/Resources/Tools/tool-versions.json"))
