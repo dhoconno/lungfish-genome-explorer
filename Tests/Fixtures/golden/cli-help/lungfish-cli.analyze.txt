@@ -1,0 +1,14 @@
+OVERVIEW: Analyze sequences and generate statistics
+
+USAGE: lungfish-cli analyze <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  stats (default)         Calculate sequence statistics
+  composition             Calculate detailed nucleotide/amino acid composition
+  validate                Validate sequence file format
+
+  See 'lungfish-cli help analyze <subcommand>' for detailed help.

@@ -1,0 +1,38 @@
+OVERVIEW: Run EsViritu viral detection on FASTQ files
+
+USAGE: lungfish-cli esviritu detect [<options>] --sample <sample>
+
+OPTIONS:
+  -i, --input <input>     Input FASTQ file(s). Provide two files for paired-end.
+  -s, --sample <sample>   Sample name for output file prefixes
+  --db <db>               Path to EsViritu database directory (default:
+                          auto-detect)
+  -o, --output <output>   Output directory (default: current directory)
+  --paired                Input files are paired-end reads
+  --read-format <read-format>
+                          Read layout: auto, unpaired, paired, or interleaved.
+                          (values: auto, unpaired, paired, interleaved;
+                          default: auto)
+        auto (default) checks a single input file: strictly alternating R1/R2
+        records run as interleaved; interleaved pairs mixed with merged or
+        orphan reads, and single-end files, run as unpaired. Two files run as
+        unpaired unless --paired is given.
+  --recursive             When an input is a directory, include eligible FASTQ
+                          files in subfolders
+  --no-qc                 Skip quality filtering (fastp)
+  --extra-args <extra-args>
+                          Additional EsViritu arguments passed verbatim
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

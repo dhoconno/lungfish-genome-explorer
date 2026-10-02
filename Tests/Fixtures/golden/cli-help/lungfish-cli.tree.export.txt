@@ -1,0 +1,13 @@
+OVERVIEW: Export tree bundle payloads with provenance
+
+USAGE: lungfish-cli tree export <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  subtree                 Export a selected .lungfishtree subtree as Newick
+                          with provenance
+
+  See 'lungfish-cli help tree export <subcommand>' for detailed help.

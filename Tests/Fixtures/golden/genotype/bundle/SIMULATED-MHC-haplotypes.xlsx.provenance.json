@@ -1,0 +1,183 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "fastq",
+    "genotype-cohort",
+    "<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Imports/SIMULATED-MHC-A-pairs.lungfishfastq",
+    "<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Imports/SIMULATED-MHC-B-pairs.lungfishfastq",
+    "--mode",
+    "illumina-paired",
+    "--read-type",
+    "illumina",
+    "--output-dir",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "--output-name",
+    "SIMULATED-MHC-haplotypes",
+    "--threads",
+    "2",
+    "--sort-threads",
+    "2",
+    "--min-support",
+    "1",
+    "--analysis-name",
+    "SIMULATED-MHC-haplotypes",
+    "--reference",
+    "<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
+    "--haplotype-assay",
+    "SIMULATED-MHC-three-amplicon",
+    "--haplotype-species",
+    "MCM",
+    "--haplotype-definition-scope",
+    "project",
+    "--haplotype-definition",
+    "mhc-simulated-mcm-teaching"
+  ],
+  "completedAt" : "<TIMESTAMP>",
+  "durableReplayArgv" : [
+    "<RUN_ROOT>/bin/lungfish-cli",
+    "genotype",
+    "export-xlsx",
+    "--snapshot",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/snapshot.json",
+    "--provenance-request",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/request.json",
+    "--python",
+    "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "--output",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx",
+    "--force"
+  ],
+  "executedArgv" : [
+    "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/renderer.py",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/snapshot.json",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/rendered.xlsx"
+  ],
+  "exitStatus" : 0,
+  "generatedAt" : "<TIMESTAMP>",
+  "inputs" : [
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/input-0.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+      "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "sizeBytes" : 802,
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/input-1.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained-demux-samples.csv",
+      "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+      "sizeBytes" : 270,
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/input-2.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained-demux-stats.json",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>",
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/input-3.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.haplotype-analysis.json",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>",
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/input-4.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/artifacts/haplotyping/haplotype-definition.json",
+      "sha256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+      "sizeBytes" : 1811,
+      "verifyCurrentFile" : true
+    }
+  ],
+  "options" : {
+    "filter" : "unfiltered",
+    "output" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx"
+  },
+  "output" : {
+    "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx",
+    "sha256" : "<SHA256-R10>",
+    "sizeBytes" : "<SIZE-R10>"
+  },
+  "receiptPath" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.provenance.json",
+  "replacingExisting" : true,
+  "replayCommand" : "'<RUN_ROOT>/bin/lungfish-cli' 'genotype' 'export-xlsx' '--snapshot' '<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/snapshot.json' '--provenance-request' '<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/request.json' '--python' '/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python' '--output' '<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx' '--force'",
+  "replayScript" : {
+    "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/replay.sh",
+    "sha256" : "<SHA256-R10>",
+    "sizeBytes" : "<SIZE-R10>"
+  },
+  "request" : {
+    "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/request.json",
+    "sha256" : "<SHA256-R10>",
+    "sizeBytes" : "<SIZE-R10>"
+  },
+  "resolvedDefaults" : {
+    "filter" : "unfiltered",
+    "filteredEvidenceRowPolicy" : "positive-displayed-count-in-visible-samples"
+  },
+  "runtime" : {
+    "openpyxlVersion" : "3.1.5",
+    "platform" : "macOS-26.6.2-arm64-arm-64bit",
+    "pythonExecutable" : "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "pythonVersion" : "3.12.14",
+    "renderer" : {
+      "schemaVersion" : 3,
+      "sheets" : [
+        {
+          "cellCount" : 84,
+          "name" : "Haplotype Calls",
+          "rowCount" : 7
+        },
+        {
+          "cellCount" : 49,
+          "name" : "Genotype Matrix - All",
+          "rowCount" : 11
+        },
+        {
+          "cellCount" : 53,
+          "name" : "Genotype Matrix - Filtered",
+          "rowCount" : 11
+        },
+        {
+          "cellCount" : 32,
+          "name" : "Export Metadata",
+          "rowCount" : 16
+        }
+      ]
+    }
+  },
+  "runtimeContext" : {
+    "condaEnvironment" : "openpyxl",
+    "condaPrefix" : "/Users/dho/.lungfish-stable/conda"
+  },
+  "schemaVersion" : 1,
+  "scientificInputWitnesses" : {
+    "analysis.json" : "<SHA256-R16>",
+    "analysisRevisionID" : "",
+    "annotations.json" : "<SHA256-R16>",
+    "bundle" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "capture-context.json" : "<SHA256-R16>",
+    "definition.json" : "8f8a5510b081f50397f6502f904f3ea780a47426e14a0308a1ff305c46576f08",
+    "definitionSetID" : "mhc-simulated-mcm-teaching",
+    "result.json" : "<SHA256-R16>"
+  },
+  "script" : {
+    "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/renderer.py",
+    "sha256" : "8a62b003d854f040f9194b5b05b172527abcfee14f4047f1dea3fd033d2aac31",
+    "sizeBytes" : 27349
+  },
+  "snapshot" : {
+    "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>/snapshot.json",
+    "sha256" : "<SHA256-R10>",
+    "sizeBytes" : "<SIZE-R10>"
+  },
+  "startedAt" : "<TIMESTAMP>",
+  "stderr" : "",
+  "toolName" : "lungfish genotype Excel export",
+  "toolVersion" : "Lungfish <APP_VERSION> (dev)",
+  "wallTimeSeconds" : "<DURATION>",
+  "workflowName" : "genotype.pipeline.excel"
+}

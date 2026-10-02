@@ -1,0 +1,31 @@
+OVERVIEW: Export folder metadata as CSV to stdout
+
+Reads metadata from all .lungfishfastq bundles in a folder and outputs
+a combined CSV to stdout. Uses resolved metadata (per-bundle metadata.csv
+takes precedence over folder-level samples.csv).
+
+Examples:
+  lungfish-cli metadata export ./RunFolder
+  lungfish-cli metadata export ./RunFolder > samples.csv
+  lungfish-cli metadata export ./RunFolder --format tsv
+
+USAGE: lungfish-cli metadata export <folder-path> [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+
+ARGUMENTS:
+  <folder-path>           Path to the folder containing .lungfishfastq bundles
+
+OPTIONS:
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -1,0 +1,18 @@
+OVERVIEW: Run CLI-backed operations on reference bundle sequences
+
+USAGE: lungfish-cli sequence <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  annotate-orfs           Find open reading frames and add them as a new
+                          annotation track
+  delete-annotations      Delete annotation rows from a reference bundle
+                          annotation track
+  delete-annotation-track Delete an annotation track from a reference bundle
+  update-annotation       Update an annotation row's name, type, strand and
+                          note in a reference bundle annotation track
+
+  See 'lungfish-cli help sequence <subcommand>' for detailed help.

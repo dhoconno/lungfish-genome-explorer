@@ -1,0 +1,16 @@
+OVERVIEW: Save or update a haplotype definition embedded in an MHC reference
+bundle
+
+USAGE: lungfish-cli haplotypes bundle-save <input> --bundle <bundle> [--project <project>] [--change-note <change-note>]
+
+ARGUMENTS:
+  <input>                 Definition JSON file to save into the bundle
+
+OPTIONS:
+  --bundle <bundle>       Destination .lungfishmhcref bundle
+  --project <project>     Project root used for provenance context
+  --change-note <change-note>
+                          Human-readable provenance note for this edit
+  --version               Show the version.
+  -h, --help              Show help information.
+

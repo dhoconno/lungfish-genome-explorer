@@ -1,0 +1,18 @@
+OVERVIEW: Execute and manage bioinformatics workflows
+
+Run Nextflow and Snakemake workflows. Containerised steps run
+through Docker Desktop (-profile docker); check it with
+`lungfish-cli debug container` before launching.
+
+USAGE: lungfish-cli workflow <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  run (default)           Execute a workflow pipeline
+  list                    List available workflows
+  validate                Validate a workflow definition
+
+  See 'lungfish-cli help workflow <subcommand>' for detailed help.

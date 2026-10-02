@@ -1,0 +1,15 @@
+OVERVIEW: Verify a signed Lungfish provenance sidecar
+
+USAGE: lungfish-cli provenance verify <file> [--signature <signature>] [--public-key <public-key>]
+
+ARGUMENTS:
+  <file>                  Provenance sidecar file, bundle, or output directory
+
+OPTIONS:
+  --signature <signature> Signature artifact path; defaults to
+                          <sidecar>.signature.json
+  --public-key <public-key>
+                          Public key artifact path; defaults to <sidecar>.pub
+  --version               Show the version.
+  -h, --help              Show help information.
+

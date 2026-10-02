@@ -1,0 +1,17 @@
+OVERVIEW: Fetch sequences from remote databases
+
+USAGE: lungfish-cli fetch <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  ncbi (default)          Fetch sequence from NCBI by accession
+  search                  Search NCBI databases
+  sra                     Search and download from SRA (Sequence Read Archive)
+  ena                     Search and download from ENA (European Nucleotide
+                          Archive)
+  genome                  Download genomes from NCBI and create indexed bundles
+
+  See 'lungfish-cli help fetch <subcommand>' for detailed help.

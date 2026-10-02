@@ -1,0 +1,13 @@
+OVERVIEW: Construct and run Freyja wastewater lineage demixing plans
+
+USAGE: lungfish-cli freyja <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  demix                   Construct a Freyja demix command plan from variant
+                          and depth tables
+
+  See 'lungfish-cli help freyja <subcommand>' for detailed help.

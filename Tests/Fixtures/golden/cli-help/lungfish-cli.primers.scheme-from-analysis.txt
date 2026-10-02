@@ -1,0 +1,29 @@
+OVERVIEW: Save a designed tiled scheme (PrimalScheme3, Olivar or tiled varVAMP)
+as a .lungfishprimers bundle for primer trimming
+
+The BED keeps the coordinates of the engine's design reference: the first
+alignment row for PrimalScheme3, Olivar's generated reference, or varVAMP's
+ambiguous consensus. That reference is written into the bundle as
+attachments/design-reference.fasta, and reads must be mapped to it before the
+scheme can trim them. Use --list to see which results can be saved and why
+others cannot.
+
+USAGE: lungfish-cli primers scheme-from-analysis <analysis-path> [--result-id <result-id>] [--output <output>] [--project <project>] [--display-name <display-name>] [--list]
+
+ARGUMENTS:
+  <analysis-path>         Path to the saved .lungfishprimeranalysis bundle.
+
+OPTIONS:
+  --result-id <result-id> Result UUID from --list. Required when more than one
+                          result can be saved.
+  --output <output>       Output .lungfishprimers bundle name or path.
+  --project <project>     Optional Lungfish project; relative output is written
+                          under Primer Schemes/.
+  --display-name <display-name>
+                          Human-readable scheme name. Defaults to the analysis
+                          and result names.
+  --list                  List the results in the analysis and whether each can
+                          be saved, then exit.
+  --version               Show the version.
+  -h, --help              Show help information.
+

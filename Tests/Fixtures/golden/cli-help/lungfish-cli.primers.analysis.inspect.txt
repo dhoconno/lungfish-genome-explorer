@@ -1,0 +1,13 @@
+OVERVIEW: Verify stored file integrity and inspect a .lungfishprimeranalysis
+bundle
+
+USAGE: lungfish-cli primers analysis inspect <bundle-path> [--json]
+
+ARGUMENTS:
+  <bundle-path>           Path to the saved analysis bundle.
+
+OPTIONS:
+  --json                  Print the verified manifest as JSON.
+  --version               Show the version.
+  -h, --help              Show help information.
+

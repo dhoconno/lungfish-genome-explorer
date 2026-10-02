@@ -1,0 +1,12 @@
+OVERVIEW: Install an existing .lungfishmhcref bundle into a project
+
+USAGE: lungfish-cli haplotypes bundle-install <source> --project <project>
+
+ARGUMENTS:
+  <source>                Source .lungfishmhcref bundle to install
+
+OPTIONS:
+  --project <project>     Project root that will receive the bundle
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -1,0 +1,23 @@
+OVERVIEW: Create an MHC reference bundle from managed haplotype definitions and
+a reference FASTA
+
+USAGE: lungfish-cli haplotypes bundle-create [--definition <definition> ...] [--assay <assay>] [--species <species>] [--scope <scope>] --reference-fasta <reference-fasta> --output <output> [--name <name>] [--default-definition <default-definition>] [--project <project>] [--force]
+
+OPTIONS:
+  --definition <definition>
+                          Managed haplotype definition id to embed
+  --assay <assay>         Assay/amplicon id used to disambiguate definition ids
+  --species <species>     Species code used to disambiguate definition ids
+  --scope <scope>         project (the only supported scope)
+  --reference-fasta <reference-fasta>
+                          MHC amplicon reference FASTA to embed
+  --output <output>       Output .lungfishmhcref bundle
+  --name <name>           Display name stored in the bundle manifest
+  --default-definition <default-definition>
+                          Default embedded haplotype definition set ID
+  --project <project>     Project root whose project-scoped definitions should
+                          be included
+  --force                 Replace an existing .lungfishmhcref bundle
+  --version               Show the version.
+  -h, --help              Show help information.
+

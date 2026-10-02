@@ -1,0 +1,10 @@
+{
+  "bundle" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype",
+  "format" : "csv",
+  "output" : "<RUN_ROOT>\/genotype\/exports\/matrix.csv",
+  "sampleColumns" : [
+    "SIMULATED-MHC-A-pairs",
+    "SIMULATED-MHC-B-pairs"
+  ],
+  "usedProjection" : false
+}

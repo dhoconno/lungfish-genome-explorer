@@ -1,0 +1,9 @@
+OVERVIEW: Print the Lungfish version and bundled tool reference
+
+USAGE: lungfish-cli version [--tools]
+
+OPTIONS:
+  --tools                 Print the bundled and managed tool version table
+  --version               Show the version.
+  -h, --help              Show help information.
+

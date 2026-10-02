@@ -1,0 +1,20 @@
+OVERVIEW: Create a .lungfish12sref bundle for 12S amplicon matching
+
+USAGE: lungfish-cli fastq 12s-reference-bundle --dedup-fasta <dedup-fasta> --midori-metadata <midori-metadata> --output <output> [--name <name>] [--source-file <source-file> ...] [--source-directory <source-directory> ...] [--force]
+
+OPTIONS:
+  --dedup-fasta <dedup-fasta>
+                          Deduplicated 12S amplicon reference FASTA
+  --midori-metadata <midori-metadata>
+                          MIDORI-derived metadata TSV with seq_id, latin_name,
+                          group, taxid, and taxonomy
+  --output <output>       Output .lungfish12sref bundle
+  --name <name>           Display name stored in the bundle manifest
+  --source-file <source-file>
+                          Additional source file to copy into the bundle
+  --source-directory <source-directory>
+                          Additional source directory to copy into the bundle
+  --force                 Replace an existing .lungfish12sref bundle
+  --version               Show the version.
+  -h, --help              Show help information.
+

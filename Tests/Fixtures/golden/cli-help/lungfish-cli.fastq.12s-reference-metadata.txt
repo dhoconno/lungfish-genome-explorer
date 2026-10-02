@@ -1,0 +1,16 @@
+OVERVIEW: Prepare structured taxonomy metadata for a deduplicated 12S reference
+FASTA
+
+USAGE: lungfish-cli fastq 12s-reference-metadata --dedup-fasta <dedup-fasta> --midori-metadata <midori-metadata> --output <output> [--force]
+
+OPTIONS:
+  --dedup-fasta <dedup-fasta>
+                          Deduplicated 12S amplicon reference FASTA
+  --midori-metadata <midori-metadata>
+                          MIDORI-derived metadata TSV with seq_id, latin_name,
+                          group, taxid, and taxonomy
+  --output <output>       Output 12S target metadata TSV
+  --force                 Replace an existing metadata TSV
+  --version               Show the version.
+  -h, --help              Show help information.
+

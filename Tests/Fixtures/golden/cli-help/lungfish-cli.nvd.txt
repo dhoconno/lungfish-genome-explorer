@@ -1,0 +1,17 @@
+OVERVIEW: Import and view NVD classification results
+
+Import results from the Novel Virus Diagnostics (NVD) Snakemake pipeline.
+Parses *_blast_concatenated.csv(.gz) files containing BLAST hit rankings and
+per-contig mapped read counts for wastewater viral surveillance.
+
+USAGE: lungfish-cli nvd <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  import                  Import NVD results into a Lungfish project
+  summary (default)       Display summary of NVD results
+
+  See 'lungfish-cli help nvd <subcommand>' for detailed help.

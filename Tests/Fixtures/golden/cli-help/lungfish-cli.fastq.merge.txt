@@ -1,0 +1,19 @@
+OVERVIEW: Merge overlapping paired-end reads using bbmerge
+
+USAGE: lungfish-cli fastq merge <input> [--min-overlap <min-overlap>] [--strict] [--count-duplicates] --output <output> [--force] [--compress]
+
+ARGUMENTS:
+  <input>                 Input interleaved FASTQ file
+
+OPTIONS:
+  --min-overlap <min-overlap>
+                          Minimum overlap (default: 12) (default: 12)
+  --strict                Use strict merge mode
+  --count-duplicates      Collapse identical output sequences after merge and
+                          encode support as size=N
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --version               Show the version.
+  -h, --help              Show help information.
+

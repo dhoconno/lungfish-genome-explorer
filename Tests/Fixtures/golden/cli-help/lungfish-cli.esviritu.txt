@@ -1,0 +1,21 @@
+OVERVIEW: Run EsViritu viral metagenomics detection on FASTQ files
+
+Detect and characterize viruses from metagenomic sequencing data
+using EsViritu. Requires the EsViritu conda package and its curated
+viral reference database.
+
+Install the tool: lungfish-cli conda install esviritu
+Download the database: lungfish-cli esviritu download-db
+
+USAGE: lungfish-cli esviritu <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  detect (default)        Run EsViritu viral detection on FASTQ files
+  download-db             Download the EsViritu viral reference database
+  db-status               Check EsViritu database installation status
+
+  See 'lungfish-cli help esviritu <subcommand>' for detailed help.

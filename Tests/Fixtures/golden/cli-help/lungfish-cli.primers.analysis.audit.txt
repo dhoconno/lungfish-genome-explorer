@@ -1,0 +1,15 @@
+OVERVIEW: Re-audit a retained lge.4 native panel from stored source alignments
+
+USAGE: lungfish-cli primers analysis audit <bundle-path> --result-id <result-id> --primalscheme3-path <primalscheme3-path> --output <output> [--tier <tier>]
+
+ARGUMENTS:
+  <bundle-path>           Path to the saved .lungfishprimeranalysis bundle.
+
+OPTIONS:
+  --result-id <result-id>
+  --primalscheme3-path <primalscheme3-path>
+  --output <output>
+  --tier <tier>
+  --version               Show the version.
+  -h, --help              Show help information.
+

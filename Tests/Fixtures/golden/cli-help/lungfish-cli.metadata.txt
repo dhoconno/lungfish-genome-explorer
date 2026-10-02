@@ -1,0 +1,30 @@
+OVERVIEW: Manage FASTQ sample metadata
+
+View, edit, import, and export PHA4GE-aligned metadata for FASTQ
+dataset bundles (.lungfishfastq) and folders containing them.
+
+Per-bundle metadata is stored in `metadata.csv` inside each bundle.
+Folder-level metadata is stored in `samples.csv` at the folder root.
+
+Examples:
+  lungfish-cli metadata get SampleA.lungfishfastq
+  lungfish-cli metadata set SampleA.lungfishfastq --field sample_type --value
+"Nasopharyngeal swab"
+  lungfish-cli metadata import ./RunFolder samples.csv
+  lungfish-cli metadata export ./RunFolder
+
+USAGE: lungfish-cli metadata <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  get (default)           Display metadata for a FASTQ bundle
+  set                     Set a metadata field on a FASTQ bundle
+  import                  Import folder-level metadata from a CSV file
+  export                  Export folder metadata as CSV to stdout
+  export-biosample        Export folder metadata as NCBI BioSample submission
+                          TSV
+
+  See 'lungfish-cli help metadata <subcommand>' for detailed help.

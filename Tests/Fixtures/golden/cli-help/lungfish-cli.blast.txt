@@ -1,0 +1,16 @@
+OVERVIEW: BLAST verification of classified reads
+
+Submit classified reads to NCBI BLAST for independent verification.
+This cross-checks Kraken2 taxonomic assignments against the NCBI
+nucleotide database.
+
+USAGE: lungfish-cli blast <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  verify (default)        Verify a taxon classification via NCBI BLAST
+
+  See 'lungfish-cli help blast <subcommand>' for detailed help.

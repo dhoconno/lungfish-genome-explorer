@@ -1,0 +1,73 @@
+{
+  "assayID" : "SIMULATED-MHC-three-amplicon",
+  "changeNote" : "Definition set shipped with the MHC Genotyping demo project",
+  "displayName" : "MCM haplotypes for the mhc-simulated reference (teaching set)",
+  "id" : "mhc-simulated-mcm-teaching",
+  "lastModified" : "<TIMESTAMP>",
+  "locusDefinitions" : [
+    {
+      "haplotypes" : [
+        {
+          "colorTokenIndex" : 4,
+          "diagnosticAlleles" : [
+            "Mafa-G_02:31:01:01"
+          ],
+          "evidenceWeights" : {
+            "Mafa-G_02:31:01:01" : 1
+          },
+          "minimumMatches" : 1,
+          "name" : "M4",
+          "primaryAlleles" : [
+            "Mafa-G_02:31:01:01"
+          ]
+        }
+      ],
+      "locus" : "MHC-A",
+      "sourceLocus" : "Mafa-A"
+    },
+    {
+      "haplotypes" : [
+        {
+          "colorTokenIndex" : 7,
+          "diagnosticAlleles" : [
+            "Mafa-DRB_W001:03:01:01"
+          ],
+          "evidenceWeights" : {
+            "Mafa-DRB_W001:03:01:01" : 1
+          },
+          "minimumMatches" : 1,
+          "name" : "M7",
+          "primaryAlleles" : [
+            "Mafa-DRB_W001:03:01:01"
+          ]
+        }
+      ],
+      "locus" : "MHC-DR",
+      "sourceLocus" : "MHC-DRB"
+    },
+    {
+      "haplotypes" : [
+        {
+          "colorTokenIndex" : 1,
+          "diagnosticAlleles" : [
+            "Mafa-DPA1_07:02:01:01"
+          ],
+          "evidenceWeights" : {
+            "Mafa-DPA1_07:02:01:01" : 1
+          },
+          "minimumMatches" : 1,
+          "name" : "M1",
+          "primaryAlleles" : [
+            "Mafa-DPA1_07:02:01:01"
+          ]
+        }
+      ],
+      "locus" : "MHC-DP",
+      "sourceLocus" : "MHC-DP"
+    }
+  ],
+  "prefix" : "MHC",
+  "schemaVersion" : 2,
+  "speciesCode" : "MCM",
+  "speciesName" : "Mauritian cynomolgus macaque"
+}

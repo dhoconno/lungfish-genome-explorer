@@ -1,0 +1,47 @@
+OVERVIEW: Deprecated. Genotype ONT amplicon FASTQ bundles by short-read mapping
+and pysam filtering
+
+DEPRECATED: this legacy pipeline maps ONT reads with the short-read preset,
+ignores --allow-indels (indels are always allowed), and splits tied reads
+non-deterministically across identical alleles. Use `fastq genotype
+--mode ont-sample-bundles` instead, which maps with the ONT preset and
+reports ties explicitly. This command is hidden from `fastq --help` but
+remains runnable for existing scripts.
+
+USAGE: lungfish-cli fastq ont-genotype [<options>] <inputs> ... --reference <reference> --output-dir <output-dir>
+
+ARGUMENTS:
+  <inputs>                Input FASTQ files or .lungfishfastq bundles. Multiple
+                          demultiplexed bundles are supported.
+
+OPTIONS:
+  --reference <reference> Reference FASTA file, .lungfishref bundle, or
+                          .lungfishmhcref bundle (FASTA + paired haplotype
+                          definitions) used as the mapping target
+  --output-dir <output-dir>
+                          Directory for filtered BAMs, indexes, report CSV, and
+                          workflow provenance
+  --output-name <output-name>
+                          Report filename stem (default: ont-genotyping-report)
+  --project <project>     Project directory; external FASTA references are
+                          imported here before mapping
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --min-support <min-support>
+                          Minimum filtered read support required for a genotype
+                          row in the report (default: 1)
+  --extra-args <extra-args>
+                          Advanced minimap2 arguments passed after the simple
+                          mapping settings
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -1,0 +1,20 @@
+OVERVIEW: Export the genotype bundle's matrix and analyst annotations as an
+XLSX file.
+
+USAGE: lungfish-cli genotype export-xlsx [--bundle <bundle>] [--snapshot <snapshot>] [--provenance-request <provenance-request>] [--python <python>] [--force] --output <output>
+
+OPTIONS:
+  -b, --bundle <bundle>   Path to the .lungfishgenotype bundle.
+  --snapshot <snapshot>   Durable scientific Excel snapshot JSON to replay
+                          through the shared export service.
+  --provenance-request <provenance-request>
+                          Original captured provenance request JSON (required
+                          with --snapshot).
+  --python <python>       Managed openpyxl Python executable (required with
+                          --snapshot).
+  --force                 Replace an existing snapshot export report and its
+                          receipt.
+  -o, --output <output>   Output XLSX path.
+  --version               Show the version.
+  -h, --help              Show help information.
+

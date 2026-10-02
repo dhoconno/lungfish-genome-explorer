@@ -1,0 +1,20 @@
+OVERVIEW: Inspect managed storage roots and reclaim duplicate space
+
+Each channel (Preview, stable, Debug) keeps its own managed storage root.
+Identical databases and conda packages are stored once with APFS clones.
+'storage dedupe' finds duplicate files across the roots and replaces each
+duplicate with a clone of one kept copy, and 'storage info' prints the roots
+this command line resolves.
+
+USAGE: lungfish-cli storage <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  info                    Print the storage roots this command line resolves
+  dedupe                  Replace duplicate files across storage roots with
+                          APFS clones
+
+  See 'lungfish-cli help storage <subcommand>' for detailed help.

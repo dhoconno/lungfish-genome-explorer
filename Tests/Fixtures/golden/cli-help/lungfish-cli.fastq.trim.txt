@@ -1,0 +1,31 @@
+OVERVIEW: Trim adapters and low-quality bases in one fastp pass
+
+USAGE: lungfish-cli fastq trim <input> [--threshold <threshold>] [--window <window>] [--mode <mode>] [--adapter-trimming] [--no-adapter-trimming] [--adapter <adapter>] [--extra-args <extra-args>] [--pairing <pairing>] --output <output> [--force] [--compress]
+
+ARGUMENTS:
+  <input>                 Input FASTQ file
+
+OPTIONS:
+  --threshold <threshold> Quality threshold (default: 20) (default: 20)
+  --window <window>       Sliding window size (default: 4) (default: 4)
+  --mode <mode>           Quality trim mode: cut-right, cut-front, cut-tail,
+                          cut-both (default: cut-right) (default: cut-right)
+  --adapter-trimming/--no-adapter-trimming
+                          Run fastp adapter trimming in the same pass (default:
+                          enabled) (default: --adapter-trimming)
+  --adapter <adapter>     Adapter sequence (omit for auto-detect)
+  --extra-args <extra-args>
+                          Additional fastp arguments passed verbatim
+  --pairing <pairing>     How to treat the input's records: interleaved
+                          (adjacent records are mates and are kept or dropped
+                          together), single, or auto (default: auto) (values:
+                          interleaved, single, auto; default: auto)
+        auto reads the pairingMode recorded by the enclosing .lungfishfastq
+        bundle, then inspects read names. Mates with identical names, /1 /2
+        suffixes, or Casava descriptions are all recognised.
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --version               Show the version.
+  -h, --help              Show help information.
+

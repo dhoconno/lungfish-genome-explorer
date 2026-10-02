@@ -1,0 +1,36 @@
+OVERVIEW: Demultiplex full-length MHC ONT amplicons with PacBio barcode pairs
+
+Validates a PacBio barcode-pair sample sheet, resolves built-in bc*
+barcode IDs, and writes one materialized .lungfishfastq bundle per
+sample. Barcode definitions must contain sample_id, barcode_1, and
+barcode_2 columns, or headerless rows in that order.
+
+Repeated sample IDs are numbered _1, _2, and so on.
+Unique sample IDs remain unchanged.
+
+USAGE: lungfish-cli fastq ont-pacbio-barcode-demux <input> --barcodes <barcodes> --output <output> [--threads <threads>] [--chunk-jobs <chunk-jobs>] [--max-reads-per-slice <max-reads-per-slice>] [--max-bytes-per-cutadapt <max-bytes-per-cutadapt>] [--force]
+
+ARGUMENTS:
+  <input>                 Input ONT FASTQ file, barcode directory, run
+                          directory, or .lungfishfastq bundle
+
+OPTIONS:
+  --barcodes <barcodes>   CSV/TSV file with sample_id, barcode_1, and barcode_2
+                          columns, or headerless rows in that order
+  -o, --output <output>   Output directory for per-sample .lungfishfastq bundles
+  --threads <threads>     Compatibility option for legacy chunked demux paths
+                          (default: 1) (default: 1)
+  --chunk-jobs <chunk-jobs>
+                          Compatibility option for legacy chunked demux paths
+                          (default: active cores) (default: 14)
+  --max-reads-per-slice <max-reads-per-slice>
+                          Compatibility option for legacy chunked demux paths;
+                          0 disables sub-slicing (default: 100000) (default:
+                          100000)
+  --max-bytes-per-cutadapt <max-bytes-per-cutadapt>
+                          Compatibility option for legacy chunked demux paths
+                          (default: 536870912) (default: 536870912)
+  --force                 Replace an existing output directory
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -1,0 +1,27 @@
+OVERVIEW: Construct GATK4 commands for germline variant workflows
+
+Builds reproducible GATK command lines by default. Pass --execute on a
+subcommand to
+run GATK through the managed gatk-core environment and write final-location
+provenance.
+
+USAGE: lungfish-cli gatk <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  haplotype-caller        Construct a GATK HaplotypeCaller command
+  joint-genotype          Construct GATK joint genotyping commands
+  filter                  Construct a GATK VariantFiltration command
+  select                  Construct a GATK SelectVariants command
+  variants-to-table       Construct a GATK VariantsToTable command
+  bqsr                    Construct GATK BaseRecalibrator and ApplyBQSR commands
+  markdup                 Construct a GATK Picard MarkDuplicates command
+  validate-sam            Construct a GATK Picard ValidateSamFile command
+  leftalign               Construct a GATK LeftAlignAndTrimVariants command
+  collect-metrics         Construct a GATK Picard CollectVariantCallingMetrics
+                          command
+
+  See 'lungfish-cli help gatk <subcommand>' for detailed help.

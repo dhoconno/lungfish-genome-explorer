@@ -1,0 +1,95 @@
+OVERVIEW: Design single, tiled, or qPCR schemes with varVAMP through the
+versioned LGE adapter
+
+The cumulative consensus threshold is passed directly to native -t and is never
+complemented. Single/tiled bounds become --opt-length and --max-length; qPCR
+bounds become QAMPLICON_LENGTH. The nominal size is retained for display and
+provenance.
+
+USAGE: lungfish-cli primers design varvamp [<options>] --output <output>
+
+OPTIONS:
+  --msa <msa>
+  --output <output>
+  --mode <mode>           single, tiled, or qpcr (default: tiled)
+  --grouping <grouping>   varVAMP supports independent only (default:
+                          independent)
+  --python-path <python-path>
+  --amplicon-size <amplicon-size>
+                          Nominal display/provenance size. Defaults to 400 for
+                          single/tiled and 135 for qpcr.
+  --amplicon-size-min <amplicon-size-min>
+                          Inclusive minimum span including primer sites;
+                          defaults to 90% of nominal for single/tiled and to
+                          varVAMP's own qPCR minimum of 70 for qpcr.
+  --amplicon-size-max <amplicon-size-max>
+                          Inclusive maximum span including primer sites;
+                          defaults to 110% of nominal for single/tiled and to
+                          varVAMP's own qPCR maximum of 200 for qpcr.
+  --workers <workers>     (default: 4)
+  --consensus-threshold <consensus-threshold>
+  --maximum-primer-ambiguities <maximum-primer-ambiguities>
+                          (default: 2)
+  --maximum-probe-ambiguities <maximum-probe-ambiguities>
+  --tiled-overlap <tiled-overlap>
+                          (default: 25)
+  --report-count <report-count>
+  --qpcr-test-count <qpcr-test-count>
+                          (default: 50)
+  --qpcr-delta-g <qpcr-delta-g>
+                          (default: -3)
+  --scheme-name <scheme-name>
+                          (default: varVAMP)
+  --compatible-primers <compatible-primers>
+  --blast-database <blast-database>
+  --screen-against <screen-against>
+                          Sequences to screen candidate oligos against: a
+                          .lungfishmsa (ungapped rows), .lungfishref, or
+                          nucleotide FASTA. LGE builds the BLAST database with
+                          makeblastdb. Repeatable; mutually exclusive with
+                          --blast-database.
+  --terminal-masking-threshold <terminal-masking-threshold>
+  --primer-tm-min <primer-tm-min>
+  --primer-tm-opt <primer-tm-opt>
+  --primer-tm-max <primer-tm-max>
+  --primer-gc-min <primer-gc-min>
+  --primer-gc-opt <primer-gc-opt>
+  --primer-gc-max <primer-gc-max>
+  --primer-size-min <primer-size-min>
+  --primer-size-opt <primer-size-opt>
+  --primer-size-max <primer-size-max>
+  --primer-maximum-poly-x <primer-maximum-poly-x>
+  --primer-maximum-dinucleotide-repeats <primer-maximum-dinucleotide-repeats>
+  --primer-hairpin <primer-hairpin>
+  --primer-gc-end-min <primer-gc-end-min>
+  --primer-gc-end-max <primer-gc-end-max>
+  --primer-minimum-3-prime-without-ambiguity <primer-minimum-3-prime-without-ambiguity>
+  --primer-maximum-dimer-temperature <primer-maximum-dimer-temperature>
+  --primer-maximum-dimer-delta-g <primer-maximum-dimer-delta-g>
+  --end-overlap <end-overlap>
+  --probe-tm-min <probe-tm-min>
+  --probe-tm-opt <probe-tm-opt>
+  --probe-tm-max <probe-tm-max>
+  --probe-size-min <probe-size-min>
+  --probe-size-opt <probe-size-opt>
+  --probe-size-max <probe-size-max>
+  --probe-gc-min <probe-gc-min>
+  --probe-gc-opt <probe-gc-opt>
+  --probe-gc-max <probe-gc-max>
+  --probe-gc-end-min <probe-gc-end-min>
+  --probe-gc-end-max <probe-gc-end-max>
+  --qprimer-difference <qprimer-difference>
+  --probe-temperature-difference-min <probe-temperature-difference-min>
+  --probe-temperature-difference-max <probe-temperature-difference-max>
+  --probe-distance-min <probe-distance-min>
+  --probe-distance-max <probe-distance-max>
+  --amplicon-gc-min <amplicon-gc-min>
+  --amplicon-gc-max <amplicon-gc-max>
+  --amplicon-deletion-cutoff <amplicon-deletion-cutoff>
+  --pcr-monovalent-concentration <pcr-monovalent-concentration>
+  --pcr-divalent-concentration <pcr-divalent-concentration>
+  --pcr-dntp-concentration <pcr-dntp-concentration>
+  --pcr-dna-concentration <pcr-dna-concentration>
+  --version               Show the version.
+  -h, --help              Show help information.
+

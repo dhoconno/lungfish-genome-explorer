@@ -1,0 +1,40 @@
+OVERVIEW: Import ONT output directory into per-barcode bundles
+
+Imports Oxford Nanopore sequencing output directories into per-barcode
+.lungfishfastq bundles. Concatenates chunked FASTQ files within each
+barcode directory and generates a demultiplex manifest.
+
+Accepts either a fastq_pass/ parent directory or a single barcode
+directory (e.g., fastq_pass/barcode01/).
+
+Examples:
+  lungfish-cli fastq import-ont fastq_pass/ -o imported/
+  lungfish-cli fastq import-ont fastq_pass/barcode13/ -o imported/
+  lungfish-cli fastq import-ont fastq_pass/ -o imported/ --include-unclassified
+
+USAGE: lungfish-cli fastq import-ont <input> --output <output> [--include-unclassified] [--concurrency <concurrency>] [--storage-mode <storage-mode>] [--optimize-storage] [--quality-binning <quality-binning>]
+
+ARGUMENTS:
+  <input>                 ONT output directory (fastq_pass/ or single barcode
+                          directory)
+
+OPTIONS:
+  -o, --output <output>   Output directory for .lungfishfastq bundles
+  --include-unclassified  Include unclassified reads (default: skip)
+  --concurrency <concurrency>
+                          Max concurrent barcode imports (default: 4) (default:
+                          4)
+  --storage-mode <storage-mode>
+                          How to store ONT chunks inside each bundle: chunked
+                          or flattened (default: chunked) (values: chunked,
+                          flattened; default: chunked)
+  --optimize-storage      Run clumpify on flattened per-barcode FASTQ payloads
+                          to improve compression
+  --quality-binning <quality-binning>
+                          Quality binning for --optimize-storage: none,
+                          illumina4 (7 quality levels), or eightLevel (~21
+                          quality levels) (default: none) (values: illumina4,
+                          eightLevel, none; default: none)
+  --version               Show the version.
+  -h, --help              Show help information.
+

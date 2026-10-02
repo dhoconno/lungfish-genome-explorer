@@ -1,0 +1,32 @@
+OVERVIEW: Export a one-way genotype XLSX report with All and Filtered matrices.
+
+USAGE: lungfish-cli genotype export-pivot-xlsx --bundle <bundle> --output <output> [--min-reads <min-reads>] [--min-percent <min-percent>] [--percent-basis <percent-basis>] [--min-prevalence-percent <min-prevalence-percent>] [--view-projection <view-projection>] [--annotations <annotations>] [--force]
+
+OPTIONS:
+  -b, --bundle <bundle>   Path to the .lungfishgenotype bundle.
+  -o, --output <output>   Output XLSX path.
+  --min-reads <min-reads> Minimum displayed unique-read support in the Filtered
+                          matrix; 0 disables the filter. (default: 0)
+  --min-percent <min-percent>
+                          Minimum per-sample read fraction, in percent, for
+                          Filtered matrix cells (known and candidate alleles
+                          alike); 0 disables the filter. (default: 0.0)
+  --percent-basis <percent-basis>
+                          Denominator for --min-percent: viewed-locus (the
+                          sample's unique reads at the allele's source locus)
+                          or sample-retained. (values: viewed-locus,
+                          sample-retained; default: sample-retained)
+  --min-prevalence-percent <min-prevalence-percent>
+                          Seen in at least N% of animals: hide Filtered matrix
+                          rows visible in fewer than this percent of samples; 0
+                          disables the filter. (default: 0.0)
+  --view-projection <view-projection>
+                          Captured genotype viewport defining the Filtered
+                          matrix's visible rows and samples.
+  --annotations <annotations>
+                          Genotype annotation sidecar; defaults to bundle
+                          annotations.json when present.
+  --force                 Overwrite an existing report and receipt.
+  --version               Show the version.
+  -h, --help              Show help information.
+

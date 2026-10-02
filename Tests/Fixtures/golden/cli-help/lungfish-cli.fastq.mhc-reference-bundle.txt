@@ -1,0 +1,25 @@
+OVERVIEW: Create a .lungfishmhcref bundle for MHC amplicon genotyping
+
+USAGE: lungfish-cli fastq mhc-reference-bundle --reference-fasta <reference-fasta> [--haplotype-definition <haplotype-definition> ...] [--default-haplotype-definition <default-haplotype-definition>] [--genotype-locus-display-order <genotype-locus-display-order> ...] --output <output> [--name <name>] [--source-file <source-file> ...] [--source-directory <source-directory> ...] [--force]
+
+OPTIONS:
+  --reference-fasta <reference-fasta>
+                          MHC amplicon reference in FASTA, GenBank, or EMBL
+                          format
+  --haplotype-definition <haplotype-definition>
+                          Haplotype definition JSON file to embed in the bundle
+  --default-haplotype-definition <default-haplotype-definition>
+                          Default embedded haplotype definition set ID
+  --genotype-locus-display-order <genotype-locus-display-order>
+                          Genotype matrix locus or slash-delimited locus group
+                          in display order; repeat for each position
+  --output <output>       Output .lungfishmhcref bundle
+  --name <name>           Display name stored in the bundle manifest
+  --source-file <source-file>
+                          Additional source file to copy into the bundle
+  --source-directory <source-directory>
+                          Additional source directory to copy into the bundle
+  --force                 Replace an existing .lungfishmhcref bundle
+  --version               Show the version.
+  -h, --help              Show help information.
+

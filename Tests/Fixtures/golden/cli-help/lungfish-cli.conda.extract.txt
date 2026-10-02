@@ -1,0 +1,35 @@
+OVERVIEW: Extract reads by taxonomy from Kraken2 classification output
+
+Filter FASTQ reads that were classified to specific taxa by Kraken2.
+Requires the per-read output file (--output from kraken2) and the
+source FASTQ(s). When --include-children is set, a kreport file is
+needed to build the taxonomy tree for descendant lookup.
+
+USAGE: lungfish-cli conda extract [<options>] --kraken-output <kraken-output> --source <source> ... --output <output> ... --taxid <taxid> ...
+
+OPTIONS:
+  --kraken-output <kraken-output>
+                          Kraken2 per-read output file (.kraken)
+  --source <source>       Source FASTQ file(s). Repeat for paired-end.
+  --output <output>       Output FASTQ file(s). Must match source count.
+  --taxid <taxid>         Taxonomy ID(s) to extract (comma-separated or
+                          repeated)
+  --include-children      Include reads classified to descendant taxa
+  --kreport <kreport>     Kreport file for taxonomy tree (required with
+                          --include-children)
+  --no-read-pairs         Extract only exact read IDs (don't pair /1 and /2
+                          mates)
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

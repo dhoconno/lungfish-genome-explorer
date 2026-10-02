@@ -1,0 +1,13 @@
+OVERVIEW: Delete a project haplotype definition set
+
+USAGE: lungfish-cli haplotypes delete <definition-id> [--scope <scope>] [--project <project>]
+
+ARGUMENTS:
+  <definition-id>         Definition set id to delete
+
+OPTIONS:
+  --scope <scope>         project (the only supported scope) (default: project)
+  --project <project>     Project root for project-scoped definitions
+  --version               Show the version.
+  -h, --help              Show help information.
+

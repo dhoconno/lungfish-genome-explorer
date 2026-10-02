@@ -1,0 +1,51 @@
+{
+  "allowIndels": true,
+  "assignedUniqueRetainedReads": 376,
+  "assignmentMode": "query-prefix",
+  "barcodeCacheCounts": {
+    "SIMULATED-MHC-A-pairs": 204,
+    "SIMULATED-MHC-B-pairs": 172
+  },
+  "barcodeCacheReadCount": 376,
+  "barcodes": null,
+  "completedAt": "<TIMESTAMP>",
+  "demuxManifest": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
+  "demuxRetainedReadsOnly": false,
+  "diagnosticPositionFilter": false,
+  "diagnosticPositionStrictLoci": [],
+  "haplotypeMinLocusPercent": 0.0,
+  "haplotypeMinLocusPercentOverrides": [],
+  "haplotypeMinSamplePercent": 0.0,
+  "inputBAM": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.md.sorted.bam",
+  "maxMismatches": 0,
+  "minSupport": 1,
+  "outputBAI": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+  "outputBAM": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+  "passCounters": {
+    "passed": 376
+  },
+  "passedAlignments": 376,
+  "referenceAmbiguityGroups": {},
+  "referenceFasta": "<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz",
+  "requireBothEndSoftclips": false,
+  "requireFullReferenceSpan": true,
+  "retainedQueryNamesBeforeDemux": 376,
+  "retainedSequenceRecordsSeen": 376,
+  "retainedUniquePercentOfTotalReads": 100.0,
+  "retainedUniqueReads": 376,
+  "sampleCSV": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained_demux_samples.csv",
+  "sampleManifest": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
+  "sequenceRecordsSeen": 376,
+  "startedAt": "<TIMESTAMP>",
+  "summaryCSV": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained_demux_genotypes.csv",
+  "tool": "lungfish fastq ont-barcode-genotype retained-read filter",
+  "totalAlignments": 376,
+  "totalInputReads": 376,
+  "totalInputReadsUnit": "fragments",
+  "unassignedUniqueRetainedReads": 0,
+  "version": "1",
+  "wallClockSeconds": "<DURATION>",
+  "writeFilterCounters": {
+    "passed": 376
+  }
+}

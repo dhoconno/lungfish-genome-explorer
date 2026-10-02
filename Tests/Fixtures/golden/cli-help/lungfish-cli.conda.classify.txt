@@ -1,0 +1,65 @@
+OVERVIEW: Run Kraken2 taxonomic classification on FASTQ or FASTA inputs
+
+Classify metagenomic reads or assembled sequences using Kraken2 with an
+installed database.
+Databases are managed via `lungfish-cli conda db` or downloaded from the
+built-in catalog. Results include a kreport file, per-read output,
+and an optional Bracken abundance profile.
+
+USAGE: lungfish-cli conda classify [<options>] <fastq-files> ... --db <db>
+
+ARGUMENTS:
+  <fastq-files>           Input sequence file(s). Provide two files for
+                          paired-end FASTQ.
+
+OPTIONS:
+  --db <db>               Database name (e.g., 'Viral', 'Standard-8')
+  --preset <preset>       Sensitivity preset: sensitive, balanced, precise
+                          (default: balanced) (values: sensitive, balanced,
+                          precise; default: balanced)
+  -o, --output-dir <output-dir>
+                          Output directory (default: current directory)
+  --paired                Input files are paired-end reads
+  --read-format <read-format>
+                          Read layout: auto, unpaired, paired, or interleaved.
+                          (values: auto, unpaired, paired, interleaved;
+                          default: auto)
+        auto (default) scans a single input: a file or bundle of strictly
+        alternating R1/R2 records runs as interleaved pairs (split into two
+        mate files for kraken2 --paired); interleaved pairs mixed with merged
+        reads, and true single-end input, run unpaired. Two separate files need
+        --paired.
+  --recursive             When an input is a directory, include eligible
+                          FASTQ/FASTA files in subfolders
+  --profile               Run Bracken abundance profiling after classification
+  --confidence <confidence>
+                          Override confidence threshold (0.0-1.0)
+  --min-hit-groups <min-hit-groups>
+                          Override minimum hit groups
+  --memory-mapping        Use memory-mapped I/O (slower, less RAM)
+  --quick                 Use Kraken2 quick mode
+  --bracken-read-length <bracken-read-length>
+                          Read length for Bracken -r flag (default: 150)
+                          (default: 150)
+  --bracken-level <bracken-level>
+                          Bracken taxonomic level: D,P,C,O,F,G,S (default:
+                          automatic for the selected database)
+  --bracken-threshold <bracken-threshold>
+                          Bracken minimum read threshold (default: 10)
+                          (default: 10)
+  --extra-args <extra-args>
+                          Additional kraken2 arguments passed verbatim
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

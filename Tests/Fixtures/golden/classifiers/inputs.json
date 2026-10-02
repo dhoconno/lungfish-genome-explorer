@@ -1,0 +1,6 @@
+{
+  "previewReads": 10,
+  "rootReads": 100,
+  "subsetReads": 55,
+  "subsetRule": "read length >= 150"
+}

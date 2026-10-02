@@ -1,0 +1,34 @@
+OVERVIEW: Validate sequence file format
+
+Validate that a file is well-formed and conforms to format specifications.
+
+Examples:
+  lungfish-cli analyze validate genome.fasta
+  lungfish-cli analyze validate variants.vcf --strict
+
+USAGE: lungfish-cli analyze validate <files> ... [--strict] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+
+ARGUMENTS:
+  <files>                 Input file(s) to validate
+
+OPTIONS:
+  --strict                Also reject readable but irregular files.
+        FASTA: duplicate record names, empty records, characters outside the
+        IUPAC nucleotide and protein alphabets. FASTQ: duplicate read
+        identifiers, empty reads. VCF: data lines whose column count disagrees
+        with the #CHROM header, and records that repeat an earlier CHROM, POS,
+        REF and ALT. Other formats have no extra checks.
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

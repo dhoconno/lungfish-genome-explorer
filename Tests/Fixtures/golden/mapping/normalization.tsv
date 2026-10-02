@@ -1,0 +1,7 @@
+rule	file, payload or record path	size masked	status
+R8	records whose path ends in .sam	yes	ruled
+R8	records whose path ends in .bam	yes	ruled
+R8	records whose path ends in .bai	yes	ruled
+R10	lungfish-provenance.json	yes	ruled
+R10	mapping-provenance.json	yes	ruled
+R10	mapping-result.json	yes	ruled

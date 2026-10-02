@@ -1,0 +1,90 @@
+OVERVIEW: Demultiplex reads by internal barcodes
+
+Splits multiplexed FASTA or FASTQ reads into per-barcode output files using
+embedded cutadapt. Supports single- and dual-indexed Illumina kits,
+Fluidigm Access Array indexes, custom barcode definition files, and
+terminally anchored barcode location (5', 3', or both ends) for
+cutadapt demultiplexing.
+
+Useful for internal Illumina barcodes within ONT reads, re-demultiplexing,
+or demultiplexing with custom barcode sets.
+
+Built-in kits: truseq-single-a, truseq-single-b, truseq-ht-dual, nextera-xt-v2,
+idt-ud-indexes, fluidigm-access-array, pacbio-sequel-16-v3,
+pacbio-sequel-96-v2, pacbio-sequel-384-v1, m13-universal-primers, ont-nbd104,
+ont-nbd114, ont-nbd104-114, ont-nbd114-96, ont-pbc096, ont-rbk004,
+ont-rbk114-24, ont-rbk114-96, ont-16s114-24, ont-rab204-214.
+
+Custom definitions can be CSV, TSV, or whitespace-delimited text:
+  id,sequence[,secondary_sequence][,sample_name]
+  FLD0001<TAB>GTATCGTCGT
+A header line may name the columns instead, so id,sequence,sample_name
+puts sample names in the third column.
+
+Long-read kits (ONT native, rapid, PCR and 16S barcoding, PacBio) are
+searched as the platform's full adapter and barcode construct at both
+read ends in both orientations; a read is assigned only when both ends
+carry the same barcode. --location and --max-distance-* do not apply
+to those kits.
+
+Engines:
+  cutadapt    Established fuzzy adapter matcher; supports error rate and
+indels.
+  exact-bare  Swift-native exact matching for bare A/C/G/T barcodes; scans
+whole reads,
+              searches reverse complements, and preserves reads.
+
+Examples:
+  lungfish-cli fastq demultiplex reads.fastq.gz --kit truseq-single-a -o
+demux-out/
+  lungfish-cli fastq demultiplex reads.fastq.gz --kit fluidigm-access-array -o
+demux-out/ --engine exact-bare
+  lungfish-cli fastq demultiplex reads.fastq.gz --kit custom.csv -o demux-out/
+--location bothends
+
+USAGE: lungfish-cli fastq demultiplex [<options>] <input> --kit <kit> --output <output>
+
+ARGUMENTS:
+  <input>                 Input FASTA/FASTQ file or .lungfishfastq bundle
+
+OPTIONS:
+  --kit <kit>             Barcode kit: truseq-single-a, truseq-single-b,
+                          truseq-ht-dual, nextera-xt-v2, idt-ud-indexes,
+                          fluidigm-access-array, pacbio-sequel-16-v3,
+                          pacbio-sequel-96-v2, pacbio-sequel-384-v1,
+                          m13-universal-primers, ont-nbd104, ont-nbd114,
+                          ont-nbd104-114, ont-nbd114-96, ont-pbc096,
+                          ont-rbk004, ont-rbk114-24, ont-rbk114-96,
+                          ont-16s114-24, ont-rab204-214, or path to custom
+                          CSV/TSV/text barcode definition. Custom definitions
+                          can be CSV, TSV, or whitespace text with columns
+                          id,sequence[,secondary_sequence][,sample_name]; a
+                          header line may name the columns instead
+                          (id,sequence,sample_name). Example:
+                          FLD0001<TAB>GTATCGTCGT.
+  -o, --output <output>   Output directory for per-barcode bundles
+  --location <location>   Cutadapt barcode location: 5prime, 3prime, bothends
+                          (default: bothends) (default: bothends)
+  --max-distance-5prime <max-distance-5prime>
+                          Cutadapt max bases from 5' terminus where barcodes
+                          may start (default: 0) (default: 0)
+  --max-distance-3prime <max-distance-3prime>
+                          Cutadapt max bases from 3' terminus where barcodes
+                          may end (default: 0) (default: 0)
+  --error-rate <error-rate>
+                          Cutadapt maximum error rate for barcode matching
+                          (default: 0.15) (default: 0.15)
+  --overlap <overlap>     Cutadapt minimum overlap length (default: 3)
+                          (default: 3)
+  --engine <engine>       Demultiplexing engine: cutadapt or exact-bare
+                          (default: cutadapt) (default: cutadapt)
+  --no-trim               Cutadapt only: keep barcode sequences in output reads
+                          (exact-bare always preserves reads)
+  --discard-unassigned    Discard reads that do not match any barcode
+  --threads <threads>     Cutadapt thread count (default: 4) (default: 4)
+  --replace               Delete an existing, non-empty output directory before
+                          writing. Without it the command refuses to overwrite
+                          earlier results and names the directory.
+  --version               Show the version.
+  -h, --help              Show help information.
+

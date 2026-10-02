@@ -1,0 +1,18 @@
+OVERVIEW: Debugging and troubleshooting tools
+
+USAGE: lungfish-cli debug <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  env (default)           Check environment and dependencies
+  container               Check the container runtime the pipelines use (Docker
+                          Desktop)
+  resource-smoke          Verify packaged runtime resources without launching
+                          the app UI
+  fastq-ingest            Run FASTQ clumpify/compress/index + optional stats
+  workflow-log            Parse and analyze workflow logs
+
+  See 'lungfish-cli help debug <subcommand>' for detailed help.

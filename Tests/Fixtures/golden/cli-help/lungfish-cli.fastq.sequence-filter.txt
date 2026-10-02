@@ -1,0 +1,34 @@
+OVERVIEW: Filter reads by sequence presence (adapter/barcode matching)
+
+USAGE: lungfish-cli fastq sequence-filter <input> --output <output> [--force] [--compress] [--sequence <sequence>] [--fasta-path <fasta-path>] [--search-end <search-end>] [--min-overlap <min-overlap>] [--error-rate <error-rate>] [--keep-matched] [--search-rc] [--pairing <pairing>]
+
+ARGUMENTS:
+  <input>                 Input FASTQ file path
+
+OPTIONS:
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --sequence <sequence>   Literal sequence to match against reads
+  --fasta-path <fasta-path>
+                          Path to FASTA file containing sequences to match
+  --search-end <search-end>
+                          Which end to search: "left", "right", or "both"
+                          (default: both) (default: both)
+  --min-overlap <min-overlap>
+                          Minimum overlap length (default: 8) (default: 8)
+  --error-rate <error-rate>
+                          Allowed error rate as fraction (default: 0.1)
+                          (default: 0.1)
+  --keep-matched          Keep matched reads instead of discarding them
+  --search-rc             Also search the reverse complement of the sequence
+  --pairing <pairing>     How to treat the input's records: interleaved
+                          (adjacent records are mates and are kept or dropped
+                          together), single, or auto (default: auto) (values:
+                          interleaved, single, auto; default: auto)
+        auto reads the pairingMode recorded by the enclosing .lungfishfastq
+        bundle, then inspects read names. Mates with identical names, /1 /2
+        suffixes, or Casava descriptions are all recognised.
+  --version               Show the version.
+  -h, --help              Show help information.
+

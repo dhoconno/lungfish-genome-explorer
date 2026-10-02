@@ -1,0 +1,12 @@
+OVERVIEW: Merge an annotation patch JSON into a genotype bundle's annotation
+sidecar
+
+USAGE: lungfish-cli genotype apply-annotations --bundle <bundle> --patch <patch>
+
+OPTIONS:
+  --bundle <bundle>       Path to a `.lungfishgenotype` result bundle
+  --patch <patch>         Path to an annotation patch JSON (same schema as
+                          annotations.json)
+  --version               Show the version.
+  -h, --help              Show help information.
+

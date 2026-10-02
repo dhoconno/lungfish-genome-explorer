@@ -1,0 +1,22 @@
+OVERVIEW: Construct a GATK Picard ValidateSamFile command
+
+USAGE: lungfish-cli gatk validate-sam [--execute] [--dry-run] --bam <bam> [--output <output>] [--reference <reference>] [--mode <mode>] [--validate-index <validate-index>] [--ignore-warnings <ignore-warnings>] [--extra-args <extra-args>]
+
+OPTIONS:
+  --execute               Run GATK and write final-location provenance.
+  --dry-run               Print the GATK command preview without running it.
+  --bam <bam>             Input BAM/SAM/CRAM path
+  --output <output>       Optional output validation report path
+  --reference <reference> Optional reference FASTA path
+  --mode <mode>           Validation mode: SUMMARY or VERBOSE (default: SUMMARY)
+  --validate-index <validate-index>
+                          Whether ValidateSamFile should validate the BAM index
+                          (default: true)
+  --ignore-warnings <ignore-warnings>
+                          Whether warnings should be ignored (default: false)
+  --extra-args <extra-args>
+                          Additional GATK/Picard arguments, written exactly as
+                          they should be passed
+  --version               Show the version.
+  -h, --help              Show help information.
+

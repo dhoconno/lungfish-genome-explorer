@@ -1,0 +1,17 @@
+OVERVIEW: Import and view NAO-MGS metagenomic surveillance results
+
+Import results from the SecureBio NAO-MGS metagenomic surveillance
+pipeline. Parses virus_hits_final.tsv.gz and writes a standalone JSON
+summary. Use `lungfish-cli import nao-mgs` for a project bundle.
+
+USAGE: lungfish-cli nao-mgs <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  import                  Import NAO-MGS results as a standalone JSON summary
+  summary (default)       Display summary of NAO-MGS results
+
+  See 'lungfish-cli help nao-mgs <subcommand>' for detailed help.

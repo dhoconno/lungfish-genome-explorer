@@ -1,0 +1,18 @@
+OVERVIEW: Replay a recorded matrix annotation edit to an explicit annotation
+sidecar
+
+USAGE: lungfish-cli genotype replay-matrix-annotation --provenance <provenance> --output <output> [--output-provenance <output-provenance>] [--force]
+
+OPTIONS:
+  --provenance <provenance>
+                          GUI annotation provenance sidecar containing the
+                          embedded prior input and replay payload
+  --output <output>       Explicit path for the reconstructed annotations JSON
+  --output-provenance <output-provenance>
+                          Path for replay output provenance; defaults to a
+                          replay-specific peer of --output
+  --force                 Replace existing replay output and replay provenance
+                          files
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -1,0 +1,11 @@
+OVERVIEW: Validate a haplotype definition JSON file
+
+USAGE: lungfish-cli haplotypes validate <input>
+
+ARGUMENTS:
+  <input>                 Definition JSON file to validate
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -1,0 +1,20 @@
+OVERVIEW: Inspect saved primer analysis results
+
+USAGE: lungfish-cli primers analysis <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  inspect                 Verify stored file integrity and inspect a
+                          .lungfishprimeranalysis bundle
+  history                 Query retained lge.4 panel decision history
+  audit                   Re-audit a retained lge.4 native panel from stored
+                          source alignments
+  annotated-reference     Create a native reference with linked annotations
+                          from a saved Primer3 result
+  export-order            Export a primer order (workbooks, CSV and order.json)
+                          from a saved analysis
+
+  See 'lungfish-cli help primers analysis <subcommand>' for detailed help.

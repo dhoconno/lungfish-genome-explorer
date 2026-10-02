@@ -1,0 +1,24 @@
+OVERVIEW: Construct a phase-aware GATK HaplotypeCaller plus WhatsHap command
+plan
+
+USAGE: lungfish-cli variants phase [--execute] [--dry-run] --reference <reference> --bam <bam> --output-vcf <output-vcf> [--output-dir <output-dir>] [--sample <sample>] [--threads <threads>] [--extra-gatk-args <extra-gatk-args>] [--extra-whatshap-args <extra-whatshap-args>]
+
+OPTIONS:
+  --execute               Run GATK and WhatsHap through managed tool packs.
+  --dry-run               Write and print the command plan without running
+                          tools.
+  --reference <reference> Reference FASTA path
+  --bam <bam>             Input BAM path
+  --output-vcf <output-vcf>
+                          Final phased VCF path
+  --output-dir <output-dir>
+                          Command-plan/provenance output directory
+  --sample <sample>       Optional sample name passed to WhatsHap
+  --threads <threads>     GATK PairHMM threads (default: 1)
+  --extra-gatk-args <extra-gatk-args>
+                          Additional GATK HaplotypeCaller arguments
+  --extra-whatshap-args <extra-whatshap-args>
+                          Additional WhatsHap phase arguments
+  --version               Show the version.
+  -h, --help              Show help information.
+

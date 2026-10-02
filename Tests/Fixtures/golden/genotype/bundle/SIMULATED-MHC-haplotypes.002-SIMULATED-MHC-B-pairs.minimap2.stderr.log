@@ -1,0 +1,10 @@
+[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] collected minimizers
+[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] sorted minimizers
+[M::main::<DURATION>*<CPU-RATIO>] loaded/built the index for 3 target sequence(s)
+[M::mm_mapopt_update::<DURATION>*<CPU-RATIO>] mid_occ = 1000
+[M::mm_idx_stat] kmer size: 21; skip: 11; is_hpc: 0; #seq: 3
+[M::mm_idx_stat::<DURATION>*<CPU-RATIO>] distinct minimizers: 90 (100.00% are singletons); average occurrences: 1.000; average spacing: 6.367; total length: 573
+[M::worker_pipeline::<DURATION>*<CPU-RATIO>] mapped 172 sequences
+[M::main] Version: 2.31-r1302
+[M::main] CMD: /Users/dho/.lungfish-stable/conda/envs/minimap2/bin/minimap2 -a -x sr --MD -t 2 -R @RG\tID:SIMULATED-MHC-haplotypes-2\tSM:SIMULATED-MHC-haplotypes-2\tLB:SIMULATED-MHC-haplotypes\tPL:ILLUMINA\tPU:SIMULATED-MHC-haplotypes-2 <RUN_ROOT>/genotype/MHC Genotyping.lungfish/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz -
+[M::main] Real time: <DURATION> sec; CPU: <CPU-SECONDS> sec; Peak RSS: <PEAK-RSS> GB

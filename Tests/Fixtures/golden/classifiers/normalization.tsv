@@ -1,0 +1,9 @@
+rule	file, payload or record path	size masked	status
+R10	esviritu/esviritu-result.json	yes	ruled
+R10	esviritu/lungfish-provenance.json	yes	ruled
+R10	esviritu/materialize-folder-provenance.json	yes	ruled
+R10	esviritu/materialize-provenance.json	yes	ruled
+R10	kraken2/classification-result.json	yes	ruled
+R10	kraken2/lungfish-provenance.json	yes	ruled
+R11	classification.kraken.gz	no	ruled
+R12	classification.kraken.gz.idx.sqlite	no	ruled

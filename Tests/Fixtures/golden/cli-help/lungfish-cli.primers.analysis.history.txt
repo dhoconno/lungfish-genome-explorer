@@ -1,0 +1,23 @@
+OVERVIEW: Query retained lge.4 panel decision history
+
+USAGE: lungfish-cli primers analysis history [<options>] <bundle-path> --result-id <result-id> --primalscheme3-path <primalscheme3-path> --output <output>
+
+ARGUMENTS:
+  <bundle-path>           Path to the saved .lungfishprimeranalysis bundle.
+
+OPTIONS:
+  --result-id <result-id>
+  --primalscheme3-path <primalscheme3-path>
+  --output <output>
+  --entity <entity>
+  --target <target>
+  --region <region>
+  --pool <pool>           One-based pool number.
+  --stage <stage>
+  --profile <profile>
+  --lineage
+  --limit <limit>         Maximum rows to return (1...1000). (default: 100)
+  --offset <offset>       (default: 0)
+  --version               Show the version.
+  -h, --help              Show help information.
+

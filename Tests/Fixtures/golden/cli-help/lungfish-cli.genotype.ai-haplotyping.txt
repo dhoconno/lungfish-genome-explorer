@@ -1,0 +1,78 @@
+OVERVIEW: Run AI discovery or AI refinement haplotyping on a genotype bundle.
+
+USAGE: lungfish-cli genotype ai-haplotyping <options>
+
+OPTIONS:
+  --bundle <bundle>       Path to the `.lungfishgenotype` result bundle.
+  --input-table <input-table>
+                          Long-form CSV/TSV/JSON genotype rows for prompt
+                          preview testing.
+  --input-format <input-format>
+                          Input table format: auto, csv, tsv, or json. (values:
+                          auto, csv, tsv, json; default: auto)
+  --preview-prompt        Render prompt/evidence JSON without contacting an AI
+                          provider or publishing a revision.
+  --output <output>       Optional output JSON path for prompt preview
+                          artifacts.
+  --debug-output <debug-output>
+                          Write validated AI haplotyping debug JSON without
+                          publishing a haplotype revision.
+  --mode <mode>           AI haplotyping mode: ai-discovery or ai-refinement.
+                          (values: ai-discovery, ai-refinement; default:
+                          ai-refinement)
+  --provider <provider>   AI provider: openai or anthropic. (values: openai,
+                          anthropic; default: openai)
+  --model <model>         Provider model override. Defaults to the provider's
+                          app default.
+  --azure-openai-endpoint <azure-openai-endpoint>
+                          Azure OpenAI endpoint, such as
+                          https://example.openai.azure.com.
+  --azure-openai-deployment <azure-openai-deployment>
+                          Azure OpenAI deployment name to use instead of a
+                          direct OpenAI model.
+  --prompt-template-id <prompt-template-id>
+                          Prompt template ID to pin for this run.
+  --prompt-template-version <prompt-template-version>
+                          Prompt template version to pin for this run.
+  --max-observations-per-chunk <max-observations-per-chunk>
+                          Maximum observation evidence records per AI request.
+                          Defaults high enough to keep each sample in one
+                          review chunk. (default: 10000)
+  --max-output-tokens <max-output-tokens>
+                          Maximum provider output tokens per chunk. (default:
+                          4096)
+  --temperature <temperature>
+                          Provider sampling temperature. (default: 0.0)
+  --reasoning-effort <reasoning-effort>
+                          OpenAI Responses API reasoning effort: none, minimal,
+                          low, medium, high, or xhigh.
+  --max-provider-retries <max-provider-retries>
+                          Maximum retry attempts for transient AI provider
+                          failures per chunk. (default: 2)
+  --compact-knowledge-pack
+                          Retrieve only prompt-relevant knowledge-pack records
+                          before contacting the AI provider.
+  --review-scope <review-scope>
+                          AI refinement review scope: all or unresolved-only.
+                          (values: all, unresolved-only; default: all)
+  --chunk-start-index <chunk-start-index>
+                          1-based first evidence chunk to run for debug-output
+                          smoke runs. (default: 1)
+  --chunk-end-index <chunk-end-index>
+                          1-based last evidence chunk to run for debug-output
+                          smoke runs; 0 means through the final chunk.
+                          (default: 0)
+  --population <population>
+                          Population hint for input-table prompt previews, such
+                          as mcm or indian-rhesus.
+  --assay-resolution <assay-resolution>
+                          Assay resolution hint for input-table prompt
+                          previews, such as short-exon-amplicon or full-length.
+  --haplotype-definition <haplotype-definition>
+                          Haplotype definition/framework hint for input-table
+                          prompt previews.
+  --haplotype-assay <haplotype-assay>
+                          Haplotype assay hint for input-table prompt previews.
+  --version               Show the version.
+  -h, --help              Show help information.
+

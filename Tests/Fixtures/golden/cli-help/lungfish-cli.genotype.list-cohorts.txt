@@ -1,0 +1,9 @@
+OVERVIEW: List smart cohorts defined in a genotype bundle's annotation sidecar
+
+USAGE: lungfish-cli genotype list-cohorts --bundle <bundle>
+
+OPTIONS:
+  --bundle <bundle>       Path to a `.lungfishgenotype` result bundle
+  --version               Show the version.
+  -h, --help              Show help information.
+

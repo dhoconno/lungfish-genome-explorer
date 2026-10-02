@@ -1,0 +1,26 @@
+OVERVIEW: Inspect and run multiple sequence alignment actions
+
+USAGE: lungfish-cli msa <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  actions                 List registered multiple sequence alignment actions
+  describe                Describe one registered multiple sequence alignment
+                          action
+  annotate                Create and manage multiple sequence alignment
+                          annotations
+  export                  Export a .lungfishmsa alignment with provenance
+  consensus               Create a consensus sequence from a .lungfishmsa bundle
+  extract                 Extract selected rows and columns from a .lungfishmsa
+                          bundle
+  mask                    Create derived MSA bundles with non-destructive masks
+  trim                    Create derived MSA bundles with removed columns
+  distance                Compute identity or p-distance matrices from a
+                          .lungfishmsa bundle
+  discriminating-sites    Find alignment columns where all targets differ from
+                          every exclusion sequence
+
+  See 'lungfish-cli help msa <subcommand>' for detailed help.

@@ -1,0 +1,140 @@
+{
+  "argv": [
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/filter-demux-retained-bam.py",
+    "--input-bam",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.md.sorted.bam",
+    "--reference-fasta",
+    "<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz",
+    "--demux-manifest",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
+    "--output-dir",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "--prefix",
+    "SIMULATED-MHC-haplotypes",
+    "--max-mismatches",
+    "0",
+    "--min-support",
+    "1",
+    "--provenance-command",
+    "lungfish-cli fastq genotype-cohort '<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Imports/SIMULATED-MHC-A-pairs.lungfishfastq' '<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Imports/SIMULATED-MHC-B-pairs.lungfishfastq' --mode illumina-paired --read-type illumina --output-dir <RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype --output-name SIMULATED-MHC-haplotypes --threads 2 --sort-threads 2 --min-support 1 --analysis-name SIMULATED-MHC-haplotypes --reference '<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref' --haplotype-assay SIMULATED-MHC-three-amplicon --haplotype-species MCM --haplotype-definition-scope project --haplotype-definition mhc-simulated-mcm-teaching",
+    "--assignment-mode",
+    "query-prefix",
+    "--sample-manifest",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json"
+  ],
+  "completedAt": "<TIMESTAMP>",
+  "exitStatus": 0,
+  "inputs": [
+    {
+      "exists": true,
+      "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.md.sorted.bam",
+      "role": "input",
+      "sha256": "<SHA256-N2>",
+      "sizeBytes": "<SIZE-N2>"
+    },
+    {
+      "exists": true,
+      "path": "<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz",
+      "role": "input",
+      "sha256": "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325",
+      "sizeBytes": 330
+    },
+    {
+      "exists": true,
+      "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
+      "role": "input",
+      "sha256": "<SHA256-N3>",
+      "sizeBytes": 4898
+    },
+    {
+      "exists": true,
+      "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
+      "role": "input",
+      "sha256": "<SHA256-N3>",
+      "sizeBytes": 4898
+    }
+  ],
+  "options": {
+    "assignment_mode": "query-prefix",
+    "barcode_anchor_mismatches": 2,
+    "barcode_window_length": 8,
+    "barcodes": null,
+    "demux_manifest": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
+    "forward_primer": "ACACTGACGACATGGTTCTACA",
+    "haplotype_min_locus_percent": 0.0,
+    "haplotype_min_locus_percent_override": [],
+    "haplotype_min_sample_percent": 0.0,
+    "input_bam": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.md.sorted.bam",
+    "max_mismatches": 0,
+    "min_support": 1,
+    "output_dir": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "prefix": "SIMULATED-MHC-haplotypes",
+    "provenance_command": "lungfish-cli fastq genotype-cohort '<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Imports/SIMULATED-MHC-A-pairs.lungfishfastq' '<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Imports/SIMULATED-MHC-B-pairs.lungfishfastq' --mode illumina-paired --read-type illumina --output-dir <RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype --output-name SIMULATED-MHC-haplotypes --threads 2 --sort-threads 2 --min-support 1 --analysis-name SIMULATED-MHC-haplotypes --reference '<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref' --haplotype-assay SIMULATED-MHC-three-amplicon --haplotype-species MCM --haplotype-definition-scope project --haplotype-definition mhc-simulated-mcm-teaching",
+    "reference_ambiguity_groups": null,
+    "reference_fasta": "<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref/reference/SIMULATED-MHC-MCM-teaching.lungfishref/genome/sequence.fa.gz",
+    "require_both_end_softclips": false,
+    "reverse_primer": "TACGGTAGCAGAGACTTGGTCT",
+    "sample_manifest": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json"
+  },
+  "outputs": [
+    {
+      "exists": true,
+      "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+      "role": "output",
+      "sha256": "<SHA256-N2>",
+      "sizeBytes": "<SIZE-N2>"
+    },
+    {
+      "exists": true,
+      "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+      "role": "output",
+      "sha256": "<SHA256-N2>",
+      "sizeBytes": "<SIZE-N2>"
+    },
+    {
+      "exists": true,
+      "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained_demux_genotypes.csv",
+      "role": "output",
+      "sha256": "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "sizeBytes": 802
+    },
+    {
+      "exists": true,
+      "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained_demux_samples.csv",
+      "role": "output",
+      "sha256": "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+      "sizeBytes": 270
+    },
+    {
+      "exists": true,
+      "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained_demux_stats.json",
+      "role": "output",
+      "sha256": "<SHA256-R10>",
+      "sizeBytes": "<SIZE-R10>"
+    }
+  ],
+  "reproducibleCommand": "lungfish-cli fastq genotype-cohort '<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Imports/SIMULATED-MHC-A-pairs.lungfishfastq' '<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Imports/SIMULATED-MHC-B-pairs.lungfishfastq' --mode illumina-paired --read-type illumina --output-dir <RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype --output-name SIMULATED-MHC-haplotypes --threads 2 --sort-threads 2 --min-support 1 --analysis-name SIMULATED-MHC-haplotypes --reference '<RUN_ROOT>/genotype/MHC Genotyping.lungfish/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref' --haplotype-assay SIMULATED-MHC-three-amplicon --haplotype-species MCM --haplotype-definition-scope project --haplotype-definition mhc-simulated-mcm-teaching",
+  "resolvedDefaults": {
+    "demuxRetainedReadsOnly": false,
+    "diagnosticPositionFilter": false,
+    "diagnosticPositionStrictLoci": [],
+    "haplotypeMinLocusPercent": 0.0,
+    "haplotypeMinLocusPercentOverrides": [],
+    "haplotypeMinSamplePercent": 0.0,
+    "maxMismatches": 0,
+    "minSupport": 1,
+    "requireBothEndSoftclips": false,
+    "requireFullReferenceSpan": true
+  },
+  "runtimeIdentity": {
+    "executable": "/Users/dho/.lungfish-stable/conda/envs/pysam/bin/python",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "pysam": "0.24.0",
+    "python": "3.10.21 | packaged by conda-forge | (main, Aug 21 2026, 22:37:53) [Clang 19.1.7 ]"
+  },
+  "startedAt": "<TIMESTAMP>",
+  "stderr": "",
+  "toolName": "lungfish fastq ont-barcode-genotype retained-read filter",
+  "toolVersion": "1",
+  "wallClockSeconds": "<DURATION>"
+}

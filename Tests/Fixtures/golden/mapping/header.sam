@@ -1,0 +1,6 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:MT192765.1	LN:29829
+@RG	ID:sarscov2-test	SM:sarscov2-test	LB:sarscov2-test	PL:ILLUMINA	PU:sarscov2-test
+@PG	ID:minimap2	PN:minimap2	VN:2.31-r1302	CL:minimap2 -a -x sr -t 2 -R @RG\tID:sarscov2-test\tSM:sarscov2-test\tLB:sarscov2-test\tPL:ILLUMINA\tPU:sarscov2-test --secondary=no -o <RUN_ROOT>/mapping/out/sarscov2-test.raw.sam <RUN_ROOT>/mapping/tmp/mapping-reference-stage-<UUID-1>/reference.fa <RUN_ROOT>/mapping/inputs/test_1.fastq.gz <RUN_ROOT>/mapping/inputs/test_2.fastq.gz
+@PG	ID:samtools	PN:samtools	PP:minimap2	VN:1.24	CL:/Users/dho/.lungfish-stable/conda/envs/samtools/bin/samtools view -b -o <RUN_ROOT>/mapping/out/sarscov2-test.filtered.bam -F 256 <RUN_ROOT>/mapping/out/sarscov2-test.raw.sam
+@PG	ID:samtools.1	PN:samtools	PP:samtools	VN:1.24	CL:/Users/dho/.lungfish-stable/conda/envs/samtools/bin/samtools sort -@ 1 -o <RUN_ROOT>/mapping/out/sarscov2-test.sorted.bam <RUN_ROOT>/mapping/out/sarscov2-test.filtered.bam

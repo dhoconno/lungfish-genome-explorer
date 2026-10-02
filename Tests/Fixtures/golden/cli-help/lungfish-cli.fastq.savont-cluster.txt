@@ -1,0 +1,22 @@
+OVERVIEW: Cluster FASTQ reads into counted consensus sequences with Savont
+
+USAGE: lungfish-cli fastq savont-cluster <input> --output <output> [--threads <threads>] [--quality-value-cutoff <quality-value-cutoff>] [--min-cluster-size <min-cluster-size>] [--min-read-length <min-read-length>] [--max-read-length <max-read-length>] [--single-strand]
+
+ARGUMENTS:
+  <input>                 Input FASTQ file or .lungfishfastq bundle
+
+OPTIONS:
+  --output <output>       Output counted-cluster FASTA file
+  --threads <threads>     Threads for Savont (default: 14)
+  --quality-value-cutoff <quality-value-cutoff>
+                          Savont quality-value cutoff (default: 90)
+  --min-cluster-size <min-cluster-size>
+                          Minimum reads per cluster (default: 3)
+  --min-read-length <min-read-length>
+                          Optional minimum read length
+  --max-read-length <max-read-length>
+                          Optional maximum read length
+  --single-strand         Run Savont in single-strand mode
+  --version               Show the version.
+  -h, --help              Show help information.
+

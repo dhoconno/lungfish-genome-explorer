@@ -1,0 +1,31 @@
+{
+  "alignmentArtifacts" : {
+    "genotyping_evidence" : {
+      "bai" : {
+        "path" : "SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+        "sha256" : "<SHA256-N2>",
+        "size_bytes" : "<SIZE-N2>"
+      },
+      "bam" : {
+        "path" : "SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+        "sha256" : "<SHA256-N2>",
+        "size_bytes" : "<SIZE-N2>"
+      }
+    }
+  },
+  "analysisName" : "SIMULATED-MHC-haplotypes",
+  "createdAt" : "<TIMESTAMP>",
+  "haplotypeAnalysisPath" : "SIMULATED-MHC-haplotypes.haplotype-analysis.json",
+  "haplotypeAssayID" : "SIMULATED-MHC-three-amplicon",
+  "haplotypeDefinitionSetID" : "mhc-simulated-mcm-teaching",
+  "kind" : "miseq-amplicon-mhc-genotype",
+  "longSummaryCSVPath" : "SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+  "outputName" : "SIMULATED-MHC-haplotypes",
+  "primaryWorkbookPath" : "SIMULATED-MHC-haplotypes.xlsx",
+  "provenancePath" : ".lungfish-provenance.json",
+  "sampleSummaryCSVPath" : "SIMULATED-MHC-haplotypes.retained-demux-samples.csv",
+  "schemaVersion" : 1,
+  "statsJSONPath" : "SIMULATED-MHC-haplotypes.retained-demux-stats.json",
+  "workflowKind" : "miseq-amplicon-mhc-genotype",
+  "workflowMode" : "haplotyped"
+}

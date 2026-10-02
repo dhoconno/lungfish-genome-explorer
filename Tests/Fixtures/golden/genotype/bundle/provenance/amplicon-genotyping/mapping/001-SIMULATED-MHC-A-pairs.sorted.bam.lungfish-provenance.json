@@ -1,0 +1,1517 @@
+{
+  "appVersion" : "Lungfish <APP_VERSION> (dev)",
+  "argv" : [
+    "lungfish-cli",
+    "fastq",
+    "genotype-cohort",
+    "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq",
+    "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq",
+    "--mode",
+    "illumina-paired",
+    "--read-type",
+    "illumina",
+    "--output-dir",
+    "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "--output-name",
+    "SIMULATED-MHC-haplotypes",
+    "--threads",
+    "2",
+    "--sort-threads",
+    "2",
+    "--min-support",
+    "1",
+    "--analysis-name",
+    "SIMULATED-MHC-haplotypes",
+    "--reference",
+    "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
+    "--haplotype-assay",
+    "SIMULATED-MHC-three-amplicon",
+    "--haplotype-species",
+    "MCM",
+    "--haplotype-definition-scope",
+    "project",
+    "--haplotype-definition",
+    "mhc-simulated-mcm-teaching"
+  ],
+  "createdAt" : "<TIMESTAMP>",
+  "durableReplayArgv" : [
+    "lungfish-cli",
+    "fastq",
+    "genotype-cohort",
+    "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq",
+    "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq",
+    "--mode",
+    "illumina-paired",
+    "--read-type",
+    "illumina",
+    "--output-dir",
+    "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "--output-name",
+    "SIMULATED-MHC-haplotypes",
+    "--threads",
+    "2",
+    "--sort-threads",
+    "2",
+    "--min-support",
+    "1",
+    "--analysis-name",
+    "SIMULATED-MHC-haplotypes",
+    "--reference",
+    "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
+    "--haplotype-assay",
+    "SIMULATED-MHC-three-amplicon",
+    "--haplotype-species",
+    "MCM",
+    "--haplotype-definition-scope",
+    "project",
+    "--haplotype-definition",
+    "mhc-simulated-mcm-teaching"
+  ],
+  "endTime" : "<TIMESTAMP>",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "2029e6ea6124574234754a46552fcd8d1ccd3c92206c23919ecd9a6cc575ba46",
+      "fileSize" : 87452,
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-A-pairs.for-mapping.fastq",
+      "role" : "input",
+      "sha256" : "2029e6ea6124574234754a46552fcd8d1ccd3c92206c23919ecd9a6cc575ba46",
+      "sizeBytes" : 87452
+    },
+    {
+      "checksumSHA256" : "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325",
+      "fileSize" : 330,
+      "path" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz",
+      "role" : "reference",
+      "sha256" : "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325",
+      "sizeBytes" : 330
+    },
+    {
+      "checksumSHA256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "fileSize" : 802,
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+      "role" : "report",
+      "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "sizeBytes" : 802
+    },
+    {
+      "checksumSHA256" : "<SHA256-N2>",
+      "fileSize" : "<SIZE-N2>",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+      "role" : "index",
+      "sha256" : "<SHA256-N2>",
+      "sizeBytes" : "<SIZE-N2>"
+    },
+    {
+      "checksumSHA256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
+      "fileSize" : 2357,
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
+      "role" : "output",
+      "sha256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
+      "sizeBytes" : 2357
+    }
+  ],
+  "hostOS" : "macOS 26.6.2 (arm64)",
+  "id" : "<UUID-1>",
+  "name" : "Illumina Paired Amplicon Genotyping",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "allowIndels" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "analysisName" : {
+        "type" : "string",
+        "value" : "SIMULATED-MHC-haplotypes"
+      },
+      "barcodes" : {
+        "type" : "null"
+      },
+      "demuxManifest" : {
+        "type" : "string",
+        "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json"
+      },
+      "demuxRetainedReadsOnly" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "diagnosticPositionFilter" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "diagnosticPositionStrictLoci" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      },
+      "extraArguments" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      },
+      "genotypeLocusDisplayOrder" : {
+        "type" : "null"
+      },
+      "haplotypeAssayID" : {
+        "type" : "string",
+        "value" : "SIMULATED-MHC-three-amplicon"
+      },
+      "haplotypeDefinitionSHA256" : {
+        "type" : "string",
+        "value" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3"
+      },
+      "haplotypeDefinitionScope" : {
+        "type" : "string",
+        "value" : "project"
+      },
+      "haplotypeDefinitionSetID" : {
+        "type" : "string",
+        "value" : "mhc-simulated-mcm-teaching"
+      },
+      "haplotypeDropoutLocusFraction" : {
+        "type" : "null"
+      },
+      "haplotypeDropoutLocusFractionOverrides" : {
+        "type" : "dictionary",
+        "value" : {
+
+        }
+      },
+      "haplotypeDropoutSampleFraction" : {
+        "type" : "null"
+      },
+      "haplotypeSpeciesCode" : {
+        "type" : "string",
+        "value" : "MCM"
+      },
+      "illuminaInputPreparation" : {
+        "type" : "dictionary",
+        "value" : {
+          "internalMergePerformed" : {
+            "type" : "boolean",
+            "value" : true
+          },
+          "mappingFASTQs" : {
+            "type" : "array",
+            "value" : [
+              {
+                "type" : "string",
+                "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-A-pairs.for-mapping.fastq"
+              },
+              {
+                "type" : "string",
+                "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-B-pairs.for-mapping.fastq"
+              }
+            ]
+          },
+          "mappingInputTransport" : {
+            "type" : "string",
+            "value" : "stdin-sample-prefixed-fastq"
+          },
+          "mode" : {
+            "type" : "string",
+            "value" : "illumina-paired"
+          },
+          "pairMergePerformedDuringRun" : {
+            "type" : "boolean",
+            "value" : true
+          },
+          "pairMergeSummary" : {
+            "type" : "dictionary",
+            "value" : {
+              "mergedFragments" : {
+                "type" : "integer",
+                "value" : 376
+              },
+              "mergedSampleCount" : {
+                "type" : "integer",
+                "value" : 2
+              },
+              "mergedSamples" : {
+                "type" : "array",
+                "value" : [
+                  {
+                    "type" : "dictionary",
+                    "value" : {
+                      "disposition" : {
+                        "type" : "string",
+                        "value" : "bbmerge-merged"
+                      },
+                      "mappedRecordCount" : {
+                        "type" : "integer",
+                        "value" : 204
+                      },
+                      "mergedFragments" : {
+                        "type" : "integer",
+                        "value" : 204
+                      },
+                      "sample" : {
+                        "type" : "string",
+                        "value" : "SIMULATED-MHC-A-pairs"
+                      },
+                      "unmergedReads" : {
+                        "type" : "integer",
+                        "value" : 0
+                      }
+                    }
+                  },
+                  {
+                    "type" : "dictionary",
+                    "value" : {
+                      "disposition" : {
+                        "type" : "string",
+                        "value" : "bbmerge-merged"
+                      },
+                      "mappedRecordCount" : {
+                        "type" : "integer",
+                        "value" : 172
+                      },
+                      "mergedFragments" : {
+                        "type" : "integer",
+                        "value" : 172
+                      },
+                      "sample" : {
+                        "type" : "string",
+                        "value" : "SIMULATED-MHC-B-pairs"
+                      },
+                      "unmergedReads" : {
+                        "type" : "integer",
+                        "value" : 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "reason" : {
+                "type" : "string",
+                "value" : "inputs were not merged at import; run the Illumina Amplicon Merge recipe to merge at import time"
+              },
+              "tool" : {
+                "type" : "string",
+                "value" : "bbmerge.sh"
+              },
+              "totalSampleCount" : {
+                "type" : "integer",
+                "value" : 2
+              },
+              "unmergedReads" : {
+                "type" : "integer",
+                "value" : 0
+              }
+            }
+          },
+          "requiresBothEndSoftclips" : {
+            "type" : "boolean",
+            "value" : false
+          },
+          "sampleDefinitions" : {
+            "type" : "string",
+            "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-definitions.csv"
+          },
+          "sampleManifest" : {
+            "type" : "string",
+            "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json"
+          },
+          "sourceFASTQs" : {
+            "type" : "array",
+            "value" : [
+              {
+                "type" : "string",
+                "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq\/SIMULATED-MHC-A-pairs.fastq.gz"
+              },
+              {
+                "type" : "string",
+                "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq\/SIMULATED-MHC-B-pairs.fastq.gz"
+              }
+            ]
+          }
+        }
+      },
+      "illuminaMergeResults" : {
+        "type" : "null"
+      },
+      "inputFASTQ" : {
+        "type" : "string",
+        "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq"
+      },
+      "inputFASTQs" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "string",
+            "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq"
+          },
+          {
+            "type" : "string",
+            "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq"
+          }
+        ]
+      },
+      "keepIntermediates" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "lockedReferenceSHA256" : {
+        "type" : "null"
+      },
+      "mappingPreset" : {
+        "type" : "string",
+        "value" : "sr"
+      },
+      "maxMismatches" : {
+        "type" : "integer",
+        "value" : 0
+      },
+      "minSupport" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "mode" : {
+        "type" : "string",
+        "value" : "illumina-paired"
+      },
+      "outputDirectory" : {
+        "type" : "string",
+        "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype"
+      },
+      "outputName" : {
+        "type" : "string",
+        "value" : "SIMULATED-MHC-haplotypes"
+      },
+      "presetID" : {
+        "type" : "null"
+      },
+      "presetVersion" : {
+        "type" : "null"
+      },
+      "readType" : {
+        "type" : "string",
+        "value" : "illumina"
+      },
+      "reference" : {
+        "type" : "string",
+        "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref"
+      },
+      "referenceDuplicateGroups" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      },
+      "requireBothEndSoftclips" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "requireFullReferenceSpan" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "resolvedMode" : {
+        "type" : "string",
+        "value" : "illumina-paired"
+      },
+      "resolvedReadType" : {
+        "type" : "string",
+        "value" : "illumina"
+      },
+      "resultWorkflowKind" : {
+        "type" : "string",
+        "value" : "miseq-amplicon-mhc-genotype"
+      },
+      "resultWorkflowMode" : {
+        "type" : "string",
+        "value" : "haplotyped"
+      },
+      "sampleBundleInputPreparation" : {
+        "type" : "dictionary",
+        "value" : {
+          "internalMergePerformed" : {
+            "type" : "boolean",
+            "value" : true
+          },
+          "mappingFASTQs" : {
+            "type" : "array",
+            "value" : [
+              {
+                "type" : "string",
+                "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-A-pairs.for-mapping.fastq"
+              },
+              {
+                "type" : "string",
+                "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-B-pairs.for-mapping.fastq"
+              }
+            ]
+          },
+          "mappingInputTransport" : {
+            "type" : "string",
+            "value" : "stdin-sample-prefixed-fastq"
+          },
+          "mode" : {
+            "type" : "string",
+            "value" : "illumina-paired"
+          },
+          "pairMergePerformedDuringRun" : {
+            "type" : "boolean",
+            "value" : true
+          },
+          "pairMergeSummary" : {
+            "type" : "dictionary",
+            "value" : {
+              "mergedFragments" : {
+                "type" : "integer",
+                "value" : 376
+              },
+              "mergedSampleCount" : {
+                "type" : "integer",
+                "value" : 2
+              },
+              "mergedSamples" : {
+                "type" : "array",
+                "value" : [
+                  {
+                    "type" : "dictionary",
+                    "value" : {
+                      "disposition" : {
+                        "type" : "string",
+                        "value" : "bbmerge-merged"
+                      },
+                      "mappedRecordCount" : {
+                        "type" : "integer",
+                        "value" : 204
+                      },
+                      "mergedFragments" : {
+                        "type" : "integer",
+                        "value" : 204
+                      },
+                      "sample" : {
+                        "type" : "string",
+                        "value" : "SIMULATED-MHC-A-pairs"
+                      },
+                      "unmergedReads" : {
+                        "type" : "integer",
+                        "value" : 0
+                      }
+                    }
+                  },
+                  {
+                    "type" : "dictionary",
+                    "value" : {
+                      "disposition" : {
+                        "type" : "string",
+                        "value" : "bbmerge-merged"
+                      },
+                      "mappedRecordCount" : {
+                        "type" : "integer",
+                        "value" : 172
+                      },
+                      "mergedFragments" : {
+                        "type" : "integer",
+                        "value" : 172
+                      },
+                      "sample" : {
+                        "type" : "string",
+                        "value" : "SIMULATED-MHC-B-pairs"
+                      },
+                      "unmergedReads" : {
+                        "type" : "integer",
+                        "value" : 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "reason" : {
+                "type" : "string",
+                "value" : "inputs were not merged at import; run the Illumina Amplicon Merge recipe to merge at import time"
+              },
+              "tool" : {
+                "type" : "string",
+                "value" : "bbmerge.sh"
+              },
+              "totalSampleCount" : {
+                "type" : "integer",
+                "value" : 2
+              },
+              "unmergedReads" : {
+                "type" : "integer",
+                "value" : 0
+              }
+            }
+          },
+          "requiresBothEndSoftclips" : {
+            "type" : "boolean",
+            "value" : false
+          },
+          "sampleDefinitions" : {
+            "type" : "string",
+            "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-definitions.csv"
+          },
+          "sampleManifest" : {
+            "type" : "string",
+            "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json"
+          },
+          "sourceFASTQs" : {
+            "type" : "array",
+            "value" : [
+              {
+                "type" : "string",
+                "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq\/SIMULATED-MHC-A-pairs.fastq.gz"
+              },
+              {
+                "type" : "string",
+                "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq\/SIMULATED-MHC-B-pairs.fastq.gz"
+              }
+            ]
+          }
+        }
+      },
+      "sortThreads" : {
+        "type" : "integer",
+        "value" : 2
+      },
+      "specialistPromptPath" : {
+        "type" : "null"
+      },
+      "specialistPromptSHA256" : {
+        "type" : "null"
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "resolvedDefaults" : {
+      "allowIndels" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "analysisName" : {
+        "type" : "string",
+        "value" : "SIMULATED-MHC-haplotypes"
+      },
+      "demuxRetainedReadsOnly" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "diagnosticPositionFilter" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "diagnosticPositionStrictLoci" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      },
+      "extraArguments" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      },
+      "genotypeLocusDisplayOrder" : {
+        "type" : "null"
+      },
+      "haplotypeAssayID" : {
+        "type" : "null"
+      },
+      "haplotypeDefinitionScope" : {
+        "type" : "null"
+      },
+      "haplotypeDefinitionSetID" : {
+        "type" : "null"
+      },
+      "haplotypeDropoutLocusFraction" : {
+        "type" : "null"
+      },
+      "haplotypeDropoutLocusFractionOverrides" : {
+        "type" : "dictionary",
+        "value" : {
+
+        }
+      },
+      "haplotypeDropoutSampleFraction" : {
+        "type" : "null"
+      },
+      "haplotypeSpeciesCode" : {
+        "type" : "null"
+      },
+      "illuminaInputPreparation" : {
+        "type" : "null"
+      },
+      "illuminaMergeResults" : {
+        "type" : "null"
+      },
+      "keepIntermediates" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "lockedReferenceSHA256" : {
+        "type" : "null"
+      },
+      "mappingPreset" : {
+        "type" : "string",
+        "value" : "sr"
+      },
+      "maxMismatches" : {
+        "type" : "integer",
+        "value" : 0
+      },
+      "minSupport" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "mode" : {
+        "type" : "string",
+        "value" : "auto"
+      },
+      "presetID" : {
+        "type" : "null"
+      },
+      "presetVersion" : {
+        "type" : "null"
+      },
+      "readType" : {
+        "type" : "string",
+        "value" : "auto"
+      },
+      "referenceDuplicateGroups" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      },
+      "requireBothEndSoftclips" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "requireFullReferenceSpan" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "resultWorkflowKind" : {
+        "type" : "null"
+      },
+      "resultWorkflowMode" : {
+        "type" : "null"
+      },
+      "sampleBundleInputPreparation" : {
+        "type" : "null"
+      },
+      "sortThreads" : {
+        "type" : "integer",
+        "value" : 4
+      },
+      "specialistPromptPath" : {
+        "type" : "null"
+      },
+      "specialistPromptSHA256" : {
+        "type" : "null"
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
+    "fileSize" : 2357,
+    "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
+    "role" : "output",
+    "sha256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
+    "sizeBytes" : 2357
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
+      "fileSize" : 2357,
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
+      "role" : "output",
+      "sha256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
+      "sizeBytes" : 2357
+    }
+  ],
+  "parameters" : {
+    "allowIndels" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "analysisName" : {
+      "type" : "string",
+      "value" : "SIMULATED-MHC-haplotypes"
+    },
+    "barcodes" : {
+      "type" : "null"
+    },
+    "demuxManifest" : {
+      "type" : "string",
+      "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json"
+    },
+    "demuxRetainedReadsOnly" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "diagnosticPositionFilter" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "diagnosticPositionStrictLoci" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "extraArguments" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "genotypeLocusDisplayOrder" : {
+      "type" : "null"
+    },
+    "haplotypeAssayID" : {
+      "type" : "string",
+      "value" : "SIMULATED-MHC-three-amplicon"
+    },
+    "haplotypeDefinitionSHA256" : {
+      "type" : "string",
+      "value" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3"
+    },
+    "haplotypeDefinitionScope" : {
+      "type" : "string",
+      "value" : "project"
+    },
+    "haplotypeDefinitionSetID" : {
+      "type" : "string",
+      "value" : "mhc-simulated-mcm-teaching"
+    },
+    "haplotypeDropoutLocusFraction" : {
+      "type" : "null"
+    },
+    "haplotypeDropoutLocusFractionOverrides" : {
+      "type" : "dictionary",
+      "value" : {
+
+      }
+    },
+    "haplotypeDropoutSampleFraction" : {
+      "type" : "null"
+    },
+    "haplotypeSpeciesCode" : {
+      "type" : "string",
+      "value" : "MCM"
+    },
+    "illuminaInputPreparation" : {
+      "type" : "dictionary",
+      "value" : {
+        "internalMergePerformed" : {
+          "type" : "boolean",
+          "value" : true
+        },
+        "mappingFASTQs" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "string",
+              "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-A-pairs.for-mapping.fastq"
+            },
+            {
+              "type" : "string",
+              "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-B-pairs.for-mapping.fastq"
+            }
+          ]
+        },
+        "mappingInputTransport" : {
+          "type" : "string",
+          "value" : "stdin-sample-prefixed-fastq"
+        },
+        "mode" : {
+          "type" : "string",
+          "value" : "illumina-paired"
+        },
+        "pairMergePerformedDuringRun" : {
+          "type" : "boolean",
+          "value" : true
+        },
+        "pairMergeSummary" : {
+          "type" : "dictionary",
+          "value" : {
+            "mergedFragments" : {
+              "type" : "integer",
+              "value" : 376
+            },
+            "mergedSampleCount" : {
+              "type" : "integer",
+              "value" : 2
+            },
+            "mergedSamples" : {
+              "type" : "array",
+              "value" : [
+                {
+                  "type" : "dictionary",
+                  "value" : {
+                    "disposition" : {
+                      "type" : "string",
+                      "value" : "bbmerge-merged"
+                    },
+                    "mappedRecordCount" : {
+                      "type" : "integer",
+                      "value" : 204
+                    },
+                    "mergedFragments" : {
+                      "type" : "integer",
+                      "value" : 204
+                    },
+                    "sample" : {
+                      "type" : "string",
+                      "value" : "SIMULATED-MHC-A-pairs"
+                    },
+                    "unmergedReads" : {
+                      "type" : "integer",
+                      "value" : 0
+                    }
+                  }
+                },
+                {
+                  "type" : "dictionary",
+                  "value" : {
+                    "disposition" : {
+                      "type" : "string",
+                      "value" : "bbmerge-merged"
+                    },
+                    "mappedRecordCount" : {
+                      "type" : "integer",
+                      "value" : 172
+                    },
+                    "mergedFragments" : {
+                      "type" : "integer",
+                      "value" : 172
+                    },
+                    "sample" : {
+                      "type" : "string",
+                      "value" : "SIMULATED-MHC-B-pairs"
+                    },
+                    "unmergedReads" : {
+                      "type" : "integer",
+                      "value" : 0
+                    }
+                  }
+                }
+              ]
+            },
+            "reason" : {
+              "type" : "string",
+              "value" : "inputs were not merged at import; run the Illumina Amplicon Merge recipe to merge at import time"
+            },
+            "tool" : {
+              "type" : "string",
+              "value" : "bbmerge.sh"
+            },
+            "totalSampleCount" : {
+              "type" : "integer",
+              "value" : 2
+            },
+            "unmergedReads" : {
+              "type" : "integer",
+              "value" : 0
+            }
+          }
+        },
+        "requiresBothEndSoftclips" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "sampleDefinitions" : {
+          "type" : "string",
+          "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-definitions.csv"
+        },
+        "sampleManifest" : {
+          "type" : "string",
+          "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json"
+        },
+        "sourceFASTQs" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "string",
+              "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq\/SIMULATED-MHC-A-pairs.fastq.gz"
+            },
+            {
+              "type" : "string",
+              "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq\/SIMULATED-MHC-B-pairs.fastq.gz"
+            }
+          ]
+        }
+      }
+    },
+    "illuminaMergeResults" : {
+      "type" : "null"
+    },
+    "inputFASTQ" : {
+      "type" : "string",
+      "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq"
+    },
+    "inputFASTQs" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "string",
+          "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq"
+        },
+        {
+          "type" : "string",
+          "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq"
+        }
+      ]
+    },
+    "keepIntermediates" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "lockedReferenceSHA256" : {
+      "type" : "null"
+    },
+    "mappingPreset" : {
+      "type" : "string",
+      "value" : "sr"
+    },
+    "maxMismatches" : {
+      "type" : "integer",
+      "value" : 0
+    },
+    "minSupport" : {
+      "type" : "integer",
+      "value" : 1
+    },
+    "mode" : {
+      "type" : "string",
+      "value" : "illumina-paired"
+    },
+    "outputDirectory" : {
+      "type" : "string",
+      "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype"
+    },
+    "outputName" : {
+      "type" : "string",
+      "value" : "SIMULATED-MHC-haplotypes"
+    },
+    "presetID" : {
+      "type" : "null"
+    },
+    "presetVersion" : {
+      "type" : "null"
+    },
+    "readType" : {
+      "type" : "string",
+      "value" : "illumina"
+    },
+    "reference" : {
+      "type" : "string",
+      "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref"
+    },
+    "referenceDuplicateGroups" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    },
+    "requireBothEndSoftclips" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "requireFullReferenceSpan" : {
+      "type" : "boolean",
+      "value" : true
+    },
+    "resolvedMode" : {
+      "type" : "string",
+      "value" : "illumina-paired"
+    },
+    "resolvedReadType" : {
+      "type" : "string",
+      "value" : "illumina"
+    },
+    "resultWorkflowKind" : {
+      "type" : "string",
+      "value" : "miseq-amplicon-mhc-genotype"
+    },
+    "resultWorkflowMode" : {
+      "type" : "string",
+      "value" : "haplotyped"
+    },
+    "sampleBundleInputPreparation" : {
+      "type" : "dictionary",
+      "value" : {
+        "internalMergePerformed" : {
+          "type" : "boolean",
+          "value" : true
+        },
+        "mappingFASTQs" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "string",
+              "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-A-pairs.for-mapping.fastq"
+            },
+            {
+              "type" : "string",
+              "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-B-pairs.for-mapping.fastq"
+            }
+          ]
+        },
+        "mappingInputTransport" : {
+          "type" : "string",
+          "value" : "stdin-sample-prefixed-fastq"
+        },
+        "mode" : {
+          "type" : "string",
+          "value" : "illumina-paired"
+        },
+        "pairMergePerformedDuringRun" : {
+          "type" : "boolean",
+          "value" : true
+        },
+        "pairMergeSummary" : {
+          "type" : "dictionary",
+          "value" : {
+            "mergedFragments" : {
+              "type" : "integer",
+              "value" : 376
+            },
+            "mergedSampleCount" : {
+              "type" : "integer",
+              "value" : 2
+            },
+            "mergedSamples" : {
+              "type" : "array",
+              "value" : [
+                {
+                  "type" : "dictionary",
+                  "value" : {
+                    "disposition" : {
+                      "type" : "string",
+                      "value" : "bbmerge-merged"
+                    },
+                    "mappedRecordCount" : {
+                      "type" : "integer",
+                      "value" : 204
+                    },
+                    "mergedFragments" : {
+                      "type" : "integer",
+                      "value" : 204
+                    },
+                    "sample" : {
+                      "type" : "string",
+                      "value" : "SIMULATED-MHC-A-pairs"
+                    },
+                    "unmergedReads" : {
+                      "type" : "integer",
+                      "value" : 0
+                    }
+                  }
+                },
+                {
+                  "type" : "dictionary",
+                  "value" : {
+                    "disposition" : {
+                      "type" : "string",
+                      "value" : "bbmerge-merged"
+                    },
+                    "mappedRecordCount" : {
+                      "type" : "integer",
+                      "value" : 172
+                    },
+                    "mergedFragments" : {
+                      "type" : "integer",
+                      "value" : 172
+                    },
+                    "sample" : {
+                      "type" : "string",
+                      "value" : "SIMULATED-MHC-B-pairs"
+                    },
+                    "unmergedReads" : {
+                      "type" : "integer",
+                      "value" : 0
+                    }
+                  }
+                }
+              ]
+            },
+            "reason" : {
+              "type" : "string",
+              "value" : "inputs were not merged at import; run the Illumina Amplicon Merge recipe to merge at import time"
+            },
+            "tool" : {
+              "type" : "string",
+              "value" : "bbmerge.sh"
+            },
+            "totalSampleCount" : {
+              "type" : "integer",
+              "value" : 2
+            },
+            "unmergedReads" : {
+              "type" : "integer",
+              "value" : 0
+            }
+          }
+        },
+        "requiresBothEndSoftclips" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "sampleDefinitions" : {
+          "type" : "string",
+          "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-definitions.csv"
+        },
+        "sampleManifest" : {
+          "type" : "string",
+          "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/inputs\/illumina-sample-manifest.json"
+        },
+        "sourceFASTQs" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "string",
+              "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq\/SIMULATED-MHC-A-pairs.fastq.gz"
+            },
+            {
+              "type" : "string",
+              "value" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq\/SIMULATED-MHC-B-pairs.fastq.gz"
+            }
+          ]
+        }
+      }
+    },
+    "sortThreads" : {
+      "type" : "integer",
+      "value" : 2
+    },
+    "specialistPromptPath" : {
+      "type" : "null"
+    },
+    "specialistPromptSHA256" : {
+      "type" : "null"
+    },
+    "threads" : {
+      "type" : "integer",
+      "value" : 2
+    }
+  },
+  "reproducibleCommand" : "lungfish-cli fastq genotype-cohort '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-A-pairs.lungfishfastq' '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Imports\/SIMULATED-MHC-B-pairs.lungfishfastq' --mode illumina-paired --read-type illumina --output-dir <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype --output-name SIMULATED-MHC-haplotypes --threads 2 --sort-threads 2 --min-support 1 --analysis-name SIMULATED-MHC-haplotypes --reference '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref' --haplotype-assay SIMULATED-MHC-three-amplicon --haplotype-species MCM --haplotype-definition-scope project --haplotype-definition mhc-simulated-mcm-teaching",
+  "runtime" : {
+    "appVersion" : "Lungfish <APP_VERSION> (dev)",
+    "hostOS" : "macOS 26.6.2 (arm64)"
+  },
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish <APP_VERSION> (dev)",
+    "architecture" : "arm64",
+    "condaEnvironment" : "lungfish-managed-tools",
+    "condaPrefix" : "\/Users\/dho\/.lungfish-stable\/conda",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<RUN_ROOT>\/bin\/lungfish-cli",
+    "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+    "processIdentifier" : "<PID>"
+  },
+  "schemaVersion" : 1,
+  "signatures" : [
+
+  ],
+  "startTime" : "<TIMESTAMP>",
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2",
+        "-a",
+        "-x",
+        "sr",
+        "--MD",
+        "-t",
+        "2",
+        "-R",
+        "@RG\\tID:SIMULATED-MHC-haplotypes-1\\tSM:SIMULATED-MHC-haplotypes-1\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-1",
+        "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz",
+        "-"
+      ],
+      "command" : [
+        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2",
+        "-a",
+        "-x",
+        "sr",
+        "--MD",
+        "-t",
+        "2",
+        "-R",
+        "@RG\\tID:SIMULATED-MHC-haplotypes-1\\tSM:SIMULATED-MHC-haplotypes-1\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-1",
+        "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz",
+        "-"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "<UUID-2>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "2029e6ea6124574234754a46552fcd8d1ccd3c92206c23919ecd9a6cc575ba46",
+          "fileSize" : 87452,
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-A-pairs.for-mapping.fastq",
+          "role" : "input",
+          "sha256" : "2029e6ea6124574234754a46552fcd8d1ccd3c92206c23919ecd9a6cc575ba46",
+          "sizeBytes" : 87452
+        },
+        {
+          "checksumSHA256" : "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325",
+          "fileSize" : 330,
+          "path" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz",
+          "role" : "reference",
+          "sha256" : "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325",
+          "sizeBytes" : 330
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
+          "fileSize" : 2357,
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
+          "role" : "output",
+          "sha256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
+          "sizeBytes" : 2357
+        }
+      ],
+      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2 -a -x sr --MD -t 2 -R '@RG\\tID:SIMULATED-MHC-haplotypes-1\\tSM:SIMULATED-MHC-haplotypes-1\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-1' '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz' -",
+      "resolvedOptions" : {
+
+      },
+      "stderr" : "[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] collected minimizers\n[M::mm_idx_gen::<DURATION>*<CPU-RATIO>] sorted minimizers\n[M::main::<DURATION>*<CPU-RATIO>] loaded\/built the index for 3 target sequence(s)\n[M::mm_mapopt_update::<DURATION>*<CPU-RATIO>] mid_occ = 1000\n[M::mm_idx_stat] kmer size: 21; skip: 11; is_hpc: 0; #seq: 3\n[M::mm_idx_stat::<DURATION>*<CPU-RATIO>] distinct minimizers: 90 (100.00% are singletons); average occurrences: 1.000; average spacing: 6.367; total length: 573\n[M::worker_pipeline::<DURATION>*<CPU-RATIO>] mapped 204 sequences\n[M::main] Version: 2.31-r1302\n[M::main] CMD: \/Users\/dho\/.lungfish-stable\/conda\/envs\/minimap2\/bin\/minimap2 -a -x sr --MD -t 2 -R @RG\\tID:SIMULATED-MHC-haplotypes-1\\tSM:SIMULATED-MHC-haplotypes-1\\tLB:SIMULATED-MHC-haplotypes\\tPL:ILLUMINA\\tPU:SIMULATED-MHC-haplotypes-1 <RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz -\n[M::main] Real time: <DURATION> sec; CPU: <CPU-SECONDS> sec; Peak RSS: <PEAK-RSS> GB\n",
+      "toolName" : "minimap2",
+      "toolVersion" : "unknown",
+      "wallTime" : "<DURATION>",
+      "wallTimeSeconds" : "<DURATION>"
+    },
+    {
+      "argv" : [
+        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "sort",
+        "-@",
+        "2",
+        "-o",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
+        "-"
+      ],
+      "command" : [
+        "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools",
+        "sort",
+        "-@",
+        "2",
+        "-o",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
+        "-"
+      ],
+      "dependsOn" : [
+
+      ],
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "<UUID-3>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "2029e6ea6124574234754a46552fcd8d1ccd3c92206c23919ecd9a6cc575ba46",
+          "fileSize" : 87452,
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/illumina-merged-fastqs\/SIMULATED-MHC-A-pairs.for-mapping.fastq",
+          "role" : "input",
+          "sha256" : "2029e6ea6124574234754a46552fcd8d1ccd3c92206c23919ecd9a6cc575ba46",
+          "sizeBytes" : 87452
+        },
+        {
+          "checksumSHA256" : "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325",
+          "fileSize" : 330,
+          "path" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz",
+          "role" : "reference",
+          "sha256" : "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325",
+          "sizeBytes" : 330
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
+          "fileSize" : 2357,
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam",
+          "role" : "output",
+          "sha256" : "aca85ee9e71084fa00d9ed324f79f872fec54dc2aef358659ff48547063876d2",
+          "sizeBytes" : 2357
+        }
+      ],
+      "reproducibleCommand" : "\/Users\/dho\/.lungfish-stable\/conda\/envs\/samtools\/bin\/samtools sort -@ 2 -o <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam -",
+      "resolvedOptions" : {
+
+      },
+      "stderr" : "[bam_sort_core] merging from 0 files and 2 in-memory blocks...\n",
+      "toolName" : "samtools sort",
+      "toolVersion" : "unknown",
+      "wallTime" : "<DURATION>",
+      "wallTimeSeconds" : "<DURATION>"
+    },
+    {
+      "argv" : [
+        "lungfish-internal",
+        "publish-provisional-exon2",
+        "--genotypes-csv",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+        "--reference-fasta",
+        "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz",
+        "--retained-bam",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+        "--retained-bai",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+        "--output-json",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/sequences\/observed-provisional-exon2.json",
+        "--output-fasta",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/sequences\/observed-provisional-exon2.fasta",
+        "--identifier-rule",
+        "case-insensitive-_nov",
+        "--sample-scope",
+        "assigned-only",
+        "--fasta-wrap",
+        "80"
+      ],
+      "command" : [
+        "lungfish-internal",
+        "publish-provisional-exon2",
+        "--genotypes-csv",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+        "--reference-fasta",
+        "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz",
+        "--retained-bam",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+        "--retained-bai",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+        "--output-json",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/sequences\/observed-provisional-exon2.json",
+        "--output-fasta",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/sequences\/observed-provisional-exon2.fasta",
+        "--identifier-rule",
+        "case-insensitive-_nov",
+        "--sample-scope",
+        "assigned-only",
+        "--fasta-wrap",
+        "80"
+      ],
+      "completedAt" : "<TIMESTAMP>",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "lungfish-internal",
+        "publish-provisional-exon2",
+        "--genotypes-csv",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+        "--reference-fasta",
+        "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz",
+        "--retained-bam",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+        "--retained-bai",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+        "--output-json",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/sequences\/observed-provisional-exon2.json",
+        "--output-fasta",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/sequences\/observed-provisional-exon2.fasta",
+        "--identifier-rule",
+        "case-insensitive-_nov",
+        "--sample-scope",
+        "assigned-only",
+        "--fasta-wrap",
+        "80"
+      ],
+      "endTime" : "<TIMESTAMP>",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "<UUID-4>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+          "fileSize" : 802,
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+          "role" : "report",
+          "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+          "sizeBytes" : 802
+        },
+        {
+          "checksumSHA256" : "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325",
+          "fileSize" : 330,
+          "path" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz",
+          "role" : "reference",
+          "sha256" : "2e99286be42570d843f22ab0e63c0bc97aa3a173f893344e7c631af5a0d5e325",
+          "sizeBytes" : 330
+        },
+        {
+          "checksumSHA256" : "<SHA256-N2>",
+          "fileSize" : "<SIZE-N2>",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+          "role" : "output",
+          "sha256" : "<SHA256-N2>",
+          "sizeBytes" : "<SIZE-N2>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-N2>",
+          "fileSize" : "<SIZE-N2>",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+          "role" : "index",
+          "sha256" : "<SHA256-N2>",
+          "sizeBytes" : "<SIZE-N2>"
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "reproducibleCommand" : "lungfish-internal publish-provisional-exon2 --genotypes-csv <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv --reference-fasta '<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz' --retained-bam <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam --retained-bai <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai --output-json <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/sequences\/observed-provisional-exon2.json --output-fasta <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/sequences\/observed-provisional-exon2.fasta --identifier-rule case-insensitive-_nov --sample-scope assigned-only --fasta-wrap 80",
+      "resolvedOptions" : {
+        "databaseResolution" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "fastaWrap" : {
+          "type" : "integer",
+          "value" : 80
+        },
+        "identifierRule" : {
+          "type" : "string",
+          "value" : "case-insensitive-_nov"
+        },
+        "sampleScope" : {
+          "type" : "string",
+          "value" : "assigned-only"
+        }
+      },
+      "runtimeIdentity" : {
+        "appVersion" : "Lungfish <APP_VERSION> (dev)",
+        "architecture" : "arm64",
+        "dependencySet" : "2026.2",
+        "executablePath" : "<RUN_ROOT>\/bin\/lungfish-cli",
+        "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+        "processIdentifier" : "<PID>"
+      },
+      "startTime" : "<TIMESTAMP>",
+      "startedAt" : "<TIMESTAMP>",
+      "stderr" : "",
+      "toolName" : "Lungfish Provisional exon 2 artifact publisher",
+      "toolVersion" : "Lungfish <APP_VERSION> (dev)",
+      "wallTime" : "<DURATION>",
+      "wallTimeSeconds" : "<DURATION>"
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "lungfish fastq genotype",
+    "version" : "Lungfish <APP_VERSION> (dev)"
+  },
+  "toolName" : "lungfish fastq genotype",
+  "toolVersion" : "Lungfish <APP_VERSION> (dev)",
+  "wallTimeSeconds" : "<DURATION>",
+  "workflowName" : "Illumina Paired Amplicon Genotyping",
+  "workflowVersion" : "1"
+}

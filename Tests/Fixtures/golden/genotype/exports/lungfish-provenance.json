@@ -1,0 +1,1839 @@
+{
+  "appVersion" : "Lungfish <APP_VERSION> (dev)",
+  "argv" : [
+    "lungfish-cli",
+    "genotype",
+    "export",
+    "--bundle",
+    "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "--export-format",
+    "csv",
+    "--output",
+    "<RUN_ROOT>\/genotype\/exports\/matrix.csv"
+  ],
+  "createdAt" : "<TIMESTAMP>",
+  "durableReplayArgv" : [
+    "lungfish-cli",
+    "genotype",
+    "export",
+    "--bundle",
+    "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "--export-format",
+    "csv",
+    "--output",
+    "<RUN_ROOT>\/genotype\/exports\/matrix.csv"
+  ],
+  "endTime" : "<TIMESTAMP>",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+      "fileSize" : 1811,
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/haplotyping\/haplotype-definition.json",
+      "role" : "input",
+      "sha256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+      "sizeBytes" : 1811
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/genotype-result.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/artifacts\/haplotyping\/haplotype-definition.json.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/bundle.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/retained-demux-genotyping-provenance.json.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.haplotype-analysis.json.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.md.sorted.bam.bai.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.md.sorted.bam.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained-demux-samples.csv.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained-demux-stats.json.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-0.bin.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-1.bin.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-2.bin.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-3.bin.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-4.bin.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/renderer.py.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/replay.sh.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/request.json.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/snapshot.json.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stderr.txt.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stdout.json.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.provenance.json.lungfish-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/retained-demux-genotyping-provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.001-SIMULATED-MHC-A-pairs.minimap2.stderr.log",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "9e2870272f76f39c2e6b7468828cbe0cbb52b5328dbb3f29b0f32fe9c40ff9e5",
+      "fileSize" : 63,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.001-SIMULATED-MHC-A-pairs.samtools-sort.stderr.log",
+      "role" : "input",
+      "sha256" : "9e2870272f76f39c2e6b7468828cbe0cbb52b5328dbb3f29b0f32fe9c40ff9e5",
+      "sizeBytes" : 63
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.002-SIMULATED-MHC-B-pairs.minimap2.stderr.log",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "9e2870272f76f39c2e6b7468828cbe0cbb52b5328dbb3f29b0f32fe9c40ff9e5",
+      "fileSize" : 63,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.002-SIMULATED-MHC-B-pairs.samtools-sort.stderr.log",
+      "role" : "input",
+      "sha256" : "9e2870272f76f39c2e6b7468828cbe0cbb52b5328dbb3f29b0f32fe9c40ff9e5",
+      "sizeBytes" : 63
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.haplotype-analysis.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "fileSize" : 802,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_genotypes.csv",
+      "role" : "input",
+      "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "sizeBytes" : 802
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+      "fileSize" : 270,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_samples.csv",
+      "role" : "input",
+      "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+      "sizeBytes" : 270
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_stats.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "fileSize" : 802,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+      "role" : "input",
+      "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "sizeBytes" : 802
+    },
+    {
+      "checksumSHA256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+      "fileSize" : 270,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-samples.csv",
+      "role" : "input",
+      "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+      "sizeBytes" : 270
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-stats.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-N2>",
+      "fileSize" : "<SIZE-N2>",
+      "format" : "bam",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+      "role" : "input",
+      "sha256" : "<SHA256-N2>",
+      "sizeBytes" : "<SIZE-N2>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-N2>",
+      "fileSize" : "<SIZE-N2>",
+      "format" : "bai",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+      "role" : "input",
+      "sha256" : "<SHA256-N2>",
+      "sizeBytes" : "<SIZE-N2>"
+    },
+    {
+      "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fileSize" : 0,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.samtools-index.stderr.log",
+      "role" : "input",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sizeBytes" : 0
+    },
+    {
+      "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fileSize" : 0,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.samtools-merge.stderr.log",
+      "role" : "input",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sizeBytes" : 0
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "unknown",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "fileSize" : 802,
+      "format" : "unknown",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-0.bin",
+      "role" : "input",
+      "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "sizeBytes" : 802
+    },
+    {
+      "checksumSHA256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+      "fileSize" : 270,
+      "format" : "unknown",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-1.bin",
+      "role" : "input",
+      "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+      "sizeBytes" : 270
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "unknown",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-2.bin",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "unknown",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-3.bin",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+      "fileSize" : 1811,
+      "format" : "unknown",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-4.bin",
+      "role" : "input",
+      "sha256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+      "sizeBytes" : 1811
+    },
+    {
+      "checksumSHA256" : "8a62b003d854f040f9194b5b05b172527abcfee14f4047f1dea3fd033d2aac31",
+      "fileSize" : 27349,
+      "format" : "unknown",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/renderer.py",
+      "role" : "input",
+      "sha256" : "8a62b003d854f040f9194b5b05b172527abcfee14f4047f1dea3fd033d2aac31",
+      "sizeBytes" : 27349
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "unknown",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/replay.sh",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/request.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/snapshot.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fileSize" : 0,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stderr.txt",
+      "role" : "input",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sizeBytes" : 0
+    },
+    {
+      "checksumSHA256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
+      "fileSize" : 493,
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stdout.json",
+      "role" : "input",
+      "sha256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
+      "sizeBytes" : 493
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.provenance.json",
+      "role" : "input",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "a2d19080d0a3cd87d05b05a3e5ae3707a8cd43713549e785e2386d3af57ce574",
+      "fileSize" : 145,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/exports\/matrix.csv",
+      "role" : "output",
+      "sha256" : "a2d19080d0a3cd87d05b05a3e5ae3707a8cd43713549e785e2386d3af57ce574",
+      "sizeBytes" : 145
+    }
+  ],
+  "hostOS" : "macOS 26.6.2 (arm64)",
+  "id" : "<UUID-2>",
+  "legacyWorkflowRun" : {
+    "appVersion" : "Lungfish <APP_VERSION> (dev)",
+    "endTime" : "<TIMESTAMP>",
+    "hostOS" : "macOS 26.6.2 (arm64)",
+    "id" : "<UUID-3>",
+    "name" : "lungfish genotype export",
+    "parameters" : {
+      "bundle" : {
+        "type" : "file",
+        "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype"
+      },
+      "exportFormat" : {
+        "type" : "string",
+        "value" : "csv"
+      },
+      "force" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "output" : {
+        "type" : "file",
+        "value" : "<RUN_ROOT>\/genotype\/exports\/matrix.csv"
+      },
+      "outputCount" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "samples" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      }
+    },
+    "runtime" : {
+      "appVersion" : "Lungfish <APP_VERSION> (dev)",
+      "hostOS" : "macOS 26.6.2 (arm64)"
+    },
+    "startTime" : "<TIMESTAMP>",
+    "status" : "completed",
+    "steps" : [
+      {
+        "command" : [
+          "lungfish-cli",
+          "genotype",
+          "export",
+          "--bundle",
+          "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype",
+          "--export-format",
+          "csv",
+          "--output",
+          "<RUN_ROOT>\/genotype\/exports\/matrix.csv"
+        ],
+        "dependsOn" : [
+
+        ],
+        "endTime" : "<TIMESTAMP>",
+        "exitCode" : 0,
+        "id" : "<UUID-4>",
+        "inputs" : [
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/haplotyping\/haplotype-definition.json",
+            "role" : "input",
+            "sha256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+            "sizeBytes" : 1811
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/genotype-result.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/artifacts\/haplotyping\/haplotype-definition.json.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/bundle.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/retained-demux-genotyping-provenance.json.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.haplotype-analysis.json.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.md.sorted.bam.bai.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.md.sorted.bam.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained-demux-samples.csv.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained-demux-stats.json.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-0.bin.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-1.bin.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-2.bin.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-3.bin.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-4.bin.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/renderer.py.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/replay.sh.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/request.json.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/snapshot.json.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stderr.txt.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stdout.json.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.provenance.json.lungfish-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/retained-demux-genotyping-provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.001-SIMULATED-MHC-A-pairs.minimap2.stderr.log",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.001-SIMULATED-MHC-A-pairs.samtools-sort.stderr.log",
+            "role" : "input",
+            "sha256" : "9e2870272f76f39c2e6b7468828cbe0cbb52b5328dbb3f29b0f32fe9c40ff9e5",
+            "sizeBytes" : 63
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.002-SIMULATED-MHC-B-pairs.minimap2.stderr.log",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.002-SIMULATED-MHC-B-pairs.samtools-sort.stderr.log",
+            "role" : "input",
+            "sha256" : "9e2870272f76f39c2e6b7468828cbe0cbb52b5328dbb3f29b0f32fe9c40ff9e5",
+            "sizeBytes" : 63
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.haplotype-analysis.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_genotypes.csv",
+            "role" : "input",
+            "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+            "sizeBytes" : 802
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_samples.csv",
+            "role" : "input",
+            "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+            "sizeBytes" : 270
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_stats.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+            "role" : "input",
+            "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+            "sizeBytes" : 802
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-samples.csv",
+            "role" : "input",
+            "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+            "sizeBytes" : 270
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-stats.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "bam",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+            "role" : "input",
+            "sha256" : "<SHA256-N2>",
+            "sizeBytes" : "<SIZE-N2>"
+          },
+          {
+            "format" : "bai",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+            "role" : "input",
+            "sha256" : "<SHA256-N2>",
+            "sizeBytes" : "<SIZE-N2>"
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.samtools-index.stderr.log",
+            "role" : "input",
+            "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "sizeBytes" : 0
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.samtools-merge.stderr.log",
+            "role" : "input",
+            "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "sizeBytes" : 0
+          },
+          {
+            "format" : "unknown",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "unknown",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-0.bin",
+            "role" : "input",
+            "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+            "sizeBytes" : 802
+          },
+          {
+            "format" : "unknown",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-1.bin",
+            "role" : "input",
+            "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+            "sizeBytes" : 270
+          },
+          {
+            "format" : "unknown",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-2.bin",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "unknown",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-3.bin",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "unknown",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-4.bin",
+            "role" : "input",
+            "sha256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+            "sizeBytes" : 1811
+          },
+          {
+            "format" : "unknown",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/renderer.py",
+            "role" : "input",
+            "sha256" : "8a62b003d854f040f9194b5b05b172527abcfee14f4047f1dea3fd033d2aac31",
+            "sizeBytes" : 27349
+          },
+          {
+            "format" : "unknown",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/replay.sh",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/request.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/snapshot.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stderr.txt",
+            "role" : "input",
+            "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "sizeBytes" : 0
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stdout.json",
+            "role" : "input",
+            "sha256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
+            "sizeBytes" : 493
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.provenance.json",
+            "role" : "input",
+            "sha256" : "<SHA256-R10>",
+            "sizeBytes" : "<SIZE-R10>"
+          },
+          {
+            "format" : "json",
+            "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/haplotyping\/haplotype-definition.json",
+            "role" : "input",
+            "sha256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+            "sizeBytes" : 1811
+          }
+        ],
+        "outputs" : [
+          {
+            "format" : "text",
+            "path" : "<RUN_ROOT>\/genotype\/exports\/matrix.csv",
+            "role" : "output",
+            "sha256" : "a2d19080d0a3cd87d05b05a3e5ae3707a8cd43713549e785e2386d3af57ce574",
+            "sizeBytes" : 145
+          }
+        ],
+        "startTime" : "<TIMESTAMP>",
+        "toolName" : "lungfish-cli",
+        "toolVersion" : "Lungfish <APP_VERSION> (dev)",
+        "wallTime" : "<DURATION>"
+      }
+    ]
+  },
+  "name" : "lungfish genotype export",
+  "options" : {
+    "defaults" : {
+      "activeHaplotypeDefinition" : {
+        "type" : "null"
+      },
+      "annotations" : {
+        "type" : "string",
+        "value" : "bundle annotations.json when present"
+      },
+      "exportFormat" : {
+        "type" : "string",
+        "value" : "xlsx"
+      },
+      "filter" : {
+        "type" : "null"
+      },
+      "force" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "lens" : {
+        "type" : "null"
+      },
+      "minReads" : {
+        "type" : "null"
+      },
+      "reviewableRowCatalog" : {
+        "type" : "string",
+        "value" : "manifest-attested catalog when false-negative projection reviews exist"
+      },
+      "samples" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      },
+      "viewProjection" : {
+        "type" : "null"
+      }
+    },
+    "explicit" : {
+      "bundle" : {
+        "type" : "file",
+        "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype"
+      },
+      "exportFormat" : {
+        "type" : "string",
+        "value" : "csv"
+      },
+      "force" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "output" : {
+        "type" : "file",
+        "value" : "<RUN_ROOT>\/genotype\/exports\/matrix.csv"
+      },
+      "outputCount" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "samples" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      }
+    },
+    "resolvedDefaults" : {
+      "activeHaplotypeDefinition" : {
+        "type" : "null"
+      },
+      "annotations" : {
+        "type" : "string",
+        "value" : "bundle annotations.json when present"
+      },
+      "bundle" : {
+        "type" : "file",
+        "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype"
+      },
+      "exportFormat" : {
+        "type" : "string",
+        "value" : "csv"
+      },
+      "filter" : {
+        "type" : "null"
+      },
+      "force" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "lens" : {
+        "type" : "null"
+      },
+      "minReads" : {
+        "type" : "null"
+      },
+      "output" : {
+        "type" : "file",
+        "value" : "<RUN_ROOT>\/genotype\/exports\/matrix.csv"
+      },
+      "outputCount" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "reviewableRowCatalog" : {
+        "type" : "string",
+        "value" : "manifest-attested catalog when false-negative projection reviews exist"
+      },
+      "samples" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      },
+      "viewProjection" : {
+        "type" : "null"
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "a2d19080d0a3cd87d05b05a3e5ae3707a8cd43713549e785e2386d3af57ce574",
+    "fileSize" : 145,
+    "format" : "text",
+    "path" : "<RUN_ROOT>\/genotype\/exports\/matrix.csv",
+    "role" : "output",
+    "sha256" : "a2d19080d0a3cd87d05b05a3e5ae3707a8cd43713549e785e2386d3af57ce574",
+    "sizeBytes" : 145
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "a2d19080d0a3cd87d05b05a3e5ae3707a8cd43713549e785e2386d3af57ce574",
+      "fileSize" : 145,
+      "format" : "text",
+      "path" : "<RUN_ROOT>\/genotype\/exports\/matrix.csv",
+      "role" : "output",
+      "sha256" : "a2d19080d0a3cd87d05b05a3e5ae3707a8cd43713549e785e2386d3af57ce574",
+      "sizeBytes" : 145
+    }
+  ],
+  "parameters" : {
+    "bundle" : {
+      "type" : "file",
+      "value" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype"
+    },
+    "exportFormat" : {
+      "type" : "string",
+      "value" : "csv"
+    },
+    "force" : {
+      "type" : "boolean",
+      "value" : false
+    },
+    "output" : {
+      "type" : "file",
+      "value" : "<RUN_ROOT>\/genotype\/exports\/matrix.csv"
+    },
+    "outputCount" : {
+      "type" : "integer",
+      "value" : 1
+    },
+    "samples" : {
+      "type" : "array",
+      "value" : [
+
+      ]
+    }
+  },
+  "reproducibleCommand" : "lungfish-cli genotype export --bundle <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype --export-format csv --output <RUN_ROOT>\/genotype\/exports\/matrix.csv",
+  "runtime" : {
+    "appVersion" : "Lungfish <APP_VERSION> (dev)",
+    "hostOS" : "macOS 26.6.2 (arm64)"
+  },
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish <APP_VERSION> (dev)",
+    "architecture" : "arm64",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<RUN_ROOT>\/bin\/lungfish-cli",
+    "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+    "processIdentifier" : "<PID>"
+  },
+  "schemaVersion" : 1,
+  "signatures" : [
+
+  ],
+  "startTime" : "<TIMESTAMP>",
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "genotype",
+        "export",
+        "--bundle",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype",
+        "--export-format",
+        "csv",
+        "--output",
+        "<RUN_ROOT>\/genotype\/exports\/matrix.csv"
+      ],
+      "command" : [
+        "lungfish-cli",
+        "genotype",
+        "export",
+        "--bundle",
+        "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype",
+        "--export-format",
+        "csv",
+        "--output",
+        "<RUN_ROOT>\/genotype\/exports\/matrix.csv"
+      ],
+      "completedAt" : "<TIMESTAMP>",
+      "dependsOn" : [
+
+      ],
+      "endTime" : "<TIMESTAMP>",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "<UUID-4>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+          "fileSize" : 1811,
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/haplotyping\/haplotype-definition.json",
+          "role" : "input",
+          "sha256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+          "sizeBytes" : 1811
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/genotype-result.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/.amplicon-genotyping\/mapping\/001-SIMULATED-MHC-A-pairs.sorted.bam.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/.amplicon-genotyping\/mapping\/002-SIMULATED-MHC-B-pairs.sorted.bam.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/artifacts\/haplotyping\/haplotype-definition.json.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/bundle.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/retained-demux-genotyping-provenance.json.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.haplotype-analysis.json.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.md.sorted.bam.bai.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.md.sorted.bam.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained-demux-samples.csv.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained-demux-stats.json.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-0.bin.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-1.bin.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-2.bin.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-3.bin.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-4.bin.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/renderer.py.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/replay.sh.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/request.json.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/snapshot.json.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stderr.txt.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stdout.json.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/provenance\/SIMULATED-MHC-haplotypes.xlsx.provenance.json.lungfish-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/retained-demux-genotyping-provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.001-SIMULATED-MHC-A-pairs.minimap2.stderr.log",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "9e2870272f76f39c2e6b7468828cbe0cbb52b5328dbb3f29b0f32fe9c40ff9e5",
+          "fileSize" : 63,
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.001-SIMULATED-MHC-A-pairs.samtools-sort.stderr.log",
+          "role" : "input",
+          "sha256" : "9e2870272f76f39c2e6b7468828cbe0cbb52b5328dbb3f29b0f32fe9c40ff9e5",
+          "sizeBytes" : 63
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.002-SIMULATED-MHC-B-pairs.minimap2.stderr.log",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "9e2870272f76f39c2e6b7468828cbe0cbb52b5328dbb3f29b0f32fe9c40ff9e5",
+          "fileSize" : 63,
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.002-SIMULATED-MHC-B-pairs.samtools-sort.stderr.log",
+          "role" : "input",
+          "sha256" : "9e2870272f76f39c2e6b7468828cbe0cbb52b5328dbb3f29b0f32fe9c40ff9e5",
+          "sizeBytes" : 63
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.haplotype-analysis.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+          "fileSize" : 802,
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_genotypes.csv",
+          "role" : "input",
+          "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+          "sizeBytes" : 802
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+          "fileSize" : 270,
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_samples.csv",
+          "role" : "input",
+          "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+          "sizeBytes" : 270
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained_demux_stats.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+          "fileSize" : 802,
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+          "role" : "input",
+          "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+          "sizeBytes" : 802
+        },
+        {
+          "checksumSHA256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+          "fileSize" : 270,
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-samples.csv",
+          "role" : "input",
+          "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+          "sizeBytes" : 270
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-stats.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-N2>",
+          "fileSize" : "<SIZE-N2>",
+          "format" : "bam",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+          "role" : "input",
+          "sha256" : "<SHA256-N2>",
+          "sizeBytes" : "<SIZE-N2>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-N2>",
+          "fileSize" : "<SIZE-N2>",
+          "format" : "bai",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+          "role" : "input",
+          "sha256" : "<SHA256-N2>",
+          "sizeBytes" : "<SIZE-N2>"
+        },
+        {
+          "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "fileSize" : 0,
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.samtools-index.stderr.log",
+          "role" : "input",
+          "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sizeBytes" : 0
+        },
+        {
+          "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "fileSize" : 0,
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.samtools-merge.stderr.log",
+          "role" : "input",
+          "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sizeBytes" : 0
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "unknown",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+          "fileSize" : 802,
+          "format" : "unknown",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-0.bin",
+          "role" : "input",
+          "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+          "sizeBytes" : 802
+        },
+        {
+          "checksumSHA256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+          "fileSize" : 270,
+          "format" : "unknown",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-1.bin",
+          "role" : "input",
+          "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+          "sizeBytes" : 270
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "unknown",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-2.bin",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "unknown",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-3.bin",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+          "fileSize" : 1811,
+          "format" : "unknown",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/input-4.bin",
+          "role" : "input",
+          "sha256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+          "sizeBytes" : 1811
+        },
+        {
+          "checksumSHA256" : "8a62b003d854f040f9194b5b05b172527abcfee14f4047f1dea3fd033d2aac31",
+          "fileSize" : 27349,
+          "format" : "unknown",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/renderer.py",
+          "role" : "input",
+          "sha256" : "8a62b003d854f040f9194b5b05b172527abcfee14f4047f1dea3fd033d2aac31",
+          "sizeBytes" : 27349
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "unknown",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/replay.sh",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/request.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/snapshot.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "fileSize" : 0,
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stderr.txt",
+          "role" : "input",
+          "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sizeBytes" : 0
+        },
+        {
+          "checksumSHA256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
+          "fileSize" : 493,
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.export-<UUID-1>\/stdout.json",
+          "role" : "input",
+          "sha256" : "dff28dff1feb2317a7f52e65053c94329add227123e8288ab9c82caf502efaf7",
+          "sizeBytes" : 493
+        },
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx.provenance.json",
+          "role" : "input",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        },
+        {
+          "checksumSHA256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+          "fileSize" : 1811,
+          "format" : "json",
+          "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/artifacts\/haplotyping\/haplotype-definition.json",
+          "role" : "input",
+          "sha256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+          "sizeBytes" : 1811
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "a2d19080d0a3cd87d05b05a3e5ae3707a8cd43713549e785e2386d3af57ce574",
+          "fileSize" : 145,
+          "format" : "text",
+          "path" : "<RUN_ROOT>\/genotype\/exports\/matrix.csv",
+          "role" : "output",
+          "sha256" : "a2d19080d0a3cd87d05b05a3e5ae3707a8cd43713549e785e2386d3af57ce574",
+          "sizeBytes" : 145
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli genotype export --bundle <RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype --export-format csv --output <RUN_ROOT>\/genotype\/exports\/matrix.csv",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "<TIMESTAMP>",
+      "startedAt" : "<TIMESTAMP>",
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "Lungfish <APP_VERSION> (dev)",
+      "wallTime" : "<DURATION>",
+      "wallTimeSeconds" : "<DURATION>"
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "lungfish-cli",
+    "version" : "Lungfish <APP_VERSION> (dev)"
+  },
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "Lungfish <APP_VERSION> (dev)",
+  "wallTimeSeconds" : "<DURATION>",
+  "workflowName" : "lungfish genotype export",
+  "workflowVersion" : "Lungfish <APP_VERSION> (dev)"
+}

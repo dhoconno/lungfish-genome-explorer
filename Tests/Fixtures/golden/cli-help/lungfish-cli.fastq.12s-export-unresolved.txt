@@ -1,0 +1,20 @@
+OVERVIEW: Export unresolved 12S sequence clusters above a read threshold to
+FASTA
+
+USAGE: lungfish-cli fastq 12s-export-unresolved --bundle <bundle> [--min-reads <min-reads>] --output <output> [--metadata-output <metadata-output>] [--include-chimera-candidates] [--sequence-id <sequence-id> ...] [--force]
+
+OPTIONS:
+  --bundle <bundle>       Input .lungfish12s result bundle
+  --min-reads <min-reads> Minimum identical-read count for unresolved sequence
+                          export (default: 5)
+  --output <output>       Output FASTA path
+  --metadata-output <metadata-output>
+                          Optional TSV metadata output path
+  --include-chimera-candidates
+                          Include candidate or confirmed chimeras
+  --sequence-id <sequence-id>
+                          Specific unresolved sequence ID(s) to export
+  --force                 Replace existing output files
+  --version               Show the version.
+  -h, --help              Show help information.
+

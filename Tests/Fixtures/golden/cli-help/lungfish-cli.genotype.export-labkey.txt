@@ -1,0 +1,13 @@
+OVERVIEW: Export the genotype bundle's analyst-reviewed results as LabKey-ready
+CSV files.
+
+USAGE: lungfish-cli genotype export-labkey --bundle <bundle> --output-dir <output-dir>
+
+OPTIONS:
+  -b, --bundle <bundle>   Path to the `.lungfishgenotype` bundle.
+  -o, --output-dir <output-dir>
+                          Directory to write the LabKey CSV files into. Created
+                          if missing.
+  --version               Show the version.
+  -h, --help              Show help information.
+

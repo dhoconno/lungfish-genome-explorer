@@ -1,0 +1,13 @@
+OVERVIEW: Inspect completed operation history and resource usage
+
+USAGE: lungfish-cli ops <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  stats                   Summarize runtime and peak RAM from provenance
+                          sidecars
+
+  See 'lungfish-cli help ops <subcommand>' for detailed help.

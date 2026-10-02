@@ -1,0 +1,15 @@
+OVERVIEW: Create a native reference with linked annotations from a saved
+Primer3 result
+
+USAGE: lungfish-cli primers analysis annotated-reference <bundle-path> --result-id <result-id> --output-directory <output-directory>
+
+ARGUMENTS:
+  <bundle-path>           Path to the saved .lungfishprimeranalysis bundle.
+
+OPTIONS:
+  --result-id <result-id> Result UUID from `primers analysis inspect --json`.
+  --output-directory <output-directory>
+                          Existing destination directory.
+  --version               Show the version.
+  -h, --help              Show help information.
+

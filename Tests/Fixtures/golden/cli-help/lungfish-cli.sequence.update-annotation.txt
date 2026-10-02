@@ -1,0 +1,29 @@
+OVERVIEW: Update an annotation row's name, type, strand and note in a reference
+bundle annotation track
+
+USAGE: lungfish-cli sequence update-annotation [<options>] <bundle> --track-id <track-id> --row-id <row-id> --name <name> --type <type>
+
+ARGUMENTS:
+  <bundle>                Reference bundle to update
+
+OPTIONS:
+  --track-id <track-id>   Annotation track ID containing the row.
+  --row-id <row-id>       Annotation database row ID to update.
+  --name <name>           New feature name.
+  --type <type>           New feature type (GenBank/GFF3-style, e.g. gene, CDS).
+  --strand <strand>       New strand: +, -, or . for unknown. (default: .)
+  --note <note>           New note/description. Omit to clear.
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

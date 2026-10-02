@@ -1,0 +1,18 @@
+OVERVIEW: Call viral variants from a bundle-owned alignment track
+
+USAGE: lungfish-cli variants <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  call                    Call viral variants from a bundle-owned alignment
+                          track
+  phase                   Construct a phase-aware GATK HaplotypeCaller plus
+                          WhatsHap command plan
+  extract-sample          Extract one sample's variant calls from a bundle
+                          variant database
+  query                   Query bundle variants with a per-sample smart filter
+
+  See 'lungfish-cli help variants <subcommand>' for detailed help.

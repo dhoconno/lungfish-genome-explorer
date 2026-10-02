@@ -1,0 +1,41 @@
+OVERVIEW: Run FASTQ clumpify/compress/index + optional stats
+
+Executes the same FASTQ ingestion pipeline used by app imports.
+
+Examples:
+  lungfish-cli debug fastq-ingest ./SRR1770413_1.fastq.gz --stats
+--sample-limit 0
+  lungfish-cli debug fastq-ingest ./R1.fastq.gz --pair ./R2.fastq.gz
+--delete-originals
+
+USAGE: lungfish-cli debug fastq-ingest [<options>] <input>
+
+ARGUMENTS:
+  <input>                 Input FASTQ file (R1 for paired-end)
+
+OPTIONS:
+  --pair <pair>           Optional R2 FASTQ file for paired-end mode
+  --output-dir <output-dir>
+                          Output directory for processed FASTQ (default: .)
+  --binning <binning>     Quality binning scheme (illumina4, eightLevel, none)
+                          (default: illumina4)
+  --skip-clumpify         Skip read clumpification step
+  --delete-originals      Delete original FASTQ file(s) after success
+  --stats                 Compute FASTQ statistics on processed output
+  --sample-limit <sample-limit>
+                          Read sample limit for stats (0 = full dataset)
+                          (default: 10000)
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

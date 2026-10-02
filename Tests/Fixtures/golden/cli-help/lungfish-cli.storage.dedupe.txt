@@ -1,0 +1,38 @@
+OVERVIEW: Replace duplicate files across storage roots with APFS clones
+
+Scans databases/, conda/pkgs/ and conda/envs/ under each root, groups regular
+files by size and SHA-256, and replaces every duplicate with a clone of one
+kept
+copy. Each clone is verified (size and SHA-256), keeps the original's mode,
+extended attributes and times, and is renamed over the duplicate so open
+readers
+keep their old file. Files already sharing blocks, files another process holds
+open, and files with hard links outside the scanned roots are left alone.
+
+The default is a dry run. Pass --apply to reclaim space. --apply refuses to run
+while a managed install or download holds a root busy.
+
+USAGE: lungfish-cli storage dedupe <options>
+
+OPTIONS:
+  --format <format>       Output format: text, json (default: text) (values:
+                          text, json; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --roots <roots>         Storage roots to scan. The default is every channel
+                          root that exists plus ~/.lungfish-shared.
+  --dry-run               Report duplicates without changing anything (default).
+  --apply                 Replace duplicates with verified clones and reclaim
+                          space.
+  --skip-envs             Do not scan conda/envs/ (hardlinked package files
+                          then stay unshared).
+  --version               Show the version.
+  -h, --help              Show help information.
+

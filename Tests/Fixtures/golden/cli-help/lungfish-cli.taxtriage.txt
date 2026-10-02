@@ -1,0 +1,21 @@
+OVERVIEW: Run TaxTriage metagenomic classification pipeline
+
+Execute the TaxTriage Nextflow pipeline (jhuapl-bio/taxtriage) for
+metagenomic classification with confidence scoring. Requires Nextflow
+and Docker Desktop (the pipeline runs with -profile docker).
+
+TaxTriage supports Illumina, Oxford Nanopore, and PacBio platforms.
+Results include organism identification reports, TASS confidence metrics,
+and optional Krona interactive visualizations.
+
+USAGE: lungfish-cli taxtriage <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  run (default)           Execute TaxTriage classification on FASTQ files
+  check-prerequisites     Verify Nextflow and container runtime availability
+
+  See 'lungfish-cli help taxtriage <subcommand>' for detailed help.

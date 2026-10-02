@@ -1,0 +1,54 @@
+{
+  "config" : {
+    "confidence" : 0.2,
+    "databaseCatalogID" : "kraken2-viral",
+    "databaseInstallationRecipe" : {
+      "archive" : {
+        "url" : "https:\/\/genome-idx.s3.amazonaws.com\/kraken\/k2_viral_20260626.tar.gz"
+      }
+    },
+    "databaseName" : "Viral",
+    "databasePath" : "file:\/\/\/Users\/dho\/.lungfish-stable\/databases\/kraken2\/viral",
+    "databaseVersion" : "20260626",
+    "extraArguments" : [
+
+    ],
+    "goal" : "classify",
+    "inputFiles" : [
+      "file:\/\/<RUN_ROOT>\/classifiers\/Golden.lungfish\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq"
+    ],
+    "inputFormat" : "fastq",
+    "inputLayout" : {
+      "layout" : "single_end",
+      "matePairs" : 0,
+      "metadata" : {
+        "hasMergedOrUnpairedReads" : false,
+        "pairingMode" : "single_end"
+      },
+      "reason" : "No record in all 10 records is followed by its mate.",
+      "scannedRecords" : 10,
+      "scannedWholeFile" : true,
+      "unpairedRecords" : 10
+    },
+    "interleavedInput" : false,
+    "isPairedEnd" : false,
+    "memoryMapping" : false,
+    "minimumHitGroups" : 2,
+    "originalInputFiles" : [
+      "file:\/\/<RUN_ROOT>\/classifiers\/Golden.lungfish\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq\/"
+    ],
+    "outputDirectory" : "file:\/\/<RUN_ROOT>\/classifiers\/Golden.lungfish\/Analyses\/kraken2-golden",
+    "quickMode" : false,
+    "sampleDisplayName" : "len-150-any-00000000",
+    "threads" : 2
+  },
+  "outputPath" : "classification.kraken.gz",
+  "profileOutcome" : {
+    "state" : "notRequested"
+  },
+  "provenanceId" : "<UUID-2>",
+  "reportPath" : "classification.kreport",
+  "runtime" : "<DURATION>",
+  "savedAt" : "<TIMESTAMP>",
+  "toolVersion" : "2.17.1"
+}

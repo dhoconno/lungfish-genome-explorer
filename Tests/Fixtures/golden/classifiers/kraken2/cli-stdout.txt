@@ -1,0 +1,43 @@
+ℹ Materializing pointer dataset...
+Kraken2 Classification
+
+Input files      : len-150-any-00000000.lungfishfastq
+Input format     : FASTQ
+Read format      : unpaired (Single-end reads)
+Database         : Viral
+Preset           : balanced
+Confidence       : 0.20
+Min hit groups   : 2
+Threads          : 2
+Memory mapping   : no
+Bracken profiling: no
+Bracken rank     : not requested
+Output           : <RUN_ROOT>/classifiers/Golden.lungfish/Analyses/kraken2-golden
+
+ℹ Validating configuration...ℹ Detecting tool versions...ℹ Running kraken2...ℹ Classifying: 55 sequences processed...ℹ Parsing classification report...ℹ Recording provenance...ℹ Compacting Kraken2 output...ℹ Saving result metadata...ℹ Saving provenance...ℹ Classification complete
+
+Results
+
+Classification Summary
+  Database: Viral
+  Total reads: 55
+  Classified: 54 (98.2%)
+  Unclassified: 1 (1.8%)
+  Species: 1
+  Genera: 1
+  Dominant species: Betacoronavirus pandemicum (98.2%)
+  Shannon diversity (H'): 0.000
+  Runtime: <DURATION>s
+  Tool: kraken2 2.17.1
+
+Top Species
+
+Species                     Reads  Bracken  Fraction
+────────────────────────────────────────────────────
+Betacoronavirus pandemicum  54     -        98.18%  
+
+Output Files
+  Report:  <RUN_ROOT>/classifiers/Golden.lungfish/Analyses/kraken2-golden/classification.kreport
+  Output:  <RUN_ROOT>/classifiers/Golden.lungfish/Analyses/kraken2-golden/classification.kraken.gz
+
+✓ Classification completed in <DURATION>s

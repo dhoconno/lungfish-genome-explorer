@@ -1,0 +1,32 @@
+OVERVIEW: Manage reference genome bundles (.lungfishref)
+
+Reference genome bundles are directory packages containing a genome sequence,
+annotations, variants, and signal tracks in optimized binary formats.
+
+Use these commands to create, inspect, and validate bundles.
+
+Examples:
+  lungfish-cli bundle info MyGenome.lungfishref
+  lungfish-cli bundle create --fasta genome.fa --name "My Genome" --output ./
+  lungfish-cli bundle validate MyGenome.lungfishref
+
+USAGE: lungfish-cli bundle <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  info (default)          Display bundle information
+  create                  Create a new reference bundle
+  extract-annotations     Extract annotation feature sequences into a new
+                          .lungfishref bundle
+  deduplicate-alignments  Create a bundle with duplicate reads removed from
+                          alignment tracks
+  mark-duplicates         Add duplicate-marked copies of a bundle's alignment
+                          tracks, keeping the originals
+  export                  Export a bundle to a portable artifact
+  validate                Validate a reference bundle
+  list                    List bundle contents
+
+  See 'lungfish-cli help bundle <subcommand>' for detailed help.
