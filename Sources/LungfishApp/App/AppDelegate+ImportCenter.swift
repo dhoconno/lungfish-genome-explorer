@@ -304,66 +304,60 @@ extension AppDelegate {
             projectURL: projectURL,
             windowStateScopeID: routeContext?.windowStateScopeID ?? controller.projectSession.windowStateScope.id
         )
-        let cliCmd = OperationCenter.buildCLICommand(
-            subcommand: "import",
-            args: ["fasta", url.path, "--output-dir", refsDir.path]
-        )
-
-        let opID = OperationCenter.shared.start(
-            title: "Reference Import",
-            detail: "Importing \(url.lastPathComponent)...",
-            operationType: .bundleBuild,
-            cliCommand: cliCmd,
+        Self.beginReferenceImportOperation(
+            sourceURL: url,
+            projectURL: projectURL,
+            preferredBundleName: preferredBundleName,
             routeContext: routeContext
-        )
-
-        Task.detached { [weak self] in
-            do {
-                let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
-                    sourceURL: url,
-                    outputDirectory: refsDir,
-                    preferredBundleName: preferredBundleName,
-                    provenanceInputFiles: durableProvenanceInputFiles
-                ) { progress, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.updateWithLog(
-                                id: opID,
-                                progress: progress,
-                                detail: message
-                            )
+        ) { opID in
+            Task.detached { [weak self] in
+                do {
+                    let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
+                        sourceURL: url,
+                        outputDirectory: refsDir,
+                        preferredBundleName: preferredBundleName,
+                        provenanceInputFiles: durableProvenanceInputFiles
+                    ) { progress, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                _ = OperationCenter.shared.updateWithLog(
+                                    id: opID,
+                                    progress: progress,
+                                    detail: message
+                                )
+                            }
                         }
                     }
-                }
-                if rehydrateSourceProvenance {
-                    do {
-                        try FASTQOperationProvenanceRehydrator().rehydrateReferenceBundleProvenance(
-                            sourceURL: url,
-                            referenceBundleURL: result.bundleURL
-                        )
-                    } catch {
-                        try? FileManager.default.removeItem(at: result.bundleURL)
-                        throw error
+                    if rehydrateSourceProvenance {
+                        do {
+                            try FASTQOperationProvenanceRehydrator().rehydrateReferenceBundleProvenance(
+                                sourceURL: url,
+                                referenceBundleURL: result.bundleURL
+                            )
+                        } catch {
+                            try? FileManager.default.removeItem(at: result.bundleURL)
+                            throw error
+                        }
                     }
-                }
 
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "Imported \(result.bundleURL.lastPathComponent)",
-                            bundleURLs: [result.bundleURL]
-                        ) else { return }
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.complete(
+                                id: opID,
+                                detail: "Imported \(result.bundleURL.lastPathComponent)",
+                                bundleURLs: [result.bundleURL]
+                            ) else { return }
+                        }
                     }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                        self?.showAlert(
-                            title: "Reference Import Failed",
-                            message: error.localizedDescription
-                        )
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                            self?.showAlert(
+                                title: "Reference Import Failed",
+                                message: error.localizedDescription
+                            )
+                        }
                     }
                 }
             }
@@ -388,45 +382,38 @@ extension AppDelegate {
             projectURL: projectURL
         )
         let runner = CLIApplicationExportImportRunner()
-        let opID = OperationCenter.shared.start(
-            title: "Geneious Import",
-            detail: "Importing \(url.lastPathComponent)...",
-            operationType: .applicationExportImport,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "import",
-                args: Array(arguments.dropFirst())
-            ),
+        Self.beginGeneiousImportOperation(
+            sourceURL: url,
+            arguments: arguments,
             routeContext: routeContext,
-            onCancel: {
-                runner.cancel()
-            }
-        )
+            onCancel: { runner.cancel() }
+        ) { opID in
+            Task.detached { [weak self] in
+                do {
+                    let result = try await runner.run(arguments: arguments, operationID: opID)
 
-        Task.detached { [weak self] in
-            do {
-                let result = try await runner.run(arguments: arguments, operationID: opID)
-
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        let detail = result.warningCount == 0
-                            ? "Imported \(result.collectionURL.lastPathComponent)"
-                            : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
-                        if result.warningCount == 0 {
-                            guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
-                        } else {
-                            guard OperationCenter.shared.completeWithWarning(id: opID, detail: detail) else { return }
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let detail = result.warningCount == 0
+                                ? "Imported \(result.collectionURL.lastPathComponent)"
+                                : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
+                            if result.warningCount == 0 {
+                                guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
+                            } else {
+                                guard OperationCenter.shared.completeWithWarning(id: opID, detail: detail) else { return }
+                            }
+                            self?.refreshSidebarAndSelectImportedURL(
+                                result.collectionURL,
+                                in: self?.targetMainWindowController(routeContext: routeContext)
+                            )
                         }
-                        self?.refreshSidebarAndSelectImportedURL(
-                            result.collectionURL,
-                            in: self?.targetMainWindowController(routeContext: routeContext)
-                        )
                     }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                        self?.showAlert(title: "Geneious Import Failed", message: error.localizedDescription)
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                            self?.showAlert(title: "Geneious Import Failed", message: error.localizedDescription)
+                        }
                     }
                 }
             }
@@ -452,45 +439,39 @@ extension AppDelegate {
             kind: kind
         )
         let runner = CLIApplicationExportImportRunner()
-        let opID = OperationCenter.shared.start(
-            title: "\(kind.displayName) Import",
-            detail: "Importing \(url.lastPathComponent)...",
-            operationType: .applicationExportImport,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "import",
-                args: Array(arguments.dropFirst())
-            ),
+        Self.beginApplicationExportImportOperation(
+            kind: kind,
+            sourceURL: url,
+            arguments: arguments,
             routeContext: routeContext,
-            onCancel: {
-                runner.cancel()
-            }
-        )
+            onCancel: { runner.cancel() }
+        ) { opID in
+            Task.detached { [weak self] in
+                do {
+                    let result = try await runner.run(arguments: arguments, operationID: opID)
 
-        Task.detached { [weak self] in
-            do {
-                let result = try await runner.run(arguments: arguments, operationID: opID)
-
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        let detail = result.warningCount == 0
-                            ? "Imported \(result.collectionURL.lastPathComponent)"
-                            : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
-                        if result.warningCount == 0 {
-                            guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
-                        } else {
-                            guard OperationCenter.shared.completeWithWarning(id: opID, detail: detail) else { return }
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let detail = result.warningCount == 0
+                                ? "Imported \(result.collectionURL.lastPathComponent)"
+                                : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
+                            if result.warningCount == 0 {
+                                guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
+                            } else {
+                                guard OperationCenter.shared.completeWithWarning(id: opID, detail: detail) else { return }
+                            }
+                            self?.refreshSidebarAndSelectImportedURL(
+                                result.collectionURL,
+                                in: self?.targetMainWindowController(routeContext: routeContext)
+                            )
                         }
-                        self?.refreshSidebarAndSelectImportedURL(
-                            result.collectionURL,
-                            in: self?.targetMainWindowController(routeContext: routeContext)
-                        )
                     }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                        self?.showAlert(title: "\(kind.displayName) Import Failed", message: error.localizedDescription)
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                            self?.showAlert(title: "\(kind.displayName) Import Failed", message: error.localizedDescription)
+                        }
                     }
                 }
             }
@@ -524,52 +505,43 @@ extension AppDelegate {
             kind: kind
         )
         let runner = CLINativeBundleImportRunner()
-        let operationType: OperationType = kind == .msa
-            ? .multipleSequenceAlignmentImport
-            : .phylogeneticTreeImport
-        let opID = OperationCenter.shared.start(
-            title: kind.operationTitle,
-            detail: "Importing \(url.lastPathComponent)...",
-            operationType: operationType,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "import",
-                args: Array(arguments.dropFirst())
-            ),
+        Self.beginNativeBundleImportOperation(
+            kind: kind,
+            sourceURL: url,
+            arguments: arguments,
             routeContext: routeContext,
-            onCancel: {
-                runner.cancel()
-            }
-        )
+            onCancel: { runner.cancel() }
+        ) { opID in
+            Task.detached { [weak self] in
+                do {
+                    let result = try await runner.run(arguments: arguments, operationID: opID)
 
-        Task.detached { [weak self] in
-            do {
-                let result = try await runner.run(arguments: arguments, operationID: opID)
-
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        let detail = result.warningCount == 0
-                            ? "Imported \(result.bundleURL.lastPathComponent)"
-                            : "Imported \(result.bundleURL.lastPathComponent) with \(result.warningCount) warnings"
-                        if result.warningCount == 0 {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: detail,
-                                bundleURLs: [result.bundleURL]
-                            ) else { return }
-                        } else {
-                            guard OperationCenter.shared.completeWithWarning(
-                                id: opID,
-                                detail: detail,
-                                bundleURLs: [result.bundleURL]
-                            ) else { return }
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let detail = result.warningCount == 0
+                                ? "Imported \(result.bundleURL.lastPathComponent)"
+                                : "Imported \(result.bundleURL.lastPathComponent) with \(result.warningCount) warnings"
+                            if result.warningCount == 0 {
+                                guard OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: detail,
+                                    bundleURLs: [result.bundleURL]
+                                ) else { return }
+                            } else {
+                                guard OperationCenter.shared.completeWithWarning(
+                                    id: opID,
+                                    detail: detail,
+                                    bundleURLs: [result.bundleURL]
+                                ) else { return }
+                            }
                         }
                     }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                        self?.showAlert(title: "\(kind.operationTitle) Failed", message: error.localizedDescription)
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                            self?.showAlert(title: "\(kind.operationTitle) Failed", message: error.localizedDescription)
+                        }
                     }
                 }
             }
@@ -748,102 +720,90 @@ extension AppDelegate {
             }
         }
 
-        let importSubcommand = (kind == .naomgs) ? "nao-mgs" : kind.rawValue
-        var cliArgs = [importSubcommand, url.path, "--output-dir", outputDir.path]
-        if let preferredName,
-           !preferredName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            cliArgs.append(contentsOf: ["--name", preferredName])
-        }
-        if kind == .naomgs {
-            let options = naoMgsOptions ?? .init()
-            cliArgs.append(contentsOf: ["--fetch-references", options.fetchReferences ? "true" : "false"])
-        }
-
-        let cliCmd = OperationCenter.buildCLICommand(
-            subcommand: "import",
-            args: cliArgs
-        )
-        let opID = OperationCenter.shared.start(
-            title: operationTitle,
-            detail: "Importing \(url.lastPathComponent)...",
-            cliCommand: cliCmd,
+        Self.beginClassifierResultImportOperation(
+            kind: kind,
+            operationTitle: operationTitle,
+            inputURL: url,
+            outputDirectory: outputDir,
+            preferredName: preferredName,
+            naoMgsOptions: naoMgsOptions,
             routeContext: routeContext
-        )
-
-        onDispatch?(.started)
-        let task = Task.detached { [weak self] in
-            do {
-                let result = try await MetagenomicsImportHelperClient.importViaCLI(
-                    kind: kind,
-                    inputURL: url,
-                    outputDirectory: outputDir,
-                    preferredName: preferredName,
-                    naoMgsOptions: naoMgsOptions
-                ) { progress, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.updateWithLog(
-                                id: opID,
-                                progress: progress,
-                                detail: message
-                            )
+        ) { opID in
+            onDispatch?(.started)
+            let task = Task.detached { [weak self] in
+                do {
+                    let result = try await MetagenomicsImportHelperClient.importViaCLI(
+                        kind: kind,
+                        inputURL: url,
+                        outputDirectory: outputDir,
+                        preferredName: preferredName,
+                        naoMgsOptions: naoMgsOptions
+                    ) { progress, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                _ = OperationCenter.shared.updateWithLog(
+                                    id: opID,
+                                    progress: progress,
+                                    detail: message
+                                )
+                            }
                         }
                     }
-                }
 
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.complete(
-                            id: opID,
-                            detail: result.detail,
-                            bundleURLs: [result.resultDirectory]
-                        ) else { return }
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .info,
-                            message: "Imported result at \(result.resultDirectory.lastPathComponent)"
-                        )
-                    }
-                }
-            } catch is CancellationError {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.acknowledgeCancellation(id: opID)
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .info,
-                            message: "\(operationTitle) cancelled"
-                        )
-                    }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        let detail = error.localizedDescription
-                        // Cleanup partial result directory left by failed import
-                        if let partialDir = (error as? MetagenomicsImportHelperClientError)?
-                            .partialResultDirectory {
-                            try? FileManager.default.removeItem(at: partialDir)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.complete(
+                                id: opID,
+                                detail: result.detail,
+                                bundleURLs: [result.resultDirectory]
+                            ) else { return }
                             OperationCenter.shared.log(
                                 id: opID,
                                 level: .info,
-                                message: "Cleaned up partial import directory"
+                                message: "Imported result at \(result.resultDirectory.lastPathComponent)"
                             )
                         }
+                    }
+                } catch is CancellationError {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.acknowledgeCancellation(id: opID)
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "\(operationTitle) cancelled"
+                            )
+                        }
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let detail = error.localizedDescription
+                            // Cleanup partial result directory left by failed import
+                            if let partialDir = (error as? MetagenomicsImportHelperClientError)?
+                                .partialResultDirectory {
+                                try? FileManager.default.removeItem(at: partialDir)
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .info,
+                                    message: "Cleaned up partial import directory"
+                                )
+                            }
 
-                        guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
-                        self?.showAlert(
-                            title: "\(operationTitle) Failed",
-                            message: detail,
-                            presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
-                        )
+                            guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
+                            self?.showAlert(
+                                title: "\(operationTitle) Failed",
+                                message: detail,
+                                presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        // Wire cancellation so the Operations Panel cancel button stops downloads.
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            // Wire cancellation so the Operations Panel cancel button stops downloads.
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
     }
 
     @objc func importSampleMetadataToBundle(_ sender: Any?) {
@@ -1095,7 +1055,6 @@ extension AppDelegate {
 
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
         let selectedImportProfile = selectedVCFImportProfile()
-        let profileLabel = Self.importProfileLabel(selectedImportProfile)
         // The track id is decided against the manifest up front, exactly as
         // `lungfish-cli import vcf` does: a same-named VCF gets `calls-2`,
         // and a replacement must name a track that exists.
@@ -1109,354 +1068,345 @@ extension AppDelegate {
                       presentingWindow: targetMainWindowController(routeContext: routeContext)?.window)
             return nil
         }
-        // `--vcf-import-helper` launches this same app executable as
-        // a background worker and is not a `lungfish-cli` flag. Record the
-        // runnable equivalent, `lungfish-cli import vcf <path> --output-dir
-        // <bundle.lungfishref> --import-profile <profile> [--replace <id>]`,
-        // which attaches through the same `VCFBundleVariantImport` core this
-        // import uses.
-        let cliCmd: String? = VCFImportCLICommand.build(
-            vcfURL: vcfURL, bundleURL: bundleURL, importProfile: selectedImportProfile,
-            replaceTrackID: replaceTrackID)
-        let opID = OperationCenter.shared.start(
-            title: "Importing \(vcfURL.lastPathComponent)",
-            detail: "Importing VCF variants (\(profileLabel))...",
-            operationType: .vcfImport,
-            targetBundleURL: bundleURL,
-            cliCommand: cliCmd,
+        let result = Self.beginVCFImportOperation(
+            vcfURL: vcfURL,
+            bundleURL: bundleURL,
+            importProfile: selectedImportProfile,
+            replaceTrackID: replaceTrackID,
             routeContext: routeContext,
             onCancel: { cancelFlag.withLock { $0 = true } }
-        )
-        let importStartedAt = Date()
+        ) { opID in
+            let importStartedAt = Date()
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            // All file I/O on background thread — no UI references captured
-            let result: Result<(variantCount: Int, trackInfo: VariantTrackInfo, cleanupWarning: String?), Error>
-            let isCancelled: @Sendable () -> Bool = { cancelFlag.withLock { $0 } }
+            DispatchQueue.global(qos: .userInitiated).async {
+                // All file I/O on background thread — no UI references captured
+                let result: Result<(variantCount: Int, trackInfo: VariantTrackInfo, cleanupWarning: String?), Error>
+                let isCancelled: @Sendable () -> Bool = { cancelFlag.withLock { $0 } }
 
-            let trackId = helperTrackID
-            let dbFilename = VCFBundleVariantImport.databaseFilename(trackID: trackId)
-            let variantsDir = bundleURL.appendingPathComponent("variants")
-            let finalDBURL = variantsDir.appendingPathComponent(dbFilename)
-            let stagingDirectory = variantsDir.appendingPathComponent(".import-\(opID.uuidString)", isDirectory: true)
-            let dbURL = stagingDirectory.appendingPathComponent(dbFilename)
-            var staging: OperationImportStaging?
+                let trackId = helperTrackID
+                let dbFilename = VCFBundleVariantImport.databaseFilename(trackID: trackId)
+                let variantsDir = bundleURL.appendingPathComponent("variants")
+                let finalDBURL = variantsDir.appendingPathComponent(dbFilename)
+                let stagingDirectory = variantsDir.appendingPathComponent(".import-\(opID.uuidString)", isDirectory: true)
+                let dbURL = stagingDirectory.appendingPathComponent(dbFilename)
+                var staging: OperationImportStaging?
 
-            do {
-                let ownedStaging = try OperationImportStaging(parentDirectory: variantsDir, operationID: opID)
-                staging = ownedStaging
-                // SQLite backup captures a coherent resumable database, including
-                // committed WAL pages, without copying live journal files.
-                let databasePublication = try ownedStaging.prepareSQLiteCopy(filename: dbFilename, from: finalDBURL)
-                if isCancelled() { throw VariantDatabaseError.cancelled }
+                do {
+                    let ownedStaging = try OperationImportStaging(parentDirectory: variantsDir, operationID: opID)
+                    staging = ownedStaging
+                    // SQLite backup captures a coherent resumable database, including
+                    // committed WAL pages, without copying live journal files.
+                    let databasePublication = try ownedStaging.prepareSQLiteCopy(filename: dbFilename, from: finalDBURL)
+                    if isCancelled() { throw VariantDatabaseError.cancelled }
 
-                let variantCount: Int
-                let helperInvocations = OSAllocatedUnfairLock(initialState: [VCFHelperInvocation]())
-                let recordInvocation: @Sendable (VCFHelperInvocation) -> Void = { invocation in
-                    helperInvocations.withLock { $0.append(invocation) }
-                    scheduleOnMainRunLoop {
-                        OperationCenter.shared.log(id: opID, level: invocation.exitStatus == 0 ? .info : .warning,
-                            message: "\(invocation.argv.map(shellEscape).joined(separator: " ")) • exit \(invocation.exitStatus) • \(invocation.wallTimeSeconds)s\n\(invocation.stderr)")
+                    let variantCount: Int
+                    let helperInvocations = OSAllocatedUnfairLock(initialState: [VCFHelperInvocation]())
+                    let recordInvocation: @Sendable (VCFHelperInvocation) -> Void = { invocation in
+                        helperInvocations.withLock { $0.append(invocation) }
+                        scheduleOnMainRunLoop {
+                            OperationCenter.shared.log(id: opID, level: invocation.exitStatus == 0 ? .info : .warning,
+                                message: "\(invocation.argv.map(shellEscape).joined(separator: " ")) • exit \(invocation.exitStatus) • \(invocation.wallTimeSeconds)s\n\(invocation.stderr)")
+                        }
                     }
-                }
-                func record(_ run: VCFHelperRunResult) -> Int { run.variantCount }
+                    func record(_ run: VCFHelperRunResult) -> Int { run.variantCount }
 
-                // Check if there's a resumable incomplete import from a previous crash.
-                let detectedImportState = VariantDatabase.importState(at: dbURL)
-                let dbExists = FileManager.default.fileExists(atPath: dbURL.path)
-                debugLog("performVCFImport: dbExists=\(dbExists), importState=\(detectedImportState ?? "nil"), path=\(dbURL.lastPathComponent)")
+                    // Check if there's a resumable incomplete import from a previous crash.
+                    let detectedImportState = VariantDatabase.importState(at: dbURL)
+                    let dbExists = FileManager.default.fileExists(atPath: dbURL.path)
+                    debugLog("performVCFImport: dbExists=\(dbExists), importState=\(detectedImportState ?? "nil"), path=\(dbURL.lastPathComponent)")
 
-                func runFreshImport(startedAt: Date) throws -> Int {
-                    if FileManager.default.fileExists(atPath: dbURL.path) {
-                        try FileManager.default.removeItem(at: dbURL)
+                    func runFreshImport(startedAt: Date) throws -> Int {
+                        if FileManager.default.fileExists(atPath: dbURL.path) {
+                            try FileManager.default.removeItem(at: dbURL)
+                        }
+
+                        debugLog("performVCFImport: Creating variant database at \(dbURL.lastPathComponent) via helper")
+
+                        do {
+                            var importedCount = try record(Self.runVCFImportViaHelper(
+                                vcfURL: vcfURL,
+                                outputDBURL: dbURL,
+                                sourceFile: vcfURL.lastPathComponent,
+                                importProfile: selectedImportProfile,
+                                shouldCancel: isCancelled,
+                                recordInvocation: recordInvocation,
+                                progressHandler: { progress, message in
+                                    let clampedProgress = max(0.0, min(1.0, progress))
+                                    let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: startedAt)
+                                    let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
+                                    scheduleOnMainRunLoop {
+                                        _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                    }
+                                }
+                            ))
+
+                            // Staged ultra-low-memory imports intentionally return after insert
+                            // phase with import_state=indexing so indexing runs in a fresh process.
+                            if VariantDatabase.importState(at: dbURL) == "indexing" {
+                                debugLog("performVCFImport: Insert phase complete, launching phase-2 index build helper")
+                                let resumeStartedAt = Date()
+                                importedCount = try record(Self.runVCFResumeViaHelper(
+                                    outputDBURL: dbURL,
+                                    shouldCancel: isCancelled,
+                                    recordInvocation: recordInvocation,
+                                    progressHandler: { progress, message in
+                                        let clampedProgress = max(0.0, min(1.0, progress))
+                                        let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
+                                        let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
+                                        scheduleOnMainRunLoop {
+                                            _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                        }
+                                    }
+                                ))
+                                debugLog("performVCFImport: Phase-2 index build complete with \(importedCount) variants")
+                            }
+
+                            return importedCount
+                        } catch {
+                            // If helper failed during indexing, inserts are complete and only
+                            // index creation needs recovery in a fresh process.
+                            if !isCancelled(), let importState = VariantDatabase.importState(at: dbURL),
+                               importState == "indexing" {
+                                debugLog("performVCFImport: Helper failed during indexing, auto-resuming index creation...")
+                                let resumeStartedAt = Date()
+                                let resumedCount = try record(Self.runVCFResumeViaHelper(
+                                    outputDBURL: dbURL,
+                                    shouldCancel: isCancelled,
+                                    recordInvocation: recordInvocation,
+                                    progressHandler: { progress, message in
+                                        let clampedProgress = max(0.0, min(1.0, progress))
+                                        let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
+                                        let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
+                                        scheduleOnMainRunLoop {
+                                            _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                        }
+                                    }
+                                ))
+                                debugLog("performVCFImport: Auto-resume complete with \(resumedCount) variants")
+                                return resumedCount
+                            }
+                            throw error
+                        }
                     }
 
-                    debugLog("performVCFImport: Creating variant database at \(dbURL.lastPathComponent) via helper")
-
-                    do {
-                        var importedCount = try record(Self.runVCFImportViaHelper(
-                            vcfURL: vcfURL,
+                    if detectedImportState == "indexing" {
+                        debugLog("performVCFImport: Found interrupted indexing phase, resuming via helper")
+                        variantCount = try record(Self.runVCFResumeViaHelper(
                             outputDBURL: dbURL,
-                            sourceFile: vcfURL.lastPathComponent,
-                            importProfile: selectedImportProfile,
                             shouldCancel: isCancelled,
                             recordInvocation: recordInvocation,
                             progressHandler: { progress, message in
                                 let clampedProgress = max(0.0, min(1.0, progress))
-                                let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: startedAt)
+                                let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
                                 let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                 scheduleOnMainRunLoop {
                                     _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                 }
                             }
                         ))
+                    } else if detectedImportState == "inserting" {
+                        // Partial row ingest cannot be resumed safely without replaying the VCF.
+                        debugLog("performVCFImport: Found interrupted inserting phase, restarting full import from source VCF")
+                        variantCount = try runFreshImport(startedAt: importStartedAt)
+                    } else if VariantDatabase.metadataValue(at: dbURL, key: "materialize_state") == "materializing" {
+                        // Import is complete but materialization was interrupted — resume it.
+                        debugLog("performVCFImport: Found incomplete materialization, resuming via helper")
+                        let importedDB = try VariantDatabase(url: dbURL)
+                        variantCount = importedDB.totalCount()
 
-                        // Staged ultra-low-memory imports intentionally return after insert
-                        // phase with import_state=indexing so indexing runs in a fresh process.
-                        if VariantDatabase.importState(at: dbURL) == "indexing" {
-                            debugLog("performVCFImport: Insert phase complete, launching phase-2 index build helper")
-                            let resumeStartedAt = Date()
-                            importedCount = try record(Self.runVCFResumeViaHelper(
-                                outputDBURL: dbURL,
-                                shouldCancel: isCancelled,
-                                recordInvocation: recordInvocation,
-                                progressHandler: { progress, message in
-                                    let clampedProgress = max(0.0, min(1.0, progress))
-                                    let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
-                                    let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                                    scheduleOnMainRunLoop {
-                                        _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                                    }
+                        let materializeStartedAt = Date()
+                        _ = try record(Self.runVCFMaterializeViaHelper(
+                            outputDBURL: dbURL,
+                            shouldCancel: isCancelled,
+                            recordInvocation: recordInvocation,
+                            progressHandler: { progress, message in
+                                let clampedProgress = max(0.0, min(1.0, progress))
+                                let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: materializeStartedAt)
+                                let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
+                                scheduleOnMainRunLoop {
+                                    _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                 }
-                            ))
-                            debugLog("performVCFImport: Phase-2 index build complete with \(importedCount) variants")
-                        }
-
-                        return importedCount
-                    } catch {
-                        // If helper failed during indexing, inserts are complete and only
-                        // index creation needs recovery in a fresh process.
-                        if !isCancelled(), let importState = VariantDatabase.importState(at: dbURL),
-                           importState == "indexing" {
-                            debugLog("performVCFImport: Helper failed during indexing, auto-resuming index creation...")
-                            let resumeStartedAt = Date()
-                            let resumedCount = try record(Self.runVCFResumeViaHelper(
-                                outputDBURL: dbURL,
-                                shouldCancel: isCancelled,
-                                recordInvocation: recordInvocation,
-                                progressHandler: { progress, message in
-                                    let clampedProgress = max(0.0, min(1.0, progress))
-                                    let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
-                                    let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                                    scheduleOnMainRunLoop {
-                                        _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                                    }
-                                }
-                            ))
-                            debugLog("performVCFImport: Auto-resume complete with \(resumedCount) variants")
-                            return resumedCount
-                        }
-                        throw error
+                            }
+                        ))
+                        debugLog("performVCFImport: Materialization resume complete")
+                    } else if dbExists, detectedImportState == nil,
+                              VariantDatabase.hasVariantsTable(at: dbURL) {
+                        // DB file exists with a variants table but import_state is unreadable
+                        // (likely corrupted metadata from a crash). We cannot prove inserts
+                        // completed, so rebuild from source VCF.
+                        debugLog("performVCFImport: DB has variants table but missing import_state, restarting full import from source VCF")
+                        variantCount = try runFreshImport(startedAt: importStartedAt)
+                    } else {
+                        variantCount = try runFreshImport(startedAt: importStartedAt)
                     }
-                }
 
-                if detectedImportState == "indexing" {
-                    debugLog("performVCFImport: Found interrupted indexing phase, resuming via helper")
-                    variantCount = try record(Self.runVCFResumeViaHelper(
-                        outputDBURL: dbURL,
-                        shouldCancel: isCancelled,
-                        recordInvocation: recordInvocation,
-                        progressHandler: { progress, message in
-                            let clampedProgress = max(0.0, min(1.0, progress))
-                            let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
-                            let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                            scheduleOnMainRunLoop {
-                                _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                    debugLog("performVCFImport: Created database with \(variantCount) variants")
+                    if isCancelled() {
+                        throw VariantDatabaseError.cancelled
+                    }
+
+                    // Normalize chromosome names to match the bundle.
+                    // Only performs name-based mapping (aliases, chr prefix, version suffix).
+                    // Length-based matching is deferred to the runtime alias map which uses
+                    // contig lengths stored in the database — this avoids slow UPDATE statements
+                    // on very large databases.
+                    let currentManifestForChrom = try BundleManifest.load(from: bundleURL)
+                    var rwDB: VariantDatabase! = try VariantDatabase(url: dbURL, readWrite: true)
+                    let chromMapping = try VCFBundleVariantImport.normalizeChromosomes(in: rwDB, toBundle: currentManifestForChrom)
+                    if !chromMapping.isEmpty {
+                        debugLog("performVCFImport: Remapped chromosomes: \(chromMapping)")
+                    }
+                    if isCancelled() {
+                        throw VariantDatabaseError.cancelled
+                    }
+
+                    // Materialize variant_info EAV table if it was skipped during
+                    // ultraLowMemory import.  This runs as a separate helper process
+                    // with a fresh address space so it cannot OOM the GUI.
+                    if rwDB.variantInfoSkipped {
+                        debugLog("performVCFImport: Variant info was skipped — launching materialization helper")
+                        let materializeStartedAt = Date()
+                        _ = try record(Self.runVCFMaterializeViaHelper(
+                            outputDBURL: dbURL,
+                            shouldCancel: isCancelled,
+                            recordInvocation: recordInvocation,
+                            progressHandler: { progress, message in
+                                // Map materialization progress to the tail end of the operation
+                                let displayProgress = 0.95 + progress * 0.05
+                                let clampedProgress = max(0.0, min(1.0, displayProgress))
+                                let etaText = Self.estimatedRemainingText(progress: progress, startedAt: materializeStartedAt)
+                                let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
+                                scheduleOnMainRunLoop {
+                                    _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                }
                             }
-                        }
-                    ))
-                } else if detectedImportState == "inserting" {
-                    // Partial row ingest cannot be resumed safely without replaying the VCF.
-                    debugLog("performVCFImport: Found interrupted inserting phase, restarting full import from source VCF")
-                    variantCount = try runFreshImport(startedAt: importStartedAt)
-                } else if VariantDatabase.metadataValue(at: dbURL, key: "materialize_state") == "materializing" {
-                    // Import is complete but materialization was interrupted — resume it.
-                    debugLog("performVCFImport: Found incomplete materialization, resuming via helper")
-                    let importedDB = try VariantDatabase(url: dbURL)
-                    variantCount = importedDB.totalCount()
+                        ))
+                        debugLog("performVCFImport: Materialization complete")
+                    }
 
-                    let materializeStartedAt = Date()
-                    _ = try record(Self.runVCFMaterializeViaHelper(
-                        outputDBURL: dbURL,
-                        shouldCancel: isCancelled,
-                        recordInvocation: recordInvocation,
-                        progressHandler: { progress, message in
-                            let clampedProgress = max(0.0, min(1.0, progress))
-                            let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: materializeStartedAt)
-                            let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                            scheduleOnMainRunLoop {
-                                _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                            }
-                        }
-                    ))
-                    debugLog("performVCFImport: Materialization resume complete")
-                } else if dbExists, detectedImportState == nil,
-                          VariantDatabase.hasVariantsTable(at: dbURL) {
-                    // DB file exists with a variants table but import_state is unreadable
-                    // (likely corrupted metadata from a crash). We cannot prove inserts
-                    // completed, so rebuild from source VCF.
-                    debugLog("performVCFImport: DB has variants table but missing import_state, restarting full import from source VCF")
-                    variantCount = try runFreshImport(startedAt: importStartedAt)
-                } else {
-                    variantCount = try runFreshImport(startedAt: importStartedAt)
-                }
+                    // `databasePath` is authoritative for VCF imports (see
+                    // `VCFBundleVariantImport.makeTrackInfo`).
+                    let trackInfo = VCFBundleVariantImport.makeTrackInfo(
+                        trackID: trackId, vcfURL: vcfURL, variantCount: variantCount)
 
-                debugLog("performVCFImport: Created database with \(variantCount) variants")
-                if isCancelled() {
-                    throw VariantDatabaseError.cancelled
-                }
+                    let provenanceRelativePath = VCFBundleVariantImport.provenanceRelativePath(trackID: trackId)
+                    let provenanceURL = bundleURL.appendingPathComponent(provenanceRelativePath)
+                    // Capture file ownership before consuming the manifest used to
+                    // construct its replacement. A later edit must not be blessed
+                    // by a fresh snapshot at publication time.
+                    let filePublication = try VCFBundleVariantImport.makeFilePublication(
+                        bundleURL: bundleURL, trackID: trackId)
+                    var filePublicationTransferred = false
+                    defer {
+                        if !filePublicationTransferred { filePublication.commit() }
+                    }
 
-                // Normalize chromosome names to match the bundle.
-                // Only performs name-based mapping (aliases, chr prefix, version suffix).
-                // Length-based matching is deferred to the runtime alias map which uses
-                // contig lengths stored in the database — this avoids slow UPDATE statements
-                // on very large databases.
-                let currentManifestForChrom = try BundleManifest.load(from: bundleURL)
-                var rwDB: VariantDatabase! = try VariantDatabase(url: dbURL, readWrite: true)
-                let chromMapping = try VCFBundleVariantImport.normalizeChromosomes(in: rwDB, toBundle: currentManifestForChrom)
-                if !chromMapping.isEmpty {
-                    debugLog("performVCFImport: Remapped chromosomes: \(chromMapping)")
-                }
-                if isCancelled() {
-                    throw VariantDatabaseError.cancelled
-                }
+                    // Load current manifest, add track, save
+                    let currentManifest = try BundleManifest.load(from: bundleURL)
 
-                // Materialize variant_info EAV table if it was skipped during
-                // ultraLowMemory import.  This runs as a separate helper process
-                // with a fresh address space so it cannot OOM the GUI.
-                if rwDB.variantInfoSkipped {
-                    debugLog("performVCFImport: Variant info was skipped — launching materialization helper")
-                    let materializeStartedAt = Date()
-                    _ = try record(Self.runVCFMaterializeViaHelper(
-                        outputDBURL: dbURL,
-                        shouldCancel: isCancelled,
-                        recordInvocation: recordInvocation,
-                        progressHandler: { progress, message in
-                            // Map materialization progress to the tail end of the operation
-                            let displayProgress = 0.95 + progress * 0.05
-                            let clampedProgress = max(0.0, min(1.0, displayProgress))
-                            let etaText = Self.estimatedRemainingText(progress: progress, startedAt: materializeStartedAt)
-                            let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                            scheduleOnMainRunLoop {
-                                _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                            }
-                        }
-                    ))
-                    debugLog("performVCFImport: Materialization complete")
-                }
+                    let updatedManifest = Self.vcfManifestReplacingTrack(trackInfo, in: currentManifest)
 
-                // `databasePath` is authoritative for VCF imports (see
-                // `VCFBundleVariantImport.makeTrackInfo`).
-                let trackInfo = VCFBundleVariantImport.makeTrackInfo(
-                    trackID: trackId, vcfURL: vcfURL, variantCount: variantCount)
+                    try rwDB.setMetadataValues(VCFBundleVariantImport.finalizationMetadata(
+                        trackID: trackId, vcfURL: vcfURL, importProfile: selectedImportProfile))
 
-                let provenanceRelativePath = VCFBundleVariantImport.provenanceRelativePath(trackID: trackId)
-                let provenanceURL = bundleURL.appendingPathComponent(provenanceRelativePath)
-                // Capture file ownership before consuming the manifest used to
-                // construct its replacement. A later edit must not be blessed
-                // by a fresh snapshot at publication time.
-                let filePublication = try VCFBundleVariantImport.makeFilePublication(
-                    bundleURL: bundleURL, trackID: trackId)
-                var filePublicationTransferred = false
-                defer {
-                    if !filePublicationTransferred { filePublication.commit() }
-                }
-
-                // Load current manifest, add track, save
-                let currentManifest = try BundleManifest.load(from: bundleURL)
-
-                let updatedManifest = Self.vcfManifestReplacingTrack(trackInfo, in: currentManifest)
-
-                try rwDB.setMetadataValues(VCFBundleVariantImport.finalizationMetadata(
-                    trackID: trackId, vcfURL: vcfURL, importProfile: selectedImportProfile))
-
-                // Release the private writer before taking the coherent final
-                // snapshot. Publication checkpoints the final database before hashing.
-                rwDB = nil
-                if isCancelled() { throw VariantDatabaseError.cancelled }
-                filePublicationTransferred = true
-                try Self.publishVCFImportArtifacts(
-                    databasePublication: databasePublication,
-                    bundleURL: bundleURL,
-                    provenanceURL: provenanceURL,
-                    updatedManifest: updatedManifest,
-                    filePublication: filePublication,
-                    shouldCancel: isCancelled
-                ) { writer in
-                    try Self.writeVCFImportProvenance(
-                        vcfURL: vcfURL,
+                    // Release the private writer before taking the coherent final
+                    // snapshot. Publication checkpoints the final database before hashing.
+                    rwDB = nil
+                    if isCancelled() { throw VariantDatabaseError.cancelled }
+                    filePublicationTransferred = true
+                    try Self.publishVCFImportArtifacts(
+                        databasePublication: databasePublication,
                         bundleURL: bundleURL,
-                        dbURL: finalDBURL,
                         provenanceURL: provenanceURL,
-                        manifest: currentManifest,
-                        trackId: trackId,
-                        trackName: trackInfo.name,
-                        dbRelativePath: "variants/\(dbFilename)",
-                        provenanceRelativePath: provenanceRelativePath,
-                        importProfile: selectedImportProfile,
-                        variantCount: variantCount,
-                        helperInvocations: helperInvocations.withLock { $0 },
-                        startedAt: importStartedAt,
-                        completedAt: Date(),
-                        provenanceWriter: writer
-                    )
+                        updatedManifest: updatedManifest,
+                        filePublication: filePublication,
+                        shouldCancel: isCancelled
+                    ) { writer in
+                        try Self.writeVCFImportProvenance(
+                            vcfURL: vcfURL,
+                            bundleURL: bundleURL,
+                            dbURL: finalDBURL,
+                            provenanceURL: provenanceURL,
+                            manifest: currentManifest,
+                            trackId: trackId,
+                            trackName: trackInfo.name,
+                            dbRelativePath: "variants/\(dbFilename)",
+                            provenanceRelativePath: provenanceRelativePath,
+                            importProfile: selectedImportProfile,
+                            variantCount: variantCount,
+                            helperInvocations: helperInvocations.withLock { $0 },
+                            startedAt: importStartedAt,
+                            completedAt: Date(),
+                            provenanceWriter: writer
+                        )
+                    }
+                    let cleanupWarning = ownedStaging.finishCommittedImport()
+                    result = .success((variantCount, trackInfo, cleanupWarning))
+                } catch {
+                    // Cleanup is worker-owned and precedes terminal acknowledgement.
+                    // It can never address another operation's deterministic final DB.
+                    if !(error is OperationImportStaging.RecoveryRequired) && !(error is ScientificPublicationRecoveryRequired) {
+                        do { try staging?.cleanup() }
+                        catch { debugLog("performVCFImport: Private staging cleanup failed: \(error)") }
+                    }
+                    result = .failure(error)
                 }
-                let cleanupWarning = ownedStaging.finishCommittedImport()
-                result = .success((variantCount, trackInfo, cleanupWarning))
-            } catch {
-                // Cleanup is worker-owned and precedes terminal acknowledgement.
-                // It can never address another operation's deterministic final DB.
-                if !(error is OperationImportStaging.RecoveryRequired) && !(error is ScientificPublicationRecoveryRequired) {
-                    do { try staging?.cleanup() }
-                    catch { debugLog("performVCFImport: Private staging cleanup failed: \(error)") }
-                }
-                result = .failure(error)
-            }
 
-            debugLog("performVCFImport: Background work done, scheduling main thread callback")
+                debugLog("performVCFImport: Background work done, scheduling main thread callback")
 
-            scheduleOnMainRunLoop { [weak self] in
-                debugLog("performVCFImport: Main thread callback executing")
+                scheduleOnMainRunLoop { [weak self] in
+                    debugLog("performVCFImport: Main thread callback executing")
 
-                switch result {
-                case .success(let (variantCount, _, cleanupWarning)):
-                    let completed: Bool
-                    if let cleanupWarning {
-                        OperationCenter.shared.log(id: opID, level: .warning, message: cleanupWarning)
-                        completed = OperationCenter.shared.completeWithWarning(id: opID,
-                            detail: "\(variantCount) variants imported; private staging cleanup needs attention")
-                    } else {
-                        completed = OperationCenter.shared.complete(id: opID, detail: "\(variantCount) variants imported")
-                    }
-                    guard completed else { return }
-
-                    guard let originController = self?.targetMainWindowController(routeContext: routeContext),
-                          let viewerController = originController.mainSplitViewController?.viewerController else {
-                        debugLog("performVCFImport: No viewer controller")
-                        return
-                    }
-                    do {
-                        try viewerController.displayBundle(at: bundleURL)
-                        debugLog("performVCFImport: Bundle reloaded with \(variantCount) variants")
-                    } catch {
-                        debugLog("performVCFImport: Bundle reload failed: \(error.localizedDescription)")
-                        if let window = originController.window {
-                            self?.showAlert(title: "Import Error", message: "VCF imported but bundle reload failed: \(error.localizedDescription)", presentingWindow: window)
+                    switch result {
+                    case .success(let (variantCount, _, cleanupWarning)):
+                        let completed: Bool
+                        if let cleanupWarning {
+                            OperationCenter.shared.log(id: opID, level: .warning, message: cleanupWarning)
+                            completed = OperationCenter.shared.completeWithWarning(id: opID,
+                                detail: "\(variantCount) variants imported; private staging cleanup needs attention")
+                        } else {
+                            completed = OperationCenter.shared.complete(id: opID, detail: "\(variantCount) variants imported")
                         }
-                    }
+                        guard completed else { return }
 
-                case .failure(let error):
-                    if let dbErr = error as? VariantDatabaseError, case .cancelled = dbErr {
-                        debugLog("performVCFImport: Cancelled by user")
-                        OperationCenter.shared.acknowledgeCancellation(id: opID)
-                    } else {
-                        let recoveryRequired = error is OperationImportStaging.RecoveryRequired || error is ScientificPublicationRecoveryRequired
-                        if recoveryRequired {
-                            OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
+                        guard let originController = self?.targetMainWindowController(routeContext: routeContext),
+                              let viewerController = originController.mainSplitViewController?.viewerController else {
+                            debugLog("performVCFImport: No viewer controller")
+                            return
                         }
-                        let failureAccepted = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-                        // A pending cancellation may acknowledge the worker here;
-                        // recovery artifacts still require an explicit visible error.
-                        guard failureAccepted || recoveryRequired else { return }
-                        debugLog("performVCFImport: Failed: \(error.localizedDescription)")
-                        if let window = self?.targetMainWindowController(routeContext: routeContext)?.window {
-                            self?.showAlert(title: "VCF Import Failed", message: error.localizedDescription, presentingWindow: window)
+                        do {
+                            try viewerController.displayBundle(at: bundleURL)
+                            debugLog("performVCFImport: Bundle reloaded with \(variantCount) variants")
+                        } catch {
+                            debugLog("performVCFImport: Bundle reload failed: \(error.localizedDescription)")
+                            if let window = originController.window {
+                                self?.showAlert(title: "Import Error", message: "VCF imported but bundle reload failed: \(error.localizedDescription)", presentingWindow: window)
+                            }
+                        }
+
+                    case .failure(let error):
+                        if let dbErr = error as? VariantDatabaseError, case .cancelled = dbErr {
+                            debugLog("performVCFImport: Cancelled by user")
+                            OperationCenter.shared.acknowledgeCancellation(id: opID)
+                        } else {
+                            let recoveryRequired = error is OperationImportStaging.RecoveryRequired || error is ScientificPublicationRecoveryRequired
+                            if recoveryRequired {
+                                OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
+                            }
+                            let failureAccepted = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                            // A pending cancellation may acknowledge the worker here;
+                            // recovery artifacts still require an explicit visible error.
+                            guard failureAccepted || recoveryRequired else { return }
+                            debugLog("performVCFImport: Failed: \(error.localizedDescription)")
+                            if let window = self?.targetMainWindowController(routeContext: routeContext)?.window {
+                                self?.showAlert(title: "VCF Import Failed", message: error.localizedDescription, presentingWindow: window)
+                            }
                         }
                     }
                 }
             }
         }
-        return opID
+        return result.startedID
     }
 
     internal nonisolated static func vcfManifestReplacingTrack(
@@ -1508,7 +1458,7 @@ extension AppDelegate {
         }
     }
 
-    private nonisolated static func importProfileLabel(_ profile: VCFImportProfile) -> String {
+    nonisolated static func importProfileLabel(_ profile: VCFImportProfile) -> String {
         switch profile {
         case .auto:
             return "Auto"
@@ -2291,72 +2241,69 @@ extension AppDelegate {
         }
 
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
-        let cliCmd = BAMImportCLICommand.build(bamURL: bamURL, bundleURL: bundleURL)
-        let opID = OperationCenter.shared.start(
-            title: "Importing \(bamURL.lastPathComponent)",
-            detail: "Importing alignments...",
-            operationType: .bamImport,
-            targetBundleURL: bundleURL,
-            cliCommand: cliCmd,
+        let result = Self.beginBAMImportOperation(
+            bamURL: bamURL,
+            bundleURL: bundleURL,
             routeContext: routeContext,
             onCancel: { cancelFlag.withLock { $0 = true } }
-        )
-        let importStartedAt = Date()
+        ) { opID in
+            let importStartedAt = Date()
 
-        Task.detached {
-            let result: Result<BAMImportHelperClient.Result, Error>
-            do {
-                let importResult = try await BAMImportHelperClient.importViaCLI(
-                    bamURL: bamURL,
-                    bundleURL: bundleURL,
-                    name: bamURL.lastPathComponent,
-                    shouldCancel: { cancelFlag.withLock { $0 } },
-                    progressHandler: { progress, message in
-                        let clampedProgress = max(0.0, min(1.0, progress))
-                        let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
-                        let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                        scheduleOnMainRunLoop {
-                            _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+            Task.detached {
+                let result: Result<BAMImportHelperClient.Result, Error>
+                do {
+                    let importResult = try await BAMImportHelperClient.importViaCLI(
+                        bamURL: bamURL,
+                        bundleURL: bundleURL,
+                        name: bamURL.lastPathComponent,
+                        shouldCancel: { cancelFlag.withLock { $0 } },
+                        progressHandler: { progress, message in
+                            let clampedProgress = max(0.0, min(1.0, progress))
+                            let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
+                            let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
+                            scheduleOnMainRunLoop {
+                                _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                            }
                         }
-                    }
-                )
-                result = .success(importResult)
-            } catch {
-                result = .failure(error)
-            }
+                    )
+                    result = .success(importResult)
+                } catch {
+                    result = .failure(error)
+                }
 
-            scheduleOnMainRunLoop { [weak self] in
-                switch result {
-                case .success(let importResult):
-                    let readCount = importResult.mappedReads + importResult.unmappedReads
-                    guard OperationCenter.shared.complete(id: opID, detail: "\(readCount) reads imported") else { return }
+                scheduleOnMainRunLoop { [weak self] in
+                    switch result {
+                    case .success(let importResult):
+                        let readCount = importResult.mappedReads + importResult.unmappedReads
+                        guard OperationCenter.shared.complete(id: opID, detail: "\(readCount) reads imported") else { return }
 
-                    guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
-                        .mainSplitViewController?.viewerController else {
-                        debugLog("performBAMImport: No viewer controller")
-                        return
-                    }
-                    do {
-                        try viewerController.displayBundle(at: bundleURL)
-                        debugLog("performBAMImport: Bundle reloaded with alignment track (\(readCount) reads)")
-                    } catch {
-                        debugLog("performBAMImport: Bundle reload failed: \(error)")
-                        self?.showAlert(title: "Import Error", message: "Alignments imported but bundle reload failed: \(error.localizedDescription)")
-                    }
+                        guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
+                            .mainSplitViewController?.viewerController else {
+                            debugLog("performBAMImport: No viewer controller")
+                            return
+                        }
+                        do {
+                            try viewerController.displayBundle(at: bundleURL)
+                            debugLog("performBAMImport: Bundle reloaded with alignment track (\(readCount) reads)")
+                        } catch {
+                            debugLog("performBAMImport: Bundle reload failed: \(error)")
+                            self?.showAlert(title: "Import Error", message: "Alignments imported but bundle reload failed: \(error.localizedDescription)")
+                        }
 
-                case .failure(let error):
-                    if cancelFlag.withLock({ $0 }) || error is CancellationError {
-                        debugLog("performBAMImport: Cancelled by user")
-                        OperationCenter.shared.acknowledgeCancellation(id: opID)
-                    } else {
-                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                        debugLog("performBAMImport: Failed: \(error)")
-                        self?.showAlert(title: "BAM Import Failed", message: error.localizedDescription)
+                    case .failure(let error):
+                        if cancelFlag.withLock({ $0 }) || error is CancellationError {
+                            debugLog("performBAMImport: Cancelled by user")
+                            OperationCenter.shared.acknowledgeCancellation(id: opID)
+                        } else {
+                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                            debugLog("performBAMImport: Failed: \(error)")
+                            self?.showAlert(title: "BAM Import Failed", message: error.localizedDescription)
+                        }
                     }
                 }
             }
         }
-        return opID
+        return result.startedID
     }
 
     @objc func exportFASTA(_ sender: Any?) {
@@ -2445,73 +2392,67 @@ extension AppDelegate {
             let compression = panelController.selectedCompression
 
             let itemURLs = sources.filter { $0.document == nil }.map { $0.metadata.url }
-            let exportTitle = "Exporting \(outputURL.lastPathComponent)"
-            let opID = OperationCenter.shared.start(
-                title: exportTitle,
-                detail: "Preparing sequence export...",
-                operationType: .export,
-                cliCommand: Self.sequenceExportCLICommand(
-                    inputURL: sources.count == 1 && itemURLs.count == 1 ? itemURLs[0] : nil,
-                    outputURL: outputURL,
-                    format: format,
-                    compression: compression
-                ),
+            Self.beginSequenceExportOperation(
+                outputURL: outputURL,
+                inputURL: sources.count == 1 && itemURLs.count == 1 ? itemURLs[0] : nil,
+                format: format,
+                compression: compression,
                 routeContext: routeContext
-            )
+            ) { opID in
+                let task = Task.detached { [weak self] in
+                    do {
+                        await appPerformOnMainRunLoop {
+                            OperationCenter.shared.log(id: opID, level: .info, message: "Writing \(format.displayName) export to \(outputURL.path)")
+                        }
+                        let count = try await self?.performSequenceExport(
+                            sources: sources,
+                            outputURL: outputURL,
+                            format: format,
+                            compression: compression
+                        ) ?? 0
 
-            let task = Task.detached { [weak self] in
-                do {
-                    await appPerformOnMainRunLoop {
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Writing \(format.displayName) export to \(outputURL.path)")
-                    }
-                    let count = try await self?.performSequenceExport(
-                        sources: sources,
-                        outputURL: outputURL,
-                        format: format,
-                        compression: compression
-                    ) ?? 0
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)"
-                            ) else { return }
-                            let alert = NSAlert()
-                            alert.messageText = "Export Complete"
-                            alert.informativeText = "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)."
-                            alert.alertStyle = .informational
-                            alert.addButton(withTitle: "OK")
-                            alert.addButton(withTitle: "Show in Finder")
-                            alert.beginSheetModal(for: window) { response in
-                                if response == .alertSecondButtonReturn {
-                                    NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)"
+                                ) else { return }
+                                let alert = NSAlert()
+                                alert.messageText = "Export Complete"
+                                alert.informativeText = "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)."
+                                alert.alertStyle = .informational
+                                alert.addButton(withTitle: "OK")
+                                alert.addButton(withTitle: "Show in Finder")
+                                alert.beginSheetModal(for: window) { response in
+                                    if response == .alertSecondButtonReturn {
+                                        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+                                    }
                                 }
                             }
                         }
-                    }
-                } catch {
-                    debugLog("exportSequences: Failed - \(error)")
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.fail(
-                                id: opID,
-                                detail: error.localizedDescription,
-                                errorMessage: "Sequence export failed",
-                                errorDetail: error.localizedDescription
-                            ) else { return }
-                            let alert = NSAlert()
-                            alert.messageText = "Export Failed"
-                            alert.informativeText = error.localizedDescription
-                            alert.alertStyle = .critical
-                            alert.addButton(withTitle: "OK")
-                            alert.beginSheetModal(for: window)
+                    } catch {
+                        debugLog("exportSequences: Failed - \(error)")
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.fail(
+                                    id: opID,
+                                    detail: error.localizedDescription,
+                                    errorMessage: "Sequence export failed",
+                                    errorDetail: error.localizedDescription
+                                ) else { return }
+                                let alert = NSAlert()
+                                alert.messageText = "Export Failed"
+                                alert.informativeText = error.localizedDescription
+                                alert.alertStyle = .critical
+                                alert.addButton(withTitle: "OK")
+                                alert.beginSheetModal(for: window)
+                            }
                         }
                     }
                 }
-            }
-            OperationCenter.shared.setCancelCallback(for: opID) {
-                task.cancel()
+                OperationCenter.shared.setCancelCallback(for: opID) {
+                    task.cancel()
+                }
             }
         }
     }
@@ -2542,88 +2483,79 @@ extension AppDelegate {
                 format: format,
                 compression: compression
             )
-            let cliCommands = Self.batchSequenceExportCLICommands(
-                for: bundleURLs,
+            Self.beginBatchSequenceExportOperation(
+                bundleURLs: bundleURLs,
                 outputFolder: outputFolder,
                 format: format,
-                compression: compression
-            )
-            let opID = OperationCenter.shared.start(
-                title: "Exporting \(bundleURLs.count) sequence files",
-                detail: "Preparing batch export...",
-                operationType: .export,
-                cliCommand: cliCommands.first.map { firstCommand in
-                    guard cliCommands.count > 1 else { return firstCommand }
-                    return "\(firstCommand)\n# ... \(cliCommands.count - 1) more export command(s)"
-                },
+                compression: compression,
                 routeContext: routeContext
-            )
-
-            let task = Task.detached { [weak self] in
-                do {
-                    var count = 0
-                    for (index, bundleURL) in bundleURLs.enumerated() {
-                        try Task.checkCancellation()
-                        guard let outputURL = targets[bundleURL] else { continue }
-                        await appPerformOnMainRunLoop {
-                            let detail = "Exporting \(index + 1) of \(bundleURLs.count): \(bundleURL.deletingPathExtension().lastPathComponent)"
-                            _ = OperationCenter.shared.update(
-                                id: opID,
-                                progress: Double(index) / Double(max(bundleURLs.count, 1)),
-                                detail: detail
-                            )
-                            OperationCenter.shared.log(id: opID, level: .info, message: "\(detail) -> \(outputURL.lastPathComponent)")
+            ) { opID in
+                let task = Task.detached { [weak self] in
+                    do {
+                        var count = 0
+                        for (index, bundleURL) in bundleURLs.enumerated() {
+                            try Task.checkCancellation()
+                            guard let outputURL = targets[bundleURL] else { continue }
+                            await appPerformOnMainRunLoop {
+                                let detail = "Exporting \(index + 1) of \(bundleURLs.count): \(bundleURL.deletingPathExtension().lastPathComponent)"
+                                _ = OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: Double(index) / Double(max(bundleURLs.count, 1)),
+                                    detail: detail
+                                )
+                                OperationCenter.shared.log(id: opID, level: .info, message: "\(detail) -> \(outputURL.lastPathComponent)")
+                            }
+                            count += try await self?.performSequenceExport(
+                                sources: [.init(metadata: .init(kind: .filesystem, url: bundleURL,
+                                    documentID: nil, nativeSequenceID: nil, projectURL: nil), document: nil)],
+                                outputURL: outputURL,
+                                format: format,
+                                compression: compression
+                            ) ?? 0
                         }
-                        count += try await self?.performSequenceExport(
-                            sources: [.init(metadata: .init(kind: .filesystem, url: bundleURL,
-                                documentID: nil, nativeSequenceID: nil, projectURL: nil), document: nil)],
-                            outputURL: outputURL,
-                            format: format,
-                            compression: compression
-                        ) ?? 0
-                    }
 
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "Exported \(bundleURLs.count) file(s) with \(count) sequence(s)"
-                            ) else { return }
-                            let alert = NSAlert()
-                            alert.messageText = "Export Complete"
-                            alert.informativeText = "Exported \(bundleURLs.count) file(s) with \(count) sequence(s) to \(outputFolder.lastPathComponent)."
-                            alert.alertStyle = .informational
-                            alert.addButton(withTitle: "OK")
-                            alert.addButton(withTitle: "Show in Finder")
-                            alert.beginSheetModal(for: window) { response in
-                                if response == .alertSecondButtonReturn {
-                                    NSWorkspace.shared.activateFileViewerSelecting([outputFolder])
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: "Exported \(bundleURLs.count) file(s) with \(count) sequence(s)"
+                                ) else { return }
+                                let alert = NSAlert()
+                                alert.messageText = "Export Complete"
+                                alert.informativeText = "Exported \(bundleURLs.count) file(s) with \(count) sequence(s) to \(outputFolder.lastPathComponent)."
+                                alert.alertStyle = .informational
+                                alert.addButton(withTitle: "OK")
+                                alert.addButton(withTitle: "Show in Finder")
+                                alert.beginSheetModal(for: window) { response in
+                                    if response == .alertSecondButtonReturn {
+                                        NSWorkspace.shared.activateFileViewerSelecting([outputFolder])
+                                    }
                                 }
                             }
                         }
-                    }
-                } catch {
-                    debugLog("presentBatchSequenceExport: Failed - \(error)")
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.fail(
-                                id: opID,
-                                detail: error.localizedDescription,
-                                errorMessage: "Batch sequence export failed",
-                                errorDetail: error.localizedDescription
-                            ) else { return }
-                            let alert = NSAlert()
-                            alert.messageText = "Export Failed"
-                            alert.informativeText = error.localizedDescription
-                            alert.alertStyle = .critical
-                            alert.addButton(withTitle: "OK")
-                            alert.beginSheetModal(for: window)
+                    } catch {
+                        debugLog("presentBatchSequenceExport: Failed - \(error)")
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.fail(
+                                    id: opID,
+                                    detail: error.localizedDescription,
+                                    errorMessage: "Batch sequence export failed",
+                                    errorDetail: error.localizedDescription
+                                ) else { return }
+                                let alert = NSAlert()
+                                alert.messageText = "Export Failed"
+                                alert.informativeText = error.localizedDescription
+                                alert.alertStyle = .critical
+                                alert.addButton(withTitle: "OK")
+                                alert.beginSheetModal(for: window)
+                            }
                         }
                     }
                 }
-            }
-            OperationCenter.shared.setCancelCallback(for: opID) {
-                task.cancel()
+                OperationCenter.shared.setCancelCallback(for: opID) {
+                    task.cancel()
+                }
             }
         }
     }
@@ -2815,12 +2747,15 @@ extension AppDelegate {
             ).dropFirst())
             return OperationCenter.buildCLICommand(subcommand: "convert", args: args)
         }
-        let args = [
+        var args = [
             inputURL.path,
             "--to", outputURL.path,
             "--to-format", format.cliFormat,
-            "--force"
         ]
+        // The run keeps the source file's annotations in a GenBank export, and
+        // `convert` drops them unless it is told to include them.
+        if format == .genbank { args.append("--include-annotations") }
+        args.append("--force")
         return OperationCenter.buildCLICommand(subcommand: "convert", args: args)
     }
 
