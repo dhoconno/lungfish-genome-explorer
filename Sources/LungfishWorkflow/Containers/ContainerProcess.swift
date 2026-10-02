@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 //
 // Owner: Workflow Integration Lead (Role 14)
-// Advisor: Apple Containerization Expert (Role 21)
 
 import Foundation
 

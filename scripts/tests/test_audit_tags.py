@@ -259,7 +259,7 @@ def test_the_allowlist_in_use_is_skipped_whatever_its_name(tmp_path):
     assert result.stderr == ""
 
 
-def test_only_sources_tests_and_scripts_are_scanned(tmp_path):
+def test_only_the_scan_roots_are_scanned(tmp_path):
     script = make_repo(
         tmp_path,
         {
@@ -271,6 +271,14 @@ def test_only_sources_tests_and_scripts_are_scanned(tmp_path):
     (tmp_path / "Tests").mkdir()
     (tmp_path / "Tests" / "T.swift").write_text(f"// {tag()}\n", encoding="utf-8")
     assert run(script).returncode == 1
+
+
+@pytest.mark.parametrize("root", ["Sources", "Tests", "scripts", "agents", ".github", ".codex"])
+def test_a_tag_under_every_scan_root_is_caught(tmp_path, root):
+    script = make_repo(tmp_path, {f"{root}/note.txt": f"A note that cites {tag()}.\n"})
+    result = run(script)
+    assert result.returncode == 1
+    assert f"{root}/note.txt:1" in result.stderr
 
 
 def test_binary_files_and_build_directories_are_skipped(tmp_path):

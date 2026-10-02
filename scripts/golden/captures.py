@@ -688,9 +688,11 @@ def run_classifiers(ctx: CaptureContext) -> None:
     # Kraken2 reads the virtual bundle directly and materializes it itself.
     ctx.cli_run(["conda", "classify", derived, "--db", KRAKEN2_DATABASE, "--threads", THREADS,
                  "--output-dir", analyses / "kraken2-golden"], label="conda-classify")
-    # EsViritu refuses a bundle (it takes FASTQ files only), while the app
-    # materializes first and then runs EsViritu in process. The probe records
-    # the refusal. The run below materializes through the CLI first.
+    # esviritu detect also takes the virtual bundle. It materializes the bundle into
+    # .lungfish-esviritu-inputs in the output folder and runs EsViritu on those reads,
+    # as the app does after its own materialization. The probe records that run, with
+    # exit status 0 and a detection summary. The run below materializes through the
+    # CLI first and passes EsViritu the FASTQ file.
     ctx.cli_run(["esviritu", "detect", "--input", derived, "--sample", SAMPLE, "--threads", THREADS,
                  "--output", ctx.work / "esviritu-bundle-probe"], label="esviritu-bundle-probe", expect=None)
     (ctx.work / "work").mkdir()

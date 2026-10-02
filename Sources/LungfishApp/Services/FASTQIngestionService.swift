@@ -1338,45 +1338,6 @@ public enum FASTQIngestionService {
 
     // MARK: - CLI Subprocess Import
 
-    /// Spawns `lungfish-cli import fastq` as a child process for memory-safe batch import.
-    ///
-    /// Progress is parsed from the CLI's stdout JSON lines. The app stays alive
-    /// even if the CLI process is killed by jetsam.
-    public static func importViaSubprocess(
-        inputDirectory: URL,
-        projectDirectory: URL,
-        recipe: String,
-        qualityBinning: QualityBinningScheme = .illumina4,
-        routeContext: OperationRouteContext? = nil,
-        completion: @escaping @MainActor (Result<Int, Error>) -> Void
-    ) {
-        // The launch declares no bundle lock, so `begin` cannot refuse it today. A refusal
-        // launches nothing and reaches the caller through `completion`.
-        let began = Self.beginBatchSubprocessImportOperation(
-            inputDirectory: inputDirectory,
-            projectDirectory: projectDirectory,
-            recipe: recipe,
-            qualityBinning: qualityBinning,
-            routeContext: routeContext
-        ) { opID in
-            let task = Task.detached {
-                await Self.runCLISubprocess(
-                    inputDirectory: inputDirectory,
-                    projectDirectory: projectDirectory,
-                    recipe: recipe,
-                    qualityBinning: qualityBinning,
-                    operationID: opID,
-                    completion: completion
-                )
-            }
-
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-        }
-        if case .refused(let refusal) = began {
-            completion(.failure(OperationRefusedError(refusal)))
-        }
-    }
-
     nonisolated private static func runCLISubprocess(
         inputDirectory: URL,
         projectDirectory: URL,
