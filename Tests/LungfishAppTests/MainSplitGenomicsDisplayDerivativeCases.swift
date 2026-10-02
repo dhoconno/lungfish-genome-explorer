@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: MIT
 //
 // The FASTQ derivative row (site 42) and the FASTQ operations dialog row
-// (site 43) in MainSplitViewController+GenomicsDisplay.swift record
-// `lungfish-cli fastq` commands. MainSplitGenomicsDisplayOperationTests parses
-// each recorded command with the real CLI parser and calls the case's `verify`
+// (site 43) in MainSplitViewController+GenomicsDisplay.swift record the
+// `lungfish-cli fastq` command FASTQOperationCLIInvocationBuilder builds, and
+// FASTQOperationOutputImporter records the same invocation as derivative
+// provenance (R3, R8). MainSplitGenomicsDisplayOperationTests parses each
+// recorded command with the real CLI parser and calls the case's `verify`
 // closure to compare the parsed values with the request.
 
 import ArgumentParser
@@ -34,11 +36,18 @@ struct GenomicsDisplayDerivativeCase {
 
 enum GenomicsDisplayDerivativeCases {
     /// The derivative kinds whose recorded command is a lungfish-cli command
-    /// at both FASTQ launch sites.
+    /// at both FASTQ launch sites. The dataset viewport row used to record the
+    /// last seven wrongly. Five were native tool commands, and two left out a
+    /// value the run uses (the cutadapt-linked engine and the distances from
+    /// the read ends). The length filter's pairing has a test of its own.
     static func bothSitesRecord() -> [GenomicsDisplayDerivativeCase] {
         let primerLiteral = FASTQPrimerTrimConfiguration(
             source: .literal, forwardSequence: "ACGTACGTAC", tool: .bbduk,
             kmerSize: 23, minKmer: 11, hammingDistance: 1
+        )
+        let primerLinked = FASTQPrimerTrimConfiguration(
+            source: .reference, mode: .linked, referenceFasta: "/tmp/lane 1a2h/primers.fasta",
+            errorRate: 0.08, minimumOverlap: 9, tool: .cutadapt
         )
         return [
             GenomicsDisplayDerivativeCase("subsample by proportion", .subsampleProportion(0.1)) { parsed, input in
@@ -244,14 +253,6 @@ enum GenomicsDisplayDerivativeCases {
                 XCTAssertEqual(command.databaseID, DeaconRibokmersDatabaseInstaller.databaseID)
                 XCTAssertEqual(command.outputDirectory, "<derived>")
             },
-        ]
-    }
-
-    /// The derivative kinds whose lungfish-cli command only the FASTQ
-    /// operations dialog records. The dataset viewport records a native tool
-    /// invocation for them.
-    static func onlyTheDialogRecords() -> [GenomicsDisplayDerivativeCase] {
-        [
             GenomicsDisplayDerivativeCase("reverse complement", .reverseComplement) { parsed, input in
                 let command = try XCTUnwrap(parsed as? FastqReverseComplementSubcommand)
                 XCTAssertEqual(command.input, input)
@@ -299,6 +300,37 @@ enum GenomicsDisplayDerivativeCases {
                 XCTAssertEqual(command.input, input)
                 XCTAssertEqual(command.databaseID, "deacon-panhuman")
                 XCTAssertEqual(command.output.output, "<derived>")
+            },
+            GenomicsDisplayDerivativeCase(
+                "primer removal with cutadapt linked primers from a reference",
+                .primerRemoval(configuration: primerLinked)
+            ) { parsed, input in
+                let command = try XCTUnwrap(parsed as? FastqPrimerRemovalSubcommand)
+                XCTAssertEqual(command.input, input)
+                XCTAssertEqual(command.reference, "/tmp/lane 1a2h/primers.fasta")
+                XCTAssertNil(command.literalSequence)
+                XCTAssertEqual(command.engine, .cutadaptLinked)
+                XCTAssertEqual(command.minimumOverlap, 9)
+                XCTAssertEqual(command.errorRate, 0.08)
+                XCTAssertEqual(command.output.output, "<derived>")
+            },
+            GenomicsDisplayDerivativeCase(
+                "demultiplex with distances from the read ends",
+                .demultiplex(
+                    kitID: "custom-kit", customCSVPath: "/tmp/lane 1a2h/kit.csv", location: "fiveprime",
+                    symmetryMode: nil, maxDistanceFrom5Prime: 3, maxDistanceFrom3Prime: 4, errorRate: 0.1,
+                    engine: .cutadapt, trimBarcodes: false, sampleAssignments: nil, kitOverride: nil
+                )
+            ) { parsed, input in
+                let command = try XCTUnwrap(parsed as? FastqDemultiplexSubcommand)
+                XCTAssertEqual(command.input, input)
+                XCTAssertEqual(command.kit, "/tmp/lane 1a2h/kit.csv")
+                XCTAssertEqual(command.location, "fiveprime")
+                XCTAssertEqual(command.maxDistanceFrom5Prime, 3)
+                XCTAssertEqual(command.maxDistanceFrom3Prime, 4)
+                XCTAssertEqual(command.errorRate, 0.1)
+                XCTAssertTrue(command.noTrim)
+                XCTAssertEqual(command.output, "<derived>")
             },
         ]
     }

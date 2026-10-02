@@ -245,7 +245,9 @@ final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
                 "\(invocation.arguments.first ?? "?"): \(invocation.arguments)"
             )
             XCTAssertEqual(invocation.arguments.suffix(2), ["-o", "/tmp/out.fastq.gz"], "\(invocation.arguments)")
-            let shown = request.cliCommand(inputPath: bundle.fastqURL.path, outputPath: "/tmp/out.fastq.gz", pairingMode: .interleaved)
+            let shown = try XCTUnwrap(
+                request.cliCommand(inputPath: bundle.fastqURL.path, outputPath: "/tmp/out.fastq.gz", pairingMode: .interleaved)
+            )
             XCTAssertTrue(shown.contains("--pairing interleaved"), shown)
         }
     }
@@ -271,12 +273,25 @@ final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
         }
     }
 
-    func testDisplayCommandCarriesTheSamePairingFlag() {
+    func testDisplayCommandIsTheInvocationTheBuilderBuildsWithTheSamePairingFlag() throws {
+        // The display command used to map the recorded pairing without
+        // checking the records. It is now the builder's own invocation, which
+        // checks a recorded `interleaved` pairing against the file.
+        let bundle = try InterleavedFASTQFixture.writeBundle(
+            named: "hg002-display", in: root, pairCount: 4, naming: .identical, pairingMode: .interleaved
+        )
         let request = FASTQDerivativeRequest.subsampleCount(500)
-        let command = request.cliCommand(inputPath: "/tmp/in.fastq", outputPath: "/tmp/out.fastq", pairingMode: .interleaved)
+        let command = try XCTUnwrap(
+            request.cliCommand(inputPath: bundle.fastqURL.path, outputPath: "/tmp/out.fastq", pairingMode: .interleaved)
+        )
         XCTAssertTrue(command.contains("--pairing interleaved"), command)
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: .derivative(request: request, inputURLs: [bundle.fastqURL], outputMode: .perInput),
+            outputTargetPath: "/tmp/out.fastq"
+        )
+        XCTAssertEqual(command, FASTQOperationCLIInvocationBuilder.commandLine(for: invocation))
 
-        let plain = request.cliCommand(inputPath: "/tmp/in.fastq", outputPath: "/tmp/out.fastq")
+        let plain = try XCTUnwrap(request.cliCommand(inputPath: "/tmp/in.fastq", outputPath: "/tmp/out.fastq"))
         XCTAssertFalse(plain.contains("--pairing"), plain)
     }
 }

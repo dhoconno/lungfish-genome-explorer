@@ -334,31 +334,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
     }
 }
 
-private extension FASTQQualityTrimMode {
-    var cliArgument: String {
-        switch self {
-        case .cutRight: return "cut-right"
-        case .cutFront: return "cut-front"
-        case .cutTail: return "cut-tail"
-        case .cutBoth: return "cut-both"
-        }
-    }
-}
-
 // MARK: - CLI Command Construction
-
-/// Builds a shell-quoted command string from an array of parts.
-private func buildToolCommand(parts: [String]) -> String {
-    parts.map { shellEscape($0) }.joined(separator: " ")
-}
-
-/// Builds a shell-quoted `lungfish-cli <subcommand> <args>` command string.
-private func buildLungfishCommand(subcommand: String, args: [String]) -> String {
-    let subcommandParts = subcommand
-        .split(whereSeparator: { $0.isWhitespace })
-        .map(String.init)
-    return buildToolCommand(parts: [CLICommandIdentity.executableName] + subcommandParts + args)
-}
 
 extension FASTQDerivativeRequest {
     private static func canonicalHumanScrubDatabaseID(for databaseID: String) -> String {
@@ -380,236 +356,49 @@ extension FASTQDerivativeRequest {
         return output.format == .fasta ? .fasta : .fastq
     }
 
-    /// Constructs the equivalent `lungfish fastq` CLI command for this operation.
+    /// The `lungfish-cli` command that runs this derivative on `inputPath` and
+    /// writes `outputPath`, or nil when no `lungfish-cli` command reproduces it.
     ///
-    /// The returned string is a copy-pasteable shell command that reproduces
-    /// the same transformation on the command line. Displayed in the Operations
-    /// Panel for transparency and reproducibility.
+    /// `FASTQOperationCLIInvocationBuilder` builds it, the builder whose
+    /// invocation the FASTQ operations dialog executes, so the command is the
+    /// one that runs (findings R3 and R8). The dataset viewport's Operations
+    /// row and the derivative provenance (`toolCommand`) that
+    /// `FASTQOperationOutputImporter` writes both record it. This used to be a
+    /// second encoding that recorded native tool commands, such as `seqkit seq
+    /// --reverse --complement` for a reverse complement that ran as
+    /// `lungfish-cli fastq reverse-complement`, and that left out values the
+    /// run used.
     ///
-    /// For operations without a direct `lungfish fastq` subcommand (e.g. search,
-    /// orient), the string shows the underlying tool invocation instead.
+    /// The builder refuses a request that carries a setting no `lungfish-cli`
+    /// option expresses, such as an adapter FASTA, a read 2 adapter, orient
+    /// keeping unoriented reads, a demultiplex symmetry mode, sample
+    /// assignments or kit override, and primer trimming outside the encodable
+    /// subsets. Those are CLI parity gaps, and the command is nil for them.
     ///
     /// - Parameters:
-    ///   - inputPath: Path to the input FASTQ file.
-    ///   - outputPath: Path to the output FASTQ file.
-    ///   - pairingMode: the pairing recorded by the input bundle, so the
-    ///     shown command carries the same `--pairing` the GUI run used.
-    /// - Returns: A shell-quoted CLI command string.
+    ///   - inputPath: the input bundle or file, as the request names it.
+    ///   - outputPath: the `-o` value, a file or, for the subcommands that
+    ///     write several files, a directory.
+    ///   - pairingMode: the pairing the input bundle recorded. When nil the
+    ///     builder reads it from the input, as the dialog launch does.
     func cliCommand(
         inputPath: String,
         outputPath: String,
         pairingMode: IngestionMetadata.PairingMode? = nil
-    ) -> String {
-        let pairingArgs = FASTQOperationCLIInvocationBuilder.pairingArguments(for: pairingMode)
-        switch self {
-        case .subsampleProportion(let proportion):
-            return buildLungfishCommand(subcommand: "fastq subsample", args: [
-                "--proportion", String(proportion),
-            ] + pairingArgs + [inputPath, "-o", outputPath])
-
-        case .subsampleCount(let count):
-            return buildLungfishCommand(subcommand: "fastq subsample", args: [
-                "--count", String(count),
-            ] + pairingArgs + [inputPath, "-o", outputPath])
-
-        case .lengthFilter(let min, let max):
-            var args: [String] = []
-            if let min { args += ["--min", String(min)] }
-            if let max { args += ["--max", String(max)] }
-            args += [inputPath, "-o", outputPath]
-            return buildLungfishCommand(subcommand: "fastq length-filter", args: args)
-
-        case .searchText(let query, let field, let regex):
-            // This used to show `seqkit grep ...`, a command that
-            // never ran -- the actual executed command is `lungfish fastq
-            // search-text` (FASTQOperationCLIInvocationBuilder.fastqArguments).
-            var args = [inputPath, "--query", query, "--field", field.rawValue]
-            if regex { args.append("--regex") }
-            args += pairingArgs
-            args += ["-o", outputPath]
-            return buildLungfishCommand(subcommand: "fastq search-text", args: args)
-
-        case .searchMotif(let pattern, let regex):
-            // This used to show `seqkit grep ...`, a command that
-            // never ran -- the actual executed command is `lungfish fastq
-            // search-motif` (FASTQOperationCLIInvocationBuilder.fastqArguments).
-            var args = [inputPath, "--pattern", pattern]
-            if regex { args.append("--regex") }
-            args += pairingArgs
-            args += ["-o", outputPath]
-            return buildLungfishCommand(subcommand: "fastq search-motif", args: args)
-
-        case .deduplicate(_, let substitutions, let optical, let opticalDistance):
-            var args = [inputPath, "--subs", String(substitutions)] + pairingArgs + ["-o", outputPath]
-            if optical {
-                args += ["--optical", "--dupedist", String(opticalDistance)]
-            }
-            return buildLungfishCommand(subcommand: "fastq deduplicate", args: args)
-
-        case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, let adapterSequence):
-            var args = [
-                inputPath,
-                "--threshold", String(threshold),
-                "--window", String(windowSize),
-                "--mode", mode.cliArgument,
-            ]
-            if adapterMode == .autoDetect {
-                args.append("--adapter-trimming")
-            } else if adapterMode == .specified, let adapterSequence {
-                args += ["--adapter-trimming", "--adapter", adapterSequence]
-            } else {
-                args.append("--no-adapter-trimming")
-            }
-            args += pairingArgs
-            args += ["-o", outputPath]
-            return buildLungfishCommand(subcommand: "fastq trim", args: args)
-
-        case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
-            let modeString: String
-            switch mode {
-            case .cutRight: modeString = "cut-right"
-            case .cutFront: modeString = "cut-front"
-            case .cutTail: modeString = "cut-tail"
-            case .cutBoth: modeString = "cut-both"
-            }
-            var args = [
-                "--threshold", String(threshold),
-                "--window", String(windowSize),
-                "--mode", modeString,
-            ] + pairingArgs + [inputPath, "-o", outputPath]
-            if !extraArguments.isEmpty {
-                args += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
-            }
-            return buildLungfishCommand(subcommand: "fastq quality-trim", args: args)
-
-        case .adapterTrim(_, let sequence, _, _):
-            var args = pairingArgs + [inputPath, "-o", outputPath]
-            if let sequence {
-                args += ["--adapter", sequence]
-            }
-            return buildLungfishCommand(subcommand: "fastq adapter-trim", args: args)
-
-        case .fixedTrim(let from5Prime, let from3Prime):
-            var args = pairingArgs + [inputPath, "-o", outputPath]
-            if from5Prime > 0 { args += ["--front", String(from5Prime)] }
-            if from3Prime > 0 { args += ["--tail", String(from3Prime)] }
-            return buildLungfishCommand(subcommand: "fastq fixed-trim", args: args)
-
-        case .contaminantFilter(let mode, let referenceFasta, let kmerSize, let hammingDistance):
-            var args = [inputPath, "-o", outputPath, "--kmer", String(kmerSize), "--hdist", String(hammingDistance)]
-            switch mode {
-            case .phix:
-                args += ["--mode", "phix"]
-            case .custom:
-                args += ["--mode", "custom"]
-                if let ref = referenceFasta { args += ["--ref", ref] }
-            }
-            args += pairingArgs
-            return buildLungfishCommand(subcommand: "fastq contaminant-filter", args: args)
-
-        case .lowComplexityFilter(let entropy, let window, let kmer):
-            return buildLungfishCommand(subcommand: "fastq entropy-filter", args: [
-                inputPath,
-                "--entropy", FASTQDerivativeRequest.entropyArgument(entropy),
-                "--window", String(window),
-                "--kmer", String(kmer),
-            ] + pairingArgs + ["-o", outputPath])
-
-        case .pairedEndMerge(let strictness, let minOverlap):
-            var args = [inputPath, "-o", outputPath, "--min-overlap", String(minOverlap)]
-            if strictness == .strict { args.append("--strict") }
-            args.append("--count-duplicates")
-            return buildLungfishCommand(subcommand: "fastq merge", args: args)
-
-        case .pairedEndRepair:
-            return buildLungfishCommand(subcommand: "fastq repair", args: [
-                inputPath, "-o", outputPath,
-            ])
-
-        case .primerRemoval(let configuration):
-            var args = [inputPath, "-o", outputPath]
-            if let seq = configuration.forwardSequence {
-                args += ["--literal", seq]
-            } else if let ref = configuration.referenceFasta {
-                args += ["--ref", ref]
-            }
-            if configuration.tool == .bbduk {
-                args += [
-                    "--kmer", String(configuration.kmerSize),
-                    "--mink", String(configuration.minKmer),
-                    "--hdist", String(configuration.hammingDistance),
-                ]
-            }
-            return buildLungfishCommand(subcommand: "fastq primer-remove", args: args)
-
-        case .sequencePresenceFilter(let sequence, let fastaPath, _, let minOverlap, let errorRate, let keepMatched, _):
-            // No direct lungfish CLI subcommand — show cutadapt invocation.
-            var parts = ["cutadapt", "--discard-untrimmed", "-O", String(minOverlap), "-e", String(format: "%.2f", errorRate)]
-            if let seq = sequence { parts += ["-a", seq] }
-            else if let path = fastaPath { parts += ["-a", "file:\(path)"] }
-            parts += ["-o", outputPath, inputPath]
-            let note = keepMatched ? " # keep matched" : " # keep unmatched"
-            return buildToolCommand(parts: parts) + note
-
-        case .errorCorrection(let kmerSize):
-            return buildLungfishCommand(subcommand: "fastq error-correct", args: [
-                inputPath, "-o", outputPath, "--kmer", String(kmerSize),
-            ])
-
-        case .interleaveReformat(let direction):
-            switch direction {
-            case .deinterleave:
-                return buildLungfishCommand(subcommand: "fastq deinterleave", args: [
-                    inputPath, "--out1", outputPath + ".R1.fastq", "--out2", outputPath + ".R2.fastq",
-                ])
-            case .interleave:
-                return buildLungfishCommand(subcommand: "fastq interleave", args: [
-                    "--in1", inputPath, "--in2", "<R2>", "-o", outputPath,
-                ])
-            }
-
-        case .reverseComplement:
-            return buildToolCommand(parts: ["seqkit", "seq", "--reverse", "--complement", inputPath, "-o", outputPath])
-
-        case .translate(let frameOffset):
-            return buildToolCommand(parts: ["seqkit", "translate", "--frame", String(frameOffset + 1), inputPath, "-o", outputPath])
-
-        case .demultiplex(let kitID, let customCSVPath, let location, _, _, _, let errorRate, let engine, let trimBarcodes, _, _):
-            var args = [inputPath, "--kit", customCSVPath ?? kitID, "-o", outputPath]
-            if engine == .exactBareBarcode {
-                args += ["--engine", engine.rawValue]
-                return buildLungfishCommand(subcommand: "fastq demultiplex", args: args)
-            }
-            args += ["--location", location, "--error-rate", String(format: "%.2f", errorRate)]
-            if engine != .cutadapt { args += ["--engine", engine.rawValue] }
-            if !trimBarcodes { args.append("--no-trim") }
-            return buildLungfishCommand(subcommand: "fastq demultiplex", args: args)
-
-        case .orient(let referenceURL, let wordLength, _, _, let extraArguments):
-            // No direct lungfish CLI subcommand — show vsearch invocation.
-            var parts = [
-                "vsearch", "--orient", inputPath,
-                "--db", referenceURL.path,
-                "--fastaout", outputPath,
-                "--wordlength", String(wordLength),
-            ]
-            parts += extraArguments
-            return buildToolCommand(parts: parts)
-
-        case .humanReadScrub(let databaseID, _):
-            // No direct lungfish CLI subcommand — show Deacon filter invocation.
-            let resolvedDatabaseID = Self.canonicalHumanScrubDatabaseID(for: databaseID)
-            return buildToolCommand(parts: [
-                "deacon", "filter", "-d", resolvedDatabaseID, inputPath, "-o", outputPath,
-            ])
-
-        case .ribosomalRNAFilter(let retention, _):
-            return buildLungfishCommand(subcommand: "fastq deacon-ribo", args: [
-                inputPath,
-                "--database-id", DeaconRibokmersDatabaseInstaller.databaseID,
-                "--retain", retention.rawValue,
-            ] + pairingArgs + ["-o", outputPath])
+    ) -> String? {
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: self,
+            inputURLs: [URL(fileURLWithPath: inputPath)],
+            outputMode: .perInput
+        )
+        guard let invocation = try? FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: request,
+            outputTargetPath: outputPath,
+            pairingMode: pairingMode
+        ) else {
+            return nil
         }
+        return FASTQOperationCLIInvocationBuilder.commandLine(for: invocation)
     }
 }
 

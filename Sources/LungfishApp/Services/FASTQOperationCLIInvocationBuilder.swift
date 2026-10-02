@@ -1,10 +1,26 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
 struct FASTQOperationCLIInvocationBuilder: Sendable {
     func buildInvocation(for request: FASTQOperationLaunchRequest) throws -> FASTQCLIInvocation {
         try buildInvocation(for: request, outputTargetPath: "<derived>")
+    }
+
+    /// The shell-quoted `lungfish-cli` command line for `invocation`.
+    ///
+    /// Each word is quoted with `shellEscape` and the words are joined with
+    /// spaces, as `OperationCenter.buildCLICommand(subcommand:args:)` does, so
+    /// an Operations panel row and a provenance record built from one
+    /// invocation are the same string.
+    static func commandLine(for invocation: FASTQCLIInvocation) -> String {
+        let subcommandWords = invocation.subcommand
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+        return ([CLICommandIdentity.executableName] + subcommandWords + invocation.arguments)
+            .map(shellEscape)
+            .joined(separator: " ")
     }
 
     /// Builds the `lungfish-cli` invocation for a request.
