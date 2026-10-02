@@ -104,7 +104,10 @@ final class PlainTextPreviewTests: XCTestCase {
 
 @MainActor
 final class PlainTextPreviewViewTests: XCTestCase {
-    private func select(_ fileName: String, contents: String) throws -> (MainSplitViewController, URL, () -> Void) {
+    private func select(
+        _ fileName: String,
+        contents: String
+    ) throws -> (MainSplitViewController, URL, RecordingFilePreviewRenderer, () -> Void) {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("MainSplitTextPreview-\(UUID().uuidString)", isDirectory: true)
         let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
@@ -114,6 +117,7 @@ final class PlainTextPreviewViewTests: XCTestCase {
 
         let controller = MainSplitViewController()
         _ = controller.view
+        let previews = RecordingFilePreviewRenderer.install(on: controller.viewerController)
         controller.sidebarController.openProject(at: projectURL)
         controller.displayImportedProjectFile(at: fileURL)
 
@@ -125,34 +129,37 @@ final class PlainTextPreviewViewTests: XCTestCase {
             controller.sidebarController.closeProject()
             try? FileManager.default.removeItem(at: tempRoot)
         }
-        return (controller, fileURL, cleanup)
+        return (controller, fileURL, previews, cleanup)
     }
 
     func testSelectingMainNfShowsTextPreview() throws {
         let body = "process BCFTOOLS {\n  script: 'bcftools view'\n}\n"
-        let (controller, _, cleanup) = try select("main.nf", contents: body)
+        let (controller, _, previews, cleanup) = try select("main.nf", contents: body)
         defer { cleanup() }
         let viewer = try XCTUnwrap(controller.viewerController)
         XCTAssertEqual(viewer.testPlainTextPreviewString, body)
         XCTAssertEqual(viewer.testPreviewStatusText, "Previewing: main.nf")
         XCTAssertEqual(viewer.testPlainTextPreviewAccessibilityLabel, "Text preview of main.nf")
         XCTAssertFalse(viewer.testHasQuickLookView)
+        XCTAssertEqual(previews.renderedURLs, [])
     }
 
     func testSelectingSnakefileShowsTextPreview() throws {
         let body = "rule all:\n    input: 'out.vcf'\n"
-        let (controller, _, cleanup) = try select("Snakefile", contents: body)
+        let (controller, _, previews, cleanup) = try select("Snakefile", contents: body)
         defer { cleanup() }
         let viewer = try XCTUnwrap(controller.viewerController)
         XCTAssertEqual(viewer.testPlainTextPreviewString, body)
         XCTAssertEqual(viewer.testPreviewStatusText, "Previewing: Snakefile")
+        XCTAssertEqual(previews.renderedURLs, [])
     }
 
     func testSelectingMarkdownKeepsQuickLookPath() throws {
-        let (controller, fileURL, cleanup) = try select("methods.md", contents: "# Methods\n")
+        let (controller, fileURL, previews, cleanup) = try select("methods.md", contents: "# Methods\n")
         defer { cleanup() }
         let viewer = try XCTUnwrap(controller.viewerController)
         XCTAssertEqual(viewer.testQuickLookURL?.resolvingSymlinksInPath(), fileURL.resolvingSymlinksInPath())
         XCTAssertNil(viewer.testPlainTextPreviewString)
+        XCTAssertEqual(previews.renderedURLs.last?.resolvingSymlinksInPath(), fileURL.resolvingSymlinksInPath())
     }
 }

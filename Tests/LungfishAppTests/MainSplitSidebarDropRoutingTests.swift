@@ -50,6 +50,7 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
 
         let controller = MainSplitViewController()
         _ = controller.view
+        let previews = RecordingFilePreviewRenderer.install(on: controller.viewerController)
         controller.sidebarController.openProject(at: projectURL)
 
         defer {
@@ -87,9 +88,10 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
             controller.viewerController.testQuickLookURL?.resolvingSymlinksInPath(),
             expectedCSVURL
         )
+        XCTAssertEqual(previews.renderedURLs.last?.resolvingSymlinksInPath(), expectedCSVURL)
         XCTAssertFalse(
             controller.viewerController.testHasQuickLookView,
-            "Unit tests should verify routing without instantiating embedded QuickLook views."
+            "The recording renderer stands in for Quick Look, so no embedded view is created."
         )
     }
 

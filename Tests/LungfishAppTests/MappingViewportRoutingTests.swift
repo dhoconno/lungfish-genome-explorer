@@ -747,6 +747,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let workbookURL = try XCTUnwrap(MainSplitViewController.genotypeResultWorkbookURL(forBundle: bundleURL))
         let controller = MainSplitViewController()
         _ = controller.view
+        let previews = RecordingFilePreviewRenderer.install(on: controller.viewerController)
 
         await controller.displayGenotypeResultBundleAndWait(bundleURL)
 
@@ -754,6 +755,7 @@ final class MappingViewportRoutingTests: XCTestCase {
             controller.viewerController.testQuickLookURL?.standardizedFileURL,
             workbookURL.standardizedFileURL
         )
+        XCTAssertEqual(previews.renderedURLs.map(\.standardizedFileURL), [workbookURL.standardizedFileURL])
         XCTAssertNil(controller.viewerController.genotypeResultViewController)
     }
 
@@ -769,6 +771,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
         let controller = MainSplitViewController()
         _ = controller.view
+        RecordingFilePreviewRenderer.install(on: controller.viewerController)
         _ = controller.viewerController.displayGenotypeResult(makeNativeHaplotypedResult())
         XCTAssertNotNil(controller.viewerController.genotypeResultViewController)
 
