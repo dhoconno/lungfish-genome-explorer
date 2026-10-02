@@ -151,33 +151,26 @@ public enum FASTQIngestionService {
             deleteOriginals: true
         )
 
-        let baseName = FASTQIngestionPipeline.deriveBaseName(from: url)
-        let title = "FASTQ Ingestion: \(baseName)"
-
         // Register the operation FIRST so we have a stable ID to pass to the detached task.
-        let cliCmd = inPlaceIngestionCommandPreview(
+        // The launch declares no bundle lock, so `begin` cannot refuse it today. A refusal
+        // launches nothing, and the panel already shows the refused row.
+        Self.beginInPlaceIngestionOperation(
             url: url,
             pairingMode: pairingMode,
-            pairedFile: pairedFile
-        )
-        let opID = OperationCenter.shared.start(
-            title: title,
-            detail: "Preparing...",
-            operationType: .ingestion,
-            cliCommand: cliCmd,
+            pairedFile: pairedFile,
             routeContext: routeContext
-        )
+        ) { opID in
+            let task = Task.detached {
+                await Self.runIngestion(
+                    config: config,
+                    operationID: opID,
+                    existingMetadata: existingMetadata
+                )
+            }
 
-        let task = Task.detached {
-            await Self.runIngestion(
-                config: config,
-                operationID: opID,
-                existingMetadata: existingMetadata
-            )
+            // Store cancellation callback now that we have the task handle.
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
-
-        // Store cancellation callback now that we have the task handle.
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     // MARK: - Ingest and Bundle
@@ -198,31 +191,29 @@ public enum FASTQIngestionService {
         routeContext: OperationRouteContext? = nil,
         completion: @escaping @MainActor (Result<URL, Error>) -> Void
     ) {
-        let title = "FASTQ Import: \(bundleName)"
-
-        let cliCmd = cliImportCommandPreview(
+        // The launch declares no bundle lock, so `begin` cannot refuse it today. A refusal
+        // launches nothing and reaches the caller through `completion`.
+        let began = Self.beginSingleFileImportOperation(
             sourceURL: sourceURL,
-            projectDirectory: projectDirectory
-        )
-        let opID = OperationCenter.shared.start(
-            title: title,
-            detail: "Preparing import workspace\u{2026}",
-            operationType: .ingestion,
-            cliCommand: cliCmd,
+            projectDirectory: projectDirectory,
+            bundleName: bundleName,
             routeContext: routeContext
-        )
+        ) { opID in
+            let task = Task.detached {
+                await Self.runIngestAndBundle(
+                    sourceURL: sourceURL,
+                    projectDirectory: projectDirectory,
+                    bundleName: bundleName,
+                    operationID: opID,
+                    completion: completion
+                )
+            }
 
-        let task = Task.detached {
-            await Self.runIngestAndBundle(
-                sourceURL: sourceURL,
-                projectDirectory: projectDirectory,
-                bundleName: bundleName,
-                operationID: opID,
-                completion: completion
-            )
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
-
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        if case .refused(let refusal) = began {
+            completion(.failure(OperationRefusedError(refusal)))
+        }
     }
 
     // MARK: - Pipeline Runners
@@ -369,36 +360,33 @@ public enum FASTQIngestionService {
         routeContext: OperationRouteContext? = nil,
         completion: @escaping @MainActor (Result<URL, Error>) -> Void
     ) {
-        let title = "FASTQ Import: \(bundleName)"
-
-        let cliCmd = cliImportCommandPreview(
+        // The launch declares no bundle lock, so `begin` cannot refuse it today. A refusal
+        // launches nothing and reaches the caller through `completion`.
+        let began = Self.beginFASTQPairImportOperation(
             pair: pair,
             projectDirectory: projectDirectory,
-            importConfig: importConfig,
             bundleName: bundleName,
-            force: forceReplace
-        )
-        let opID = OperationCenter.shared.start(
-            title: title,
-            detail: "Preparing import workspace\u{2026}",
-            operationType: .ingestion,
-            cliCommand: cliCmd,
+            importConfig: importConfig,
+            forceReplace: forceReplace,
             routeContext: routeContext
-        )
+        ) { opID in
+            let task = Task.detached {
+                await Self.runIngestAndBundle(
+                    pair: pair,
+                    projectDirectory: projectDirectory,
+                    bundleName: bundleName,
+                    importConfig: importConfig,
+                    forceReplace: forceReplace,
+                    operationID: opID,
+                    completion: completion
+                )
+            }
 
-        let task = Task.detached {
-            await Self.runIngestAndBundle(
-                pair: pair,
-                projectDirectory: projectDirectory,
-                bundleName: bundleName,
-                importConfig: importConfig,
-                forceReplace: forceReplace,
-                operationID: opID,
-                completion: completion
-            )
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
-
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        if case .refused(let refusal) = began {
+            completion(.failure(OperationRefusedError(refusal)))
+        }
     }
 
     /// Ingests using source inputs in place, creates the bundle, moves processed file in.
@@ -410,27 +398,12 @@ public enum FASTQIngestionService {
         completion: @escaping @MainActor (Result<URL, Error>) -> Void
     ) async {
         // Legacy entry point — wrap in a single-file pair with defaults.
-        // Nobody chose the pairing, so the CLI detects it from the records.
         let pair = FASTQFilePair(r1: sourceURL, r2: nil)
-        let importConfig = FASTQImportConfiguration(
-            inputFiles: [sourceURL],
-            detectedPlatform: .unknown,
-            confirmedPlatform: .unknown,
-            pairingMode: .singleEnd,
-            pairingModeIsUserChoice: false,
-            qualityBinning: .illumina4,
-            skipClumpify: false,
-            deleteOriginals: false,
-            postImportRecipe: nil,
-            resolvedPlaceholders: [:],
-            recipeName: nil,
-            compressionLevel: nil
-        )
         await runIngestAndBundle(
             pair: pair,
             projectDirectory: projectDirectory,
             bundleName: bundleName,
-            importConfig: importConfig,
+            importConfig: legacySingleFileImportConfiguration(for: sourceURL),
             operationID: opID,
             completion: completion
         )
@@ -587,17 +560,14 @@ public enum FASTQIngestionService {
 
     nonisolated static func cliImportCommandPreview(
         sourceURL: URL,
-        projectDirectory: URL
+        projectDirectory: URL,
+        bundleName: String? = nil
     ) -> String {
-        let pair = FASTQFilePair(r1: sourceURL, r2: nil)
-        return cliImportCommandPreview(
-            pair: pair,
+        cliImportCommandPreview(
+            pair: FASTQFilePair(r1: sourceURL, r2: nil),
             projectDirectory: projectDirectory,
-            importConfig: defaultCLIImportConfiguration(
-                pair: pair,
-                pairingMode: .singleEnd,
-                pairingModeIsUserChoice: false
-            )
+            importConfig: legacySingleFileImportConfiguration(for: sourceURL),
+            bundleName: bundleName
         )
     }
 
@@ -1380,31 +1350,31 @@ public enum FASTQIngestionService {
         routeContext: OperationRouteContext? = nil,
         completion: @escaping @MainActor (Result<Int, Error>) -> Void
     ) {
-        let title = "FASTQ Batch Import"
-        let cliCmd = OperationCenter.buildCLICommand(
-            subcommand: "import fastq",
-            args: [inputDirectory.path, "--project", projectDirectory.path, "--recipe", recipe]
-        )
-        let opID = OperationCenter.shared.start(
-            title: title,
-            detail: "Starting batch import\u{2026}",
-            operationType: .ingestion,
-            cliCommand: cliCmd,
+        // The launch declares no bundle lock, so `begin` cannot refuse it today. A refusal
+        // launches nothing and reaches the caller through `completion`.
+        let began = Self.beginBatchSubprocessImportOperation(
+            inputDirectory: inputDirectory,
+            projectDirectory: projectDirectory,
+            recipe: recipe,
+            qualityBinning: qualityBinning,
             routeContext: routeContext
-        )
+        ) { opID in
+            let task = Task.detached {
+                await Self.runCLISubprocess(
+                    inputDirectory: inputDirectory,
+                    projectDirectory: projectDirectory,
+                    recipe: recipe,
+                    qualityBinning: qualityBinning,
+                    operationID: opID,
+                    completion: completion
+                )
+            }
 
-        let task = Task.detached {
-            await Self.runCLISubprocess(
-                inputDirectory: inputDirectory,
-                projectDirectory: projectDirectory,
-                recipe: recipe,
-                qualityBinning: qualityBinning,
-                operationID: opID,
-                completion: completion
-            )
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
-
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        if case .refused(let refusal) = began {
+            completion(.failure(OperationRefusedError(refusal)))
+        }
     }
 
     nonisolated private static func runCLISubprocess(
@@ -1431,13 +1401,12 @@ public enum FASTQIngestionService {
                 let process = Process()
                 process.environment = ManagedStorageConfigStore().subprocessEnvironment()
                 process.executableURL = cliURL
-                process.arguments = [
-                    "import", "fastq",
-                    inputDirectory.path,
-                    "--project", projectDirectory.path,
-                    "--recipe", recipe,
-                    "--quality-binning", qualityBinning.rawValue,
-                ]
+                process.arguments = Self.batchSubprocessImportArguments(
+                    inputDirectory: inputDirectory,
+                    projectDirectory: projectDirectory,
+                    recipe: recipe,
+                    qualityBinning: qualityBinning
+                )
 
                 let stdoutPipe = Pipe()
                 let stderrPipe = Pipe()

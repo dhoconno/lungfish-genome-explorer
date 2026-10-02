@@ -116,12 +116,14 @@ final class FASTQOperationCompletionOutputsTests: XCTestCase {
         ]
         // A launch registers its row with a `start` call that names
         // `.fastqOperation`, or with a begin helper that registers one. The
-        // helpers live in MainSplitViewController+GenomicsDisplayOperationBegin.swift,
-        // so the launch-site file names the helper call instead.
+        // helpers live in MainSplitViewController+GenomicsDisplayOperationBegin.swift
+        // and MainSplitViewController+FASTQImportOperationBegin.swift, so the
+        // launch-site file names the helper call instead.
         let launchMarkers = [
             "operationType: .fastqOperation",
             "Self.beginFASTQDerivativeOperation(",
             "Self.beginFASTQLaunchRequestOperation(",
+            "Self.beginONTImportRecipeOperation(",
         ]
         var launchCount = 0
         for file in files {
