@@ -119,6 +119,9 @@ public class InspectorViewController: NSViewController {
     var windowStateScope: WindowStateScope? {
         didSet {
             viewModel.windowStateScope = windowStateScope
+            // Sections that post window events themselves attach this scope.
+            viewModel.annotationSectionViewModel.windowStateScope = windowStateScope
+            viewModel.sampleSectionViewModel.windowStateScope = windowStateScope
         }
     }
     var activeContentSelectionIdentity: ContentSelectionIdentity?
@@ -168,6 +171,7 @@ public class InspectorViewController: NSViewController {
     }
 
     @objc private func handleGenotypeViewModeChanged(_ notification: Notification) {
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let raw = notification.userInfo?["mode"] as? String,
               let mode = GenotypeSummaryViewMode(rawValue: raw) else { return }
         viewModel.genotypeResultDisplaySectionViewModel.setSummaryViewMode(mode)
@@ -179,6 +183,7 @@ public class InspectorViewController: NSViewController {
     }
 
     @objc private func handleGenotypeShowsAncillaryLociChanged(_ notification: Notification) {
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let value = notification.userInfo?["showsAncillaryLoci"] as? Bool else { return }
         viewModel.genotypeResultDisplaySectionViewModel.setShowsAncillaryLoci(value)
         // Mirror into the Document section's state so the toggle in SwiftUI
@@ -191,6 +196,7 @@ public class InspectorViewController: NSViewController {
     }
 
     @objc private func handleGenotypeIncludedLociChanged(_ notification: Notification) {
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let loci = notification.userInfo?["includedLoci"] as? [String] else { return }
         let included = Set(loci)
         viewModel.genotypeResultDisplaySectionViewModel.setIncludedLoci(included)
@@ -411,6 +417,13 @@ public class InspectorViewController: NSViewController {
                 name: .runFASTAOperationOnAnnotationRequested,
                 object: nil,
                 userInfo: self?.windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
+            )
+        }
+        viewModel.selectionSectionViewModel.onEditGenotypeCallsRequested = { [weak self] sample in
+            NotificationCenter.default.post(
+                name: .genotypeResultRequestSampleDetailSheet,
+                object: nil,
+                userInfo: self?.windowScopedUserInfo(["sample": sample])
             )
         }
         viewModel.selectionSectionViewModel.onZoomToAnnotation = { [weak self] annotation in

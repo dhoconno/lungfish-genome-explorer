@@ -907,20 +907,12 @@ public class SidebarViewController: NSViewController {
     /// Extracts the `url` from the notification's `userInfo` and delegates to
     /// `selectItem(forURL:)` which locates the matching sidebar entry and selects it.
     @objc private func handleNavigateToSidebarItem(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let url = notification.userInfo?["url"] as? URL else { return }
         let found = selectItem(forURL: url)
         if !found {
             sidebarLogger.debug("handleNavigateToSidebarItem: No sidebar item found for \(url.lastPathComponent, privacy: .public)")
         }
-    }
-
-    private func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
-        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
-            return true
-        }
-        guard let windowStateScope else { return true }
-        return notificationScope == windowStateScope
     }
 
     func canWriteSidebarProjectOutputs(workflowName: String, targetURL: URL? = nil) -> Bool {
@@ -936,10 +928,17 @@ public class SidebarViewController: NSViewController {
     }
 
     func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
-        guard let windowStateScope else { return userInfo }
-        var scopedUserInfo = userInfo
-        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
-        return scopedUserInfo
+        ScopedEventFilter.scopedUserInfo(userInfo, scope: windowStateScope) ?? userInfo
+    }
+
+    /// Hands files dropped on this sidebar to this window's import path. The
+    /// window scope keeps every other project window from importing them too.
+    func postFileDrop(_ urls: [URL], destination: Any) {
+        NotificationCenter.default.post(
+            name: .sidebarFileDropped,
+            object: self,
+            userInfo: windowScopedUserInfo(["urls": urls, "destination": destination])
+        )
     }
 
     func rehydrateScientificProvenance(from sourceURL: URL, to destinationURL: URL) {

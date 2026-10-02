@@ -31,15 +31,16 @@ final class InspectorNotificationScopingTests: XCTestCase {
         XCTAssertNil(inspector.viewModel.selectedItem)
     }
 
-    func testInspectorStillAcceptsLegacyUnscopedSelectionNotification() {
+    func testInspectorDropsUnscopedSelectionNotificationAndAcceptsItsOwnScope() {
         let inspector = InspectorViewController()
         _ = inspector.view
-        inspector.testingWindowStateScope = WindowStateScope()
+        let scope = WindowStateScope()
+        inspector.testingWindowStateScope = scope
 
         let item = SidebarItem(
-            title: "Legacy",
+            title: "Same Window",
             type: .sequence,
-            url: URL(fileURLWithPath: "/tmp/legacy.fasta")
+            url: URL(fileURLWithPath: "/tmp/same-window.fasta")
         )
 
         inspector.testingHandleSidebarSelectionChanged(
@@ -50,7 +51,17 @@ final class InspectorNotificationScopingTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(inspector.viewModel.selectedItem, "Legacy")
+        XCTAssertNil(inspector.viewModel.selectedItem, "A window event without a scope reaches no window")
+
+        inspector.testingHandleSidebarSelectionChanged(
+            Notification(
+                name: .sidebarSelectionChanged,
+                object: nil,
+                userInfo: ["item": item, NotificationUserInfoKey.windowStateScope: scope]
+            )
+        )
+
+        XCTAssertEqual(inspector.viewModel.selectedItem, "Same Window")
     }
 
     func testInspectorIgnoresScopedBatchManifestCachedFromDifferentWindow() {
@@ -86,14 +97,25 @@ final class InspectorNotificationScopingTests: XCTestCase {
         XCTAssertEqual(inspector.viewModel.documentSectionViewModel.batchManifestStatus, .building)
     }
 
-    func testInspectorStillAcceptsLegacyUnscopedBatchManifestCached() {
+    func testInspectorDropsUnscopedBatchManifestCachedAndAcceptsItsOwnScope() {
         let inspector = InspectorViewController()
         _ = inspector.view
-        inspector.testingWindowStateScope = WindowStateScope()
+        let scope = WindowStateScope()
+        inspector.testingWindowStateScope = scope
         inspector.viewModel.documentSectionViewModel.batchManifestStatus = .building
 
         inspector.testingHandleBatchManifestCached(
             Notification(name: .batchManifestCached, object: nil)
+        )
+
+        XCTAssertEqual(inspector.viewModel.documentSectionViewModel.batchManifestStatus, .building)
+
+        inspector.testingHandleBatchManifestCached(
+            Notification(
+                name: .batchManifestCached,
+                object: nil,
+                userInfo: [NotificationUserInfoKey.windowStateScope: scope]
+            )
         )
 
         XCTAssertEqual(inspector.viewModel.documentSectionViewModel.batchManifestStatus, .cached)
@@ -158,16 +180,25 @@ final class InspectorNotificationScopingTests: XCTestCase {
         XCTAssertFalse(accepted)
     }
 
-    func testInspectorStillAcceptsLegacyUnscopedMetadataImportRequest() {
+    func testInspectorDropsUnscopedMetadataImportRequestAndAcceptsItsOwnScope() {
         let inspector = InspectorViewController()
         _ = inspector.view
-        inspector.testingWindowStateScope = WindowStateScope()
+        let scope = WindowStateScope()
+        inspector.testingWindowStateScope = scope
 
-        let accepted = inspector.testingHandleMetadataImportRequested(
+        let unscoped = inspector.testingHandleMetadataImportRequested(
             Notification(name: .metagenomicsMetadataImportRequested, object: nil)
         )
+        let sameWindow = inspector.testingHandleMetadataImportRequested(
+            Notification(
+                name: .metagenomicsMetadataImportRequested,
+                object: nil,
+                userInfo: [NotificationUserInfoKey.windowStateScope: scope]
+            )
+        )
 
-        XCTAssertTrue(accepted)
+        XCTAssertFalse(unscoped)
+        XCTAssertTrue(sameWindow)
     }
 
     func testFASTQAnalysisNavigationDoesNotUseGlobalActiveProjectOrMainWindow() throws {

@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 import LungfishIO
+import LungfishKit
 
 @MainActor
 final class InspectorMappingModeTests: XCTestCase {
@@ -218,13 +219,15 @@ final class InspectorMappingModeTests: XCTestCase {
     func testEmptySidebarDeselectionPreservesActiveBundleContextForInspectorActions() throws {
         let vc = InspectorViewController()
         _ = vc.view
+        let scope = WindowStateScope()
+        vc.testingWindowStateScope = scope
         let bundle = try makeReferenceBundle()
 
         vc.updateMappingAlignmentSection(from: bundle, applySettings: { _ in })
         NotificationCenter.default.post(
             name: .sidebarSelectionChanged,
             object: nil,
-            userInfo: ["items": [SidebarItem]()]
+            userInfo: ["items": [SidebarItem](), NotificationUserInfoKey.windowStateScope: scope]
         )
 
         XCTAssertEqual(vc.selectionSectionViewModel.referenceBundle?.url, bundle.url)

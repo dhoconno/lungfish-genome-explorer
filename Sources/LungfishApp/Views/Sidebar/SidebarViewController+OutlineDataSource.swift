@@ -220,11 +220,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
             }
 
             sidebarLogger.info("acceptDrop: Posting notification for \(fileURLs.count) files")
-            NotificationCenter.default.post(
-                name: .sidebarFileDropped,
-                object: self,
-                userInfo: ["urls": fileURLs, "destination": destinationItem as Any]
-            )
+            postFileDrop(fileURLs, destination: destinationItem as Any)
             return true
         }
 
@@ -236,11 +232,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
             if !fileURLs.isEmpty {
                 sidebarLogger.info("acceptDrop: Fallback posting notification for \(fileURLs.count) files")
-                NotificationCenter.default.post(
-                    name: .sidebarFileDropped,
-                    object: self,
-                    userInfo: ["urls": fileURLs, "destination": destinationItem as Any]
-                )
+                postFileDrop(fileURLs, destination: destinationItem as Any)
                 return true
             }
         }

@@ -5,12 +5,13 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 import os.log
 
 extension MainSplitViewController {
     @objc func handleSidebarPreferredWidthRecommended(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let rawWidth = notification.userInfo?["width"] as? CGFloat else { return }
         applySidebarPreferredWidth(rawWidth, allowShrink: false, isRecommendation: true)
     }

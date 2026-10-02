@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishGenotypeUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 
 @MainActor
@@ -33,6 +34,8 @@ final class InspectorProvenanceTabTests: XCTestCase {
 
         let vc = InspectorViewController()
         _ = vc.view
+        let scope = WindowStateScope()
+        vc.testingWindowStateScope = scope
         vc.viewModel.contentMode = .fastq
 
         let item = SidebarItem(title: "Reads", type: .fastqBundle, url: dir)
@@ -40,7 +43,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
             Notification(
                 name: .sidebarSelectionChanged,
                 object: nil,
-                userInfo: ["item": item]
+                userInfo: ["item": item, NotificationUserInfoKey.windowStateScope: scope]
             )
         )
 

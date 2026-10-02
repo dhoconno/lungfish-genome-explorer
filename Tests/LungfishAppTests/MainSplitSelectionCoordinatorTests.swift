@@ -273,12 +273,20 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         XCTAssertFalse(controller.isInspectorVisible)
     }
 
-    func testShowInspectorRequestStillAcceptsLegacyUnscopedNotification() {
+    func testShowInspectorRequestDropsUnscopedNotificationAndAcceptsItsOwnScope() {
         let controller = MainSplitViewController()
         _ = controller.view
         controller.setInspectorVisible(false, animated: false, source: "test.hide")
 
         NotificationCenter.default.post(name: .showInspectorRequested, object: nil)
+
+        XCTAssertFalse(controller.isInspectorVisible, "A window event without a scope reaches no window")
+
+        NotificationCenter.default.post(
+            name: .showInspectorRequested,
+            object: nil,
+            userInfo: [NotificationUserInfoKey.windowStateScope: controller.windowStateScope]
+        )
 
         XCTAssertTrue(controller.isInspectorVisible)
     }
@@ -470,14 +478,15 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         XCTAssertEqual(sidebar.selectedFileURL?.resolvingSymlinksInPath(), fastaURL.resolvingSymlinksInPath())
     }
 
-    func testNavigateToSidebarItemStillAcceptsLegacyUnscopedNotification() throws {
-        let (tempRoot, projectURL, fastaURL) = try makeSidebarProjectFixture(prefix: "MainSplitNavigateLegacy")
+    func testNavigateToSidebarItemDropsUnscopedNotificationAndAcceptsItsOwnScope() throws {
+        let (tempRoot, projectURL, fastaURL) = try makeSidebarProjectFixture(prefix: "MainSplitNavigateUnscoped")
         let otherURL = projectURL.appendingPathComponent("other.fasta")
         try ">other\nTGCA\n".write(to: otherURL, atomically: true, encoding: .utf8)
 
         let sidebar = SidebarViewController()
         sidebar.loadViewIfNeeded()
-        sidebar.windowStateScope = WindowStateScope()
+        let scope = WindowStateScope()
+        sidebar.windowStateScope = scope
 
         defer {
             sidebar.closeProject()
@@ -491,6 +500,14 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
             name: .navigateToSidebarItem,
             object: nil,
             userInfo: ["url": otherURL]
+        )
+
+        XCTAssertEqual(sidebar.selectedFileURL?.resolvingSymlinksInPath(), fastaURL.resolvingSymlinksInPath())
+
+        NotificationCenter.default.post(
+            name: .navigateToSidebarItem,
+            object: nil,
+            userInfo: ["url": otherURL, NotificationUserInfoKey.windowStateScope: scope]
         )
 
         XCTAssertEqual(sidebar.selectedFileURL?.resolvingSymlinksInPath(), otherURL.resolvingSymlinksInPath())

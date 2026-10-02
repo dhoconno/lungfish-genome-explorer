@@ -93,6 +93,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testGenotypeOnlyResultKeepsMatrixWhenDefinitionsRequestWouldOpenAudit() {
         let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
+        let scope = WindowStateScope()
+        controller.windowStateScope = scope
         controller.configure(result: makeResult(samples: [], calls: [
             makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
         ]))
@@ -109,7 +111,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
         NotificationCenter.default.post(
             name: .genotypeResultOpenHaplotypeDefinitions,
-            object: nil
+            object: nil,
+            userInfo: [NotificationUserInfoKey.windowStateScope: scope]
         )
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
         XCTAssertEqual(controller.testingSummaryViewMode, .matrix)

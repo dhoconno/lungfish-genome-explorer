@@ -178,7 +178,7 @@ extension SequenceViewerView {
         NotificationCenter.default.post(
             name: .activeSequenceChanged,
             object: self,
-            userInfo: [NotificationUserInfoKey.activeSequenceIndex: index]
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.activeSequenceIndex: index])
         )
     }
 

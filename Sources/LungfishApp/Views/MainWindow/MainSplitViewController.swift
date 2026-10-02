@@ -807,28 +807,21 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     @objc func handleShowInspector(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         let tab = notification.userInfo?[NotificationUserInfoKey.inspectorTab] as? String
         mainSplitLogger.info("handleShowInspector: Showing inspector panel, tab=\(tab ?? "default", privacy: .public)")
         setInspectorVisible(true, animated: false, source: "notification.showInspectorRequested")
         // Tab switching is handled by InspectorViewController observing the same notification
     }
 
-    func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
-        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
-            return true
-        }
-        return notificationScope == windowStateScope
-    }
-
     @objc func handleBundleDidLoad(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         mainSplitLogger.info("handleBundleDidLoad: Bundle loaded, ensuring inspector is visible")
         setInspectorVisible(true, animated: false, source: "notification.bundleDidLoad")
     }
 
     @objc func handleChromosomeInspectorRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         mainSplitLogger.info("handleChromosomeInspectorRequested: Showing inspector for chromosome")
         setInspectorVisible(true, animated: false, source: "notification.chromosomeInspectorRequested")
         // Chromosome details are handled by InspectorViewController observing the same notification

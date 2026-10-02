@@ -382,6 +382,8 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
         let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
         let viewer = ViewerViewController()
         viewer.loadViewIfNeeded()
+        let scope = WindowStateScope()
+        viewer.windowStateScope = scope
         let controller = MultipleSequenceAlignmentViewController()
         _ = controller.view
         _ = try await controller.displayBundle(at: bundleURL)
@@ -392,15 +394,23 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
             targetCount: 1, exclusionCount: 1, exclusionSourceName: nil)
         NotificationCenter.default.post(
             name: .msaDiscriminatingSitesHighlightChanged, object: nil,
-            userInfo: [NotificationUserInfoKey.msaDiscriminatingSitesHighlight: highlight])
+            userInfo: [
+                NotificationUserInfoKey.msaDiscriminatingSitesHighlight: highlight,
+                NotificationUserInfoKey.windowStateScope: scope,
+            ])
         XCTAssertEqual(controller.testingDiscriminatingHighlightedColumns, [5])
 
         NotificationCenter.default.post(
             name: .msaFocusAlignmentColumnRequested, object: nil,
-            userInfo: [NotificationUserInfoKey.msaAlignmentColumn: 5])
+            userInfo: [
+                NotificationUserInfoKey.msaAlignmentColumn: 5,
+                NotificationUserInfoKey.windowStateScope: scope,
+            ])
         XCTAssertEqual(controller.testingSelectedAlignmentColumn, 5)
 
-        NotificationCenter.default.post(name: .msaDiscriminatingSitesHighlightChanged, object: nil, userInfo: [:])
+        NotificationCenter.default.post(
+            name: .msaDiscriminatingSitesHighlightChanged, object: nil,
+            userInfo: [NotificationUserInfoKey.windowStateScope: scope])
         XCTAssertEqual(controller.testingDiscriminatingHighlightedColumns, [])
     }
 

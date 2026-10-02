@@ -127,6 +127,9 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         let inspector = InspectorViewController()
         _ = viewer.view
         _ = inspector.view
+        let windowScope = WindowStateScope()
+        viewer.windowStateScope = windowScope
+        inspector.testingWindowStateScope = windowScope
         viewer.displayDetachedAlignment(source)
         inspector.updateClassifierAlignmentInspector(
             capabilities: .detachedEvidence(
@@ -143,7 +146,11 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         await packDetachedLayout(viewer.viewerView, region: region, frame: frame)
         let selected = try XCTUnwrap(viewer.viewerView.testCachedPackedReads.first?.1)
         viewer.viewerView.testSetSelectedReadIDs([selected.id])
-        NotificationCenter.default.post(name: .readSelected, object: viewer.viewerView, userInfo: [NotificationUserInfoKey.alignedRead: selected])
+        NotificationCenter.default.post(
+            name: .readSelected,
+            object: viewer.viewerView,
+            userInfo: viewer.viewerView.windowScopedUserInfo([NotificationUserInfoKey.alignedRead: selected])
+        )
         XCTAssertEqual(inspector.readStyleSectionViewModel.selectedRead?.id, selected.id)
 
         try "empty".write(to: mode, atomically: true, encoding: .utf8)
@@ -259,6 +266,9 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         let inspector = InspectorViewController()
         _ = viewer.view
         _ = inspector.view
+        let windowScope = WindowStateScope()
+        viewer.windowStateScope = windowScope
+        inspector.testingWindowStateScope = windowScope
         let sourceA = makeSource("selection-source-a")
         let sourceB = makeSource("selection-source-b")
         viewer.displayDetachedAlignment(sourceA)
@@ -280,7 +290,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         NotificationCenter.default.post(
             name: .readSelected,
             object: viewer.viewerView,
-            userInfo: [NotificationUserInfoKey.alignedRead: sourceARead]
+            userInfo: viewer.viewerView.windowScopedUserInfo([NotificationUserInfoKey.alignedRead: sourceARead])
         )
         XCTAssertEqual(inspector.readStyleSectionViewModel.selectedRead?.id, sourceARead.id)
 

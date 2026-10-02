@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import LungfishIO
+import LungfishKit
 import AppKit
 import XCTest
 @testable import LungfishApp
@@ -65,7 +66,11 @@ final class LGEZipImportResolverTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
         split.handleSidebarFileDropped(Notification(name: .sidebarFileDropped, object: split.sidebarController,
-            userInfo: ["urls": [archive], "requestID": UUID().uuidString]))
+            userInfo: [
+                "urls": [archive],
+                "requestID": UUID().uuidString,
+                NotificationUserInfoKey.windowStateScope: split.windowStateScope,
+            ]))
         await fulfillment(of: [completed], timeout: 5)
         XCTAssertTrue(fileManager.fileExists(atPath: archive.path))
     }

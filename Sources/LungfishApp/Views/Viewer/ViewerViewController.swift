@@ -285,6 +285,15 @@ public class ViewerViewController: NSViewController {
         }
     }
 
+    /// The scope this viewer posts window events with and filters them by.
+    ///
+    /// A viewer that a container embeds, such as the one inside a reference
+    /// bundle viewport, is never handed a scope, so it uses the scope of the
+    /// project window that shows it.
+    var windowEventScope: WindowStateScope? {
+        windowStateScope ?? ScopedEventFilter.hostingWindowScope(of: viewIfLoaded)
+    }
+
     /// Callback used by container viewports to forward explicit sequence-region selections.
     var onSequenceRegionSelectionChanged: ((SequenceRegionSelectionState?) -> Void)?
 
@@ -819,10 +828,7 @@ public class ViewerViewController: NSViewController {
     }
 
     func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
-        guard let windowStateScope else { return userInfo }
-        var scopedUserInfo = userInfo ?? [:]
-        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
-        return scopedUserInfo
+        ScopedEventFilter.scopedUserInfo(userInfo, scope: windowEventScope)
     }
 
     func canWriteProjectOutputs(projectURL: URL?, workflowName: String) -> Bool {
@@ -834,21 +840,13 @@ public class ViewerViewController: NSViewController {
         ) ?? true
     }
 
-    private func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
-        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
-            return true
-        }
-        guard let windowStateScope else { return true }
-        return notificationScope == windowStateScope
-    }
-
     @objc private func handleBundleScrollDirectionChanged(_ notification: Notification) {
         applyBundleHorizontalScrollDirectionPreference()
     }
 
     /// Handles the toggle of CDS translation display from the inspector.
     @objc private func handleShowCDSTranslationRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let userInfo = notification.userInfo,
               let annotation = userInfo["annotation"] as? SequenceAnnotation,
               let visible = userInfo["visible"] as? Bool else {
@@ -864,43 +862,43 @@ public class ViewerViewController: NSViewController {
     }
 
     @objc private func handleExtractSequenceRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.presentAnnotationSequenceExtractionDialog([annotation])
     }
 
     @objc private func handleCopyAnnotationAsFASTARequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.copyAnnotationAsFASTAImpl(annotation)
     }
 
     @objc private func handleCopyTranslationAsFASTARequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.copyAnnotationTranslationAsFASTAImpl(annotation)
     }
 
     @objc private func handleZoomToAnnotationRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.zoomToAnnotation(annotation)
     }
 
     @objc private func handleCopyAnnotationSequenceRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.copyAnnotationSequenceImpl(annotation)
     }
 
     @objc private func handleCopyAnnotationReverseComplementRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.copyAnnotationReverseComplementImpl(annotation)
     }
 
     @objc private func handleRunFASTAOperationOnAnnotationRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.runAnnotationFASTAOperationImpl(annotation)
     }
@@ -911,7 +909,7 @@ public class ViewerViewController: NSViewController {
     ///
     /// - Parameter notification: The notification containing userInfo with settings values.
     @objc private func handleAnnotationSettingsChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let userInfo = notification.userInfo else {
             logger.warning("handleAnnotationSettingsChanged: No userInfo in notification")
             return
@@ -961,7 +959,7 @@ public class ViewerViewController: NSViewController {
     ///
     /// - Parameter notification: The notification containing userInfo with filter values.
     @objc private func handleAnnotationFilterChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let userInfo = notification.userInfo else {
             logger.warning("handleAnnotationFilterChanged: No userInfo in notification")
             return
@@ -992,7 +990,7 @@ public class ViewerViewController: NSViewController {
 
     /// Handles variant filter changes from the inspector.
     @objc private func handleVariantFilterChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let userInfo = notification.userInfo else {
             logger.warning("handleVariantFilterChanged: No userInfo in notification")
             return
@@ -1029,7 +1027,7 @@ public class ViewerViewController: NSViewController {
 
     /// Handles sample display state changes from the inspector.
     @objc private func handleSampleDisplayStateChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let state = notification.userInfo?[NotificationUserInfoKey.sampleDisplayState] as? SampleDisplayState else {
             return
         }
@@ -1072,7 +1070,7 @@ public class ViewerViewController: NSViewController {
     /// Clears type color overrides, deletes the `.viewstate.json` file,
     /// and resets the in-memory `BundleViewState` to defaults.
     @objc private func handleBundleViewStateResetRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         logger.info("handleBundleViewStateResetRequested: Resetting bundle view state to defaults")
 
         // Clear type color caches and per-annotation colors (reverts to defaults)
@@ -1150,20 +1148,20 @@ public class ViewerViewController: NSViewController {
     }
 
     @objc private func handleReadDisplaySettingsChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let userInfo = notification.userInfo else { return }
         applyReadDisplaySettings(userInfo)
     }
 
     @objc private func handleMSADiscriminatingSitesHighlightChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         let highlight = notification.userInfo?[NotificationUserInfoKey.msaDiscriminatingSitesHighlight]
             as? MSADiscriminatingSitesHighlight
         multipleSequenceAlignmentViewController?.applyDiscriminatingSitesHighlight(highlight)
     }
 
     @objc private func handleMSAFocusAlignmentColumnRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let column = notification.userInfo?[NotificationUserInfoKey.msaAlignmentColumn] as? Int else { return }
         multipleSequenceAlignmentViewController?.focusAlignmentColumn(oneBased: column)
     }

@@ -79,6 +79,10 @@ public final class SampleSectionViewModel {
     /// Called when sample display state changes.
     var onDisplayStateChanged: ((SampleDisplayState) -> Void)?
 
+    /// The Inspector's window scope, attached when this section posts on its
+    /// own because no callback is attached. The Inspector sets it.
+    var windowStateScope: WindowStateScope?
+
     // MARK: - Computed Properties
 
     /// Number of currently visible samples.
@@ -296,9 +300,10 @@ public final class SampleSectionViewModel {
         NotificationCenter.default.post(
             name: .sampleDisplayStateChanged,
             object: self,
-            userInfo: [
-                NotificationUserInfoKey.sampleDisplayState: displayState
-            ]
+            userInfo: ScopedEventFilter.scopedUserInfo(
+                [NotificationUserInfoKey.sampleDisplayState: displayState],
+                scope: windowStateScope
+            )
         )
     }
 }

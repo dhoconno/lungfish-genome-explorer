@@ -120,12 +120,17 @@ final class ViewerViewportNotificationTests: XCTestCase {
     func testCoverageScaleModeAppliesFromNotification() {
         let viewer = ViewerViewController()
         _ = viewer.view
+        let scope = WindowStateScope()
+        viewer.windowStateScope = scope
         XCTAssertEqual(viewer.viewerView.coverageScaleModeSetting, .linear)
 
         NotificationCenter.default.post(
             name: .readDisplaySettingsChanged,
             object: nil,
-            userInfo: [NotificationUserInfoKey.coverageScaleMode: CoverageScaleMode.log10.rawValue]
+            userInfo: [
+                NotificationUserInfoKey.windowStateScope: scope,
+                NotificationUserInfoKey.coverageScaleMode: CoverageScaleMode.log10.rawValue,
+            ]
         )
 
         XCTAssertEqual(viewer.viewerView.coverageScaleModeSetting, .log10)
@@ -134,12 +139,17 @@ final class ViewerViewportNotificationTests: XCTestCase {
     func testUnknownCoverageScaleModeLeavesCurrentSettingUnchanged() {
         let viewer = ViewerViewController()
         _ = viewer.view
+        let scope = WindowStateScope()
+        viewer.windowStateScope = scope
         viewer.viewerView.coverageScaleModeSetting = .squareRoot
 
         NotificationCenter.default.post(
             name: .readDisplaySettingsChanged,
             object: nil,
-            userInfo: [NotificationUserInfoKey.coverageScaleMode: "cube-root"]
+            userInfo: [
+                NotificationUserInfoKey.windowStateScope: scope,
+                NotificationUserInfoKey.coverageScaleMode: "cube-root",
+            ]
         )
 
         XCTAssertEqual(viewer.viewerView.coverageScaleModeSetting, .squareRoot)
@@ -151,6 +161,8 @@ final class ViewerViewportNotificationTests: XCTestCase {
         // make changing the axis needlessly expensive on a large BAM.
         let viewer = ViewerViewController()
         _ = viewer.view
+        let scope = WindowStateScope()
+        viewer.windowStateScope = scope
         viewer.viewerView.cachedConsensusRegion = GenomicRegion(chromosome: "chr1", start: 100, end: 200)
         viewer.viewerView.cachedDepthRegion = GenomicRegion(chromosome: "chr1", start: 100, end: 200)
         viewer.viewerView.cachedDepthPoints = [.init(position: 100, depth: 12)]
@@ -158,7 +170,10 @@ final class ViewerViewportNotificationTests: XCTestCase {
         NotificationCenter.default.post(
             name: .readDisplaySettingsChanged,
             object: nil,
-            userInfo: [NotificationUserInfoKey.coverageScaleMode: CoverageScaleMode.log10.rawValue]
+            userInfo: [
+                NotificationUserInfoKey.windowStateScope: scope,
+                NotificationUserInfoKey.coverageScaleMode: CoverageScaleMode.log10.rawValue,
+            ]
         )
 
         XCTAssertEqual(viewer.viewerView.coverageScaleModeSetting, .log10)
@@ -170,6 +185,8 @@ final class ViewerViewportNotificationTests: XCTestCase {
     func testMaskingDepthChangeDoesNotInvalidateConsensusCache() {
         let viewer = ViewerViewController()
         _ = viewer.view
+        let scope = WindowStateScope()
+        viewer.windowStateScope = scope
 
         viewer.viewerView.cachedConsensusRegion = GenomicRegion(
             chromosome: "chr1",
@@ -183,6 +200,7 @@ final class ViewerViewportNotificationTests: XCTestCase {
             name: .readDisplaySettingsChanged,
             object: nil,
             userInfo: [
+                NotificationUserInfoKey.windowStateScope: scope,
                 NotificationUserInfoKey.consensusMaskingMinDepth: 14
             ]
         )
@@ -198,6 +216,8 @@ final class ViewerViewportNotificationTests: XCTestCase {
     func testVisibleAlignmentTrackSelectionInvalidatesAlignmentCaches() {
         let viewer = ViewerViewController()
         _ = viewer.view
+        let scope = WindowStateScope()
+        viewer.windowStateScope = scope
 
         viewer.viewerView.cachedReadRegion = GenomicRegion(chromosome: "chr1", start: 10, end: 20)
         viewer.viewerView.cachedDepthRegion = GenomicRegion(chromosome: "chr1", start: 10, end: 20)
@@ -207,6 +227,7 @@ final class ViewerViewportNotificationTests: XCTestCase {
             name: .readDisplaySettingsChanged,
             object: nil,
             userInfo: [
+                NotificationUserInfoKey.windowStateScope: scope,
                 NotificationUserInfoKey.visibleAlignmentTrackID: "track-derived"
             ]
         )

@@ -77,7 +77,7 @@ extension ViewerViewController {
         NotificationCenter.default.post(
             name: .activeSequenceChanged,
             object: self,
-            userInfo: ["activeSequenceIndex": index]
+            userInfo: windowScopedUserInfo(["activeSequenceIndex": index])
         )
     }
 

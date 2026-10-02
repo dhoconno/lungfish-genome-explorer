@@ -1571,7 +1571,7 @@ public class SequenceViewerView: NSView {
         NotificationCenter.default.post(
             name: .readSelected,
             object: self,
-            userInfo: selectedRead.map { windowScopedUserInfo([NotificationUserInfoKey.alignedRead: $0]) ?? [:] }
+            userInfo: windowScopedUserInfo(selectedRead.map { [NotificationUserInfoKey.alignedRead: $0] })
         )
     }
 
@@ -1591,11 +1591,9 @@ public class SequenceViewerView: NSView {
         ].joined(separator: "|")
     }
 
+    /// An embedded viewer has no assigned scope and uses its window's scope.
     func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
-        guard let windowStateScope else { return userInfo }
-        var scopedUserInfo = userInfo ?? [:]
-        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
-        return scopedUserInfo
+        ScopedEventFilter.scopedUserInfo(userInfo, scope: windowStateScope ?? ScopedEventFilter.hostingWindowScope(of: self))
     }
 
     func alignmentFetchIdentity(
