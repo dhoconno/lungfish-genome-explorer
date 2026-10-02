@@ -15,7 +15,7 @@ Short videos that show Lungfish Genome Explorer (LGE) at work. Each one names th
 
 ## Getting started
 
-### Install Lungfish Genome Explorer
+### Install Lungfish Genome Explorer {#B00-install}
 
 <figure class="lge-video">
 <video controls preload="metadata" playsinline width="100%"
@@ -45,7 +45,7 @@ Next, watch Your first project on the Videos page of the Lungfish Genome Explore
 
 </details>
 
-### Your first project
+### Your first project {#B01-first-project}
 
 <figure class="lge-video">
 <video controls preload="metadata" playsinline width="100%"
@@ -75,7 +75,7 @@ To learn more about projects, read the manual chapter The Lungfish Project. More
 
 ## Sequences
 
-### Find the sickle cell codon
+### Find the sickle cell codon {#B02-sickle-cell-codon}
 
 <figure class="lge-video">
 <video controls preload="metadata" playsinline width="100%"
@@ -109,7 +109,7 @@ Next, learn to check the quality of a sequencing run, on the Videos page of the 
 
 ## Reads
 
-### Judge a sequencing run
+### Judge a sequencing run {#B03-run-quality}
 
 <figure class="lge-video">
 <video controls preload="metadata" playsinline width="100%"
@@ -141,7 +141,7 @@ Next, see these reads aligned to a slice of human chromosome 20, on the Videos p
 
 ## Alignments
 
-### Reading a pileup
+### Reading a pileup {#B04-reading-a-pileup}
 
 <figure class="lge-video">
 <video controls preload="metadata" playsinline width="100%"
@@ -171,7 +171,7 @@ To learn more, read the manual chapter Reading an Alignment. More videos are on 
 
 ## Overview
 
-### What LGE is for
+### What LGE is for {#01-lge-overview}
 
 <figure class="lge-video">
 <video controls preload="metadata" playsinline width="100%"
