@@ -11,7 +11,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 1 | 300 | 1 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 551 | 236789 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 551 | 236508 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1996 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 115 | 59943 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
@@ -25,7 +25,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 2 | 2041 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8361 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 12 | 3372 | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 467 | 214135 | 1294 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 467 | 214126 | 1294 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 3 | 360 | 1 | LungfishKit, LungfishTestSupport |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 22 | 4056 | 22 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -84,7 +84,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 551, lines 236789
+- Swift files. 551, lines 236508
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -94,14 +94,14 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| App | 56 | 23212 |
-| Services | 120 | 38821 |
+| App | 56 | 23081 |
+| Services | 120 | 38782 |
 | Services/AI | 4 | 1929 |
 | StateManagement | 7 | 589 |
 | Support | 2 | 94 |
 | UITestSupport | 4 | 485 |
 | ViewModels | 4 | 2397 |
-| Views | 358 | 171191 |
+| Views | 358 | 171080 |
 | Views/AI | 1 | 1011 |
 | Views/Assembly | 5 | 2002 |
 | Views/BAM | 12 | 1580 |
@@ -115,7 +115,7 @@ None.
 | Views/ImportCenter | 6 | 1769 |
 | Views/Inspector | 51 | 23602 |
 | Views/Layout | 3 | 293 |
-| Views/MainWindow | 20 | 10165 |
+| Views/MainWindow | 20 | 10054 |
 | Views/Mapping | 4 | 2228 |
 | Views/Metagenomics | 32 | 13871 |
 | Views/Operations | 6 | 2279 |
@@ -1716,7 +1716,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 467, lines 214135
+- Swift files. 467, lines 214126
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1733,12 +1733,12 @@ None.
 | Bundles | 5 | 1994 |
 | CLIEvents | 2 | 296 |
 | Conda | 12 | 8661 |
-| Containers | 9 | 3561 |
+| Containers | 9 | 3556 |
 | Databases | 1 | 1708 |
 | DemoProjects | 5 | 1065 |
 | Demultiplex | 4 | 4947 |
 | Dependencies | 9 | 2482 |
-| Engines | 8 | 3924 |
+| Engines | 8 | 3920 |
 | Exports | 1 | 505 |
 | Extraction | 17 | 8211 |
 | FASTQ | 1 | 271 |
@@ -1877,12 +1877,12 @@ None.
 - `AmpliconGenotypingPreset` typealias, `Sources/LungfishWorkflow/ONTGenotyping/MCMHaplotypingPreset.swift:249`
 - `AmpliconGenotypingReadType` enum, `Sources/LungfishWorkflow/ONTGenotyping/AmpliconGenotypingMode.swift:41`
 - `AnnotationDatabaseGFFExporter` enum, `Sources/LungfishWorkflow/Annotation/AnnotationDatabaseGFFExporter.swift:13`
-- `ANSIColor` enum, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:474`
-- `ANSIParser` enum, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:498`
+- `ANSIColor` enum, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:473`
+- `ANSIParser` enum, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:497`
 - `AnyCodableValue` enum, `Sources/LungfishWorkflow/Recipes/Recipe.swift:39`
-- `AnySendable` struct, `Sources/LungfishWorkflow/Containers/Container.swift:378`
+- `AnySendable` struct, `Sources/LungfishWorkflow/Containers/Container.swift:377`
 - `AppleContainerProbe` struct, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProbe.swift:36`
-- `AppleContainerRuntime` actor, `Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift:48`
+- `AppleContainerRuntime` actor, `Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift:47`
 - `ApplicationExportImportCollectionError` enum, `Sources/LungfishWorkflow/ApplicationExports/ApplicationExportImportCollectionService.swift:10`
 - `ApplicationExportImportCollectionService` struct, `Sources/LungfishWorkflow/ApplicationExports/ApplicationExportImportCollectionService.swift:27`
 - `ApplicationExportImportInventory` struct, `Sources/LungfishWorkflow/ApplicationExports/ApplicationExportImportModels.swift:111`
@@ -1922,7 +1922,7 @@ None.
 - `AssemblySubsetBundleMetadata` enum, `Sources/LungfishWorkflow/Assembly/AssemblySubsetBundleMetadata.swift:8`
 - `AssemblyTool` enum, `Sources/LungfishWorkflow/Assembly/AssemblyTool.swift:8`
 - `AssemblyToolOptionSections` struct, `Sources/LungfishWorkflow/Assembly/AssemblyOptionCatalog.swift:46`
-- `AsyncLineSequence` struct, `Sources/LungfishWorkflow/Containers/ContainerProcess.swift:279`
+- `AsyncLineSequence` struct, `Sources/LungfishWorkflow/Containers/ContainerProcess.swift:278`
 - `BAMHeaderPathSanitizer` enum, `Sources/LungfishWorkflow/Alignment/BAMHeaderPathSanitizer.swift:20`
 - `BAMHeaderPathSanitizerError` enum, `Sources/LungfishWorkflow/Alignment/BAMHeaderPathSanitizer.swift:123`
 - `BAMImportError` enum, `Sources/LungfishWorkflow/Mapping/BAMImportService.swift:777`
@@ -2032,21 +2032,21 @@ None.
 - `CondaSharedPackageCache` struct, `Sources/LungfishWorkflow/Conda/CondaSharedPackageCache.swift:20`
 - `CondaSpec` struct, `Sources/LungfishWorkflow/Dependencies/CondaMetaReader.swift:14`
 - `ConsensusCoordinateMap` struct, `Sources/LungfishWorkflow/ViralRecon/ConsensusCoordinateMap.swift:16`
-- `Container` struct, `Sources/LungfishWorkflow/Containers/Container.swift:57`
-- `ContainerConfiguration` struct, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:48`
-- `ContainerImage` struct, `Sources/LungfishWorkflow/Containers/ContainerImage.swift:46`
+- `Container` struct, `Sources/LungfishWorkflow/Containers/Container.swift:56`
+- `ContainerConfiguration` struct, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:47`
+- `ContainerImage` struct, `Sources/LungfishWorkflow/Containers/ContainerImage.swift:45`
 - `ContainerImageError` enum, `Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift:386`
 - `ContainerImageRegistry` actor, `Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift:63`
 - `ContainerImageSpec` struct, `Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift:198`
-- `ContainerLogStreamer` actor, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:55`
-- `ContainerProcess` class, `Sources/LungfishWorkflow/Containers/ContainerProcess.swift:56`
-- `ContainerRuntimeError` enum, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProtocol.swift:270`
+- `ContainerLogStreamer` actor, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:54`
+- `ContainerProcess` class, `Sources/LungfishWorkflow/Containers/ContainerProcess.swift:55`
+- `ContainerRuntimeError` enum, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProtocol.swift:269`
 - `ContainerRuntimeFactory` enum, `Sources/LungfishWorkflow/Engines/NextflowRunner.swift:497`
 - `ContainerRuntimeProbing` protocol, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProbe.swift:55`
-- `ContainerRuntimeProtocol` protocol, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProtocol.swift:150`
-- `ContainerRuntimeType` enum, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProtocol.swift:17`
-- `ContainerState` enum, `Sources/LungfishWorkflow/Containers/Container.swift:271`
-- `ContainerStats` struct, `Sources/LungfishWorkflow/Containers/Container.swift:398`
+- `ContainerRuntimeProtocol` protocol, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProtocol.swift:149`
+- `ContainerRuntimeType` enum, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProtocol.swift:16`
+- `ContainerState` enum, `Sources/LungfishWorkflow/Containers/Container.swift:270`
+- `ContainerStats` struct, `Sources/LungfishWorkflow/Containers/Container.swift:397`
 - `CopyFormat` enum, `Sources/LungfishWorkflow/Extraction/ExtractionDestination.swift:10`
 - `CoreToolLocator` enum, `Sources/LungfishWorkflow/Conda/CoreToolLocator.swift:8`
 - `CountedFASTQCompressionProvenance` struct, `Sources/LungfishWorkflow/FASTQ/CountedFASTQMaterializer.swift:9`
@@ -2121,7 +2121,7 @@ None.
 - `DiscriminatingSitesExclusionAligner` enum, `Sources/LungfishWorkflow/MSA/DiscriminatingSitesExclusionAligner.swift:12`
 - `DiscriminatingSitesReportFormatter` enum, `Sources/LungfishWorkflow/MSA/DiscriminatingSitesReportFormatter.swift:5`
 - `DockerDaemonProbe` struct, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProbe.swift:17`
-- `DockerRuntime` actor, `Sources/LungfishWorkflow/Engines/DockerRuntime.swift:52`
+- `DockerRuntime` actor, `Sources/LungfishWorkflow/Engines/DockerRuntime.swift:51`
 - `EsVirituBatchAggregatedManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:200`
 - `EsVirituBatchResultManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:88`
 - `EsVirituConfig` struct, `Sources/LungfishWorkflow/Metagenomics/EsVirituConfig.swift:89`
@@ -2316,7 +2316,7 @@ None.
 - `IlluminaAmpliconPairMerger` enum, `Sources/LungfishWorkflow/ONTGenotyping/IlluminaAmpliconPairMerger.swift:36`
 - `ImageAvailability` struct, `Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift:353`
 - `ImageCategory` enum, `Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift:277`
-- `ImagePullProgress` struct, `Sources/LungfishWorkflow/Containers/ContainerImage.swift:323`
+- `ImagePullProgress` struct, `Sources/LungfishWorkflow/Containers/ContainerImage.swift:322`
 - `ImagePurpose` enum, `Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift:302`
 - `ImportLogEvent` enum, `Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift:46`
 - `IngestionPlatform` enum, `Sources/LungfishWorkflow/Recipes/IngestionPlatform.swift:52`
@@ -2342,11 +2342,11 @@ None.
 - `LocalWorkflowRunStatusEvent` struct, `Sources/LungfishWorkflow/LocalWorkflowRunBundle.swift:22`
 - `LocalWorkflowRuntimeEvidence` struct, `Sources/LungfishWorkflow/LocalWorkflowRuntimeEvidence.swift:4`
 - `LocusEvidence` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingTypes.swift:173`
-- `LogEntry` struct, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:321`
-- `LogLevel` enum, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:396`
-- `LogSource` enum, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:370`
-- `LogStyle` struct, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:434`
-- `LogSubscription` class, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:594`
+- `LogEntry` struct, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:320`
+- `LogLevel` enum, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:395`
+- `LogSource` enum, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:369`
+- `LogStyle` struct, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:433`
+- `LogSubscription` class, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:593`
 - `MAFFTAlignmentPipeline` class, `Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift:93`
 - `MAFFTAlignmentPipelineError` enum, `Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift:67`
 - `MAFFTAlignmentStrategy` enum, `Sources/LungfishWorkflow/MSA/MSAAlignmentRunRequest.swift:16`
@@ -2460,8 +2460,8 @@ None.
 - `Minimap2ResultLoadError` enum, `Sources/LungfishWorkflow/Alignment/Minimap2Pipeline.swift:312`
 - `MissingToolError` protocol, `Sources/LungfishWorkflow/Native/MissingToolError.swift:32`
 - `MissingToolMessage` enum, `Sources/LungfishWorkflow/Native/MissingToolError.swift:11`
-- `MountBinding` struct, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:234`
-- `MountPropagation` enum, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:296`
+- `MountBinding` struct, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:233`
+- `MountPropagation` enum, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:295`
 - `MSAAlignmentOutputOrder` enum, `Sources/LungfishWorkflow/MSA/MSAAlignmentRunRequest.swift:42`
 - `MSAAlignmentRunRequest` struct, `Sources/LungfishWorkflow/MSA/MSAAlignmentRunRequest.swift:94`
 - `MSAAlignmentRunResult` struct, `Sources/LungfishWorkflow/MSA/MSAAlignmentRunRequest.swift:196`
@@ -2495,9 +2495,9 @@ None.
 - `NativeToolResult` struct, `Sources/LungfishWorkflow/Native/NativeToolRunner.swift:29`
 - `NativeToolRunner` actor, `Sources/LungfishWorkflow/Native/NativeToolRunner.swift:648`
 - `NativeToolSamtoolsRunner` actor, `Sources/LungfishWorkflow/Alignment/AlignmentMarkdupPipeline.swift:36`
-- `NATNetwork` struct, `Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift:833`
-- `NetworkMode` enum, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:319`
-- `NewContainerRuntimeFactory` enum, `Sources/LungfishWorkflow/Engines/ContainerRuntimeFactory.swift:73`
+- `NATNetwork` struct, `Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift:832`
+- `NetworkMode` enum, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:318`
+- `NewContainerRuntimeFactory` enum, `Sources/LungfishWorkflow/Engines/ContainerRuntimeFactory.swift:72`
 - `NextflowRunner` actor, `Sources/LungfishWorkflow/Engines/NextflowRunner.swift:40`
 - `NextflowSchemaParser` struct, `Sources/LungfishWorkflow/Schema/NextflowSchemaParser.swift:38`
 - `NextflowScratchVolumeProbe` enum, `Sources/LungfishWorkflow/Native/NextflowScratchVolumeProbe.swift:27`
@@ -2601,8 +2601,8 @@ None.
 - `PluginPackStatusProviding` protocol, `Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift:130`
 - `PluginPackStatusService` actor, `Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift:196`
 - `PluginPackStatusServiceError` enum, `Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift:171`
-- `PortMapping` struct, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:371`
-- `PortProtocol` enum, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:435`
+- `PortMapping` struct, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:370`
+- `PortProtocol` enum, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:434`
 - `PostInstallHook` struct, `Sources/LungfishWorkflow/Conda/PluginPack.swift:313`
 - `PreparedAlignmentAttachmentError` enum, `Sources/LungfishWorkflow/Alignment/PreparedAlignmentAttachmentService.swift:66`
 - `PreparedAlignmentAttachmentRequest` struct, `Sources/LungfishWorkflow/Alignment/PreparedAlignmentAttachmentService.swift:10`
@@ -2747,10 +2747,10 @@ None.
 - `ProcessManager` actor, `Sources/LungfishWorkflow/ProcessManager.swift:189`
 - `ProcessManaging` protocol, `Sources/LungfishWorkflow/ProcessManager.swift:112`
 - `ProcessONTGenotypingPysamFilterRunner` struct, `Sources/LungfishWorkflow/ONTGenotyping/ONTGenotypingPysamFilterRunner.swift:12`
-- `ProcessOutput` struct, `Sources/LungfishWorkflow/Containers/ContainerProcess.swift:405`
+- `ProcessOutput` struct, `Sources/LungfishWorkflow/Containers/ContainerProcess.swift:404`
 - `ProcessOutputLineFramer` struct, `Sources/LungfishWorkflow/Native/ProcessOutputLineFramer.swift:10`
 - `ProcessPBAANextflowRunner` struct, `Sources/LungfishWorkflow/PBAA/PBAAClusteringPipeline.swift:442`
-- `ProcessState` enum, `Sources/LungfishWorkflow/Containers/ContainerProcess.swift:336`
+- `ProcessState` enum, `Sources/LungfishWorkflow/Containers/ContainerProcess.swift:335`
 - `ProcessTableLister` protocol, `Sources/LungfishWorkflow/Native/ProcessTreeTerminator.swift:34`
 - `ProcessTableRow` struct, `Sources/LungfishWorkflow/Native/ProcessTreeTerminator.swift:13`
 - `ProcessTreeTerminator` enum, `Sources/LungfishWorkflow/Native/ProcessTreeTerminator.swift:79`
