@@ -1,0 +1,27 @@
+OVERVIEW: Import NVD results into a Lungfish project
+
+USAGE: lungfish-cli nvd import [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>] <input-path> [--output-dir <output-dir>] [--name <name>]
+
+ARGUMENTS:
+  <input-path>            Path to NVD results directory (containing
+                          05_labkey_bundling/)
+
+OPTIONS:
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  -o, --output-dir <output-dir>
+                          Output directory for the imported bundle (default:
+                          current directory)
+  --name <name>           Override the bundle name (default: nvd-{experiment})
+  --version               Show the version.
+  -h, --help              Show help information.
+

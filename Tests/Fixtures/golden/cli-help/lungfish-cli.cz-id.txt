@@ -1,0 +1,18 @@
+OVERVIEW: Import and view CZ-ID classification results
+
+Import CZ-ID hosted metagenomics taxon report TSV exports into Lungfish's
+classification result schema. This command imports existing CZ-ID outputs;
+it does not run or submit data to CZ-ID.
+
+USAGE: lungfish-cli cz-id <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  import                  Import a CZ-ID taxon report TSV into a Lungfish
+                          result directory
+  summary (default)       Display a summary of a CZ-ID taxon report TSV
+
+  See 'lungfish-cli help cz-id <subcommand>' for detailed help.

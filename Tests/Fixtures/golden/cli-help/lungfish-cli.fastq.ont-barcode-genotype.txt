@@ -1,0 +1,79 @@
+OVERVIEW: Deprecated ONT barcode demux genotyping workflow
+
+Deprecated: demultiplexing now belongs in FASTQ import recipes. Use those
+recipes to create per-sample .lungfishfastq bundles, then run `lungfish-cli
+fastq genotype` or `lungfish-cli fastq genotype-cohort`.
+
+USAGE: lungfish-cli fastq ont-barcode-genotype [<options>] <input> --barcodes <barcodes> --output-dir <output-dir>
+
+ARGUMENTS:
+  <input>                 Original ONT FASTQ file or multi-file .lungfishfastq
+                          bundle
+
+OPTIONS:
+  --reference <reference> Reference FASTA file, .lungfishref bundle, or
+                          .lungfishmhcref bundle (FASTA + paired haplotype
+                          definitions) used as the mapping target
+  --preset <preset>       Locked genotyping preset. Supported value:
+                          mcm-mhc-miseq.
+  --barcodes <barcodes>   CSV/TSV file containing sample ID and Fluidigm
+                          barcode sequence columns
+  --demux-manifest <demux-manifest>
+                          Optional demux-manifest.json with total input/sample
+                          read counts; defaults to the input bundle manifest
+  --output-dir <output-dir>
+                          Directory for mapped BAM, retained BAM, CSV
+                          summaries, stats, and provenance
+  --output-name <output-name>
+                          Output filename stem (default: ont-barcode-genotyping)
+  --analysis-name <analysis-name>
+                          Label for this ONT analysis in the workbook; defaults
+                          to --output-name
+  --project <project>     Project directory; external FASTA references are
+                          imported here before mapping
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --sort-threads <sort-threads>
+                          Threads for samtools sort (default: 4)
+  --min-support <min-support>
+                          Minimum retained unique-read support required for a
+                          genotype row in the report and workbook (default: 1)
+  --keep-intermediates    Keep regenerable workflow intermediates for
+                          troubleshooting
+  --haplotype-min-sample-percent <haplotype-min-sample-percent>
+                          Drop genotype rows below this percent of retained
+                          genotyping reads for the sample; 0 disables (default:
+                          0.0)
+  --haplotype-min-locus-percent <haplotype-min-locus-percent>
+                          Drop genotype rows below this percent of retained
+                          genotyping reads for the sample/locus; 0 disables
+                          (default: 0.0)
+  --haplotype-min-locus-percent-override <haplotype-min-locus-percent-override>
+                          Per-locus percent override such as MHC-DQ=10; may be
+                          repeated
+  --haplotype-assay <haplotype-assay>
+                          Assay/amplicon set for haplotyping; disambiguates
+                          --haplotype-definition
+  --haplotype-species <haplotype-species>
+                          Species code used to restrict compatible haplotype
+                          definitions, such as MCM or MAMU
+  --haplotype-definition-scope <haplotype-definition-scope>
+                          Haplotype definition scope: project
+  --haplotype-definition <haplotype-definition>
+                          Optional assay-scoped haplotype definition set ID;
+                          omit to skip haplotyping
+  --extra-args <extra-args>
+                          Advanced minimap2 arguments passed after --MD and
+                          before reference/input paths
+  --version               Show the version.
+  -h, --help              Show help information.
+

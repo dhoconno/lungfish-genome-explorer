@@ -1,0 +1,17 @@
+OVERVIEW: Export a haplotype definition set to a JSON file
+
+USAGE: lungfish-cli haplotypes export <definition-id> --output <output> [--project <project>] [--assay <assay>] [--scope <scope>]
+
+ARGUMENTS:
+  <definition-id>         Definition set id to export
+
+OPTIONS:
+  --output <output>       Destination JSON path
+  --project <project>     Project root whose project-scoped definitions should
+                          be included
+  --assay <assay>         Assay/amplicon id used to disambiguate duplicate
+                          definition ids
+  --scope <scope>         project (the only supported scope)
+  --version               Show the version.
+  -h, --help              Show help information.
+

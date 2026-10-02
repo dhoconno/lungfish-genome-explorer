@@ -1,0 +1,33 @@
+OVERVIEW: Export 12S amplicon result species rows to CSV, TSV, or Excel
+
+USAGE: lungfish-cli fastq 12s-export --bundle <bundle> --export-format <export-format> --output <output> [--min-exact-reads <min-exact-reads>] [--filter <filter>] [--taxon-group <taxon-group> ...] [--exclude-taxon-group <exclude-taxon-group> ...] [--exclude-human] [--require-alternate-matches] [--min-unresolved-reads <min-unresolved-reads>] [--chimera-status <chimera-status>] [--force]
+
+OPTIONS:
+  --bundle <bundle>       Input .lungfish12s result bundle
+  --export-format <export-format>
+                          Export format: csv, tsv, xlsx (values: csv, tsv, xlsx)
+  --output <output>       Output report path
+  --min-exact-reads <min-exact-reads>
+                          Minimum exact reads required for a species row
+                          (default: 0)
+  --filter <filter>       Case-insensitive species, common-name, taxon, or
+                          alternate-match text filter
+  --taxon-group <taxon-group>
+                          Taxon group(s) to include, for example Mammal or Fish
+  --exclude-taxon-group <exclude-taxon-group>
+                          Taxon group(s) to exclude
+  --exclude-human         Exclude Homo sapiens / taxid 9606 rows
+  --require-alternate-matches
+                          Only export species rows with alternate exact species
+                          labels
+  --min-unresolved-reads <min-unresolved-reads>
+                          Minimum read count for unresolved rows in Excel
+                          export (default: 0)
+  --chimera-status <chimera-status>
+                          Unresolved chimera status filter for Excel export
+                          (values: all, notReviewed, notDetected, candidate,
+                          confirmed; default: all)
+  --force                 Replace an existing output file
+  --version               Show the version.
+  -h, --help              Show help information.
+

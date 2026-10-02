@@ -1,0 +1,12 @@
+OVERVIEW: Generate a citation list from a bundle's provenance
+
+USAGE: lungfish-cli provenance bibliography <bundle>
+
+ARGUMENTS:
+  <bundle>                Bundle or output directory containing Lungfish
+                          provenance
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+

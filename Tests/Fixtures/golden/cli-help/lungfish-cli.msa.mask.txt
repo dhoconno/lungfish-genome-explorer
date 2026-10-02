@@ -1,0 +1,13 @@
+OVERVIEW: Create derived MSA bundles with non-destructive masks
+
+USAGE: lungfish-cli msa mask <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  columns                 Create a derived .lungfishmsa bundle with masked
+                          alignment columns
+
+  See 'lungfish-cli help msa mask <subcommand>' for detailed help.

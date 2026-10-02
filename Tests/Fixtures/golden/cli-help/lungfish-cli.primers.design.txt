@@ -1,0 +1,18 @@
+OVERVIEW: Design primers from explicitly selected sequence inputs
+
+USAGE: lungfish-cli primers design <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  primer3                 Run independent Primer3 designs for explicit FASTA
+                          records or native MSA rows
+  primalscheme3           Run PrimalScheme on nucleotide sequences or alignments
+  olivar                  Design tiled schemes with Olivar through the
+                          versioned LGE adapter
+  varvamp                 Design single, tiled, or qPCR schemes with varVAMP
+                          through the versioned LGE adapter
+
+  See 'lungfish-cli help primers design <subcommand>' for detailed help.

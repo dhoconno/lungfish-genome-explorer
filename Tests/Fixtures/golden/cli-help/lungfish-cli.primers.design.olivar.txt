@@ -1,0 +1,71 @@
+OVERVIEW: Design tiled schemes with Olivar through the versioned LGE adapter
+
+Amplicon bounds are inclusive reference spans including primer sites. The
+nominal size is retained for display and provenance; Olivar uses the minimum
+and maximum bounds.
+
+USAGE: lungfish-cli primers design olivar [<options>] --output <output>
+
+OPTIONS:
+  --msa <msa>             Equal-length native MSA, one-sequence reference, or
+                          aligned nucleotide FASTA. Repeatable.
+  --output <output>       New .lungfishprimeranalysis destination.
+  --grouping <grouping>   independent or combined (default: independent)
+  --python-path <python-path>
+                          Optional exact Python executable; the adapter still
+                          verifies pinned Olivar source and conda identity.
+  --amplicon-size <amplicon-size>
+                          Nominal display/provenance size. (default: 400)
+  --amplicon-size-min <amplicon-size-min>
+                          Inclusive minimum span including primer sites.
+  --amplicon-size-max <amplicon-size-max>
+                          Inclusive maximum span including primer sites.
+  --workers <workers>     (default: 4)
+  --minimum-variant-frequency <minimum-variant-frequency>
+                          (default: 0.01)
+  --degenerate
+  --temperature-c <temperature-c>
+                          (default: 60.0)
+  --salinity-m <salinity-m>
+                          (default: 0.18)
+  --maximum-dimer-delta-g <maximum-dimer-delta-g>
+                          Olivar dG_max: maximum primer-target binding free
+                          energy, which bounds primer length and stability. Not
+                          a primer-dimer threshold. (default: -11.8)
+  --minimum-gc <minimum-gc>
+                          (default: 0.2)
+  --maximum-gc <maximum-gc>
+                          (default: 0.75)
+  --minimum-complexity <minimum-complexity>
+                          (default: 0.4)
+  --maximum-primer-length <maximum-primer-length>
+                          (default: 36)
+  --check-variants
+  --seed <seed>           (default: 10)
+  --effort <effort>       (default: 1)
+  --forward-prefix <forward-prefix>
+  --reverse-prefix <reverse-prefix>
+  --blast-database <blast-database>
+                          BLAST nucleotide database prefix; all concrete
+                          component files are snapshotted.
+  --screen-against <screen-against>
+                          Sequences to screen candidate oligos against: a
+                          .lungfishmsa (ungapped rows), .lungfishref, or
+                          nucleotide FASTA. LGE builds the BLAST database with
+                          makeblastdb. Repeatable; mutually exclusive with
+                          --blast-database.
+  --risk-extreme-gc <risk-extreme-gc>
+                          (default: 1.0)
+  --risk-low-complexity <risk-low-complexity>
+                          (default: 1.0)
+  --risk-non-specificity <risk-non-specificity>
+                          (default: 1.0)
+  --risk-variation <risk-variation>
+                          (default: 1.0)
+  --risk-sensitivity <risk-sensitivity>
+                          (default: 1.0)
+  --risk-combination <risk-combination>
+                          (default: 1.0)
+  --version               Show the version.
+  -h, --help              Show help information.
+

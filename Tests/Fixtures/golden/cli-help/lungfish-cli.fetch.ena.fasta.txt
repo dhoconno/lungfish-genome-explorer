@@ -1,0 +1,23 @@
+OVERVIEW: Fetch sequence in FASTA format from ENA
+
+USAGE: lungfish-cli fetch ena fasta <accession> [--save-to <save-to>] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+
+ARGUMENTS:
+  <accession>             Accession number
+
+OPTIONS:
+  --save-to <save-to>     Output file path
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

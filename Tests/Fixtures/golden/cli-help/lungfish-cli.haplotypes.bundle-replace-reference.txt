@@ -1,0 +1,13 @@
+OVERVIEW: Replace the reference FASTA embedded in an MHC reference bundle
+
+USAGE: lungfish-cli haplotypes bundle-replace-reference <reference-fasta> --bundle <bundle> [--project <project>]
+
+ARGUMENTS:
+  <reference-fasta>       Replacement reference FASTA
+
+OPTIONS:
+  --bundle <bundle>       Destination .lungfishmhcref bundle
+  --project <project>     Project root used for provenance context
+  --version               Show the version.
+  -h, --help              Show help information.
+

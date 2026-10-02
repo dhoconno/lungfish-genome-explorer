@@ -1,0 +1,13 @@
+OVERVIEW: Interleave separate R1/R2 files into one FASTQ
+
+USAGE: lungfish-cli fastq interleave --in1 <in1> --in2 <in2> --output <output> [--force] [--compress]
+
+OPTIONS:
+  --in1 <in1>             Input R1 file (required)
+  --in2 <in2>             Input R2 file (required)
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --version               Show the version.
+  -h, --help              Show help information.
+

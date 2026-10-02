@@ -1,0 +1,38 @@
+OVERVIEW: Import files into a Lungfish project
+
+Import various bioinformatics file types into a Lungfish project
+directory. Each subcommand handles format-specific validation,
+file organization, and summary output.
+
+USAGE: lungfish-cli import <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  bam                     Import a BAM or CRAM alignment file
+  vcf                     Import a VCF variant file
+  fasta                   Import a standalone reference sequence file as a
+                          .lungfishref bundle
+  msa                     Import a multiple sequence alignment as a
+                          .lungfishmsa bundle
+  tree                    Import a phylogenetic tree as a .lungfishtree bundle
+  fastq                   Batch-import FASTQ files or unmapped ONT BAM into a
+                          Lungfish project
+  geneious                Import a Geneious export into native Lungfish project
+                          collections
+  application-export      Import an external application export into native
+                          Lungfish project collections
+  sample-metadata         Import sample metadata CSV/TSV into variant tracks in
+                          a reference bundle
+  kraken2                 Import Kraken2 classification results
+  esviritu                Import EsViritu viral detection results
+  taxtriage               Import TaxTriage classification results
+  nao-mgs                 Import NAO-MGS metagenomic surveillance results
+  nvd                     Import NVD BLAST results
+  cz-id                   Import hosted CZ-ID classification results into a
+                          project
+  metadata                Import sample metadata CSV/TSV into a result bundle
+
+  See 'lungfish-cli help import <subcommand>' for detailed help.

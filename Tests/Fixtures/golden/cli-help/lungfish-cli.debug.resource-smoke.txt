@@ -1,0 +1,8 @@
+OVERVIEW: Verify packaged runtime resources without launching the app UI
+
+USAGE: lungfish-cli debug resource-smoke
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+

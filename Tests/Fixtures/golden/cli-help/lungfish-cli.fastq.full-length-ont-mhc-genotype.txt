@@ -1,0 +1,91 @@
+OVERVIEW: Run full-length ONT MHC genotyping from per-sample FASTQ bundles
+using Savont clusters
+
+USAGE: lungfish-cli fastq full-length-ont-mhc-genotype [<options>] <inputs> ... --reference <reference> --output-dir <output-dir>
+
+ARGUMENTS:
+  <inputs>                One or more per-sample ONT FASTQ files or
+                          .lungfishfastq bundles
+
+OPTIONS:
+  --reference <reference> MHC allele FASTA, .lungfishref bundle, or
+                          .lungfishmhcref bundle
+  --orient-reference <orient-reference>
+                          Optional FASTA used by vsearch --orient
+  --forward-primer <forward-primer>
+                          Optional forward primer FASTA for 5-prime bbduk
+                          trimming
+  --reverse-primer <reverse-primer>
+                          Optional reverse primer FASTA for 3-prime bbduk
+                          trimming
+  --output-dir <output-dir>
+                          Output .lungfishgenotype bundle directory
+  --output-name <output-name>
+                          Output report stem (default:
+                          full-length-ont-mhc-genotyping)
+  --project <project>     Optional Lungfish project root for provenance context
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --sample-jobs <sample-jobs>
+                          Concurrent sample workflows. Defaults to an automatic
+                          sample-level parallel strategy.
+  --savont-threads-per-sample <savont-threads-per-sample>
+                          Savont threads per concurrently processed sample.
+                          Defaults to an automatic batch-aware value.
+  --min-length <min-length>
+                          Minimum post-primer read length retained for Savont
+                          (default: 2000)
+  --max-length <max-length>
+                          Maximum post-primer read length retained for Savont
+                          (default: 4000)
+  --savont-quality-value-cutoff <savont-quality-value-cutoff>
+                          Minimum estimated read accuracy percent retained for
+                          Savont clustering (default: 90)
+  --savont-min-cluster-size <savont-min-cluster-size>
+                          Minimum number of reads required to keep a Savont
+                          cluster (default: 3)
+  --min-unmatched-reads <min-unmatched-reads>
+                          Minimum cluster read count written to unmatched FASTA
+                          (default: 5)
+  --cdna-threshold <cdna-threshold>
+                          Alleles shorter than this length are treated as cDNA
+                          references (default: 2000)
+  --keep-intermediates    Preserve regenerable full-length ONT MHC workflow
+                          intermediates for debugging
+  --reuse-compatible-checkpoints
+                          Reuse compatible full-length ONT MHC sample
+                          checkpoints when present
+  --haplotype-min-sample-percent <haplotype-min-sample-percent>
+                          Drop genotype rows below this percent of retained
+                          genotyping reads for the sample; 0 disables (default:
+                          0.0)
+  --haplotype-min-locus-percent <haplotype-min-locus-percent>
+                          Drop genotype rows below this percent of retained
+                          genotyping reads for the sample/locus; 0 disables
+                          (default: 0.0)
+  --haplotype-min-locus-percent-override <haplotype-min-locus-percent-override>
+                          Per-locus percent override such as MHC-A=10; may be
+                          repeated
+  --haplotype-assay <haplotype-assay>
+                          Assay/amplicon set for haplotyping; disambiguates
+                          --haplotype-definition
+  --haplotype-species <haplotype-species>
+                          Species code used to restrict compatible haplotype
+                          definitions, such as MCM or MAMU
+  --haplotype-definition-scope <haplotype-definition-scope>
+                          Haplotype definition scope: project
+  --haplotype-definition <haplotype-definition>
+                          Optional assay-scoped haplotype definition set ID;
+                          omit to skip haplotyping
+  --version               Show the version.
+  -h, --help              Show help information.
+

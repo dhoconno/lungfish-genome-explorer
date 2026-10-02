@@ -1,0 +1,32 @@
+OVERVIEW: Create a bundle with duplicate reads removed from alignment tracks
+
+Copies a .lungfishref bundle, runs the shared duplicate-removal workflow on
+every alignment track, and records reproducibility provenance in the output
+bundle.
+
+Examples:
+  lungfish-cli bundle deduplicate-alignments MyGenome.lungfishref
+  lungfish-cli bundle deduplicate-alignments MyGenome.lungfishref --output
+MyGenome-dedup.lungfishref
+
+USAGE: lungfish-cli bundle deduplicate-alignments <bundle-path> [--output <output>] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+
+ARGUMENTS:
+  <bundle-path>           Path to the source .lungfishref bundle
+
+OPTIONS:
+  -o, --output <output>   Output .lungfishref bundle path
+  --format <format>       Output format: text, json (default: text) (values:
+                          text, json; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -1,0 +1,43 @@
+OVERVIEW: Inspect and annotate ONT genotype result bundles
+
+Operate on `.lungfishgenotype` bundles produced by the genotype
+pipelines. All subcommands take `--bundle <path>` and either print
+to stdout (read-only inspection) or merge into the annotation
+sidecar (`annotations.json`) that lives next to the bundle's
+primary `genotype-result.json` manifest. The `ai-haplotyping`
+subcommand is a scientific write workflow: it appends a versioned
+AI haplotype analysis revision with provenance and review metadata.
+
+USAGE: lungfish-cli genotype <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  list-samples            List samples and their top genotype call per locus
+                          from a genotype bundle
+  list-cohorts            List smart cohorts defined in a genotype bundle's
+                          annotation sidecar
+  ai-haplotyping          Run AI discovery or AI refinement haplotyping on a
+                          genotype bundle.
+  apply-annotations       Merge an annotation patch JSON into a genotype
+                          bundle's annotation sidecar
+  replay-matrix-annotation
+                          Replay a recorded matrix annotation edit to an
+                          explicit annotation sidecar
+  replay-manual-haplotype-assignments
+                          Replay a recorded manual haplotype assignment edit
+                          into its exact target bundle
+  replay-call-overrides   Replay a recorded atomic haplotype call override edit
+                          into its exact target bundle
+  export                  Export a genotype bundle (or a rendered view
+                          projection) as XLSX/CSV/TSV.
+  export-xlsx             Export the genotype bundle's matrix and analyst
+                          annotations as an XLSX file.
+  export-pivot-xlsx       Export a one-way genotype XLSX report with All and
+                          Filtered matrices.
+  export-labkey           Export the genotype bundle's analyst-reviewed results
+                          as LabKey-ready CSV files.
+
+  See 'lungfish-cli help genotype <subcommand>' for detailed help.

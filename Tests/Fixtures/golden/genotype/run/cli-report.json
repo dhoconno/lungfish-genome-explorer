@@ -1,0 +1,19 @@
+{
+  "assignedUniqueRetainedReads" : 376,
+  "mappingBAIPath" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam.bai",
+  "mappingBAMPath" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.md.sorted.bam",
+  "outputDirectory" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype",
+  "provenancePath" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.lungfish-provenance.json",
+  "referenceFASTAPath" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref\/reference\/SIMULATED-MHC-MCM-teaching.lungfishref\/genome\/sequence.fa.gz",
+  "reportCSVPath" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+  "retainedBAIPath" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+  "retainedBAMPath" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+  "retainedUniquePercentOfTotalReads" : 100,
+  "retainedUniqueReads" : 376,
+  "sampleSummaryCSVPath" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-samples.csv",
+  "sourceReferenceBundlePath" : "<RUN_ROOT>\/genotype\/MHC Genotyping.lungfish\/Reference allele databases\/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
+  "statsJSONPath" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.retained-demux-stats.json",
+  "totalInputReads" : 376,
+  "unassignedUniqueRetainedReads" : 0,
+  "workbookPath" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/SIMULATED-MHC-haplotypes.xlsx"
+}

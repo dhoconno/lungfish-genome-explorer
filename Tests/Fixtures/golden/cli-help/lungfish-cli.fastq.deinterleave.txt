@@ -1,0 +1,23 @@
+OVERVIEW: Split interleaved FASTQ into separate R1/R2 files
+
+A strictly interleaved file (every record followed by its mate) is split by
+position with reformat.sh. A file that mixes merged single reads with pairs,
+such as the output of the VSP2 or Illumina Amplicon Merge recipes, is split by
+read name instead: each adjacent mate pair goes to --out1 and --out2, and every
+read without an adjacent mate goes to --unpaired, which is required for such a
+file. A single-end file is refused.
+
+USAGE: lungfish-cli fastq deinterleave <input> --out1 <out1> --out2 <out2> [--unpaired <unpaired>]
+
+ARGUMENTS:
+  <input>                 Input interleaved FASTQ file
+
+OPTIONS:
+  --out1 <out1>           Output R1 file (required)
+  --out2 <out2>           Output R2 file (required)
+  --unpaired <unpaired>   Output file for reads without an adjacent mate
+                          (merged or orphan reads). Required when the input
+                          mixes merged reads with pairs.
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -1,0 +1,23 @@
+OVERVIEW: Construct a GATK Picard MarkDuplicates command
+
+USAGE: lungfish-cli gatk markdup [--execute] [--dry-run] [--bam <bam> ...] --output <output> --metrics <metrics> [--create-index <create-index>] [--remove-duplicates] [--validation-stringency <validation-stringency>] [--extra-args <extra-args>]
+
+OPTIONS:
+  --execute               Run GATK and write final-location provenance.
+  --dry-run               Print the GATK command preview without running it.
+  --bam <bam>             Input BAM path. Repeat for multiple lanes.
+  --output <output>       Output duplicate-marked BAM path
+  --metrics <metrics>     Output duplicate metrics path
+  --create-index <create-index>
+                          Whether MarkDuplicates should create a BAM index
+                          (default: true)
+  --remove-duplicates     Remove duplicates instead of only marking them
+  --validation-stringency <validation-stringency>
+                          Picard validation stringency, such as STRICT,
+                          LENIENT, or SILENT
+  --extra-args <extra-args>
+                          Additional GATK/Picard arguments, written exactly as
+                          they should be passed
+  --version               Show the version.
+  -h, --help              Show help information.
+

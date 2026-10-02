@@ -1,0 +1,38 @@
+{
+  "assemblyPath" : "sarscov2-R1-len150.detected_virus.assembly_summary.tsv",
+  "config" : {
+    "databasePath" : "file:\/\/\/Users\/dho\/.lungfish-stable\/databases\/esviritu\/esviritu-viral-db\/v3.2.4\/",
+    "extraArguments" : [
+
+    ],
+    "inputFiles" : [
+      "file:\/\/<RUN_ROOT>\/classifiers\/work\/sarscov2-R1-len150.fastq"
+    ],
+    "inputLayout" : {
+      "layout" : "single_end",
+      "matePairs" : 0,
+      "metadata" : {
+        "hasMergedOrUnpairedReads" : false
+      },
+      "reason" : "No record in all 55 records is followed by its mate.",
+      "scannedRecords" : 55,
+      "scannedWholeFile" : true,
+      "unpairedRecords" : 55
+    },
+    "isPairedEnd" : false,
+    "minReadLength" : 100,
+    "outputDirectory" : "file:\/\/<RUN_ROOT>\/classifiers\/Golden.lungfish\/Analyses\/esviritu-golden",
+    "qualityFilter" : true,
+    "readFormat" : "unpaired",
+    "sampleName" : "sarscov2-R1-len150",
+    "threads" : 2
+  },
+  "coveragePath" : "sarscov2-R1-len150.virus_coverage_windows.tsv",
+  "detectionPath" : "sarscov2-R1-len150.detected_virus.info.tsv",
+  "provenanceId" : "<UUID-1>",
+  "runtime" : "<DURATION>",
+  "savedAt" : "<TIMESTAMP>",
+  "taxProfilePath" : "sarscov2-R1-len150.tax_profile.tsv",
+  "toolVersion" : "3.14",
+  "virusCount" : 1
+}

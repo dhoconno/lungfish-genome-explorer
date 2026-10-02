@@ -1,0 +1,5 @@
+exit: 0
+--- stdout
+--- stderr
+Materializing pointer dataset...
+Materialized to <RUN_ROOT>/classifiers/work/sarscov2-R1-len150.fastq

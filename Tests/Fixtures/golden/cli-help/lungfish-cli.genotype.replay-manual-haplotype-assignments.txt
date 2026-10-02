@@ -1,0 +1,14 @@
+OVERVIEW: Replay a recorded manual haplotype assignment edit into its exact
+target bundle
+
+USAGE: lungfish-cli genotype replay-manual-haplotype-assignments --provenance <provenance> --bundle <bundle>
+
+OPTIONS:
+  --provenance <provenance>
+                          GUI annotation provenance containing the replay
+                          payload
+  --bundle <bundle>       Exact genotype result bundle recorded by the replay
+                          payload
+  --version               Show the version.
+  -h, --help              Show help information.
+

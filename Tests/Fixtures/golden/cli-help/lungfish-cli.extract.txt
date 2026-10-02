@@ -1,0 +1,21 @@
+OVERVIEW: Extract subsequences or reads from genomic files
+
+Subcommands:
+  sequence  Extract subsequences from FASTA files by region
+  reads     Extract reads from FASTQ, BAM, or database sources
+  contigs   Extract selected contigs from assemblies
+
+USAGE: lungfish-cli extract <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  sequence (default)      Extract subsequences from FASTA files
+  reads                   Extract reads from FASTQ, BAM, database, or
+                          classifier-result sources
+  contigs                 Extract selected contigs from an assembly FASTA or
+                          managed assembly result
+
+  See 'lungfish-cli help extract <subcommand>' for detailed help.

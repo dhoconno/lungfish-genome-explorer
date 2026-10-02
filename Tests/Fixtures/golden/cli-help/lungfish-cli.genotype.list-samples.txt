@@ -1,0 +1,10 @@
+OVERVIEW: List samples and their top genotype call per locus from a genotype
+bundle
+
+USAGE: lungfish-cli genotype list-samples --bundle <bundle>
+
+OPTIONS:
+  --bundle <bundle>       Path to a `.lungfishgenotype` result bundle
+  --version               Show the version.
+  -h, --help              Show help information.
+

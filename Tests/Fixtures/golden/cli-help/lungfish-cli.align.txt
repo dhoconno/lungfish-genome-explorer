@@ -1,0 +1,13 @@
+OVERVIEW: Create native multiple sequence alignment bundles
+
+USAGE: lungfish-cli align <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  mafft (default)         Align FASTA sequences with MAFFT and create a
+                          .lungfishmsa bundle
+
+  See 'lungfish-cli help align <subcommand>' for detailed help.

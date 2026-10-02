@@ -1,0 +1,69 @@
+{
+  "flagstat": {
+    "QC-failed reads": {
+      "duplicates": 0,
+      "mapped": 0,
+      "mapped %": null,
+      "paired in sequencing": 0,
+      "primary": 0,
+      "primary duplicates": 0,
+      "primary mapped": 0,
+      "primary mapped %": null,
+      "properly paired": 0,
+      "properly paired %": null,
+      "read1": 0,
+      "read2": 0,
+      "secondary": 0,
+      "singletons": 0,
+      "singletons %": null,
+      "supplementary": 0,
+      "total": 0,
+      "with itself and mate mapped": 0,
+      "with mate mapped to a different chr": 0,
+      "with mate mapped to a different chr (mapQ >= 5)": 0
+    },
+    "QC-passed reads": {
+      "duplicates": 0,
+      "mapped": 197,
+      "mapped %": 98.5,
+      "paired in sequencing": 200,
+      "primary": 200,
+      "primary duplicates": 0,
+      "primary mapped": 197,
+      "primary mapped %": 98.5,
+      "properly paired": 192,
+      "properly paired %": 96.0,
+      "read1": 100,
+      "read2": 100,
+      "secondary": 0,
+      "singletons": 3,
+      "singletons %": 1.5,
+      "supplementary": 0,
+      "total": 200,
+      "with itself and mate mapped": 194,
+      "with mate mapped to a different chr": 0,
+      "with mate mapped to a different chr (mapQ >= 5)": 0
+    }
+  },
+  "mapped": 197,
+  "perContig": [
+    {
+      "contig": "MT192765.1",
+      "length": 29829,
+      "mapped": 197,
+      "unmapped": 3
+    },
+    {
+      "contig": "*",
+      "length": 0,
+      "mapped": 0,
+      "unmapped": 0
+    }
+  ],
+  "primary": 200,
+  "primaryMapped": 197,
+  "secondary": 0,
+  "supplementary": 0,
+  "total": 200,
+  "unmapped": 3
+}

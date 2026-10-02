@@ -1,0 +1,18 @@
+OVERVIEW: List haplotype definition sets
+
+USAGE: lungfish-cli haplotypes list [--project <project>] [--assay <assay>] [--species <species>] [--scope <scope>] [--include-shadowed] [--include-reference-bundles]
+
+OPTIONS:
+  --project <project>     Project root whose project-scoped definitions should
+                          be included
+  --assay <assay>         Filter to an assay/amplicon id
+  --species <species>     Filter to a species code, such as MCM or MAMU
+  --scope <scope>         project (the only supported scope)
+  --include-shadowed      Include definitions overridden by a higher-precedence
+                          scope
+  --include-reference-bundles
+                          Include haplotype definitions embedded in project
+                          .lungfishmhcref bundles
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -1,0 +1,2 @@
+sample_ID	filtered_reads_in_sample	kingdom	phylum	tclass	order	family	genus	species	subspecies	read_count	RPKMF	avg_read_identity	consensus_ref_identity	assembly_list
+sarscov2-R1-len150	55	k__Viruses	p__Pisuviricota	c__Pisoniviricetes	o__Nidovirales	f__Coronaviridae	g__Betacoronavirus	s__Betacoronavirus pandemicum	t__SARS-CoV-2_Delta	54	32848.813336618216	0.9954517210367101	1.0	acc:MW338781.1

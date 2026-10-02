@@ -1,0 +1,37 @@
+OVERVIEW: Detect and remove ribosomal RNA sequences with RiboDetector CPU mode
+
+USAGE: lungfish-cli fastq ribodetector [<options>] <inputs> ... --output <output>
+
+ARGUMENTS:
+  <inputs>                Input FASTA/FASTQ file, or paired R1/R2 FASTQ files
+
+OPTIONS:
+  --retain <retain>       Read classes to retain: norrna, rrna, or both
+                          (default: norrna)
+  --ensure <ensure>       RiboDetector assurance mode: rrna, norrna, both, or
+                          none (default: rrna)
+  --read-length <read-length>
+                          Mean sequencing read length. Inferred from input when
+                          omitted.
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --pairing <pairing>     How to treat the input's records: interleaved
+                          (adjacent records are mates and are kept or dropped
+                          together), single, or auto (default: auto) (values:
+                          interleaved, single, auto; default: auto)
+        auto reads the pairingMode recorded by the enclosing .lungfishfastq
+        bundle, then inspects read names. Mates with identical names, /1 /2
+        suffixes, or Casava descriptions are all recognised.
+  -o, --output <output>   Output directory
+  --version               Show the version.
+  -h, --help              Show help information.
+

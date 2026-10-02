@@ -1,0 +1,23 @@
+OVERVIEW: Export a bundle to a portable artifact
+
+Exports a Lungfish bundle as a deterministic OCI layout tarball.
+
+Examples:
+  lungfish-cli bundle export MyGenome.lungfishref --export-format container
+--output MyGenome.oci.tar
+
+USAGE: lungfish-cli bundle export <bundle-path> --export-format <export-format> --output <output> [--plugin-pack <plugin-pack> ...] [--quiet]
+
+ARGUMENTS:
+  <bundle-path>           Path to the source .lungfishref bundle
+
+OPTIONS:
+  --export-format <export-format>
+                          Export format (values: container)
+  -o, --output <output>   Output tarball path
+  --plugin-pack <plugin-pack>
+                          Plugin pack ID to pin into the exported image metadata
+  -q, --quiet             Suppress non-essential output
+  --version               Show the version.
+  -h, --help              Show help information.
+

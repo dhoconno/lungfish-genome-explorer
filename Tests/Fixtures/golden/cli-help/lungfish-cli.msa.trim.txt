@@ -1,0 +1,13 @@
+OVERVIEW: Create derived MSA bundles with removed columns
+
+USAGE: lungfish-cli msa trim <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  columns                 Create a derived .lungfishmsa bundle with trimmed
+                          alignment columns
+
+  See 'lungfish-cli help msa trim <subcommand>' for detailed help.

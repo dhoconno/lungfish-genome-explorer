@@ -1,0 +1,15 @@
+OVERVIEW: Save or update a writable haplotype definition from a JSON file
+
+USAGE: lungfish-cli haplotypes save <input> [--scope <scope>] [--project <project>] [--change-note <change-note>]
+
+ARGUMENTS:
+  <input>                 Definition JSON file to save
+
+OPTIONS:
+  --scope <scope>         project (the only supported scope) (default: project)
+  --project <project>     Project root for project-scoped definitions
+  --change-note <change-note>
+                          Human-readable provenance note for this edit
+  --version               Show the version.
+  -h, --help              Show help information.
+

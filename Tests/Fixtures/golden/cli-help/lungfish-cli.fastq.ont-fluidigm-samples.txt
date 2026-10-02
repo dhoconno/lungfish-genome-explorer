@@ -1,0 +1,35 @@
+OVERVIEW: Materialize counted per-sample ONT Fluidigm amplicon FASTQs
+
+Assigns ONT reads to samples with the same exact Fluidigm barcode matching
+used by amplicon genotyping, extracts the CS1-CS2 amplicon insert, then
+writes one physical .lungfishfastq bundle per sample containing unique
+insert exemplars. Payloads are gzip-compressed and duplicate support is
+encoded in FASTQ headers as size=N.
+
+USAGE: lungfish-cli fastq ont-fluidigm-samples <input> --barcodes <barcodes> --output <output> [--threads <threads>] [--primer-mismatches <primer-mismatches>] [--minimum-insert-length <minimum-insert-length>] [--canonicalize-reverse-complements] [--no-canonicalize-reverse-complements] [--force]
+
+ARGUMENTS:
+  <input>                 Input FASTQ file, directory, or .lungfishfastq bundle
+
+OPTIONS:
+  --barcodes <barcodes>   CSV/TSV file with sample and Fluidigm barcode
+                          sequence columns
+  -o, --output <output>   Output directory for per-sample .lungfishfastq bundles
+  --threads <threads>     Worker count reserved for future parallel
+                          materialization; currently recorded for provenance
+                          (default: 1)
+  --primer-mismatches <primer-mismatches>
+                          Maximum mismatches allowed when detecting CS1/CS2
+                          primer boundaries (default: 2) (default: 2)
+  --minimum-insert-length <minimum-insert-length>
+                          Minimum CS1-CS2 insert length to retain (default: 20)
+                          (default: 20)
+  --canonicalize-reverse-complements/--no-canonicalize-reverse-complements
+                          Canonicalize exact reverse-complement insert
+                          duplicates after orienting CS1-CS2 reads (default:
+                          disabled) (default:
+                          --no-canonicalize-reverse-complements)
+  --force                 Replace an existing output directory
+  --version               Show the version.
+  -h, --help              Show help information.
+

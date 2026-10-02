@@ -1,0 +1,40 @@
+OVERVIEW: Export a primer order (workbooks, CSV and order.json) from a saved
+analysis
+
+Writes the same order the Inspector's View tab exports: order.json,
+ordering.csv, primer-order.xlsx, template.xlsx and, for pooled orders,
+IDT-oPools.xlsx. The default scope follows the analysis: candidate-pairs for
+Primer3, selected-assays for Olivar and varVAMP, displayed for PrimalScheme.
+Each scope belongs to one engine and is refused for the others rather than
+falling back: displayed needs PrimalScheme's display filters, which Primer3 and
+varVAMP qPCR analyses do not have, so name selected-assays, all-reported-assays
+or candidate-pairs for those.
+
+USAGE: lungfish-cli primers analysis export-order <bundle-path> --output <output> [--scope <scope>] [--candidate-pair-id <candidate-pair-id> ...] [--name <name>] [--requested-by <requested-by>] [--project <project>] [--order-reference <order-reference>] [--notes <notes>]
+
+ARGUMENTS:
+  <bundle-path>           Path to the saved .lungfishprimeranalysis bundle.
+
+OPTIONS:
+  --output <output>       New order directory. It must not exist; its parent
+                          must.
+  --scope <scope>         Which saved oligos to order: candidate-pairs (Primer3
+                          only), selected-assays or all-reported-assays (Olivar
+                          and varVAMP only), displayed (PrimalScheme only). A
+                          scope the analysis engine does not have is refused
+                          with the scopes it does offer. (values:
+                          candidate-pairs, selected-assays,
+                          all-reported-assays, displayed)
+  --candidate-pair-id <candidate-pair-id>
+                          Primer3 candidate pair UUID to include (repeatable;
+                          default all pairs).
+  --name <name>           Order name (default "<analysis name> order").
+  --requested-by <requested-by>
+                          Who requested the order.
+  --project <project>     Project the order belongs to.
+  --order-reference <order-reference>
+                          Purchase or order reference.
+  --notes <notes>         Free-text order notes.
+  --version               Show the version.
+  -h, --help              Show help information.
+

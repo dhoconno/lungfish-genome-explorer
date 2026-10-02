@@ -1,0 +1,14 @@
+OVERVIEW: Compute a JSON QC summary for FASTQ input files
+
+USAGE: lungfish-cli fastq qc-summary <inputs> ... --output <output> [--force] [--compress]
+
+ARGUMENTS:
+  <inputs>                Input FASTQ file(s)
+
+OPTIONS:
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --version               Show the version.
+  -h, --help              Show help information.
+

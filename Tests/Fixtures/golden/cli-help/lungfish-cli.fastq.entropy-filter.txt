@@ -1,0 +1,35 @@
+OVERVIEW: Remove low-complexity reads using the bbduk entropy filter
+
+Discards reads whose Shannon entropy falls below a threshold. This
+catches homopolymer runs and tandem repeats (for example ATCATCATC…)
+that per-read complexity metrics miss, and that otherwise inflate
+apparent mapping depth.
+
+Defaults are entropy 0.6, window 50, k-mer 5.
+
+USAGE: lungfish-cli fastq entropy-filter <input> [--entropy <entropy>] [--window <window>] [--kmer <kmer>] [--threads <threads>] [--pairing <pairing>] --output <output> [--force] [--compress]
+
+ARGUMENTS:
+  <input>                 Input FASTQ file
+
+OPTIONS:
+  --entropy <entropy>     Entropy threshold, 0.3-0.9 (default: 0.6) (default:
+                          0.6)
+  --window <window>       Entropy sliding window in bases (default: 50)
+                          (default: 50)
+  --kmer <kmer>           K-mer length for entropy estimation (default: 5)
+                          (default: 5)
+  --threads <threads>     bbduk thread count (default: 4) (default: 4)
+  --pairing <pairing>     How to treat the input's records: interleaved
+                          (adjacent records are mates and are kept or dropped
+                          together), single, or auto (default: auto) (values:
+                          interleaved, single, auto; default: auto)
+        auto reads the pairingMode recorded by the enclosing .lungfishfastq
+        bundle, then inspects read names. Mates with identical names, /1 /2
+        suffixes, or Casava descriptions are all recognised.
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --version               Show the version.
+  -h, --help              Show help information.
+

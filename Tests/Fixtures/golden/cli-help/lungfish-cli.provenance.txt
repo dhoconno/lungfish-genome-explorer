@@ -1,0 +1,15 @@
+OVERVIEW: Inspect provenance recorded in Lungfish bundles
+
+USAGE: lungfish-cli provenance <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  bibliography            Generate a citation list from a bundle's provenance
+  export                  Export reproducible reports from a Lungfish
+                          provenance sidecar
+  verify                  Verify a signed Lungfish provenance sidecar
+
+  See 'lungfish-cli help provenance <subcommand>' for detailed help.

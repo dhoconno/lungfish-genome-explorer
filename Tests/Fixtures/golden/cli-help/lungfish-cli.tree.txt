@@ -1,0 +1,20 @@
+OVERVIEW: Infer and transform phylogenetic tree bundles
+
+USAGE: lungfish-cli tree <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  infer                   Infer phylogenetic trees from native alignment bundles
+  export                  Export tree bundle payloads with provenance
+  reroot                  Root a .lungfishtree bundle on the branch above a
+                          node (outgroup rooting) and write a new bundle with
+                          provenance
+  extract-subtree         Extract a selected clade as a new .lungfishtree
+                          bundle with provenance
+  relabel                 Relabel tree tips from bundle metadata.tsv and write
+                          a new bundle with provenance
+
+  See 'lungfish-cli help tree <subcommand>' for detailed help.

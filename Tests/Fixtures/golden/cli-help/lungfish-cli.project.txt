@@ -1,0 +1,19 @@
+OVERVIEW: Manage shared project locks and bundle migrations
+
+Project commands provide explicit coordination primitives for shared
+Lungfish project directories. Lock records are stored inside the
+project so GUI and CLI tooling can detect active advanced workflows.
+
+USAGE: lungfish-cli project <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  lock                    Create a project-local lock record
+  unlock                  Remove a project-local lock record
+  migrate                 Migrate project bundles when a safe transformer is
+                          available
+
+  See 'lungfish-cli help project <subcommand>' for detailed help.

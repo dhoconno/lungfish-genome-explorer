@@ -1,0 +1,26 @@
+OVERVIEW: List, describe and download ready-to-analyse demo projects
+
+Each demo project matches one activity in the user manual. 'demo fetch'
+downloads the project archive, checks its size and SHA-256, unpacks it
+safely and installs it as '<dest>/<Project Name>.lungfish'. The default
+destination is ~/Documents/LGE Demo Projects, which is also the app's
+default folder in Help > Demo Projects… Pass --dest to use another folder.
+
+An existing copy is left alone unless you pass --force, which moves it to
+the Trash before installing a fresh copy.
+
+USAGE: lungfish-cli demo <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  list                    List the demo projects with their size, installed
+                          status and path
+  info                    Describe one demo project and the manual chapters it
+                          goes with
+  fetch                   Download, verify and install a demo project, then
+                          print its path
+
+  See 'lungfish-cli help demo <subcommand>' for detailed help.

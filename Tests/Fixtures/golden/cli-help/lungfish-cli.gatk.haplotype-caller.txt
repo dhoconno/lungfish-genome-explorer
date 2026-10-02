@@ -1,0 +1,30 @@
+OVERVIEW: Construct a GATK HaplotypeCaller command
+
+USAGE: lungfish-cli gatk haplotype-caller [<options>] --reference <reference> --bam <bam> --output <output>
+
+OPTIONS:
+  --execute               Run GATK and write final-location provenance.
+  --dry-run               Print the GATK command preview without running it.
+  --reference <reference> Reference FASTA path
+  --bam <bam>             Input BAM path
+  --output <output>       Output VCF or GVCF path
+  --emit-ref-confidence <emit-ref-confidence>
+                          Emit reference confidence: GVCF or NONE (default:
+                          GVCF)
+  --ploidy <ploidy>       Sample ploidy (default: 2)
+  --intervals <intervals> Optional intervals BED/list/contig path
+  --pcr-indel-model <pcr-indel-model>
+                          GATK PCR indel model (default: CONSERVATIVE)
+  --stand-call-conf <stand-call-conf>
+                          Calling confidence threshold for non-GVCF mode
+                          (default: 30.0)
+  --max-alternate-alleles <max-alternate-alleles>
+                          Maximum alternate alleles (default: 6)
+  --pair-hmm-threads <pair-hmm-threads>
+                          Native PairHMM threads (default: 4)
+  --extra-args <extra-args>
+                          Additional GATK arguments, written exactly as they
+                          should be passed
+  --version               Show the version.
+  -h, --help              Show help information.
+

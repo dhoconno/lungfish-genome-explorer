@@ -1,0 +1,89 @@
+OVERVIEW: FASTQ read processing and quality control
+
+Process FASTQ files using bundled bioinformatics tools (seqkit, fastp,
+bbtools). All tools are embedded — no external installations required.
+
+Operations include subsetting, quality/adapter trimming, contaminant
+and low-complexity filtering, error correction, primer removal, and
+paired-end utilities.
+
+Examples:
+  lungfish-cli fastq subsample --proportion 0.1 reads.fastq -o subset.fastq
+  lungfish-cli fastq quality-trim --threshold 20 reads.fastq -o trimmed.fastq
+  lungfish-cli fastq contaminant-filter --mode phix reads.fastq -o clean.fastq
+  lungfish-cli fastq entropy-filter --entropy 0.6 reads.fastq -o complex.fastq
+  lungfish-cli fastq error-correct reads.fastq -o corrected.fastq
+
+USAGE: lungfish-cli fastq <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  subsample               Subsample reads by proportion or count
+  length-filter           Filter reads by length
+  trim                    Trim adapters and low-quality bases in one fastp pass
+  quality-trim            Trim low-quality bases using fastp
+  adapter-trim            Remove adapter sequences using fastp
+  fixed-trim              Trim fixed number of bases from read ends
+  contaminant-filter      Remove contaminant reads using bbduk
+  entropy-filter          Remove low-complexity reads using the bbduk entropy
+                          filter
+  primer-remove           Remove primer sequences from FASTQ reads
+  error-correct           Correct sequencing errors using tadpole
+  merge                   Merge overlapping paired-end reads using bbmerge
+  repair                  Repair desynchronized paired-end reads using repair.sh
+  deinterleave            Split interleaved FASTQ into separate R1/R2 files
+  interleave              Interleave separate R1/R2 files into one FASTQ
+  deduplicate             Remove duplicate reads using clumpify.sh (BBTools)
+  demultiplex             Demultiplex reads by internal barcodes
+  ont-fluidigm-samples    Materialize counted per-sample ONT Fluidigm amplicon
+                          FASTQs
+  ont-pacbio-barcode-demux
+                          Demultiplex full-length MHC ONT amplicons with PacBio
+                          barcode pairs
+  scout                   Scout barcode assignments before FASTQ demultiplexing
+  import-ont              Import ONT output directory into per-barcode bundles
+  materialize             Materialize a virtual FASTQ bundle to a physical
+                          FASTQ file
+  qc-summary              Compute a JSON QC summary for FASTQ input files
+  pbaa-cluster            Cluster PacBio HiFi amplicon reads with pbAA in
+                          pinned containers
+  savont-cluster          Cluster FASTQ reads into counted consensus sequences
+                          with Savont
+  full-length-ont-mhc-genotype
+                          Run full-length ONT MHC genotyping from per-sample
+                          FASTQ bundles using Savont clusters
+  genotype                Run platform-aware exact+indel amplicon genotyping
+                          for ONT or Illumina reads
+  genotype-cohort         Run cohort amplicon genotyping across multiple
+                          prepared per-sample FASTQ bundles
+  ont-barcode-genotype    Deprecated ONT barcode demux genotyping workflow
+  mhc-reference-bundle    Create a .lungfishmhcref bundle for MHC amplicon
+                          genotyping
+  12s-reference-metadata  Prepare structured taxonomy metadata for a
+                          deduplicated 12S reference FASTA
+  12s-reference-bundle    Create a .lungfish12sref bundle for 12S amplicon
+                          matching
+  12s-match               Match merged 12S amplicon FASTQ reads to a
+                          deduplicated reference FASTA
+  12s-export              Export 12S amplicon result species rows to CSV, TSV,
+                          or Excel
+  12s-export-unresolved   Export unresolved 12S sequence clusters above a read
+                          threshold to FASTA
+  search-text             Search FASTQ reads by ID or description field
+  search-motif            Search FASTQ reads by sequence motif
+  orient                  Orient reads against a reference sequence
+  scrub-human             Remove human reads from FASTQ
+  sequence-filter         Filter reads by sequence presence (adapter/barcode
+                          matching)
+  ribodetector            Detect and remove ribosomal RNA sequences with
+                          RiboDetector CPU mode
+  deacon-ribo             Detect and remove ribosomal RNA sequences with Deacon
+                          and BBMap ribokmers
+  reverse-complement      Reverse-complement FASTQ reads and reverse their
+                          quality scores
+  translate               Translate FASTQ reads to protein FASTA
+
+  See 'lungfish-cli help fastq <subcommand>' for detailed help.

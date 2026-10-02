@@ -1,0 +1,48 @@
+{
+  "esvirituDatabase": {
+    "files": {
+      "v3.2.4/virus_pathogen_database.all_metadata.tsv": {
+        "bytes": 8727768,
+        "sha256": "5431e4c496ed3e687e3d36167859161f3f893b5bcdf5a9f649f1cd126f4ce0eb"
+      },
+      "v3.2.4/virus_pathogen_database.fna": {
+        "bytes": 239596694,
+        "sha256": "72b90cb934bd43138e7bc4f9a1220ef7116d5ea9c0d40af8d5892e5f66de298b"
+      },
+      "v3.2.4/virus_pathogen_database.fna.fai": {
+        "bytes": 975717,
+        "sha256": "f830160b28c4fd73323b8ab09c7354f3d3eca1f39eb1863bdbb0f6baf774e102"
+      },
+      "v3.2.4/virus_pathogen_database.mmi": {
+        "bytes": 646318574,
+        "sha256": "c82f7630c89077382413fe55564af508d5fe70be2f079f281d168dcfd28bbd5f"
+      }
+    },
+    "name": "EsViritu Viral DB",
+    "path": "esviritu/esviritu-viral-db",
+    "status": "ready",
+    "tool": "esviritu",
+    "version": "v3.2.4"
+  },
+  "kraken2Database": {
+    "files": {
+      "hash.k2d": {
+        "bytes": 648733288,
+        "sha256": "1bd239b207e1d0f679f910cf323c9b6894fdb85c80f0358fa144aca25a7bdfa7"
+      },
+      "opts.k2d": {
+        "bytes": 64,
+        "sha256": "b7ecfc6e365325b71a3514049bc80faeaf2549463ab93ff07cdbc112bd5a8c75"
+      },
+      "taxo.k2d": {
+        "bytes": 2470742,
+        "sha256": "681162e42813064ebe74d55950cf53da33157d28db3ef4e4ad378af007384d24"
+      }
+    },
+    "name": "Viral",
+    "path": "kraken2/viral",
+    "status": "ready",
+    "tool": "kraken2",
+    "version": "20260626"
+  }
+}

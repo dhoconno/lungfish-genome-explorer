@@ -1,0 +1,14 @@
+OVERVIEW: Replay a recorded atomic haplotype call override edit into its exact
+target bundle
+
+USAGE: lungfish-cli genotype replay-call-overrides --provenance <provenance> --bundle <bundle>
+
+OPTIONS:
+  --provenance <provenance>
+                          GUI annotation provenance containing the replay
+                          payload
+  --bundle <bundle>       Exact genotype result bundle recorded by the replay
+                          payload
+  --version               Show the version.
+  -h, --help              Show help information.
+

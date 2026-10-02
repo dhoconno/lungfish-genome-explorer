@@ -1,0 +1,29 @@
+OVERVIEW: Operate on bundle-owned BAM alignment tracks
+
+Use `lungfish-cli bam filter` to derive filtered alignment tracks and
+`lungfish-cli bam annotate` to convert mapped reads into annotation tracks.
+Use `lungfish-cli bam markdup` to mark duplicates in BAM workflows.
+
+USAGE: lungfish-cli bam <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  filter                  Derive a filtered BAM alignment track from a bundle
+                          or mapping analysis directory
+  annotate                Convert mapped reads to annotations in a reference
+                          bundle
+  annotate-best           Create a new bundle with the best mapped read per
+                          overlapping genomic interval
+  annotate-cds-best       Create a new bundle with best CDS query gene and CDS
+                          annotations
+  markdup                 Mark PCR duplicates in BAM files using samtools
+                          markdup
+  primer-trim             Trim amplicon primers from a bundle BAM and adopt the
+                          result as a new alignment track
+  adopt-mapping           Attach a `lungfish-cli map` result to a reference
+                          bundle as a new alignment track
+
+  See 'lungfish-cli help bam <subcommand>' for detailed help.

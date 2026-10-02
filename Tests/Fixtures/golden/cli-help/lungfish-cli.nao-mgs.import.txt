@@ -1,0 +1,30 @@
+OVERVIEW: Import NAO-MGS results as a standalone JSON summary
+
+USAGE: lungfish-cli nao-mgs import [<options>] <input-path>
+
+ARGUMENTS:
+  <input-path>            Path to NAO-MGS results directory or
+                          virus_hits_final.tsv(.gz)
+
+OPTIONS:
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --sample-name <sample-name>
+                          Override sample name
+  -o, --output-dir <output-dir>
+                          Output directory for converted files (default:
+                          current directory)
+  --min-bitscore <min-bitscore>
+                          Minimum bit score filter (default: 0) (default: 0.0)
+  --version               Show the version.
+  -h, --help              Show help information.
+

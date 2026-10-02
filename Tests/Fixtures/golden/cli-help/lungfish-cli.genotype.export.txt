@@ -1,0 +1,55 @@
+OVERVIEW: Export a genotype bundle (or a rendered view projection) as
+XLSX/CSV/TSV.
+
+USAGE: lungfish-cli genotype export [<options>] --bundle <bundle> --output <output>
+
+OPTIONS:
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  -b, --bundle <bundle>   Path to the .lungfishgenotype bundle.
+  --export-format <export-format>
+                          Export container format: xlsx, csv, tsv (default:
+                          xlsx). (values: xlsx, csv, tsv; default: xlsx)
+  -o, --output <output>   Output file path.
+  --lens <lens>           Viewport lens to record in provenance (e.g.
+                          haplotype, allele).
+  --min-reads <min-reads> Drop calls below this unique-read count.
+  --min-percent <min-percent>
+                          Hide Filtered XLSX cells whose per-sample read
+                          fraction is below this percent (known and candidate
+                          alleles alike).
+  --percent-basis <percent-basis>
+                          Denominator for --min-percent: viewed-locus (the
+                          sample's unique reads at the allele's source locus)
+                          or sample-retained. (values: viewed-locus,
+                          sample-retained; default: viewed-locus)
+  --min-prevalence-percent <min-prevalence-percent>
+                          Seen in at least N% of animals: hide Filtered XLSX
+                          rows visible in fewer than this percent of samples; 0
+                          disables the filter.
+  --filter <filter>       Named filter applied to the view (recorded in
+                          provenance).
+  --sample <sample>       Restrict to this sample (repeatable).
+  --active-haplotype-definition <active-haplotype-definition>
+                          Active haplotype definition set ID to resolve calls
+                          against.
+  --view-projection <view-projection>
+                          Path to a GenotypeViewProjection JSON describing the
+                          rendered viewport.
+  --annotations <annotations>
+                          Annotation sidecar to include in annotation-bearing
+                          exports; defaults to bundle annotations.json when
+                          present.
+  --force                 Overwrite an existing output file.
+  --version               Show the version.
+  -h, --help              Show help information.
+

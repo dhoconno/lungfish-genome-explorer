@@ -1,0 +1,22 @@
+OVERVIEW: Search and download from ENA (European Nucleotide Archive)
+
+Search for sequences and reads in the European Nucleotide Archive.
+ENA provides direct FASTQ download URLs without requiring the SRA Toolkit.
+
+Examples:
+  lungfish-cli fetch ena search "Ebola virus" --limit 10
+  lungfish-cli fetch ena reads SRR11140748
+  lungfish-cli fetch ena fasta NC_002549
+
+USAGE: lungfish-cli fetch ena <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  search (default)        Search ENA for sequences
+  reads                   Get read/SRA data with FASTQ download URLs
+  fasta                   Fetch sequence in FASTA format from ENA
+
+  See 'lungfish-cli help fetch ena <subcommand>' for detailed help.

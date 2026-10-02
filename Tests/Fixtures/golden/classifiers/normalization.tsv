@@ -1,0 +1,9 @@
+rule	file, payload or record path	size masked	left out by --strict
+R10	esviritu/esviritu-result.json	yes	no
+R10	esviritu/lungfish-provenance.json	yes	no
+R10	esviritu/materialize-folder-provenance.json	yes	no
+R10	esviritu/materialize-provenance.json	yes	no
+R10	kraken2/classification-result.json	yes	no
+R10	kraken2/lungfish-provenance.json	yes	no
+R11	classification.kraken.gz	no	no
+R12	classification.kraken.gz.idx.sqlite	no	no

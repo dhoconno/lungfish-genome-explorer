@@ -1,0 +1,13 @@
+OVERVIEW: Infer phylogenetic trees from native alignment bundles
+
+USAGE: lungfish-cli tree infer <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  iqtree (default)        Infer a maximum-likelihood tree from a .lungfishmsa
+                          bundle using IQ-TREE
+
+  See 'lungfish-cli help tree infer <subcommand>' for detailed help.

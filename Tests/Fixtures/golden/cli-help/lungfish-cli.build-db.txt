@@ -1,0 +1,14 @@
+OVERVIEW: Build SQLite databases from classifier results
+
+USAGE: lungfish-cli build-db <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  taxtriage               Build SQLite database from TaxTriage results
+  esviritu                Build SQLite database from EsViritu results
+  kraken2                 Build SQLite database from Kraken2 results
+
+  See 'lungfish-cli help build-db <subcommand>' for detailed help.

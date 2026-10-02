@@ -1,0 +1,26 @@
+OVERVIEW: Remove contaminant reads using bbduk
+
+USAGE: lungfish-cli fastq contaminant-filter <input> [--mode <mode>] [--ref <ref>] [--kmer <kmer>] [--hdist <hdist>] [--pairing <pairing>] --output <output> [--force] [--compress]
+
+ARGUMENTS:
+  <input>                 Input FASTQ file
+
+OPTIONS:
+  --mode <mode>           Filter mode: phix, custom (default: phix) (default:
+                          phix)
+  --ref <ref>             Reference FASTA for custom mode
+  --kmer <kmer>           K-mer size (default: 31) (default: 31)
+  --hdist <hdist>         Hamming distance tolerance (default: 1) (default: 1)
+  --pairing <pairing>     How to treat the input's records: interleaved
+                          (adjacent records are mates and are kept or dropped
+                          together), single, or auto (default: auto) (values:
+                          interleaved, single, auto; default: auto)
+        auto reads the pairingMode recorded by the enclosing .lungfishfastq
+        bundle, then inspects read names. Mates with identical names, /1 /2
+        suffixes, or Casava descriptions are all recognised.
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --version               Show the version.
+  -h, --help              Show help information.
+

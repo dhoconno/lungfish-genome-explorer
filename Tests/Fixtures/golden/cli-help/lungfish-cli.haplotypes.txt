@@ -1,0 +1,33 @@
+OVERVIEW: Manage ONT genotyping haplotype definition sets
+
+Import, export, list, duplicate, and delete project haplotype definition
+sets before running ONT genotyping workflows. Definitions may be stored
+as project JSON definition files or embedded in project .lungfishmhcref
+reference bundles.
+
+USAGE: lungfish-cli haplotypes <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  list                    List haplotype definition sets
+  validate                Validate a haplotype definition JSON file
+  import                  Import a haplotype definition JSON file
+  save                    Save or update a writable haplotype definition from a
+                          JSON file
+  bundle-install          Install an existing .lungfishmhcref bundle into a
+                          project
+  bundle-create           Create an MHC reference bundle from managed haplotype
+                          definitions and a reference FASTA
+  bundle-save             Save or update a haplotype definition embedded in an
+                          MHC reference bundle
+  bundle-replace-reference
+                          Replace the reference FASTA embedded in an MHC
+                          reference bundle
+  export                  Export a haplotype definition set to a JSON file
+  duplicate               Duplicate a project definition into the project scope
+  delete                  Delete a project haplotype definition set
+
+  See 'lungfish-cli help haplotypes <subcommand>' for detailed help.

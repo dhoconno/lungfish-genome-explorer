@@ -1,0 +1,39 @@
+OVERVIEW: Manage bioconda tool plugins via micromamba
+
+Install bioinformatics tools from bioconda and conda-forge using micromamba.
+Each tool is installed in its own isolated environment to prevent dependency
+conflicts. Tools are stored in /Users/dho/.lungfish-stable/conda.
+
+Use 'lungfish-cli conda lock --pack <pack> --output lockfile.yml' to write
+a Lungfish requested environment specification (JSON). This is not a
+resolved artifact lock; exact --from-lockfile reconstruction is unsupported.
+
+USAGE: lungfish-cli conda <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  install                 Install a tool or plugin pack from bioconda
+  remove                  Remove a conda environment and its tools
+  list                    List installed packages in an environment
+  search                  Search for packages in bioconda and conda-forge
+  run                     Run a tool from a conda environment
+  envs                    List conda environments
+  setup                   Download and set up micromamba
+  lock                    Export a requested environment specification for a
+                          plugin pack (not a resolved lock)
+  packs                   List available plugin packs
+  export-pack             Export installed conda environments for offline
+                          transfer
+  offline-export          Export installed conda environments for offline
+                          transfer
+  offline-install         Install conda environments from an offline pack
+  classify                Run Kraken2 taxonomic classification on FASTQ or
+                          FASTA inputs
+  db                      Manage metagenomics reference databases
+  extract                 Extract reads by taxonomy from Kraken2 classification
+                          output
+
+  See 'lungfish-cli help conda <subcommand>' for detailed help.

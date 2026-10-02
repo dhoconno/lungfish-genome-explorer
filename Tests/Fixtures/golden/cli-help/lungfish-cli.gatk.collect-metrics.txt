@@ -1,0 +1,20 @@
+OVERVIEW: Construct a GATK Picard CollectVariantCallingMetrics command
+
+USAGE: lungfish-cli gatk collect-metrics [--execute] [--dry-run] --vcf <vcf> --output-prefix <output-prefix> --dbsnp <dbsnp> [--sequence-dictionary <sequence-dictionary>] [--gvcf-input] [--extra-args <extra-args>]
+
+OPTIONS:
+  --execute               Run GATK and write final-location provenance.
+  --dry-run               Print the GATK command preview without running it.
+  --vcf <vcf>             Input VCF path
+  --output-prefix <output-prefix>
+                          Output metrics prefix path
+  --dbsnp <dbsnp>         dbSNP VCF path
+  --sequence-dictionary <sequence-dictionary>
+                          Optional reference sequence dictionary path
+  --gvcf-input            Treat input as a GVCF
+  --extra-args <extra-args>
+                          Additional GATK/Picard arguments, written exactly as
+                          they should be passed
+  --version               Show the version.
+  -h, --help              Show help information.
+

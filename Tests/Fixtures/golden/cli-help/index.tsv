@@ -1,0 +1,282 @@
+command	visibility	exit	file
+lungfish-cli	shown	0	lungfish-cli.txt
+lungfish-cli version	shown	0	lungfish-cli.version.txt
+lungfish-cli convert	shown	0	lungfish-cli.convert.txt
+lungfish-cli analyze	shown	0	lungfish-cli.analyze.txt
+lungfish-cli analyze stats	shown	0	lungfish-cli.analyze.stats.txt
+lungfish-cli analyze composition	shown	0	lungfish-cli.analyze.composition.txt
+lungfish-cli analyze validate	shown	0	lungfish-cli.analyze.validate.txt
+lungfish-cli translate	shown	0	lungfish-cli.translate.txt
+lungfish-cli sequence	shown	0	lungfish-cli.sequence.txt
+lungfish-cli sequence annotate-orfs	shown	0	lungfish-cli.sequence.annotate-orfs.txt
+lungfish-cli sequence delete-annotations	shown	0	lungfish-cli.sequence.delete-annotations.txt
+lungfish-cli sequence delete-annotation-track	shown	0	lungfish-cli.sequence.delete-annotation-track.txt
+lungfish-cli sequence update-annotation	shown	0	lungfish-cli.sequence.update-annotation.txt
+lungfish-cli search	shown	0	lungfish-cli.search.txt
+lungfish-cli universal-search	shown	0	lungfish-cli.universal-search.txt
+lungfish-cli extract	shown	0	lungfish-cli.extract.txt
+lungfish-cli extract sequence	shown	0	lungfish-cli.extract.sequence.txt
+lungfish-cli extract reads	shown	0	lungfish-cli.extract.reads.txt
+lungfish-cli extract contigs	shown	0	lungfish-cli.extract.contigs.txt
+lungfish-cli fastq	shown	0	lungfish-cli.fastq.txt
+lungfish-cli fastq subsample	shown	0	lungfish-cli.fastq.subsample.txt
+lungfish-cli fastq length-filter	shown	0	lungfish-cli.fastq.length-filter.txt
+lungfish-cli fastq trim	shown	0	lungfish-cli.fastq.trim.txt
+lungfish-cli fastq quality-trim	shown	0	lungfish-cli.fastq.quality-trim.txt
+lungfish-cli fastq adapter-trim	shown	0	lungfish-cli.fastq.adapter-trim.txt
+lungfish-cli fastq fixed-trim	shown	0	lungfish-cli.fastq.fixed-trim.txt
+lungfish-cli fastq contaminant-filter	shown	0	lungfish-cli.fastq.contaminant-filter.txt
+lungfish-cli fastq entropy-filter	shown	0	lungfish-cli.fastq.entropy-filter.txt
+lungfish-cli fastq primer-remove	shown	0	lungfish-cli.fastq.primer-remove.txt
+lungfish-cli fastq error-correct	shown	0	lungfish-cli.fastq.error-correct.txt
+lungfish-cli fastq merge	shown	0	lungfish-cli.fastq.merge.txt
+lungfish-cli fastq repair	shown	0	lungfish-cli.fastq.repair.txt
+lungfish-cli fastq deinterleave	shown	0	lungfish-cli.fastq.deinterleave.txt
+lungfish-cli fastq interleave	shown	0	lungfish-cli.fastq.interleave.txt
+lungfish-cli fastq deduplicate	shown	0	lungfish-cli.fastq.deduplicate.txt
+lungfish-cli fastq demultiplex	shown	0	lungfish-cli.fastq.demultiplex.txt
+lungfish-cli fastq ont-fluidigm-samples	shown	0	lungfish-cli.fastq.ont-fluidigm-samples.txt
+lungfish-cli fastq ont-pacbio-barcode-demux	shown	0	lungfish-cli.fastq.ont-pacbio-barcode-demux.txt
+lungfish-cli fastq scout	shown	0	lungfish-cli.fastq.scout.txt
+lungfish-cli fastq import-ont	shown	0	lungfish-cli.fastq.import-ont.txt
+lungfish-cli fastq materialize	shown	0	lungfish-cli.fastq.materialize.txt
+lungfish-cli fastq qc-summary	shown	0	lungfish-cli.fastq.qc-summary.txt
+lungfish-cli fastq pbaa-cluster	shown	0	lungfish-cli.fastq.pbaa-cluster.txt
+lungfish-cli fastq savont-cluster	shown	0	lungfish-cli.fastq.savont-cluster.txt
+lungfish-cli fastq full-length-ont-mhc-genotype	shown	0	lungfish-cli.fastq.full-length-ont-mhc-genotype.txt
+lungfish-cli fastq genotype	shown	0	lungfish-cli.fastq.genotype.txt
+lungfish-cli fastq genotype-cohort	shown	0	lungfish-cli.fastq.genotype-cohort.txt
+lungfish-cli fastq ont-genotype	hidden	0	lungfish-cli.fastq.ont-genotype.txt
+lungfish-cli fastq ont-barcode-genotype	shown	0	lungfish-cli.fastq.ont-barcode-genotype.txt
+lungfish-cli fastq mhc-reference-bundle	shown	0	lungfish-cli.fastq.mhc-reference-bundle.txt
+lungfish-cli fastq 12s-reference-metadata	shown	0	lungfish-cli.fastq.12s-reference-metadata.txt
+lungfish-cli fastq 12s-reference-bundle	shown	0	lungfish-cli.fastq.12s-reference-bundle.txt
+lungfish-cli fastq 12s-match	shown	0	lungfish-cli.fastq.12s-match.txt
+lungfish-cli fastq 12s-export	shown	0	lungfish-cli.fastq.12s-export.txt
+lungfish-cli fastq 12s-export-unresolved	shown	0	lungfish-cli.fastq.12s-export-unresolved.txt
+lungfish-cli fastq search-text	shown	0	lungfish-cli.fastq.search-text.txt
+lungfish-cli fastq search-motif	shown	0	lungfish-cli.fastq.search-motif.txt
+lungfish-cli fastq orient	shown	0	lungfish-cli.fastq.orient.txt
+lungfish-cli fastq scrub-human	shown	0	lungfish-cli.fastq.scrub-human.txt
+lungfish-cli fastq sequence-filter	shown	0	lungfish-cli.fastq.sequence-filter.txt
+lungfish-cli fastq ribodetector	shown	0	lungfish-cli.fastq.ribodetector.txt
+lungfish-cli fastq deacon-ribo	shown	0	lungfish-cli.fastq.deacon-ribo.txt
+lungfish-cli fastq reverse-complement	shown	0	lungfish-cli.fastq.reverse-complement.txt
+lungfish-cli fastq translate	shown	0	lungfish-cli.fastq.translate.txt
+lungfish-cli workflow	shown	0	lungfish-cli.workflow.txt
+lungfish-cli workflow run	shown	0	lungfish-cli.workflow.run.txt
+lungfish-cli workflow list	shown	0	lungfish-cli.workflow.list.txt
+lungfish-cli workflow validate	shown	0	lungfish-cli.workflow.validate.txt
+lungfish-cli run-headless	shown	0	lungfish-cli.run-headless.txt
+lungfish-cli fetch	shown	0	lungfish-cli.fetch.txt
+lungfish-cli fetch ncbi	shown	0	lungfish-cli.fetch.ncbi.txt
+lungfish-cli fetch search	shown	0	lungfish-cli.fetch.search.txt
+lungfish-cli fetch sra	shown	0	lungfish-cli.fetch.sra.txt
+lungfish-cli fetch sra search	shown	0	lungfish-cli.fetch.sra.search.txt
+lungfish-cli fetch sra download	shown	0	lungfish-cli.fetch.sra.download.txt
+lungfish-cli fetch sra info	shown	0	lungfish-cli.fetch.sra.info.txt
+lungfish-cli fetch ena	shown	0	lungfish-cli.fetch.ena.txt
+lungfish-cli fetch ena search	shown	0	lungfish-cli.fetch.ena.search.txt
+lungfish-cli fetch ena reads	shown	0	lungfish-cli.fetch.ena.reads.txt
+lungfish-cli fetch ena fasta	shown	0	lungfish-cli.fetch.ena.fasta.txt
+lungfish-cli fetch genome	shown	0	lungfish-cli.fetch.genome.txt
+lungfish-cli bundle	shown	0	lungfish-cli.bundle.txt
+lungfish-cli bundle info	shown	0	lungfish-cli.bundle.info.txt
+lungfish-cli bundle create	shown	0	lungfish-cli.bundle.create.txt
+lungfish-cli bundle extract-annotations	shown	0	lungfish-cli.bundle.extract-annotations.txt
+lungfish-cli bundle deduplicate-alignments	shown	0	lungfish-cli.bundle.deduplicate-alignments.txt
+lungfish-cli bundle mark-duplicates	shown	0	lungfish-cli.bundle.mark-duplicates.txt
+lungfish-cli bundle export	shown	0	lungfish-cli.bundle.export.txt
+lungfish-cli bundle validate	shown	0	lungfish-cli.bundle.validate.txt
+lungfish-cli bundle list	shown	0	lungfish-cli.bundle.list.txt
+lungfish-cli project	shown	0	lungfish-cli.project.txt
+lungfish-cli project lock	shown	0	lungfish-cli.project.lock.txt
+lungfish-cli project unlock	shown	0	lungfish-cli.project.unlock.txt
+lungfish-cli project migrate	shown	0	lungfish-cli.project.migrate.txt
+lungfish-cli provision-tools	shown	0	lungfish-cli.provision-tools.txt
+lungfish-cli tools	shown	0	lungfish-cli.tools.txt
+lungfish-cli tools update	shown	0	lungfish-cli.tools.update.txt
+lungfish-cli conda	shown	0	lungfish-cli.conda.txt
+lungfish-cli conda install	shown	0	lungfish-cli.conda.install.txt
+lungfish-cli conda remove	shown	0	lungfish-cli.conda.remove.txt
+lungfish-cli conda list	shown	0	lungfish-cli.conda.list.txt
+lungfish-cli conda search	shown	0	lungfish-cli.conda.search.txt
+lungfish-cli conda run	shown	0	lungfish-cli.conda.run.txt
+lungfish-cli conda envs	shown	0	lungfish-cli.conda.envs.txt
+lungfish-cli conda setup	shown	0	lungfish-cli.conda.setup.txt
+lungfish-cli conda lock	shown	0	lungfish-cli.conda.lock.txt
+lungfish-cli conda packs	shown	0	lungfish-cli.conda.packs.txt
+lungfish-cli conda export-pack	shown	0	lungfish-cli.conda.export-pack.txt
+lungfish-cli conda offline-export	shown	0	lungfish-cli.conda.offline-export.txt
+lungfish-cli conda offline-install	shown	0	lungfish-cli.conda.offline-install.txt
+lungfish-cli conda classify	shown	0	lungfish-cli.conda.classify.txt
+lungfish-cli conda db	shown	0	lungfish-cli.conda.db.txt
+lungfish-cli conda db list	shown	0	lungfish-cli.conda.db.list.txt
+lungfish-cli conda db info	shown	0	lungfish-cli.conda.db.info.txt
+lungfish-cli conda db download	shown	0	lungfish-cli.conda.db.download.txt
+lungfish-cli conda db remove	shown	0	lungfish-cli.conda.db.remove.txt
+lungfish-cli conda db recommend	shown	0	lungfish-cli.conda.db.recommend.txt
+lungfish-cli conda db update	shown	0	lungfish-cli.conda.db.update.txt
+lungfish-cli conda db install-managed	shown	0	lungfish-cli.conda.db.install-managed.txt
+lungfish-cli conda extract	shown	0	lungfish-cli.conda.extract.txt
+lungfish-cli blast	shown	0	lungfish-cli.blast.txt
+lungfish-cli blast verify	shown	0	lungfish-cli.blast.verify.txt
+lungfish-cli esviritu	shown	0	lungfish-cli.esviritu.txt
+lungfish-cli esviritu detect	shown	0	lungfish-cli.esviritu.detect.txt
+lungfish-cli esviritu download-db	shown	0	lungfish-cli.esviritu.download-db.txt
+lungfish-cli esviritu db-status	shown	0	lungfish-cli.esviritu.db-status.txt
+lungfish-cli taxtriage	shown	0	lungfish-cli.taxtriage.txt
+lungfish-cli taxtriage run	shown	0	lungfish-cli.taxtriage.run.txt
+lungfish-cli taxtriage check-prerequisites	shown	0	lungfish-cli.taxtriage.check-prerequisites.txt
+lungfish-cli align	shown	0	lungfish-cli.align.txt
+lungfish-cli align mafft	shown	0	lungfish-cli.align.mafft.txt
+lungfish-cli msa	shown	0	lungfish-cli.msa.txt
+lungfish-cli msa actions	shown	0	lungfish-cli.msa.actions.txt
+lungfish-cli msa describe	shown	0	lungfish-cli.msa.describe.txt
+lungfish-cli msa annotate	shown	0	lungfish-cli.msa.annotate.txt
+lungfish-cli msa annotate add	shown	0	lungfish-cli.msa.annotate.add.txt
+lungfish-cli msa annotate edit	shown	0	lungfish-cli.msa.annotate.edit.txt
+lungfish-cli msa annotate delete	shown	0	lungfish-cli.msa.annotate.delete.txt
+lungfish-cli msa annotate project	shown	0	lungfish-cli.msa.annotate.project.txt
+lungfish-cli msa export	shown	0	lungfish-cli.msa.export.txt
+lungfish-cli msa consensus	shown	0	lungfish-cli.msa.consensus.txt
+lungfish-cli msa extract	shown	0	lungfish-cli.msa.extract.txt
+lungfish-cli msa mask	shown	0	lungfish-cli.msa.mask.txt
+lungfish-cli msa mask columns	shown	0	lungfish-cli.msa.mask.columns.txt
+lungfish-cli msa trim	shown	0	lungfish-cli.msa.trim.txt
+lungfish-cli msa trim columns	shown	0	lungfish-cli.msa.trim.columns.txt
+lungfish-cli msa distance	shown	0	lungfish-cli.msa.distance.txt
+lungfish-cli msa discriminating-sites	shown	0	lungfish-cli.msa.discriminating-sites.txt
+lungfish-cli tree	shown	0	lungfish-cli.tree.txt
+lungfish-cli tree infer	shown	0	lungfish-cli.tree.infer.txt
+lungfish-cli tree infer iqtree	shown	0	lungfish-cli.tree.infer.iqtree.txt
+lungfish-cli tree export	shown	0	lungfish-cli.tree.export.txt
+lungfish-cli tree export subtree	shown	0	lungfish-cli.tree.export.subtree.txt
+lungfish-cli tree reroot	shown	0	lungfish-cli.tree.reroot.txt
+lungfish-cli tree extract-subtree	shown	0	lungfish-cli.tree.extract-subtree.txt
+lungfish-cli tree relabel	shown	0	lungfish-cli.tree.relabel.txt
+lungfish-cli assemble	shown	0	lungfish-cli.assemble.txt
+lungfish-cli orient	shown	0	lungfish-cli.orient.txt
+lungfish-cli map	shown	0	lungfish-cli.map.txt
+lungfish-cli import	shown	0	lungfish-cli.import.txt
+lungfish-cli import bam	shown	0	lungfish-cli.import.bam.txt
+lungfish-cli import vcf	shown	0	lungfish-cli.import.vcf.txt
+lungfish-cli import fasta	shown	0	lungfish-cli.import.fasta.txt
+lungfish-cli import msa	shown	0	lungfish-cli.import.msa.txt
+lungfish-cli import tree	shown	0	lungfish-cli.import.tree.txt
+lungfish-cli import fastq	shown	0	lungfish-cli.import.fastq.txt
+lungfish-cli import geneious	shown	0	lungfish-cli.import.geneious.txt
+lungfish-cli import application-export	shown	0	lungfish-cli.import.application-export.txt
+lungfish-cli import sample-metadata	shown	0	lungfish-cli.import.sample-metadata.txt
+lungfish-cli import kraken2	shown	0	lungfish-cli.import.kraken2.txt
+lungfish-cli import esviritu	shown	0	lungfish-cli.import.esviritu.txt
+lungfish-cli import taxtriage	shown	0	lungfish-cli.import.taxtriage.txt
+lungfish-cli import nao-mgs	shown	0	lungfish-cli.import.nao-mgs.txt
+lungfish-cli import nvd	shown	0	lungfish-cli.import.nvd.txt
+lungfish-cli import cz-id	shown	0	lungfish-cli.import.cz-id.txt
+lungfish-cli import metadata	shown	0	lungfish-cli.import.metadata.txt
+lungfish-cli import-fastq	shown	0	lungfish-cli.import-fastq.txt
+lungfish-cli ops	shown	0	lungfish-cli.ops.txt
+lungfish-cli ops stats	shown	0	lungfish-cli.ops.stats.txt
+lungfish-cli provenance	shown	0	lungfish-cli.provenance.txt
+lungfish-cli provenance bibliography	shown	0	lungfish-cli.provenance.bibliography.txt
+lungfish-cli provenance export	shown	0	lungfish-cli.provenance.export.txt
+lungfish-cli provenance verify	shown	0	lungfish-cli.provenance.verify.txt
+lungfish-cli bam	shown	0	lungfish-cli.bam.txt
+lungfish-cli bam filter	shown	0	lungfish-cli.bam.filter.txt
+lungfish-cli bam annotate	shown	0	lungfish-cli.bam.annotate.txt
+lungfish-cli bam annotate-best	shown	0	lungfish-cli.bam.annotate-best.txt
+lungfish-cli bam annotate-cds-best	shown	0	lungfish-cli.bam.annotate-cds-best.txt
+lungfish-cli bam markdup	shown	0	lungfish-cli.bam.markdup.txt
+lungfish-cli bam primer-trim	shown	0	lungfish-cli.bam.primer-trim.txt
+lungfish-cli bam adopt-mapping	shown	0	lungfish-cli.bam.adopt-mapping.txt
+lungfish-cli variants	shown	0	lungfish-cli.variants.txt
+lungfish-cli variants call	shown	0	lungfish-cli.variants.call.txt
+lungfish-cli variants phase	shown	0	lungfish-cli.variants.phase.txt
+lungfish-cli variants extract-sample	shown	0	lungfish-cli.variants.extract-sample.txt
+lungfish-cli variants query	shown	0	lungfish-cli.variants.query.txt
+lungfish-cli gatk	shown	0	lungfish-cli.gatk.txt
+lungfish-cli gatk haplotype-caller	shown	0	lungfish-cli.gatk.haplotype-caller.txt
+lungfish-cli gatk joint-genotype	shown	0	lungfish-cli.gatk.joint-genotype.txt
+lungfish-cli gatk filter	shown	0	lungfish-cli.gatk.filter.txt
+lungfish-cli gatk select	shown	0	lungfish-cli.gatk.select.txt
+lungfish-cli gatk variants-to-table	shown	0	lungfish-cli.gatk.variants-to-table.txt
+lungfish-cli gatk bqsr	shown	0	lungfish-cli.gatk.bqsr.txt
+lungfish-cli gatk markdup	shown	0	lungfish-cli.gatk.markdup.txt
+lungfish-cli gatk validate-sam	shown	0	lungfish-cli.gatk.validate-sam.txt
+lungfish-cli gatk leftalign	shown	0	lungfish-cli.gatk.leftalign.txt
+lungfish-cli gatk collect-metrics	shown	0	lungfish-cli.gatk.collect-metrics.txt
+lungfish-cli nao-mgs	shown	0	lungfish-cli.nao-mgs.txt
+lungfish-cli nao-mgs import	shown	0	lungfish-cli.nao-mgs.import.txt
+lungfish-cli nao-mgs summary	shown	0	lungfish-cli.nao-mgs.summary.txt
+lungfish-cli freyja	shown	0	lungfish-cli.freyja.txt
+lungfish-cli freyja demix	shown	0	lungfish-cli.freyja.demix.txt
+lungfish-cli nvd	shown	0	lungfish-cli.nvd.txt
+lungfish-cli nvd import	shown	0	lungfish-cli.nvd.import.txt
+lungfish-cli nvd summary	shown	0	lungfish-cli.nvd.summary.txt
+lungfish-cli cz-id	shown	0	lungfish-cli.cz-id.txt
+lungfish-cli cz-id import	shown	0	lungfish-cli.cz-id.import.txt
+lungfish-cli cz-id summary	shown	0	lungfish-cli.cz-id.summary.txt
+lungfish-cli metadata	shown	0	lungfish-cli.metadata.txt
+lungfish-cli metadata get	shown	0	lungfish-cli.metadata.get.txt
+lungfish-cli metadata set	shown	0	lungfish-cli.metadata.set.txt
+lungfish-cli metadata import	shown	0	lungfish-cli.metadata.import.txt
+lungfish-cli metadata export	shown	0	lungfish-cli.metadata.export.txt
+lungfish-cli metadata export-biosample	shown	0	lungfish-cli.metadata.export-biosample.txt
+lungfish-cli haplotypes	shown	0	lungfish-cli.haplotypes.txt
+lungfish-cli haplotypes list	shown	0	lungfish-cli.haplotypes.list.txt
+lungfish-cli haplotypes validate	shown	0	lungfish-cli.haplotypes.validate.txt
+lungfish-cli haplotypes import	shown	0	lungfish-cli.haplotypes.import.txt
+lungfish-cli haplotypes save	shown	0	lungfish-cli.haplotypes.save.txt
+lungfish-cli haplotypes bundle-install	shown	0	lungfish-cli.haplotypes.bundle-install.txt
+lungfish-cli haplotypes bundle-create	shown	0	lungfish-cli.haplotypes.bundle-create.txt
+lungfish-cli haplotypes bundle-save	shown	0	lungfish-cli.haplotypes.bundle-save.txt
+lungfish-cli haplotypes bundle-replace-reference	shown	0	lungfish-cli.haplotypes.bundle-replace-reference.txt
+lungfish-cli haplotypes export	shown	0	lungfish-cli.haplotypes.export.txt
+lungfish-cli haplotypes duplicate	shown	0	lungfish-cli.haplotypes.duplicate.txt
+lungfish-cli haplotypes delete	shown	0	lungfish-cli.haplotypes.delete.txt
+lungfish-cli build-db	shown	0	lungfish-cli.build-db.txt
+lungfish-cli build-db taxtriage	shown	0	lungfish-cli.build-db.taxtriage.txt
+lungfish-cli build-db esviritu	shown	0	lungfish-cli.build-db.esviritu.txt
+lungfish-cli build-db kraken2	shown	0	lungfish-cli.build-db.kraken2.txt
+lungfish-cli markdup	shown	0	lungfish-cli.markdup.txt
+lungfish-cli primers	shown	0	lungfish-cli.primers.txt
+lungfish-cli primers import	shown	0	lungfish-cli.primers.import.txt
+lungfish-cli primers scheme-from-analysis	shown	0	lungfish-cli.primers.scheme-from-analysis.txt
+lungfish-cli primers design	shown	0	lungfish-cli.primers.design.txt
+lungfish-cli primers design primer3	shown	0	lungfish-cli.primers.design.primer3.txt
+lungfish-cli primers design primalscheme3	shown	0	lungfish-cli.primers.design.primalscheme3.txt
+lungfish-cli primers design olivar	shown	0	lungfish-cli.primers.design.olivar.txt
+lungfish-cli primers design varvamp	shown	0	lungfish-cli.primers.design.varvamp.txt
+lungfish-cli primers analysis	shown	0	lungfish-cli.primers.analysis.txt
+lungfish-cli primers analysis inspect	shown	0	lungfish-cli.primers.analysis.inspect.txt
+lungfish-cli primers analysis history	shown	0	lungfish-cli.primers.analysis.history.txt
+lungfish-cli primers analysis audit	shown	0	lungfish-cli.primers.analysis.audit.txt
+lungfish-cli primers analysis annotated-reference	shown	0	lungfish-cli.primers.analysis.annotated-reference.txt
+lungfish-cli primers analysis export-order	shown	0	lungfish-cli.primers.analysis.export-order.txt
+lungfish-cli genotype	shown	0	lungfish-cli.genotype.txt
+lungfish-cli genotype list-samples	shown	0	lungfish-cli.genotype.list-samples.txt
+lungfish-cli genotype list-cohorts	shown	0	lungfish-cli.genotype.list-cohorts.txt
+lungfish-cli genotype ai-haplotyping	shown	0	lungfish-cli.genotype.ai-haplotyping.txt
+lungfish-cli genotype apply-annotations	shown	0	lungfish-cli.genotype.apply-annotations.txt
+lungfish-cli genotype replay-matrix-annotation	shown	0	lungfish-cli.genotype.replay-matrix-annotation.txt
+lungfish-cli genotype replay-manual-haplotype-assignments	shown	0	lungfish-cli.genotype.replay-manual-haplotype-assignments.txt
+lungfish-cli genotype replay-call-overrides	shown	0	lungfish-cli.genotype.replay-call-overrides.txt
+lungfish-cli genotype export	shown	0	lungfish-cli.genotype.export.txt
+lungfish-cli genotype export-xlsx	shown	0	lungfish-cli.genotype.export-xlsx.txt
+lungfish-cli genotype export-pivot-xlsx	shown	0	lungfish-cli.genotype.export-pivot-xlsx.txt
+lungfish-cli genotype export-labkey	shown	0	lungfish-cli.genotype.export-labkey.txt
+lungfish-cli storage	shown	0	lungfish-cli.storage.txt
+lungfish-cli storage info	shown	0	lungfish-cli.storage.info.txt
+lungfish-cli storage dedupe	shown	0	lungfish-cli.storage.dedupe.txt
+lungfish-cli demo	shown	0	lungfish-cli.demo.txt
+lungfish-cli demo list	shown	0	lungfish-cli.demo.list.txt
+lungfish-cli demo info	shown	0	lungfish-cli.demo.info.txt
+lungfish-cli demo fetch	shown	0	lungfish-cli.demo.fetch.txt
+lungfish-cli debug	shown	0	lungfish-cli.debug.txt
+lungfish-cli debug env	shown	0	lungfish-cli.debug.env.txt
+lungfish-cli debug container	shown	0	lungfish-cli.debug.container.txt
+lungfish-cli debug resource-smoke	shown	0	lungfish-cli.debug.resource-smoke.txt
+lungfish-cli debug fastq-ingest	shown	0	lungfish-cli.debug.fastq-ingest.txt
+lungfish-cli debug workflow-log	shown	0	lungfish-cli.debug.workflow-log.txt
+lungfish-cli help	shown	0	lungfish-cli.help.txt

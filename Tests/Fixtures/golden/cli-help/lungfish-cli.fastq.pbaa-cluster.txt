@@ -1,0 +1,21 @@
+OVERVIEW: Cluster PacBio HiFi amplicon reads with pbAA in pinned containers
+
+USAGE: lungfish-cli fastq pbaa-cluster <input> --guide <guide> --output-dir <output-dir> [--output-name <output-name>] [--threads <threads>] [--seed <seed>] [--extra-args <extra-args>]
+
+ARGUMENTS:
+  <input>                 Input FASTQ file or .lungfishfastq bundle
+
+OPTIONS:
+  --guide <guide>         Guide FASTA file or .lungfishref bundle
+  --output-dir <output-dir>
+                          Directory for raw outputs and the .lungfishref result
+  --output-name <output-name>
+                          Output bundle name and pbAA prefix (default:
+                          pbaa-clusters)
+  --threads <threads>     Threads for pbAA (default: 14)
+  --seed <seed>           pbAA random seed (default: 1984)
+  --extra-args <extra-args>
+                          Advanced pbAA arguments
+  --version               Show the version.
+  -h, --help              Show help information.
+

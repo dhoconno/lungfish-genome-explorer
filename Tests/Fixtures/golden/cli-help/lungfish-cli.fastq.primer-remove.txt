@@ -1,0 +1,27 @@
+OVERVIEW: Remove primer sequences from FASTQ reads
+
+USAGE: lungfish-cli fastq primer-remove <input> [--literal <literal>] [--ref <ref>] [--kmer <kmer>] [--mink <mink>] [--hdist <hdist>] [--engine <engine>] [--minimum-overlap <minimum-overlap>] [--error-rate <error-rate>] --output <output> [--force] [--compress]
+
+ARGUMENTS:
+  <input>                 Input FASTQ file
+
+OPTIONS:
+  --literal <literal>     Primer sequence (IUPAC nucleotides)
+  --ref <ref>             Primer reference FASTA file
+  --kmer <kmer>           K-mer size (default: 23) (default: 23)
+  --mink <mink>           Minimum k-mer size (default: 11) (default: 11)
+  --hdist <hdist>         Hamming distance tolerance (default: 1) (default: 1)
+  --engine <engine>       Primer trimming engine: bbduk or cutadapt-linked
+                          (default: bbduk)
+  --minimum-overlap <minimum-overlap>
+                          Minimum overlap for cutadapt-linked primer matching
+                          (default: 12)
+  --error-rate <error-rate>
+                          Maximum error rate for cutadapt-linked primer
+                          matching (default: 0.12)
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --version               Show the version.
+  -h, --help              Show help information.
+

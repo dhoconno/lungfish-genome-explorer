@@ -1,0 +1,6 @@
+.lungfish-classify-inputs/materialized-<UUID-1>.fastq
+.lungfish-provenance.json
+classification-result.json
+classification.kraken.gz
+classification.kraken.gz.idx.sqlite
+classification.kreport

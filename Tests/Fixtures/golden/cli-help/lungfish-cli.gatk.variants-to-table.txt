@@ -1,0 +1,17 @@
+OVERVIEW: Construct a GATK VariantsToTable command
+
+USAGE: lungfish-cli gatk variants-to-table [--execute] [--dry-run] --vcf <vcf> [--fields <fields>] --output <output> [--extra-args <extra-args>]
+
+OPTIONS:
+  --execute               Run GATK and write final-location provenance.
+  --dry-run               Print the GATK command preview without running it.
+  --vcf <vcf>             Input VCF path
+  --fields <fields>       Comma-separated VCF fields (default:
+                          CHROM,POS,REF,ALT,QUAL,AF,DP)
+  --output <output>       Output TSV path
+  --extra-args <extra-args>
+                          Additional GATK arguments, written exactly as they
+                          should be passed
+  --version               Show the version.
+  -h, --help              Show help information.
+

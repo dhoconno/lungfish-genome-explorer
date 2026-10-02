@@ -1,0 +1,142 @@
+OVERVIEW: Run independent Primer3 designs for explicit FASTA records or native
+MSA rows
+
+USAGE: lungfish-cli primers design primer3 [<options>] --output <output>
+
+OPTIONS:
+  --fasta-record <fasta-record>
+                          FASTA record as PATH@ZERO_BASED_INDEX. Repeatable;
+                          duplicate headers are allowed.
+  --msa-template <msa-template>
+                          Native .lungfishmsa template row as
+                          PATH@ZERO_BASED_INDEX. Repeatable.
+  --binding-site-policy <binding-site-policy>
+                          MSA binding policy: template-only or
+                          exclude-variable-and-gapped-columns. (default:
+                          exclude-variable-and-gapped-columns)
+  --output <output>       New .lungfishprimeranalysis destination.
+  --primer3-path <primer3-path>
+                          Optional exact primer3_core executable path.
+  --assay <assay>         Assay preset, as in the GUI: pcr, qpcr-dye, or
+                          qpcr-probe. Omitted values below take the preset's
+                          defaults. (default: pcr)
+  --product-size-min <product-size-min>
+                          Preset default: 100 for pcr, 70 for qpcr-dye and
+                          qpcr-probe.
+  --product-size-max <product-size-max>
+                          Preset default: 400 for pcr, 150 for qpcr-dye and
+                          qpcr-probe.
+  --target-start <target-start>
+                          Optional 1-based inclusive target start; requires
+                          --target-end.
+  --target-end <target-end>
+                          Optional 1-based inclusive target end; requires
+                          --target-start.
+  --pair-count <pair-count>
+                          (default: 5)
+  --primer-min-size <primer-min-size>
+                          Preset default: 18.
+  --primer-opt-size <primer-opt-size>
+                          Preset default: 20.
+  --primer-max-size <primer-max-size>
+                          Preset default: 27 for pcr, 24 for qpcr-dye and
+                          qpcr-probe.
+  --primer-min-tm <primer-min-tm>
+                          Preset default: 57 for pcr, 58 for qpcr-dye and
+                          qpcr-probe.
+  --primer-opt-tm <primer-opt-tm>
+                          Preset default: 60.
+  --primer-max-tm <primer-max-tm>
+                          Preset default: 63 for pcr, 62 for qpcr-dye and
+                          qpcr-probe.
+  --primer-min-gc <primer-min-gc>
+                          Preset default: 20 for pcr, 40 for qpcr-dye and
+                          qpcr-probe.
+  --primer-max-gc <primer-max-gc>
+                          Preset default: 80 for pcr, 60 for qpcr-dye and
+                          qpcr-probe.
+  --pair-max-tm-difference <pair-max-tm-difference>
+                          PRIMER_PAIR_MAX_DIFF_TM. Preset default: Primer3's
+                          own for pcr, 1 for qpcr-dye and qpcr-probe.
+  --primer-max-end-gc <primer-max-end-gc>
+                          PRIMER_MAX_END_GC. Preset default: Primer3's own for
+                          pcr, 2 for qpcr-dye and qpcr-probe.
+  --primer-gc-clamp <primer-gc-clamp>
+                          PRIMER_GC_CLAMP. Preset default: Primer3's own for
+                          pcr, 1 for qpcr-dye and qpcr-probe.
+  --primer-max-poly-x <primer-max-poly-x>
+                          PRIMER_MAX_POLY_X. Preset default: Primer3's own for
+                          pcr, 4 for qpcr-dye and qpcr-probe.
+  --primer-max-self-any-th <primer-max-self-any-th>
+                          PRIMER_MAX_SELF_ANY_TH. Preset default: Primer3's own
+                          for pcr, 40 for qpcr-dye and qpcr-probe.
+  --primer-max-self-end-th <primer-max-self-end-th>
+                          PRIMER_MAX_SELF_END_TH. Preset default: Primer3's own
+                          for pcr, 30 for qpcr-dye and qpcr-probe.
+  --pair-max-compl-any-th <pair-max-compl-any-th>
+                          PRIMER_PAIR_MAX_COMPL_ANY_TH. Preset default:
+                          Primer3's own for pcr, 40 for qpcr-dye and qpcr-probe.
+  --pair-max-compl-end-th <pair-max-compl-end-th>
+                          PRIMER_PAIR_MAX_COMPL_END_TH. Preset default:
+                          Primer3's own for pcr, 30 for qpcr-dye and qpcr-probe.
+  --probe-min-tm <probe-min-tm>
+                          PRIMER_INTERNAL_MIN_TM. Preset default: 64 for
+                          qpcr-probe; unused otherwise.
+  --probe-opt-tm <probe-opt-tm>
+                          PRIMER_INTERNAL_OPT_TM. Preset default: 67 for
+                          qpcr-probe; unused otherwise.
+  --probe-max-tm <probe-max-tm>
+                          PRIMER_INTERNAL_MAX_TM. Preset default: 70 for
+                          qpcr-probe; unused otherwise.
+  --probe-min-size <probe-min-size>
+                          PRIMER_INTERNAL_MIN_SIZE. Preset default: 20 for
+                          qpcr-probe; unused otherwise.
+  --probe-opt-size <probe-opt-size>
+                          PRIMER_INTERNAL_OPT_SIZE. Preset default: 25 for
+                          qpcr-probe; unused otherwise.
+  --probe-max-size <probe-max-size>
+                          PRIMER_INTERNAL_MAX_SIZE. Preset default: 30 for
+                          qpcr-probe; unused otherwise.
+  --probe-min-gc <probe-min-gc>
+                          PRIMER_INTERNAL_MIN_GC. Preset default: 40 for
+                          qpcr-probe; unused otherwise.
+  --probe-opt-gc <probe-opt-gc>
+                          PRIMER_INTERNAL_OPT_GC_PERCENT. Preset default: 60
+                          for qpcr-probe; unused otherwise.
+  --probe-max-gc <probe-max-gc>
+                          PRIMER_INTERNAL_MAX_GC. Preset default: 80 for
+                          qpcr-probe; unused otherwise.
+  --probe-max-poly-x <probe-max-poly-x>
+                          PRIMER_INTERNAL_MAX_POLY_X. Preset default: 3 for
+                          qpcr-probe; unused otherwise.
+  --probe-must-match-five-prime <probe-must-match-five-prime>
+                          PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME. Preset
+                          default: hnnnn for qpcr-probe, which forbids a 5' G
+                          next to the reporter dye. Pass an empty value to omit
+                          the tag.
+  --pick-internal-oligo   Ask Primer3 for an ordinary internal oligo. Implied
+                          by --assay qpcr-probe.
+  --left-primer <left-primer>
+                          SEQUENCE_PRIMER. A forward primer to keep, 5'->3'.
+                          Primer3 designs the rest around it.
+  --right-primer <right-primer>
+                          SEQUENCE_PRIMER_REVCOMP. A reverse primer to keep,
+                          given 5'->3' as ordered; its reverse complement must
+                          occur in the template.
+  --probe <probe>         SEQUENCE_INTERNAL_OLIGO. A hydrolysis probe to keep,
+                          5'->3'.
+  --force-left-end <force-left-end>
+                          SEQUENCE_FORCE_LEFT_END. 1-based template position
+                          the forward primer's 3' end must land on.
+  --force-right-end <force-right-end>
+                          SEQUENCE_FORCE_RIGHT_END. 1-based template position
+                          the reverse primer's 3' end must land on.
+  --probe-min-tm-offset-over-primers <probe-min-tm-offset-over-primers>
+                          Raise the probe minimum Tm to the highest primer Tm
+                          plus this many C, so a hydrolysis probe is bound
+                          before extension reaches it. Default 5, varVAMP's
+                          QPROBE_TEMP_DIFF lower bound. Pass 0 to leave the
+                          probe window exactly as configured.
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -1,0 +1,21 @@
+OVERVIEW: Construct GATK joint genotyping commands
+
+USAGE: lungfish-cli gatk joint-genotype [--execute] [--dry-run] --reference <reference> [--gvcf <gvcf> ...] --output <output> --intermediate <intermediate> [--combine-strategy <combine-strategy>] [--intervals <intervals>] [--extra-args <extra-args>]
+
+OPTIONS:
+  --execute               Run GATK and write final-location provenance.
+  --dry-run               Print the GATK command preview without running it.
+  --reference <reference> Reference FASTA path
+  --gvcf <gvcf>           Input sample GVCF path. Repeat for each sample.
+  --output <output>       Output cohort VCF path
+  --intermediate <intermediate>
+                          Combined GVCF path or GenomicsDB workspace path
+  --combine-strategy <combine-strategy>
+                          auto, combine-gvcfs, or genomicsdb (default: auto)
+  --intervals <intervals> Optional intervals BED/list/contig path
+  --extra-args <extra-args>
+                          Additional GATK arguments, written exactly as they
+                          should be passed
+  --version               Show the version.
+  -h, --help              Show help information.
+

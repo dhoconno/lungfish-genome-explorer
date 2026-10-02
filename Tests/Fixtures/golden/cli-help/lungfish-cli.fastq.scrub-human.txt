@@ -1,0 +1,25 @@
+OVERVIEW: Remove human reads from FASTQ
+
+USAGE: lungfish-cli fastq scrub-human <input> --output <output> [--force] [--compress] --database-id <database-id> [--remove-reads] [--pairing <pairing>]
+
+ARGUMENTS:
+  <input>                 Input FASTQ file path
+
+OPTIONS:
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --database-id <database-id>
+                          Human read removal database identifier
+  --remove-reads          Deprecated compatibility flag; ignored because Deacon
+                          always removes matched reads
+  --pairing <pairing>     How to treat the input's records: interleaved
+                          (adjacent records are mates and are kept or dropped
+                          together), single, or auto (default: auto) (values:
+                          interleaved, single, auto; default: auto)
+        auto reads the pairingMode recorded by the enclosing .lungfishfastq
+        bundle, then inspects read names. Mates with identical names, /1 /2
+        suffixes, or Casava descriptions are all recognised.
+  --version               Show the version.
+  -h, --help              Show help information.
+

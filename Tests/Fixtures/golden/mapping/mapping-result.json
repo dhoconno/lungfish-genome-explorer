@@ -1,0 +1,26 @@
+{
+  "baiPath" : "sarscov2-test.sorted.bam.bai",
+  "bamPath" : "sarscov2-test.sorted.bam",
+  "contigs" : [
+    {
+      "contigLength" : 29829,
+      "contigName" : "MT192765.1",
+      "coverageBreadth" : 0.430822,
+      "mappedReadPercent" : 98.5,
+      "mappedReads" : 197,
+      "meanDepth" : 0.918603,
+      "meanIdentity" : 0.9948906974198022,
+      "medianMAPQ" : 60,
+      "readGroupIDs" : [
+
+      ]
+    }
+  ],
+  "mappedReads" : 197,
+  "mapper" : "minimap2",
+  "modeID" : "short-read-default",
+  "schemaVersion" : 1,
+  "totalReads" : 200,
+  "unmappedReads" : 3,
+  "wallClockSeconds" : "<DURATION>"
+}

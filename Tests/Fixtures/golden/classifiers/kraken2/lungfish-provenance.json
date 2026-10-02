@@ -1,0 +1,935 @@
+{
+  "appVersion" : "<APP_VERSION>",
+  "argv" : [
+    "<external>\/lungfish-cli",
+    "conda",
+    "classify",
+    "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+    "--db",
+    "Viral",
+    "--threads",
+    "2",
+    "--output-dir",
+    "@\/Analyses\/kraken2-golden"
+  ],
+  "createdAt" : "<TIMESTAMP>",
+  "durableReplayArgv" : [
+    "<external>\/lungfish-cli",
+    "conda",
+    "classify",
+    "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq",
+    "--db",
+    "Viral",
+    "--threads",
+    "2",
+    "--output-dir",
+    "@\/Analyses\/kraken2-golden"
+  ],
+  "endTime" : "<TIMESTAMP>",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
+      "fileSize" : 887,
+      "format" : "text",
+      "path" : "@\/Analyses\/kraken2-golden\/classification.kreport",
+      "role" : "report",
+      "sha256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
+      "sizeBytes" : 887
+    },
+    {
+      "checksumSHA256" : "<SHA256-R11>",
+      "fileSize" : 796,
+      "format" : "text",
+      "path" : "@\/Analyses\/kraken2-golden\/classification.kraken.gz",
+      "role" : "output",
+      "sha256" : "<SHA256-R11>",
+      "sizeBytes" : 796
+    },
+    {
+      "checksumSHA256" : "<SHA256-R12>",
+      "fileSize" : 24576,
+      "format" : "unknown",
+      "path" : "@\/Analyses\/kraken2-golden\/classification.kraken.gz.idx.sqlite",
+      "role" : "index",
+      "sha256" : "<SHA256-R12>",
+      "sizeBytes" : 24576
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "@\/Analyses\/kraken2-golden\/classification-result.json",
+      "role" : "report",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "7835ec14ac217ed29c7dfe9449df8cf6d09654c4eb7df4cc9a54872bd3e2fa44",
+      "fileSize" : 20296,
+      "format" : "fastq",
+      "originPath" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+      "path" : "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq",
+      "role" : "input",
+      "sha256" : "7835ec14ac217ed29c7dfe9449df8cf6d09654c4eb7df4cc9a54872bd3e2fa44",
+      "sizeBytes" : 20296
+    },
+    {
+      "checksumSHA256" : "39afcfde59bce6c648ca86195ae49eff28e78e66cca439664993cee4f96f3bad",
+      "fileSize" : 5833,
+      "format" : "unknown",
+      "path" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+      "role" : "input",
+      "sha256" : "39afcfde59bce6c648ca86195ae49eff28e78e66cca439664993cee4f96f3bad",
+      "sizeBytes" : 5833
+    },
+    {
+      "checksumSHA256" : "2df96f5e04308a3cfdcbad54704fe790a198f51254287d4712ed00cdd08bd465",
+      "fileSize" : 1111,
+      "format" : "json",
+      "originPath" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+      "path" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq\/derived.manifest.json",
+      "role" : "input",
+      "sha256" : "2df96f5e04308a3cfdcbad54704fe790a198f51254287d4712ed00cdd08bd465",
+      "sizeBytes" : 1111
+    },
+    {
+      "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+      "fileSize" : 9413,
+      "format" : "fastq",
+      "originPath" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+      "path" : "@\/Imports\/sarscov2-R1.lungfishfastq\/sarscov2-R1.fastq.gz",
+      "role" : "input",
+      "sha256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+      "sizeBytes" : 9413
+    },
+    {
+      "checksumSHA256" : "ed722f3a11314c661b77eb02873217574608ac75a5dc4d2ac45cbea64088ae14",
+      "fileSize" : 1031,
+      "format" : "text",
+      "originPath" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+      "path" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq\/read-ids.txt",
+      "role" : "input",
+      "sha256" : "ed722f3a11314c661b77eb02873217574608ac75a5dc4d2ac45cbea64088ae14",
+      "sizeBytes" : 1031
+    },
+    {
+      "fileSize" : 651204094,
+      "format" : "unknown",
+      "path" : "<storage-root>\/databases\/kraken2\/viral",
+      "role" : "reference",
+      "sizeBytes" : 651204094
+    }
+  ],
+  "hostOS" : "macOS 26.6.2 (arm64)",
+  "id" : "<UUID-2>",
+  "name" : "lungfish.classify",
+  "options" : {
+    "defaults" : {
+      "brackenRankRequest" : {
+        "type" : "string",
+        "value" : "automatic"
+      },
+      "brackenReadLength" : {
+        "type" : "integer",
+        "value" : 150
+      },
+      "brackenThreshold" : {
+        "type" : "integer",
+        "value" : 10
+      },
+      "confidence" : {
+        "type" : "number",
+        "value" : 0.2
+      },
+      "extraArguments" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      },
+      "memoryMapping" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "minimumHitGroups" : {
+        "type" : "integer",
+        "value" : 2
+      },
+      "pairedEnd" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "preset" : {
+        "type" : "string",
+        "value" : "balanced"
+      },
+      "profile" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "quickMode" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "readFormat" : {
+        "type" : "string",
+        "value" : "auto"
+      },
+      "recursive" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 4
+      }
+    },
+    "explicit" : {
+      "databaseName" : {
+        "type" : "string",
+        "value" : "Viral"
+      },
+      "originalInputs" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "file",
+            "value" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq"
+          }
+        ]
+      },
+      "outputDirectory" : {
+        "type" : "file",
+        "value" : "@\/Analyses\/kraken2-golden"
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "resolvedDefaults" : {
+      "brackenRankRequest" : {
+        "type" : "string",
+        "value" : "notRequested"
+      },
+      "brackenReadLength" : {
+        "type" : "null"
+      },
+      "brackenRequestedReadLength" : {
+        "type" : "null"
+      },
+      "brackenRequestedThreshold" : {
+        "type" : "null"
+      },
+      "brackenResolutionSource" : {
+        "type" : "null"
+      },
+      "brackenResolvedRank" : {
+        "type" : "null"
+      },
+      "brackenThreshold" : {
+        "type" : "null"
+      },
+      "brackenToolVersion" : {
+        "type" : "null"
+      },
+      "confidence" : {
+        "type" : "number",
+        "value" : 0.2
+      },
+      "databaseCatalogID" : {
+        "type" : "string",
+        "value" : "kraken2-viral"
+      },
+      "databaseDigest" : {
+        "type" : "null"
+      },
+      "databaseInstallationRecipe" : {
+        "type" : "string",
+        "value" : "archive:https:\/\/genome-idx.s3.amazonaws.com\/kraken\/k2_viral_20260626.tar.gz"
+      },
+      "databaseName" : {
+        "type" : "string",
+        "value" : "Viral"
+      },
+      "databasePath" : {
+        "type" : "file",
+        "value" : "<storage-root>\/databases\/kraken2\/viral"
+      },
+      "databaseVersion" : {
+        "type" : "string",
+        "value" : "20260626"
+      },
+      "executionInputs" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "file",
+            "value" : "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq"
+          }
+        ]
+      },
+      "extraArguments" : {
+        "type" : "array",
+        "value" : [
+
+        ]
+      },
+      "goal" : {
+        "type" : "string",
+        "value" : "classify"
+      },
+      "inputFormat" : {
+        "type" : "string",
+        "value" : "fastq"
+      },
+      "memoryMapping" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "minimumHitGroups" : {
+        "type" : "integer",
+        "value" : 2
+      },
+      "originalInputs" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "file",
+            "value" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq"
+          }
+        ]
+      },
+      "outputDirectory" : {
+        "type" : "file",
+        "value" : "@\/Analyses\/kraken2-golden"
+      },
+      "pairedEnd" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "preset" : {
+        "type" : "string",
+        "value" : "balanced"
+      },
+      "profile" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "profileMessage" : {
+        "type" : "null"
+      },
+      "profileReason" : {
+        "type" : "null"
+      },
+      "profileState" : {
+        "type" : "string",
+        "value" : "notRequested"
+      },
+      "quickMode" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "readFormat" : {
+        "type" : "string",
+        "value" : "unpaired"
+      },
+      "recursive" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
+    "fileSize" : 887,
+    "format" : "text",
+    "path" : "@\/Analyses\/kraken2-golden\/classification.kreport",
+    "role" : "report",
+    "sha256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
+    "sizeBytes" : 887
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
+      "fileSize" : 887,
+      "format" : "text",
+      "path" : "@\/Analyses\/kraken2-golden\/classification.kreport",
+      "role" : "report",
+      "sha256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
+      "sizeBytes" : 887
+    },
+    {
+      "checksumSHA256" : "<SHA256-R11>",
+      "fileSize" : 796,
+      "format" : "text",
+      "path" : "@\/Analyses\/kraken2-golden\/classification.kraken.gz",
+      "role" : "output",
+      "sha256" : "<SHA256-R11>",
+      "sizeBytes" : 796
+    },
+    {
+      "checksumSHA256" : "<SHA256-R12>",
+      "fileSize" : 24576,
+      "format" : "unknown",
+      "path" : "@\/Analyses\/kraken2-golden\/classification.kraken.gz.idx.sqlite",
+      "role" : "index",
+      "sha256" : "<SHA256-R12>",
+      "sizeBytes" : 24576
+    },
+    {
+      "checksumSHA256" : "<SHA256-R10>",
+      "fileSize" : "<SIZE-R10>",
+      "format" : "json",
+      "path" : "@\/Analyses\/kraken2-golden\/classification-result.json",
+      "role" : "report",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>"
+    },
+    {
+      "checksumSHA256" : "7835ec14ac217ed29c7dfe9449df8cf6d09654c4eb7df4cc9a54872bd3e2fa44",
+      "fileSize" : 20296,
+      "format" : "fastq",
+      "originPath" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+      "path" : "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq",
+      "role" : "input",
+      "sha256" : "7835ec14ac217ed29c7dfe9449df8cf6d09654c4eb7df4cc9a54872bd3e2fa44",
+      "sizeBytes" : 20296
+    }
+  ],
+  "parameters" : {
+    "databaseName" : {
+      "type" : "string",
+      "value" : "Viral"
+    },
+    "originalInputs" : {
+      "type" : "array",
+      "value" : [
+        {
+          "type" : "file",
+          "value" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq"
+        }
+      ]
+    },
+    "outputDirectory" : {
+      "type" : "file",
+      "value" : "@\/Analyses\/kraken2-golden"
+    },
+    "threads" : {
+      "type" : "integer",
+      "value" : 2
+    }
+  },
+  "reproducibleCommand" : "<external>\/lungfish-cli conda classify @\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq --db Viral --threads 2 --output-dir @\/Analyses\/kraken2-golden",
+  "runtime" : {
+    "appVersion" : "<APP_VERSION>",
+    "hostOS" : "macOS 26.6.2 (arm64)"
+  },
+  "runtimeIdentity" : {
+    "appVersion" : "<APP_VERSION>",
+    "architecture" : "arm64",
+    "condaEnvironment" : "kraken2",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>\/lungfish-cli",
+    "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+    "processIdentifier" : "<PID>"
+  },
+  "schemaVersion" : 1,
+  "signatures" : [
+
+  ],
+  "startTime" : "<TIMESTAMP>",
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "fastq",
+        "materialize",
+        "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+        "--output",
+        "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq"
+      ],
+      "command" : [
+        "lungfish-cli",
+        "fastq",
+        "materialize",
+        "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+        "--output",
+        "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq"
+      ],
+      "completedAt" : "<TIMESTAMP>",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "lungfish-cli",
+        "fastq",
+        "materialize",
+        "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+        "--output",
+        "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq"
+      ],
+      "endTime" : "<TIMESTAMP>",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "<UUID-3>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "39afcfde59bce6c648ca86195ae49eff28e78e66cca439664993cee4f96f3bad",
+          "fileSize" : 5833,
+          "format" : "unknown",
+          "path" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+          "role" : "input",
+          "sha256" : "39afcfde59bce6c648ca86195ae49eff28e78e66cca439664993cee4f96f3bad",
+          "sizeBytes" : 5833
+        },
+        {
+          "checksumSHA256" : "2df96f5e04308a3cfdcbad54704fe790a198f51254287d4712ed00cdd08bd465",
+          "fileSize" : 1111,
+          "format" : "json",
+          "originPath" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+          "path" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq\/derived.manifest.json",
+          "role" : "input",
+          "sha256" : "2df96f5e04308a3cfdcbad54704fe790a198f51254287d4712ed00cdd08bd465",
+          "sizeBytes" : 1111
+        },
+        {
+          "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+          "fileSize" : 9413,
+          "format" : "fastq",
+          "originPath" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+          "path" : "@\/Imports\/sarscov2-R1.lungfishfastq\/sarscov2-R1.fastq.gz",
+          "role" : "input",
+          "sha256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+          "sizeBytes" : 9413
+        },
+        {
+          "checksumSHA256" : "ed722f3a11314c661b77eb02873217574608ac75a5dc4d2ac45cbea64088ae14",
+          "fileSize" : 1031,
+          "format" : "text",
+          "originPath" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+          "path" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq\/read-ids.txt",
+          "role" : "input",
+          "sha256" : "ed722f3a11314c661b77eb02873217574608ac75a5dc4d2ac45cbea64088ae14",
+          "sizeBytes" : 1031
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "7835ec14ac217ed29c7dfe9449df8cf6d09654c4eb7df4cc9a54872bd3e2fa44",
+          "fileSize" : 20296,
+          "format" : "fastq",
+          "originPath" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+          "path" : "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq",
+          "role" : "input",
+          "sha256" : "7835ec14ac217ed29c7dfe9449df8cf6d09654c4eb7df4cc9a54872bd3e2fa44",
+          "sizeBytes" : 20296
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli fastq materialize @\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq --output @\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "<TIMESTAMP>",
+      "startedAt" : "<TIMESTAMP>",
+      "toolName" : "lungfish-cli fastq materialize",
+      "toolVersion" : "<APP_VERSION>",
+      "wallTime" : "<DURATION>",
+      "wallTimeSeconds" : "<DURATION>"
+    },
+    {
+      "argv" : [
+        "kraken2",
+        "--db",
+        "<storage-root>\/databases\/kraken2\/viral",
+        "--threads",
+        "2",
+        "--confidence",
+        "0.2",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "@\/Analyses\/kraken2-golden\/classification.kraken",
+        "--report",
+        "@\/Analyses\/kraken2-golden\/classification.kreport",
+        "--report-minimizer-data",
+        "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq"
+      ],
+      "command" : [
+        "kraken2",
+        "--db",
+        "<storage-root>\/databases\/kraken2\/viral",
+        "--threads",
+        "2",
+        "--confidence",
+        "0.2",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "@\/Analyses\/kraken2-golden\/classification.kraken",
+        "--report",
+        "@\/Analyses\/kraken2-golden\/classification.kreport",
+        "--report-minimizer-data",
+        "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq"
+      ],
+      "completedAt" : "<TIMESTAMP>",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "kraken2",
+        "--db",
+        "<storage-root>\/databases\/kraken2\/viral",
+        "--threads",
+        "2",
+        "--confidence",
+        "0.2",
+        "--minimum-hit-groups",
+        "2",
+        "--output",
+        "@\/Analyses\/kraken2-golden\/classification.kraken",
+        "--report",
+        "@\/Analyses\/kraken2-golden\/classification.kreport",
+        "--report-minimizer-data",
+        "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq"
+      ],
+      "endTime" : "<TIMESTAMP>",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "githubReleaseVersion" : "v2.17.1",
+      "id" : "<UUID-4>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "7835ec14ac217ed29c7dfe9449df8cf6d09654c4eb7df4cc9a54872bd3e2fa44",
+          "fileSize" : 20296,
+          "format" : "fastq",
+          "path" : "@\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq",
+          "role" : "input",
+          "sha256" : "7835ec14ac217ed29c7dfe9449df8cf6d09654c4eb7df4cc9a54872bd3e2fa44",
+          "sizeBytes" : 20296
+        },
+        {
+          "checksumSHA256" : "39afcfde59bce6c648ca86195ae49eff28e78e66cca439664993cee4f96f3bad",
+          "fileSize" : 5833,
+          "format" : "unknown",
+          "path" : "@\/Imports\/sarscov2-R1.lungfishfastq\/derivatives\/len-150-any-00000000.lungfishfastq",
+          "role" : "input",
+          "sha256" : "39afcfde59bce6c648ca86195ae49eff28e78e66cca439664993cee4f96f3bad",
+          "sizeBytes" : 5833
+        },
+        {
+          "fileSize" : 651204094,
+          "format" : "unknown",
+          "path" : "<storage-root>\/databases\/kraken2\/viral",
+          "role" : "reference",
+          "sizeBytes" : 651204094
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
+          "fileSize" : 887,
+          "format" : "text",
+          "path" : "@\/Analyses\/kraken2-golden\/classification.kreport",
+          "role" : "report",
+          "sha256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
+          "sizeBytes" : 887
+        },
+        {
+          "checksumSHA256" : "6f0a47de05f578bc1c92c0e4f6f3a28cc956ac3fbe23625b1b2d37d2eb86a8b2",
+          "fileSize" : 3858,
+          "format" : "text",
+          "path" : "@\/Analyses\/kraken2-golden\/classification.kraken",
+          "role" : "output",
+          "sha256" : "6f0a47de05f578bc1c92c0e4f6f3a28cc956ac3fbe23625b1b2d37d2eb86a8b2",
+          "sizeBytes" : 3858
+        }
+      ],
+      "reproducibleCommand" : "kraken2 --db <storage-root>\/databases\/kraken2\/viral --threads 2 --confidence 0.2 --minimum-hit-groups 2 --output @\/Analyses\/kraken2-golden\/classification.kraken --report @\/Analyses\/kraken2-golden\/classification.kreport --report-minimizer-data @\/Analyses\/kraken2-golden\/.lungfish-classify-inputs\/materialized-<UUID-1>.fastq",
+      "resolvedOptions" : {
+        "confidence" : {
+          "type" : "number",
+          "value" : 0.2
+        },
+        "databaseCoreFileSizes" : {
+          "type" : "dictionary",
+          "value" : {
+            "hash.k2d" : {
+              "type" : "integer",
+              "value" : 648733288
+            },
+            "opts.k2d" : {
+              "type" : "integer",
+              "value" : 64
+            },
+            "taxo.k2d" : {
+              "type" : "integer",
+              "value" : 2470742
+            }
+          }
+        },
+        "databaseDigest" : {
+          "type" : "null"
+        },
+        "databaseIdentityStatus" : {
+          "type" : "string",
+          "value" : "unresolved-bounded-metadata"
+        },
+        "databasePath" : {
+          "type" : "string",
+          "value" : "<storage-root>\/databases\/kraken2\/viral"
+        },
+        "extraArgs" : {
+          "type" : "string",
+          "value" : ""
+        },
+        "inputFormat" : {
+          "type" : "string",
+          "value" : "fastq"
+        },
+        "memoryMapping" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "minimumHitGroups" : {
+          "type" : "integer",
+          "value" : 2
+        },
+        "pairedEnd" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "quickMode" : {
+          "type" : "boolean",
+          "value" : false
+        },
+        "readFormat" : {
+          "type" : "string",
+          "value" : "unpaired"
+        },
+        "reportMinimizerData" : {
+          "type" : "boolean",
+          "value" : true
+        },
+        "threads" : {
+          "type" : "integer",
+          "value" : 2
+        }
+      },
+      "runtimeIdentity" : {
+        "appVersion" : "Lungfish <APP_VERSION> (dev)",
+        "architecture" : "arm64",
+        "condaEnvironment" : "kraken2",
+        "condaPrefix" : "<tool-root>\/envs\/kraken2",
+        "dependencySet" : "2026.2",
+        "executablePath" : "<tool-root>\/envs\/kraken2\/bin\/kraken2",
+        "operatingSystemVersion" : "macOS 26.6.2 (arm64)",
+        "pluginPack" : "Metagenomics",
+        "processIdentifier" : "<PID>"
+      },
+      "startTime" : "<TIMESTAMP>",
+      "startedAt" : "<TIMESTAMP>",
+      "stderr" : "Loading database information... done.\n55 sequences (0.01 Mbp) processed in <DURATION>s (<RATE> Kseq\/m, <RATE> Mbp\/m).\n  54 sequences classified (98.18%)\n  1 sequences unclassified (1.82%)\n",
+      "toolName" : "kraken2",
+      "toolVersion" : "2.17.1",
+      "wallTime" : "<DURATION>",
+      "wallTimeSeconds" : "<DURATION>"
+    },
+    {
+      "argv" : [
+        "lungfish-cli",
+        "internal",
+        "kraken2-index",
+        "--classified-only",
+        "@\/Analyses\/kraken2-golden\/classification.kraken",
+        "@\/Analyses\/kraken2-golden\/classification.kraken.gz.idx.sqlite"
+      ],
+      "command" : [
+        "lungfish-cli",
+        "internal",
+        "kraken2-index",
+        "--classified-only",
+        "@\/Analyses\/kraken2-golden\/classification.kraken",
+        "@\/Analyses\/kraken2-golden\/classification.kraken.gz.idx.sqlite"
+      ],
+      "completedAt" : "<TIMESTAMP>",
+      "dependsOn" : [
+        "<UUID-4>"
+      ],
+      "endTime" : "<TIMESTAMP>",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "<UUID-5>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "6f0a47de05f578bc1c92c0e4f6f3a28cc956ac3fbe23625b1b2d37d2eb86a8b2",
+          "fileSize" : 3858,
+          "format" : "text",
+          "path" : "@\/Analyses\/kraken2-golden\/classification.kraken",
+          "role" : "input",
+          "sha256" : "6f0a47de05f578bc1c92c0e4f6f3a28cc956ac3fbe23625b1b2d37d2eb86a8b2",
+          "sizeBytes" : 3858
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "<SHA256-R12>",
+          "fileSize" : 24576,
+          "format" : "unknown",
+          "path" : "@\/Analyses\/kraken2-golden\/classification.kraken.gz.idx.sqlite",
+          "role" : "index",
+          "sha256" : "<SHA256-R12>",
+          "sizeBytes" : 24576
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli internal kraken2-index --classified-only @\/Analyses\/kraken2-golden\/classification.kraken @\/Analyses\/kraken2-golden\/classification.kraken.gz.idx.sqlite",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "<TIMESTAMP>",
+      "startedAt" : "<TIMESTAMP>",
+      "toolName" : "lungfish-kraken2-index",
+      "toolVersion" : "Lungfish <APP_VERSION> (dev)",
+      "wallTime" : "<DURATION>",
+      "wallTimeSeconds" : "<DURATION>"
+    },
+    {
+      "argv" : [
+        "\/bin\/sh",
+        "-c",
+        "\/usr\/bin\/gzip -c @\/Analyses\/kraken2-golden\/classification.kraken > @\/Analyses\/kraken2-golden\/classification.kraken.gz"
+      ],
+      "command" : [
+        "\/bin\/sh",
+        "-c",
+        "\/usr\/bin\/gzip -c @\/Analyses\/kraken2-golden\/classification.kraken > @\/Analyses\/kraken2-golden\/classification.kraken.gz"
+      ],
+      "completedAt" : "<TIMESTAMP>",
+      "dependsOn" : [
+        "<UUID-4>"
+      ],
+      "endTime" : "<TIMESTAMP>",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "<UUID-6>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "6f0a47de05f578bc1c92c0e4f6f3a28cc956ac3fbe23625b1b2d37d2eb86a8b2",
+          "fileSize" : 3858,
+          "format" : "text",
+          "path" : "@\/Analyses\/kraken2-golden\/classification.kraken",
+          "role" : "input",
+          "sha256" : "6f0a47de05f578bc1c92c0e4f6f3a28cc956ac3fbe23625b1b2d37d2eb86a8b2",
+          "sizeBytes" : 3858
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "<SHA256-R11>",
+          "fileSize" : 796,
+          "format" : "text",
+          "path" : "@\/Analyses\/kraken2-golden\/classification.kraken.gz",
+          "role" : "output",
+          "sha256" : "<SHA256-R11>",
+          "sizeBytes" : 796
+        }
+      ],
+      "reproducibleCommand" : "\/bin\/sh -c '\/usr\/bin\/gzip -c @\/Analyses\/kraken2-golden\/classification.kraken > @\/Analyses\/kraken2-golden\/classification.kraken.gz'",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "<TIMESTAMP>",
+      "startedAt" : "<TIMESTAMP>",
+      "toolName" : "gzip",
+      "toolVersion" : "system",
+      "wallTime" : "<DURATION>",
+      "wallTimeSeconds" : "<DURATION>"
+    },
+    {
+      "argv" : [
+        "LungfishWorkflow",
+        "ClassificationResult.save",
+        "@\/Analyses\/kraken2-golden\/classification-result.json"
+      ],
+      "command" : [
+        "LungfishWorkflow",
+        "ClassificationResult.save",
+        "@\/Analyses\/kraken2-golden\/classification-result.json"
+      ],
+      "completedAt" : "<TIMESTAMP>",
+      "dependsOn" : [
+        "<UUID-4>"
+      ],
+      "endTime" : "<TIMESTAMP>",
+      "exitCode" : 0,
+      "exitStatus" : 0,
+      "id" : "<UUID-7>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
+          "fileSize" : 887,
+          "format" : "text",
+          "path" : "@\/Analyses\/kraken2-golden\/classification.kreport",
+          "role" : "report",
+          "sha256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
+          "sizeBytes" : 887
+        },
+        {
+          "checksumSHA256" : "<SHA256-R11>",
+          "fileSize" : 796,
+          "format" : "text",
+          "path" : "@\/Analyses\/kraken2-golden\/classification.kraken.gz",
+          "role" : "output",
+          "sha256" : "<SHA256-R11>",
+          "sizeBytes" : 796
+        },
+        {
+          "checksumSHA256" : "<SHA256-R12>",
+          "fileSize" : 24576,
+          "format" : "unknown",
+          "path" : "@\/Analyses\/kraken2-golden\/classification.kraken.gz.idx.sqlite",
+          "role" : "index",
+          "sha256" : "<SHA256-R12>",
+          "sizeBytes" : 24576
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "<SHA256-R10>",
+          "fileSize" : "<SIZE-R10>",
+          "format" : "json",
+          "path" : "@\/Analyses\/kraken2-golden\/classification-result.json",
+          "role" : "output",
+          "sha256" : "<SHA256-R10>",
+          "sizeBytes" : "<SIZE-R10>"
+        }
+      ],
+      "reproducibleCommand" : "LungfishWorkflow ClassificationResult.save @\/Analyses\/kraken2-golden\/classification-result.json",
+      "resolvedOptions" : {
+
+      },
+      "startTime" : "<TIMESTAMP>",
+      "startedAt" : "<TIMESTAMP>",
+      "toolName" : "Lungfish Classification Result Sidecar",
+      "toolVersion" : "Lungfish <APP_VERSION> (dev)",
+      "wallTime" : "<DURATION>",
+      "wallTimeSeconds" : "<DURATION>"
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "kraken2",
+    "version" : "2.17.1"
+  },
+  "toolName" : "kraken2",
+  "toolVersion" : "2.17.1",
+  "wallTimeSeconds" : "<DURATION>",
+  "workflowName" : "lungfish.classify",
+  "workflowVersion" : "<APP_VERSION>"
+}

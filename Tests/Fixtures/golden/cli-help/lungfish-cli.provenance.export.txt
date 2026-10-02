@@ -1,0 +1,15 @@
+OVERVIEW: Export reproducible reports from a Lungfish provenance sidecar
+
+USAGE: lungfish-cli provenance export <input> --format <format> --output <output>
+
+ARGUMENTS:
+  <input>                 Provenance sidecar file, bundle, or output directory
+
+OPTIONS:
+  -f, --format, --export-format <format>
+                          Export format: shell, python, nextflow, snakemake,
+                          methods, json
+  --output <output>       Output directory for the export bundle
+  --version               Show the version.
+  -h, --help              Show help information.
+

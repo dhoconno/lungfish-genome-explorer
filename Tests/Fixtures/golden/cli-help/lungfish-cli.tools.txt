@@ -1,0 +1,17 @@
+OVERVIEW: Inspect and update managed third-party tools
+
+Compares this machine against the dependency manifest bundled with this build
+and
+reports (or performs) the installs, reinstalls, removals, and database updates
+needed to bring it in line.
+
+USAGE: lungfish-cli tools <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  update (default)        Plan or apply updates to the pinned dependency set
+
+  See 'lungfish-cli help tools <subcommand>' for detailed help.

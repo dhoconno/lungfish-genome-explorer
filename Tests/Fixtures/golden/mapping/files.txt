@@ -1,0 +1,5 @@
+.lungfish-provenance.json
+mapping-provenance.json
+mapping-result.json
+sarscov2-test.sorted.bam
+sarscov2-test.sorted.bam.bai

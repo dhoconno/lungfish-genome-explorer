@@ -1,0 +1,22 @@
+OVERVIEW: Manage metagenomics reference databases
+
+Manage Kraken2 databases for taxonomic classification. Databases may
+be downloaded or prepared from managed upstream sources and are stored
+in Lungfish's managed database storage.
+
+USAGE: lungfish-cli conda db <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  list                    List available and installed databases
+  info                    Show installed database version and update status
+  download                Download or prepare a database from the catalog
+  remove                  Remove a database from the registry
+  recommend               Show recommended database for this system
+  update                  Update an installed database to the pinned version
+  install-managed         Install a managed user-data database by identifier
+
+  See 'lungfish-cli help conda db <subcommand>' for detailed help.

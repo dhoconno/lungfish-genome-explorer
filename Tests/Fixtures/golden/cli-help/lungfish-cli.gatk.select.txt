@@ -1,0 +1,18 @@
+OVERVIEW: Construct a GATK SelectVariants command
+
+USAGE: lungfish-cli gatk select [--execute] [--dry-run] --vcf <vcf> [--sample <sample>] [--type <type>] [--intervals <intervals>] --output <output> [--extra-args <extra-args>]
+
+OPTIONS:
+  --execute               Run GATK and write final-location provenance.
+  --dry-run               Print the GATK command preview without running it.
+  --vcf <vcf>             Input VCF path
+  --sample <sample>       Optional sample ID
+  --type <type>           Optional variant type: SNP, INDEL, or MIXED
+  --intervals <intervals> Optional intervals BED/list/contig path
+  --output <output>       Output selected VCF path
+  --extra-args <extra-args>
+                          Additional GATK arguments, written exactly as they
+                          should be passed
+  --version               Show the version.
+  -h, --help              Show help information.
+

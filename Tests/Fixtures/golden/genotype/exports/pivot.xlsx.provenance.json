@@ -1,0 +1,204 @@
+{
+  "argv" : [
+    "<RUN_ROOT>/bin/lungfish-cli",
+    "genotype",
+    "export-pivot-xlsx",
+    "--bundle",
+    "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "--output",
+    "<RUN_ROOT>/genotype/exports/pivot.xlsx"
+  ],
+  "completedAt" : "<TIMESTAMP>",
+  "durableReplayArgv" : [
+    "<RUN_ROOT>/bin/lungfish-cli",
+    "genotype",
+    "export-xlsx",
+    "--snapshot",
+    "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/snapshot.json",
+    "--provenance-request",
+    "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/request.json",
+    "--python",
+    "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "--output",
+    "<RUN_ROOT>/genotype/exports/pivot.xlsx"
+  ],
+  "executedArgv" : [
+    "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/renderer.py",
+    "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/snapshot.json",
+    "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/rendered.xlsx"
+  ],
+  "exitStatus" : 0,
+  "generatedAt" : "<TIMESTAMP>",
+  "inputs" : [
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/input-0.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.lungfish-provenance.json",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>",
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/input-1.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.haplotype-analysis.json",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>",
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/input-2.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained-demux-genotypes.csv",
+      "sha256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
+      "sizeBytes" : 802,
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/input-3.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained-demux-samples.csv",
+      "sha256" : "e2bd05dde5b254d0dd0b6c3bc8cbba8bf9784fba80874548ce6e2a2b7e775d58",
+      "sizeBytes" : 270,
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/input-4.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained-demux-stats.json",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>",
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/input-5.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained.demuxed.bam",
+      "sha256" : "<SHA256-N2>",
+      "sizeBytes" : "<SIZE-N2>",
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/input-6.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.retained.demuxed.bam.bai",
+      "sha256" : "<SHA256-N2>",
+      "sizeBytes" : 256,
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/input-7.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/genotype-result.json",
+      "sha256" : "<SHA256-R10>",
+      "sizeBytes" : "<SIZE-R10>",
+      "verifyCurrentFile" : true
+    },
+    {
+      "capturedPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/input-8.bin",
+      "path" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/artifacts/haplotyping/haplotype-definition.json",
+      "sha256" : "9a8372a9f34398a0a230397e690f9a4d8bc971ab2bbaf2cdff41dca3520d34d3",
+      "sizeBytes" : 1811,
+      "verifyCurrentFile" : true
+    }
+  ],
+  "options" : {
+    "annotations" : "bundle annotations.json when present",
+    "bundle" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "filteredEvidenceRowPolicy" : "positive-displayed-count-in-visible-samples",
+    "force" : "false",
+    "minPercent" : "0.0",
+    "minPrevalencePercent" : "0.0",
+    "minReads" : "0",
+    "output" : "<RUN_ROOT>/genotype/exports/pivot.xlsx",
+    "percentBasis" : "sample-retained",
+    "viewProjection" : "none"
+  },
+  "output" : {
+    "path" : "<RUN_ROOT>/genotype/exports/pivot.xlsx",
+    "sha256" : "<SHA256-R10>",
+    "sizeBytes" : "<SIZE-R10>"
+  },
+  "receiptPath" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.provenance.json",
+  "replacingExisting" : false,
+  "replayCommand" : "'<RUN_ROOT>/bin/lungfish-cli' 'genotype' 'export-xlsx' '--snapshot' '<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/snapshot.json' '--provenance-request' '<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/request.json' '--python' '/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python' '--output' '<RUN_ROOT>/genotype/exports/pivot.xlsx'",
+  "replayScript" : {
+    "path" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/replay.sh",
+    "sha256" : "<SHA256-R10>",
+    "sizeBytes" : "<SIZE-R10>"
+  },
+  "request" : {
+    "path" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/request.json",
+    "sha256" : "<SHA256-R10>",
+    "sizeBytes" : "<SIZE-R10>"
+  },
+  "resolvedDefaults" : {
+    "annotations" : "bundle annotations.json when present",
+    "force" : "false",
+    "minPercent" : "0",
+    "minPrevalencePercent" : "0",
+    "minReads" : "0",
+    "percentBasis" : "sample-retained",
+    "viewProjection" : "none"
+  },
+  "runtime" : {
+    "openpyxlVersion" : "3.1.5",
+    "platform" : "macOS-26.6.2-arm64-arm-64bit",
+    "pythonExecutable" : "/Users/dho/.lungfish-stable/conda/envs/openpyxl/bin/python",
+    "pythonVersion" : "3.12.14",
+    "renderer" : {
+      "schemaVersion" : 3,
+      "sheets" : [
+        {
+          "cellCount" : 84,
+          "name" : "Haplotype Calls",
+          "rowCount" : 7
+        },
+        {
+          "cellCount" : 49,
+          "name" : "Genotype Matrix - All",
+          "rowCount" : 11
+        },
+        {
+          "cellCount" : 53,
+          "name" : "Genotype Matrix - Filtered",
+          "rowCount" : 11
+        },
+        {
+          "cellCount" : 32,
+          "name" : "Export Metadata",
+          "rowCount" : 16
+        }
+      ]
+    }
+  },
+  "runtimeContext" : {
+    "candidatePercentBasis" : "sampleRetained",
+    "captureMode" : "immutable-native-scientific-snapshot",
+    "cliExecutable" : "<RUN_ROOT>/bin/lungfish-cli",
+    "knownPercentBasis" : "sampleRetained",
+    "percentBasis" : "Per-sample read fraction for known and candidate rows alike. viewedLocus is per source locus: Unique retained reads of the same sample at the same source locus (known alleles plus candidate clusters at that locus). sampleRetained: unique retained reads of the whole sample.",
+    "platform" : "Version 26.6.2 (Build 25G83)",
+    "prevalenceBasis" : "Samples where the row is visible with positive reads / full logical sample roster; 0 is off"
+  },
+  "schemaVersion" : 1,
+  "scientificInputWitnesses" : {
+    "analysis.json" : "432a06d64a8347552eedd69ec5deebc2edbcf78e852fdcadb383939b663623f7",
+    "analysisRevisionID" : "",
+    "annotations.json" : "<SHA256-R16>",
+    "bundle" : "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype",
+    "capture-context.json" : "5cdbea7ac97de3eb827201fd237826b34e66b4a2322e053a973c914c066e9593",
+    "definition.json" : "8f8a5510b081f50397f6502f904f3ea780a47426e14a0308a1ff305c46576f08",
+    "definitionSetID" : "mhc-simulated-mcm-teaching",
+    "result.json" : "<SHA256-R16>"
+  },
+  "script" : {
+    "path" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/renderer.py",
+    "sha256" : "8a62b003d854f040f9194b5b05b172527abcfee14f4047f1dea3fd033d2aac31",
+    "sizeBytes" : 27349
+  },
+  "snapshot" : {
+    "path" : "<RUN_ROOT>/genotype/exports/pivot.xlsx.export-<UUID-1>/snapshot.json",
+    "sha256" : "<SHA256-R10>",
+    "sizeBytes" : "<SIZE-R10>"
+  },
+  "startedAt" : "<TIMESTAMP>",
+  "stderr" : "",
+  "toolName" : "lungfish genotype Excel export",
+  "toolVersion" : "<APP_VERSION>",
+  "wallTimeSeconds" : "<DURATION>",
+  "workflowName" : "genotype.export.pivot-xlsx"
+}

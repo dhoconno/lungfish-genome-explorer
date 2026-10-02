@@ -1,0 +1,23 @@
+OVERVIEW: Search and download from SRA (Sequence Read Archive)
+
+Search for sequencing reads in the NCBI Sequence Read Archive and
+download FASTQ files. Downloads use ENA mirrors for direct HTTP access
+(no SRA Toolkit required).
+
+Examples:
+  lungfish-cli fetch sra search "SARS-CoV-2 Illumina" --limit 10
+  lungfish-cli fetch sra download SRR11140748 --output-dir ./fastq
+  lungfish-cli fetch sra info SRR11140748
+
+USAGE: lungfish-cli fetch sra <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  search (default)        Search SRA for sequencing runs
+  download                Download FASTQ files from SRA
+  info                    Get information about an SRA run
+
+  See 'lungfish-cli help fetch sra <subcommand>' for detailed help.

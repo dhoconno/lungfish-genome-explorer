@@ -1,0 +1,23 @@
+OVERVIEW: Orient reads against a reference sequence
+
+USAGE: lungfish-cli fastq orient <input> --output <output> [--force] [--compress] --reference <reference> [--word-length <word-length>] [--db-mask <db-mask>] [--extra-args <extra-args>]
+
+ARGUMENTS:
+  <input>                 Input FASTA or FASTQ file path (output preserves the
+                          input format)
+
+OPTIONS:
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --reference <reference> Reference FASTA file path
+  --word-length <word-length>
+                          Word length for orientation matching (default: 12)
+                          (default: 12)
+  --db-mask <db-mask>     Database masking method (default: dust) (default:
+                          dust)
+  --extra-args <extra-args>
+                          Additional vsearch arguments passed verbatim
+  --version               Show the version.
+  -h, --help              Show help information.
+

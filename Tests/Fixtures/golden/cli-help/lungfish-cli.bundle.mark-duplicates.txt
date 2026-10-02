@@ -1,0 +1,39 @@
+OVERVIEW: Add duplicate-marked copies of a bundle's alignment tracks, keeping
+the originals
+
+Runs the shared samtools markdup workflow on every unmarked alignment track in
+a
+.lungfishref bundle and attaches each result as a new "[dup-marked]" track
+under
+alignments/marked/. The source tracks are kept on disk and renamed
+"[unmarked]";
+nothing is deleted. Running the command again on the same bundle is a no-op
+error
+once every track has a marked copy. This is the CLI equivalent of the
+Inspector's
+"Mark Duplicates in Bundle Tracks" action.
+
+Examples:
+  lungfish-cli bundle mark-duplicates MyGenome.lungfishref
+  lungfish-cli bundle mark-duplicates MyGenome.lungfishref --format json
+
+USAGE: lungfish-cli bundle mark-duplicates <bundle-path> [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+
+ARGUMENTS:
+  <bundle-path>           Path to the .lungfishref bundle to update in place
+
+OPTIONS:
+  --format <format>       Output format: text, json (default: text) (values:
+                          text, json; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

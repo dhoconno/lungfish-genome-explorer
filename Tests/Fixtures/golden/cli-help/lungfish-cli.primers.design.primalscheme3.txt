@@ -1,0 +1,118 @@
+OVERVIEW: Run PrimalScheme on nucleotide sequences or alignments
+
+USAGE: lungfish-cli primers design primalscheme3 [<options>] --output <output>
+
+OPTIONS:
+  --msa <msa>             Native .lungfishmsa, .lungfishref, or raw aligned
+                          nucleotide FASTA input. Repeatable; a single sequence
+                          is valid.
+  --output <output>
+  --grouping <grouping>   independent or combined (default: independent)
+  --primalscheme3-path <primalscheme3-path>
+  --amplicon-size <amplicon-size>
+                          (default: 400)
+  --amplicon-size-min <amplicon-size-min>
+                          Inclusive minimum reference amplicon span, including
+                          primer sites. Defaults to 90% of --amplicon-size, as
+                          the GUI does.
+  --amplicon-size-max <amplicon-size-max>
+                          Inclusive maximum reference amplicon span, including
+                          primer sites. Defaults to 110% of --amplicon-size, as
+                          the GUI does.
+  --pool-count <pool-count>
+                          (default: 2)
+  --min-overlap <min-overlap>
+                          Minimum overlap for independent legacy designs;
+                          combined designs require the default 10. (default: 10)
+  --minimum-base-frequency <minimum-base-frequency>
+                          (default: 0.0)
+  --high-gc
+  --core-count <core-count>
+                          CPU workers for custom Python or legacy Rust
+                          discovery. (default: 4)
+  --terminal-gap-policy <terminal-gap-policy>
+                          Custom fork missing-data policy: observed-only or
+                          legacy. (default: observed-only)
+  --dimer-score <dimer-score>
+                          (default: -26.0)
+  --disable-matchdb       Disable the native mispriming database.
+  --backtrack             Independent schemes only.
+  --ignore-n              Omit unknown N bases; independent schemes only.
+  --panel-mode <panel-mode>
+                          Combined panels: equal or entropy. (default: equal)
+  --max-amplicons <max-amplicons>
+  --max-amplicons-per-msa <max-amplicons-per-msa>
+  --selection-algorithm <selection-algorithm>
+                          Panel selector: legacy, coverage, or allele-coverage.
+                          (default: legacy)
+  --coverage-metric <coverage-metric>
+                          Coverage objective; defaults by selection algorithm.
+  --coverage-target <coverage-target>
+                          Coverage objective; defaults to 0.95 for allele
+                          coverage and 0.90 otherwise.
+  --optimizer-seed <optimizer-seed>
+                          (default: 0)
+  --optimizer-starts <optimizer-starts>
+  --optimizer-repair-rounds <optimizer-repair-rounds>
+  --optimizer-time-limit <optimizer-time-limit>
+  --mispriming-product-size <mispriming-product-size>
+  --preset <preset>
+  --candidate-profiles <candidate-profiles>
+  --reuse-discovery <reuse-discovery>
+  --variant-selection <variant-selection>
+  --search-effort <search-effort>
+                          Allele optimizer effort: standard-v1 or quality-v1.
+  --phase-scheduling <phase-scheduling>
+                          Optimizer phase policy: serial or reserved.
+  --intended-product-policy <intended-product-policy>
+                          Intended product policy: exact-supported or
+                          concrete-designated-sites.
+  --allele-weighting <allele-weighting>
+  --discovery-length-mode <discovery-length-mode>
+  --specificity-terminal-k <specificity-terminal-k>
+  --secondary-product-policy <secondary-product-policy>
+                          Secondary product policy:
+                          ordered-disjoint-intended-sites,
+                          reject-secondary-products/v1, or
+                          ordered-disjoint-concrete-designated-sites/v1.
+  --subset-beam-width <subset-beam-width>
+  --subset-expansion-limit <subset-expansion-limit>
+  --exchange-width <exchange-width>
+  --salvage <salvage>
+  --salvage-threshold <salvage-threshold>
+  --salvage-max-stages <salvage-max-stages>
+  --salvage-max-edges-per-pool <salvage-max-edges-per-pool>
+  --salvage-max-oligos-per-pool <salvage-max-oligos-per-pool>
+  --salvage-time-limit <salvage-time-limit>
+  --primary-tier <primary-tier>
+  --work-frontier-candidates <work-frontier-candidates>
+  --work-construction-candidate-attempts <work-construction-candidate-attempts>
+  --work-repair-candidate-probes-per-round <work-repair-candidate-probes-per-round>
+  --work-repair-neighborhoods-per-round <work-repair-neighborhoods-per-round>
+  --work-repair-trials-per-round <work-repair-trials-per-round>
+  --work-pool-lookahead-candidates <work-pool-lookahead-candidates>
+  --work-cleanup-moves-per-round <work-cleanup-moves-per-round>
+  --work-families-per-refresh <work-families-per-refresh>
+  --legacy-salvage <legacy-salvage>
+                          Bounded dimer salvage for combined legacy panels: off
+                          or bounded.
+  --legacy-salvage-threshold <legacy-salvage-threshold>
+                          Strictly decreasing salvage dimer thresholds below
+                          the dimer score. Repeatable.
+  --legacy-salvage-floor <legacy-salvage-floor>
+                          Lowest salvage dimer score considered.
+  --legacy-salvage-max-edges-per-pool <legacy-salvage-max-edges-per-pool>
+  --legacy-salvage-max-incident-species-per-pool <legacy-salvage-max-incident-species-per-pool>
+  --legacy-salvage-min-reference-gain <legacy-salvage-min-reference-gain>
+  --legacy-salvage-max-candidate-evaluations <legacy-salvage-max-candidate-evaluations>
+  --gap-completion-parent <gap-completion-parent>
+                          Saved combined PrimalScheme analysis whose uncovered
+                          regions this follow-up design should fill.
+  --gap-expansion <gap-expansion>
+                          Generate candidates for uncovered regions of the
+                          gap-completion parent: off or bounded.
+  --gap-expansion-max-anchors-per-msa <gap-expansion-max-anchors-per-msa>
+  --gap-expansion-max-pairs-per-msa <gap-expansion-max-pairs-per-msa>
+  --version               Show the version.
+  -h, --help              Show help information.
+

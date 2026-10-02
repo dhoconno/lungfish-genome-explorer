@@ -1,0 +1,24 @@
+OVERVIEW: Display summary of NAO-MGS results
+
+USAGE: lungfish-cli nao-mgs summary [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>] <input-path> [--top <top>]
+
+ARGUMENTS:
+  <input-path>            Path to virus_hits_final.tsv(.gz) or results directory
+
+OPTIONS:
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --top <top>             Number of top taxa to display (default: 20) (default:
+                          20)
+  --version               Show the version.
+  -h, --help              Show help information.
+

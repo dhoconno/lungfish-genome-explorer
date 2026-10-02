@@ -1,0 +1,24 @@
+OVERVIEW: Materialize a virtual FASTQ bundle to a physical FASTQ file
+
+Reads the derived bundle manifest, resolves the root FASTQ, and applies
+payload-specific materialization (subset read IDs, trim positions, or
+copy full payload). Produces a single output FASTQ file.
+
+Examples:
+  lungfish-cli fastq materialize myreads.lungfishfastq -o output.fastq
+  lungfish-cli fastq materialize trimmed.lungfishfastq -o reads.fastq
+--temp-dir /tmp/work
+
+USAGE: lungfish-cli fastq materialize <input> --output <output> [--force] [--compress] [--temp-dir <temp-dir>]
+
+ARGUMENTS:
+  <input>                 Input .lungfishfastq bundle path
+
+OPTIONS:
+  -o, --output <output>   Output file path (required)
+  --force                 Overwrite existing output file
+  --compress              Compress output with gzip
+  --temp-dir <temp-dir>   Temporary directory for intermediate files
+  --version               Show the version.
+  -h, --help              Show help information.
+

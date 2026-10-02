@@ -1,0 +1,19 @@
+OVERVIEW: Build and inspect primer-scheme and analysis bundles
+
+USAGE: lungfish-cli primers <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  import                  Import a BED primer scheme as a .lungfishprimers
+                          bundle
+  scheme-from-analysis    Save a designed tiled scheme (PrimalScheme3, Olivar
+                          or tiled varVAMP) as a .lungfishprimers bundle for
+                          primer trimming
+  design                  Design primers from explicitly selected sequence
+                          inputs
+  analysis                Inspect saved primer analysis results
+
+  See 'lungfish-cli help primers <subcommand>' for detailed help.

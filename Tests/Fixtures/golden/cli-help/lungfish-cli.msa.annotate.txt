@@ -1,0 +1,15 @@
+OVERVIEW: Create and manage multiple sequence alignment annotations
+
+USAGE: lungfish-cli msa annotate <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  add                     Add an annotation from aligned MSA columns
+  edit                    Edit an MSA annotation
+  delete                  Delete an MSA annotation
+  project                 Project an MSA annotation to target rows
+
+  See 'lungfish-cli help msa annotate <subcommand>' for detailed help.
