@@ -63,40 +63,91 @@ final class SequenceViewerLoadingAnimationAndPanThrottleTests: XCTestCase {
     }
 
     // MARK: - Pan redraw throttle
+    //
+    // These tests drive `panRedrawClock` with a clock that only the test advances, so the frame
+    // interval is measured in fake seconds and no assertion depends on how long the machine takes
+    // to run the test body. The trailing redraw is a real `Timer`, but a test body never spins
+    // the run loop, so that timer cannot fire while an assertion runs.
+
+    /// One 60 Hz frame, the interval `throttledPanRedraw` coalesces redraws to.
+    private let frame: CFTimeInterval = 1.0 / 60.0
+
+    /// A viewer whose pan redraw throttle reads a fake clock that starts at `start`.
+    private func makeViewWithManualClock(
+        startingAt start: CFTimeInterval = 1_000
+    ) -> (view: SequenceViewerView, clock: ManualPanRedrawClock) {
+        let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let clock = ManualPanRedrawClock(startingAt: start)
+        view.panRedrawClock = { clock.now }
+        // Invalidate the trailing timer even when an assertion above has failed.
+        addTeardownBlock { @MainActor in view.scrollRedrawTimer?.invalidate() }
+        return (view, clock)
+    }
 
     func testThrottledPanRedrawFiresImmediatelyWhenFrameIntervalHasElapsed() {
-        let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        view.lastPanRedrawTime = 0 // "long ago" relative to CACurrentMediaTime()
+        let (view, clock) = makeViewWithManualClock()
+        view.lastPanRedrawTime = 0 // a long time before the fake clock's start
 
         view.throttledPanRedraw()
 
-        XCTAssertGreaterThan(view.lastPanRedrawTime, 0, "an elapsed-frame redraw must fire immediately, not schedule a timer")
+        XCTAssertEqual(view.lastPanRedrawTime, clock.now, "an elapsed-frame redraw must fire immediately, not schedule a timer")
         XCTAssertNil(view.scrollRedrawTimer, "an immediate redraw must not leave a pending trailing timer")
     }
 
     func testThrottledPanRedrawCoalescesBurstIntoOneTrailingRedraw() {
-        let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let (view, clock) = makeViewWithManualClock()
 
         // First call redraws immediately and stamps lastPanRedrawTime.
         view.throttledPanRedraw()
         let firstRedrawTime = view.lastPanRedrawTime
+        XCTAssertEqual(firstRedrawTime, clock.now)
         XCTAssertNil(view.scrollRedrawTimer)
 
         // A burst of calls arriving well within the same frame must not each reset a fresh
-        // timer (the old debounce bug) — exactly one trailing timer should exist afterward.
+        // timer (the old debounce bug). Exactly one trailing timer should exist afterward.
+        clock.advance(by: frame / 10)
         view.throttledPanRedraw()
         let timerAfterFirstBurstEvent = view.scrollRedrawTimer
         XCTAssertNotNil(timerAfterFirstBurstEvent, "a call within the frame budget must schedule exactly one trailing redraw")
 
+        clock.advance(by: frame / 10)
         view.throttledPanRedraw()
+        clock.advance(by: frame / 10)
         view.throttledPanRedraw()
         XCTAssertTrue(
             view.scrollRedrawTimer === timerAfterFirstBurstEvent,
             "subsequent calls within the same frame must not cancel and reschedule the trailing timer (that was the debounce-starvation bug)"
         )
         XCTAssertEqual(view.lastPanRedrawTime, firstRedrawTime, "no redraw should have happened yet for the coalesced burst")
+    }
 
-        view.scrollRedrawTimer?.invalidate()
+    func testThrottledPanRedrawRedrawsImmediatelyWhenBurstRunsPastFrameAndClearsTrailingTimer() throws {
+        let (view, clock) = makeViewWithManualClock()
+
+        view.throttledPanRedraw()
+        let firstRedrawTime = view.lastPanRedrawTime
+
+        // A second call inside the frame leaves one trailing redraw pending.
+        clock.advance(by: frame / 4)
+        view.throttledPanRedraw()
+        let pendingTimer = try XCTUnwrap(view.scrollRedrawTimer, "a call within the frame budget must schedule a trailing redraw")
+        XCTAssertTrue(pendingTimer.isValid, "the trailing redraw stays pending until something supersedes it")
+        XCTAssertEqual(view.lastPanRedrawTime, firstRedrawTime, "a call within the frame budget must not redraw yet")
+
+        // The burst runs on past a full frame since the last redraw. That call redraws at once and
+        // retires the pending timer, so the same frame is never redrawn a second time.
+        clock.advance(by: frame * 2)
+        view.throttledPanRedraw()
+        XCTAssertEqual(view.lastPanRedrawTime, clock.now, "a call a full frame after the last redraw must redraw immediately")
+        XCTAssertNil(view.scrollRedrawTimer, "an immediate redraw must clear the trailing timer reference")
+        XCTAssertFalse(pendingTimer.isValid, "an immediate redraw must invalidate the pending trailing timer")
+
+        // With the reference cleared, the next call inside the new frame arms a fresh trailing timer.
+        clock.advance(by: frame / 4)
+        view.throttledPanRedraw()
+        let rearmedTimer = try XCTUnwrap(view.scrollRedrawTimer, "a call within the new frame budget must schedule a trailing redraw again")
+        XCTAssertFalse(rearmedTimer === pendingTimer, "the new trailing redraw needs its own timer, not the retired one")
+        XCTAssertTrue(rearmedTimer.isValid, "the new trailing redraw must be pending")
     }
 
     // MARK: - Per-frame maxReadSpan scan
@@ -138,5 +189,19 @@ final class SequenceViewerLoadingAnimationAndPanThrottleTests: XCTestCase {
             sequence: String(repeating: "A", count: max(1, queryLength)),
             qualities: Array(repeating: 37, count: max(1, queryLength))
         )
+    }
+}
+
+/// A clock for `SequenceViewerView.panRedrawClock` that moves only when a test advances it.
+@MainActor
+private final class ManualPanRedrawClock {
+    private(set) var now: CFTimeInterval
+
+    init(startingAt now: CFTimeInterval) {
+        self.now = now
+    }
+
+    func advance(by seconds: CFTimeInterval) {
+        now += seconds
     }
 }

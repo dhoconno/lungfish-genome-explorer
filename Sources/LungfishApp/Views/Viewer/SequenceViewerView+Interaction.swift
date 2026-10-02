@@ -1930,7 +1930,7 @@ extension SequenceViewerView {
     /// instead of zero.
     func throttledPanRedraw() {
         let frameInterval: CFTimeInterval = 1.0 / 60.0
-        let now = CACurrentMediaTime()
+        let now = panRedrawClock()
         let elapsed = now - lastPanRedrawTime
 
         if elapsed >= frameInterval {
@@ -1957,7 +1957,7 @@ extension SequenceViewerView {
 
     /// Performs the actual pan redraw and records the timestamp used by `throttledPanRedraw`.
     private func performPanRedraw() {
-        lastPanRedrawTime = CACurrentMediaTime()
+        lastPanRedrawTime = panRedrawClock()
         setNeedsDisplay(bounds)
         viewController?.enhancedRulerView.setNeedsDisplay(viewController?.enhancedRulerView.bounds ?? .zero)
         viewController?.updateStatusBar()
