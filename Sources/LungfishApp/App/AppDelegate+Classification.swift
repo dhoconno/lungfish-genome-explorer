@@ -798,193 +798,175 @@ extension AppDelegate {
 
         let pipeline = ClassificationPipeline()
 
-        // Build a descriptive title from the first input file and the goal.
-        let inputName = config.inputFiles.first?.lastPathComponent ?? "reads"
-        let goalLabel: String
-        switch config.goal {
-        case .classify: goalLabel = "Classifying"
-        case .profile:  goalLabel = "Profiling"
-        case .extract:  goalLabel = "Classifying (extract)"
-        }
-        let operationTitle = "\(goalLabel) \(inputName)"
-
         // Register the operation with OperationCenter so it appears in the Operations Panel.
-        // Built by the same argv mapping the batch replay path uses
-        // (ClassificationCLIInvocationBuilder), so the displayed command is
-        // actually runnable: `--db` is the registry name (not a filesystem
-        // path), and preset/paired/profile/output-dir are all
-        // included.
-        let cliCmd = ClassificationCLIInvocationBuilder.build(for: config).displayString
-        let opID = OperationCenter.shared.start(
-            title: operationTitle,
-            detail: "Starting Kraken2 with \(config.databaseName)...",
-            operationType: .classification,
-            cliCommand: cliCmd,
-            routeContext: routeContext
-        )
-        if let ownedAnalysisDirectory { OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory, for: opID) }
+        // The helper records the runnable `lungfish-cli conda classify` command and
+        // calls the launch closure only when the row started.
+        Self.beginClassificationOperation(config: config, routeContext: routeContext) { opID in
+            let config = config // The detached task cannot capture the mutable local.
+            if let ownedAnalysisDirectory { OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory, for: opID) }
 
-        let task = Task.detached { [weak self] in
-            do {
-                // Materialize virtual FASTQs as the first pipeline step.
-                // This creates temp files that are cleaned up after classification.
-                let materializeTempDir = try ProjectTempDirectory.createFromContext(
-                    prefix: "classify-", contextURL: config.inputFiles.first ?? config.databasePath)
-                defer { try? FileManager.default.removeItem(at: materializeTempDir) }
+            let task = Task.detached { [weak self] in
+                do {
+                    // Materialize virtual FASTQs as the first pipeline step.
+                    // This creates temp files that are cleaned up after classification.
+                    let materializeTempDir = try ProjectTempDirectory.createFromContext(
+                        prefix: "classify-", contextURL: config.inputFiles.first ?? config.databasePath)
+                    defer { try? FileManager.default.removeItem(at: materializeTempDir) }
 
-                let resolvedFiles = try await self?.resolveInputFiles(
-                    config.inputFiles,
-                    tempDirectory: materializeTempDir,
-                    progress: { message in
+                    let resolvedFiles = try await self?.resolveInputFiles(
+                        config.inputFiles,
+                        tempDirectory: materializeTempDir,
+                        progress: { message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    viewerController.showProgress(message)
+                                    _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                    OperationCenter.shared.log(id: opID, level: .info, message: message)
+                                }
+                            }
+                        }
+                    ) ?? config.inputFiles
+
+                    // Build a config with resolved (materialized) input files
+                    var resolvedConfig = config
+                    // Preserve the original bundle display name before materialization
+                    // replaces inputFiles, so the taxonomy viewer shows the real sample
+                    // name instead of "materialized".
+                    if resolvedConfig.sampleDisplayName == nil {
+                        let bundleName = config.inputFiles.first?
+                            .deletingPathExtension().lastPathComponent
+                        resolvedConfig.sampleDisplayName = bundleName
+                    }
+                    // Preserve original input files before materialization replaces them,
+                    // so extraction can locate a valid source FASTQ after the materialized
+                    // temp file is deleted.
+                    if resolvedConfig.originalInputFiles == nil {
+                        resolvedConfig.originalInputFiles = config.inputFiles
+                    }
+                    resolvedConfig.inputFiles = resolvedFiles
+
+                    let progressCallback: @Sendable (Double, String) -> Void = { progress, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController.showProgress(message)
-                                _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                _ = OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: max(0, min(1, progress)),
+                                    detail: message
+                                )
                                 OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
                     }
-                ) ?? config.inputFiles
 
-                // Build a config with resolved (materialized) input files
-                var resolvedConfig = config
-                // Preserve the original bundle display name before materialization
-                // replaces inputFiles, so the taxonomy viewer shows the real sample
-                // name instead of "materialized".
-                if resolvedConfig.sampleDisplayName == nil {
-                    let bundleName = config.inputFiles.first?
-                        .deletingPathExtension().lastPathComponent
-                    resolvedConfig.sampleDisplayName = bundleName
-                }
-                // Preserve original input files before materialization replaces them,
-                // so extraction can locate a valid source FASTQ after the materialized
-                // temp file is deleted.
-                if resolvedConfig.originalInputFiles == nil {
-                    resolvedConfig.originalInputFiles = config.inputFiles
-                }
-                resolvedConfig.inputFiles = resolvedFiles
+                    let result: ClassificationResult
+                    switch resolvedConfig.goal {
+                    case .classify, .extract:
+                        result = try await pipeline.classify(config: resolvedConfig, progress: progressCallback)
+                    case .profile:
+                        result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
+                    }
 
-                let progressCallback: @Sendable (Double, String) -> Void = { progress, message in
+                    // This cleanup is also covered by the `defer` set up
+                    // when `materializeTempDir` was created. A failure here (e.g.
+                    // the directory already gone) must not turn an otherwise
+                    // successful classification run into a failure.
+                    try? FileManager.default.removeItem(at: materializeTempDir)
+                    let capturedConfig = config
+                    let outcomeMetadata = ClassificationBatchOutcomePolicy.singleResultMetadata(for: result)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            viewerController.showProgress(message)
-                            _ = OperationCenter.shared.update(
-                                id: opID,
-                                progress: max(0, min(1, progress)),
-                                detail: message
-                            )
-                            OperationCenter.shared.log(id: opID, level: .info, message: message)
+                            viewerController.hideProgress()
+
+                            guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                                OperationCenter.shared.acknowledgeCancellation(id: opID)
+                                return
+                            }
+                            // Record analysis in source bundle manifest
+                            if let bundleURL = Self.findSourceBundle(for: capturedConfig.originalInputFiles ?? capturedConfig.inputFiles) {
+                                let entry = AnalysisManifestEntry(
+                                    tool: "kraken2",
+                                    analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                        for: capturedConfig.outputDirectory,
+                                        projectURL: routeContext?.projectURL
+                                    ),
+                                    displayName: "Kraken2 Classification",
+                                    parameters: outcomeMetadata.analysisParameters,
+                                    summary: outcomeMetadata.analysisSummary,
+                                    status: .completed
+                                )
+                                do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
+                            }
+
+                            if outcomeMetadata.requiresWarningCompletion {
+                                guard OperationCenter.shared.completeWithWarning(
+                                    id: opID,
+                                    detail: outcomeMetadata.completionDetail
+                                ) else { return }
+                            } else {
+                                guard OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: outcomeMetadata.completionDetail
+                                ) else { return }
+                            }
+
+                            viewerController.displayTaxonomyResult(result)
+
+                            // For the extract goal, auto-present the unified
+                            // extraction dialog after showing the taxonomy browser
+                            // so the user can pick taxa.
+                            if capturedConfig.goal == .extract,
+                               viewerController.taxonomyViewController != nil,
+                               let topSpecies = result.tree.dominantSpecies,
+                               let window = viewerController.view.window {
+                                    let ctx = TaxonomyReadExtractionAction.Context(
+                                        tool: .kraken2,
+                                        resultPath: capturedConfig.outputDirectory,
+                                        selections: [ClassifierRowSelector(
+                                            sampleId: nil,
+                                            accessions: [],
+                                            taxIds: [topSpecies.taxId]
+                                        )],
+                                        suggestedName: "kraken2_\(topSpecies.name.replacingOccurrences(of: " ", with: "_"))",
+                                        routeContext: routeContext
+                                    )
+                                TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
+                            }
+
+                            // Reload the sidebar so the new result appears, and
+                            // select its row. The viewport already shows it.
+                            AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
+                                .mainSplitViewController?
+                                .sidebarController.reloadAndRevealItem(forURL: capturedConfig.outputDirectory)
+
                         }
                     }
-                }
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController.hideProgress()
+                            // No half result: the folder created for this run goes.
+                            if let failedRunDirectory {
+                                AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
+                            }
+                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
 
-                let result: ClassificationResult
-                switch resolvedConfig.goal {
-                case .classify, .extract:
-                    result = try await pipeline.classify(config: resolvedConfig, progress: progressCallback)
-                case .profile:
-                    result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
-                }
-
-                // This cleanup is also covered by the `defer` set up
-                // when `materializeTempDir` was created. A failure here (e.g.
-                // the directory already gone) must not turn an otherwise
-                // successful classification run into a failure.
-                try? FileManager.default.removeItem(at: materializeTempDir)
-                let capturedConfig = config
-                let outcomeMetadata = ClassificationBatchOutcomePolicy.singleResultMetadata(for: result)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-
-                        guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
-                            OperationCenter.shared.acknowledgeCancellation(id: opID)
-                            return
-                        }
-                        // Record analysis in source bundle manifest
-                        if let bundleURL = Self.findSourceBundle(for: capturedConfig.originalInputFiles ?? capturedConfig.inputFiles) {
-                            let entry = AnalysisManifestEntry(
-                                tool: "kraken2",
-                                analysisDirectoryName: Self.analysisManifestDirectoryName(
-                                    for: capturedConfig.outputDirectory,
-                                    projectURL: routeContext?.projectURL
-                                ),
-                                displayName: "Kraken2 Classification",
-                                parameters: outcomeMetadata.analysisParameters,
-                                summary: outcomeMetadata.analysisSummary,
-                                status: .completed
-                            )
-                            do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
-                        }
-
-                        if outcomeMetadata.requiresWarningCompletion {
-                            guard OperationCenter.shared.completeWithWarning(
-                                id: opID,
-                                detail: outcomeMetadata.completionDetail
-                            ) else { return }
-                        } else {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: outcomeMetadata.completionDetail
-                            ) else { return }
-                        }
-
-                        viewerController.displayTaxonomyResult(result)
-
-                        // For the extract goal, auto-present the unified
-                        // extraction dialog after showing the taxonomy browser
-                        // so the user can pick taxa.
-                        if capturedConfig.goal == .extract,
-                           viewerController.taxonomyViewController != nil,
-                           let topSpecies = result.tree.dominantSpecies,
-                           let window = viewerController.view.window {
-	                            let ctx = TaxonomyReadExtractionAction.Context(
-	                                tool: .kraken2,
-	                                resultPath: capturedConfig.outputDirectory,
-	                                selections: [ClassifierRowSelector(
-	                                    sampleId: nil,
-	                                    accessions: [],
-	                                    taxIds: [topSpecies.taxId]
-	                                )],
-	                                suggestedName: "kraken2_\(topSpecies.name.replacingOccurrences(of: " ", with: "_"))",
-	                                routeContext: routeContext
-	                            )
-                            TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
-                        }
-
-                        // Reload the sidebar so the new result appears, and
-                        // select its row. The viewport already shows it.
-                        AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
-                            .mainSplitViewController?
-                            .sidebarController.reloadAndRevealItem(forURL: capturedConfig.outputDirectory)
-
-                    }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        // No half result: the folder created for this run goes.
-                        if let failedRunDirectory {
-                            AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
-                        }
-                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-
-                        let alert = NSAlert()
-                        alert.messageText = "Classification Failed"
-                        alert.informativeText = error.localizedDescription
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = viewerController.view.window {
-                            alert.beginSheetModal(for: window)
+                            let alert = NSAlert()
+                            alert.messageText = "Classification Failed"
+                            alert.informativeText = error.localizedDescription
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            if let window = viewerController.view.window {
+                                alert.beginSheetModal(for: window)
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Wire cancellation so the Operations Panel cancel button works
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            // Wire cancellation so the Operations Panel cancel button works
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
     }
 
 
@@ -1044,264 +1026,259 @@ extension AppDelegate {
         }
         let esVirituFailedRunDirectory = esVirituOwnedDirectory
 
-        let esCliArgs = Self.esVirituDetectCLIArguments(for: config)
-        let esCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: esCliArgs)
-        let esCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"] + esCliArgs
-        let opID = OperationCenter.shared.start(
-            title: "EsViritu \(config.sampleName)",
-            detail: "Starting EsViritu viral detection\u{2026}",
-            operationType: .classification,
-            cliCommand: esCliCmd,
-            routeContext: routeContext
-        )
-        if let esVirituOwnedDirectory { OperationCenter.shared.trackAnalysisOutput(esVirituOwnedDirectory, for: opID) }
+        let esCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"]
+            + Self.esVirituDetectCLIArguments(for: config)
+        Self.beginEsVirituOperation(config: config, routeContext: routeContext) { opID in
+            let config = config // The detached task cannot capture the mutable local.
+            if let esVirituOwnedDirectory { OperationCenter.shared.trackAnalysisOutput(esVirituOwnedDirectory, for: opID) }
 
-        let task = Task.detached { [weak self] in
-            do {
-                // Materialize virtual FASTQs before running EsViritu
-                let materializeTempDir = try ProjectTempDirectory.createFromContext(
-                    prefix: "esviritu-", contextURL: config.inputFiles.first ?? config.outputDirectory)
-                defer { try? FileManager.default.removeItem(at: materializeTempDir) }
-
-                let resolvedFiles = try await self?.resolveInputFiles(
-                    config.inputFiles,
-                    tempDirectory: materializeTempDir,
-                    progress: { message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                viewerController.showProgress(message)
-                                _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
-                                OperationCenter.shared.log(id: opID, level: .info, message: message)
-                            }
-                        }
-                    }
-                ) ?? config.inputFiles
-
-                var resolvedConfig = config
-                resolvedConfig.inputFiles = resolvedFiles
-
-                let pipeline = EsVirituPipeline()
-                let result = try await pipeline.detect(
-                    config: resolvedConfig,
-                    progress: { progress, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                viewerController.showProgress(message)
-                                _ = OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: max(0, min(1, progress)),
-                                    detail: message
-                                )
-                                OperationCenter.shared.log(id: opID, level: .info, message: message)
-                            }
-                        }
-                    }
-                )
-
-                // Parse EsViritu output files into the LungfishIO display model.
-                // A column-validation failure means the EsViritu output format
-                // changed: fail the operation rather than silently reporting an
-                // empty result set as a successful run.
-                let detections: [ViralDetection]
+            let task = Task.detached { [weak self] in
                 do {
-                    detections = try EsVirituDetectionParser.parse(url: result.detectionURL)
-                } catch {
-                    let parseErrorDesc = error.localizedDescription
+                    // Materialize virtual FASTQs before running EsViritu
+                    let materializeTempDir = try ProjectTempDirectory.createFromContext(
+                        prefix: "esviritu-", contextURL: config.inputFiles.first ?? config.outputDirectory)
+                    defer { try? FileManager.default.removeItem(at: materializeTempDir) }
+
+                    let resolvedFiles = try await self?.resolveInputFiles(
+                        config.inputFiles,
+                        tempDirectory: materializeTempDir,
+                        progress: { message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    viewerController.showProgress(message)
+                                    _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                    OperationCenter.shared.log(id: opID, level: .info, message: message)
+                                }
+                            }
+                        }
+                    ) ?? config.inputFiles
+
+                    var resolvedConfig = config
+                    resolvedConfig.inputFiles = resolvedFiles
+
+                    let pipeline = EsVirituPipeline()
+                    let result = try await pipeline.detect(
+                        config: resolvedConfig,
+                        progress: { progress, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    viewerController.showProgress(message)
+                                    _ = OperationCenter.shared.update(
+                                        id: opID,
+                                        progress: max(0, min(1, progress)),
+                                        detail: message
+                                    )
+                                    OperationCenter.shared.log(id: opID, level: .info, message: message)
+                                }
+                            }
+                        }
+                    )
+
+                    // Parse EsViritu output files into the LungfishIO display model.
+                    // A column-validation failure means the EsViritu output format
+                    // changed: fail the operation rather than silently reporting an
+                    // empty result set as a successful run.
+                    let detections: [ViralDetection]
+                    do {
+                        detections = try EsVirituDetectionParser.parse(url: result.detectionURL)
+                    } catch {
+                        let parseErrorDesc = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .error,
+                                    message: "Failed to parse EsViritu detections: \(parseErrorDesc)"
+                                )
+                            }
+                        }
+                        appDelegateLogger.error(
+                            "runEsViritu: Failed to parse detections - \(parseErrorDesc, privacy: .public)"
+                        )
+                        throw error
+                    }
+                    let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
+                    let taxProfile: [ViralTaxProfile]
+                    if let tpURL = result.taxProfileURL {
+                        taxProfile = (try? EsVirituTaxProfileParser.parse(url: tpURL)) ?? []
+                    } else {
+                        taxProfile = []
+                    }
+                    let coverageWindows: [ViralCoverageWindow]
+                    if let cvURL = result.coverageURL {
+                        coverageWindows = (try? EsVirituCoverageParser.parse(url: cvURL)) ?? []
+                    } else {
+                        coverageWindows = []
+                    }
+
+                    let ioResult = LungfishIO.EsVirituResult(
+                        sampleId: config.sampleName,
+                        detections: detections,
+                        assemblies: assemblies,
+                        taxProfile: taxProfile,
+                        coverageWindows: coverageWindows,
+                        totalFilteredReads: detections.first?.filteredReadsInSample ?? 0,
+                        detectedFamilyCount: Set(detections.compactMap(\.family)).count,
+                        detectedSpeciesCount: Set(detections.compactMap(\.species)).count,
+                        runtime: result.runtime,
+                        toolVersion: result.toolVersion
+                    )
+
+                    // Build the SQLite database at the parent batch directory so
+                    // the single-sample result opens directly into the DB-backed view.
+                    // config.outputDirectory is the per-sample subdir; its parent is
+                    // the batch root the sidebar shows.
+                    let esvBatchRoot = config.outputDirectory.deletingLastPathComponent()
+                    var dbBuildErrorDescription: String?
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .error,
-                                message: "Failed to parse EsViritu detections: \(parseErrorDesc)"
-                            )
+                            _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
+                            OperationCenter.shared.log(id: opID, level: .info, message: "Building esviritu.sqlite from single-sample result")
                         }
                     }
-                    appDelegateLogger.error(
-                        "runEsViritu: Failed to parse detections - \(parseErrorDesc, privacy: .public)"
-                    )
-                    throw error
-                }
-                let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
-                let taxProfile: [ViralTaxProfile]
-                if let tpURL = result.taxProfileURL {
-                    taxProfile = (try? EsVirituTaxProfileParser.parse(url: tpURL)) ?? []
-                } else {
-                    taxProfile = []
-                }
-                let coverageWindows: [ViralCoverageWindow]
-                if let cvURL = result.coverageURL {
-                    coverageWindows = (try? EsVirituCoverageParser.parse(url: cvURL)) ?? []
-                } else {
-                    coverageWindows = []
-                }
-
-                let ioResult = LungfishIO.EsVirituResult(
-                    sampleId: config.sampleName,
-                    detections: detections,
-                    assemblies: assemblies,
-                    taxProfile: taxProfile,
-                    coverageWindows: coverageWindows,
-                    totalFilteredReads: detections.first?.filteredReadsInSample ?? 0,
-                    detectedFamilyCount: Set(detections.compactMap(\.family)).count,
-                    detectedSpeciesCount: Set(detections.compactMap(\.species)).count,
-                    runtime: result.runtime,
-                    toolVersion: result.toolVersion
-                )
-
-                // Build the SQLite database at the parent batch directory so
-                // the single-sample result opens directly into the DB-backed view.
-                // config.outputDirectory is the per-sample subdir; its parent is
-                // the batch root the sidebar shows.
-                let esvBatchRoot = config.outputDirectory.deletingLastPathComponent()
-                var dbBuildErrorDescription: String?
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Building esviritu.sqlite from single-sample result")
-                    }
-                }
-                do {
-                    try LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: esvBatchRoot, force: true)
-                } catch {
-                    dbBuildErrorDescription = error.localizedDescription
-                    appDelegateLogger.warning(
-                        "runEsViritu: Failed to build esviritu.sqlite - \(error.localizedDescription, privacy: .public)"
-                    )
-                }
-
-                let summaryURL = esvBatchRoot.appendingPathComponent("esviritu-batch-summary.tsv")
-                let sampleID = MetagenomicsSampleGrouper.sanitizeSampleId(config.sampleName)
-                let summaryLines = [
-                    "sample_id\tstatus\tvirus_count\tfamilies\tspecies\terror",
-                    [
-                        appTSVField(sampleID),
-                        "ok",
-                        String(result.virusCount),
-                        String(ioResult.detectedFamilyCount),
-                        String(ioResult.detectedSpeciesCount),
-                        "",
-                    ].joined(separator: "\t"),
-                ]
-                do {
-                    try summaryLines.joined(separator: "\n").write(to: summaryURL, atomically: true, encoding: .utf8)
-                } catch {
-                    appDelegateLogger.warning("runEsViritu: Failed to write summary TSV - \(error.localizedDescription, privacy: .public)")
-                }
-
-                let manifest = EsVirituBatchResultManifest(
-                    header: MetagenomicsBatchManifestHeader(
-                        schemaVersion: 1,
-                        createdAt: Date(),
-                        sampleCount: 1
-                    ),
-                    summaryTSV: summaryURL.lastPathComponent,
-                    samples: [
-                        MetagenomicsBatchSampleRecord(
-                            sampleId: sampleID,
-                            resultDirectory: appRelativePath(from: esvBatchRoot, to: config.outputDirectory),
-                            inputFiles: config.inputFiles.map(\.path),
-                            isPairedEnd: config.readFormat.runsAsPairs
+                    do {
+                        try LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: esvBatchRoot, force: true)
+                    } catch {
+                        dbBuildErrorDescription = error.localizedDescription
+                        appDelegateLogger.warning(
+                            "runEsViritu: Failed to build esviritu.sqlite - \(error.localizedDescription, privacy: .public)"
                         )
-                    ]
-                )
-
-                do {
-                    try MetagenomicsBatchResultStore.saveEsViritu(manifest, to: esvBatchRoot)
-                } catch {
-                    appDelegateLogger.warning("runEsViritu: Failed to save batch manifest - \(error.localizedDescription, privacy: .public)")
-                }
-
-                try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
-                    batchRoot: esvBatchRoot,
-                    manifest: manifest,
-                    summaryURL: summaryURL,
-                    sqliteURL: esvBatchRoot.appendingPathComponent("esviritu.sqlite"),
-                    command: esCliArgv
-                )
-
-                // Covered by the `defer` from creation; do not fail
-                // an otherwise-successful run over a cleanup error.
-                try? FileManager.default.removeItem(at: materializeTempDir)
-                let capturedResult = ioResult
-                let capturedConfig = config
-                let capturedDBBuildError = dbBuildErrorDescription
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        if let dbError = capturedDBBuildError {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .warning,
-                                message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
-                            )
-                        }
-                        guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
-                            OperationCenter.shared.acknowledgeCancellation(id: opID)
-                            return
-                        }
-                        // Record analysis in source bundle manifest
-                        if let bundleURL = Self.findSourceBundle(for: capturedConfig.inputFiles) {
-                            let entry = AnalysisManifestEntry(
-                                tool: "esviritu",
-                                analysisDirectoryName: Self.analysisManifestDirectoryName(
-                                    for: capturedConfig.outputDirectory,
-                                    projectURL: routeContext?.projectURL
-                                ),
-                                displayName: "EsViritu Detection",
-                                parameters: capturedConfig.summaryParameters(),
-                                summary: "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families",
-                                status: .completed
-                            )
-                            do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
-                        }
-
-                        let completionDetail = capturedResult.detections.isEmpty
-                            ? "No viral hits detected"
-                            : "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families"
-                        guard OperationCenter.shared.complete(
-                            id: opID,
-                            detail: completionDetail
-                        ) else { return }
-                        // Reload sidebar so the new result bundle appears.
-                        // User clicks the new result to view it (batch-only display path).
-                        self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
-                            .sidebarController.requestReloadFromFilesystem()
-
                     }
-                }
-            } catch {
-                let errorDesc = error.localizedDescription
-                let esVirituLogTail = (error as? EsVirituPipelineError)?.logTail
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        // No half result: the sample folder (and its batch
-                        // folder, once empty) created for this run goes.
-                        if let esVirituFailedRunDirectory {
-                            AnalysesFolder.discardFailedAnalysisDirectory(esVirituFailedRunDirectory)
-                        }
-                        OperationCenter.shared.log(id: opID, level: .error, message: errorDesc)
-                        guard OperationCenter.shared.fail(
-                            id: opID,
-                            detail: errorDesc,
-                            errorMessage: errorDesc,
-                            errorDetail: esVirituLogTail.map { "EsViritu log (last lines):\n\($0)" }
-                        ) else { return }
 
-                        let alert = NSAlert()
-                        alert.messageText = "EsViritu Failed"
-                        alert.informativeText = errorDesc
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = viewerController.view.window {
-                            alert.beginSheetModal(for: window)
+                    let summaryURL = esvBatchRoot.appendingPathComponent("esviritu-batch-summary.tsv")
+                    let sampleID = MetagenomicsSampleGrouper.sanitizeSampleId(config.sampleName)
+                    let summaryLines = [
+                        "sample_id\tstatus\tvirus_count\tfamilies\tspecies\terror",
+                        [
+                            appTSVField(sampleID),
+                            "ok",
+                            String(result.virusCount),
+                            String(ioResult.detectedFamilyCount),
+                            String(ioResult.detectedSpeciesCount),
+                            "",
+                        ].joined(separator: "\t"),
+                    ]
+                    do {
+                        try summaryLines.joined(separator: "\n").write(to: summaryURL, atomically: true, encoding: .utf8)
+                    } catch {
+                        appDelegateLogger.warning("runEsViritu: Failed to write summary TSV - \(error.localizedDescription, privacy: .public)")
+                    }
+
+                    let manifest = EsVirituBatchResultManifest(
+                        header: MetagenomicsBatchManifestHeader(
+                            schemaVersion: 1,
+                            createdAt: Date(),
+                            sampleCount: 1
+                        ),
+                        summaryTSV: summaryURL.lastPathComponent,
+                        samples: [
+                            MetagenomicsBatchSampleRecord(
+                                sampleId: sampleID,
+                                resultDirectory: appRelativePath(from: esvBatchRoot, to: config.outputDirectory),
+                                inputFiles: config.inputFiles.map(\.path),
+                                isPairedEnd: config.readFormat.runsAsPairs
+                            )
+                        ]
+                    )
+
+                    do {
+                        try MetagenomicsBatchResultStore.saveEsViritu(manifest, to: esvBatchRoot)
+                    } catch {
+                        appDelegateLogger.warning("runEsViritu: Failed to save batch manifest - \(error.localizedDescription, privacy: .public)")
+                    }
+
+                    try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
+                        batchRoot: esvBatchRoot,
+                        manifest: manifest,
+                        summaryURL: summaryURL,
+                        sqliteURL: esvBatchRoot.appendingPathComponent("esviritu.sqlite"),
+                        command: esCliArgv
+                    )
+
+                    // Covered by the `defer` from creation; do not fail
+                    // an otherwise-successful run over a cleanup error.
+                    try? FileManager.default.removeItem(at: materializeTempDir)
+                    let capturedResult = ioResult
+                    let capturedConfig = config
+                    let capturedDBBuildError = dbBuildErrorDescription
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController.hideProgress()
+                            if let dbError = capturedDBBuildError {
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .warning,
+                                    message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
+                                )
+                            }
+                            guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                                OperationCenter.shared.acknowledgeCancellation(id: opID)
+                                return
+                            }
+                            // Record analysis in source bundle manifest
+                            if let bundleURL = Self.findSourceBundle(for: capturedConfig.inputFiles) {
+                                let entry = AnalysisManifestEntry(
+                                    tool: "esviritu",
+                                    analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                        for: capturedConfig.outputDirectory,
+                                        projectURL: routeContext?.projectURL
+                                    ),
+                                    displayName: "EsViritu Detection",
+                                    parameters: capturedConfig.summaryParameters(),
+                                    summary: "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families",
+                                    status: .completed
+                                )
+                                do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
+                            }
+
+                            let completionDetail = capturedResult.detections.isEmpty
+                                ? "No viral hits detected"
+                                : "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families"
+                            guard OperationCenter.shared.complete(
+                                id: opID,
+                                detail: completionDetail
+                            ) else { return }
+                            // Reload sidebar so the new result bundle appears.
+                            // User clicks the new result to view it (batch-only display path).
+                            self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
+                                .sidebarController.requestReloadFromFilesystem()
+
+                        }
+                    }
+                } catch {
+                    let errorDesc = error.localizedDescription
+                    let esVirituLogTail = (error as? EsVirituPipelineError)?.logTail
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController.hideProgress()
+                            // No half result: the sample folder (and its batch
+                            // folder, once empty) created for this run goes.
+                            if let esVirituFailedRunDirectory {
+                                AnalysesFolder.discardFailedAnalysisDirectory(esVirituFailedRunDirectory)
+                            }
+                            OperationCenter.shared.log(id: opID, level: .error, message: errorDesc)
+                            guard OperationCenter.shared.fail(
+                                id: opID,
+                                detail: errorDesc,
+                                errorMessage: errorDesc,
+                                errorDetail: esVirituLogTail.map { "EsViritu log (last lines):\n\($0)" }
+                            ) else { return }
+
+                            let alert = NSAlert()
+                            alert.messageText = "EsViritu Failed"
+                            alert.informativeText = errorDesc
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            if let window = viewerController.view.window {
+                                alert.beginSheetModal(for: window)
+                            }
                         }
                     }
                 }
             }
-        }
 
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
     }
 
     /// Runs Kraken2/Bracken profiling in batch mode (one run per sample).
@@ -1356,439 +1333,423 @@ extension AppDelegate {
             return "sample_\(index + 1)"
         }
 
-        let batchCliArgs: [String] = {
-            guard let first = configs.first else { return ["--batch"] }
-            var args = ["--db", first.databasePath.path]
-            for c in configs {
-                args += c.inputFiles.map(\.path)
-            }
-            return args
-        }()
-        let batchCliCmd = OperationCenter.buildCLICommand(
-            subcommand: "conda classify",
-            args: batchCliArgs
-        )
         let batchProvenanceCommand = Self.classificationBatchReplayCommand(
             configurations: configs
         )
-        let opID = OperationCenter.shared.start(
-            title: "Classification Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
-            detail: "Starting Kraken2/Bracken batch\u{2026}",
-            operationType: .classification,
-            cliCommand: batchCliCmd,
-            routeContext: routeContext
-        )
-        if let createdBatchDirectory { OperationCenter.shared.trackAnalysisOutput(createdBatchDirectory, for: opID) }
+        Self.beginClassificationBatchOperation(configs: configs, routeContext: routeContext) { opID in
+            let configs = configs // The detached task cannot capture the mutable local.
+            if let createdBatchDirectory { OperationCenter.shared.trackAnalysisOutput(createdBatchDirectory, for: opID) }
 
-        let task = Task.detached { [weak self] in
-            guard let self else {
-                await MainActor.run { OperationCenter.shared.fail(id: opID, detail: "Originating application closed") }
-                return
-            }
+            let task = Task.detached { [weak self] in
+                guard let self else {
+                    await MainActor.run { OperationCenter.shared.fail(id: opID, detail: "Originating application closed") }
+                    return
+                }
 
-            let batchMaterializeTempDir: URL
-            do {
-                batchMaterializeTempDir = try ProjectTempDirectory.createFromContext(
-                    prefix: "classify-batch-mat-",
-                    contextURL: firstConfig.inputFiles.first ?? firstConfig.databasePath
-                )
-            } catch {
-                var detail = "Failed to prepare classification batch inputs: \(error.localizedDescription)"
+                let batchMaterializeTempDir: URL
                 do {
-                    _ = try Self.persistClassificationBatchSetupFailure(
-                        batchRoot: batchRoot,
-                        configurations: configs,
-                        sampleIDs: sampleIDs,
-                        command: batchProvenanceCommand,
-                        startedAt: batchStartedAt,
-                        completedAt: Date(),
-                        errorDescription: error.localizedDescription
+                    batchMaterializeTempDir = try ProjectTempDirectory.createFromContext(
+                        prefix: "classify-batch-mat-",
+                        contextURL: firstConfig.inputFiles.first ?? firstConfig.databasePath
                     )
-                } catch let provenanceError {
-                    detail += "; additionally failed to persist batch provenance: \(provenanceError.localizedDescription)"
-                    appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
-                }
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
-                        self.targetMainWindowController(routeContext: routeContext)?
-                            .mainSplitViewController?
-                            .sidebarController.requestReloadFromFilesystem()
+                } catch {
+                    var detail = "Failed to prepare classification batch inputs: \(error.localizedDescription)"
+                    do {
+                        _ = try Self.persistClassificationBatchSetupFailure(
+                            batchRoot: batchRoot,
+                            configurations: configs,
+                            sampleIDs: sampleIDs,
+                            command: batchProvenanceCommand,
+                            startedAt: batchStartedAt,
+                            completedAt: Date(),
+                            errorDescription: error.localizedDescription
+                        )
+                    } catch let provenanceError {
+                        detail += "; additionally failed to persist batch provenance: \(provenanceError.localizedDescription)"
+                        appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
                     }
-                }
-                return
-            }
-            defer { try? FileManager.default.removeItem(at: batchMaterializeTempDir) }
-
-            let pipeline = ClassificationPipeline()
-            var successfulResults: [(sampleId: String, config: ClassificationConfig, result: ClassificationResult)] = []
-            var failedResults: [(sampleId: String, error: String)] = []
-            var failedProvenanceDirectories: [URL] = []
-            var batchWasCancelled = false
-
-            for (index, config) in configs.enumerated() {
-                if Task.isCancelled {
-                    break
-                }
-
-                let sampleID = sampleIDs[index]
-                let samplePrefix = "Sample \(index + 1)/\(sampleCount) (\(sampleID))"
-
-                let progressCallback: @Sendable (Double, String) -> Void = { sampleProgress, message in
-                    let bounded = max(0, min(1, sampleProgress))
-                    let overall = (Double(index) + bounded) / Double(sampleCount)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            viewerController.showProgress("\(samplePrefix): \(message)")
-                            _ = OperationCenter.shared.update(
-                                id: opID,
-                                progress: overall,
-                                detail: "\(samplePrefix): \(message)"
-                            )
+                            viewerController.hideProgress()
+                            guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
+                            self.targetMainWindowController(routeContext: routeContext)?
+                                .mainSplitViewController?
+                                .sidebarController.requestReloadFromFilesystem()
                         }
                     }
+                    return
                 }
+                defer { try? FileManager.default.removeItem(at: batchMaterializeTempDir) }
 
-                do {
-                    let resolvedFiles = try await self.resolveInputFiles(
-                        config.inputFiles,
-                        tempDirectory: batchMaterializeTempDir,
-                        progress: { message in
-                            let prefixed = "\(samplePrefix): \(message)"
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    viewerController.showProgress(prefixed)
-                                    _ = OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
-                                    OperationCenter.shared.log(id: opID, level: .info, message: prefixed)
-                                }
+                let pipeline = ClassificationPipeline()
+                var successfulResults: [(sampleId: String, config: ClassificationConfig, result: ClassificationResult)] = []
+                var failedResults: [(sampleId: String, error: String)] = []
+                var failedProvenanceDirectories: [URL] = []
+                var batchWasCancelled = false
+
+                for (index, config) in configs.enumerated() {
+                    if Task.isCancelled {
+                        break
+                    }
+
+                    let sampleID = sampleIDs[index]
+                    let samplePrefix = "Sample \(index + 1)/\(sampleCount) (\(sampleID))"
+
+                    let progressCallback: @Sendable (Double, String) -> Void = { sampleProgress, message in
+                        let bounded = max(0, min(1, sampleProgress))
+                        let overall = (Double(index) + bounded) / Double(sampleCount)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                viewerController.showProgress("\(samplePrefix): \(message)")
+                                _ = OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: overall,
+                                    detail: "\(samplePrefix): \(message)"
+                                )
                             }
                         }
-                    )
-
-                    var resolvedConfig = config
-                    if resolvedConfig.sampleDisplayName == nil {
-                        let bundleName = config.inputFiles.first?
-                            .deletingPathExtension().lastPathComponent
-                        resolvedConfig.sampleDisplayName = bundleName
-                    }
-                    if resolvedConfig.originalInputFiles == nil {
-                        resolvedConfig.originalInputFiles = config.inputFiles
-                    }
-                    resolvedConfig.inputFiles = resolvedFiles
-
-                    let result: ClassificationResult
-                    switch resolvedConfig.goal {
-                    case .classify, .extract:
-                        result = try await pipeline.classify(config: resolvedConfig, progress: progressCallback)
-                    case .profile:
-                        result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
                     }
 
-                    successfulResults.append((sampleID, config, result))
-                } catch {
-                    failedResults.append((sampleID, error.localizedDescription))
-                    failedProvenanceDirectories.append(config.outputDirectory)
-                    appDelegateLogger.warning("runClassificationBatch: Sample \(sampleID, privacy: .public) failed - \(error.localizedDescription, privacy: .public)")
-                }
-            }
+                    do {
+                        let resolvedFiles = try await self.resolveInputFiles(
+                            config.inputFiles,
+                            tempDirectory: batchMaterializeTempDir,
+                            progress: { message in
+                                let prefixed = "\(samplePrefix): \(message)"
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        viewerController.showProgress(prefixed)
+                                        _ = OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
+                                        OperationCenter.shared.log(id: opID, level: .info, message: prefixed)
+                                    }
+                                }
+                            }
+                        )
 
-            batchWasCancelled = Task.isCancelled
-            if batchWasCancelled {
-                let recordedSampleIDs = Set(successfulResults.map(\.sampleId) + failedResults.map(\.sampleId))
-                for (index, sampleID) in sampleIDs.enumerated() where !recordedSampleIDs.contains(sampleID) {
-                    failedResults.append((sampleID, "Batch cancelled before this sample ran"))
-                    failedProvenanceDirectories.append(configs[index].outputDirectory)
-                }
-            }
-
-            let fm = FileManager.default
-            try? fm.createDirectory(at: batchRoot, withIntermediateDirectories: true)
-
-            let summaryURL = batchRoot.appendingPathComponent("classification-batch-summary.tsv")
-            let returnedRows = successfulResults.map {
-                ClassificationBatchOutcomePolicy.row(sampleId: $0.sampleId, result: $0.result)
-            }
-            let failedRows = failedResults.map {
-                ClassificationBatchOutcomePolicy.failedRow(sampleId: $0.sampleId, message: $0.error)
-            }
-            let summaryRows = returnedRows + failedRows
-            let initialEvaluation = ClassificationBatchOutcomePolicy.evaluate(
-                rows: summaryRows,
-                sqliteWarning: nil
-            )
-
-            let sampleRecords = zip(successfulResults, returnedRows).map { item, row in
-                MetagenomicsBatchSampleRecord(
-                    sampleId: item.sampleId,
-                    resultDirectory: appRelativePath(from: batchRoot, to: item.config.outputDirectory),
-                    inputFiles: item.config.inputFiles.map(\.path),
-                    isPairedEnd: item.config.isPairedEnd,
-                    status: row.status,
-                    message: row.message.isEmpty ? nil : row.message
-                )
-            }
-
-            let manifest = ClassificationBatchResultManifest(
-                header: MetagenomicsBatchManifestHeader(
-                    schemaVersion: 2,
-                    createdAt: Date(),
-                    sampleCount: sampleCount
-                ),
-                goal: firstConfig.goal.rawValue,
-                databaseName: firstConfig.databaseName,
-                databaseVersion: firstConfig.databaseVersion,
-                summaryTSV: summaryURL.lastPathComponent,
-                samples: sampleRecords,
-                completedCount: initialEvaluation.completedCount,
-                degradedCount: initialEvaluation.degradedCount,
-                failedCount: initialEvaluation.failedCount
-            )
-
-            do {
-                try ClassificationBatchOutcomePolicy.summaryTSV(rows: summaryRows)
-                    .write(to: summaryURL, atomically: true, encoding: .utf8)
-                try MetagenomicsBatchResultStore.saveClassification(manifest, to: batchRoot)
-            } catch {
-                var detail = "Failed to write classification batch artifacts: \(error.localizedDescription)"
-                do {
-                    _ = try Self.persistClassificationBatchFailureRoot(
-                        batchRoot: batchRoot,
-                        configurations: configs,
-                        command: batchProvenanceCommand,
-                        startedAt: batchStartedAt,
-                        completedAt: Date(),
-                        failureStage: "batch-artifact-publication",
-                        errorDescription: (
-                            failedResults.map { "Sample \($0.sampleId) failed: \($0.error)" }
-                                + [detail]
-                        ).joined(separator: "\n"),
-                        additionalOutputURLs: [
-                            summaryURL,
-                            batchRoot.appendingPathComponent(ClassificationBatchResultManifest.filename),
-                        ]
-                    )
-                } catch let provenanceError {
-                    detail += "; additionally failed to persist root failure provenance: \(provenanceError.localizedDescription)"
-                }
-                appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
-                let terminalDetail = detail
-                try? FileManager.default.removeItem(at: batchMaterializeTempDir)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        guard OperationCenter.shared.fail(id: opID, detail: terminalDetail) else { return }
-                    }
-                }
-                return
-            }
-
-            // Build the SQLite database from the per-sample kreports before the
-            // operation completes, so the batch can be opened immediately.
-            // Skipped when every sample failed (no data to aggregate).
-            var dbBuildErrorDescription: String?
-            let successfulCountForDB = successfulResults.count
-            if successfulCountForDB > 0 && !batchWasCancelled {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building Kraken2 database\u{2026}")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Building kraken2.sqlite from \(successfulCountForDB) sample(s)")
-                    }
-                }
-                do {
-                    let successfulSampleDirectories = successfulResults.map { $0.config.outputDirectory }
-                    try LungfishCLIRunner.buildClassifierDatabase(
-                        tool: "kraken2",
-                        resultURL: batchRoot,
-                        force: true,
-                        sampleDirectories: successfulSampleDirectories
-                    )
-                } catch {
-                    dbBuildErrorDescription = error.localizedDescription
-                    appDelegateLogger.warning(
-                        "runClassificationBatch: Failed to build kraken2.sqlite - \(error.localizedDescription, privacy: .public)"
-                    )
-                }
-            }
-
-            batchWasCancelled = batchWasCancelled || Task.isCancelled
-
-            do {
-                var provenanceStderr = failedResults.map {
-                    "Sample \($0.sampleId) failed: \($0.error)"
-                }
-                if let dbBuildErrorDescription {
-                    provenanceStderr.append(
-                        "Kraken2 SQLite index build failed: \(dbBuildErrorDescription)"
-                    )
-                }
-                if batchWasCancelled {
-                    provenanceStderr.append("Classification batch cancelled by the user")
-                }
-                try MetagenomicsBatchProvenanceWriter.writeClassificationBatchProvenance(
-                    batchRoot: batchRoot,
-                    manifest: manifest,
-                    summaryURL: summaryURL,
-                    sqliteURL: batchRoot.appendingPathComponent("kraken2.sqlite"),
-                    command: batchProvenanceCommand,
-                    additionalStderr: provenanceStderr,
-                    additionalInputURLs: configs.flatMap(\.inputFiles),
-                    additionalSampleDirectories: failedProvenanceDirectories,
-                    context: ClassificationBatchProvenanceContext(
-                        configurations: configs,
-                        startedAt: batchStartedAt,
-                        completedAt: Date()
-                    )
-                )
-            } catch {
-                var detail = "Failed to write classification batch provenance: \(error.localizedDescription)"
-                var failureMessages = failedResults.map {
-                    "Sample \($0.sampleId) failed: \($0.error)"
-                }
-                if let dbBuildErrorDescription {
-                    failureMessages.append(
-                        "Kraken2 SQLite index build failed: \(dbBuildErrorDescription)"
-                    )
-                }
-                if batchWasCancelled {
-                    failureMessages.append("Classification batch cancelled by the user")
-                }
-                failureMessages.append(detail)
-                do {
-                    _ = try Self.persistClassificationBatchFailureRoot(
-                        batchRoot: batchRoot,
-                        configurations: configs,
-                        command: batchProvenanceCommand,
-                        startedAt: batchStartedAt,
-                        completedAt: Date(),
-                        failureStage: "batch-provenance-publication",
-                        errorDescription: failureMessages.joined(separator: "\n"),
-                        additionalOutputURLs: [
-                            summaryURL,
-                            batchRoot.appendingPathComponent(ClassificationBatchResultManifest.filename),
-                            batchRoot.appendingPathComponent("kraken2.sqlite"),
-                        ]
-                    )
-                } catch let fallbackError {
-                    detail += "; additionally failed to persist root failure provenance: \(fallbackError.localizedDescription)"
-                }
-                appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
-                let terminalDetail = detail
-                try? FileManager.default.removeItem(at: batchMaterializeTempDir)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        guard OperationCenter.shared.fail(id: opID, detail: terminalDetail) else { return }
-                    }
-                }
-                return
-            }
-
-            if batchWasCancelled {
-                try? FileManager.default.removeItem(at: batchMaterializeTempDir)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        guard OperationCenter.shared.fail(id: opID, detail: "Batch cancelled") else { return }
-                        self.targetMainWindowController(routeContext: routeContext)?
-                            .mainSplitViewController?
-                            .sidebarController.requestReloadFromFilesystem()
-                    }
-                }
-                return
-            }
-
-            let finalEvaluation = ClassificationBatchOutcomePolicy.evaluate(
-                rows: summaryRows,
-                sqliteWarning: dbBuildErrorDescription
-            )
-            try? FileManager.default.removeItem(at: batchMaterializeTempDir)
-            let capturedDBBuildError = dbBuildErrorDescription
-            let wasCancelled = Task.isCancelled
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    viewerController.hideProgress()
-
-                    let successCount = successfulResults.count
-
-                    if successCount == 0 {
-                        let detail = failedResults.first?.error ?? "All samples failed"
-                        guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
-                        self.targetMainWindowController(routeContext: routeContext)?
-                            .mainSplitViewController?
-                            .sidebarController.requestReloadFromFilesystem()
-
-                        let alert = NSAlert()
-                        alert.messageText = "Classification Batch Failed"
-                        alert.informativeText = detail
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = viewerController.view.window {
-                            alert.beginSheetModal(for: window)
+                        var resolvedConfig = config
+                        if resolvedConfig.sampleDisplayName == nil {
+                            let bundleName = config.inputFiles.first?
+                                .deletingPathExtension().lastPathComponent
+                            resolvedConfig.sampleDisplayName = bundleName
                         }
-                        return
-                    }
+                        if resolvedConfig.originalInputFiles == nil {
+                            resolvedConfig.originalInputFiles = config.inputFiles
+                        }
+                        resolvedConfig.inputFiles = resolvedFiles
 
-                    if let dbError = capturedDBBuildError {
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .warning,
-                            message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
+                        let result: ClassificationResult
+                        switch resolvedConfig.goal {
+                        case .classify, .extract:
+                            result = try await pipeline.classify(config: resolvedConfig, progress: progressCallback)
+                        case .profile:
+                            result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
+                        }
+
+                        successfulResults.append((sampleID, config, result))
+                    } catch {
+                        failedResults.append((sampleID, error.localizedDescription))
+                        failedProvenanceDirectories.append(config.outputDirectory)
+                        appDelegateLogger.warning("runClassificationBatch: Sample \(sampleID, privacy: .public) failed - \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+
+                batchWasCancelled = Task.isCancelled
+                if batchWasCancelled {
+                    let recordedSampleIDs = Set(successfulResults.map(\.sampleId) + failedResults.map(\.sampleId))
+                    for (index, sampleID) in sampleIDs.enumerated() where !recordedSampleIDs.contains(sampleID) {
+                        failedResults.append((sampleID, "Batch cancelled before this sample ran"))
+                        failedProvenanceDirectories.append(configs[index].outputDirectory)
+                    }
+                }
+
+                let fm = FileManager.default
+                try? fm.createDirectory(at: batchRoot, withIntermediateDirectories: true)
+
+                let summaryURL = batchRoot.appendingPathComponent("classification-batch-summary.tsv")
+                let returnedRows = successfulResults.map {
+                    ClassificationBatchOutcomePolicy.row(sampleId: $0.sampleId, result: $0.result)
+                }
+                let failedRows = failedResults.map {
+                    ClassificationBatchOutcomePolicy.failedRow(sampleId: $0.sampleId, message: $0.error)
+                }
+                let summaryRows = returnedRows + failedRows
+                let initialEvaluation = ClassificationBatchOutcomePolicy.evaluate(
+                    rows: summaryRows,
+                    sqliteWarning: nil
+                )
+
+                let sampleRecords = zip(successfulResults, returnedRows).map { item, row in
+                    MetagenomicsBatchSampleRecord(
+                        sampleId: item.sampleId,
+                        resultDirectory: appRelativePath(from: batchRoot, to: item.config.outputDirectory),
+                        inputFiles: item.config.inputFiles.map(\.path),
+                        isPairedEnd: item.config.isPairedEnd,
+                        status: row.status,
+                        message: row.message.isEmpty ? nil : row.message
+                    )
+                }
+
+                let manifest = ClassificationBatchResultManifest(
+                    header: MetagenomicsBatchManifestHeader(
+                        schemaVersion: 2,
+                        createdAt: Date(),
+                        sampleCount: sampleCount
+                    ),
+                    goal: firstConfig.goal.rawValue,
+                    databaseName: firstConfig.databaseName,
+                    databaseVersion: firstConfig.databaseVersion,
+                    summaryTSV: summaryURL.lastPathComponent,
+                    samples: sampleRecords,
+                    completedCount: initialEvaluation.completedCount,
+                    degradedCount: initialEvaluation.degradedCount,
+                    failedCount: initialEvaluation.failedCount
+                )
+
+                do {
+                    try ClassificationBatchOutcomePolicy.summaryTSV(rows: summaryRows)
+                        .write(to: summaryURL, atomically: true, encoding: .utf8)
+                    try MetagenomicsBatchResultStore.saveClassification(manifest, to: batchRoot)
+                } catch {
+                    var detail = "Failed to write classification batch artifacts: \(error.localizedDescription)"
+                    do {
+                        _ = try Self.persistClassificationBatchFailureRoot(
+                            batchRoot: batchRoot,
+                            configurations: configs,
+                            command: batchProvenanceCommand,
+                            startedAt: batchStartedAt,
+                            completedAt: Date(),
+                            failureStage: "batch-artifact-publication",
+                            errorDescription: (
+                                failedResults.map { "Sample \($0.sampleId) failed: \($0.error)" }
+                                    + [detail]
+                            ).joined(separator: "\n"),
+                            additionalOutputURLs: [
+                                summaryURL,
+                                batchRoot.appendingPathComponent(ClassificationBatchResultManifest.filename),
+                            ]
+                        )
+                    } catch let provenanceError {
+                        detail += "; additionally failed to persist root failure provenance: \(provenanceError.localizedDescription)"
+                    }
+                    appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
+                    let terminalDetail = detail
+                    try? FileManager.default.removeItem(at: batchMaterializeTempDir)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController.hideProgress()
+                            guard OperationCenter.shared.fail(id: opID, detail: terminalDetail) else { return }
+                        }
+                    }
+                    return
+                }
+
+                // Build the SQLite database from the per-sample kreports before the
+                // operation completes, so the batch can be opened immediately.
+                // Skipped when every sample failed (no data to aggregate).
+                var dbBuildErrorDescription: String?
+                let successfulCountForDB = successfulResults.count
+                if successfulCountForDB > 0 && !batchWasCancelled {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building Kraken2 database\u{2026}")
+                            OperationCenter.shared.log(id: opID, level: .info, message: "Building kraken2.sqlite from \(successfulCountForDB) sample(s)")
+                        }
+                    }
+                    do {
+                        let successfulSampleDirectories = successfulResults.map { $0.config.outputDirectory }
+                        try LungfishCLIRunner.buildClassifierDatabase(
+                            tool: "kraken2",
+                            resultURL: batchRoot,
+                            force: true,
+                            sampleDirectories: successfulSampleDirectories
+                        )
+                    } catch {
+                        dbBuildErrorDescription = error.localizedDescription
+                        appDelegateLogger.warning(
+                            "runClassificationBatch: Failed to build kraken2.sqlite - \(error.localizedDescription, privacy: .public)"
                         )
                     }
+                }
 
-                    guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
-                        OperationCenter.shared.acknowledgeCancellation(id: opID)
-                        return
+                batchWasCancelled = batchWasCancelled || Task.isCancelled
+
+                do {
+                    var provenanceStderr = failedResults.map {
+                        "Sample \($0.sampleId) failed: \($0.error)"
                     }
-                    // Record analysis in source bundle manifests
-                    for entry in successfulResults {
-                        let bundleURL = Self.findSourceBundle(for: entry.config.originalInputFiles ?? entry.config.inputFiles)
-                        if let bundleURL {
-                            let outcomeMetadata = ClassificationBatchOutcomePolicy.singleResultMetadata(
-                                for: entry.result
-                            )
-                            let manifestEntry = AnalysisManifestEntry(
-                                tool: "kraken2",
-                                analysisDirectoryName: Self.analysisManifestDirectoryName(
-                                    for: batchRoot,
-                                    projectURL: projectURL
-                                ),
-                                displayName: "Kraken2 Batch",
-                                parameters: outcomeMetadata.analysisParameters,
-                                summary: outcomeMetadata.analysisSummary,
-                                status: .completed
-                            )
-                            do { try AnalysisManifestStore.recordAnalysis(manifestEntry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
+                    if let dbBuildErrorDescription {
+                        provenanceStderr.append(
+                            "Kraken2 SQLite index build failed: \(dbBuildErrorDescription)"
+                        )
+                    }
+                    if batchWasCancelled {
+                        provenanceStderr.append("Classification batch cancelled by the user")
+                    }
+                    try MetagenomicsBatchProvenanceWriter.writeClassificationBatchProvenance(
+                        batchRoot: batchRoot,
+                        manifest: manifest,
+                        summaryURL: summaryURL,
+                        sqliteURL: batchRoot.appendingPathComponent("kraken2.sqlite"),
+                        command: batchProvenanceCommand,
+                        additionalStderr: provenanceStderr,
+                        additionalInputURLs: configs.flatMap(\.inputFiles),
+                        additionalSampleDirectories: failedProvenanceDirectories,
+                        context: ClassificationBatchProvenanceContext(
+                            configurations: configs,
+                            startedAt: batchStartedAt,
+                            completedAt: Date()
+                        )
+                    )
+                } catch {
+                    var detail = "Failed to write classification batch provenance: \(error.localizedDescription)"
+                    var failureMessages = failedResults.map {
+                        "Sample \($0.sampleId) failed: \($0.error)"
+                    }
+                    if let dbBuildErrorDescription {
+                        failureMessages.append(
+                            "Kraken2 SQLite index build failed: \(dbBuildErrorDescription)"
+                        )
+                    }
+                    if batchWasCancelled {
+                        failureMessages.append("Classification batch cancelled by the user")
+                    }
+                    failureMessages.append(detail)
+                    do {
+                        _ = try Self.persistClassificationBatchFailureRoot(
+                            batchRoot: batchRoot,
+                            configurations: configs,
+                            command: batchProvenanceCommand,
+                            startedAt: batchStartedAt,
+                            completedAt: Date(),
+                            failureStage: "batch-provenance-publication",
+                            errorDescription: failureMessages.joined(separator: "\n"),
+                            additionalOutputURLs: [
+                                summaryURL,
+                                batchRoot.appendingPathComponent(ClassificationBatchResultManifest.filename),
+                                batchRoot.appendingPathComponent("kraken2.sqlite"),
+                            ]
+                        )
+                    } catch let fallbackError {
+                        detail += "; additionally failed to persist root failure provenance: \(fallbackError.localizedDescription)"
+                    }
+                    appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
+                    let terminalDetail = detail
+                    try? FileManager.default.removeItem(at: batchMaterializeTempDir)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController.hideProgress()
+                            guard OperationCenter.shared.fail(id: opID, detail: terminalDetail) else { return }
                         }
                     }
+                    return
+                }
 
-                    let completionBase = "\(successCount) of \(sampleCount) samples returned valid Kraken2 classifications"
-                    if finalEvaluation.requiresWarningCompletion {
-                        guard OperationCenter.shared.completeWithWarning(
-                            id: opID,
-                            detail: "\(completionBase); \(finalEvaluation.warningMessage)"
-                        ) else { return }
-                    } else {
-                        guard OperationCenter.shared.complete(
-                            id: opID,
-                            detail: completionBase
-                        ) else { return }
+                if batchWasCancelled {
+                    try? FileManager.default.removeItem(at: batchMaterializeTempDir)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController.hideProgress()
+                            guard OperationCenter.shared.fail(id: opID, detail: "Batch cancelled") else { return }
+                            self.targetMainWindowController(routeContext: routeContext)?
+                                .mainSplitViewController?
+                                .sidebarController.requestReloadFromFilesystem()
+                        }
                     }
+                    return
+                }
 
-                    if let firstResult = successfulResults.first?.result {
-                        viewerController.displayTaxonomyResult(firstResult)
+                let finalEvaluation = ClassificationBatchOutcomePolicy.evaluate(
+                    rows: summaryRows,
+                    sqliteWarning: dbBuildErrorDescription
+                )
+                try? FileManager.default.removeItem(at: batchMaterializeTempDir)
+                let capturedDBBuildError = dbBuildErrorDescription
+                let wasCancelled = Task.isCancelled
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+
+                        let successCount = successfulResults.count
+
+                        if successCount == 0 {
+                            let detail = failedResults.first?.error ?? "All samples failed"
+                            guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
+                            self.targetMainWindowController(routeContext: routeContext)?
+                                .mainSplitViewController?
+                                .sidebarController.requestReloadFromFilesystem()
+
+                            let alert = NSAlert()
+                            alert.messageText = "Classification Batch Failed"
+                            alert.informativeText = detail
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            if let window = viewerController.view.window {
+                                alert.beginSheetModal(for: window)
+                            }
+                            return
+                        }
+
+                        if let dbError = capturedDBBuildError {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .warning,
+                                message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
+                            )
+                        }
+
+                        guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                            OperationCenter.shared.acknowledgeCancellation(id: opID)
+                            return
+                        }
+                        // Record analysis in source bundle manifests
+                        for entry in successfulResults {
+                            let bundleURL = Self.findSourceBundle(for: entry.config.originalInputFiles ?? entry.config.inputFiles)
+                            if let bundleURL {
+                                let outcomeMetadata = ClassificationBatchOutcomePolicy.singleResultMetadata(
+                                    for: entry.result
+                                )
+                                let manifestEntry = AnalysisManifestEntry(
+                                    tool: "kraken2",
+                                    analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                        for: batchRoot,
+                                        projectURL: projectURL
+                                    ),
+                                    displayName: "Kraken2 Batch",
+                                    parameters: outcomeMetadata.analysisParameters,
+                                    summary: outcomeMetadata.analysisSummary,
+                                    status: .completed
+                                )
+                                do { try AnalysisManifestStore.recordAnalysis(manifestEntry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
+                            }
+                        }
+
+                        let completionBase = "\(successCount) of \(sampleCount) samples returned valid Kraken2 classifications"
+                        if finalEvaluation.requiresWarningCompletion {
+                            guard OperationCenter.shared.completeWithWarning(
+                                id: opID,
+                                detail: "\(completionBase); \(finalEvaluation.warningMessage)"
+                            ) else { return }
+                        } else {
+                            guard OperationCenter.shared.complete(
+                                id: opID,
+                                detail: completionBase
+                            ) else { return }
+                        }
+
+                        if let firstResult = successfulResults.first?.result {
+                            viewerController.displayTaxonomyResult(firstResult)
+                        }
+
+                        self.targetMainWindowController(routeContext: routeContext)?
+                            .mainSplitViewController?
+                            .sidebarController.requestReloadFromFilesystem()
+
                     }
-
-                    self.targetMainWindowController(routeContext: routeContext)?
-                        .mainSplitViewController?
-                        .sidebarController.requestReloadFromFilesystem()
-
                 }
             }
-        }
 
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
     }
 
     /// Runs EsViritu detection in batch mode (one run per sample).
@@ -1829,337 +1790,325 @@ extension AppDelegate {
         let firstConfig = configs[0]
         let batchRoot = firstConfig.outputDirectory.deletingLastPathComponent()
 
-        let esBatchCliArgs: [String] = {
-            var args = ["--input"]
-            for c in configs {
-                args += c.inputFiles.map(\.path)
-            }
-            args += ["--sample", configs.first?.sampleName ?? "batch"]
-            return args
-        }()
-        let esBatchCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: esBatchCliArgs)
-        let esBatchCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"] + esBatchCliArgs
-        let opID = OperationCenter.shared.start(
-            title: "EsViritu Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
-            detail: "Starting EsViritu batch\u{2026}",
-            operationType: .classification,
-            cliCommand: esBatchCliCmd,
-            routeContext: routeContext
-        )
-        if let createdBatchDirectory { OperationCenter.shared.trackAnalysisOutput(createdBatchDirectory, for: opID) }
+        let esBatchCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"]
+            + Self.esVirituBatchCLIArguments(for: configs)
+        Self.beginEsVirituBatchOperation(configs: configs, routeContext: routeContext) { opID in
+            let configs = configs // The detached task cannot capture the mutable local.
+            if let createdBatchDirectory { OperationCenter.shared.trackAnalysisOutput(createdBatchDirectory, for: opID) }
 
-        let task = Task.detached { [weak self] in
-            do {
-            guard let self else {
-                await MainActor.run { OperationCenter.shared.fail(id: opID, detail: "Originating application closed") }
-                return
-            }
-
-            let batchMaterializeTempDir = try ProjectTempDirectory.createFromContext(
-                prefix: "esviritu-batch-mat-", contextURL: firstConfig.inputFiles.first ?? firstConfig.outputDirectory)
-            defer { try? FileManager.default.removeItem(at: batchMaterializeTempDir) }
-
-            let pipeline = EsVirituPipeline()
-            var successfulResults: [(sampleId: String, config: EsVirituConfig, pipelineResult: LungfishWorkflow.EsVirituResult, ioResult: LungfishIO.EsVirituResult)] = []
-            var failedResults: [(sampleId: String, error: String)] = []
-
-            for (index, config) in configs.enumerated() {
-                if Task.isCancelled {
-                    break
+            let task = Task.detached { [weak self] in
+                do {
+                guard let self else {
+                    await MainActor.run { OperationCenter.shared.fail(id: opID, detail: "Originating application closed") }
+                    return
                 }
 
-                let sampleID = MetagenomicsSampleGrouper.sanitizeSampleId(config.sampleName)
-                let samplePrefix = "Sample \(index + 1)/\(sampleCount) (\(sampleID))"
+                let batchMaterializeTempDir = try ProjectTempDirectory.createFromContext(
+                    prefix: "esviritu-batch-mat-", contextURL: firstConfig.inputFiles.first ?? firstConfig.outputDirectory)
+                defer { try? FileManager.default.removeItem(at: batchMaterializeTempDir) }
 
-                do {
-                    let resolvedFiles = try await self.resolveInputFiles(
-                        config.inputFiles,
-                        tempDirectory: batchMaterializeTempDir,
-                        progress: { message in
-                            let prefixed = "\(samplePrefix): \(message)"
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    viewerController.showProgress(prefixed)
-                                    _ = OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
-                                    OperationCenter.shared.log(id: opID, level: .info, message: prefixed)
-                                }
-                            }
-                        }
-                    )
+                let pipeline = EsVirituPipeline()
+                var successfulResults: [(sampleId: String, config: EsVirituConfig, pipelineResult: LungfishWorkflow.EsVirituResult, ioResult: LungfishIO.EsVirituResult)] = []
+                var failedResults: [(sampleId: String, error: String)] = []
 
-                    var resolvedConfig = config
-                    resolvedConfig.inputFiles = resolvedFiles
+                for (index, config) in configs.enumerated() {
+                    if Task.isCancelled {
+                        break
+                    }
 
-                    let pipelineResult = try await pipeline.detect(
-                        config: resolvedConfig,
-                        progress: { progress, message in
-                            let bounded = max(0, min(1, progress))
-                            let overall = (Double(index) + bounded) / Double(sampleCount)
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    viewerController.showProgress("\(samplePrefix): \(message)")
-                                    _ = OperationCenter.shared.update(
-                                        id: opID,
-                                        progress: overall,
-                                        detail: "\(samplePrefix): \(message)"
-                                    )
-                                    OperationCenter.shared.log(id: opID, level: .info, message: "\(samplePrefix): \(message)")
-                                }
-                            }
-                        }
-                    )
+                    let sampleID = MetagenomicsSampleGrouper.sanitizeSampleId(config.sampleName)
+                    let samplePrefix = "Sample \(index + 1)/\(sampleCount) (\(sampleID))"
 
-                    // A column-validation failure means the EsViritu output
-                    // format changed: record this sample as failed rather than
-                    // reporting an empty detection set as a successful run.
-                    let detections: [ViralDetection]
                     do {
-                        detections = try EsVirituDetectionParser.parse(url: pipelineResult.detectionURL)
+                        let resolvedFiles = try await self.resolveInputFiles(
+                            config.inputFiles,
+                            tempDirectory: batchMaterializeTempDir,
+                            progress: { message in
+                                let prefixed = "\(samplePrefix): \(message)"
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        viewerController.showProgress(prefixed)
+                                        _ = OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
+                                        OperationCenter.shared.log(id: opID, level: .info, message: prefixed)
+                                    }
+                                }
+                            }
+                        )
+
+                        var resolvedConfig = config
+                        resolvedConfig.inputFiles = resolvedFiles
+
+                        let pipelineResult = try await pipeline.detect(
+                            config: resolvedConfig,
+                            progress: { progress, message in
+                                let bounded = max(0, min(1, progress))
+                                let overall = (Double(index) + bounded) / Double(sampleCount)
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        viewerController.showProgress("\(samplePrefix): \(message)")
+                                        _ = OperationCenter.shared.update(
+                                            id: opID,
+                                            progress: overall,
+                                            detail: "\(samplePrefix): \(message)"
+                                        )
+                                        OperationCenter.shared.log(id: opID, level: .info, message: "\(samplePrefix): \(message)")
+                                    }
+                                }
+                            }
+                        )
+
+                        // A column-validation failure means the EsViritu output
+                        // format changed: record this sample as failed rather than
+                        // reporting an empty detection set as a successful run.
+                        let detections: [ViralDetection]
+                        do {
+                            detections = try EsVirituDetectionParser.parse(url: pipelineResult.detectionURL)
+                        } catch {
+                            let parseErrorDesc = error.localizedDescription
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    OperationCenter.shared.log(
+                                        id: opID,
+                                        level: .error,
+                                        message: "\(samplePrefix): Failed to parse EsViritu detections: \(parseErrorDesc)"
+                                    )
+                                }
+                            }
+                            appDelegateLogger.error(
+                                "runEsVirituBatch: Sample \(sampleID, privacy: .public) detection parse failed - \(parseErrorDesc, privacy: .public)"
+                            )
+                            throw error
+                        }
+                        let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
+                        let taxProfile: [ViralTaxProfile]
+                        if let tpURL = pipelineResult.taxProfileURL {
+                            taxProfile = (try? EsVirituTaxProfileParser.parse(url: tpURL)) ?? []
+                        } else {
+                            taxProfile = []
+                        }
+                        let coverageWindows: [ViralCoverageWindow]
+                        if let cvURL = pipelineResult.coverageURL {
+                            coverageWindows = (try? EsVirituCoverageParser.parse(url: cvURL)) ?? []
+                        } else {
+                            coverageWindows = []
+                        }
+
+                        let ioResult = LungfishIO.EsVirituResult(
+                            sampleId: config.sampleName,
+                            detections: detections,
+                            assemblies: assemblies,
+                            taxProfile: taxProfile,
+                            coverageWindows: coverageWindows,
+                            totalFilteredReads: detections.first?.filteredReadsInSample ?? 0,
+                            detectedFamilyCount: Set(detections.compactMap(\.family)).count,
+                            detectedSpeciesCount: Set(detections.compactMap(\.species)).count,
+                            runtime: pipelineResult.runtime,
+                            toolVersion: pipelineResult.toolVersion
+                        )
+
+                        successfulResults.append((sampleID, config, pipelineResult, ioResult))
                     } catch {
-                        let parseErrorDesc = error.localizedDescription
+                        failedResults.append((sampleID, error.localizedDescription))
+                        appDelegateLogger.warning("runEsVirituBatch: Sample \(sampleID, privacy: .public) failed - \(error.localizedDescription, privacy: .public)")
+                        let failureMessage = "\(samplePrefix): \(error.localizedDescription)"
+                        let logTail = (error as? EsVirituPipelineError)?.logTail
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .error,
-                                    message: "\(samplePrefix): Failed to parse EsViritu detections: \(parseErrorDesc)"
-                                )
+                                OperationCenter.shared.log(id: opID, level: .error, message: failureMessage)
+                                if let logTail {
+                                    OperationCenter.shared.log(
+                                        id: opID,
+                                        level: .error,
+                                        message: "\(samplePrefix): EsViritu log (last lines):\n\(logTail)"
+                                    )
+                                }
                             }
                         }
-                        appDelegateLogger.error(
-                            "runEsVirituBatch: Sample \(sampleID, privacy: .public) detection parse failed - \(parseErrorDesc, privacy: .public)"
-                        )
-                        throw error
                     }
-                    let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
-                    let taxProfile: [ViralTaxProfile]
-                    if let tpURL = pipelineResult.taxProfileURL {
-                        taxProfile = (try? EsVirituTaxProfileParser.parse(url: tpURL)) ?? []
-                    } else {
-                        taxProfile = []
-                    }
-                    let coverageWindows: [ViralCoverageWindow]
-                    if let cvURL = pipelineResult.coverageURL {
-                        coverageWindows = (try? EsVirituCoverageParser.parse(url: cvURL)) ?? []
-                    } else {
-                        coverageWindows = []
-                    }
+                }
 
-                    let ioResult = LungfishIO.EsVirituResult(
-                        sampleId: config.sampleName,
-                        detections: detections,
-                        assemblies: assemblies,
-                        taxProfile: taxProfile,
-                        coverageWindows: coverageWindows,
-                        totalFilteredReads: detections.first?.filteredReadsInSample ?? 0,
-                        detectedFamilyCount: Set(detections.compactMap(\.family)).count,
-                        detectedSpeciesCount: Set(detections.compactMap(\.species)).count,
-                        runtime: pipelineResult.runtime,
-                        toolVersion: pipelineResult.toolVersion
-                    )
+                let fm = FileManager.default
+                try? fm.createDirectory(at: batchRoot, withIntermediateDirectories: true)
 
-                    successfulResults.append((sampleID, config, pipelineResult, ioResult))
+                let summaryURL = batchRoot.appendingPathComponent("esviritu-batch-summary.tsv")
+                var summaryLines: [String] = []
+                summaryLines.append("sample_id\tstatus\tvirus_count\tfamilies\tspecies\terror")
+
+                for entry in successfulResults {
+                    summaryLines.append([
+                        appTSVField(entry.sampleId),
+                        "ok",
+                        String(entry.pipelineResult.virusCount),
+                        String(entry.ioResult.detectedFamilyCount),
+                        String(entry.ioResult.detectedSpeciesCount),
+                        "",
+                    ].joined(separator: "\t"))
+                }
+
+                for entry in failedResults {
+                    summaryLines.append([
+                        appTSVField(entry.sampleId),
+                        "failed",
+                        "",
+                        "",
+                        "",
+                        appTSVField(entry.error),
+                    ].joined(separator: "\t"))
+                }
+
+                do {
+                    try summaryLines.joined(separator: "\n").write(to: summaryURL, atomically: true, encoding: .utf8)
                 } catch {
-                    failedResults.append((sampleID, error.localizedDescription))
-                    appDelegateLogger.warning("runEsVirituBatch: Sample \(sampleID, privacy: .public) failed - \(error.localizedDescription, privacy: .public)")
-                    let failureMessage = "\(samplePrefix): \(error.localizedDescription)"
-                    let logTail = (error as? EsVirituPipelineError)?.logTail
+                    appDelegateLogger.warning("runEsVirituBatch: Failed to write summary TSV - \(error.localizedDescription, privacy: .public)")
+                }
+
+                let sampleRecords = successfulResults.map { item in
+                    MetagenomicsBatchSampleRecord(
+                        sampleId: item.sampleId,
+                        resultDirectory: appRelativePath(from: batchRoot, to: item.config.outputDirectory),
+                        inputFiles: item.config.inputFiles.map(\.path),
+                        isPairedEnd: item.config.readFormat.runsAsPairs
+                    )
+                }
+
+                let manifest = EsVirituBatchResultManifest(
+                    header: MetagenomicsBatchManifestHeader(
+                        schemaVersion: 1,
+                        createdAt: Date(),
+                        sampleCount: sampleCount
+                    ),
+                    summaryTSV: summaryURL.lastPathComponent,
+                    samples: sampleRecords
+                )
+
+                do {
+                    try MetagenomicsBatchResultStore.saveEsViritu(manifest, to: batchRoot)
+                } catch {
+                    appDelegateLogger.warning("runEsVirituBatch: Failed to save batch manifest - \(error.localizedDescription, privacy: .public)")
+                }
+
+                // Build the SQLite database from the per-sample outputs before the
+                // operation completes, so the batch can be opened immediately.
+                // Skipped when every sample failed (no data to aggregate).
+                var dbBuildErrorDescription: String?
+                let successfulCountForDB = successfulResults.count
+                if successfulCountForDB > 0 {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.log(id: opID, level: .error, message: failureMessage)
-                            if let logTail {
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .error,
-                                    message: "\(samplePrefix): EsViritu log (last lines):\n\(logTail)"
-                                )
-                            }
+                            _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
+                            OperationCenter.shared.log(id: opID, level: .info, message: "Building esviritu.sqlite from \(successfulCountForDB) sample(s)")
                         }
                     }
-                }
-            }
-
-            let fm = FileManager.default
-            try? fm.createDirectory(at: batchRoot, withIntermediateDirectories: true)
-
-            let summaryURL = batchRoot.appendingPathComponent("esviritu-batch-summary.tsv")
-            var summaryLines: [String] = []
-            summaryLines.append("sample_id\tstatus\tvirus_count\tfamilies\tspecies\terror")
-
-            for entry in successfulResults {
-                summaryLines.append([
-                    appTSVField(entry.sampleId),
-                    "ok",
-                    String(entry.pipelineResult.virusCount),
-                    String(entry.ioResult.detectedFamilyCount),
-                    String(entry.ioResult.detectedSpeciesCount),
-                    "",
-                ].joined(separator: "\t"))
-            }
-
-            for entry in failedResults {
-                summaryLines.append([
-                    appTSVField(entry.sampleId),
-                    "failed",
-                    "",
-                    "",
-                    "",
-                    appTSVField(entry.error),
-                ].joined(separator: "\t"))
-            }
-
-            do {
-                try summaryLines.joined(separator: "\n").write(to: summaryURL, atomically: true, encoding: .utf8)
-            } catch {
-                appDelegateLogger.warning("runEsVirituBatch: Failed to write summary TSV - \(error.localizedDescription, privacy: .public)")
-            }
-
-            let sampleRecords = successfulResults.map { item in
-                MetagenomicsBatchSampleRecord(
-                    sampleId: item.sampleId,
-                    resultDirectory: appRelativePath(from: batchRoot, to: item.config.outputDirectory),
-                    inputFiles: item.config.inputFiles.map(\.path),
-                    isPairedEnd: item.config.readFormat.runsAsPairs
-                )
-            }
-
-            let manifest = EsVirituBatchResultManifest(
-                header: MetagenomicsBatchManifestHeader(
-                    schemaVersion: 1,
-                    createdAt: Date(),
-                    sampleCount: sampleCount
-                ),
-                summaryTSV: summaryURL.lastPathComponent,
-                samples: sampleRecords
-            )
-
-            do {
-                try MetagenomicsBatchResultStore.saveEsViritu(manifest, to: batchRoot)
-            } catch {
-                appDelegateLogger.warning("runEsVirituBatch: Failed to save batch manifest - \(error.localizedDescription, privacy: .public)")
-            }
-
-            // Build the SQLite database from the per-sample outputs before the
-            // operation completes, so the batch can be opened immediately.
-            // Skipped when every sample failed (no data to aggregate).
-            var dbBuildErrorDescription: String?
-            let successfulCountForDB = successfulResults.count
-            if successfulCountForDB > 0 {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Building esviritu.sqlite from \(successfulCountForDB) sample(s)")
-                    }
-                }
-                do {
-                    try LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: batchRoot, force: true)
-                } catch {
-                    dbBuildErrorDescription = error.localizedDescription
-                    appDelegateLogger.warning(
-                        "runEsVirituBatch: Failed to build esviritu.sqlite - \(error.localizedDescription, privacy: .public)"
-                    )
-                }
-            }
-
-            if !successfulResults.isEmpty {
-                try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
-                    batchRoot: batchRoot,
-                    manifest: manifest,
-                    summaryURL: summaryURL,
-                    sqliteURL: batchRoot.appendingPathComponent("esviritu.sqlite"),
-                    command: esBatchCliArgv
-                )
-            }
-
-            try? FileManager.default.removeItem(at: batchMaterializeTempDir)
-            let capturedDBBuildError = dbBuildErrorDescription
-            let wasCancelled = Task.isCancelled
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    viewerController.hideProgress()
-
-                    if wasCancelled {
-                        guard OperationCenter.shared.fail(id: opID, detail: "Batch cancelled") else { return }
-                        return
-                    }
-
-                    let successCount = successfulResults.count
-                    let failureCount = failedResults.count
-
-                    if successCount == 0 {
-                        let detail = failedResults.first?.error ?? "All samples failed"
-                        guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
-
-                        let alert = NSAlert()
-                        alert.messageText = "EsViritu Batch Failed"
-                        alert.informativeText = detail
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = viewerController.view.window {
-                            alert.beginSheetModal(for: window)
-                        }
-                        return
-                    }
-
-                    if let dbError = capturedDBBuildError {
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .warning,
-                            message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
+                    do {
+                        try LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: batchRoot, force: true)
+                    } catch {
+                        dbBuildErrorDescription = error.localizedDescription
+                        appDelegateLogger.warning(
+                            "runEsVirituBatch: Failed to build esviritu.sqlite - \(error.localizedDescription, privacy: .public)"
                         )
                     }
+                }
 
-                    guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
-                        OperationCenter.shared.acknowledgeCancellation(id: opID)
-                        return
-                    }
-                    // Record analysis in source bundle manifests
-                    for entry in successfulResults {
-                        let bundleURL = Self.findSourceBundle(for: entry.config.inputFiles)
-                        if let bundleURL {
-                            let manifestEntry = AnalysisManifestEntry(
-                                tool: "esviritu",
-                                analysisDirectoryName: Self.analysisManifestDirectoryName(
-                                    for: batchRoot,
-                                    projectURL: projectURL
-                                ),
-                                displayName: "EsViritu Batch",
-                                parameters: entry.config.summaryParameters(),
-                                summary: "\(entry.ioResult.detections.count) viruses in \(entry.ioResult.detectedFamilyCount) families",
-                                status: .completed
-                            )
-                            do { try AnalysisManifestStore.recordAnalysis(manifestEntry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
+                if !successfulResults.isEmpty {
+                    try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
+                        batchRoot: batchRoot,
+                        manifest: manifest,
+                        summaryURL: summaryURL,
+                        sqliteURL: batchRoot.appendingPathComponent("esviritu.sqlite"),
+                        command: esBatchCliArgv
+                    )
+                }
+
+                try? FileManager.default.removeItem(at: batchMaterializeTempDir)
+                let capturedDBBuildError = dbBuildErrorDescription
+                let wasCancelled = Task.isCancelled
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+
+                        if wasCancelled {
+                            guard OperationCenter.shared.fail(id: opID, detail: "Batch cancelled") else { return }
+                            return
                         }
+
+                        let successCount = successfulResults.count
+                        let failureCount = failedResults.count
+
+                        if successCount == 0 {
+                            let detail = failedResults.first?.error ?? "All samples failed"
+                            guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
+
+                            let alert = NSAlert()
+                            alert.messageText = "EsViritu Batch Failed"
+                            alert.informativeText = detail
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            if let window = viewerController.view.window {
+                                alert.beginSheetModal(for: window)
+                            }
+                            return
+                        }
+
+                        if let dbError = capturedDBBuildError {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .warning,
+                                message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
+                            )
+                        }
+
+                        guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                            OperationCenter.shared.acknowledgeCancellation(id: opID)
+                            return
+                        }
+                        // Record analysis in source bundle manifests
+                        for entry in successfulResults {
+                            let bundleURL = Self.findSourceBundle(for: entry.config.inputFiles)
+                            if let bundleURL {
+                                let manifestEntry = AnalysisManifestEntry(
+                                    tool: "esviritu",
+                                    analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                        for: batchRoot,
+                                        projectURL: projectURL
+                                    ),
+                                    displayName: "EsViritu Batch",
+                                    parameters: entry.config.summaryParameters(),
+                                    summary: "\(entry.ioResult.detections.count) viruses in \(entry.ioResult.detectedFamilyCount) families",
+                                    status: .completed
+                                )
+                                do { try AnalysisManifestStore.recordAnalysis(manifestEntry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
+                            }
+                        }
+
+                        if failureCount == 0 {
+                            guard OperationCenter.shared.complete(
+                                id: opID,
+                                detail: "\(successCount) of \(sampleCount) samples completed"
+                            ) else { return }
+                        } else {
+                            guard OperationCenter.shared.complete(
+                                id: opID,
+                                detail: "\(successCount) completed, \(failureCount) failed"
+                            ) else { return }
+                        }
+
+                        // Reload sidebar so the new batch result appears.
+                        // User clicks the new result to view it (batch-only display path).
+                        self.targetMainWindowController(routeContext: routeContext)?
+                            .mainSplitViewController?
+                            .sidebarController.requestReloadFromFilesystem()
+
                     }
-
-                    if failureCount == 0 {
-                        guard OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "\(successCount) of \(sampleCount) samples completed"
-                        ) else { return }
-                    } else {
-                        guard OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "\(successCount) completed, \(failureCount) failed"
-                        ) else { return }
+                }
+                } catch {
+                    await MainActor.run {
+                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                     }
-
-                    // Reload sidebar so the new batch result appears.
-                    // User clicks the new result to view it (batch-only display path).
-                    self.targetMainWindowController(routeContext: routeContext)?
-                        .mainSplitViewController?
-                        .sidebarController.requestReloadFromFilesystem()
-
                 }
             }
-            } catch {
-                await MainActor.run {
-                    OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-                }
-            }
+
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
-
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     /// Runs the TaxTriage Nextflow pipeline.
@@ -2191,179 +2140,164 @@ extension AppDelegate {
             }
         }
 
-        let sampleCount = config.samples.count
-        let ttCliCmd: String = {
-            var args = ["--input"]
-            for sample in config.samples {
-                args.append(sample.fastq1.path); if let f2 = sample.fastq2 { args.append(f2.path) }
-            }
-            if let removeTaxids = config.effectiveRemoveTaxids {
-                args += ["--remove-taxids", removeTaxids]
-            }
-            return OperationCenter.buildCLICommand(subcommand: "taxtriage", args: args)
-        }()
-        let opID = OperationCenter.shared.start(
-            title: "TaxTriage (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
-            detail: "Starting TaxTriage pipeline\u{2026}",
-            operationType: .classification,
-            cliCommand: ttCliCmd,
-            routeContext: routeContext
-        )
-        if let createdTaxTriageDirectory { OperationCenter.shared.trackAnalysisOutput(createdTaxTriageDirectory, for: opID) }
+        Self.beginTaxTriageOperation(config: config, routeContext: routeContext) { opID in
+            let config = config // The detached task cannot capture the mutable local.
+            if let createdTaxTriageDirectory { OperationCenter.shared.trackAnalysisOutput(createdTaxTriageDirectory, for: opID) }
 
-        let task = Task.detached { [weak self] in
-            do {
-                // Materialize virtual FASTQs for each sample before running TaxTriage
-                let materializeTempDir = try ProjectTempDirectory.createFromContext(
-                    prefix: "taxtriage-", contextURL: config.samples.first?.fastq1 ?? config.outputDirectory)
-                defer { try? FileManager.default.removeItem(at: materializeTempDir) }
+            let task = Task.detached { [weak self] in
+                do {
+                    // Materialize virtual FASTQs for each sample before running TaxTriage
+                    let materializeTempDir = try ProjectTempDirectory.createFromContext(
+                        prefix: "taxtriage-", contextURL: config.samples.first?.fastq1 ?? config.outputDirectory)
+                    defer { try? FileManager.default.removeItem(at: materializeTempDir) }
 
-                var resolvedConfig = config
-                for (i, sample) in resolvedConfig.samples.enumerated() {
-                    let allFiles = [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])
-                    let resolved = try await self?.resolveInputFiles(
-                        allFiles,
-                        tempDirectory: materializeTempDir,
-                        progress: { message in
+                    var resolvedConfig = config
+                    for (i, sample) in resolvedConfig.samples.enumerated() {
+                        let allFiles = [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])
+                        let resolved = try await self?.resolveInputFiles(
+                            allFiles,
+                            tempDirectory: materializeTempDir,
+                            progress: { message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        viewerController.showProgress(message)
+                                        _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                        OperationCenter.shared.log(id: opID, level: .info, message: message)
+                                    }
+                                }
+                            }
+                        ) ?? allFiles
+                        resolvedConfig.samples[i].fastq1 = resolved[0]
+                        if resolved.count > 1 {
+                            resolvedConfig.samples[i].fastq2 = resolved[1]
+                        } else if sample.fastq2 == nil,
+                                  resolved[0].standardizedFileURL != sample.fastq1.standardizedFileURL {
+                            // A materialized scratch copy carries no bundle sidecar,
+                            // so resolve its layout now with the bundle's metadata as
+                            // hints (a VSP2 merge in the lineage demotes strict to
+                            // mixed). TaxTriagePipeline splits a strictly interleaved
+                            // file into R1/R2 and runs it as pairs.
+                            resolvedConfig.samples[i].readLayout = FASTQInputLayoutResolver.resolve(
+                                fastqURL: resolved[0],
+                                metadataFrom: sample.fastq1
+                            ).layout
+                        }
+                    }
+
+                    let runner = TaxTriageSerialBatchRunner()
+                    let result = try await runner.run(
+                        config: resolvedConfig,
+                        progress: { progress, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
                                     viewerController.showProgress(message)
-                                    _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                    _ = OperationCenter.shared.update(
+                                        id: opID,
+                                        progress: max(0, min(1, progress)),
+                                        detail: message
+                                    )
                                     OperationCenter.shared.log(id: opID, level: .info, message: message)
                                 }
                             }
                         }
-                    ) ?? allFiles
-                    resolvedConfig.samples[i].fastq1 = resolved[0]
-                    if resolved.count > 1 {
-                        resolvedConfig.samples[i].fastq2 = resolved[1]
-                    } else if sample.fastq2 == nil,
-                              resolved[0].standardizedFileURL != sample.fastq1.standardizedFileURL {
-                        // A materialized scratch copy carries no bundle sidecar,
-                        // so resolve its layout now with the bundle's metadata as
-                        // hints (a VSP2 merge in the lineage demotes strict to
-                        // mixed). TaxTriagePipeline splits a strictly interleaved
-                        // file into R1/R2 and runs it as pairs.
-                        resolvedConfig.samples[i].readLayout = FASTQInputLayoutResolver.resolve(
-                            fastqURL: resolved[0],
-                            metadataFrom: sample.fastq1
-                        ).layout
-                    }
-                }
-
-                let runner = TaxTriageSerialBatchRunner()
-                let result = try await runner.run(
-                    config: resolvedConfig,
-                    progress: { progress, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                viewerController.showProgress(message)
-                                _ = OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: max(0, min(1, progress)),
-                                    detail: message
-                                )
-                                OperationCenter.shared.log(id: opID, level: .info, message: message)
-                            }
-                        }
-                    }
-                )
-
-                // Build the SQLite database from the Nextflow outputs before the
-                // operation completes, so the batch can be opened immediately.
-                var dbBuildErrorDescription: String?
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building TaxTriage database\u{2026}")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Building taxtriage.sqlite from TaxTriage outputs")
-                    }
-                }
-                do {
-                    try LungfishCLIRunner.buildClassifierDatabase(tool: "taxtriage", resultURL: result.outputDirectory, force: true)
-                } catch {
-                    dbBuildErrorDescription = error.localizedDescription
-                    appDelegateLogger.warning(
-                        "runTaxTriage: Failed to build taxtriage.sqlite - \(error.localizedDescription, privacy: .public)"
                     )
-                }
 
-                _ = try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(
-                    resultDirectory: result.outputDirectory
-                )
-
-                // Covered by the `defer` from creation; do not fail
-                // an otherwise-successful run over a cleanup error.
-                try? FileManager.default.removeItem(at: materializeTempDir)
-                let capturedResult = result
-                let capturedConfig = config
-                let capturedDBBuildError = dbBuildErrorDescription
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        if let dbError = capturedDBBuildError {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .warning,
-                                message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
-                            )
+                    // Build the SQLite database from the Nextflow outputs before the
+                    // operation completes, so the batch can be opened immediately.
+                    var dbBuildErrorDescription: String?
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building TaxTriage database\u{2026}")
+                            OperationCenter.shared.log(id: opID, level: .info, message: "Building taxtriage.sqlite from TaxTriage outputs")
                         }
-                        Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
-                        guard Self.finishTaxTriageOperation(
-                            id: opID,
-                            result: capturedResult,
-                            center: OperationCenter.shared
-                        ) else { return }
-                        // Write cross-reference sidecars into each source bundle so
-                        // the sidebar discovers TaxTriage results under all contributors.
+                    }
+                    do {
+                        try LungfishCLIRunner.buildClassifierDatabase(tool: "taxtriage", resultURL: result.outputDirectory, force: true)
+                    } catch {
+                        dbBuildErrorDescription = error.localizedDescription
+                        appDelegateLogger.warning(
+                            "runTaxTriage: Failed to build taxtriage.sqlite - \(error.localizedDescription, privacy: .public)"
+                        )
+                    }
 
-                        // Record in batch run history log
-                        BatchRunHistory.recordRun(result: capturedResult, config: capturedConfig)
+                    _ = try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(
+                        resultDirectory: result.outputDirectory
+                    )
 
-                        // Reload sidebar so the new result bundle appears
-                        AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
-                            .mainSplitViewController?
-                            .sidebarController.requestReloadFromFilesystem()
-
-                        // Record analysis in source bundle manifests
-                        for sample in capturedConfig.samples {
-                            if let bundleURL = Self.findSourceBundle(for: [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])) {
-                                let entry = AnalysisManifestEntry(
-                                    tool: "taxtriage",
-                                    analysisDirectoryName: Self.analysisManifestDirectoryName(
-                                        for: capturedConfig.outputDirectory,
-                                        projectURL: routeContext?.projectURL
-                                    ),
-                                    displayName: "TaxTriage Classification",
-                                    parameters: capturedConfig.summaryParameters(),
-                                    summary: capturedResult.summary,
-                                    status: .completed
+                    // Covered by the `defer` from creation; do not fail
+                    // an otherwise-successful run over a cleanup error.
+                    try? FileManager.default.removeItem(at: materializeTempDir)
+                    let capturedResult = result
+                    let capturedConfig = config
+                    let capturedDBBuildError = dbBuildErrorDescription
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController.hideProgress()
+                            if let dbError = capturedDBBuildError {
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .warning,
+                                    message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
                                 )
-                                do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
+                            }
+                            Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
+                            guard Self.finishTaxTriageOperation(
+                                id: opID,
+                                result: capturedResult,
+                                center: OperationCenter.shared
+                            ) else { return }
+                            // Write cross-reference sidecars into each source bundle so
+                            // the sidebar discovers TaxTriage results under all contributors.
+
+                            // Record in batch run history log
+                            BatchRunHistory.recordRun(result: capturedResult, config: capturedConfig)
+
+                            // Reload sidebar so the new result bundle appears
+                            AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
+                                .mainSplitViewController?
+                                .sidebarController.requestReloadFromFilesystem()
+
+                            // Record analysis in source bundle manifests
+                            for sample in capturedConfig.samples {
+                                if let bundleURL = Self.findSourceBundle(for: [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])) {
+                                    let entry = AnalysisManifestEntry(
+                                        tool: "taxtriage",
+                                        analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                            for: capturedConfig.outputDirectory,
+                                            projectURL: routeContext?.projectURL
+                                        ),
+                                        displayName: "TaxTriage Classification",
+                                        parameters: capturedConfig.summaryParameters(),
+                                        summary: capturedResult.summary,
+                                        status: .completed
+                                    )
+                                    do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
+                                }
                             }
                         }
                     }
-                }
-            } catch {
-                let errorDesc = error.localizedDescription
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
+                } catch {
+                    let errorDesc = error.localizedDescription
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController.hideProgress()
+                            guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
 
-                        let alert = NSAlert()
-                        alert.messageText = "TaxTriage Failed"
-                        alert.informativeText = errorDesc
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = viewerController.view.window {
-                            alert.beginSheetModal(for: window)
+                            let alert = NSAlert()
+                            alert.messageText = "TaxTriage Failed"
+                            alert.informativeText = errorDesc
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            if let window = viewerController.view.window {
+                                alert.beginSheetModal(for: window)
+                            }
                         }
                     }
                 }
             }
-        }
 
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
     }
 
     /// Logs a finished TaxTriage run's errored tasks and failed samples and
