@@ -1877,79 +1877,73 @@ public class ViewerViewController: NSViewController {
             return
         }
 
-        cancelActiveFASTABlast()
-        lastFASTABlastRequest = (sourceLabel, fastaRecords)
-        let runID = UUID()
-        activeFASTABlastRunID = runID
-        controller.showBlastLoading(phase: .submitting, requestId: nil)
+        Self.beginGenericBlastVerificationOperation(sourceLabel: sourceLabel) { opID in
+            cancelActiveFASTABlast()
+            lastFASTABlastRequest = (sourceLabel, fastaRecords)
+            let runID = UUID()
+            activeFASTABlastRunID = runID
+            controller.showBlastLoading(phase: .submitting, requestId: nil)
+            activeFASTABlastOperationID = opID
 
-        let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [])
-        let opID = OperationCenter.shared.start(
-            title: "BLAST \(sourceLabel)",
-            detail: "Preparing BLAST verification…",
-            operationType: .blastVerification,
-            cliCommand: blastCliCmd
-        )
-        activeFASTABlastOperationID = opID
-
-        let request = BlastVerificationRequest(
-            taxonName: sourceLabel,
-            taxId: 0,
-            sequences: sequences,
-            database: BlastDatabaseID.coreNT.rawValue,
-            entrezQuery: nil
-        )
-        let runner = fastaBlastVerificationRunner
-        let progressRelay = FASTABlastProgressRelay { [weak self, weak controller] fraction, message in
-            guard let self, let controller,
-                  self.activeFASTABlastRunID == runID else { return }
-            guard OperationCenter.shared.update(
-                id: opID,
-                progress: fraction,
-                detail: message
-            ) else { return }
-            controller.showBlastLoading(
-                phase: Self.blastPhase(forProgressMessage: message),
-                requestId: nil
+            let request = BlastVerificationRequest(
+                taxonName: sourceLabel,
+                taxId: 0,
+                sequences: sequences,
+                database: BlastDatabaseID.coreNT.rawValue,
+                entrezQuery: nil
             )
-        }
-
-        let task = Task { [weak self, weak controller] in
-            do {
-                let result = try await runner(
-                    request,
-                    { fraction, message in
-                        progressRelay.report(fraction: fraction, message: message)
-                    }
+            let runner = fastaBlastVerificationRunner
+            let progressRelay = FASTABlastProgressRelay { [weak self, weak controller] fraction, message in
+                guard let self, let controller,
+                      self.activeFASTABlastRunID == runID else { return }
+                guard OperationCenter.shared.update(
+                    id: opID,
+                    progress: fraction,
+                    detail: message
+                ) else { return }
+                controller.showBlastLoading(
+                    phase: Self.blastPhase(forProgressMessage: message),
+                    requestId: nil
                 )
-
-                guard OperationCenter.shared.complete(
-                    id: opID,
-                    detail: "Results ready for \(result.readResults.count) sequence\(result.readResults.count == 1 ? "" : "s")"
-                ) else { return }
-                guard let self, let controller,
-                      self.activeFASTABlastRunID == runID else { return }
-                self.clearActiveFASTABlast(runID: runID)
-                controller.showBlastResults(result)
-            } catch is CancellationError {
-                OperationCenter.shared.acknowledgeCancellation(id: opID)
-                self?.clearActiveFASTABlast(runID: runID)
-            } catch {
-                let errorText = error.localizedDescription
-                guard OperationCenter.shared.fail(
-                    id: opID,
-                    detail: errorText,
-                    errorMessage: errorText
-                ) else { return }
-                guard let self, let controller,
-                      self.activeFASTABlastRunID == runID else { return }
-                self.clearActiveFASTABlast(runID: runID)
-                controller.showBlastFailure(errorText)
             }
-        }
 
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-        activeFASTABlastTask = task
+            let task = Task { [weak self, weak controller] in
+                do {
+                    let result = try await runner(
+                        request,
+                        { fraction, message in
+                            progressRelay.report(fraction: fraction, message: message)
+                        }
+                    )
+
+                    guard OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "Results ready for \(result.readResults.count) sequence\(result.readResults.count == 1 ? "" : "s")"
+                    ) else { return }
+                    guard let self, let controller,
+                          self.activeFASTABlastRunID == runID else { return }
+                    self.clearActiveFASTABlast(runID: runID)
+                    controller.showBlastResults(result)
+                } catch is CancellationError {
+                    OperationCenter.shared.acknowledgeCancellation(id: opID)
+                    self?.clearActiveFASTABlast(runID: runID)
+                } catch {
+                    let errorText = error.localizedDescription
+                    guard OperationCenter.shared.fail(
+                        id: opID,
+                        detail: errorText,
+                        errorMessage: errorText
+                    ) else { return }
+                    guard let self, let controller,
+                          self.activeFASTABlastRunID == runID else { return }
+                    self.clearActiveFASTABlast(runID: runID)
+                    controller.showBlastFailure(errorText)
+                }
+            }
+
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            activeFASTABlastTask = task
+        }
     }
 
     private func cancelActiveFASTABlast() {
@@ -2522,43 +2516,42 @@ public class ViewerViewController: NSViewController {
             bundleName: suggestedName
         ) + ["--quiet"]
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
-        let operationID = OperationCenter.shared.start(
-            title: "Create Reference Bundle",
-            detail: "Creating a reference bundle from \(selectedIDs.count) selected FASTA sequence(s)...",
-            operationType: .bundleBuild,
-            cliCommand: "lungfish-cli " + arguments.map(shellEscape).joined(separator: " "),
+        Self.beginDurableFASTAReferenceBundleOperation(
+            cliArguments: arguments,
+            selectedCount: selectedIDs.count,
             routeContext: routeContext
-        )
-        let cancellation = LungfishCLIRunner.CancellationHandle()
-        OperationCenter.shared.setCancelCallback(for: operationID) { cancellation.cancel() }
-        Task.detached { [weak self] in
-            do {
-                let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
-                guard let bundleURL = FASTASelectionReferenceBundleCLI.bundleURL(from: output.stdout) else {
-                    throw LungfishCLIRunner.RunError.invalidInvocation(
-                        "The reference-bundle command completed without reporting its bundle path."
-                    )
-                }
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.complete(
-                            id: operationID,
-                            detail: "Created \(bundleURL.lastPathComponent)",
-                            bundleURLs: [bundleURL]
+        ) { operationID in
+            let cancellation = LungfishCLIRunner.CancellationHandle()
+            OperationCenter.shared.setCancelCallback(for: operationID) { cancellation.cancel() }
+            Task.detached { [weak self] in
+                do {
+                    let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
+                    guard let bundleURL = FASTASelectionReferenceBundleCLI.bundleURL(from: output.stdout) else {
+                        throw LungfishCLIRunner.RunError.invalidInvocation(
+                            "The reference-bundle command completed without reporting its bundle path."
                         )
                     }
-                }
-            } catch LungfishCLIRunner.RunError.cancelled {
-                await MainActor.run { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
-            } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.fail(
-                            id: operationID,
-                            detail: "Reference bundle creation failed",
-                            errorMessage: error.localizedDescription
-                        ) else { return }
-                        self?.presentBlockingAlert(title: "Reference Bundle Creation Failed", message: error.localizedDescription)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.complete(
+                                id: operationID,
+                                detail: "Created \(bundleURL.lastPathComponent)",
+                                bundleURLs: [bundleURL]
+                            )
+                        }
+                    }
+                } catch LungfishCLIRunner.RunError.cancelled {
+                    await MainActor.run { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.fail(
+                                id: operationID,
+                                detail: "Reference bundle creation failed",
+                                errorMessage: error.localizedDescription
+                            ) else { return }
+                            self?.presentBlockingAlert(title: "Reference Bundle Creation Failed", message: error.localizedDescription)
+                        }
                     }
                 }
             }
@@ -2613,78 +2606,76 @@ public class ViewerViewController: NSViewController {
             return
         }
 
-        let cliCmd = OperationCenter.buildCLICommand(
-            subcommand: "import",
-            args: ["fasta", sourceURL.path, "--output-dir", refsDir.path]
-        )
-        let opID = OperationCenter.shared.start(
-            title: "Annotated Reference Import",
-            detail: "Creating \(stem).lungfishref...",
-            operationType: .bundleBuild,
-            cliCommand: cliCmd,
-            routeContext: OperationRouteContext(
-                projectURL: projectURL,
-                windowStateScope: windowStateScope
-            )
-        )
-
-        Task.detached {
-            defer {
-                TempFileManager.shared.unregisterSessionTempDirectory(stagingRoot)
-                try? FileManager.default.removeItem(at: stagingRoot)
-            }
-            do {
-                let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
-                    sourceURL: sourceURL,
-                    outputDirectory: refsDir,
-                    preferredBundleName: suggestedName,
-                    provenanceInputFiles: durableSourceURLs
-                ) { progress, message in
+        let startResult = Self.beginAnnotatedReferenceImportOperation(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            preferredBundleName: suggestedName,
+            bundleStem: stem,
+            routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
+        ) { opID in
+            Task.detached {
+                defer {
+                    TempFileManager.shared.unregisterSessionTempDirectory(stagingRoot)
+                    try? FileManager.default.removeItem(at: stagingRoot)
+                }
+                do {
+                    let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
+                        sourceURL: sourceURL,
+                        outputDirectory: refsDir,
+                        preferredBundleName: suggestedName,
+                        provenanceInputFiles: durableSourceURLs
+                    ) { progress, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                _ = OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: min(0.82, progress * 0.82),
+                                    detail: message
+                                )
+                            }
+                        }
+                    }
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(id: opID, progress: 0.88, detail: "Attaching projected annotations...")
+                        }
+                    }
+                    let annotationResult = try await ReferenceBundleAnnotationImportService()
+                        .attachAnnotationTrack(sourceURL: annotationURL, bundleURL: result.bundleURL)
+                    try MSAExtractionAnnotationProvenance.write(
+                        bundleURL: result.bundleURL,
+                        sourceAlignmentBundleURL: sourceAlignmentBundleURL,
+                        sourceFASTAURL: sourceURL,
+                        sourceAnnotationURL: annotationURL,
+                        durableSourceURLs: durableSourceURLs,
+                        selectedSequenceIDs: FASTAOperationCatalog.selectedIdentifiers(in: records.joined(separator: "")),
+                        selectedAnnotationsByRecord: annotationsByRecord,
+                        annotationResult: annotationResult,
+                        startedAt: provenanceStartedAt
+                    )
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.complete(
                                 id: opID,
-                                progress: min(0.82, progress * 0.82),
-                                detail: message
+                                detail: "Created \(result.bundleURL.lastPathComponent) with \(annotationResult.featureCount) annotation(s)",
+                                bundleURLs: [result.bundleURL]
                             )
                         }
                     }
-                }
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(id: opID, progress: 0.88, detail: "Attaching projected annotations...")
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        }
                     }
+                    logger.error("createReferenceBundle: Annotated bundle creation failed - \(error.localizedDescription, privacy: .public)")
                 }
-                let annotationResult = try await ReferenceBundleAnnotationImportService()
-                    .attachAnnotationTrack(sourceURL: annotationURL, bundleURL: result.bundleURL)
-                try MSAExtractionAnnotationProvenance.write(
-                    bundleURL: result.bundleURL,
-                    sourceAlignmentBundleURL: sourceAlignmentBundleURL,
-                    sourceFASTAURL: sourceURL,
-                    sourceAnnotationURL: annotationURL,
-                    durableSourceURLs: durableSourceURLs,
-                    selectedSequenceIDs: FASTAOperationCatalog.selectedIdentifiers(in: records.joined(separator: "")),
-                    selectedAnnotationsByRecord: annotationsByRecord,
-                    annotationResult: annotationResult,
-                    startedAt: provenanceStartedAt
-                )
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "Created \(result.bundleURL.lastPathComponent) with \(annotationResult.featureCount) annotation(s)",
-                            bundleURLs: [result.bundleURL]
-                        )
-                    }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-                    }
-                }
-                logger.error("createReferenceBundle: Annotated bundle creation failed - \(error.localizedDescription, privacy: .public)")
             }
+        }
+        if case .refused = startResult {
+            // Nothing was launched, so nothing else removes the staged files.
+            TempFileManager.shared.unregisterSessionTempDirectory(stagingRoot)
+            try? FileManager.default.removeItem(at: stagingRoot)
         }
     }
 
