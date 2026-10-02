@@ -119,7 +119,13 @@ final class PrimerDesignOperationTests: XCTestCase {
     let center = OperationCenter()
     center.failureReportStore = .temporaryForTesting()
     let output = URL(fileURLWithPath: "/tmp/busy.lungfishprimeranalysis")
-    _ = center.start(title: "Existing writer", detail: "Running", targetBundleURL: output)
+    _ = center.begin(
+        title: "Existing writer",
+        detail: "Running",
+        operationType: .download,
+        targetBundleURL: output,
+        cliCommand: nil
+    )
     let handle = PrimerDesignOperation.start(center: center, title: "Primer3",
       destination: output, routeContext: nil,
       operation: { _ in XCTFail("A locked destination must not execute"); return output },

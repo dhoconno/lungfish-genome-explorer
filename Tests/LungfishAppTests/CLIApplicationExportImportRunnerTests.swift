@@ -89,11 +89,12 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
 
         let opID = await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "CLC Workbench Import",
                 detail: "Launching...",
-                operationType: .applicationExportImport
-            )
+                operationType: .applicationExportImport,
+                cliCommand: nil
+            ).rowID
         }
 
         let result = try await CLIApplicationExportImportRunner(cliURLOverride: fakeCLI)

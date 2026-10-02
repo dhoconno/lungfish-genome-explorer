@@ -7,6 +7,7 @@ import os
 import Combine
 @testable import LungfishApp
 import LungfishKit
+import LungfishKitTestSupport
 
 /// Unit tests for ``DownloadCenter``.
 ///
@@ -43,7 +44,7 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Start
 
     func testStartCreatesRunningItem() {
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
 
         XCTAssertEqual(center.items.count, 1)
         let item = center.items.first
@@ -56,8 +57,8 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testStartInsertsAtFront() {
-        let id1 = center.start(title: "First", detail: "")
-        let id2 = center.start(title: "Second", detail: "")
+        let id1 = center.begin(title: "First", detail: "", operationType: .download, cliCommand: nil).rowID
+        let id2 = center.begin(title: "Second", detail: "", operationType: .download, cliCommand: nil).rowID
 
         XCTAssertEqual(center.items.count, 2)
         XCTAssertEqual(center.items[0].id, id2)
@@ -67,7 +68,7 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Update
 
     func testUpdateChangesProgressAndDetail() {
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
 
         center.update(id: id, progress: 0.5, detail: "Halfway")
 
@@ -78,7 +79,7 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testUpdateClampsProgress() {
-        let id = center.start(title: "Test", detail: "")
+        let id = center.begin(title: "Test", detail: "", operationType: .download, cliCommand: nil).rowID
 
         center.update(id: id, progress: 1.5, detail: "Over")
         XCTAssertEqual(center.items.first?.progress ?? -1, 1.0, accuracy: 0.001)
@@ -88,7 +89,7 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testUpdateIgnoresUnknownId() {
-        _ = center.start(title: "Test", detail: "Starting...")
+        _ = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil)
 
         center.update(id: UUID(), progress: 0.9, detail: "Other")
 
@@ -96,7 +97,7 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testUpdateIgnoresCompletedOperation() {
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
         center.complete(id: id, detail: "Done")
 
         center.update(id: id, progress: 0.25, detail: "Late progress")
@@ -108,7 +109,7 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testUpdateWithLogDeduplicatesAdjacentProgressMessages() {
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
 
         center.updateWithLog(id: id, progress: 0.1, detail: "Parsing reads")
         center.updateWithLog(id: id, progress: 0.2, detail: "Parsing reads")
@@ -121,7 +122,7 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testUpdateDoesNotAppendVolatileProgressDetailsToLogHistory() {
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
         center.log(id: id, level: .info, message: "Import started")
 
         center.update(id: id, progress: 0.1, detail: "Processed 10,000 variants · ETA 8m")
@@ -137,7 +138,7 @@ final class DownloadCenterTests: XCTestCase {
         var changes: [OperationCenter.Change] = []
         center.changes.sink { changes.append($0) }.store(in: &cancellables)
 
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
         center.update(id: id, progress: 0.5, detail: "Halfway")
 
         XCTAssertEqual(changes, [
@@ -150,7 +151,7 @@ final class DownloadCenterTests: XCTestCase {
         var changes: [OperationCenter.Change] = []
         center.changes.sink { changes.append($0) }.store(in: &cancellables)
 
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
         center.log(id: id, level: .info, message: "Import started")
 
         XCTAssertEqual(changes, [
@@ -163,8 +164,8 @@ final class DownloadCenterTests: XCTestCase {
         var changes: [OperationCenter.Change] = []
         center.changes.sink { changes.append($0) }.store(in: &cancellables)
 
-        let runningID = center.start(title: "Running", detail: "")
-        let doneID = center.start(title: "Done", detail: "")
+        let runningID = center.begin(title: "Running", detail: "", operationType: .download, cliCommand: nil).rowID
+        let doneID = center.begin(title: "Done", detail: "", operationType: .download, cliCommand: nil).rowID
         center.complete(id: doneID, detail: "Done")
 
         changes.removeAll()
@@ -178,8 +179,8 @@ final class DownloadCenterTests: XCTestCase {
         var changes: [OperationCenter.Change] = []
         center.changes.sink { changes.append($0) }.store(in: &cancellables)
 
-        let olderID = center.start(title: "Older", detail: "")
-        let newerID = center.start(title: "Newer", detail: "")
+        let olderID = center.begin(title: "Older", detail: "", operationType: .download, cliCommand: nil).rowID
+        let newerID = center.begin(title: "Newer", detail: "", operationType: .download, cliCommand: nil).rowID
 
         changes.removeAll()
         center.complete(id: newerID, detail: "Done")
@@ -191,7 +192,7 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Complete
 
     func testCompleteSetsStateAndFinishedAt() {
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
 
         center.complete(id: id, detail: "Done!")
 
@@ -205,7 +206,7 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Fail
 
     func testFailSetsStateAndFinishedAt() {
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
 
         center.fail(id: id, detail: "Network error")
 
@@ -220,8 +221,8 @@ final class DownloadCenterTests: XCTestCase {
     func testActiveCountTracksRunningItems() {
         XCTAssertEqual(center.activeCount, 0)
 
-        let id1 = center.start(title: "A", detail: "")
-        _ = center.start(title: "B", detail: "")
+        let id1 = center.begin(title: "A", detail: "", operationType: .download, cliCommand: nil).rowID
+        _ = center.begin(title: "B", detail: "", operationType: .download, cliCommand: nil)
 
         XCTAssertEqual(center.activeCount, 2)
 
@@ -232,9 +233,9 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Clear Completed
 
     func testClearCompletedRemovesFinishedItems() {
-        let id1 = center.start(title: "Running", detail: "")
-        let id2 = center.start(title: "Done", detail: "")
-        let id3 = center.start(title: "Failed", detail: "")
+        let id1 = center.begin(title: "Running", detail: "", operationType: .download, cliCommand: nil).rowID
+        let id2 = center.begin(title: "Done", detail: "", operationType: .download, cliCommand: nil).rowID
+        let id3 = center.begin(title: "Failed", detail: "", operationType: .download, cliCommand: nil).rowID
 
         center.complete(id: id2, detail: "Completed")
         center.fail(id: id3, detail: "Error")
@@ -249,7 +250,7 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testClearCompletedWithNoFinishedItemsIsNoOp() {
-        _ = center.start(title: "Running", detail: "")
+        _ = center.begin(title: "Running", detail: "", operationType: .download, cliCommand: nil)
         XCTAssertEqual(center.items.count, 1)
 
         center.clearCompleted()
@@ -261,7 +262,7 @@ final class DownloadCenterTests: XCTestCase {
     func testTrimKeepsMaxFinishedItems() {
         // Start and complete 25 items (exceeds the 20-item limit)
         for i in 0..<25 {
-            let id = center.start(title: "Item \(i)", detail: "")
+            let id = center.begin(title: "Item \(i)", detail: "", operationType: .download, cliCommand: nil).rowID
             center.complete(id: id, detail: "Done \(i)")
         }
 
@@ -271,11 +272,11 @@ final class DownloadCenterTests: XCTestCase {
 
     func testTrimPreservesRunningItems() {
         // Start a running item
-        _ = center.start(title: "Running", detail: "In progress")
+        _ = center.begin(title: "Running", detail: "In progress", operationType: .download, cliCommand: nil)
 
         // Start and complete 25 items
         for i in 0..<25 {
-            let id = center.start(title: "Item \(i)", detail: "")
+            let id = center.begin(title: "Item \(i)", detail: "", operationType: .download, cliCommand: nil).rowID
             center.complete(id: id, detail: "Done \(i)")
         }
 
@@ -288,8 +289,8 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Item Identity
 
     func testItemIdentityByUUID() {
-        let id1 = center.start(title: "A", detail: "")
-        let id2 = center.start(title: "B", detail: "")
+        let id1 = center.begin(title: "A", detail: "", operationType: .download, cliCommand: nil).rowID
+        let id2 = center.begin(title: "B", detail: "", operationType: .download, cliCommand: nil).rowID
 
         XCTAssertNotEqual(id1, id2)
         XCTAssertEqual(center.items.count, 2)
@@ -337,7 +338,7 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Bundle URLs
 
     func testCompleteWithBundleURLsStoresURLs() {
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
         let urls = [URL(fileURLWithPath: "/tmp/test.lungfishref")]
 
         center.complete(id: id, detail: "Done!", bundleURLs: urls)
@@ -354,7 +355,7 @@ final class DownloadCenterTests: XCTestCase {
             receivedURLs = urls
         }
 
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
         let urls = [URL(fileURLWithPath: "/tmp/a.lungfishref"), URL(fileURLWithPath: "/tmp/b.lungfishref")]
 
         center.complete(id: id, detail: "Done!", bundleURLs: urls)
@@ -369,7 +370,7 @@ final class DownloadCenterTests: XCTestCase {
             callbackFired = true
         }
 
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
         center.complete(id: id, detail: "Done!", bundleURLs: [])
 
         XCTAssertFalse(callbackFired)
@@ -381,7 +382,12 @@ final class DownloadCenterTests: XCTestCase {
             callbackFired = true
         }
 
-        let id = center.start(title: "Export Alignment", detail: "Starting...")
+        let id = center.begin(
+            title: "Export Alignment",
+            detail: "Starting...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         let urls = [URL(fileURLWithPath: "/project/exports/alignment.fasta")]
 
         center.complete(id: id, detail: "Exported alignment", outputURLs: urls)
@@ -399,14 +405,14 @@ final class DownloadCenterTests: XCTestCase {
             callbackFired = true
         }
 
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
         center.complete(id: id, detail: "Done!")
 
         XCTAssertFalse(callbackFired)
     }
 
     func testStartItemHasEmptyBundleURLs() {
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
         let item = center.items.first { $0.id == id }
         XCTAssertEqual(item?.bundleURLs, [])
     }
@@ -414,13 +420,13 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Operation Type
 
     func testDefaultOperationTypeIsDownload() {
-        let id = center.start(title: "Test", detail: "Starting...")
+        let id = center.begin(title: "Test", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
         let item = center.items.first { $0.id == id }
         XCTAssertEqual(item?.operationType, .download)
     }
 
     func testStartWithOperationType() {
-        let id = center.start(title: "BAM", detail: "Importing...", operationType: .bamImport)
+        let id = center.begin(title: "BAM", detail: "Importing...", operationType: .bamImport, cliCommand: nil).rowID
         let item = center.items.first { $0.id == id }
         XCTAssertEqual(item?.operationType, .bamImport)
     }
@@ -452,11 +458,12 @@ final class DownloadCenterTests: XCTestCase {
 
     func testCannotStartOperationOnLockedBundle() {
         let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
-        _ = center.start(
+        _ = center.begin(
             title: "Import",
             detail: "...",
             operationType: .bamImport,
-            targetBundleURL: bundleURL
+            targetBundleURL: bundleURL,
+            cliCommand: nil
         )
 
         XCTAssertFalse(center.canStartOperation(on: bundleURL))
@@ -464,12 +471,13 @@ final class DownloadCenterTests: XCTestCase {
 
     func testCanStartOperationAfterComplete() {
         let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
-        let id = center.start(
+        let id = center.begin(
             title: "Import",
             detail: "...",
             operationType: .bamImport,
-            targetBundleURL: bundleURL
-        )
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        ).rowID
         center.complete(id: id, detail: "Done")
 
         XCTAssertTrue(center.canStartOperation(on: bundleURL))
@@ -477,12 +485,13 @@ final class DownloadCenterTests: XCTestCase {
 
     func testCanStartOperationAfterFail() {
         let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
-        let id = center.start(
+        let id = center.begin(
             title: "Import",
             detail: "...",
             operationType: .bamImport,
-            targetBundleURL: bundleURL
-        )
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        ).rowID
         center.fail(id: id, detail: "Error")
 
         XCTAssertTrue(center.canStartOperation(on: bundleURL))
@@ -492,11 +501,12 @@ final class DownloadCenterTests: XCTestCase {
         let bundle1 = URL(fileURLWithPath: "/tmp/a.lungfishref")
         let bundle2 = URL(fileURLWithPath: "/tmp/b.lungfishref")
 
-        _ = center.start(
+        _ = center.begin(
             title: "Import A",
             detail: "...",
             operationType: .bamImport,
-            targetBundleURL: bundle1
+            targetBundleURL: bundle1,
+            cliCommand: nil
         )
 
         XCTAssertTrue(center.canStartOperation(on: bundle2))
@@ -504,12 +514,13 @@ final class DownloadCenterTests: XCTestCase {
 
     func testActiveLockHolderReturnsRunningItem() {
         let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
-        let id = center.start(
+        let id = center.begin(
             title: "Import",
             detail: "...",
             operationType: .bamImport,
-            targetBundleURL: bundleURL
-        )
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        ).rowID
 
         let holder = center.activeLockHolder(for: bundleURL)
         XCTAssertEqual(holder?.id, id)
@@ -522,12 +533,13 @@ final class DownloadCenterTests: XCTestCase {
 
     func testActiveLockHolderNilAfterComplete() {
         let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
-        let id = center.start(
+        let id = center.begin(
             title: "Import",
             detail: "...",
             operationType: .bamImport,
-            targetBundleURL: bundleURL
-        )
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        ).rowID
         center.complete(id: id, detail: "Done")
 
         XCTAssertNil(center.activeLockHolder(for: bundleURL))
@@ -541,12 +553,13 @@ final class DownloadCenterTests: XCTestCase {
 
     func testCancelSignalsCallbackAndWorkerAcknowledgesCancellation() async throws {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
-        let id = center.start(
+        let id = center.begin(
             title: "Import",
             detail: "...",
             operationType: .bamImport,
+            cliCommand: nil,
             onCancel: { cancelFlag.withLock { $0 = true } }
-        )
+        ).rowID
 
         center.cancel(id: id)
 
@@ -565,17 +578,18 @@ final class DownloadCenterTests: XCTestCase {
         let callbackStarted = DispatchSemaphore(value: 0)
         let callbackMayReturn = DispatchSemaphore(value: 0)
         let callbackReturned = OSAllocatedUnfairLock(initialState: false)
-        let id = center.start(
+        let id = center.begin(
             title: "Import",
             detail: "...",
             operationType: .bamImport,
             targetBundleURL: bundleURL,
+            cliCommand: nil,
             onCancel: {
                 callbackStarted.signal()
                 callbackMayReturn.wait()
                 callbackReturned.withLock { $0 = true }
             }
-        )
+        ).rowID
 
         center.cancel(id: id)
 
@@ -595,12 +609,13 @@ final class DownloadCenterTests: XCTestCase {
 
     func testCancelWithoutCallbackLeavesOperationRunningAndLocked() {
         let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
-        let id = center.start(
+        let id = center.begin(
             title: "Import",
             detail: "...",
             operationType: .bamImport,
-            targetBundleURL: bundleURL
-        )
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        ).rowID
 
         center.cancel(id: id)
 
@@ -612,11 +627,13 @@ final class DownloadCenterTests: XCTestCase {
 
     func testCancelIgnoresCompletedItem() {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
-        let id = center.start(
+        let id = center.begin(
             title: "Import",
             detail: "...",
+            operationType: .download,
+            cliCommand: nil,
             onCancel: { cancelFlag.withLock { $0 = true } }
-        )
+        ).rowID
         center.complete(id: id, detail: "Done")
 
         center.cancel(id: id)
@@ -628,14 +645,15 @@ final class DownloadCenterTests: XCTestCase {
 
     func testWorkerCompletionAcknowledgesCancellationWithoutPublishingLateSuccess() async throws {
         let callbackMayReturn = DispatchSemaphore(value: 0)
-        let id = center.start(
+        let id = center.begin(
             title: "BLAST",
             detail: "Running",
             operationType: .blastVerification,
+            cliCommand: nil,
             onCancel: {
                 callbackMayReturn.wait()
             }
-        )
+        ).rowID
         center.cancel(id: id)
 
         XCTAssertFalse(center.update(id: id, progress: 0.9, detail: "Late progress"))
@@ -660,8 +678,20 @@ final class DownloadCenterTests: XCTestCase {
     func testCancelAllCancelsAllRunning() async throws {
         let flag1 = OSAllocatedUnfairLock(initialState: false)
         let flag2 = OSAllocatedUnfairLock(initialState: false)
-        let first = center.start(title: "A", detail: "", onCancel: { flag1.withLock { $0 = true } })
-        let second = center.start(title: "B", detail: "", onCancel: { flag2.withLock { $0 = true } })
+        let first = center.begin(
+            title: "A",
+            detail: "",
+            operationType: .download,
+            cliCommand: nil,
+            onCancel: { flag1.withLock { $0 = true } }
+        ).rowID
+        let second = center.begin(
+            title: "B",
+            detail: "",
+            operationType: .download,
+            cliCommand: nil,
+            onCancel: { flag2.withLock { $0 = true } }
+        ).rowID
 
         center.cancelAll()
 
@@ -678,10 +708,21 @@ final class DownloadCenterTests: XCTestCase {
 
     func testCancelAllSkipsRunningRowsWithoutCancelCallbacks() async throws {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
-        let cancellableID = center.start(title: "Cancellable", detail: "", onCancel: {
-            cancelFlag.withLock { $0 = true }
-        })
-        let uncancellableID = center.start(title: "Uncancellable", detail: "")
+        let cancellableID = center.begin(
+            title: "Cancellable",
+            detail: "",
+            operationType: .download,
+            cliCommand: nil,
+            onCancel: {
+                cancelFlag.withLock { $0 = true }
+            }
+        ).rowID
+        let uncancellableID = center.begin(
+            title: "Uncancellable",
+            detail: "",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         center.cancelAll()
 
@@ -700,10 +741,16 @@ final class DownloadCenterTests: XCTestCase {
         let callbackCount = OSAllocatedUnfairLock(initialState: 0)
         let callbackMayReturn = DispatchSemaphore(value: 0)
         for index in 0..<3 {
-            _ = center.start(title: "Slow \(index)", detail: "", onCancel: {
-                callbackCount.withLock { $0 += 1 }
-                callbackMayReturn.wait()
-            })
+            _ = center.begin(
+                title: "Slow \(index)",
+                detail: "",
+                operationType: .download,
+                cliCommand: nil,
+                onCancel: {
+                    callbackCount.withLock { $0 += 1 }
+                    callbackMayReturn.wait()
+                }
+            )
         }
 
         let start = Date()
@@ -767,19 +814,34 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Byte-Level Progress Tracking
 
     func testItemHasTotalBytesFieldDefaultNil() {
-        let id = center.start(title: "Download", detail: "Starting...")
+        let id = center.begin(
+            title: "Download",
+            detail: "Starting...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         let item = center.items.first { $0.id == id }
         XCTAssertNil(item?.totalBytes, "totalBytes should default to nil")
     }
 
     func testItemHasBytesDownloadedFieldDefaultNil() {
-        let id = center.start(title: "Download", detail: "Starting...")
+        let id = center.begin(
+            title: "Download",
+            detail: "Starting...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         let item = center.items.first { $0.id == id }
         XCTAssertNil(item?.bytesDownloaded, "bytesDownloaded should default to nil")
     }
 
     func testUpdateBytesComputesProgressCorrectly() {
-        let id = center.start(title: "Download", detail: "Starting...")
+        let id = center.begin(
+            title: "Download",
+            detail: "Starting...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         center.updateBytes(id: id, bytesDownloaded: 500_000, totalBytes: 1_000_000)
 
@@ -791,7 +853,12 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testUpdateBytesFullDownloadSetsProgressToOne() {
-        let id = center.start(title: "Download", detail: "Starting...")
+        let id = center.begin(
+            title: "Download",
+            detail: "Starting...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         center.updateBytes(id: id, bytesDownloaded: 2_000_000, totalBytes: 2_000_000)
 
@@ -800,7 +867,12 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testUpdateBytesPreservesTotalWhenNilPassed() {
-        let id = center.start(title: "Download", detail: "Starting...")
+        let id = center.begin(
+            title: "Download",
+            detail: "Starting...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         // First call sets totalBytes
         center.updateBytes(id: id, bytesDownloaded: 100_000, totalBytes: 500_000)
@@ -813,7 +885,12 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testUpdateBytesGeneratesDetailWithByteCounts() {
-        let id = center.start(title: "Download", detail: "Starting...")
+        let id = center.begin(
+            title: "Download",
+            detail: "Starting...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         center.updateBytes(id: id, bytesDownloaded: 50_000_000, totalBytes: 100_000_000)
 
@@ -825,7 +902,12 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testUpdateBytesWithoutTotalShowsOnlyDownloaded() {
-        let id = center.start(title: "Download", detail: "Starting...")
+        let id = center.begin(
+            title: "Download",
+            detail: "Starting...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         // When totalBytes is nil and no previous total is known
         center.updateBytes(id: id, bytesDownloaded: 10_000_000, totalBytes: nil)
@@ -838,7 +920,12 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Error Message and Failure Report Data
 
     func testFailWithErrorMessageStoresFields() {
-        let id = center.start(title: "Classify", detail: "Running...")
+        let id = center.begin(
+            title: "Classify",
+            detail: "Running...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         center.fail(
             id: id,
@@ -855,7 +942,12 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testFailWithoutErrorMessageLeavesErrorMessageNil() {
-        let id = center.start(title: "Download", detail: "Running...")
+        let id = center.begin(
+            title: "Download",
+            detail: "Running...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         center.fail(id: id, detail: "Network timeout")
 
@@ -869,7 +961,12 @@ final class DownloadCenterTests: XCTestCase {
     func testFailedItemWithoutErrorMessageHasDetailForReport() {
         // buildFailureReport uses `item.errorMessage ?? item.detail` as fallback.
         // This test verifies the data model supports that pattern.
-        let id = center.start(title: "Import BAM", detail: "Importing...")
+        let id = center.begin(
+            title: "Import BAM",
+            detail: "Importing...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         center.fail(id: id, detail: "File not found: /data/sample.bam")
 
@@ -883,14 +980,24 @@ final class DownloadCenterTests: XCTestCase {
 
     func testCLICommandStoredOnStart() {
         let cmd = "lungfish-cli conda classify --db standard --input /data/R1.fastq.gz"
-        let id = center.start(title: "Classify", detail: "Running...", cliCommand: cmd)
+        let id = center.begin(
+            title: "Classify",
+            detail: "Running...",
+            operationType: .download,
+            cliCommand: cmd
+        ).rowID
 
         let item = center.items.first { $0.id == id }
         XCTAssertEqual(item?.cliCommand, cmd)
     }
 
     func testCLICommandDefaultsToNil() {
-        let id = center.start(title: "Download", detail: "Starting...")
+        let id = center.begin(
+            title: "Download",
+            detail: "Starting...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         let item = center.items.first { $0.id == id }
         XCTAssertNil(item?.cliCommand, "cliCommand should default to nil")
@@ -919,7 +1026,12 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Log Entries
 
     func testLogEntriesAppendedToItem() {
-        let id = center.start(title: "Pipeline", detail: "Running...")
+        let id = center.begin(
+            title: "Pipeline",
+            detail: "Running...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         center.log(id: id, level: .info, message: "Step 1 complete")
         center.log(id: id, level: .warning, message: "Low memory")
@@ -933,7 +1045,12 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testCompletedItemWithWarningLogsReportsCompletedWithWarnings() {
-        let id = center.start(title: "TaxTriage", detail: "Running...")
+        let id = center.begin(
+            title: "TaxTriage",
+            detail: "Running...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         center.log(id: id, level: .warning, message: "21 samples failed in MINIMAP2_ALIGN and were ignored")
         center.complete(id: id, detail: "128 samples completed, 21 ignored failures")
@@ -945,7 +1062,12 @@ final class DownloadCenterTests: XCTestCase {
     }
 
     func testRecordRetryMetadataSurfacesRetryStatusAndLog() {
-        let id = center.start(title: "NCBI Fetch", detail: "Fetching...")
+        let id = center.begin(
+            title: "NCBI Fetch",
+            detail: "Fetching...",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         center.recordRetry(
             id: id,
@@ -973,7 +1095,12 @@ final class DownloadCenterTests: XCTestCase {
 
     func testFailedItemWithAllFieldsHasCompleteReportData() {
         let cmd = "lungfish-cli conda classify --db standard --input /data/R1.fastq.gz"
-        let id = center.start(title: "Classify Reads", detail: "Starting...", cliCommand: cmd)
+        let id = center.begin(
+            title: "Classify Reads",
+            detail: "Starting...",
+            operationType: .download,
+            cliCommand: cmd
+        ).rowID
 
         center.log(id: id, level: .info, message: "Loading database")
         center.log(id: id, level: .error, message: "OOM killed")

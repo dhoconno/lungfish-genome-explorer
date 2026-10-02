@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 import LungfishIO
 import LungfishKit
+import LungfishKitTestSupport
 @testable import LungfishApp
 
 /// A completed FASTQ operation must record what it produced so the
@@ -34,12 +35,13 @@ final class FASTQOperationCompletionOutputsTests: XCTestCase {
     }
 
     private func startOperation(in center: OperationCenter, project: URL) -> UUID {
-        center.start(
+        center.begin(
             title: "FASTQ: fastp Adapter + Quality Trim",
             detail: "Preparing...",
             operationType: .fastqOperation,
+            cliCommand: nil,
             routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil)
-        )
+        ).rowID
     }
 
     func testCompletedDerivativeOperationCarriesItsOutputBundle() throws {
