@@ -8,10 +8,11 @@
 // that refuses every begin proves each launch closure sits behind the
 // `.started` case. The single-sample Kraken2, EsViritu and TaxTriage rows
 // record a command that parses through the real CLI parser with the run's
-// values. The EsViritu batch row, the Kraken2 batch row and the multi-sample
-// TaxTriage row have no command that reproduces the run, and their tests pin
-// today's value as a parity gap, so a change to the CLI or to the recorded
-// string fails here and prompts a deliberate test change.
+// values, and the Kraken2 batch row records one such command per sample. The
+// EsViritu batch row and the multi-sample TaxTriage row have no command that
+// reproduces the run, and their tests pin today's value as a parity gap, so a
+// change to the CLI or to the recorded string fails here and prompts a
+// deliberate test change.
 
 import XCTest
 @testable import LungfishApp
@@ -142,9 +143,9 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(reporter.items.first).title, "Classifying reads")
     }
 
-    // MARK: - Kraken2 batch, a CLI parity gap
+    // MARK: - Kraken2 batch
 
-    func testKraken2BatchRowPinsTodaysCommandAndItsDifferenceFromTheReplayCommand() throws {
+    func testKraken2BatchRowRecordsOneConfiguredCommandPerSampleMatchingTheReplayCommand() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = makeRouteContext()
         let firstInput = importURL("Sample 1.lungfishfastq")
@@ -154,6 +155,9 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             isPairedEnd: false,
             databaseName: "Viral",
             databasePath: databaseURL,
+            confidence: 0.2,
+            minimumHitGroups: 2,
+            threads: 4,
             outputDirectory: analysisURL("kraken2-batch-2026-10-02/Sample 1")
         )
         let second = ClassificationConfig(
@@ -161,6 +165,9 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
             isPairedEnd: true,
             databaseName: "Viral",
             databasePath: databaseURL,
+            confidence: 0.2,
+            minimumHitGroups: 2,
+            threads: 4,
             outputDirectory: analysisURL("kraken2-batch-2026-10-02/Sample 2")
         )
         var launchedID: UUID?
@@ -180,35 +187,33 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
 
-        // CLI parity gap. The row records one `conda classify` command with the
-        // database path and every input. The batch runs one classification per
-        // sample, and the CLI looks `--db` up as a registry name, so this
-        // command does not reproduce the run. The provenance replay command
-        // does. A batch command in the CLI would replace this pin with a parse
-        // test.
-        XCTAssertEqual(
-            item.cliCommand,
-            "lungfish-cli conda classify --db '/tmp/lane 1a2/Databases/Viral DB'"
-                + " '/tmp/lane 1a2/Imports/Sample 1.lungfishfastq'"
-                + " '/tmp/lane 1a2/Imports/Sample 2_R1.fastq.gz'"
-                + " '/tmp/lane 1a2/Imports/Sample 2_R2.fastq.gz'"
-        )
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: ClassifyCommand.self)
-        XCTAssertEqual(command.databaseName, databaseURL.path, "--db carries a path, not a registry name")
-        XCTAssertEqual(command.fastqFiles, [firstInput.path] + pairedInputs.map(\.path))
-        XCTAssertNil(command.outputDir, "the row names no output folder")
-        XCTAssertFalse(command.pairedEnd, "the row folds a paired sample into one unpaired list")
-
+        // One `conda classify` per sample (R3). The row used to record one
+        // command with the database path in `--db`, no output folder and every
+        // input of every sample, which the CLI could not run as the batch ran.
+        let lines = try XCTUnwrap(item.cliCommand).components(separatedBy: "\n")
+        XCTAssertEqual(lines.count, 2, "one command per sample")
         let script = try XCTUnwrap(AppDelegate.classificationBatchReplayCommand(configurations: [first, second]).last)
-        for config in [first, second] {
-            let replaySample = ([CLICommandIdentity.executableName] + ClassificationCLIInvocationBuilder.build(for: config).arguments)
-                .map(shellEscape)
-                .joined(separator: " ")
-            XCTAssertTrue(script.contains(replaySample), "the replay runs conda classify for \(config.outputDirectory.lastPathComponent)")
-            XCTAssertNotEqual(item.cliCommand, replaySample)
+        for (line, config) in zip(lines, [first, second]) {
+            let command = try RecordedCLICommand.parse(line, as: ClassifyCommand.self)
+            XCTAssertEqual(command.databaseName, "Viral", "--db is the registry name the CLI resolves")
+            XCTAssertEqual(command.fastqFiles, config.inputFiles.map(\.path))
+            XCTAssertEqual(command.outputDir, config.outputDirectory.path)
+            XCTAssertEqual(command.pairedEnd, config.isPairedEnd)
+            XCTAssertEqual(command.confidence, 0.2)
+            XCTAssertEqual(command.minHitGroups, 2)
+            XCTAssertEqual(command.globalOptions.threads, 4)
+            XCTAssertEqual(
+                try RecordedCLICommand.arguments(of: line),
+                ClassificationCLIInvocationBuilder.build(for: config).arguments,
+                "the line is the builder's argv for the sample"
+            )
+            XCTAssertTrue(script.contains(line), "the replay command runs the same conda classify for the sample")
         }
         XCTAssertEqual(script.components(separatedBy: "conda classify").count - 1, 2, "one conda classify per sample")
-        XCTAssertTrue(script.contains("--db Viral"), "the replay passes the registry name")
+    }
+
+    func testEmptyKraken2BatchRecordsNoCommand() {
+        XCTAssertNil(AppDelegate.classificationBatchCLICommand(for: []))
     }
 
     func testKraken2BatchTitleCountsSamples() throws {
