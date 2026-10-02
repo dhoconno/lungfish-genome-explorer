@@ -1,0 +1,64 @@
+WEBVTT
+
+00:00:03.200 --> 00:00:07.970
+This video uses the Genes and Sequences demo project.
+
+00:00:07.970 --> 00:00:14.360
+Choose Help, then Demo Projects, and click Download and Open beside it.
+
+00:00:14.360 --> 00:00:22.190
+It holds NG_000007.3, the NCBI reference record for the human beta-globin gene cluster.
+
+00:00:22.190 --> 00:00:26.240
+The video Your first project shows each step.
+
+00:00:27.340 --> 00:00:34.691
+Click NG_000007.3 under Reference Sequences, then click Focus to show it in the viewer.
+
+00:00:34.691 --> 00:00:44.914
+It holds HBB, the gene for beta-globin, one of the protein chains of hemoglobin, which carries oxygen in red blood cells.
+
+00:00:44.914 --> 00:00:51.420
+Annotated features, such as genes and coding sequences, show as colored bars.
+
+00:00:52.520 --> 00:01:00.420
+A codon is three bases in a gene's coding sequence that specify one amino acid.
+
+00:01:00.420 --> 00:01:13.220
+Choose Sequence, then Go to Location, type the record name and the codon's first and last bases, 70,613 to 70,615, and click Go.
+
+00:01:13.220 --> 00:01:16.920
+The viewer zooms to three bases, GAG.
+
+00:01:18.020 --> 00:01:26.514
+The Translation row below the bases shows the amino acid each codon specifies, as a one-letter code.
+
+00:01:26.514 --> 00:01:31.780
+GAG specifies glutamate, also called glutamic acid, written E.
+
+00:01:32.880 --> 00:01:38.443
+In sickle hemoglobin, HbS, the middle A of this codon is a T.
+
+00:01:38.443 --> 00:01:46.558
+GTG specifies valine, so amino acid 6 of beta-globin becomes valine instead of glutamate.
+
+00:01:46.558 --> 00:01:54.583
+When oxygen is low, HbS forms long fibers that bend red blood cells into a sickle shape.
+
+00:01:54.583 --> 00:01:58.960
+Sickle cell disease needs HbS from both parents.
+
+00:02:00.060 --> 00:02:04.888
+An annotation is your own labeled mark on a stretch of sequence.
+
+00:02:04.888 --> 00:02:11.980
+Drag across the three bases, choose Sequence, then Add Annotation, type a name, and click Add.
+
+00:02:13.080 --> 00:02:15.927
+LGE saves your annotation in the project.
+
+00:02:15.927 --> 00:02:23.080
+Go back to the codon and it shows on the Manual Annotations track, a row of the viewer under the bases.
+
+00:02:24.180 --> 00:02:29.860
+Next, learn to check the quality of a sequencing run, on the Videos page of the website.

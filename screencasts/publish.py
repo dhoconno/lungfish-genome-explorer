@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""Publish a rendered LGE quick video and regenerate the website's Videos page.
+
+    python3 screencasts/publish.py screencasts/<slug>/video.yaml            # check, then print what would happen
+    python3 screencasts/publish.py screencasts/<slug>/video.yaml --yes      # upload and update the repository files
+    python3 screencasts/publish.py --page                                   # only regenerate docs/site/videos.qmd
+    python3 screencasts/publish.py --check                                  # fail if published files disagree (pre-push)
+
+Publishing a video:
+  1. refuses a render whose stamp (written by render.py) does not match the current spec and takes,
+     a render made with a draft voice (engine say or --draft-voice), page text that breaks the
+     prose rules, and a spec that fails render.py's checks,
+  2. writes out/<slug>-contact.png, one frame every 4 s, to scan for home-folder paths and private
+     rows before anything goes public (README, Storage),
+  3. with --yes, uploads the wide render and poster over the public copies with
+     scripts/lge-files/lge-files.sh and checks an anonymous download byte for byte,
+  4. records the upload in <slug>/published.yaml and <slug>/large-files.tsv, copies the captions
+     and transcript next to the spec and the captions to docs/site/videos/, and regenerates
+     docs/site/videos.qmd.
+The contract that uses this tool is docs/contracts/SCREENCASTS.md.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import html
+import importlib.util
+import json
+import math
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("screencasts/publish.py needs PyYAML (python3 -m pip install pyyaml)")
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent
+SITE_PAGE = REPO / "docs/site/videos.qmd"
+SITE_CAPTIONS = REPO / "docs/site/videos"
+PUBLIC = "https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files"
+LGE_FILES = REPO / "scripts/lge-files/lge-files.sh"
+ENGINE_NAMES = {"elevenlabs": "ElevenLabs", "openai": "OpenAI", "say": "macOS say"}
+
+
+class Problem(Exception):
+    """A published video whose files are missing or disagree."""
+
+
+def load_render():
+    """render.py holds the spec checks and the prose lint, so publishing applies the same rules."""
+    spec = importlib.util.spec_from_file_location("render", HERE / "render.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def seconds_of(path: Path) -> float:
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)],
+                         capture_output=True, text=True, check=True).stdout
+    return float(json.loads(out)["format"]["duration"])
+
+
+def remote(slug: str, name: str) -> str:
+    return f"screencasts/{slug}/renders/{name}"
+
+
+def voice_label(cfg: dict) -> str:
+    n = cfg.get("narration")
+    if not isinstance(n, dict):
+        return "silent"
+    engine = n.get("engine", "say")
+    return f"{ENGINE_NAMES.get(engine, engine)} {n.get('voice_name') or n.get('voice_id') or n.get('voice')}"
+
+
+def lower_first(text: str) -> str:
+    return text[0].lower() + text[1:]
+
+
+def read(path: Path) -> str:
+    if not path.exists():
+        raise Problem(f"missing {path.relative_to(REPO)}")
+    return path.read_text()
+
+
+# ---------------------------------------------------------------- the Videos page
+
+def transcript_paragraphs(video_dir: Path) -> list[str]:
+    """The transcript body, without its heading and its 'Filmed with' line."""
+    blocks = read(video_dir / "transcript.md").split("\n\n")
+    return [" ".join(p.split()) for p in blocks[2:] if p.strip()]
+
+
+def entry(video_dir: Path, cfg: dict, pub: dict) -> str:
+    slug = cfg["slug"]
+    narrated = isinstance(cfg.get("narration"), dict)
+    summary = " ".join(cfg["site"]["summary"].split()).rstrip(".") + "."
+    caption = f"{summary} {round(pub['seconds'])} seconds, {'' if narrated else 'silent, '}{lower_first(pub['filmed_with'])}."
+    out = [f"### {cfg['site'].get('heading', cfg['title'])}", "",
+           '<figure class="lge-video">',
+           '<video controls preload="metadata" playsinline width="100%"',
+           f'  poster="{PUBLIC}/{remote(slug, slug + "-poster.png")}">',
+           f'<source src="{PUBLIC}/{remote(slug, slug + ".mp4")}" type="video/mp4">']
+    if narrated:
+        out.append(f'<track kind="captions" srclang="en" label="English" src="videos/{slug}.vtt">')
+    out += ["</video>", f"<figcaption>{html.escape(caption, quote=False)}</figcaption>", "</figure>", "", "<details>"]
+    if narrated:
+        out += ["<summary>Transcript</summary>", ""]
+        for p in transcript_paragraphs(video_dir):
+            out += [html.escape(p, quote=False), ""]
+    else:
+        out += ["<summary>On-screen text</summary>", ""]
+        out += [f"- {html.escape(b['caption'], quote=False)}" for b in cfg["beats"] if b.get("caption")]
+        out.append("")
+    out.append("</details>")
+    return "\n".join(out)
+
+
+def site_config() -> dict:
+    return yaml.safe_load(read(HERE / "_shared/site.yaml"))
+
+
+def published_videos() -> list[tuple[Path, dict, dict]]:
+    found = []
+    for pub_file in sorted(HERE.glob("*/published.yaml")):
+        video_dir = pub_file.parent
+        cfg = yaml.safe_load(read(video_dir / "video.yaml"))
+        pub = yaml.safe_load(pub_file.read_text()) or {}
+        missing = [k for k in ("seconds", "filmed_with", "voice", "mp4", "poster") if k not in pub]
+        if missing:
+            raise Problem(f"{video_dir.name}/published.yaml lacks {', '.join(missing)}")
+        if not (cfg.get("site") or {}).get("section"):
+            raise Problem(f"{video_dir.name}/video.yaml has no site.section")
+        found.append((video_dir, cfg, pub))
+    return found
+
+
+def page_text() -> str:
+    """The whole Videos page."""
+    site = site_config()
+    videos = published_videos()
+    unknown = sorted({c["site"]["section"] for _, c, _ in videos} - set(site["sections"]))
+    if unknown:
+        raise Problem(f"sections missing from screencasts/_shared/site.yaml: {', '.join(unknown)}")
+    out = ["---", f'title: "{site["title"]}"', "toc: false", "---", "",
+           "<!-- Generated by screencasts/publish.py from screencasts/_shared/site.yaml and each video's",
+           "     video.yaml, published.yaml and transcript.md. Do not edit by hand. Video files and posters",
+           "     are served from the public LGE LabKey folder (docs/development/large-files.md). Caption",
+           "     tracks sit beside this page in videos/, because the LabKey server sends no CORS headers and",
+           "     a <track> must come from the page's own origin. -->", "",
+           " ".join(site["intro"].split()), "", "[Back to the home page](index.html)", ""]
+    for section in site["sections"]:
+        members = sorted((v for v in videos if v[1]["site"]["section"] == section), key=lambda v: v[1]["slug"])
+        if members:
+            out += [f"## {section}", ""]
+            for video_dir, cfg, pub in members:
+                out += [entry(video_dir, cfg, pub), ""]
+    return "\n".join(out).rstrip() + "\n"
+
+
+# ---------------------------------------------------------------- checks
+
+def public_row(tsv_text: str, path: str, digest: str) -> bool:
+    for line in tsv_text.splitlines():
+        cols = line.split("\t")
+        if len(cols) >= 4 and cols[0] == "public" and cols[1] == path and cols[3] == digest:
+            return True
+    return False
+
+
+def check() -> list[str]:
+    """Published files that disagree with each other. Runs in the pre-push hook."""
+    problems = []
+    try:
+        videos = published_videos()
+    except Problem as e:
+        return [str(e)]
+    narrated_slugs = set()
+    for video_dir, cfg, pub in videos:
+        slug = cfg["slug"]
+        try:
+            if pub["voice"].startswith(ENGINE_NAMES["say"]):
+                problems.append(f"{slug}: published with the draft voice engine say (Apple's licence forbids it)")
+            if pub["voice"] != "silent":
+                narrated_slugs.add(slug)
+                if read(SITE_CAPTIONS / f"{slug}.vtt") != read(video_dir / "captions.vtt"):
+                    problems.append(f"{slug}: docs/site/videos/{slug}.vtt differs from screencasts/{slug}/captions.vtt")
+            tsv = read(video_dir / "large-files.tsv")
+            for key in ("mp4", "poster"):
+                if not public_row(tsv, pub[key]["path"], pub[key]["sha256"]):
+                    problems.append(f"{slug}: large-files.tsv has no public row for {pub[key]['path']} "
+                                    f"with the published checksum")
+        except Problem as e:
+            problems.append(f"{slug}: {e}")
+    for vtt in sorted(SITE_CAPTIONS.glob("*.vtt")):
+        if vtt.stem not in narrated_slugs:
+            problems.append(f"docs/site/videos/{vtt.name} belongs to no published narrated video")
+    try:
+        if not SITE_PAGE.exists() or SITE_PAGE.read_text() != page_text():
+            problems.append("docs/site/videos.qmd is not what the specs generate (python3 screencasts/publish.py --page)")
+    except Problem as e:
+        problems.append(str(e))
+    return problems
+
+
+# ---------------------------------------------------------------- publishing
+
+def contact_sheet(mp4: Path, seconds: float, out: Path):
+    """One frame every 4 s, four across, as many rows as the video needs."""
+    rows = max(1, math.ceil(seconds / 4 / 4))
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(mp4), "-vf",
+                    f"fps=1/4,scale=480:-1,tile=4x{rows}:padding=6:color=white", "-frames:v", "1", str(out)], check=True)
+
+
+def update_tsv(tsv: Path, rows: list[list[str]]):
+    """Replace the public rows for these remote paths, keeping every other row and the header."""
+    paths = {r[1] for r in rows}
+    lines = tsv.read_text().rstrip("\n").split("\n") if tsv.exists() else []
+    kept = [l for l in lines if not (l.startswith("public\t") and l.split("\t")[1] in paths)]
+    if not any(l.startswith("area\t") for l in kept):
+        kept.append("area\tremote_path\tbytes\tsha256\tnote\turl")
+    header_at = next(i for i, l in enumerate(kept) if l.startswith("area\t"))
+    new = ["\t".join(r) for r in rows]
+    tsv.write_text("\n".join(kept[:header_at + 1] + new + kept[header_at + 1:]) + "\n")
+
+
+def preflight(spec_path: Path, render) -> tuple[Path, dict, list[str]]:
+    video_dir = spec_path.resolve().parent
+    cfg = yaml.safe_load(spec_path.read_text())
+    slug = cfg["slug"]
+    problems = render.validate_spec(cfg) + render.lint_text(cfg["beats"])
+    site = cfg.get("site") or {}
+    if not site.get("section") or not site.get("summary"):
+        problems.append("missing site.section and site.summary (the Videos page entry)")
+    elif site["section"] not in site_config()["sections"]:
+        problems.append(f"site.section {site['section']!r} is not listed in screencasts/_shared/site.yaml")
+    page_strings = {"id": "site", "sub": site.get("summary"), "title": site.get("heading")}
+    problems += render.lint_text([page_strings])
+    narrated = isinstance(cfg.get("narration"), dict)
+    if narrated and cfg["narration"].get("engine", "say") == "say":
+        problems.append("narration engine is say, a draft voice that Apple's licence does not allow publishing (VOICES.md)")
+    out = video_dir / "out"
+    needed = [out / f"{slug}-wide.mp4", out / f"{slug}-wide-poster.png", out / f"{slug}-wide.json"]
+    if narrated:
+        needed += [out / f"{slug}-wide.vtt", out / f"{slug}-transcript.md"]
+    problems += [f"missing {p.relative_to(REPO)} (render first)" for p in needed if not p.exists()]
+    stamp_file = out / f"{slug}-wide.json"
+    if stamp_file.exists():
+        stamp = json.loads(stamp_file.read_text())
+        if stamp.get("spec") != render.spec_fingerprint(cfg, video_dir):
+            problems.append("the render was made from a different video.yaml or different takes (render again)")
+        if stamp.get("draft") or (narrated and stamp.get("engine") == "say"):
+            problems.append("the render used a draft voice (render again without --draft-voice)")
+    try:
+        published_videos()
+    except Problem as e:
+        problems.append(f"another published video is broken, so the page cannot be generated ({e})")
+    return video_dir, cfg, problems
+
+
+def publish(spec_path: Path, yes: bool):
+    render = load_render()
+    video_dir, cfg, problems = preflight(spec_path, render)
+    if problems:
+        sys.exit("Not published:\n" + "\n".join(f"  {p}" for p in problems))
+    slug = cfg["slug"]
+    narrated = isinstance(cfg.get("narration"), dict)
+    out = video_dir / "out"
+    mp4, poster = out / f"{slug}-wide.mp4", out / f"{slug}-wide-poster.png"
+    seconds = seconds_of(mp4)
+    sheet = out / f"{slug}-contact.png"
+    contact_sheet(mp4, seconds, sheet)
+    print(f"{slug}: {seconds:.1f} s, {voice_label(cfg)}")
+    print(f"contact sheet {sheet.relative_to(REPO)}: check every frame for home-folder paths and unrelated rows")
+    if not yes:
+        print("dry run. Run again with --yes to upload and update the repository files.")
+        return
+
+    uploads = [(mp4, remote(slug, f"{slug}.mp4")), (poster, remote(slug, f"{slug}-poster.png"))]
+    for local, path in uploads:
+        subprocess.run(["bash", str(LGE_FILES), "put", str(local), path], check=True)
+        with urllib.request.urlopen(f"{PUBLIC}/{path}", timeout=300) as f:
+            served = hashlib.sha256(f.read()).hexdigest()
+        if served != sha256(local):
+            sys.exit(f"the public copy of {path} does not match the upload. Nothing in the repository was changed.")
+    filmed = render.filmed_with_text(cfg)
+    note = f"current cut, {lower_first(filmed)}, " + (f"{voice_label(cfg)} narration" if narrated else "silent")
+    rows = [["public", path, str(local.stat().st_size), sha256(local), note, f"{PUBLIC}/{path}"] for local, path in uploads]
+    update_tsv(video_dir / "large-files.tsv", rows)
+
+    pub = {"published": dt.date.today().isoformat(), "seconds": round(seconds, 1), "filmed_with": filmed,
+           "voice": voice_label(cfg),
+           "mp4": {"path": uploads[0][1], "bytes": mp4.stat().st_size, "sha256": sha256(mp4)},
+           "poster": {"path": uploads[1][1], "bytes": poster.stat().st_size, "sha256": sha256(poster)}}
+    (video_dir / "published.yaml").write_text(
+        "# Written by screencasts/publish.py. The current public render of this video.\n" + yaml.safe_dump(pub, sort_keys=False))
+    if narrated:
+        (video_dir / "captions.vtt").write_text((out / f"{slug}-wide.vtt").read_text())
+        (video_dir / "transcript.md").write_text((out / f"{slug}-transcript.md").read_text())
+        SITE_CAPTIONS.mkdir(exist_ok=True)
+        (SITE_CAPTIONS / f"{slug}.vtt").write_text((out / f"{slug}-wide.vtt").read_text())
+    SITE_PAGE.write_text(page_text())
+    print(f"published {slug}. Mark its feedback.md rows published, commit screencasts/{slug} and docs/site, "
+          "then push main so the site redeploys.")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("video", type=Path, nargs="?")
+    ap.add_argument("--yes", action="store_true", help="upload and update files (default is a dry run)")
+    ap.add_argument("--page", action="store_true", help="only regenerate docs/site/videos.qmd")
+    ap.add_argument("--check", action="store_true", help="fail if the published files disagree")
+    args = ap.parse_args()
+    try:
+        if args.check:
+            problems = check()
+            if problems:
+                print("Screencast publishing is out of step:\n" + "\n".join(f"  {p}" for p in problems))
+                sys.exit(1)
+            print("screencasts: published files agree")
+        elif args.page:
+            SITE_PAGE.write_text(page_text())
+            print(f"wrote {SITE_PAGE.relative_to(REPO)}")
+        elif args.video:
+            publish(args.video, args.yes)
+        else:
+            ap.error("give a video.yaml, --page or --check")
+    except Problem as e:
+        sys.exit(str(e))
+
+
+if __name__ == "__main__":
+    main()

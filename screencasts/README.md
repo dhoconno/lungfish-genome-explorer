@@ -1,10 +1,15 @@
 # LGE quick videos
 
+The process for making, revising and publishing a video is the contract in `docs/contracts/SCREENCASTS.md`. This file is the spec reference.
+
 Short, captioned screencasts. Some show one function or application. Others, like 01, show what sets the app apart. Each video is one folder with a `video.yaml` and its takes. The `video.yaml` is the whole recipe, so any video can be remade against a newer app version.
 
 ```
 screencasts/
   render.py                 video.yaml -> out/<slug>-wide.mp4, -square.mp4, posters
+  publish.py                upload the current render, record it, regenerate docs/site/videos.qmd
+  _shared/site.yaml         Videos page intro and section order
+  _shared/video-template.yaml   commented spec to copy for a new video
   _shared/brand.json        palette, canvas, timing tokens
   _shared/templates/        overlay.html (cards, lower thirds, placeholders, click rings)
   _shared/fonts/            Space Grotesk, Inter, IBM Plex Mono (OFL, licences alongside)
@@ -30,7 +35,7 @@ Every `video.yaml` records what the video is for, what it was filmed with, and h
 | per beat `zoom`, `highlights` | An eased punch-in to a region, and accent outlines around the items that matter. |
 | per beat `blur` | Regions of the footage to blur, for home-folder paths or rows from unrelated work. |
 
-A beat longer than its footage holds the last frame. Narrated renders also write `<slug>-wide.vtt` and `<slug>-transcript.md`. Copy both next to the spec as `captions.vtt` and `transcript.md`, since caption tracks are served beside the page that embeds the video. `--draft-voice <name>` renders a draft with another installed voice.
+A beat longer than its footage holds the last frame. Narrated renders also write `<slug>-wide.vtt` and `<slug>-transcript.md`. `publish.py` copies them next to the spec as `captions.vtt` and `transcript.md` and to `docs/site/videos/`, since caption tracks are served beside the page that embeds the video. Never copy them by hand. `--draft-voice <name>` renders a draft with another installed voice, and `publish.py` refuses such a render.
 
 The version tag is written three ways: in `filmed_with`, in the MP4's title and comment metadata, and as a small "Filmed with ..." line on the end card (write `"{filmed_with}"` as a card line with `style: version`). The public render keeps its plain name. Its row in `large-files.tsv` names the version too.
 
@@ -39,7 +44,7 @@ The version tag is written three ways: in `filmed_with`, in the MP4's title and 
 1. `python3 screencasts/render.py --status` lists every video with the versions it was filmed on and whether it is behind the current app.
 2. Install the release to film from, then recreate the `setup` projects.
 3. Re-film each beat as its `capture` says, check every `verify` fact, and adjust `in`, `duration`, `zoom` and `highlights` to the new takes.
-4. Update `filmed_with`, render, review a frame per second, then replace the public render and update `large-files.tsv`.
+4. Update `filmed_with`, render, review the contact sheet and the video, then publish with `screencasts/publish.py` (docs/contracts/SCREENCASTS.md, Publishing).
 
 ## Footage rule (binding, owner 2026-10-01)
 
@@ -54,7 +59,7 @@ Renders, posters and raw takes are not committed. The public LGE LabKey folder h
 - Brand fonts and palette from the Lungfish style guide, with the app's own orange `#D47B3A` as the accent so cards match the footage.
 - Captions are 4 to 9 words, sentence case, and follow the manual's prose rules (no em dashes, semicolons, mid-sentence colons, `!`, `?`, or words on `ai-tells-words.txt`). `render.py` refuses to render text that breaks them.
 - No music. Overview and social videos stay silent, with captions carrying the story in muted autoplay.
-- Tutorial videos (the B track) are narrated. Apple system voices (`engine: say`) are for drafts only, because Apple's licence does not allow publishing them. Published narration uses a licensed cloud voice (`engine: elevenlabs` or `openai`, see VOICES.md). Captions stay on every video. The burned-in caption is the short takeaway, and the narration adds one clause of context. The narration names each control by its label and says what happens, so it also serves as audio description. It never says "click here" or relies on the orange outline alone. Pace is about 2.4 words per second, with a short pause after each zoom lands, and loudness is -16 LUFS.
+- Tutorial videos (the B track) are narrated. Apple system voices (`engine: say`) are for drafts only, because Apple's licence does not allow publishing them. Published narration uses the licensed ElevenLabs voice Matilda (see VOICES.md). OpenAI stays a documented fallback only. Captions stay on every video. The burned-in caption is the short takeaway, and the narration adds one clause of context. The narration names each control by its label and says what happens, so it also serves as audio description. It never says "click here" or relies on the orange outline alone. Pace is about 2.4 words per second, with a short pause after each zoom lands, and loudness is -16 LUFS.
 - A narrated video ships a WebVTT captions track and a transcript generated from the same spec, and the page says the voice is synthetic.
 - Zoom in with `zoom` and outline the item that matters with `highlights` whenever a detail is too small to read at full window size.
 - Never name another product on screen. Say "recorded" rather than "reproducible".
@@ -78,4 +83,4 @@ Renders, posters and raw takes are not committed. The public LGE LabKey folder h
 
 The recorder only ever captures the window it is given. Never record the full screen.
 
-Rendering needs Python with `playwright` (Chromium), `PyYAML` and `Pillow`, plus Homebrew `ffmpeg`.
+Rendering needs Python with `playwright` (Chromium), `PyYAML` and `Pillow`, plus Homebrew `ffmpeg`. Publishing and the pre-push check (`publish.py --check`) need `PyYAML`, `ffmpeg` and `ffprobe`.

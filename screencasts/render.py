@@ -62,6 +62,21 @@ def validate_spec(cfg: dict) -> list[str]:
     return problems
 
 
+def spec_fingerprint(cfg: dict, video_dir: Path) -> str:
+    """Hash of the spec (without its site entry) and the size and time of every take it uses.
+
+    publish.py compares it with the stamp beside a render, so a render made before the spec changed
+    or a take was re-filmed is never published."""
+    shaping = {k: v for k, v in cfg.items() if k != "site"}
+    takes = {}
+    for beat in cfg["beats"]:
+        if beat.get("take"):
+            take = video_dir / beat["take"]
+            takes[beat["take"]] = [take.stat().st_size, int(take.stat().st_mtime)] if take.exists() else None
+    blob = json.dumps({"spec": shaping, "takes": takes}, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
 def current_app_version() -> str:
     text = (REPO / "Sources/LungfishCore/AppVersion.swift").read_text()
     return re.search(r'static let short = "([^"]+)"', text).group(1)
@@ -583,6 +598,7 @@ def main():
     brand = json.loads((SHARED / "brand.json").read_text())
     fps = brand["canvas"]["fps"]
 
+    fingerprint = spec_fingerprint(cfg, video_dir)  # before {filmed_with} and narration lengthening change cfg
     spec_problems = validate_spec(cfg)
     if spec_problems:
         print("The video spec is incomplete:")
@@ -681,6 +697,9 @@ def main():
                 vtt = ["WEBVTT", ""] + [f"{vtt_time(a)} --> {vtt_time(b)}\n{text}\n" for a, b, text in cues]
                 (out_dir / f"{cfg['slug']}-{name}.vtt").write_text("\n".join(vtt))
                 (out_dir / f"{cfg['slug']}-transcript.md").write_text("\n".join(transcript))
+            (out_dir / f"{cfg['slug']}-{name}.json").write_text(json.dumps({
+                "spec": fingerprint, "engine": narration.get("engine", "say") if narration else "none",
+                "draft": bool(args.draft_voice)}) + "\n")
             poster = out_dir / f"{cfg['slug']}-{name}-poster.png"
             ffmpeg(["-ss", "1.6", "-i", str(final), "-frames:v", "1", str(poster)])
             shown = final.relative_to(REPO) if final.is_relative_to(REPO) else final

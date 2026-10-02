@@ -13,6 +13,11 @@ manual: 03-reads/03-quality-control
 demo: human-reads
 next: B04-reading-a-pileup
 
+site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
+  section: Reads
+  summary: >-
+    Judge a run of Illumina reads from its summary cards and charts, and learn what the quality scores mean and what healthy values look like.
+
 filmed_with:
   app: Lungfish
   versions: ["2026.9.72"]
@@ -21,7 +26,8 @@ filmed_with:
 narration:
   engine: elevenlabs
   model: eleven_v4
-  voice_id: XrExE9yKIg1WjnnlVkGX   # Matilda (ElevenLabs stock voice), chosen 2026-10-02
+  voice_name: Matilda   # ElevenLabs stock voice, chosen 2026-10-02 (VOICES.md)
+  voice_id: XrExE9yKIg1WjnnlVkGX
   seed: 4242
   voice_settings: {stability: 0.6, similarity_boost: 0.75, style: 0, speed: 0.95}
   lead: 0.5

@@ -12,6 +12,11 @@ audience: Undergraduate biology students and bench scientists new to bioinformat
 manual: 01-foundations/06-the-lungfish-project
 next: B01-first-project
 
+site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
+  section: Getting started
+  summary: >-
+    Download LGE from the website, install it, open it for the first time, install the tools it runs and create an empty project.
+
 filmed_with:
   app: Lungfish
   versions: ["2026.9.72"]
@@ -20,7 +25,8 @@ filmed_with:
 narration:
   engine: elevenlabs
   model: eleven_v4
-  voice_id: XrExE9yKIg1WjnnlVkGX   # Matilda (ElevenLabs stock voice), chosen 2026-10-02
+  voice_name: Matilda   # ElevenLabs stock voice, chosen 2026-10-02 (VOICES.md)
+  voice_id: XrExE9yKIg1WjnnlVkGX
   seed: 4242
   voice_settings: {stability: 0.6, similarity_boost: 0.75, style: 0, speed: 0.95}
   lead: 0.5

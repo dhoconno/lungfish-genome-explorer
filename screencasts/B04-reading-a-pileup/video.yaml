@@ -13,6 +13,11 @@ audience: Undergraduate biology students and bench scientists new to bioinformat
 manual: 04-alignments/02-reading-an-alignment
 demo: human-mapping-and-variants-results
 
+site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
+  section: Alignments
+  summary: >-
+    Read the coverage curve, zoom in to single reads, and tell a change on both chromosome copies from a change on one.
+
 filmed_with:
   app: Lungfish
   versions: ["2026.9.72"]
@@ -21,7 +26,8 @@ filmed_with:
 narration:
   engine: elevenlabs
   model: eleven_v4
-  voice_id: XrExE9yKIg1WjnnlVkGX   # Matilda (ElevenLabs stock voice), chosen 2026-10-02
+  voice_name: Matilda   # ElevenLabs stock voice, chosen 2026-10-02 (VOICES.md)
+  voice_id: XrExE9yKIg1WjnnlVkGX
   seed: 4242
   voice_settings: {stability: 0.6, similarity_boost: 0.75, style: 0, speed: 0.95}
   lead: 0.5

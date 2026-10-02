@@ -1,0 +1,13 @@
+# Written by screencasts/publish.py. The current public render of this video.
+published: '2026-10-01'
+seconds: 78.1
+filmed_with: Filmed with Lungfish Preview 2026.9.73 and 2026.9.74
+voice: silent
+mp4:
+  path: screencasts/01-lge-overview/renders/01-lge-overview.mp4
+  bytes: 11824692
+  sha256: d72a86a44c29567a30b5dacaa71094704d4e29449823613944b4ad0b132438f7
+poster:
+  path: screencasts/01-lge-overview/renders/01-lge-overview-poster.png
+  bytes: 78742
+  sha256: 0d40143aa6dc8664600385239d9239dbbe2cd01211af80c7d3a6f6079dc715df

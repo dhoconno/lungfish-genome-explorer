@@ -1,0 +1,67 @@
+WEBVTT
+
+00:00:03.200 --> 00:00:06.821
+This video uses the Human Reads demo project.
+
+00:00:06.821 --> 00:00:13.259
+Choose Help, then Demo Projects, and click Download and Open beside Human Reads.
+
+00:00:13.259 --> 00:00:16.880
+The video Your first project shows each step.
+
+00:00:17.980 --> 00:00:20.686
+Click the HG002 reads under Imports.
+
+00:00:20.686 --> 00:00:28.127
+HG002 is a Genome in a Bottle reference sample, one of the most thoroughly sequenced human genomes.
+
+00:00:28.127 --> 00:00:39.100
+The cards across the top summarize all the reads in this file, how many reads and bases there are, how long the reads are, and their base quality.
+
+00:00:40.200 --> 00:00:47.012
+Each base call gets a base quality score, also called a Phred score and written Q.
+
+00:00:47.012 --> 00:00:52.662
+It is the sequencer's estimate of the chance that the call is wrong.
+
+00:00:52.662 --> 00:00:54.988
+Q20 means a 1 in 100 chance.
+
+00:00:54.988 --> 00:00:57.480
+Q30 means a 1 in 1,000 chance.
+
+00:00:58.580 --> 00:01:02.540
+Here 91 percent of base calls are Q30 or higher.
+
+00:01:02.540 --> 00:01:11.780
+For Illumina's long 250-base reads, the manufacturer's target is about 75 percent, so this run is well above it.
+
+00:01:12.880 --> 00:01:15.885
+Click the Q / Position chart to open it.
+
+00:01:15.885 --> 00:01:20.917
+It plots base quality from the first base of each read to the last.
+
+00:01:20.917 --> 00:01:29.931
+Quality drops toward the end because, cycle by cycle, the copies of each fragment fall out of step and the signal blurs.
+
+00:01:29.931 --> 00:01:33.536
+Here the average stays above Q30 until base 243.
+
+00:01:33.536 --> 00:01:36.240
+Click outside the chart to close it.
+
+00:01:37.340 --> 00:01:38.410
+Length Dist.
+
+00:01:38.410 --> 00:01:49.291
+peaks at 250 bases, because the run read 250 bases from each end of every fragment, called 2 by 250 paired-end sequencing.
+
+00:01:49.291 --> 00:01:54.820
+GC content, the share of bases that are G or C, is 39 percent.
+
+00:01:54.820 --> 00:02:01.420
+The human genome averages about 41 percent, and a 500 kb slice can differ.
+
+00:02:02.520 --> 00:02:09.480
+Next, see these reads aligned to a slice of human chromosome 20, on the Videos page of the website.
