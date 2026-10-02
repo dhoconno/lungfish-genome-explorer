@@ -142,15 +142,17 @@ final class SequenceMenuOperationTests: XCTestCase {
             allowAlternativeStarts: true
         )
 
+        // Values that can start with "-" are joined to their option, so a
+        // reverse-only frame list or a hyphenated name parses (R3).
         XCTAssertEqual(SequenceAnnotationOperationRunner.commandArguments(for: request), [
             "sequence", "annotate-orfs", bundleURL.path,
-            "--sequence", "chrM",
+            "--sequence=chrM",
             "--start", "9",
             "--end", "90",
-            "--frames", "+1,-2",
+            "--frames=+1,-2",
             "--table", "2",
-            "--track-id", "orfs_chrM",
-            "--track-name", "chrM ORFs",
+            "--track-id=orfs_chrM",
+            "--track-name=chrM ORFs",
             "--min-length", "60",
             "--include-partial",
             "--allow-alternative-starts",

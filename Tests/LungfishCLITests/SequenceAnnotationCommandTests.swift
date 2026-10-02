@@ -133,6 +133,46 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         XCTAssertEqual(row.end, 12)
     }
 
+    /// A run made in process records the command it rebuilds from its options.
+    /// A reverse-only frame list and a hyphenated track name start with "-",
+    /// so the recorded command must keep them joined to their options or it
+    /// does not parse when replayed (R3).
+    func testRecordedCommandForReverseFramesParsesWhenReplayed() async throws {
+        // The reverse strand of this sequence holds ATG AAA TAA.
+        let bundleURL = try makeReferenceBundle(sequence: "CCCTTATTTCATGGG")
+
+        let command = try SequenceCommand.AnnotateORFs.parse([
+            bundleURL.path,
+            "--sequence=chr1",
+            "--start", "0",
+            "--end", "15",
+            "--frames=-1,-2,-3",
+            "--min-length", "9",
+            "--track-id=-orfs",
+            "--track-name=-reverse ORFs",
+            "--quiet"
+        ])
+        try await command.run()
+
+        let dbURL = bundleURL.appendingPathComponent("annotations/-orfs.db")
+        let row = try XCTUnwrap(AnnotationDatabase(url: dbURL).query(types: ["ORF"], limit: 10).first)
+        XCTAssertEqual(row.strand, "-")
+
+        let sidecarURL = bundleURL.appendingPathComponent("provenance/annotations/-orfs.db.lungfish-provenance.json")
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.argv.first, "lungfish-cli")
+        let replayed = try LungfishCLI.parseAsRoot(
+            LungfishCLI.normalizedArgumentsForParsing(Array(envelope.argv.dropFirst()))
+        )
+        let replay = try XCTUnwrap(replayed as? SequenceCommand.AnnotateORFs)
+        XCTAssertEqual(replay.bundle, bundleURL.path)
+        XCTAssertEqual(replay.sequence, "chr1")
+        XCTAssertEqual(replay.frames, "-1,-2,-3")
+        XCTAssertEqual(replay.trackID, "-orfs")
+        XCTAssertEqual(replay.trackName, "-reverse ORFs")
+        XCTAssertEqual(replay.minLength, 9)
+    }
+
     func testDeleteAnnotationTrackRemovesManifestArtifactsAndWritesProvenance() async throws {
         let bundleURL = try makeReferenceBundle(sequence: "CCCATGAAATAAGGG")
         let create = try SequenceCommand.AnnotateORFs.parse([
