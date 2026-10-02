@@ -3,7 +3,7 @@ Sources/LungfishApp/App/AppDelegate+Classification.swift 2572
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3390
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
-Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1590
+Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1515
 Sources/LungfishApp/App/AppDelegate.swift 2712
 Sources/LungfishApp/App/MainMenu.swift 1670
 Sources/LungfishApp/App/VCFImportHelper.swift 1147
@@ -14,9 +14,9 @@ Sources/LungfishApp/Services/FASTQBundleMergeService.swift 861
 Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1747
 Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 803
 Sources/LungfishApp/Services/FASTQIngestionService.swift 1538
-Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 906
+Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 901
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1337
-Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1266
+Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1245
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
 Sources/LungfishApp/Services/ReferenceBundleMergeService.swift 1056
 Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift 981
@@ -44,7 +44,7 @@ Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.s
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1053
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1217
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1535
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 840
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 832
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1142
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1031
 Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift 1039
