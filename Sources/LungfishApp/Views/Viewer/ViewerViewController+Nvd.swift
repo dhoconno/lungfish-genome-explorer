@@ -73,90 +73,85 @@ extension ViewerViewController {
                 "BLAST verification requested for \(contigName, privacy: .public) (\(classificationName, privacy: .public)), taxId=\(taxIdInt, privacy: .public)"
             )
 
-            let blastCliCmd = OperationCenter.buildCLICommand(
-                subcommand: "blast verify",
-                args: ["--taxid", "\(taxIdInt)"]
-            )
-            let opID = OperationCenter.shared.start(
-                title: "BLAST \(contigName) \u{2014} \(classificationName)",
-                detail: "Preparing BLAST verification\u{2026}",
-                operationType: .blastVerification,
-                cliCommand: blastCliCmd
-            )
+            ViewerViewController.beginNvdBlastVerificationOperation(
+                contigName: contigName,
+                classificationName: classificationName,
+                taxId: taxIdInt
+            ) { opID in
+                let blastController = controller
+                let task = Task.detached {
+                    do {
+                        let blastService = BlastService.shared
 
-            let blastController = controller
-            let task = Task.detached {
-                do {
-                    let blastService = BlastService.shared
-
-                    let trimmedSequence = sequence.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmedSequence.isEmpty else {
-                        throw BlastServiceError.noSequences
-                    }
-
-                    // Judge hits against the NVD adjusted tax ID, not just its
-                    // short name, so "SARS-CoV-2" accepts NCBI's scientific name.
-                    let request = hit.blastVerificationRequest(
-                        taxonName: classificationName,
-                        sequence: trimmedSequence
-                    )
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.update(
-                                id: opID,
-                                progress: 0.1,
-                                detail: "Submitting contig to NCBI BLAST\u{2026}"
-                            ) else { return }
-                            blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                        let trimmedSequence = sequence.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmedSequence.isEmpty else {
+                            throw BlastServiceError.noSequences
                         }
-                    }
 
-                    let blastResult = try await blastService.verify(
-                        request: request,
-                        progress: { fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    guard OperationCenter.shared.update(
-                                        id: opID,
-                                        progress: fraction,
-                                        detail: message
-                                    ) else { return }
+                        // Judge hits against the NVD adjusted tax ID, not just its
+                        // short name, so "SARS-CoV-2" accepts NCBI's scientific name.
+                        let request = hit.blastVerificationRequest(
+                            taxonName: classificationName,
+                            sequence: trimmedSequence
+                        )
 
-                                    let lower = message.lowercased()
-                                    if lower.contains("waiting") {
-                                        blastController?.showBlastLoading(phase: .waiting, requestId: nil)
-                                    } else if lower.contains("parsing") {
-                                        blastController?.showBlastLoading(phase: .parsing, requestId: nil)
-                                    } else {
-                                        blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: 0.1,
+                                    detail: "Submitting contig to NCBI BLAST\u{2026}"
+                                ) else { return }
+                                blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                            }
+                        }
+
+                        let blastResult = try await blastService.verify(
+                            request: request,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        guard OperationCenter.shared.update(
+                                            id: opID,
+                                            progress: fraction,
+                                            detail: message
+                                        ) else { return }
+
+                                        let lower = message.lowercased()
+                                        if lower.contains("waiting") {
+                                            blastController?.showBlastLoading(phase: .waiting, requestId: nil)
+                                        } else if lower.contains("parsing") {
+                                            blastController?.showBlastLoading(phase: .parsing, requestId: nil)
+                                        } else {
+                                            blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                                        }
                                     }
                                 }
                             }
-                        }
-                    )
+                        )
 
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
-                            ) else { return }
-                            blastController?.showBlastResults(blastResult)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
+                                ) else { return }
+                                blastController?.showBlastResults(blastResult)
+                            }
                         }
-                    }
-                } catch {
-                    let errorDesc = error.localizedDescription
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
-                            blastController?.showBlastFailure(errorDesc)
+                    } catch {
+                        let errorDesc = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
+                                blastController?.showBlastFailure(errorDesc)
+                            }
                         }
                     }
                 }
-            }
 
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            }
         }
         controller.onRunOperationRequested = { [weak self] fastaRecords in
             self?.presentFASTAOperationDialog(
@@ -203,6 +198,42 @@ extension ViewerViewController {
             resultView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             resultView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+    }
+
+    /// Registers the BLAST verification row for an NVD contig and, only when it
+    /// starts, calls `launch` with the operation ID. The run submits the one
+    /// contig sequence and locks no bundle.
+    ///
+    /// CLI parity gap. No `lungfish-cli` command BLASTs an NVD contig. The
+    /// closest is `lungfish-cli blast verify`, which covers a Kraken2
+    /// classification only. The row keeps recording `blast verify --taxid <id>`
+    /// until a CLI command covers NVD verification. The CLI rejects that
+    /// command, because it also needs `--kreport`, `--kraken-output` and
+    /// `--source`.
+    @discardableResult
+    static func beginNvdBlastVerificationOperation(
+        contigName: String,
+        classificationName: String,
+        taxId: Int,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: "BLAST \(contigName) \u{2014} \(classificationName)",
+            detail: "Preparing BLAST verification\u{2026}",
+            operationType: .blastVerification,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "blast verify",
+                args: ["--taxid", "\(taxId)"]
+            )
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
     }
 
     /// Hides the NVD result viewer if one is displayed and restores normal viewer components.

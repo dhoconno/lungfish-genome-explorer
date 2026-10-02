@@ -36,76 +36,73 @@ extension ViewerViewController {
         controller.onBlastVerification = { [weak self] request in
             guard let self else { return }
             guard let blastController = self.assemblyResultController else { return }
-            blastController.showBlastLoading(phase: .submitting, requestId: nil)
-            let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [])
-            let opID = OperationCenter.shared.start(
-                title: "BLAST \(request.sourceLabel)",
-                detail: "Preparing contig BLAST…",
-                operationType: .blastVerification,
-                cliCommand: blastCliCmd
-            )
+            ViewerViewController.beginAssemblyContigBlastVerificationOperation(
+                sourceLabel: request.sourceLabel
+            ) { opID in
+                blastController.showBlastLoading(phase: .submitting, requestId: nil)
 
-            let task = Task.detached {
-                do {
-                    let sequences = Self.blastSequences(from: request.sequences)
-                    guard !sequences.isEmpty else {
-                        throw BlastServiceError.noSequences
-                    }
+                let task = Task.detached {
+                    do {
+                        let sequences = Self.blastSequences(from: request.sequences)
+                        guard !sequences.isEmpty else {
+                            throw BlastServiceError.noSequences
+                        }
 
-                    let verificationRequest = BlastVerificationRequest(
-                        taxonName: request.sourceLabel,
-                        taxId: request.taxId ?? 0,
-                        sequences: sequences,
-                        database: BlastDatabaseID.coreNT.rawValue,
-                        entrezQuery: nil
-                    )
+                        let verificationRequest = BlastVerificationRequest(
+                            taxonName: request.sourceLabel,
+                            taxId: request.taxId ?? 0,
+                            sequences: sequences,
+                            database: BlastDatabaseID.coreNT.rawValue,
+                            entrezQuery: nil
+                        )
 
-                    let result = try await BlastService.shared.verify(
-                        request: verificationRequest,
-                        progress: { fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    guard OperationCenter.shared.update(id: opID, progress: fraction, detail: message) else {
-                                        return
-                                    }
-                                    let lower = message.lowercased()
-                                    if lower.contains("waiting") {
-                                        blastController.showBlastLoading(phase: .waiting, requestId: nil)
-                                    } else if lower.contains("parsing") {
-                                        blastController.showBlastLoading(phase: .parsing, requestId: nil)
-                                    } else {
-                                        blastController.showBlastLoading(phase: .submitting, requestId: nil)
+                        let result = try await BlastService.shared.verify(
+                            request: verificationRequest,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        guard OperationCenter.shared.update(id: opID, progress: fraction, detail: message) else {
+                                            return
+                                        }
+                                        let lower = message.lowercased()
+                                        if lower.contains("waiting") {
+                                            blastController.showBlastLoading(phase: .waiting, requestId: nil)
+                                        } else if lower.contains("parsing") {
+                                            blastController.showBlastLoading(phase: .parsing, requestId: nil)
+                                        } else {
+                                            blastController.showBlastLoading(phase: .submitting, requestId: nil)
+                                        }
                                     }
                                 }
                             }
-                        }
-                    )
+                        )
 
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "Results ready for \(request.readCount) contig\(request.readCount == 1 ? "" : "s")"
-                            ) else { return }
-                            blastController.showBlastResults(result)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: "Results ready for \(request.readCount) contig\(request.readCount == 1 ? "" : "s")"
+                                ) else { return }
+                                blastController.showBlastResults(result)
+                            }
                         }
-                    }
-                } catch {
-                    let errorText = error.localizedDescription
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.fail(
-                                id: opID,
-                                detail: errorText,
-                                errorMessage: errorText
-                            ) else { return }
-                            blastController.showBlastFailure(errorText)
+                    } catch {
+                        let errorText = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.fail(
+                                    id: opID,
+                                    detail: errorText,
+                                    errorMessage: errorText
+                                ) else { return }
+                                blastController.showBlastFailure(errorText)
+                            }
                         }
                     }
                 }
-            }
 
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            }
         }
         controller.onExtractSequenceRequested = { [weak self] fastaRecords, suggestedName in
             self?.presentFASTASequenceExtractionDialog(records: fastaRecords, suggestedName: suggestedName)
@@ -157,6 +154,36 @@ extension ViewerViewController {
         assemblyDisplayLogger.info(
             "displayAssemblyResult: Showing \(result.tool.displayName, privacy: .public) result"
         )
+    }
+
+    /// Registers the contig BLAST row for an assembly result and, only when it
+    /// starts, calls `launch` with the operation ID. The run locks no bundle.
+    ///
+    /// CLI parity gap. No `lungfish-cli` command BLASTs assembled contigs. The
+    /// closest is `lungfish-cli blast verify`, which covers a Kraken2
+    /// classification only and needs `--kreport`, `--kraken-output`,
+    /// `--source` and `--taxid`. The row keeps recording `blast verify` with no
+    /// arguments until a CLI command covers contig verification. The CLI
+    /// rejects that command, because the options above are required.
+    @discardableResult
+    static func beginAssemblyContigBlastVerificationOperation(
+        sourceLabel: String,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: "BLAST \(sourceLabel)",
+            detail: "Preparing contig BLAST…",
+            operationType: .blastVerification,
+            cliCommand: OperationCenter.buildCLICommand(subcommand: "blast verify", args: [])
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
     }
 
     /// Removes the assembly result viewport and restores the normal viewer components.

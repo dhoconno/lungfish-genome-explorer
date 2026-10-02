@@ -51,106 +51,100 @@ extension ViewerViewController {
                 "BLAST verification requested for \(taxonName, privacy: .public), readCount=\(selectedReadCount, privacy: .public), availableReads=\(reads.count, privacy: .public)"
             )
 
-            let blastCliCmd = OperationCenter.buildCLICommand(
-                subcommand: "blast verify",
-                args: ["--taxid", "\(summary.taxId)"]
-            )
-            let opID = OperationCenter.shared.start(
-                title: "BLAST \(taxonName)",
-                detail: "Preparing BLAST verification\u{2026}",
-                operationType: .blastVerification,
-                cliCommand: blastCliCmd
-            )
-
-            let blastController = controller
-            let task = Task.detached {
-                do {
-                    let blastService = BlastService.shared
-                    let allReads = reads.compactMap { hit -> (id: String, sequence: String)? in
-                        let sequence = hit.readSequence.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !sequence.isEmpty else { return nil }
-                        return (id: hit.seqId, sequence: sequence)
-                    }
-
-                    guard !allReads.isEmpty else {
-                        throw BlastServiceError.noSequences
-                    }
-
-                    let longestCount = min(5, selectedReadCount / 4)
-                    let strategy = SubsampleStrategy.mixed(
-                        longest: longestCount,
-                        random: selectedReadCount - longestCount
-                    )
-                    let subsampled = blastService.subsampleReads(from: allReads, strategy: strategy)
-
-                    guard !subsampled.isEmpty else {
-                        throw BlastServiceError.noSequences
-                    }
-
-                    let request = BlastVerificationRequest(
-                        taxonName: taxonName,
-                        taxId: summary.taxId,
-                        sequences: subsampled,
-                        database: BlastDatabaseID.coreNT.rawValue,
-                        entrezQuery: "txid\(summary.taxId)[Organism:exp]"
-                    )
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.update(
-                                id: opID,
-                                progress: 0.1,
-                                detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
-                            ) else { return }
-                            blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+            ViewerViewController.beginNaoMgsBlastVerificationOperation(
+                taxonName: taxonName,
+                taxId: summary.taxId
+            ) { opID in
+                let blastController = controller
+                let task = Task.detached {
+                    do {
+                        let blastService = BlastService.shared
+                        let allReads = reads.compactMap { hit -> (id: String, sequence: String)? in
+                            let sequence = hit.readSequence.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !sequence.isEmpty else { return nil }
+                            return (id: hit.seqId, sequence: sequence)
                         }
-                    }
 
-                    let blastResult = try await blastService.verify(
-                        request: request,
-                        progress: { fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    guard OperationCenter.shared.update(
-                                        id: opID,
-                                        progress: fraction,
-                                        detail: message
-                                    ) else { return }
+                        guard !allReads.isEmpty else {
+                            throw BlastServiceError.noSequences
+                        }
 
-                                    let lower = message.lowercased()
-                                    if lower.contains("waiting") {
-                                        blastController?.showBlastLoading(phase: .waiting, requestId: nil)
-                                    } else if lower.contains("parsing") {
-                                        blastController?.showBlastLoading(phase: .parsing, requestId: nil)
-                                    } else {
-                                        blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                        let longestCount = min(5, selectedReadCount / 4)
+                        let strategy = SubsampleStrategy.mixed(
+                            longest: longestCount,
+                            random: selectedReadCount - longestCount
+                        )
+                        let subsampled = blastService.subsampleReads(from: allReads, strategy: strategy)
+
+                        guard !subsampled.isEmpty else {
+                            throw BlastServiceError.noSequences
+                        }
+
+                        let request = BlastVerificationRequest(
+                            taxonName: taxonName,
+                            taxId: summary.taxId,
+                            sequences: subsampled,
+                            database: BlastDatabaseID.coreNT.rawValue,
+                            entrezQuery: "txid\(summary.taxId)[Organism:exp]"
+                        )
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: 0.1,
+                                    detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
+                                ) else { return }
+                                blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                            }
+                        }
+
+                        let blastResult = try await blastService.verify(
+                            request: request,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        guard OperationCenter.shared.update(
+                                            id: opID,
+                                            progress: fraction,
+                                            detail: message
+                                        ) else { return }
+
+                                        let lower = message.lowercased()
+                                        if lower.contains("waiting") {
+                                            blastController?.showBlastLoading(phase: .waiting, requestId: nil)
+                                        } else if lower.contains("parsing") {
+                                            blastController?.showBlastLoading(phase: .parsing, requestId: nil)
+                                        } else {
+                                            blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                                        }
                                     }
                                 }
                             }
-                        }
-                    )
+                        )
 
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
-                            ) else { return }
-                            blastController?.showBlastResults(blastResult)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
+                                ) else { return }
+                                blastController?.showBlastResults(blastResult)
+                            }
                         }
-                    }
-                } catch {
-                    let errorDesc = error.localizedDescription
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
-                            blastController?.showBlastFailure(errorDesc)
+                    } catch {
+                        let errorDesc = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
+                                blastController?.showBlastFailure(errorDesc)
+                            }
                         }
                     }
                 }
-            }
 
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            }
         }
         controller.onExtractReadsRequested = { [weak controller] tool, resultPath, selectors, suggestedName in
             guard let controller else { return }
@@ -176,6 +170,41 @@ extension ViewerViewController {
             resultView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             resultView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+    }
+
+    /// Registers the BLAST verification row for a NAO-MGS taxon and, only when
+    /// it starts, calls `launch` with the operation ID. The run submits reads
+    /// the result already holds and locks no bundle.
+    ///
+    /// CLI parity gap. No `lungfish-cli` command BLASTs the reads of a NAO-MGS
+    /// taxon. The closest is `lungfish-cli blast verify`, which covers a
+    /// Kraken2 classification only. The row keeps recording
+    /// `blast verify --taxid <id>` until a CLI command covers NAO-MGS
+    /// verification. The CLI rejects that command, because it also needs
+    /// `--kreport`, `--kraken-output` and `--source`.
+    @discardableResult
+    static func beginNaoMgsBlastVerificationOperation(
+        taxonName: String,
+        taxId: Int,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: "BLAST \(taxonName)",
+            detail: "Preparing BLAST verification\u{2026}",
+            operationType: .blastVerification,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "blast verify",
+                args: ["--taxid", "\(taxId)"]
+            )
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
     }
 
     /// Hides the NAO-MGS result viewer if one is displayed and restores normal viewer components.
