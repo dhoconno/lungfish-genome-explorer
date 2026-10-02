@@ -224,8 +224,18 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishKitTests",
-            dependencies: ["LungfishKit", "LungfishCore", "LungfishTestSupport"],
+            dependencies: ["LungfishKit", "LungfishCore", "LungfishTestSupport", "LungfishKitTestSupport"],
             path: "Tests/LungfishKitTests"
+        ),
+        // Test doubles for LungfishKit types. Kept apart from
+        // LungfishTestSupport so that library stays free of Kit.
+        .target(
+            name: "LungfishKitTestSupport",
+            dependencies: [
+                "LungfishKit",
+                "LungfishTestSupport",
+            ],
+            path: "Tests/Support/LungfishKitTestSupport"
         ),
 
         // MARK: - LungfishTwelveSUI (12S amplicon results UI leaf)
@@ -420,7 +430,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
+            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport", "LungfishKitTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")

@@ -19,13 +19,14 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | 5590 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 57 | 51150 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 232 | 98852 | 622 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 78 | 17770 | 139 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 79 | 17973 | 141 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 5 | 4041 | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | 3333 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 2 | 2041 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8361 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 12 | 3372 | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 467 | 215052 | 1304 | LungfishCore, LungfishIO |
+| LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 1 | 300 | 1 | LungfishKit, LungfishTestSupport |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 22 | 4059 | 22 | LungfishCore, LungfishIO, LungfishWorkflow |
 
 ## Test targets
@@ -33,7 +34,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 1 | 219 | LungfishAlignmentUI, LungfishKit |
-| LungfishAppTests | Tests/LungfishAppTests | 514 | 141172 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 516 | 141316 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 35 | 18606 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 6 | 5511 | LungfishApp, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
@@ -43,7 +44,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishGenotypeUITests | Tests/LungfishGenotypeUITests | 58 | 50283 | LungfishGenotypeUI, LungfishKit, LungfishTestSupport |
 | LungfishIOTests | Tests/LungfishIOTests | 162 | 63555 | LungfishIO, LungfishTestSupport |
 | LungfishIntegrationTests | Tests/LungfishIntegrationTests | 30 | 11171 | LungfishApp, LungfishCLI, LungfishCore, LungfishIO, LungfishTestSupport, LungfishWorkflow |
-| LungfishKitTests | Tests/LungfishKitTests | 37 | 6260 | LungfishCore, LungfishKit, LungfishTestSupport |
+| LungfishKitTests | Tests/LungfishKitTests | 39 | 6563 | LungfishCore, LungfishKit, LungfishKitTestSupport, LungfishTestSupport |
 | LungfishNaoMgsUITests | Tests/LungfishNaoMgsUITests | 2 | 1613 | LungfishKit, LungfishNaoMgsUI, LungfishTestSupport |
 | LungfishNvdUITests | Tests/LungfishNvdUITests | 3 | 1465 | LungfishKit, LungfishNvdUI, LungfishTestSupport |
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 2 | 735 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
@@ -1463,10 +1464,10 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishKit
-- Swift files. 78, lines 17770
+- Swift files. 79, lines 17973
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. none
-- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI
+- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI
 - Test target. LungfishKitTests (also tested by LungfishAlignmentUITests, LungfishAppTests, LungfishAppViewTests, LungfishAssemblyUITests, LungfishEsVirituUITests, LungfishGenotypeUITests, LungfishNaoMgsUITests, LungfishNvdUITests, LungfishPhylogeneticsUITests, LungfishTaxTriageUITests, LungfishTwelveSUITests)
 
 ### Subdirectories
@@ -1562,11 +1563,13 @@ None.
 - `MultiBundleRunPolicy` struct, `Sources/LungfishKit/MultiBundleRunPlanner.swift:24`
 - `NumericSliderField` struct, `Sources/LungfishKit/NumericSliderField.swift:93`
 - `NumericSliderFieldParser` enum, `Sources/LungfishKit/NumericSliderField.swift:13`
-- `OperationCenter` class, `Sources/LungfishKit/OperationCenter.swift:174`
+- `OperationCenter` class, `Sources/LungfishKit/OperationCenter.swift:176`
 - `OperationFailureReportStore` class, `Sources/LungfishKit/OperationFailureReportStore.swift:19`
 - `OperationLogEntry` struct, `Sources/LungfishKit/OperationCenter.swift:44`
 - `OperationLogLevel` enum, `Sources/LungfishKit/OperationCenter.swift:150`
 - `OperationProgressEvidence` struct, `Sources/LungfishKit/OperationProgressEvidence.swift:4`
+- `OperationRefusedError` struct, `Sources/LungfishKit/OperationReporting.swift:190`
+- `OperationReporting` protocol, `Sources/LungfishKit/OperationReporting.swift:26`
 - `OperationRetryMetadata` struct, `Sources/LungfishKit/OperationCenter.swift:106`
 - `OperationRouteContext` struct, `Sources/LungfishKit/OperationCenter.swift:158`
 - `OperationStartRefusal` struct, `Sources/LungfishKit/OperationCenter.swift:75`
@@ -1603,7 +1606,7 @@ None.
 - `SavePanelPresenting` protocol, `Sources/LungfishKit/SavePanelPresenting.swift:12`
 - `ScrollViewSplitPaneContainerView` class, `Sources/LungfishKit/ScrollViewSplitPaneContainerView.swift:5`
 - `SelectionIdentityStore` struct, `Sources/LungfishKit/SelectionIdentityStore.swift:3`
-- `SequentialAnalysisBatchHold` class, `Sources/LungfishKit/OperationCenter.swift:1383`
+- `SequentialAnalysisBatchHold` class, `Sources/LungfishKit/OperationCenter.swift:1372`
 - `SplitPaneFillContainerView` class, `Sources/LungfishKit/SplitPaneFillContainerView.swift:5`
 - `SplitPaneHeaderContainerView` class, `Sources/LungfishKit/SplitPaneHeaderContainerView.swift:6`
 - `SplitPaneSizing` enum, `Sources/LungfishKit/SplitPaneSizing.swift:3`
@@ -3076,6 +3079,20 @@ None.
 - `WorkflowStatus` enum, `Sources/LungfishWorkflow/WorkflowState.swift:42`
 - `ZipCentralDirectoryEntry` struct, `Sources/LungfishWorkflow/DemoProjects/SafeZipExtractor.swift:9`
 
+## LungfishKitTestSupport
+
+- Kind. library
+- Path. Tests/Support/LungfishKitTestSupport
+- Swift files. 1, lines 300
+- Depends on. LungfishKit, LungfishTestSupport
+- External products. none
+- Used by. none
+- Test target. none named LungfishKitTestSupportTests, tested by LungfishAppTests, LungfishKitTests
+
+### Public types
+
+- `RecordingOperationReporter` class, `Tests/Support/LungfishKitTestSupport/RecordingOperationReporter.swift:23`
+
 ## LungfishTestSupport
 
 - Kind. library
@@ -3083,7 +3100,7 @@ None.
 - Swift files. 22, lines 4059
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. none
-- Used by. none
+- Used by. LungfishKitTestSupport
 - Test target. none named LungfishTestSupportTests, tested by LungfishAppTests, LungfishAppViewTests, LungfishCLITests, LungfishCoreTests, LungfishEsVirituUITests, LungfishGenotypeUITests, LungfishIOTests, LungfishIntegrationTests, LungfishKitTests, LungfishNaoMgsUITests, LungfishNvdUITests, LungfishPhylogeneticsUITests, LungfishTaxTriageUITests, LungfishTwelveSUITests, LungfishWorkflowTests
 
 ### Public types

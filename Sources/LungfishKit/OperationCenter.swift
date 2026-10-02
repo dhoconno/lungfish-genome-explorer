@@ -170,6 +170,8 @@ public struct OperationRouteContext: Sendable, Codable, Equatable {
     }
 }
 
+/// The Operations panel's registry and the owner of bundle locks. Operation
+/// code reaches it through ``OperationReporting``, which it conforms to below.
 @MainActor
 public final class OperationCenter: ObservableObject {
     public enum Change: Sendable, Equatable {
@@ -575,25 +577,12 @@ public final class OperationCenter: ObservableObject {
 
     // MARK: - Lifecycle
 
-    /// Starts tracking a new operation.
-    ///
-    /// This entry point cannot tell its caller whether the bundle lock refused
-    /// the operation: it always returns a normal `UUID`, even when the row it
-    /// inserted is already `.failed` ("Bundle is busy"). Any caller that passes
-    /// `targetBundleURL` or `additionalLockedBundleURLs` — i.e. any caller for
-    /// whom the refusal matters — must use ``begin(title:detail:operationType:targetBundleURL:additionalLockedBundleURLs:startedAt:cliCommand:workflowRunID:routeContext:onCancel:)``
-    /// instead, and must not launch a subprocess or mutate the bundle unless it
-    /// receives `.started`. This overload remains for callers with no bundle
-    /// target, where refusal cannot occur.
-    ///
-    /// - Parameters:
-    ///   - title: Human-readable operation title.
-    ///   - detail: Initial status detail text.
-    ///   - operationType: The category of operation.
-    ///   - targetBundleURL: Optional bundle URL for locking.
-    ///   - cliCommand: Optional reconstructed CLI invocation for display.
-    ///   - onCancel: Callback invoked if the user cancels the operation.
-    /// - Returns: The unique ID for the new operation item.
+    /// Starts tracking a new operation and returns its ID, even when a bundle
+    /// lock refused it and the inserted row is already `.failed` ("Bundle is
+    /// busy"). Phase 1 of the architecture program moves every caller to
+    /// ``begin(title:detail:operationType:targetBundleURL:additionalLockedBundleURLs:startedAt:cliCommand:workflowRunID:routeContext:onCancel:)``,
+    /// called through ``OperationReporting`` as docs/contracts/ADDING-AN-OPERATION.md
+    /// describes, and then deletes this method.
     @available(*, deprecated, message: "Use begin(...) when the operation carries a targetBundleURL or additionalLockedBundleURLs, so a bundle-lock refusal cannot be ignored.")
     @discardableResult
     public func start(
@@ -1415,3 +1404,6 @@ public final class SequentialAnalysisBatchHold {
         center.releaseAnalysisOutputHold(token, succeeded: succeeded)
     }
 }
+
+// Every requirement is a method above. OperationReporting refines Sendable, which Swift checks in this file.
+extension OperationCenter: OperationReporting {}
