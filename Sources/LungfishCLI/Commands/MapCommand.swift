@@ -276,8 +276,8 @@ struct MapCommand: AsyncParsableCommand {
             throw CLIExitCode.inputError.exitCode
         }
 
-        let resolvedInputs: CLISequenceInputMaterializationResult
-        let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-map-inputs", isDirectory: true)
+        let resolvedInputs: ResolvedSequenceInputs
+        let materializationDirectory = MappingResultLayoutService.inputMaterializationDirectory(in: outputDirectory)
         do {
             resolvedInputs = try await Self.resolveExecutionInputs(
                 for: inputURLs,
@@ -299,7 +299,13 @@ struct MapCommand: AsyncParsableCommand {
         } catch {
             throw CLIError.wrapping(error)
         }
-        let executionInputURLs = resolvedInputs.inputURLs
+        let executionInputURLs = resolvedInputs.executionInputURLs
+        let originalInputURLs = resolvedInputs.originalInputURLs
+        // One raw argument per execution file, so the replay command can
+        // swap each bundle argument for the file that was made from it.
+        let originalInputArguments = resolvedInputs.inputs.enumerated().flatMap { index, input in
+            input.executionURLs.map { _ in fastqFiles[index] }
+        }
         if resolvedInputs.didMaterialize {
             let materializationStartedAt = resolvedInputs.materializationStartedAt ?? Date()
             let materializationEndedAt = resolvedInputs.materializationEndedAt ?? materializationStartedAt
@@ -310,11 +316,11 @@ struct MapCommand: AsyncParsableCommand {
                     parentArgv: CommandLine.arguments,
                     parentDurableReplayArgv: CLISequenceInputMaterialization.durableReplayArgv(
                         argv: CommandLine.arguments,
-                        originalInputArguments: fastqFiles,
-                        originalInputURLs: inputURLs,
+                        originalInputArguments: originalInputArguments,
+                        originalInputURLs: originalInputURLs,
                         executionInputURLs: executionInputURLs
                     ),
-                    originalInputURLs: inputURLs,
+                    originalInputURLs: originalInputURLs,
                     executionInputURLs: executionInputURLs,
                     outputDirectory: outputDirectory,
                     operationName: "mapping",
@@ -329,18 +335,25 @@ struct MapCommand: AsyncParsableCommand {
             }
         }
 
+        // A bundle that holds the R1 and R2 files of one mate pair maps them
+        // as pairs, as the window does; --paired binds two loose files.
+        let effectivePairedEnd = Self.effectivePairedEnd(flag: pairedEnd, resolved: resolvedInputs)
+        if readLayout != .auto, resolvedInputs.resolvedAsMatePair {
+            print(formatter.error("--read-layout describes one input file; \(inputURLs[0].lastPathComponent) holds R1 and R2 files."))
+            throw CLIExitCode.inputError.exitCode
+        }
         // Resolved here, on the materialized inputs, the same way the GUI
         // pipeline does it, so the table below and provenance agree.
-        let layoutResolution = FASTQInputLayoutResolver.resolve(
-            inputURLs: executionInputURLs,
-            pairedFiles: pairedEnd,
+        let layoutResolution = Self.layoutResolution(
+            for: resolvedInputs,
+            pairedEnd: effectivePairedEnd,
             explicit: readLayout.explicitLayout
         )
         let request = MappingRunRequest(
             tool: selectedTool,
             modeID: selectedMode.id,
             inputFASTQURLs: executionInputURLs,
-            originalInputFASTQURLs: inputURLs.map(\.standardizedFileURL),
+            originalInputFASTQURLs: originalInputURLs,
             inputMaterializationStartedAt: resolvedInputs.materializationStartedAt,
             inputMaterializationEndedAt: resolvedInputs.materializationEndedAt,
             referenceFASTAURL: referenceURL,
@@ -348,7 +361,7 @@ struct MapCommand: AsyncParsableCommand {
             outputDirectory: outputDirectory,
             sampleName: effectiveSampleName,
             readGroup: resolvedReadGroup,
-            pairedEnd: pairedEnd,
+            pairedEnd: effectivePairedEnd,
             threads: threadCount,
             includeSecondary: secondary,
             includeSupplementary: !noSupplementary,
@@ -370,7 +383,7 @@ struct MapCommand: AsyncParsableCommand {
             ("Mapper", selectedTool.displayName),
             ("Mode", selectedMode.displayName),
             ("Input files", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
-            ("Paired-end", pairedEnd ? "yes" : "no"),
+            ("Paired-end", effectivePairedEnd ? "yes" : "no"),
             ("Read layout", "\(readLayoutPlan.layout.displayName) (\(layoutResolution.source.rawValue))"),
             ("Layout handling", readLayoutPlan.handling.displayName),
             ("Reference", referenceURL.lastPathComponent),
@@ -492,7 +505,10 @@ struct MapCommand: AsyncParsableCommand {
             mapper = result.mapper.rawValue
             mode = result.modeID
             sampleName = request.sampleName
-            inputFiles = (request.originalInputFASTQURLs ?? request.inputFASTQURLs).map(\.path)
+            // The inputs as given, once each: a bundle that resolved to
+            // several files is listed once.
+            var seen = Set<String>()
+            inputFiles = (request.originalInputFASTQURLs ?? request.inputFASTQURLs).map(\.path).filter { seen.insert($0).inserted }
             reference = request.referenceFASTAURL.path
             project = request.projectURL?.path
             outputDirectory = request.outputDirectory.path
@@ -619,18 +635,58 @@ struct MapCommand: AsyncParsableCommand {
         }
     }
 
+    /// Resolves the inputs the way the Map Reads window does
+    /// (``ResolvedSequenceInputs``): every file of a bundle, a virtual bundle
+    /// materialized and the unpaired files of one bundle concatenated into
+    /// `tempDirectory`, so a bundle maps the same reads through the window
+    /// and through the command the Operations panel records. A loose file
+    /// that is not a readable sequence file and a container-only demux group
+    /// are refused before anything is written.
     static func resolveExecutionInputs(
         for inputURLs: [URL],
         tempDirectory: URL,
-        materializer: CLISequenceInputMaterializing,
+        materializer: any CLISequenceInputMaterializing & Sendable,
         progress: (@Sendable (String) -> Void)? = nil
-    ) async throws -> CLISequenceInputMaterializationResult {
-        try await CLISequenceInputMaterialization.resolveExecutionInputs(
-            for: inputURLs,
-            tempDirectory: tempDirectory,
+    ) async throws -> ResolvedSequenceInputs {
+        for inputURL in inputURLs {
+            if let message = CLISequenceInputMaterialization.unsupportedSequenceInputMessage(for: inputURL, operationName: "mapping") {
+                throw CLISequenceInputMaterializationError.unsupportedSequenceInput(message)
+            }
+            if SequenceInputResolver.enclosingFASTQBundleURL(for: inputURL) == nil,
+               SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) == nil {
+                throw CLISequenceInputMaterializationError.unreadableSequenceInput(inputURL.standardizedFileURL.path)
+            }
+        }
+        return try await ResolvedSequenceInputs.resolve(
+            inputURLs: inputURLs,
+            materializationDirectory: tempDirectory,
             materializer: materializer,
-            operationName: "mapping",
+            concatenateUnpairedFiles: true,
             progress: progress
+        )
+    }
+
+    /// `--paired`, or one bundle that resolved to the R1 and R2 files of a
+    /// mate pair, which the window maps as pairs too.
+    static func effectivePairedEnd(flag: Bool, resolved: ResolvedSequenceInputs) -> Bool {
+        flag || resolved.resolvedAsMatePair
+    }
+
+    /// The layout the run records: an explicit `--read-layout` first, else
+    /// the pooled single-read layout a concatenated input keeps, else the
+    /// shared resolver's answer on the execution files.
+    static func layoutResolution(
+        for resolved: ResolvedSequenceInputs,
+        pairedEnd: Bool,
+        explicit: FASTQInputLayout?
+    ) -> FASTQInputLayoutResolution {
+        if explicit == nil, let pooled = resolved.pooledLayoutResolution {
+            return pooled
+        }
+        return FASTQInputLayoutResolver.resolve(
+            inputURLs: resolved.executionInputURLs,
+            pairedFiles: pairedEnd,
+            explicit: explicit
         )
     }
 

@@ -5,6 +5,7 @@
 import Foundation
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishTestSupport
@@ -22,8 +23,10 @@ import LungfishTestSupport
 /// pipeline runs, exactly as `runSingleManagedMappingAwaitingCompletion` does.
 /// `ManagedMappingPipeline` then runs with a stand-in mapper (micromamba)
 /// and a stand-in samtools. The CLI-shaped control builds the request the way
-/// `lungfish-cli map` does, so the same pipeline and the same assertions show
-/// the fixture is sound.
+/// `lungfish-cli map` does, through `MapCommand`'s own resolution, so the
+/// same pipeline and the same assertions show the fixture is sound and that
+/// a bundle maps the same reads through the window and through the command
+/// the Operations panel records.
 @MainActor
 final class MappingVirtualInputProvenanceTests: XCTestCase {
 
@@ -48,45 +51,7 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
         let fixture = try StandInMappingFixture.make()
         defer { fixture.cleanUp() }
 
-        let windowDirectory = try fixture.makeAnalysisDirectory()
-        let windowRequest = try fixture.windowRequest(outputDirectory: windowDirectory)
-        let resolved = try await AppDelegate().resolveManagedMappingInputs(for: windowRequest, progress: { _ in })
-        _ = try await fixture.pipeline.run(
-            request: resolved.request,
-            inputLayoutReason: resolved.layoutResolution.reason
-        )
-        let windowReads = try fixture.readsSeenByMapper()
-
-        let cliDirectory = try fixture.makeAnalysisDirectory()
-        let cliShaped = try await fixture.cliShapedRequest(outputDirectory: cliDirectory)
-        _ = try await fixture.pipeline.run(
-            request: cliShaped.request,
-            inputLayoutReason: cliShaped.layoutReason
-        )
-        let cliReads = try fixture.readsSeenByMapper()
-
-        XCTAssertEqual(windowReads, cliReads, "the window and the CLI mapped different reads")
-
-        let window = try XCTUnwrap(MappingProvenance.load(from: windowDirectory))
-        let cli = try XCTUnwrap(MappingProvenance.load(from: cliDirectory))
-        XCTAssertEqual(
-            Self.comparableInputs(of: window, analysisDirectory: windowDirectory),
-            Self.comparableInputs(of: cli, analysisDirectory: cliDirectory),
-            "the window and the CLI recorded different input sets"
-        )
-        XCTAssertEqual(
-            window.steps.map(\.toolName),
-            cli.steps.map(\.toolName),
-            "the window and the CLI recorded different steps"
-        )
-        XCTAssertNotNil(window.mapperInvocation.durableReplayArgv, "the window recorded no durable replay command")
-        XCTAssertNotNil(cli.mapperInvocation.durableReplayArgv)
-        XCTAssertEqual(
-            Self.materializedInputChecksum(of: window),
-            Self.materializedInputChecksum(of: cli),
-            "the window and the CLI recorded different materialized reads"
-        )
-        XCTAssertNotNil(Self.materializedInputChecksum(of: cli))
+        try await assertWindowAndCLIAgree(on: fixture.virtualBundleURL, fixture: fixture)
     }
 
     func testCLIShapedRequestRecordsDurableBundleInputs() async throws {
@@ -124,11 +89,7 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
         XCTAssertEqual(resolved.request.inputFASTQURLs.count, 1, "the mapper receives one file")
         XCTAssertFalse(resolved.request.pairedEnd)
         XCTAssertEqual(resolved.request.inputLayout, .singleEnd)
-        XCTAssertEqual(
-            try fixture.readsSeenByMapper(),
-            StandInMappingFixture.readIDs.indices.map { "\(StandInMappingFixture.readIDs[$0]) \(StandInMappingFixture.sequences[$0])" },
-            "every read of both chunks reached the mapper, in order"
-        )
+        XCTAssertEqual(try fixture.readsSeenByMapper(), fixture.allReads, "every read of both chunks reached the mapper, in order")
 
         let provenance = try XCTUnwrap(MappingProvenance.load(from: analysisDirectory))
         let recordedInputs = Set(provenance.inputFiles.filter { $0.role == .input }.map { Self.canonicalPath($0.path) })
@@ -155,6 +116,76 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
         XCTAssertEqual(recordedInputs.filter { $0.hasPrefix(scratchPrefix) }, [], "provenance names a file in the project's scratch folder")
     }
 
+    /// The command the Operations panel records for a multi-file bundle maps
+    /// the same reads the window mapped, as one concatenated file, and
+    /// records the same inputs and steps.
+    func testWindowMappingRecordsTheSameInputsAsTheCLIForTheSameMultiFileBundle() async throws {
+        let fixture = try StandInMappingFixture.make()
+        defer { fixture.cleanUp() }
+
+        try await assertWindowAndCLIAgree(on: fixture.multiFileBundleURL, fixture: fixture)
+        XCTAssertEqual(try fixture.readsSeenByMapper(), fixture.allReads)
+    }
+
+    /// Runs the window composition and the CLI-shaped composition on
+    /// `bundleURL` and checks that the mapper saw the same reads and that
+    /// the two provenance records name the same inputs, the same steps, a
+    /// durable replay command and the same materialized bytes.
+    private func assertWindowAndCLIAgree(
+        on bundleURL: URL,
+        fixture: StandInMappingFixture,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let windowDirectory = try fixture.makeAnalysisDirectory()
+        let windowRequest = try fixture.windowRequest(bundleURL: bundleURL, outputDirectory: windowDirectory)
+        let resolved = try await AppDelegate().resolveManagedMappingInputs(for: windowRequest, progress: { _ in })
+        _ = try await fixture.pipeline.run(
+            request: resolved.request,
+            inputLayoutReason: resolved.layoutResolution.reason
+        )
+        let windowReads = try fixture.readsSeenByMapper()
+
+        let cliDirectory = try fixture.makeAnalysisDirectory()
+        let cliShaped = try await fixture.cliShapedRequest(bundleURL: bundleURL, outputDirectory: cliDirectory)
+        _ = try await fixture.pipeline.run(
+            request: cliShaped.request,
+            inputLayoutReason: cliShaped.layoutReason
+        )
+        let cliReads = try fixture.readsSeenByMapper()
+
+        XCTAssertEqual(windowReads, cliReads, "the window and the CLI mapped different reads", file: file, line: line)
+        XCTAssertEqual(resolved.request.pairedEnd, cliShaped.request.pairedEnd, "the window and the CLI paired differently", file: file, line: line)
+        XCTAssertEqual(resolved.request.inputLayout, cliShaped.request.inputLayout, file: file, line: line)
+
+        let window = try XCTUnwrap(MappingProvenance.load(from: windowDirectory), file: file, line: line)
+        let cli = try XCTUnwrap(MappingProvenance.load(from: cliDirectory), file: file, line: line)
+        XCTAssertEqual(
+            Self.comparableInputs(of: window, analysisDirectory: windowDirectory),
+            Self.comparableInputs(of: cli, analysisDirectory: cliDirectory),
+            "the window and the CLI recorded different input sets",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            window.steps.map(\.toolName),
+            cli.steps.map(\.toolName),
+            "the window and the CLI recorded different steps",
+            file: file,
+            line: line
+        )
+        XCTAssertNotNil(window.mapperInvocation.durableReplayArgv, "the window recorded no durable replay command", file: file, line: line)
+        XCTAssertNotNil(cli.mapperInvocation.durableReplayArgv, file: file, line: line)
+        XCTAssertEqual(
+            Self.materializedInputChecksum(of: window),
+            Self.materializedInputChecksum(of: cli),
+            "the window and the CLI recorded different materialized reads",
+            file: file,
+            line: line
+        )
+        XCTAssertNotNil(Self.materializedInputChecksum(of: cli), file: file, line: line)
+    }
+
     /// The recorded inputs with the run's own directory and the random part
     /// of a materialized file name masked, so two runs compare.
     private static func comparableInputs(
@@ -178,8 +209,9 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
             .sorted()
     }
 
+    /// The checksum of the file written for the run, materialized or concatenated.
     private static func materializedInputChecksum(of provenance: MappingProvenance) -> String? {
-        provenance.inputFiles.first { $0.path.contains("/materialized-") }?.sha256
+        provenance.inputFiles.first { $0.path.contains("/.lungfish-map-inputs/") }?.sha256
     }
 
     private static func canonicalPath(_ path: String) -> String {
@@ -218,6 +250,11 @@ private struct StandInMappingFixture {
         String(repeating: "GGGCCCAA", count: 18) + "GGGCCC",
         String(repeating: "TTTAAACC", count: 18) + "TTTAAC",
     ]
+
+    /// Every read of the root bundle, as `readsSeenByMapper` reports it.
+    var allReads: [String] {
+        Self.readIDs.indices.map { "\(Self.readIDs[$0]) \(Self.sequences[$0])" }
+    }
 
     static func record(_ index: Int, sequence: String? = nil) -> String {
         let bases = sequence ?? sequences[index]
@@ -372,32 +409,31 @@ private struct StandInMappingFixture {
         return request.withOutputDirectory(outputDirectory)
     }
 
-    /// The request `lungfish-cli map` builds: inputs resolved one to one,
-    /// materialized inside the run's output directory, and the original
-    /// bundle carried as `originalInputFASTQURLs`.
-    func cliShapedRequest(outputDirectory: URL) async throws -> CLIShapedRequest {
-        let resolvedInputs = try await CLISequenceInputMaterialization.resolveExecutionInputs(
-            for: [virtualBundleURL],
-            tempDirectory: outputDirectory.appendingPathComponent(".lungfish-map-inputs", isDirectory: true),
-            materializer: FASTQCLIMaterializer(runner: .shared),
-            operationName: "mapping"
+    /// The request `lungfish-cli map <bundle>` builds: inputs resolved
+    /// through `MapCommand`'s own resolution into the run's
+    /// `.lungfish-map-inputs`, pairing and layout derived as the command
+    /// derives them, and the lineage carried as `originalInputFASTQURLs`.
+    func cliShapedRequest(bundleURL: URL? = nil, outputDirectory: URL) async throws -> CLIShapedRequest {
+        let inputURL = bundleURL ?? virtualBundleURL
+        let resolvedInputs = try await MapCommand.resolveExecutionInputs(
+            for: [inputURL],
+            tempDirectory: MappingResultLayoutService.inputMaterializationDirectory(in: outputDirectory),
+            materializer: FASTQCLIMaterializer(runner: .shared)
         )
-        let layoutResolution = FASTQInputLayoutResolver.resolve(
-            inputURLs: resolvedInputs.inputURLs,
-            pairedFiles: false
-        )
+        let pairedEnd = MapCommand.effectivePairedEnd(flag: false, resolved: resolvedInputs)
+        let layoutResolution = MapCommand.layoutResolution(for: resolvedInputs, pairedEnd: pairedEnd, explicit: nil)
         let request = MappingRunRequest(
             tool: .minimap2,
             modeID: MappingMode.defaultShortRead.id,
-            inputFASTQURLs: resolvedInputs.inputURLs,
-            originalInputFASTQURLs: [virtualBundleURL.standardizedFileURL],
+            inputFASTQURLs: resolvedInputs.executionInputURLs,
+            originalInputFASTQURLs: resolvedInputs.originalInputURLs,
             inputMaterializationStartedAt: resolvedInputs.materializationStartedAt,
             inputMaterializationEndedAt: resolvedInputs.materializationEndedAt,
             referenceFASTAURL: referenceURL,
             projectURL: projectURL,
             outputDirectory: outputDirectory,
-            sampleName: "run-oriented",
-            pairedEnd: false,
+            sampleName: inputURL.deletingPathExtension().lastPathComponent,
+            pairedEnd: pairedEnd,
             threads: 2,
             inputLayout: layoutResolution.layout
         )
