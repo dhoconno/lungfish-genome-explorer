@@ -1058,43 +1058,39 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     }
 
     private func mappingInputMaterializationSteps(for request: MappingRunRequest) throws -> [StepExecution] {
-        let originalInputURLs = request.originalInputFASTQURLs ?? request.inputFASTQURLs
         var materializationInputs: [ProvenanceFileDescriptor] = []
         var materializationOutputs: [ProvenanceFileDescriptor] = []
         var materializationCommands: [[String]] = []
-
-        for (index, originalURL) in originalInputURLs.enumerated() {
-            guard request.inputFASTQURLs.indices.contains(index) else { continue }
-            let executionURL = request.inputFASTQURLs[index]
-            guard originalURL.standardizedFileURL != executionURL.standardizedFileURL,
-                  CLISequenceInputMaterialization.requiresMaterialization(originalURL) else {
-                continue
-            }
-
-            materializationInputs.append(
-                contentsOf: try CLISequenceInputMaterialization.originalInputDescriptors(for: originalURL)
-            )
-            materializationOutputs.append(
-                try CLISequenceInputMaterialization.executionInputDescriptor(
-                    originalURL: originalURL,
-                    executionURL: executionURL
-                )
-            )
-            materializationCommands.append(
-                CLISequenceInputMaterialization.materializationCommand(
-                    originalURL: originalURL,
-                    executionURL: executionURL
-                )
-            )
-        }
-
-        guard !materializationOutputs.isEmpty else {
-            return []
-        }
-
+        var concatenationSteps: [StepExecution] = []
         let startTime = request.inputMaterializationStartedAt ?? Date()
         let endTime = request.inputMaterializationEndedAt ?? startTime
         let wallTime = max(0, endTime.timeIntervalSince(startTime))
+
+        // A pair is an execution file written for the run: a materialized virtual bundle, or the
+        // unpaired files of one bundle concatenated for the mapper, which gets a step of its own.
+        for pair in CLISequenceInputMaterialization.materializedInputPairs(
+            originalInputURLs: request.originalInputFASTQURLs ?? request.inputFASTQURLs,
+            executionInputURLs: request.inputFASTQURLs
+        ) {
+            if let concatenation = CLISequenceInputMaterialization.concatenation(forExecutionURL: pair.executionURL) {
+                concatenationSteps.append(try concatenation.stepExecution(
+                    toolVersion: WorkflowRun.currentAppVersion, startedAt: startTime, endedAt: endTime
+                ))
+                continue
+            }
+            materializationInputs.append(contentsOf: try CLISequenceInputMaterialization.originalInputDescriptors(for: pair.originalURL))
+            materializationOutputs.append(try CLISequenceInputMaterialization.executionInputDescriptor(
+                originalURL: pair.originalURL, executionURL: pair.executionURL
+            ))
+            materializationCommands.append(CLISequenceInputMaterialization.materializationCommand(
+                originalURL: pair.originalURL, executionURL: pair.executionURL
+            ))
+        }
+
+        guard !materializationOutputs.isEmpty else {
+            return concatenationSteps
+        }
+
         let command = materializationCommands.count == 1
             ? materializationCommands[0]
             : ["/bin/sh", "-lc", materializationCommands.map { $0.map(shellEscape).joined(separator: " ") }.joined(separator: " && ")]
@@ -1111,16 +1107,14 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 startTime: startTime,
                 endTime: endTime
             )
-        ]
+        ] + concatenationSteps
     }
 
     private func mapperDurableReplayArgv(for request: MappingRunRequest, argv: [String]) -> [String]? {
-        let originalInputURLs = request.originalInputFASTQURLs ?? request.inputFASTQURLs
-        let hasDurableMaterializedInput = originalInputURLs.enumerated().contains { index, originalURL in
-            guard request.inputFASTQURLs.indices.contains(index) else { return false }
-            return originalURL.standardizedFileURL != request.inputFASTQURLs[index].standardizedFileURL
-                && CLISequenceInputMaterialization.requiresMaterialization(originalURL)
-        }
+        let hasDurableMaterializedInput = !CLISequenceInputMaterialization.materializedInputPairs(
+            originalInputURLs: request.originalInputFASTQURLs ?? request.inputFASTQURLs,
+            executionInputURLs: request.inputFASTQURLs
+        ).isEmpty
         return hasDurableMaterializedInput ? argv : nil
     }
 

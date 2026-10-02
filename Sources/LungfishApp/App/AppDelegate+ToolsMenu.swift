@@ -987,15 +987,11 @@ extension AppDelegate {
     /// each resolve to exactly one file would otherwise fabricate a mate
     /// pair between two unrelated samples).
     ///
-    /// Reuses `MetagenomicsSampleGrouper`, which infers R1/R2 role from
-    /// filename convention (`_R1`/`_R2`, `_1`/`_2`, etc.) rather than
-    /// position or count: `pairedEnd` is true only when the resolved files
-    /// collapse to exactly one grouped sample that itself has both a
-    /// `fastq1` and `fastq2` role match. Any other shape (a lone file, two
-    /// files with no matching R1/R2 stem, 3+ files, multiple distinct
-    /// grouped samples after pooling) maps to `false`, degrading safely to
-    /// single-end/"-U"/"in=" command construction instead of fabricating a
-    /// pair.
+    /// Reuses `MetagenomicsSampleGrouper`, which infers R1/R2 roles from the
+    /// filename convention (`_R1`/`_R2`, `_1`/`_2` and so on), never from
+    /// position or count: true only when the two files group into one sample
+    /// with both roles. Every other shape (one file, no matching stems, three
+    /// or more files) is false and maps single-end rather than inventing a pair.
     static func resolvedPairedEnd(for resolvedFiles: [URL]) -> Bool {
         guard resolvedFiles.count == 2 else { return false }
         let grouped = MetagenomicsSampleGrouper.group(resolvedFiles)
@@ -1477,14 +1473,17 @@ extension AppDelegate {
             inputURLs: request.inputFASTQURLs,
             materializationDirectory: MappingResultLayoutService.inputMaterializationDirectory(in: request.outputDirectory),
             materializer: FASTQCLIMaterializer(runner: .shared),
+            concatenateUnpairedFiles: true,
             progress: progress
         )
         let resolvedFiles = resolved.executionInputURLs
         // F2: pairedEnd and the layout come from the resolved files, never the pre-resolve URL count; the scan runs off the main actor.
         let resolvedPairedEnd = Self.resolvedPairedEnd(for: resolvedFiles)
-        let layoutResolution = await Task.detached {
-            FASTQInputLayoutResolver.resolve(inputURLs: resolvedFiles, pairedFiles: resolvedPairedEnd)
-        }.value
+        let layoutResolution = if let pooled = resolved.pooledLayoutResolution { pooled } else {
+            await Task.detached {
+                FASTQInputLayoutResolver.resolve(inputURLs: resolvedFiles, pairedFiles: resolvedPairedEnd)
+            }.value
+        }
         let resolvedRequest = request
             .withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)
             .withInputLineage(resolved)

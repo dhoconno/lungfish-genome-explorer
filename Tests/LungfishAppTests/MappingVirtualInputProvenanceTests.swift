@@ -104,6 +104,57 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
         try fixture.assertDurableVirtualInputProvenance(in: analysisDirectory)
     }
 
+    /// A root bundle split over two chunk files (an ONT import) reaches the
+    /// mapper as one concatenated file holding every read, the mates of the
+    /// pooled files are not invented, and provenance records both chunks,
+    /// the concatenation as a step and a durable replay command.
+    func testWindowMappingOfMultiFileBundleHandsTheMapperOneFileWithEveryReadAndRecordsTheConcatenation() async throws {
+        let fixture = try StandInMappingFixture.make()
+        defer { fixture.cleanUp() }
+
+        let analysisDirectory = try fixture.makeAnalysisDirectory()
+        let request = try fixture.windowRequest(bundleURL: fixture.multiFileBundleURL, outputDirectory: analysisDirectory)
+
+        let resolved = try await AppDelegate().resolveManagedMappingInputs(for: request, progress: { _ in })
+        _ = try await fixture.pipeline.run(
+            request: resolved.request,
+            inputLayoutReason: resolved.layoutResolution.reason
+        )
+
+        XCTAssertEqual(resolved.request.inputFASTQURLs.count, 1, "the mapper receives one file")
+        XCTAssertFalse(resolved.request.pairedEnd)
+        XCTAssertEqual(resolved.request.inputLayout, .singleEnd)
+        XCTAssertEqual(
+            try fixture.readsSeenByMapper(),
+            StandInMappingFixture.readIDs.indices.map { "\(StandInMappingFixture.readIDs[$0]) \(StandInMappingFixture.sequences[$0])" },
+            "every read of both chunks reached the mapper, in order"
+        )
+
+        let provenance = try XCTUnwrap(MappingProvenance.load(from: analysisDirectory))
+        let recordedInputs = Set(provenance.inputFiles.filter { $0.role == .input }.map { Self.canonicalPath($0.path) })
+        for chunk in fixture.multiFileChunkURLs {
+            XCTAssertTrue(recordedInputs.contains(Self.canonicalPath(chunk.path)), "provenance omits \(chunk.lastPathComponent)")
+        }
+        let concatenationStep = try XCTUnwrap(
+            provenance.steps.first { $0.toolName == SequenceInputConcatenation.toolName },
+            "no concatenation step; steps: \(provenance.steps.map(\.toolName))"
+        )
+        XCTAssertEqual(
+            concatenationStep.inputs.map { Self.canonicalPath($0.path) },
+            fixture.multiFileChunkURLs.map { Self.canonicalPath($0.path) }
+        )
+        XCTAssertEqual(
+            concatenationStep.outputs.map { Self.canonicalPath($0.path) },
+            resolved.request.inputFASTQURLs.map { Self.canonicalPath($0.path) }
+        )
+        XCTAssertNotNil(provenance.mapperInvocation.durableReplayArgv, "the window recorded no durable replay command")
+        for record in provenance.inputFiles {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: record.path), "provenance names \(record.path), which does not exist")
+        }
+        let scratchPrefix = Self.canonicalPath(fixture.projectURL.appendingPathComponent(".tmp").path) + "/"
+        XCTAssertEqual(recordedInputs.filter { $0.hasPrefix(scratchPrefix) }, [], "provenance names a file in the project's scratch folder")
+    }
+
     /// The recorded inputs with the run's own directory and the random part
     /// of a materialized file name masked, so two runs compare.
     private static func comparableInputs(
@@ -118,8 +169,8 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
                     path = "<analysis>/" + path.dropFirst(analysisPrefix.count)
                 }
                 path = path.replacingOccurrences(
-                    of: #"materialized-[0-9A-Fa-f-]+\."#,
-                    with: "materialized.",
+                    of: #"(materialized|concatenated)-[0-9A-Fa-f-]+\."#,
+                    with: "$1.",
                     options: .regularExpression
                 )
                 return "\(record.role.rawValue) \(path)"
@@ -130,17 +181,24 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
     private static func materializedInputChecksum(of provenance: MappingProvenance) -> String? {
         provenance.inputFiles.first { $0.path.contains("/materialized-") }?.sha256
     }
+
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
 }
 
-/// A project with a root FASTQ bundle of three Illumina reads and a virtual
+/// A project with a root FASTQ bundle of three Illumina reads, a virtual
 /// oriented bundle over it (read 1 forward, read 3 reverse-complemented,
-/// read 2 left out), plus a stand-in mapper and samtools. Orient
-/// materialization is pure Swift, so no real tool runs.
+/// read 2 left out) and a root bundle whose three reads are split over two
+/// chunk files, plus a stand-in mapper and samtools. Orient materialization
+/// is pure Swift, so no real tool runs.
 private struct StandInMappingFixture {
     let rootURL: URL
     let projectURL: URL
     let rootFASTQURL: URL
     let virtualBundleURL: URL
+    let multiFileBundleURL: URL
+    let multiFileChunkURLs: [URL]
     let referenceURL: URL
     let readsSeenByMapperURL: URL
     let pipeline: ManagedMappingPipeline
@@ -218,6 +276,21 @@ private struct StandInMappingFixture {
             in: virtualBundle
         )
 
+        // A root bundle whose reads are split over two chunk files listed in
+        // source-files.json, the shape of an ONT import.
+        let multiFileBundle = imports.appendingPathComponent("chunked.lungfishfastq", isDirectory: true)
+        let chunkDirectory = multiFileBundle.appendingPathComponent("chunks", isDirectory: true)
+        try fileManager.createDirectory(at: chunkDirectory, withIntermediateDirectories: true)
+        let chunk0 = chunkDirectory.appendingPathComponent("chunked_0.fastq")
+        let chunk1 = chunkDirectory.appendingPathComponent("chunked_1.fastq")
+        try (record(0) + record(1)).write(to: chunk0, atomically: true, encoding: .utf8)
+        try record(2).write(to: chunk1, atomically: true, encoding: .utf8)
+        try record(0).write(to: multiFileBundle.appendingPathComponent("preview.fastq"), atomically: true, encoding: .utf8)
+        try FASTQSourceFileManifest(files: [
+            .init(filename: "chunks/chunked_0.fastq", originalPath: "/orig/chunked_0.fastq", sizeBytes: 1, isSymlink: false),
+            .init(filename: "chunks/chunked_1.fastq", originalPath: "/orig/chunked_1.fastq", sizeBytes: 1, isSymlink: false),
+        ]).save(to: multiFileBundle)
+
         let reference = project.appendingPathComponent("reference.fa")
         try ">chr1\n\(String(repeating: "ACGTTGCA", count: 20))\n".write(
             to: reference,
@@ -253,6 +326,8 @@ private struct StandInMappingFixture {
             projectURL: project,
             rootFASTQURL: rootFASTQ,
             virtualBundleURL: virtualBundle,
+            multiFileBundleURL: multiFileBundle,
+            multiFileChunkURLs: [chunk0, chunk1],
             referenceURL: reference,
             readsSeenByMapperURL: readsSeen,
             pipeline: ManagedMappingPipeline(condaManager: condaManager, nativeToolRunner: runner)
@@ -267,12 +342,13 @@ private struct StandInMappingFixture {
         try AnalysesFolder.createAnalysisDirectory(tool: MappingTool.minimap2.rawValue, in: projectURL)
     }
 
-    /// The request the Map Reads dialog hands to `runManagedMapping`, bound
-    /// to its analysis directory as `runSingleManagedMappingAwaitingCompletion`
+    /// The request the Map Reads dialog hands to `runManagedMapping` for one
+    /// bundle (the virtual bundle unless another is named), bound to its
+    /// analysis directory as `runSingleManagedMappingAwaitingCompletion`
     /// binds it.
-    func windowRequest(outputDirectory: URL) throws -> MappingRunRequest {
+    func windowRequest(bundleURL: URL? = nil, outputDirectory: URL) throws -> MappingRunRequest {
         let plan = MappingWizardSheet.buildRunPlan(
-            bundleURLs: [virtualBundleURL],
+            bundleURLs: [bundleURL ?? virtualBundleURL],
             mode: .perBundle,
             tool: .minimap2,
             modeID: MappingMode.defaultShortRead.id,
