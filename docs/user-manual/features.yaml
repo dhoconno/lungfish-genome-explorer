@@ -125,7 +125,7 @@ features:
     cli:
       - lungfish-cli map
       - lungfish-cli bam adopt-mapping
-    operation_type: download
+    operation_type: mapping
     provenance: MappingProvenance (mapping-provenance.json in the mapping output directory)
     tests:
       - Tests/LungfishWorkflowTests/Mapping/MappingProvenanceTests.swift
