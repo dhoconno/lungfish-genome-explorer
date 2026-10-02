@@ -7,9 +7,14 @@ import LungfishTestSupport
 /// user keystrokes before recomputing (filter, sort, rebuild visible-row
 /// index, diff-based table reload) exactly like `BatchTableView.scheduleFilterApply`
 /// and `ViralDetectionTableView.setFilterText(_:debounce:)` already do.
+///
+/// Each test drives the debounce through `ManualMatrixFilterDebounce`, so the
+/// test decides when the delay has passed. Waiting up to 2 s of wall time for the
+/// real 180 ms sleep failed under the loaded parallel unit gate (gate 10,
+/// 2026-10-02) before the first recompute ran.
 final class GenotypeMatrixFilterDebounceTests: XCTestCase {
     @MainActor
-    func testImmediateExportSettlesNativeSearchAndCancelsDelayedRecompute() async throws {
+    func testImmediateExportSettlesNativeSearchAndCancelsDelayedRecompute() throws {
         let matrix = GenotypeComparisonMatrixView(frame: NSRect(x: 0, y: 0, width: 900, height: 500))
         let window = NSWindow(contentRect: matrix.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = matrix
@@ -17,13 +22,17 @@ final class GenotypeMatrixFilterDebounceTests: XCTestCase {
             makeCall(sample: "AnimalA", genotype: "Mafa-A1*001:01", reads: 12),
             makeCall(sample: "AnimalA", genotype: "Mafa-B1*003:01", reads: 5),
         ]))
+        let debounce = installManualDebounce(on: matrix)
         matrix.testingResetProjectionPerformanceCounters()
         XCTAssertTrue(matrix.testingPerformNativeFilterAction(text: "Mafa-A", selectedRange: NSRange(location: 6, length: 0), in: window))
         let snapshot = matrix.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/search.lungfishgenotype"), analysisName: "Search", lens: "matrix")
         XCTAssertEqual(snapshot.rows.map(\.genotype), ["Mafa-A1*001:01"])
         XCTAssertEqual(snapshot.filters["searchText"], "Mafa-A")
         XCTAssertEqual(matrix.testingApplyFilterAndSortInvocationCount, 1)
-        try await Task.sleep(for: .milliseconds(250))
+        // The export cancelled the keystroke's delayed recompute, so letting its
+        // delay pass must not recompute a second time.
+        XCTAssertEqual(debounce.armed.map(\.task.isCancelled), [true])
+        debounce.elapseAll()
         XCTAssertEqual(matrix.testingApplyFilterAndSortInvocationCount, 1)
         XCTAssertEqual(matrix.testingFilterModelText, "Mafa-A")
     }
@@ -45,6 +54,7 @@ final class GenotypeMatrixFilterDebounceTests: XCTestCase {
             makeCall(sample: "AnimalA", genotype: "Mafa-A1*002:01", reads: 8),
             makeCall(sample: "AnimalA", genotype: "Mafa-B1*003:01", reads: 5),
         ]))
+        let debounce = installManualDebounce(on: matrix)
         matrix.testingResetProjectionPerformanceCounters()
 
         // Fire three rapid keystrokes the way a fast typist would, without
@@ -68,10 +78,17 @@ final class GenotypeMatrixFilterDebounceTests: XCTestCase {
         // The recompute must not have run synchronously for any of the three
         // keystrokes yet -- only after the debounce interval elapses.
         XCTAssertEqual(matrix.testingApplyFilterAndSortInvocationCount, 0)
+        XCTAssertEqual(
+            debounce.armed.map(\.delay),
+            Array(repeating: .milliseconds(180), count: 3),
+            "Each keystroke must arm a recompute 180 ms out, the BatchTableView delay"
+        )
+        XCTAssertEqual(
+            debounce.armed.map(\.task.isCancelled), [true, true, false],
+            "Each keystroke must cancel the recompute the previous keystroke armed"
+        )
 
-        try waitUntil(timeout: 2.0) {
-            matrix.testingApplyFilterAndSortInvocationCount == 1
-        }
+        debounce.elapseAll()
 
         XCTAssertEqual(matrix.testingApplyFilterAndSortInvocationCount, 1)
         XCTAssertEqual(
@@ -99,14 +116,14 @@ final class GenotypeMatrixFilterDebounceTests: XCTestCase {
             makeCall(sample: "AnimalA", genotype: "Mafa-A1*001:01", reads: 12),
             makeCall(sample: "AnimalA", genotype: "Mafa-B1*003:01", reads: 5),
         ]))
+        let debounce = installManualDebounce(on: matrix)
         XCTAssertTrue(matrix.testingPerformNativeFilterAction(
             text: "Mafa-A",
             selectedRange: NSRange(location: 6, length: 0),
             in: window
         ))
-        try waitUntil(timeout: 2.0) {
-            matrix.testingVisibleRows.count == 1
-        }
+        debounce.elapseAll()
+        XCTAssertEqual(matrix.testingVisibleRows.count, 1)
 
         matrix.testingResetProjectionPerformanceCounters()
         XCTAssertTrue(matrix.testingPerformNativeFilterAction(
@@ -116,11 +133,16 @@ final class GenotypeMatrixFilterDebounceTests: XCTestCase {
         ))
 
         // Clearing the filter must not wait for the debounce window.
-        try waitUntil(timeout: 2.0) {
-            matrix.testingApplyFilterAndSortInvocationCount == 1
-        }
+        XCTAssertTrue(debounce.armed.isEmpty, "Clearing the filter must not arm a delayed recompute")
         XCTAssertEqual(matrix.testingApplyFilterAndSortInvocationCount, 1)
         XCTAssertEqual(matrix.testingVisibleRows.count, 2)
+    }
+
+    @MainActor
+    private func installManualDebounce(on matrix: GenotypeComparisonMatrixView) -> ManualMatrixFilterDebounce {
+        let debounce = ManualMatrixFilterDebounce()
+        matrix.filterDebounceScheduler = { debounce.arm(after: $0, $1) }
+        return debounce
     }
 
     private func makeCall(sample: String, genotype: String, reads: Int) -> ONTGenotypeCall {
@@ -139,19 +161,29 @@ final class GenotypeMatrixFilterDebounceTests: XCTestCase {
     }
 }
 
+/// Stands in for `GenotypeComparisonMatrixView.filterDebounceScheduler`. It keeps
+/// each armed recompute with the task it handed the view, so a test decides when
+/// the debounce delay has passed instead of waiting on the clock.
 @MainActor
-private func waitUntil(
-    timeout: TimeInterval = 10.0,
-    file: StaticString = #filePath,
-    line: UInt = #line,
-    _ condition: @escaping @MainActor () -> Bool
-) throws {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() {
-            return
-        }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+private final class ManualMatrixFilterDebounce {
+    private(set) var armed: [(delay: Duration, task: Task<Void, Never>, recompute: @MainActor () -> Void)] = []
+
+    func arm(after delay: Duration, _ recompute: @escaping @MainActor () -> Void) -> Task<Void, Never> {
+        // The view only ever cancels the task it gets back, and a task records
+        // its cancellation even after it has finished, so an empty task carries
+        // the state the default scheduler's sleeping task would.
+        let task = Task<Void, Never> {}
+        armed.append((delay, task, recompute))
+        return task
     }
-    XCTAssertTrue(condition(), file: file, line: line)
+
+    /// Runs every armed recompute whose task was not cancelled, as the default
+    /// scheduler does once its delay has passed.
+    func elapseAll() {
+        let due = armed
+        armed.removeAll()
+        for entry in due where !entry.task.isCancelled {
+            entry.recompute()
+        }
+    }
 }

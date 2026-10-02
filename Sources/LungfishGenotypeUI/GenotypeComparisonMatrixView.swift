@@ -543,8 +543,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         NotificationCenter.default.removeObserver(self)
         // `pendingFilterTask` is not explicitly cancelled here: `final`-class
         // deinits may only touch nonisolated state under Swift 6 strict
-        // concurrency. The task's own `[weak self]` capture makes this safe --
-        // it simply no-ops once `self` has been deallocated.
+        // concurrency. The recompute closure the task holds captures `self`
+        // weakly, so the task no-ops once `self` has been deallocated.
     }
 
     private var haplotypeEvidence = GenotypeAlleleHaplotypeEvidenceIndex.empty
@@ -948,16 +948,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         applyFilterState(requestedState, debounce: debounce)
     }
 
-    /// Delay before recomputing the matrix filter/sort in response to a
-    /// user-typed keystroke. Mirrors `BatchTableView.filterDebounceDelay`
-    /// (`Sources/LungfishKit/BatchTableView.swift`) so free-text search feels
-    /// consistent everywhere in the app.
+    /// Delay before recomputing the matrix filter/sort in response to a user-typed keystroke. Mirrors `BatchTableView.filterDebounceDelay` (`Sources/LungfishKit/BatchTableView.swift`) so free-text search feels consistent everywhere in the app.
     private static let filterDebounceDelay: Duration = .milliseconds(180)
 
-    /// Pending debounced recompute scheduled by a user keystroke in the
-    /// filter field. Cancelled whenever a new keystroke arrives or the
-    /// filter is cleared/set programmatically.
+    /// Pending debounced recompute scheduled by a user keystroke in the filter field. Cancelled whenever a new keystroke arrives or the filter is cleared/set programmatically.
     private var pendingFilterTask: Task<Void, Never>?
+
+    /// Starts the debounced recompute and returns its task. The default sleeps for the delay, then recomputes unless cancelled. Tests replace it so they run the recompute without waiting on the clock.
+    var filterDebounceScheduler: @MainActor (Duration, @escaping @MainActor () -> Void) -> Task<Void, Never> = { delay, recompute in
+        Task { @MainActor in
+            do { try await Task.sleep(for: delay) } catch { return }
+            if !Task.isCancelled { recompute() }
+        }
+    }
 
     private func applyFilterState(_ state: NativeFilterState, debounce: Bool = false) {
         let previousSamples = activeSampleNames()
@@ -979,14 +982,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return
         }
         pendingFilterTask?.cancel()
-        let delay = Self.filterDebounceDelay
-        pendingFilterTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: delay)
-            } catch {
-                return
-            }
-            guard let self, !Task.isCancelled else { return }
+        pendingFilterTask = filterDebounceScheduler(Self.filterDebounceDelay) { [weak self] in
+            guard let self else { return }
             self.pendingFilterTask = nil
             self.applyFilterAndSort()
         }
