@@ -1779,13 +1779,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         ) else {
             throw DemultiplexError.noBarcodes
         }
-
-        // A physical bundle is every file it holds. A derived bundle's own
-        // FASTQ is only its preview, so its reads come from the materialized
-        // input the caller resolved, never from the preview (R3, lane 1x).
+        // A derived bundle's own FASTQ is only its preview, so only a physical bundle is listed; a derived one is read as the materialized input.
         let inputURLs: [URL]
-        if let bundleURL = config.sourceBundleURL ?? (FASTQBundle.isBundleURL(config.inputURL) ? config.inputURL : nil),
-           !FASTQBundle.isDerivedBundle(bundleURL),
+        if let bundleURL = config.sourceBundleURL ?? (FASTQBundle.isBundleURL(config.inputURL) ? config.inputURL : nil), !FASTQBundle.isDerivedBundle(bundleURL),
            let allURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL), !allURLs.isEmpty {
             inputURLs = allURLs
         } else {
