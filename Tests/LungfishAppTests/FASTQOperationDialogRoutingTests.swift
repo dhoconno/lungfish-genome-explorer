@@ -2247,7 +2247,6 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(request.name, "input")
         XCTAssertNil(state.pendingLaunchRequest)
         XCTAssertNil(state.pendingMappingRequest)
-        XCTAssertNil(state.pendingMinimap2Config)
     }
 
     func testMAFFTAdvancedOptionsRouteIntoPendingMSARequest() throws {

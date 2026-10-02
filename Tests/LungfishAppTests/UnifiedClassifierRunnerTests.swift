@@ -2,7 +2,6 @@ import Foundation
 import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
-import LungfishTestSupport
 
 @MainActor
 final class UnifiedClassifierRunnerTests: XCTestCase {
@@ -180,26 +179,6 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
             taxTriageState.pendingLaunchRequest,
             .classify(tool: .taxTriage, inputURLs: [inputURL], databaseName: "classifier-db")
         )
-    }
-
-    func testRunMinimap2MappingKeepsDurableVirtualInputProvenanceBeforeResolvedExecutionInputs() throws {
-        // This AppDelegate path resolves temporary FASTQ materializations inside a
-        // private async runner. Until that workflow exposes a route/result seam,
-        // keep this narrow source guard because preserving virtual input provenance
-        // is a blocking scientific-data requirement.
-        let source = combinedAppDelegateSource()
-        let methodStart = try XCTUnwrap(source.range(of: "    private func runMinimap2Mapping("))
-        let methodEnd = try XCTUnwrap(
-            source.range(of: "    func importCzIdResultFromURL", range: methodStart.upperBound..<source.endIndex)
-        )
-        let methodSource = String(source[methodStart.lowerBound..<methodEnd.lowerBound])
-
-        XCTAssertTrue(methodSource.contains("let resolvedFiles = try await self?.resolveInputFiles("))
-        XCTAssertTrue(methodSource.contains("resolvedConfig.provenanceInputFiles = config.provenanceInputFiles"))
-        XCTAssertTrue(methodSource.contains("?? Self.durableSequenceInputsForProvenance(config.inputFiles)"))
-        XCTAssertTrue(methodSource.contains("resolvedConfig.provenanceInputFileRecords = config.provenanceInputFileRecords"))
-        XCTAssertTrue(methodSource.contains("?? Self.durableSequenceInputRecordsForProvenance(config.inputFiles)"))
-        XCTAssertTrue(methodSource.contains("resolvedConfig.inputFiles = resolvedFiles"))
     }
 
     private func loadSource(at relativePath: String) throws -> String {

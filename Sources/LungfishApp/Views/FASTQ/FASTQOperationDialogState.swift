@@ -47,7 +47,6 @@ final class FASTQOperationDialogState {
     var outputDirectoryURL: URL?
     var projectBarcodeDefinitionCandidates: [URL]
     var pendingLaunchRequest: FASTQOperationLaunchRequest?
-    var pendingMinimap2Config: Minimap2Config?
     var pendingMappingRequest: MappingRunPlan?
     var pendingMSAAlignmentRequest: MSAAlignmentRunRequest?
     var pendingAssemblyRequest: AssemblyRunRequest?
@@ -222,7 +221,6 @@ final class FASTQOperationDialogState {
         // filesystem enumeration.
         self.projectBarcodeDefinitionCandidates = []
         self.pendingLaunchRequest = nil
-        self.pendingMinimap2Config = nil
         self.pendingMappingRequest = nil
         self.pendingMSAAlignmentRequest = nil
         self.pendingAssemblyRequest = nil
@@ -432,7 +430,6 @@ final class FASTQOperationDialogState {
             return
         }
 
-        pendingMinimap2Config = nil
         pendingMappingRequest = nil
         pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
@@ -878,28 +875,9 @@ final class FASTQOperationDialogState {
         )
     }
 
-    func captureMinimap2Config(_ config: Minimap2Config) {
-        setAuxiliaryInput(config.referenceURL, for: .referenceSequence)
-        pendingMinimap2Config = config
-        pendingMappingRequest = nil
-        pendingMSAAlignmentRequest = nil
-        pendingAssemblyRequest = nil
-        pendingClassificationConfigs = []
-        pendingEsVirituConfigs = []
-        pendingTaxTriageConfig = nil
-        pendingViralReconRequest = nil
-        pendingLaunchRequest = .map(
-            inputURLs: config.inputFiles,
-            referenceURL: config.referenceURL,
-            outputMode: outputMode
-        )
-        embeddedToolReady = true
-    }
-
     func captureMappingRequest(_ plan: MappingRunPlan) {
         guard let firstRequest = plan.requests.first else { return }
         setAuxiliaryInput(firstRequest.referenceFASTAURL, for: .referenceSequence)
-        pendingMinimap2Config = nil
         pendingMappingRequest = plan
         pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
@@ -925,7 +903,6 @@ final class FASTQOperationDialogState {
     /// explicit user choice, not an inference from `request.pairedEnd`.
     func captureAssemblyRequest(_ request: AssemblyRunRequest, runMode: MultiBundleRunMode = .perBundle) {
         outputDirectoryURL = request.outputDirectory
-        pendingMinimap2Config = nil
         pendingMappingRequest = nil
         pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = request
@@ -949,7 +926,6 @@ final class FASTQOperationDialogState {
     func captureClassificationConfigs(_ configs: [ClassificationConfig]) {
         guard let first = configs.first else { return }
         setAuxiliaryInput(first.databasePath, for: .database)
-        pendingMinimap2Config = nil
         pendingMappingRequest = nil
         pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
@@ -969,7 +945,6 @@ final class FASTQOperationDialogState {
     func captureEsVirituConfigs(_ configs: [EsVirituConfig]) {
         guard let first = configs.first else { return }
         setAuxiliaryInput(first.databasePath, for: .database)
-        pendingMinimap2Config = nil
         pendingMappingRequest = nil
         pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
@@ -990,7 +965,6 @@ final class FASTQOperationDialogState {
         if let databasePath = config.kraken2DatabasePath {
             setAuxiliaryInput(databasePath, for: .database)
         }
-        pendingMinimap2Config = nil
         pendingMappingRequest = nil
         pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
@@ -1011,7 +985,6 @@ final class FASTQOperationDialogState {
 
     func captureViralReconRequest(_ request: ViralReconRunRequest) {
         pendingLaunchRequest = nil
-        pendingMinimap2Config = nil
         pendingMappingRequest = nil
         pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
@@ -1634,7 +1607,6 @@ final class FASTQOperationDialogState {
         embeddedToolReady = selectedToolID.defaultEmbeddedReadiness
         embeddedRunTrigger = 0
         pendingLaunchRequest = nil
-        pendingMinimap2Config = nil
         pendingMappingRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []

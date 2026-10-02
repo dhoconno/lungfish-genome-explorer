@@ -1039,7 +1039,6 @@ final class PipelineCancelCallbackRegressionTests: XCTestCase {
         let source = try appDelegateSource()
         for functionName in [
             "runSequenceAnnotationOperation",
-            "runMinimap2Mapping",
         ] {
             let body = try functionBody(named: functionName, in: source)
             XCTAssertTrue(
