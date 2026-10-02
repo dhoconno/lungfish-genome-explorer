@@ -107,20 +107,7 @@ public enum AssemblyRunner {
             return
         }
 
-        let executionRequest = AssemblyRunRequest(
-            tool: request.tool,
-            readType: request.readType,
-            inputURLs: request.inputURLs,
-            projectName: request.projectName,
-            outputDirectory: baseOutputDirectory.appendingPathComponent(projectName, isDirectory: true),
-            pairedEnd: request.pairedEnd,
-            threads: request.threads,
-            memoryGB: request.memoryGB,
-            minContigLength: request.effectiveMinContigLength,
-            selectedProfileID: request.selectedProfileID,
-            extraArguments: request.extraArguments,
-            profileSelectionBasis: request.profileSelectionBasis
-        )
+        let executionRequest = Self.executionRequest(for: request)
 
         logger.info("Starting managed assembly: tool=\(request.tool.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
@@ -140,6 +127,28 @@ public enum AssemblyRunner {
 
             OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
+    }
+
+    /// The request `runValidated` hands the managed pipeline: `request`
+    /// writing into `<output>/<project name>` with its effective minimum
+    /// contig length and every other field, `inputLayout` included, as the
+    /// recorded command (`cliCommandPreview`) carries them (R3).
+    nonisolated static func executionRequest(for request: AssemblyRunRequest) -> AssemblyRunRequest {
+        AssemblyRunRequest(
+            tool: request.tool,
+            readType: request.readType,
+            inputURLs: request.inputURLs,
+            projectName: request.projectName,
+            outputDirectory: request.outputDirectory.appendingPathComponent(request.projectName, isDirectory: true),
+            pairedEnd: request.pairedEnd,
+            threads: request.threads,
+            memoryGB: request.memoryGB,
+            minContigLength: request.effectiveMinContigLength,
+            selectedProfileID: request.selectedProfileID,
+            extraArguments: request.extraArguments,
+            profileSelectionBasis: request.profileSelectionBasis,
+            inputLayout: request.inputLayout
+        )
     }
 
     /// Registers the assembly row and, only when it starts, calls `launch` with the
@@ -262,7 +271,11 @@ public enum AssemblyRunner {
     /// `ResolvedSequenceInputs.resolveForAssembly`): every read a bundle
     /// holds, a virtual bundle materialized into `tempDirectory` by
     /// `materialize`, the unpaired files of one bundle joined there, and the
-    /// R1 and R2 files of a mate pair kept apart and assembled as pairs.
+    /// R1 and R2 files of a mate pair kept apart and assembled as pairs. The
+    /// layout of a single file is resolved by the same rule as well
+    /// (`AssemblyRunRequest.resolveInputLayout`): the request's own
+    /// `inputLayout` (the recorded `--read-layout`) wins, otherwise the
+    /// bundle metadata and then the records decide.
     static func materializedManagedAssemblyRequestResult(
         from request: AssemblyRunRequest,
         tempDirectory: URL,
@@ -274,19 +287,35 @@ public enum AssemblyRunner {
             materializationDirectory: tempDirectory,
             materializer: ClosureAssemblyInputMaterializer(body: materialize)
         )
+        if request.inputLayout != nil, resolved.resolvedAsMatePair {
+            throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                "--read-layout describes one input file; \(request.inputURLs[0].lastPathComponent) holds R1 and R2 files."
+            )
+        }
+        let pairedEnd = request.pairedEnd || resolved.resolvedAsMatePair
+        let layout = AssemblyRunRequest.resolveInputLayout(
+            tool: request.tool,
+            readType: request.readType,
+            pairedEnd: pairedEnd,
+            explicit: request.inputLayout,
+            originalInputURLs: resolved.originalInputURLs,
+            executionInputURLs: resolved.executionInputURLs,
+            pooled: resolved.pooledLayoutResolution
+        )
         let executionRequest = AssemblyRunRequest(
             tool: request.tool,
             readType: request.readType,
             inputURLs: resolved.executionInputURLs,
             projectName: request.projectName,
             outputDirectory: request.outputDirectory,
-            pairedEnd: request.pairedEnd || resolved.resolvedAsMatePair,
+            pairedEnd: pairedEnd,
             threads: request.threads,
             memoryGB: request.memoryGB,
             minContigLength: request.minContigLength,
             selectedProfileID: request.selectedProfileID,
             extraArguments: request.extraArguments,
-            profileSelectionBasis: request.profileSelectionBasis
+            profileSelectionBasis: request.profileSelectionBasis,
+            inputLayout: layout?.layout
         )
         return ManagedAssemblyMaterializationResult(
             request: executionRequest,

@@ -85,6 +85,93 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
         )
     }
 
+    /// The run assembled one file as single reads whatever its layout, while
+    /// the recorded command resolves the layout (bundle metadata, then the
+    /// records) or passes the one the request carries with `--read-layout`.
+    /// `runValidated` dropped that layout from the request it ran, and so did
+    /// the input resolution.
+    func testTheRunPairsAnInterleavedFileAsItsRecordedCommandDoes() async throws {
+        let auto = try await inProcessRun([shapes.interleaved], pairedEnd: false)
+        let autoRecorded = try await recordedCommandRun(auto.recordedCommand)
+        XCTAssertFalse(auto.recordedCommand.contains("--read-layout"))
+        XCTAssertEqual(autoRecorded.pairing, .interleaved, "the CLI scans the records and finds mates")
+        XCTAssertEqual(auto.pairing, autoRecorded.pairing)
+
+        let stated = try await inProcessRun([shapes.single], pairedEnd: false, inputLayout: .strictlyInterleaved)
+        let statedRecorded = try await recordedCommandRun(stated.recordedCommand)
+        XCTAssertTrue(stated.recordedCommand.contains("--read-layout interleaved"), stated.recordedCommand)
+        XCTAssertEqual(statedRecorded.pairing, .interleaved)
+        XCTAssertEqual(stated.pairing, statedRecorded.pairing)
+
+        let pooled = try await inProcessRun([shapes.multiFile], pairedEnd: false)
+        let pooledRecorded = try await recordedCommandRun(pooled.recordedCommand)
+        XCTAssertEqual(pooled.result.request.inputLayout, .singleEnd, "a joined bundle keeps its pooled single reads")
+        XCTAssertEqual(pooled.pairing, pooledRecorded.pairing)
+    }
+
+    /// The layout the recorded command carries is the layout of the request
+    /// `runValidated` hands the pipeline.
+    func testTheRunKeepsTheLayoutItsRecordedCommandCarries() {
+        let layouts: [FASTQInputLayout?] = [nil] + FASTQInputLayout.allCases.map { $0 }
+        for layout in layouts {
+            let request = AssemblyRunRequest(
+                tool: .megahit,
+                readType: .illuminaShortReads,
+                inputURLs: [shapes.single],
+                projectName: "kept",
+                outputDirectory: root,
+                threads: 1,
+                minContigLength: 0,
+                inputLayout: layout
+            ).normalizedForExecution()
+            let executed = AssemblyRunner.executionRequest(for: request)
+            XCTAssertEqual(executed.inputLayout, layout)
+            XCTAssertEqual(executed.outputDirectory, root.appendingPathComponent("kept", isDirectory: true))
+            XCTAssertEqual(executed.minContigLength, 1)
+        }
+    }
+
+    /// `AssemblyRunRequest.resolveInputLayout`, which the app runs, answers
+    /// as `AssembleCommand.resolveInputLayout` does for every shape,
+    /// assembler and stated layout.
+    func testTheSharedLayoutRuleAnswersAsTheCLIDoes() async throws {
+        let layouts: [FASTQInputLayout?] = [nil] + FASTQInputLayout.allCases.map { $0 }
+        for bundle in [shapes.single, shapes.multiFile, shapes.oriented, shapes.paired, shapes.mixed, shapes.interleaved] {
+            let resolved = try await AssembleCommand.resolveExecutionInputs(
+                for: [bundle],
+                tempDirectory: root.appendingPathComponent("layout-\(UUID().uuidString)", isDirectory: true),
+                materializer: FASTQCLIMaterializer(runner: .shared)
+            )
+            for tool in AssemblyTool.allCases {
+                for readType in AssemblyReadType.allCases {
+                    for explicit in layouts {
+                        XCTAssertEqual(
+                            AssemblyRunRequest.resolveInputLayout(
+                                tool: tool,
+                                readType: readType,
+                                pairedEnd: resolved.resolvedAsMatePair,
+                                explicit: explicit,
+                                originalInputURLs: resolved.originalInputURLs,
+                                executionInputURLs: resolved.executionInputURLs,
+                                pooled: resolved.pooledLayoutResolution
+                            ),
+                            AssembleCommand.resolveInputLayout(
+                                tool: tool,
+                                readType: readType,
+                                pairedEnd: resolved.resolvedAsMatePair,
+                                explicit: explicit,
+                                originalInputURLs: resolved.originalInputURLs,
+                                executionInputURLs: resolved.executionInputURLs,
+                                pooled: resolved.pooledLayoutResolution
+                            ),
+                            "\(bundle.lastPathComponent) \(tool.rawValue) \(readType) \(String(describing: explicit))"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private struct Run {
@@ -122,11 +209,12 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
             threads: 1,
             inputLayout: inputLayout
         ).normalizedForExecution()
-        let runDirectory = request.outputDirectory.appendingPathComponent(request.projectName, isDirectory: true)
-        let recordedCommand = AssemblyRunner.cliCommandPreview(request: request, outputDirectory: runDirectory)
+        // `runValidated`: the recorded command, then the request the pipeline runs.
+        let executionRequest = AssemblyRunner.executionRequest(for: request)
+        let recordedCommand = AssemblyRunner.cliCommandPreview(request: request, outputDirectory: executionRequest.outputDirectory)
         let result = try await AssemblyRunner.materializedManagedAssemblyRequestResult(
-            from: request,
-            tempDirectory: runDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
+            from: executionRequest,
+            tempDirectory: executionRequest.outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
             materialize: { bundleURL, tempDirectory, progress in
                 try await FASTQCLIMaterializer(runner: .shared).materialize(
                     bundleURL: bundleURL,
