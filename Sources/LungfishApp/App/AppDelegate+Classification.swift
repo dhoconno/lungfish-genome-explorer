@@ -624,7 +624,7 @@ extension AppDelegate {
         ]
     }
 
-    ///
+    /// Resolves `inputFiles` to the files a classifier reads, materializing a virtual FASTQ bundle into `tempDirectory`.
     /// Called at the start of `runClassification` / `runEsViritu` / `runTaxTriage`
     /// so that dialogs appear instantly and materialization happens as the first
     /// pipeline step after the user clicks Run. The resolution itself is

@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The genomics display launches register four kinds of Operations panel rows
+// The genomics display launches register three kinds of Operations panel rows
 // through static begin helpers (R4). None of them declares a bundle lock, so a
 // real center never refuses them, and a recording reporter that holds a lock
-// stands in for the refusal. The two reference downloads have no lungfish-cli
-// equivalent, so their tests pin the missing command. The FASTQ derivative
+// stands in for the refusal. The reference download has no lungfish-cli
+// equivalent, so its tests pin the missing command. The FASTQ derivative
 // row and the FASTQ operations dialog row record the `lungfish-cli fastq`
 // command FASTQOperationCLIInvocationBuilder builds for the same request
 // (R3), which the tests parse with the real CLI parser and compare with the
@@ -34,7 +34,7 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         isDirectory: true
     )
 
-    // MARK: - Reference downloads (sites 40 and 41)
+    // MARK: - Reference download (site 40)
 
     func testNakedBundleReferenceDownloadRecordsADownloadRowWithNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()

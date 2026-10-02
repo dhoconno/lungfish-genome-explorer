@@ -459,7 +459,7 @@ extension MainSplitViewController {
         try updatedManifest.save(to: targetBundleURL)
     }
 
-    /// computes statistics in a single streaming pass and caches them.
+    /// Shows the FASTQ dashboard for `sourceURL` from cached statistics, or computes and caches them in one pass.
     func loadFASTQDatasetInBackground(sourceURL: URL) {
         let standardizedSourceURL = sourceURL.standardizedFileURL
         let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: standardizedSourceURL)?.standardizedFileURL

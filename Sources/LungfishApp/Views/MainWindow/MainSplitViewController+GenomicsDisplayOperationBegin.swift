@@ -12,12 +12,12 @@ import LungfishWorkflow
 /// registers its row through `OperationReporting`, so a test can check the row,
 /// its lock and its command without touching `OperationCenter.shared`.
 ///
-/// None of the four launches declares a bundle lock, so `begin` cannot refuse
+/// None of the three launches declares a bundle lock, so `begin` cannot refuse
 /// them on a real `OperationCenter` today. Each launch still switches on the
 /// result and runs nothing on a refusal, which keeps it correct if a lock is
 /// added later.
 extension MainSplitViewController {
-    // MARK: - Reference downloads
+    // MARK: - Reference download
 
     /// Registers the reference download row for a variant-only (naked) bundle
     /// and, only when it starts, calls `launch` with the operation ID. The row

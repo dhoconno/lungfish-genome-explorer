@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The four FASTQ ingestion launches register their Operations panel rows
+// The three FASTQ ingestion launches register their Operations panel rows
 // through static begin helpers (R4). None of them declares a bundle lock, so a
 // real center never refuses them, and a recording reporter that holds a lock
-// stands in for the refusal. The two bundle imports and the batch subprocess
-// record `lungfish-cli import fastq` commands, which the tests parse with the
+// stands in for the refusal. The two bundle imports record
+// `lungfish-cli import fastq` commands, which the tests parse with the
 // real CLI parser and compare with the values the run uses. The in-place
 // ingestion has no command that reproduces it, so its test pins today's
 // command as a CLI parity gap.

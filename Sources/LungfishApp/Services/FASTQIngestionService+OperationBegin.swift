@@ -14,10 +14,10 @@ import LungfishWorkflow
 /// the row started, so a test can check the row and its command without
 /// touching `OperationCenter.shared`.
 ///
-/// None of the four launches declares a bundle lock, so `begin` cannot refuse
+/// None of the three launches declares a bundle lock, so `begin` cannot refuse
 /// them on a real `OperationCenter` today. Each launch still switches on the
 /// result and runs nothing on a refusal, which keeps it correct if a lock is
-/// added later. The three launches that take a `completion` also deliver the
+/// added later. The two launches that take a `completion` also deliver the
 /// refusal through it as an `OperationRefusedError`, so the caller's progress
 /// indicator and continuation are released.
 extension FASTQIngestionService {
