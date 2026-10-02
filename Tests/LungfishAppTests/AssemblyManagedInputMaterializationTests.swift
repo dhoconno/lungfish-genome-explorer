@@ -53,18 +53,18 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             threads: 2
         )
 
-        var materializedBundles: [URL] = []
+        let calls = MaterializerCalls()
         let resolved = try await AssemblyRunner.materializedManagedAssemblyRequest(
             from: request,
             tempDirectory: tempDir,
             materialize: { bundleURL, _, _ in
-                materializedBundles.append(bundleURL.standardizedFileURL)
+                calls.record(bundleURL.standardizedFileURL)
                 return materializedURL
             }
         )
 
         XCTAssertEqual(resolved.inputURLs.map(\.standardizedFileURL), [materializedURL.standardizedFileURL])
-        XCTAssertEqual(materializedBundles, [derivedBundleURL.standardizedFileURL])
+        XCTAssertEqual(calls.bundles, [derivedBundleURL.standardizedFileURL])
         XCTAssertFalse(resolved.inputURLs.map(\.standardizedFileURL).contains(rootFASTQURL.standardizedFileURL))
     }
 
@@ -115,20 +115,20 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
                 outputDirectory: outputDir,
                 threads: 2
             )
-            var materializeCalled = false
+            let calls = MaterializerCalls()
 
             do {
                 _ = try await AssemblyRunner.materializedManagedAssemblyRequest(
                     from: request,
                     tempDirectory: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
-                    materialize: { _, _, _ in
-                        materializeCalled = true
+                    materialize: { bundleURL, _, _ in
+                        calls.record(bundleURL)
                         return tempDir.appendingPathComponent("materialized.fasta")
                     }
                 )
                 XCTFail("Expected \(testCase.tool.rawValue) topology validation to fail before materialization")
             } catch {
-                XCTAssertFalse(materializeCalled, "\(testCase.tool.rawValue) materializer should not be invoked")
+                XCTAssertTrue(calls.bundles.isEmpty, "\(testCase.tool.rawValue) materializer should not be invoked")
                 XCTAssertFalse(
                     FileManager.default.fileExists(
                         atPath: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true).path
@@ -174,14 +174,14 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             outputDirectory: outputDir,
             threads: 2
         )
-        var materializeCalled = false
+        let calls = MaterializerCalls()
 
         do {
             let result = try await AssemblyRunner.materializedManagedAssemblyRequest(
                 from: request,
                 tempDirectory: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
-                materialize: { _, _, _ in
-                    materializeCalled = true
+                materialize: { bundleURL, _, _ in
+                    calls.record(bundleURL)
                     return tempDir.appendingPathComponent("materialized.fastq")
                 }
             )
@@ -190,7 +190,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("Demultiplexed group bundles are container-only"))
         }
 
-        XCTAssertFalse(materializeCalled)
+        XCTAssertTrue(calls.bundles.isEmpty)
         XCTAssertFalse(
             FileManager.default.fileExists(
                 atPath: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true).path
@@ -237,14 +237,14 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             outputDirectory: outputDir,
             threads: 2
         )
-        var materializeCalled = false
+        let calls = MaterializerCalls()
 
         do {
             _ = try await AssemblyRunner.materializedManagedAssemblyRequest(
                 from: request,
                 tempDirectory: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
-                materialize: { _, _, _ in
-                    materializeCalled = true
+                materialize: { bundleURL, _, _ in
+                    calls.record(bundleURL)
                     return tempDir.appendingPathComponent("materialized.fastq")
                 }
             )
@@ -253,7 +253,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("Flye is not available for Illumina short reads"))
         }
 
-        XCTAssertFalse(materializeCalled)
+        XCTAssertTrue(calls.bundles.isEmpty)
         XCTAssertFalse(
             FileManager.default.fileExists(
                 atPath: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true).path
@@ -316,8 +316,8 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         )
 
         let records = AssemblyRunner.managedAssemblyInputRecords(
-            originalRequest: originalRequest,
-            executionRequest: executionRequest
+            originalInputURLs: originalRequest.inputURLs,
+            executionInputURLs: executionRequest.inputURLs
         )
 
         XCTAssertTrue(records.contains {
@@ -402,8 +402,8 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         let materializationEndedAt = Date(timeIntervalSince1970: 102)
         let materializationStep = try XCTUnwrap(
             AssemblyRunner.managedAssemblyMaterializationStep(
-                originalRequest: originalRequest,
-                executionRequest: executionRequest,
+                originalInputURLs: originalRequest.inputURLs,
+                executionInputURLs: executionRequest.inputURLs,
                 startedAt: materializationStartedAt,
                 endedAt: materializationEndedAt
             )
@@ -413,8 +413,8 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             request: executionRequest,
             result: result,
             inputRecords: AssemblyRunner.managedAssemblyInputRecords(
-                originalRequest: originalRequest,
-                executionRequest: executionRequest
+                originalInputURLs: originalRequest.inputURLs,
+                executionInputURLs: executionRequest.inputURLs
             ),
             steps: [materializationStep],
             lungfishVersion: "test"
@@ -664,5 +664,18 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         }
         XCTAssertEqual(mode, .groupedResult)
         XCTAssertEqual(request.inputURLs, [bundleA, bundleB])
+    }
+}
+
+/// Records each bundle a materializer closure is asked for, from a
+/// `@Sendable` closure.
+private final class MaterializerCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [URL] = []
+
+    var bundles: [URL] { lock.withLock { recorded } }
+
+    func record(_ bundleURL: URL) {
+        lock.withLock { recorded.append(bundleURL) }
     }
 }

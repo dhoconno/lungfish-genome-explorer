@@ -373,6 +373,34 @@ extension ResolvedSequenceInputs {
         )
     }
 
+    /// ``resolve(inputURLs:materializationDirectory:materializer:concatenateUnpairedFiles:progress:)``
+    /// for an assembler, the way `lungfish-cli assemble` resolves its inputs,
+    /// shared with the app's in-process assembly (Reassemble). The files of
+    /// one bundle given separately are that bundle, once
+    /// (``AssemblyInputSamples``), an input with no readable payload is
+    /// refused before anything is written, and the unpaired files of one
+    /// bundle are concatenated into one execution file.
+    public static func resolveForAssembly(
+        inputURLs: [URL],
+        materializationDirectory: URL,
+        materializer: any CLISequenceInputMaterializing & Sendable,
+        progress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> ResolvedSequenceInputs {
+        let sampleURLs = AssemblyInputSamples.sampleURLs(inputURLs)
+        for sampleURL in sampleURLs where !AssemblyInputMaterialization.requiresMaterialization(sampleURL) {
+            guard SequenceInputResolver.resolvePrimarySequenceURL(for: sampleURL) != nil else {
+                throw CLISequenceInputMaterializationError.unreadableSequenceInput(sampleURL.path)
+            }
+        }
+        return try await resolve(
+            inputURLs: sampleURLs,
+            materializationDirectory: materializationDirectory,
+            materializer: materializer,
+            concatenateUnpairedFiles: true,
+            progress: progress
+        )
+    }
+
     /// Joins every file of a multi-file root bundle (its `source-files.json`,
     /// an ONT import) into one file in `directory`, in the manifest's order,
     /// as the app's one-file resolution of a bundle joins them, with the
