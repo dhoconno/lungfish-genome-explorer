@@ -18,6 +18,7 @@ import AppKit
 @testable import LungfishTaxTriageUI
 import LungfishIO
 import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class TaxTriageSampleFilterAlignmentPaneTests: XCTestCase {
@@ -72,9 +73,15 @@ final class TaxTriageSampleFilterAlignmentPaneTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        // The viewport observes the sample selection of the project window that shows it.
+        let projectWindow = ScopeOwningWindowController()
+        projectWindow.window = window
         window.contentViewController = vc
         window.orderFront(nil)
-        defer { window.orderOut(nil) }
+        defer {
+            window.orderOut(nil)
+            withExtendedLifetime(projectWindow) {}
+        }
         vc.configureFromDatabase(db, resultURL: root)
         window.layoutIfNeeded()
 
@@ -114,13 +121,21 @@ final class TaxTriageSampleFilterAlignmentPaneTests: XCTestCase {
         try selectAndAssert(sample: "sample-1", organism: "Beta virus", "before the filter change")
 
         vc.samplePickerState.selectedSamples = ["sample-1"]
-        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+        NotificationCenter.default.post(
+            name: .metagenomicsSampleSelectionChanged,
+            object: nil,
+            userInfo: ScopedEventFilter.scopedUserInfo(scope: projectWindow.windowStateScope)
+        )
         waitForRows { rows in !rows.isEmpty && rows.allSatisfy { $0.sample == "sample-1" } }
         try selectAndAssert(sample: "sample-1", organism: "Beta virus", "after unticking a sample")
         try selectAndAssert(sample: "sample-1", organism: "Alpha virus", "after reselecting another row")
 
         vc.samplePickerState.selectedSamples = ["sample-1", "sample-2"]
-        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+        NotificationCenter.default.post(
+            name: .metagenomicsSampleSelectionChanged,
+            object: nil,
+            userInfo: ScopedEventFilter.scopedUserInfo(scope: projectWindow.windowStateScope)
+        )
         waitForRows { $0.count == 3 }
         try selectAndAssert(sample: "sample-2", organism: "Gamma virus", "after ticking it again")
     }
