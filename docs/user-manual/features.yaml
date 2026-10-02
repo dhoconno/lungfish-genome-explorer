@@ -476,7 +476,8 @@ features:
     sources:
       - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
-    module: [LungfishWorkflow, LungfishCLI]
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift
+    module: [LungfishWorkflow, LungfishCLI, LungfishApp]
     notes: >-
       Demultiplexes reads by internal barcode kit with multi-step support,
       singleton handling, platform-aware adapters, and a barcode scout preview.
