@@ -45,6 +45,8 @@ struct ClassifyFailureProvenanceContext {
     let outputDirectory: URL
     var originalInputURLs: [URL]
     var executionInputURLs: [URL] = []
+    /// One original per execution file (nil: the inputs as given, one file each).
+    var executionOriginalInputURLs: [URL]?
     var durableReplayArgv: [String]?
     var inputFormat: SequenceFormat?
     var databaseInfo: MetagenomicsDatabaseInfo?
@@ -320,7 +322,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             throw CLIExitCode.inputError.exitCode
         }
 
-        let resolvedInputs: CLISequenceInputMaterializationResult
+        let resolvedInputs: ResolvedSequenceInputs
         failureContext.stage = .materialization
         let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
         do {
@@ -338,14 +340,16 @@ struct ClassifyCommand: AsyncParsableCommand {
             failureContext.failureMessage = error.localizedDescription
             throw CLIError.wrapping(error)
         }
-        let executionInputURLs = resolvedInputs.inputURLs
+        let executionInputURLs = resolvedInputs.executionInputURLs
+        let executionOriginalInputURLs = resolvedInputs.originalInputURLs
         let durableReplayArguments = CLISequenceInputMaterialization.durableReplayArgv(
             argv: CommandLine.arguments,
-            originalInputArguments: fastqFiles,
-            originalInputURLs: inputURLs,
+            originalInputArguments: resolvedInputs.argumentsPerExecutionFile(fastqFiles),
+            originalInputURLs: executionOriginalInputURLs,
             executionInputURLs: executionInputURLs
         )
         failureContext.executionInputURLs = executionInputURLs.map(\.standardizedFileURL)
+        failureContext.executionOriginalInputURLs = executionOriginalInputURLs
         failureContext.durableReplayArgv = durableReplayArguments
         failureContext.materializationStartedAt = resolvedInputs.materializationStartedAt
         failureContext.materializationEndedAt = resolvedInputs.materializationEndedAt
@@ -358,7 +362,7 @@ struct ClassifyCommand: AsyncParsableCommand {
                     workflowVersion: LungfishCLI.configuration.version,
                     parentArgv: CommandLine.arguments,
                     parentDurableReplayArgv: durableReplayArguments,
-                    originalInputURLs: inputURLs,
+                    originalInputURLs: executionOriginalInputURLs,
                     executionInputURLs: executionInputURLs,
                     outputDirectory: outputDirectory,
                     operationName: "classification",
@@ -441,7 +445,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         do {
             _ = try Self.writeProvenance(
                 result: result,
-                originalInputURLs: inputURLs,
+                originalInputURLs: executionOriginalInputURLs,
                 executionInputURLs: executionInputURLs,
                 argv: CommandLine.arguments,
                 durableReplayArgv: durableReplayArguments,
@@ -591,17 +595,19 @@ struct ClassifyCommand: AsyncParsableCommand {
         }
     }
 
+    /// Resolves the inputs as the app's classification launch does: every
+    /// file a bundle holds is its own kraken2 input (``ResolvedSequenceInputs``).
     static func resolveExecutionInputs(
         for inputURLs: [URL],
         tempDirectory: URL,
-        materializer: CLISequenceInputMaterializing,
+        materializer: any CLISequenceInputMaterializing & Sendable,
         progress: (@Sendable (String) -> Void)? = nil
-    ) async throws -> CLISequenceInputMaterializationResult {
-        try await CLISequenceInputMaterialization.resolveExecutionInputs(
-            for: inputURLs,
-            tempDirectory: tempDirectory,
-            materializer: materializer,
+    ) async throws -> ResolvedSequenceInputs {
+        try await ResolvedSequenceInputs.resolvePreflighted(
+            inputURLs: inputURLs,
             operationName: "classification",
+            materializationDirectory: tempDirectory,
+            materializer: materializer,
             progress: progress
         )
     }
@@ -674,7 +680,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             }
         } else {
             for pair in CLISequenceInputMaterialization.originalAndExecutionInputs(
-                originalInputURLs: context.originalInputURLs,
+                originalInputURLs: context.executionOriginalInputURLs ?? context.originalInputURLs,
                 executionInputURLs: effectiveExecutionInputURLs
             ) {
                 let descriptor = try CLISequenceInputMaterialization.executionInputDescriptor(
@@ -686,7 +692,7 @@ struct ClassifyCommand: AsyncParsableCommand {
 
             let materializationSteps = try CLISequenceInputMaterialization.materializationProvenanceSteps(
                 workflowVersion: LungfishCLI.configuration.version,
-                originalInputURLs: context.originalInputURLs,
+                originalInputURLs: context.executionOriginalInputURLs ?? context.originalInputURLs,
                 executionInputURLs: effectiveExecutionInputURLs,
                 startedAt: context.materializationStartedAt ?? startedAt,
                 endedAt: context.materializationEndedAt
@@ -798,11 +804,13 @@ struct ClassifyCommand: AsyncParsableCommand {
         effectiveExecutionInputURLs: [URL],
         databaseReference: ProvenanceFileDescriptor?
     ) -> [String: ParameterValue] {
+        let originalInputURLs = effectiveExecutionInputURLs.isEmpty
+            ? context.originalInputURLs : context.executionOriginalInputURLs ?? context.originalInputURLs
         if let config = context.config {
             var options = classificationResolvedOptions(
                 for: config,
                 outcome: .notRequested,
-                originalInputURLs: context.originalInputURLs,
+                originalInputURLs: originalInputURLs,
                 executionInputURLs: effectiveExecutionInputURLs.isEmpty
                     ? context.originalInputURLs
                     : effectiveExecutionInputURLs,
@@ -865,7 +873,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             "outputDirectory": .file(context.outputDirectory),
             "extraArguments": context.parsedExtraArguments
                 .map { .array($0.map(ParameterValue.string)) } ?? .null,
-            "originalInputs": .array(context.originalInputURLs.map { .file($0) }),
+            "originalInputs": .array(originalInputURLs.map { .file($0) }),
             "executionInputs": .array(effectiveExecutionInputURLs.map { .file($0) }),
             "failureStage": .string(context.stage.rawValue),
             "databaseReferenceMetadataStatus": .string(
@@ -1029,6 +1037,8 @@ struct ClassifyCommand: AsyncParsableCommand {
         return Int(CLIExitCode.workflowError.rawValue)
     }
 
+    /// `originalInputURLs[i]` is the input `executionInputURLs[i]` came from
+    /// (one per execution file). The explicit `originalInputs` lists each once.
     @discardableResult
     static func writeProvenance(
         result: ClassificationResult,
@@ -1077,7 +1087,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         .options(
             explicit: classificationExplicitOptions(
                 for: config,
-                originalInputURLs: originalInputURLs,
+                originalInputURLs: originalInputURLs.reduce(into: []) { if !$0.contains($1) { $0.append($1) } },
                 argv: argv,
                 preset: preset
             ),
