@@ -987,17 +987,6 @@ extension AppDelegate {
         runEsVirituBatch(configs: configs, viewerController: viewerController, routeContext: routeContext)
     }
 
-    /// Arguments after `lungfish esviritu detect` recorded for a single-sample run.
-    ///
-    /// The read format the wizard chose is recorded explicitly so the
-    /// copied command runs pairs as pairs and mixed input as single-end.
-    nonisolated static func esVirituDetectCLIArguments(for config: EsVirituConfig) -> [String] {
-        var args = ["--input"] + config.inputFiles.map(\.path)
-        args += ["--sample", config.sampleName]
-        args += ["--read-format", config.readFormat.rawValue]
-        return args
-    }
-
     internal func runEsViritu(
         config: EsVirituConfig,
         viewerController: ViewerViewController,
