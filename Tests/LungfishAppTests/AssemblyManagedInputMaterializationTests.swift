@@ -5,6 +5,7 @@
 import Foundation
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
 import LungfishIO
 import LungfishWorkflow
 
@@ -444,8 +445,8 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
     /// Builds a real `.lungfishfastq` bundle backed by a `source-files.json`
     /// multi-file manifest listing two physical FASTQ files named with the
     /// R1/R2 convention -- the on-disk shape of a genuine paired-end sample
-    /// imported as one bundle. This is the case
-    /// `AppDelegate.resolvedAssemblyPairedEnd` must detect as truly paired.
+    /// imported as one bundle, which `lungfish-cli assemble` reads as one
+    /// sample's R1 and R2 files.
     private func makeGenuinePairedBundle(
         named bundleName: String,
         in directory: URL
@@ -511,7 +512,10 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         )
     }
 
-    func testIndependentAssembleLaunchRequestsSplitsGenuinePairedBundlesWithOwnR1R2Each() throws {
+    /// Each child names its own bundle, without `pairedEnd`, and
+    /// `lungfish-cli assemble` reads that bundle's own R1 and R2 files as one
+    /// pair (R3, lane 1q).
+    func testIndependentAssembleLaunchRequestsGiveEachGenuinePairedBundleItsOwnChild() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "AssemblyIndependentGenuinePairs")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -530,14 +534,23 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
 
         XCTAssertEqual(firstMode, .perInput)
         XCTAssertEqual(secondMode, .perInput)
+        XCTAssertEqual(firstRequest.inputURLs, [bundleA])
+        XCTAssertFalse(firstRequest.pairedEnd, "the CLI pairs the bundle's own R1 and R2 files")
+        XCTAssertEqual(secondRequest.inputURLs, [bundleB])
+        XCTAssertFalse(secondRequest.pairedEnd)
 
-        XCTAssertTrue(firstRequest.pairedEnd, "SampleA's own R1/R2 manifest pair must be detected as paired")
-        XCTAssertEqual(firstRequest.inputURLs.count, 2)
-        XCTAssertEqual(Set(firstRequest.inputURLs.map(\.lastPathComponent)), ["SampleA_R1.fastq", "SampleA_R2.fastq"])
-
-        XCTAssertTrue(secondRequest.pairedEnd, "SampleB's own R1/R2 manifest pair must be detected as paired")
-        XCTAssertEqual(secondRequest.inputURLs.count, 2)
-        XCTAssertEqual(Set(secondRequest.inputURLs.map(\.lastPathComponent)), ["SampleB_R1.fastq", "SampleB_R2.fastq"])
+        for (bundle, name) in [(bundleA, "SampleA"), (bundleB, "SampleB")] {
+            let resolved = try await AssembleCommand.resolveExecutionInputs(
+                for: [bundle],
+                tempDirectory: tempDir.appendingPathComponent("cli-\(name)", isDirectory: true),
+                materializer: FASTQCLIMaterializer(runner: .shared)
+            )
+            XCTAssertTrue(resolved.resolvedAsMatePair, "\(name)'s own R1 and R2 files are one pair")
+            XCTAssertEqual(
+                resolved.executionInputURLs.map(\.lastPathComponent),
+                ["\(name)_R1.fastq", "\(name)_R2.fastq"]
+            )
+        }
     }
 
     func testIndependentAssembleLaunchRequestsNeverMatesTwoUnrelatedBundlesNamedLikeAnRPair() throws {
@@ -563,12 +576,10 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         }
 
         XCTAssertFalse(firstRequest.pairedEnd, "Run1_R1 and Run1_R2 are unrelated bundles, never mates")
-        XCTAssertEqual(firstRequest.inputURLs.count, 1)
-        XCTAssertEqual(firstRequest.inputURLs.first?.lastPathComponent, "reads.fastq")
+        XCTAssertEqual(firstRequest.inputURLs, [bundleR1])
 
         XCTAssertFalse(secondRequest.pairedEnd, "Run1_R1 and Run1_R2 are unrelated bundles, never mates")
-        XCTAssertEqual(secondRequest.inputURLs.count, 1)
-        XCTAssertEqual(secondRequest.inputURLs.first?.lastPathComponent, "reads.fastq")
+        XCTAssertEqual(secondRequest.inputURLs, [bundleR2])
     }
 
     func testIndependentAssembleLaunchRequestsAssignDistinctProjectNamesPerBundle() throws {

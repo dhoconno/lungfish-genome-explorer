@@ -81,6 +81,48 @@ final class AssemblyRunPlanningTests: XCTestCase {
         }
     }
 
+    /// The per-bundle batch (`independentAssembleLaunchRequests`) gives each
+    /// bundle one child, and the dispatch hands every child to the same
+    /// fan-out. A child that named its bundle's two files kept two inputs in
+    /// per-input mode, so it fanned out again, without end. A child names its
+    /// bundle, so the fan-out leaves it as it is, and `lungfish-cli assemble`
+    /// reads every read the bundle holds and pairs its R1 and R2 files itself.
+    func testThePerBundleBatchGivesEachBundleOneChildThatNeverFansOutAgain() async throws {
+        let batch = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [shapes.single, shapes.multiFile, shapes.paired, shapes.mixed],
+                projectName: "batch",
+                outputDirectory: root.appendingPathComponent("batch-output", isDirectory: true),
+                threads: 1
+            ),
+            outputMode: .perInput
+        )
+        let children = batch.independentAssembleLaunchRequests(outputDirectory: root)
+        XCTAssertEqual(children.count, 4)
+
+        var reads: [[[String]]] = []
+        var pairs: [Bool] = []
+        var fannedOutAgain: [String] = []
+        for child in children {
+            if child.independentAssembleLaunchRequests(outputDirectory: root) != [child] {
+                fannedOutAgain.append(child.inputURLs.map(\.lastPathComponent).joined(separator: " "))
+            }
+            let runs = try await cliRuns(of: child)
+            reads.append(contentsOf: runs.map(\.reads))
+            pairs.append(contentsOf: runs.map(\.pairs))
+        }
+        XCTAssertEqual(fannedOutAgain, [], "children the fan-out splits again")
+        XCTAssertEqual(reads, [
+            [["s1", "s2", "s3"]],
+            [["m1", "m2", "m3", "m4", "m5"]],
+            [["p1/1", "p2/1"], ["p1/2", "p2/2"]],
+            [["x1", "x2", "x3", "u1/1", "u1/2"]],
+        ], "one run per bundle, each with every read the bundle holds")
+        XCTAssertEqual(pairs, [false, false, true, false])
+    }
+
     // MARK: - Helpers
 
     /// One `lungfish-cli assemble` run as the CLI reads it.
