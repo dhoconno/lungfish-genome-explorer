@@ -282,29 +282,17 @@ extension MainSplitViewController {
     func filterBatchViewToSingleSample(sampleId: String) {
         if let taxTriageVC = viewerController.taxTriageViewController {
             taxTriageVC.samplePickerState?.selectedSamples = [sampleId]
-            NotificationCenter.default.post(
-                name: .metagenomicsSampleSelectionChanged,
-                object: nil,
-                userInfo: ScopedEventFilter.scopedUserInfo(scope: windowStateScope)
-            )
+            NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil, userInfo: ScopedEventFilter.scopedUserInfo(scope: windowStateScope))
             return
         }
         if let esVirituVC = viewerController.esVirituViewController {
             esVirituVC.samplePickerState?.selectedSamples = [sampleId]
-            NotificationCenter.default.post(
-                name: .metagenomicsSampleSelectionChanged,
-                object: nil,
-                userInfo: ScopedEventFilter.scopedUserInfo(scope: windowStateScope)
-            )
+            NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil, userInfo: ScopedEventFilter.scopedUserInfo(scope: windowStateScope))
             return
         }
         if let taxonomyVC = viewerController.taxonomyViewController {
             taxonomyVC.samplePickerState?.selectedSamples = [sampleId]
-            NotificationCenter.default.post(
-                name: .metagenomicsSampleSelectionChanged,
-                object: nil,
-                userInfo: ScopedEventFilter.scopedUserInfo(scope: windowStateScope)
-            )
+            NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil, userInfo: ScopedEventFilter.scopedUserInfo(scope: windowStateScope))
             return
         }
     }

@@ -24,6 +24,12 @@ public final class ProjectSession: Identifiable {
         self.windowStateScope = windowStateScope
     }
 
+    /// `userInfo` with the scope of the window that owns this session, for a
+    /// window event posted on the session's behalf.
+    func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        ScopedEventFilter.scopedUserInfo(userInfo, scope: windowStateScope) ?? userInfo
+    }
+
     struct PreparedProject: Sendable {
         let file: ProjectFile.PreparedOpen
         let warning: ProjectOpenWarningState

@@ -122,7 +122,6 @@ public class InspectorViewController: NSViewController {
             // Sections that post window events themselves attach this scope.
             viewModel.annotationSectionViewModel.windowStateScope = windowStateScope
             viewModel.sampleSectionViewModel.windowStateScope = windowStateScope
-            viewModel.selectionSectionViewModel.windowStateScope = windowStateScope
         }
     }
     var activeContentSelectionIdentity: ContentSelectionIdentity?
@@ -418,6 +417,13 @@ public class InspectorViewController: NSViewController {
                 name: .runFASTAOperationOnAnnotationRequested,
                 object: nil,
                 userInfo: self?.windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
+            )
+        }
+        viewModel.selectionSectionViewModel.onEditGenotypeCallsRequested = { [weak self] sample in
+            NotificationCenter.default.post(
+                name: .genotypeResultRequestSampleDetailSheet,
+                object: nil,
+                userInfo: self?.windowScopedUserInfo(["sample": sample])
             )
         }
         viewModel.selectionSectionViewModel.onZoomToAnnotation = { [weak self] annotation in
