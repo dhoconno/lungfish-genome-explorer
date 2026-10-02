@@ -8,7 +8,7 @@ Short, captioned screencasts. Some show one function or application. Others, lik
 screencasts/
   render.py                 video.yaml -> out/<slug>-wide.mp4, -square.mp4, posters
   publish.py                upload the current render, record it, regenerate docs/site/videos.qmd
-  _shared/site.yaml         Videos page intro and section order
+  _shared/site.yaml         Videos page intros and track order
   _shared/video-template.yaml   commented spec to copy for a new video
   _shared/brand.json        palette, canvas, timing tokens
   _shared/templates/        overlay.html (cards, lower thirds, placeholders, click rings)

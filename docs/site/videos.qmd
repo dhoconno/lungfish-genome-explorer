@@ -9,11 +9,45 @@ toc: false
      tracks sit beside this page in videos/, because the LabKey server sends no CORS headers and
      a <track> must come from the page's own origin. -->
 
-Short videos that show Lungfish Genome Explorer (LGE) at work. Each one names the version it was filmed with. The learner videos have a synthetic narrator and on-screen captions. The overview is silent, with its captions on screen.
+Short videos that show Lungfish Genome Explorer (LGE) at work, grouped by who they are for. Each one names the version it was filmed with. New videos join these groups as they are made.
 
 [Back to the home page](index.html)
 
-## Getting started
+## Overview
+
+A short tour of what sets LGE apart. It is silent, with its captions on screen.
+
+### What LGE is for {#01-lge-overview}
+
+<figure class="lge-video">
+<video controls preload="metadata" playsinline width="100%"
+  poster="https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/screencasts/01-lge-overview/renders/01-lge-overview-poster.png">
+<source src="https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/screencasts/01-lge-overview/renders/01-lge-overview.mp4" type="video/mp4">
+</video>
+<figcaption>Real data to start from, compact read storage, one window for reads and variants, nf-core pipelines, and a recorded history that exports as methods text, Nextflow or Snakemake. 78 seconds, silent, filmed with Lungfish Preview 2026.9.73 and 2026.9.74.</figcaption>
+</figure>
+
+<details>
+<summary>On-screen text</summary>
+
+- Start with real public datasets
+- Search SRA and download runs into a project
+- Clump reads and bin qualities to save space
+- Reads, alignments and variants in one window
+- Browse nf-core pipeline results run in Docker
+- Each result records its tool, version and command
+- Every input and output is listed with its checksum
+- Export the history as a script or methods text
+- A methods paragraph naming every tool and version
+- A Nextflow pipeline with pinned conda packages
+- A Snakemake workflow from the same record
+- The same analysis from the app or terminal
+
+</details>
+
+## Beginner screencasts
+
+For students and scientists new to bioinformatics. Watch them in order, starting with installing LGE. Each has a synthetic narrator and captions, and points to the manual chapter that goes further.
 
 ### Install Lungfish Genome Explorer {#B00-install}
 
@@ -73,8 +107,6 @@ To learn more about projects, read the manual chapter The Lungfish Project. More
 
 </details>
 
-## Sequences
-
 ### Find the sickle cell codon {#B02-sickle-cell-codon}
 
 <figure class="lge-video">
@@ -107,8 +139,6 @@ Next, learn to check the quality of a sequencing run, on the Videos page of the 
 
 </details>
 
-## Reads
-
 ### Judge a sequencing run {#B03-run-quality}
 
 <figure class="lge-video">
@@ -139,8 +169,6 @@ Next, see these reads aligned to a slice of human chromosome 20, on the Videos p
 
 </details>
 
-## Alignments
-
 ### Reading a pileup {#B04-reading-a-pileup}
 
 <figure class="lge-video">
@@ -166,35 +194,5 @@ Most human chromosomes come in two copies, one from each parent, and the version
 At 2,162, 28 of 51 reads have T instead of A, so one copy most likely carries T and the other the reference A. This is heterozygous, written 0/1, where 0 is the reference allele and 1 the alternate. The Variants tab below the viewer lists the variants a variant-calling program found, with their genotypes.
 
 To learn more, read the manual chapter Reading an Alignment. More videos are on the Videos page of the website.
-
-</details>
-
-## Overview
-
-### What LGE is for {#01-lge-overview}
-
-<figure class="lge-video">
-<video controls preload="metadata" playsinline width="100%"
-  poster="https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/screencasts/01-lge-overview/renders/01-lge-overview-poster.png">
-<source src="https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/screencasts/01-lge-overview/renders/01-lge-overview.mp4" type="video/mp4">
-</video>
-<figcaption>Real data to start from, compact read storage, one window for reads and variants, nf-core pipelines, and a recorded history that exports as methods text, Nextflow or Snakemake. 78 seconds, silent, filmed with Lungfish Preview 2026.9.73 and 2026.9.74.</figcaption>
-</figure>
-
-<details>
-<summary>On-screen text</summary>
-
-- Start with real public datasets
-- Search SRA and download runs into a project
-- Clump reads and bin qualities to save space
-- Reads, alignments and variants in one window
-- Browse nf-core pipeline results run in Docker
-- Each result records its tool, version and command
-- Every input and output is listed with its checksum
-- Export the history as a script or methods text
-- A methods paragraph naming every tool and version
-- A Nextflow pipeline with pinned conda packages
-- A Snakemake workflow from the same record
-- The same analysis from the app or terminal
 
 </details>

@@ -15,7 +15,6 @@ manual: 01-foundations/06-the-lungfish-project
 demo: human-mapping-and-variants-results
 
 site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
-  section: Getting started
   summary: >-
     Open a demo project of real human sequencing data and find the sidebar, the Inspector, your results and the Operations panel.
 
