@@ -627,9 +627,15 @@ extension FASTQDerivativeService {
            ) {
             replacements[transformedFASTQ.path] = durableOutputFASTQ.path
         }
+        // A source read through a file the materializer wrote (inside one of
+        // the run's temporary roots) is recorded with the step that wrote it.
+        let wasWrittenForTheRun = temporaryPathRoots.contains { root in
+            CanonicalFilePath.isPath(sourceFASTQ, within: URL(fileURLWithPath: root, isDirectory: true))
+        }
         return FASTQDerivativeNativeReplayContext(
             pathReplacements: replacements,
-            temporaryPathRoots: temporaryPathRoots
+            temporaryPathRoots: temporaryPathRoots,
+            sourceExecutionURL: wasWrittenForTheRun ? sourceFASTQ : nil
         )
     }
 
@@ -653,7 +659,11 @@ extension FASTQDerivativeService {
             }
             return nil
         }
-        guard let url = FASTQBundle.resolvePrimarySequenceURL(for: sourceBundleURL),
+        // A bundle that holds several files was read as a joined copy, which
+        // no one durable file stands for, so the native argv keeps the path
+        // it ran with and gets no durable replay (R8, lane 1x).
+        guard !sourceBundleHoldsSeveralFiles(sourceBundleURL),
+              let url = FASTQBundle.resolvePrimarySequenceURL(for: sourceBundleURL),
               SequenceFormat.from(url: url) == .fastq else {
             return nil
         }
@@ -767,11 +777,15 @@ extension FASTQDerivativeService {
             sequenceFormat: sourceSequenceFormat
         )
         let sourceInput = ProvenanceFileDescriptor(fileRecord: sourceInputRecord)
+        // Every root file the operation read, so a derivative of an ONT
+        // import names each chunk and a derivative of a virtual bundle names
+        // the root's files (R8).
+        let rootInputs = try derivativeRootFileDescriptors(for: sourceBundleURL)
         let additionalInputs = try await derivativeAdditionalInputDescriptors(
             for: request,
             sourceBundleURL: sourceBundleURL
         )
-        let inputDescriptors = deduplicatedProvenanceDescriptors([sourceInput] + additionalInputs)
+        let inputDescriptors = deduplicatedProvenanceDescriptors([sourceInput] + rootInputs + additionalInputs)
         let outputs = try derivativeOutputDescriptors(in: outputBundleURL)
         let argv = derivativeProvenanceArgv(
             request: request,
@@ -780,7 +794,13 @@ extension FASTQDerivativeService {
             outputBundleURL: outputBundleURL
         )
         let wallTimeSeconds = completedAt.timeIntervalSince(startedAt)
-        let nativeSteps = nativeProvenanceSteps(
+        let materializationSteps = sourceMaterializationSteps(
+            sourceBundleURL: sourceBundleURL,
+            replayContext: nativeReplayContext,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let nativeSteps = materializationSteps + nativeProvenanceSteps(
             from: nativeExecutions,
             inputs: inputDescriptors,
             replayContext: nativeReplayContext
@@ -1147,84 +1167,6 @@ extension FASTQDerivativeService {
             ],
             resolvedDefaults: resolved
         )
-    }
-
-    func durableSourceInputRecord(
-        for sourceBundleURL: URL,
-        sequenceFormat: SequenceFormat
-    ) throws -> FileRecord {
-        if !FASTQBundle.isDerivedBundle(sourceBundleURL),
-           let primaryURL = FASTQBundle.resolvePrimarySequenceURL(for: sourceBundleURL) {
-            return ProvenanceRecorder.fileRecord(
-                url: primaryURL,
-                format: provenanceFileFormat(for: sequenceFormat),
-                role: .input
-            )
-        }
-
-        if let manifest = FASTQBundle.loadDerivedManifest(in: sourceBundleURL) {
-            switch manifest.payload {
-            case .full(let fastqFilename):
-                if let payloadURL = try? FASTQBundle.validatedBundleMemberURL(
-                    for: fastqFilename,
-                    in: sourceBundleURL,
-                    field: "payload.full.fastqFilename"
-                ), FileManager.default.fileExists(atPath: payloadURL.path) {
-                    return ProvenanceRecorder.fileRecord(url: payloadURL, format: .fastq, role: .input)
-                }
-            case .fullFASTA(let fastaFilename):
-                if let payloadURL = try? FASTQBundle.validatedBundleMemberURL(
-                    for: fastaFilename,
-                    in: sourceBundleURL,
-                    field: "payload.fullFASTA.fastaFilename"
-                ), FileManager.default.fileExists(atPath: payloadURL.path) {
-                    return ProvenanceRecorder.fileRecord(url: payloadURL, format: .fasta, role: .input)
-                }
-            default:
-                break
-            }
-        }
-
-        return try durableBundleInputRecord(
-            for: sourceBundleURL,
-            format: provenanceFileFormat(for: sequenceFormat)
-        )
-    }
-
-    func durableBundleInputRecord(for bundleURL: URL, format: FileFormat) throws -> FileRecord {
-        let manifest = try ProvenanceFileHasher.directoryManifest(for: bundleURL, role: .input)
-        let sizeBytes = manifest.files.reduce(UInt64(0)) { partial, descriptor in
-            partial + (descriptor.fileSize ?? 0)
-        }
-        let digestInput = manifest.files
-            .map { descriptor in
-                [
-                    descriptor.path,
-                    descriptor.checksumSHA256 ?? "",
-                    String(descriptor.fileSize ?? 0),
-                ].joined(separator: "\t")
-            }
-            .joined(separator: "\n")
-        let digest = SHA256.hash(data: Data(digestInput.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-
-        return FileRecord(
-            path: bundleURL.path,
-            sha256: digest,
-            sizeBytes: sizeBytes,
-            format: format,
-            role: .input
-        )
-    }
-
-    func provenanceFileFormat(for sequenceFormat: SequenceFormat) -> FileFormat {
-        switch sequenceFormat {
-        case .fasta:
-            return .fasta
-        case .fastq:
-            return .fastq
-        }
     }
 
     func runNativeTool(

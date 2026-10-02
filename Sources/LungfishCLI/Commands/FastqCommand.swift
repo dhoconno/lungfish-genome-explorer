@@ -88,7 +88,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
         abstract: "Trim adapters and low-quality bases in one fastp pass"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("threshold"), help: "Quality threshold (default: 20)")
@@ -122,13 +122,14 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "trim", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         let started = Date()
         let options = try fastpOptions()
         // Paired input runs fastp in its paired mode so both mates are kept
         // or dropped together (FastqFastpPairedRun.swift).
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true, metadataFrom: resolvedInput.pairingMetadataURL)
         let plan = try await Task.detached(priority: .utility) {
             try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
         }.value
@@ -141,7 +142,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
             failureLabel: "fastp combined trim",
             stepNamePrefix: "lungfish fastq trim"
         )
-        try await writeProvenance(inputURL: inputURL, outcome: outcome, pairingDecision: pairingDecision, started: started)
+        try await writeProvenance(input: resolvedInput, outcome: outcome, pairingDecision: pairingDecision, started: started)
         FileHandle.standardError.write(Data("Adapter and quality trimmed reads written to \(output.output)\n".utf8))
     }
 
@@ -177,11 +178,12 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
     }
 
     private func writeProvenance(
-        inputURL: URL,
+        input: FASTQSubcommandInput,
         outcome: FastpPairedRunOutcome,
         pairingDecision: FASTQPairingDecision,
         started: Date
     ) async throws {
+        let inputURL = input.originalURL
         let outputURL = URL(fileURLWithPath: output.output)
         var cliArguments = ["trim", inputURL.path]
         if threshold != 20 {
@@ -247,10 +249,11 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try input.inputRecords(),
             stepID: outcome.stepID,
             stepInputs: outcome.stepInputs,
             stepOutputs: outcome.stepOutputs,
-            extraSteps: outcome.extraSteps,
+            extraSteps: outcome.extraSteps + (try input.materializationSteps()),
             startedAt: started
         )
     }
@@ -336,7 +339,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         abstract: "Subsample reads by proportion or count"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("proportion"), help: "Fraction of reads to keep (0-1)")
@@ -366,8 +369,9 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "subsample", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         let runner = NativeToolRunner.shared
 
         if proportion != nil && count != nil {
@@ -398,7 +402,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         // fragments, keeping both mates together) instead. A file that mixes
         // merged reads with pairs runs as single reads: reformat pairs by
         // position and would mis-pair it.
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         let isInterleaved = pairingDecision.pairAware
 
         let startedAt = Date()
@@ -455,7 +459,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         }
         cliArguments += ["--seed", String(resolvedSeed)]
         cliArguments += pairing.cliArguments
-        cliArguments += [inputURL.path, "--output", output.output]
+        cliArguments += [resolvedInput.originalURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
         }
@@ -469,10 +473,10 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: args,
             result: result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "proportion": proportion.map(ParameterValue.number) ?? .null,
                 "count": count.map(ParameterValue.integer) ?? .null,
@@ -494,6 +498,8 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Subsampled reads written to \(output.output)\n".utf8))
@@ -508,7 +514,7 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
         abstract: "Filter reads by length"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("min"), help: "Minimum read length")
@@ -535,8 +541,9 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "length-filter", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         guard minLength != nil || maxLength != nil else {
             throw ValidationError("Specify --min, --max, or both")
         }
@@ -551,7 +558,7 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
         // the HG002 fixture. bbduk interleaved=t pairs by position, so only
         // a strictly interleaved input runs pair-aware (mixed input runs as
         // single reads, FASTQPairingOptions).
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         let plan = plan(inputURL: inputURL, decision: pairingDecision)
 
         let startedAt = Date()
@@ -569,7 +576,7 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
         if let minLength { cliArguments += ["--min", String(minLength)] }
         if let maxLength { cliArguments += ["--max", String(maxLength)] }
         cliArguments += pairing.cliArguments
-        cliArguments += [inputURL.path, "--output", output.output]
+        cliArguments += [resolvedInput.originalURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
         }
@@ -583,10 +590,10 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: plan.arguments,
             result: result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "min": minLength.map(ParameterValue.integer) ?? .null,
                 "max": maxLength.map(ParameterValue.integer) ?? .null,
@@ -606,6 +613,8 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Filtered reads written to \(output.output)\n".utf8))
@@ -620,7 +629,7 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         abstract: "Trim low-quality bases using fastp"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("threshold"), help: "Quality threshold (default: 20)")
@@ -644,12 +653,13 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "quality-trim", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         let options = try fastpOptions()
 
         let startedAt = Date()
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true, metadataFrom: resolvedInput.pairingMetadataURL)
         let plan = try await Task.detached(priority: .utility) {
             try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
         }.value
@@ -676,7 +686,7 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
             cliArguments += ["--extra-args", extraArgs]
         }
         cliArguments += pairing.cliArguments
-        cliArguments += [inputURL.path, "--output", output.output]
+        cliArguments += [resolvedInput.originalURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
         }
@@ -690,10 +700,10 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: outcome.nativeArguments,
             result: outcome.result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "threshold": .integer(threshold),
                 "windowSize": .integer(windowSize),
@@ -719,10 +729,11 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
             stepID: outcome.stepID,
             stepInputs: outcome.stepInputs,
             stepOutputs: outcome.stepOutputs,
-            extraSteps: outcome.extraSteps,
+            extraSteps: outcome.extraSteps + (try resolvedInput.materializationSteps()),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
@@ -817,323 +828,6 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
     }
 }
 
-func recordFASTQNativeToolProvenance(
-    workflowName: String,
-    nativeTool: NativeTool,
-    cliArguments: [String],
-    nativeArguments: [String],
-    result: NativeToolResult,
-    inputURLs: [URL],
-    outputURLs: [URL],
-    parameters: [String: ParameterValue],
-    defaults: [String: ParameterValue] = [:],
-    inputRecords: [FileRecord]? = nil,
-    outputRecords: [FileRecord]? = nil,
-    stepID: UUID = UUID(),
-    stepInputs: [FileRecord]? = nil,
-    stepOutputs: [FileRecord]? = nil,
-    extraSteps: [ProvenanceStep] = [],
-    startedAt: Date
-) async throws {
-    guard let firstOutputURL = outputURLs.first else { return }
-    let completedAt = Date()
-    let toolVersion = await NativeToolRunner.shared.getToolVersion(nativeTool) ?? "unknown"
-    let stepCommand = result.arguments.isEmpty
-        ? [nativeTool.executableName] + nativeArguments
-        : result.arguments
-
-    var resolved = parameters
-    for (key, value) in defaults where resolved[key] == nil {
-        resolved[key] = value
-    }
-
-    try await CLIProvenanceSupport.recordSingleStepRun(
-        name: workflowName,
-        parameters: parameters,
-        defaults: defaults,
-        resolved: resolved,
-        toolName: nativeTool.rawValue,
-        toolVersion: toolVersion,
-        command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
-        stepID: stepID,
-        stepCommand: stepCommand,
-        stepInputs: stepInputs,
-        stepOutputs: stepOutputs,
-        extraSteps: extraSteps,
-        inputs: inputRecords ?? inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
-        outputs: outputRecords ?? outputURLs
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
-            .map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) },
-        exitCode: result.exitCode,
-        wallTime: completedAt.timeIntervalSince(startedAt),
-        stderr: result.stderr,
-        status: result.isSuccess ? .completed : .failed,
-        outputDirectory: firstOutputURL.deletingLastPathComponent()
-    )
-}
-
-@discardableResult
-func recordFASTQMergeProvenance(
-    cliArguments: [String],
-    nativeArguments: [String],
-    bbmergeResult: NativeToolResult,
-    gzipResult: FASTQGzipProvenanceResult?,
-    inputURL: URL,
-    bbmergeOutputURLs: [URL],
-    finalOutputURL: URL,
-    parameters: [String: ParameterValue],
-    defaults: [String: ParameterValue] = [:],
-    concatenateWallTime: TimeInterval = 0,
-    startedAt: Date
-) async throws -> ProvenanceEnvelope {
-    let completedAt = Date()
-    let toolVersion = await NativeToolRunner.shared.getToolVersion(.bbmerge) ?? "unknown"
-    let bbmergeCommand = bbmergeResult.arguments.isEmpty
-        ? [NativeTool.bbmerge.executableName] + nativeArguments
-        : bbmergeResult.arguments
-    let inputRecord = ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
-    let finalOutputRecord = ProvenanceRecorder.fileRecord(url: finalOutputURL, format: .fastq, role: .output)
-    let bbmergeOutputRecords = bbmergeOutputURLs
-        .filter { FileManager.default.fileExists(atPath: $0.path) }
-        .map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
-
-    let bbmergeStepID = UUID()
-    let concatenateStepID = UUID()
-    let concatenatedURL = gzipResult?.inputURL ?? finalOutputURL
-    let concatenateInputs = bbmergeOutputRecords.map { ProvenanceFileDescriptor(fileRecord: $0).withRole(.input) }
-    let concatenateOutput = try ProvenanceFileDescriptor.file(
-        url: concatenatedURL,
-        format: .fastq,
-        role: .output
-    )
-    let concatenatedInputPaths = bbmergeOutputRecords.map(\.path)
-    let concatenateShell = "cat "
-        + concatenatedInputPaths.map(shellEscape).joined(separator: " ")
-        + " > "
-        + shellEscape(concatenatedURL.path)
-    var extraSteps = [
-        ProvenanceStep(
-            id: concatenateStepID,
-            toolName: "lungfish fastq merge concatenate",
-            toolVersion: WorkflowRun.currentAppVersion,
-            argv: ["/bin/sh", "-lc", concatenateShell],
-            inputs: concatenateInputs,
-            outputs: [concatenateOutput],
-            exitStatus: 0,
-            wallTimeSeconds: concatenateWallTime,
-            dependsOn: [bbmergeStepID],
-            startedAt: completedAt.addingTimeInterval(-concatenateWallTime),
-            completedAt: completedAt
-        ),
-    ]
-
-    if let gzipResult {
-        let gzipInput = try ProvenanceFileDescriptor.file(
-            url: gzipResult.inputURL,
-            format: .fastq,
-            role: .input
-        )
-        let gzipOutput = try ProvenanceFileDescriptor.file(
-            url: gzipResult.outputURL,
-            format: .fastq,
-            role: .output
-        )
-        extraSteps.append(
-            ProvenanceStep(
-                toolName: gzipResult.command.first ?? "/usr/bin/gzip",
-                toolVersion: "system",
-                argv: gzipResult.command,
-                inputs: [gzipInput],
-                outputs: [gzipOutput],
-                exitStatus: Int(gzipResult.exitCode),
-                wallTimeSeconds: gzipResult.wallTime,
-                stderr: gzipResult.stderr,
-                dependsOn: [concatenateStepID],
-                startedAt: completedAt.addingTimeInterval(-gzipResult.wallTime),
-                completedAt: completedAt
-            )
-        )
-    }
-
-    return try await CLIProvenanceSupport.recordSingleStepRun(
-        name: "lungfish fastq merge",
-        parameters: parameters,
-        defaults: defaults,
-        toolName: NativeTool.bbmerge.rawValue,
-        toolVersion: toolVersion,
-        command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
-        stepID: bbmergeStepID,
-        stepCommand: bbmergeCommand,
-        stepInputs: [inputRecord],
-        stepOutputs: bbmergeOutputRecords,
-        extraSteps: extraSteps,
-        inputs: [inputRecord],
-        outputs: [finalOutputRecord],
-        exitCode: bbmergeResult.exitCode,
-        wallTime: completedAt.timeIntervalSince(startedAt),
-        stderr: bbmergeResult.stderr,
-        status: bbmergeResult.isSuccess && (gzipResult?.exitCode ?? 0) == 0 ? .completed : .failed,
-        outputDirectory: finalOutputURL.deletingLastPathComponent()
-    )
-}
-
-@discardableResult
-func recordFASTQCountedMergeProvenance(
-    cliArguments: [String],
-    nativeArguments: [String],
-    bbmergeResult: NativeToolResult,
-    inputURL: URL,
-    bbmergeOutputURLs: [URL],
-    countedResult: CountedFASTQMaterializationResult,
-    finalOutputURL: URL,
-    parameters: [String: ParameterValue],
-    defaults: [String: ParameterValue] = [:],
-    startedAt: Date
-) async throws -> ProvenanceEnvelope {
-    let completedAt = Date()
-    let toolVersion = await NativeToolRunner.shared.getToolVersion(.bbmerge) ?? "unknown"
-    let bbmergeCommand = bbmergeResult.arguments.isEmpty
-        ? [NativeTool.bbmerge.executableName] + nativeArguments
-        : bbmergeResult.arguments
-    let inputRecord = ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
-    let finalOutputRecord = ProvenanceRecorder.fileRecord(url: finalOutputURL, format: .fastq, role: .output)
-    let bbmergeOutputRecords = bbmergeOutputURLs
-        .filter { FileManager.default.fileExists(atPath: $0.path) }
-        .map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
-
-    let bbmergeStepID = UUID()
-    let countedStepID = UUID()
-    let countedInputs = bbmergeOutputRecords
-        .map { ProvenanceFileDescriptor(fileRecord: $0).withRole(.input) }
-    let countedOutput = ProvenanceFileDescriptor(fileRecord: countedResult.materializedOutput)
-    let countedCommand = [CLICommandIdentity.executableName, "fastq"] + cliArguments
-
-    var extraSteps = [
-        ProvenanceStep(
-            id: countedStepID,
-            toolName: "lungfish fastq merge count-duplicates",
-            toolVersion: WorkflowRun.currentAppVersion,
-            argv: countedCommand,
-            inputs: countedInputs,
-            outputs: [countedOutput],
-            exitStatus: 0,
-            dependsOn: [bbmergeStepID],
-            startedAt: completedAt,
-            completedAt: completedAt
-        ),
-    ]
-
-    if let compression = countedResult.compression {
-        extraSteps.append(
-            ProvenanceStep(
-                toolName: compression.command.first ?? "/usr/bin/gzip",
-                toolVersion: "system",
-                argv: compression.command,
-                inputs: [ProvenanceFileDescriptor(fileRecord: compression.input).withRole(.input)],
-                outputs: [ProvenanceFileDescriptor(fileRecord: compression.output).withRole(.output)],
-                exitStatus: Int(compression.exitCode),
-                wallTimeSeconds: compression.wallTime,
-                stderr: compression.stderr,
-                dependsOn: [countedStepID],
-                startedAt: completedAt.addingTimeInterval(-compression.wallTime),
-                completedAt: completedAt
-            )
-        )
-    }
-
-    return try await CLIProvenanceSupport.recordSingleStepRun(
-        name: "lungfish fastq merge",
-        parameters: parameters,
-        defaults: defaults,
-        toolName: NativeTool.bbmerge.rawValue,
-        toolVersion: toolVersion,
-        command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
-        stepID: bbmergeStepID,
-        stepCommand: bbmergeCommand,
-        stepInputs: [inputRecord],
-        stepOutputs: bbmergeOutputRecords,
-        extraSteps: extraSteps,
-        inputs: [inputRecord],
-        outputs: [finalOutputRecord],
-        exitCode: bbmergeResult.exitCode,
-        wallTime: completedAt.timeIntervalSince(startedAt),
-        stderr: bbmergeResult.stderr,
-        status: bbmergeResult.isSuccess && (countedResult.compression?.exitCode ?? 0) == 0 ? .completed : .failed,
-        outputDirectory: finalOutputURL.deletingLastPathComponent()
-    )
-}
-
-func recordFASTQSwiftToolProvenance(
-    workflowName: String,
-    cliArguments: [String],
-    inputURLs: [URL],
-    outputURLs: [URL],
-    parameters: [String: ParameterValue],
-    defaults: [String: ParameterValue] = [:],
-    inputRecords: [FileRecord]? = nil,
-    outputFormat: FileFormat = .fastq,
-    startedAt: Date
-) async throws {
-    guard let firstOutputURL = outputURLs.first else { return }
-    let completedAt = Date()
-    let command = [CLICommandIdentity.executableName, "fastq"] + cliArguments
-    var resolved = parameters
-    for (key, value) in defaults where resolved[key] == nil {
-        resolved[key] = value
-    }
-
-    try await CLIProvenanceSupport.recordSingleStepRun(
-        name: workflowName,
-        parameters: parameters,
-        defaults: defaults,
-        resolved: resolved,
-        toolName: workflowName,
-        toolVersion: WorkflowRun.currentAppVersion,
-        command: command,
-        stepCommand: command,
-        inputs: inputRecords ?? inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
-        outputs: outputURLs
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
-            .map { ProvenanceRecorder.fileRecord(url: $0, format: outputFormat, role: .output) },
-        exitCode: 0,
-        wallTime: completedAt.timeIntervalSince(startedAt),
-        stderr: nil,
-        status: .completed,
-        outputDirectory: firstOutputURL.deletingLastPathComponent()
-    )
-}
-
-func provenanceRecords(
-    for url: URL,
-    format: FileFormat? = nil,
-    role: FileRole
-) -> [FileRecord] {
-    var isDirectory: ObjCBool = false
-    guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-        return [ProvenanceRecorder.fileRecord(url: url, format: format, role: role)]
-    }
-    guard isDirectory.boolValue else {
-        return [ProvenanceRecorder.fileRecord(url: url, format: format, role: role)]
-    }
-    guard let enumerator = FileManager.default.enumerator(
-        at: url,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-    ) else {
-        return [ProvenanceRecorder.fileRecord(url: url, format: format, role: role)]
-    }
-    return enumerator
-        .compactMap { item -> URL? in
-            guard let fileURL = item as? URL,
-                  (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-                return nil
-            }
-            return fileURL
-        }
-        .sorted { $0.path < $1.path }
-        .map { ProvenanceRecorder.fileRecord(url: $0, format: format, role: role) }
-}
-
 // MARK: - Reverse Complement
 
 struct FastqReverseComplementSubcommand: AsyncParsableCommand {
@@ -1142,14 +836,15 @@ struct FastqReverseComplementSubcommand: AsyncParsableCommand {
         abstract: "Reverse-complement FASTQ reads and reverse their quality scores"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "reverse-complement", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         let outputURL = URL(fileURLWithPath: output.output)
         let startedAt = Date()
 
@@ -1166,7 +861,7 @@ struct FastqReverseComplementSubcommand: AsyncParsableCommand {
             throw error
         }
 
-        var cliArguments = ["reverse-complement", inputURL.path, "-o", output.output]
+        var cliArguments = ["reverse-complement", resolvedInput.originalURL.path, "-o", output.output]
         if output.force {
             cliArguments.append("--force")
         }
@@ -1176,10 +871,10 @@ struct FastqReverseComplementSubcommand: AsyncParsableCommand {
         try await recordFASTQSwiftToolProvenance(
             workflowName: "lungfish fastq reverse-complement",
             cliArguments: cliArguments,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
@@ -1188,6 +883,8 @@ struct FastqReverseComplementSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Reverse-complemented reads written to \(output.output)\n".utf8))
@@ -1202,7 +899,7 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
         abstract: "Translate FASTQ reads to protein FASTA"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("frame"), help: "Reading frame: 1-3 forward, 4-6 reverse (default: 1)")
@@ -1214,8 +911,9 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "translate", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         guard (1...6).contains(frame) else {
             throw CLIError.conversionFailed(reason: "Frame must be 1-6.")
         }
@@ -1250,7 +948,7 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
             throw error
         }
 
-        var cliArguments = ["translate", inputURL.path, "--frame", "\(frame)", "-o", output.output]
+        var cliArguments = ["translate", resolvedInput.originalURL.path, "--frame", "\(frame)", "-o", output.output]
         if table != 1 {
             cliArguments += ["--table", "\(table)"]
         }
@@ -1263,10 +961,10 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
         try await recordFASTQSwiftToolProvenance(
             workflowName: "lungfish fastq translate",
             cliArguments: cliArguments,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "frame": .integer(frame),
                 "table": .integer(table),
@@ -1279,6 +977,8 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
+            extraSteps: try resolvedInput.materializationSteps(),
             outputFormat: .fasta,
             startedAt: startedAt
         )
@@ -1322,7 +1022,7 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
         abstract: "Remove adapter sequences using fastp"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("adapter"), help: "Adapter sequence (omit for auto-detect)")
@@ -1344,11 +1044,12 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "adapter-trim", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
 
         let startedAt = Date()
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true, metadataFrom: resolvedInput.pairingMetadataURL)
         let plan = try await Task.detached(priority: .utility) {
             try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
         }.value
@@ -1366,7 +1067,7 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
             cliArguments += ["--adapter", adapterSequence]
         }
         cliArguments += pairing.cliArguments
-        cliArguments += [inputURL.path, "--output", output.output]
+        cliArguments += [resolvedInput.originalURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
         }
@@ -1380,10 +1081,10 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: outcome.nativeArguments,
             result: outcome.result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "adapter": adapterSequence.map(ParameterValue.string) ?? .null,
                 "pairing": pairing.provenanceValue,
@@ -1403,10 +1104,11 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
             stepID: outcome.stepID,
             stepInputs: outcome.stepInputs,
             stepOutputs: outcome.stepOutputs,
-            extraSteps: outcome.extraSteps,
+            extraSteps: outcome.extraSteps + (try resolvedInput.materializationSteps()),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Adapter-trimmed reads written to \(output.output)\n".utf8))
@@ -1421,7 +1123,7 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
         abstract: "Trim fixed number of bases from read ends"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("front"), help: "Bases to trim from 5' end (default: 0)")
@@ -1449,8 +1151,9 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "fixed-trim", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         guard front >= 0 else { throw ValidationError("--front must be >= 0") }
         guard tail >= 0 else { throw ValidationError("--tail must be >= 0") }
         guard front > 0 || tail > 0 else {
@@ -1458,7 +1161,7 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
         }
 
         let startedAt = Date()
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true, metadataFrom: resolvedInput.pairingMetadataURL)
         let plan = try await Task.detached(priority: .utility) {
             try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
         }.value
@@ -1479,7 +1182,7 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
             cliArguments += ["--tail", String(tail)]
         }
         cliArguments += pairing.cliArguments
-        cliArguments += [inputURL.path, "--output", output.output]
+        cliArguments += [resolvedInput.originalURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
         }
@@ -1493,10 +1196,10 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: outcome.nativeArguments,
             result: outcome.result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "front": .integer(front),
                 "tail": .integer(tail),
@@ -1518,10 +1221,11 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
             stepID: outcome.stepID,
             stepInputs: outcome.stepInputs,
             stepOutputs: outcome.stepOutputs,
-            extraSteps: outcome.extraSteps,
+            extraSteps: outcome.extraSteps + (try resolvedInput.materializationSteps()),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Fixed-trimmed reads written to \(output.output)\n".utf8))
@@ -1536,7 +1240,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
         abstract: "Remove contaminant reads using bbduk"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("mode"), help: "Filter mode: phix, custom (default: phix)")
@@ -1613,12 +1317,13 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "contaminant-filter", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         guard kmerSize > 0 else { throw ValidationError("--kmer must be > 0") }
         guard hammingDistance >= 0 else { throw ValidationError("--hdist must be >= 0") }
         let runner = NativeToolRunner.shared
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         let isInterleaved = pairingDecision.pairAware
 
         let args = try Self.bbdukArguments(
@@ -1638,7 +1343,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "bbduk contaminant filter failed: \(result.stderr)")
         }
-        var cliArguments = ["contaminant-filter", inputURL.path, "--mode", mode]
+        var cliArguments = ["contaminant-filter", resolvedInput.originalURL.path, "--mode", mode]
         if let reference {
             cliArguments += ["--ref", reference]
         }
@@ -1663,10 +1368,10 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: args,
             result: result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "mode": .string(mode),
                 "reference": .file(resolvedReferenceURL),
@@ -1690,9 +1395,9 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
-            inputRecords: [
-                ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
-            ] + provenanceRecords(for: resolvedReferenceURL, format: .fasta, role: .reference),
+            inputRecords: try resolvedInput.inputRecords()
+                + provenanceRecords(for: resolvedReferenceURL, format: .fasta, role: .reference),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Filtered reads written to \(output.output)\n".utf8))
@@ -1715,7 +1420,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
             """
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("entropy"), help: "Entropy threshold, 0.3-0.9 (default: 0.6)")
@@ -1791,13 +1496,14 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "entropy-filter", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         try Self.validate(entropy: entropy, window: window, kmer: kmer)
         guard threads > 0 else { throw ValidationError("--threads must be > 0") }
 
         let runner = NativeToolRunner.shared
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         let isInterleaved = pairingDecision.pairAware
         let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 4)
         let args = Self.bbdukArguments(
@@ -1821,7 +1527,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
         let summary = BBDukEntropySummary(stderr: result.stderr)
 
         var cliArguments = [
-            "entropy-filter", inputURL.path,
+            "entropy-filter", resolvedInput.originalURL.path,
             "--entropy", Self.entropyArgument(entropy),
         ]
         if window != FASTQEntropyFilterDefaults.window {
@@ -1844,7 +1550,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
 
         let outputURL = URL(fileURLWithPath: output.output)
         var parameters: [String: ParameterValue] = [
-            "input": .file(inputURL),
+            "input": .file(resolvedInput.originalURL),
             "output": .file(outputURL),
             "entropy": .number(entropy),
             "entropyWindow": .integer(window),
@@ -1869,7 +1575,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: args,
             result: result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: parameters,
             defaults: [
@@ -1883,9 +1589,8 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false),
             ],
-            inputRecords: [
-                ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
-            ],
+            inputRecords: try resolvedInput.inputRecords(),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
 
@@ -1911,7 +1616,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         abstract: "Remove primer sequences from FASTQ reads"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("literal"), help: "Primer sequence (IUPAC nucleotides)")
@@ -1941,8 +1646,9 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "primer-remove", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         guard kmerSize > 0 else { throw ValidationError("--kmer must be > 0") }
         guard minKmer > 0 else { throw ValidationError("--mink must be > 0") }
         guard minKmer <= kmerSize else {
@@ -1966,7 +1672,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "\(execution.tool.rawValue) primer removal failed: \(result.stderr)")
         }
-        var cliArguments = ["primer-remove", inputURL.path]
+        var cliArguments = ["primer-remove", resolvedInput.originalURL.path]
         if let literalSequence {
             cliArguments += ["--literal", literalSequence]
         }
@@ -2005,10 +1711,10 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: execution.arguments,
             result: result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "literal": literalSequence.map(ParameterValue.string) ?? .null,
                 "reference": reference.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
@@ -2033,9 +1739,9 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
-            inputRecords: [
-                ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
-            ] + (referenceURL.map { provenanceRecords(for: $0, format: .fasta, role: .reference) } ?? []),
+            inputRecords: try resolvedInput.inputRecords()
+                + (referenceURL.map { provenanceRecords(for: $0, format: .fasta, role: .reference) } ?? []),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Primer-trimmed reads written to \(output.output)\n".utf8))
@@ -2179,7 +1885,7 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
         abstract: "Correct sequencing errors using tadpole"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("kmer"), help: "K-mer size for correction (default: 50, max: 62)")
@@ -2188,8 +1894,9 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "error-correct", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         guard kmerSize > 0, kmerSize <= 62 else {
             throw ValidationError("K-mer size must be between 1 and 62")
         }
@@ -2213,7 +1920,7 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "tadpole error correction failed: \(result.stderr)")
         }
-        var cliArguments = ["error-correct", inputURL.path]
+        var cliArguments = ["error-correct", resolvedInput.originalURL.path]
         if kmerSize != 50 {
             cliArguments += ["--kmer", String(kmerSize)]
         }
@@ -2231,10 +1938,10 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: args,
             result: result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "kmer": .integer(kmerSize),
                 "force": .boolean(output.force),
@@ -2245,6 +1952,8 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Error-corrected reads written to \(output.output)\n".utf8))
@@ -2259,7 +1968,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         abstract: "Merge overlapping paired-end reads using bbmerge"
     )
 
-    @Argument(help: "Input interleaved FASTQ file")
+    @Argument(help: "Input interleaved FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("min-overlap"), help: "Minimum overlap (default: 12)")
@@ -2274,8 +1983,9 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "merge", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         guard minOverlap > 0 else { throw ValidationError("--min-overlap must be > 0") }
         let runner = NativeToolRunner.shared
 
@@ -2292,7 +2002,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         // interleaved pairs reach it. A file that already mixes merged reads
         // with pairs (a merge recipe's output) is first split by NAME: the
         // pairs go to bbmerge and the merged reads pass through untouched.
-        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [inputURL])
+        let resolution = FASTQInputLayoutResolver.resolve(fastqURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         var bbmergeInputURL = inputURL
         var passthroughURL: URL?
         var passthroughReadCount = 0
@@ -2381,7 +2091,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 )
             }
         }
-        var cliArguments = ["merge", inputURL.path]
+        var cliArguments = ["merge", resolvedInput.originalURL.path]
         if minOverlap != 12 {
             cliArguments += ["--min-overlap", String(minOverlap)]
         }
@@ -2403,7 +2113,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         let countedOutputReadCount: ParameterValue = countedResult
             .map { ParameterValue.integer($0.totalReadCount) } ?? .string("not counted")
         let provenanceParameters: [String: ParameterValue] = [
-            "input": .file(inputURL),
+            "input": .file(resolvedInput.originalURL),
             "output": .file(outputURL),
             "minOverlap": .integer(minOverlap),
             "strict": .boolean(strict),
@@ -2435,12 +2145,14 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 cliArguments: cliArguments,
                 nativeArguments: args,
                 bbmergeResult: result,
-                inputURL: inputURL,
+                inputURL: resolvedInput.originalURL,
                 bbmergeOutputURLs: [mergedURL, unmergedURL],
                 countedResult: countedResult,
                 finalOutputURL: outputURL,
                 parameters: provenanceParameters,
                 defaults: provenanceDefaults,
+                inputRecords: try resolvedInput.inputRecords(),
+                materializationSteps: try resolvedInput.materializationSteps(),
                 startedAt: startedAt
             )
         } else {
@@ -2449,11 +2161,13 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 nativeArguments: args,
                 bbmergeResult: result,
                 gzipResult: gzipResult,
-                inputURL: inputURL,
+                inputURL: resolvedInput.originalURL,
                 bbmergeOutputURLs: [mergedURL, unmergedURL],
                 finalOutputURL: outputURL,
                 parameters: provenanceParameters,
                 defaults: provenanceDefaults,
+                inputRecords: try resolvedInput.inputRecords(),
+                materializationSteps: try resolvedInput.materializationSteps(),
                 concatenateWallTime: concatenateWallTime,
                 startedAt: startedAt
             )
@@ -2479,14 +2193,15 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
         abstract: "Repair desynchronized paired-end reads using repair.sh"
     )
 
-    @Argument(help: "Input interleaved FASTQ file")
+    @Argument(help: "Input interleaved FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "repair", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         let runner = NativeToolRunner.shared
 
         let tempDir = try ProjectTempDirectory.createFromContext(
@@ -2526,7 +2241,7 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
                 outputHandle.write(chunk)
             }
         }
-        var cliArguments = ["repair", inputURL.path, "--output", output.output]
+        var cliArguments = ["repair", resolvedInput.originalURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
         }
@@ -2539,10 +2254,10 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: args,
             result: result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
@@ -2551,6 +2266,8 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
 
@@ -2575,7 +2292,7 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
             """
     )
 
-    @Argument(help: "Input interleaved FASTQ file")
+    @Argument(help: "Input interleaved FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("out1"), help: "Output R1 file (required)")
@@ -2597,18 +2314,20 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let inputURL = try validateInput(input)
         let out1URL = URL(fileURLWithPath: out1)
         let out2URL = URL(fileURLWithPath: out2)
         let unpairedURL = unpaired.map { URL(fileURLWithPath: $0) }
-        var cliArguments = ["deinterleave", inputURL.path, "--out1", out1, "--out2", out2]
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "deinterleave", contextURL: out1URL)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
+        var cliArguments = ["deinterleave", resolvedInput.originalURL.path, "--out1", out1, "--out2", out2]
         if let unpaired {
             cliArguments += ["--unpaired", unpaired]
         }
 
-        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [inputURL])
+        let resolution = FASTQInputLayoutResolver.resolve(fastqURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         var parameters: [String: ParameterValue] = [
-            "input": .file(inputURL),
+            "input": .file(resolvedInput.originalURL),
             "out1": .file(out1URL),
             "out2": .file(out2URL),
             "unpaired": unpairedURL.map(ParameterValue.file) ?? .null,
@@ -2642,9 +2361,11 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
                 cliArguments: cliArguments,
                 nativeArguments: args,
                 result: result,
-                inputURLs: [inputURL],
+                inputURLs: [resolvedInput.originalURL],
                 outputURLs: [out1URL, out2URL] + (unpairedURL.map { [$0] } ?? []),
                 parameters: parameters,
+                inputRecords: try resolvedInput.inputRecords(),
+                extraSteps: try resolvedInput.materializationSteps(),
                 startedAt: startedAt
             )
             FileHandle.standardError.write(Data("Deinterleaved: R1 → \(out1), R2 → \(out2)\n".utf8))
@@ -2670,7 +2391,8 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
                 toolVersion: WorkflowRun.currentAppVersion,
                 command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
                 stepCommand: ["LungfishWorkflow", "partition-mixed-fastq", inputURL.path, out1, out2, unpairedURL.path],
-                inputs: [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)],
+                extraSteps: try resolvedInput.materializationSteps(),
+                inputs: try resolvedInput.inputRecords(),
                 outputs: outputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) },
                 exitCode: 0,
                 wallTime: Date().timeIntervalSince(startedAt),
@@ -2822,7 +2544,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
         abstract: "Remove duplicate reads using clumpify.sh (BBTools)"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("subs"), help: "Substitution tolerance (0=exact, 2=default)")
@@ -2839,10 +2561,11 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "deduplicate", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         let runner = NativeToolRunner.shared
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         let isInterleaved = pairingDecision.pairAware
 
         let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 1)
@@ -2869,7 +2592,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "clumpify deduplication failed: \(result.stderr)")
         }
-        var cliArguments = ["deduplicate", inputURL.path]
+        var cliArguments = ["deduplicate", resolvedInput.originalURL.path]
         if substitutions != 0 {
             cliArguments += ["--subs", String(substitutions)]
         }
@@ -2894,10 +2617,10 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: args,
             result: result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "subs": .integer(substitutions),
                 "optical": .boolean(optical),
@@ -2919,6 +2642,8 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Deduplicated reads written to \(output.output)\n".utf8))
@@ -3048,16 +2773,23 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             throw ValidationError("Max barcode distances must be non-negative")
         }
 
-        let inputURL = try validateInput(input)
         let outputURL = URL(fileURLWithPath: output)
         try Self.prepareOutputDirectory(outputURL, replace: replace)
+        // A bundle is demultiplexed as its reads (every file of a multi-file
+        // bundle, the materialized reads of a virtual one), with the bundle
+        // kept as the lineage source (R3, lane 1x).
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "demultiplex", contextURL: outputURL)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
 
         // Resolve barcode kit
         let resolvedKit = try resolveBarcodeKitArgument(kit)
         let barcodeKit = resolvedKit.definition
         let customKitURL = resolvedKit.customURL
 
-        let sourceBundleURL = FASTQBundle.isBundleURL(inputURL) ? inputURL : nil
+        let sourceBundleURL = resolvedInput.wasMaterialized || FASTQBundle.isBundleURL(resolvedInput.originalURL)
+            ? resolvedInput.bundleURL
+            : nil
         let sourceManifest = sourceBundleURL.flatMap { FASTQBundle.loadDerivedManifest(in: $0) }
         let rootBundleURL = sourceBundleURL.flatMap { bundleURL -> URL? in
             guard let sourceManifest else { return nil }
@@ -3138,7 +2870,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         let result = try await pipeline.run(config: config) { fraction, message in
             FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
         }
-        var cliArguments = ["demultiplex", inputURL.path, "--kit", kit, "--output", output]
+        var cliArguments = ["demultiplex", resolvedInput.originalURL.path, "--kit", kit, "--output", output]
         if demultiplexEngine == .exactBareBarcode {
             cliArguments += ["--engine", demultiplexEngine.rawValue]
             if threads != 4 {
@@ -3193,12 +2925,10 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         }
         let stepCommand = result.nativeCommand
             ?? result.manifest.parameters.commandLine?.split(separator: " ").map(String.init)
-        let inputRecords = (fastaInput
-            ? try CLISequenceInputMaterialization.originalInputRecords(for: inputURL)
-            : [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)])
+        let inputRecords = try resolvedInput.inputRecords()
             + (customKitURL.map { provenanceRecords(for: $0, format: .text, role: .reference) } ?? [])
         var provenanceParameters: [String: ParameterValue] = [
-            "input": .file(inputURL),
+            "input": .file(resolvedInput.originalURL),
             "kit": .string(kit),
             "resolvedKit": .string(barcodeKit.id),
             "customBarcodeKit": customKitURL.map(ParameterValue.file) ?? .null,
@@ -3249,7 +2979,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             stepCommand: stepCommand,
             stepInputs: preparedFASTA.map { [ProvenanceRecorder.fileRecord(url: $0.url, format: .fastq, role: .input)] },
-            extraSteps: preparedFASTA?.steps ?? [],
+            extraSteps: (preparedFASTA?.steps ?? []) + (try resolvedInput.materializationSteps()),
             inputs: inputRecords,
             outputs: outputRecords,
             exitCode: 0,
@@ -3747,10 +3477,12 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
             }
         }
 
-        let inputURL = try validateInput(input)
         let outputURL = URL(fileURLWithPath: output)
         let outputDirectory = outputURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "scout", contextURL: outputURL)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         let resolvedKit = try resolveBarcodeKitArgument(kit)
         let resolvedSourcePlatform: LungfishIO.SequencingPlatform?
         if let sourcePlatform {
@@ -3786,7 +3518,7 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
 
         var command = [
             CLICommandIdentity.executableName, "fastq", "scout",
-            inputURL.path,
+            resolvedInput.originalURL.path,
             "--kit", kit,
             "--output", outputURL.path,
         ]
@@ -3812,7 +3544,7 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
             command.append("--no-indels")
         }
 
-        var inputRecords = [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)]
+        var inputRecords = try resolvedInput.inputRecords()
         if let customURL = resolvedKit.customURL {
             inputRecords += provenanceRecords(for: customURL, format: .text, role: .reference)
         }
@@ -3822,7 +3554,7 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
         let sourcePlatformParameter: ParameterValue = sourcePlatform.map { .string($0) } ?? .null
         let resolvedSourcePlatformParameter: ParameterValue = resolvedSourcePlatform.map { .string($0.rawValue) } ?? .null
         let parameters: [String: ParameterValue] = [
-            "input": .file(inputURL),
+            "input": .file(resolvedInput.originalURL),
             "kit": .string(kit),
             "resolvedKit": .string(resolvedKit.definition.id),
             "customBarcodeKit": customBarcodeKitParameter,
@@ -3855,6 +3587,7 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
             toolName: "lungfish fastq scout",
             toolVersion: WorkflowRun.currentAppVersion,
             command: command,
+            extraSteps: try resolvedInput.materializationSteps(),
             inputs: inputRecords,
             outputs: outputRecords,
             exitCode: 0,

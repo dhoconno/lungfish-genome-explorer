@@ -3,7 +3,7 @@ OVERVIEW: Remove contaminant reads using bbduk
 USAGE: lungfish-cli fastq contaminant-filter <input> [--mode <mode>] [--ref <ref>] [--kmer <kmer>] [--hdist <hdist>] [--pairing <pairing>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --mode <mode>           Filter mode: phix, custom (default: phix) (default:

@@ -25,7 +25,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         abstract: "Detect and remove ribosomal RNA sequences with Deacon and BBMap ribokmers"
     )
 
-    @Argument(help: "Input FASTA/FASTQ file, or paired R1/R2 FASTQ files")
+    @Argument(help: "Input FASTA/FASTQ file or .lungfishfastq bundle, or paired R1/R2 FASTQ files")
     var inputs: [String]
 
     @Option(name: .customLong("retain"), help: "Read classes to retain: norrna, rrna, or both")
@@ -50,9 +50,17 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
     var outputDirectory: String
 
     func run() async throws {
-        let inputURLs = try validateInputs(inputs)
+        guard !inputs.isEmpty, inputs.count <= 2 else {
+            throw ValidationError("Deacon rRNA filtering requires one input file or one paired-end R1/R2 input pair.")
+        }
         let outputDirectoryURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: outputDirectoryURL, withIntermediateDirectories: true)
+        // A bundle is read as its reads, resolved the way the dialog resolves
+        // it, and the outputs are named after the bundle (R3, lane 1x).
+        let resolvedInputs = try await FASTQSubcommandInput.resolve(inputs, operationName: "deacon-ribo", contextURL: outputDirectoryURL)
+        defer { resolvedInputs.cleanup() }
+        let inputURLs = try validateInputs(resolvedInputs)
+        let originalInputURLs = resolvedInputs.map(\.originalURL)
 
         let retention = try parsedRetention(retain)
         guard absoluteThreshold > 0 else {
@@ -71,7 +79,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         // position and would mis-pair it.
         let pairingDecision: FASTQPairingDecision?
         if inputURLs.count == 1 {
-            pairingDecision = pairing.resolvePairing(inputURL: inputURLs[0])
+            pairingDecision = pairing.resolvePairing(inputURL: inputURLs[0], metadataFrom: resolvedInputs[0].pairingMetadataURL)
         } else {
             guard pairing.pairing != .interleaved else {
                 throw ValidationError("--pairing interleaved applies to one interleaved input; R1/R2 inputs are already paired.")
@@ -85,6 +93,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         let databaseURL = try await DatabaseRegistry.shared.requiredDatabasePath(for: resolvedDatabaseID)
         let outputs = try Self.plannedOutputs(
             inputURLs: inputURLs,
+            namedAfter: originalInputURLs,
             outputDirectory: outputDirectoryURL,
             retention: retention
         )
@@ -176,6 +185,9 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         } catch {
             try? await recordProvenance(
                 inputURLs: inputURLs,
+                originalInputURLs: originalInputURLs,
+                inputRecords: try resolvedInputs.inputRecords(),
+                materializationSteps: try resolvedInputs.materializationSteps(),
                 databaseURL: databaseURL,
                 outputDirectoryURL: outputDirectoryURL,
                 retention: retention,
@@ -193,6 +205,9 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
 
         try await recordProvenance(
             inputURLs: inputURLs,
+            originalInputURLs: originalInputURLs,
+            inputRecords: try resolvedInputs.inputRecords(),
+            materializationSteps: try resolvedInputs.materializationSteps(),
             databaseURL: databaseURL,
             outputDirectoryURL: outputDirectoryURL,
             retention: retention,
@@ -210,14 +225,19 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         FileHandle.standardError.write(Data("Deacon rRNA outputs written to \(retained)\n".utf8))
     }
 
+    /// - Parameter namedAfter: the paths the user gave, which name the
+    ///   outputs, when `inputURLs` are files resolved for the run (a bundle's
+    ///   joined or materialized reads). Formats come from `inputURLs`.
     static func plannedOutputs(
         inputURLs: [URL],
+        namedAfter originalURLs: [URL]? = nil,
         outputDirectory: URL,
         retention: FASTQRiboDetectorRetention
     ) throws -> DeaconRiboOutputPlan {
         guard !inputURLs.isEmpty, inputURLs.count <= 2 else {
             throw ValidationError("Deacon rRNA filtering requires one input file or one paired-end R1/R2 input pair.")
         }
+        let namingURLs = originalURLs ?? inputURLs
 
         let formats = try inputURLs.map { inputURL -> SequenceFormat in
             guard let format = SequenceFormat.from(url: inputURL) else {
@@ -230,10 +250,10 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         }
 
         let ext = formats[0].fileExtension
-        let nonRRNA = inputURLs.map { inputURL in
+        let nonRRNA = namingURLs.map { inputURL in
             outputDirectory.appendingPathComponent("\(sequenceStem(for: inputURL)).norrna.\(ext)")
         }
-        let rRNA = inputURLs.map { inputURL in
+        let rRNA = namingURLs.map { inputURL in
             outputDirectory.appendingPathComponent("\(sequenceStem(for: inputURL)).rrna.\(ext)")
         }
 
@@ -343,6 +363,9 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
 
     private func recordProvenance(
         inputURLs: [URL],
+        originalInputURLs: [URL],
+        inputRecords: [FileRecord],
+        materializationSteps: [ProvenanceStep],
         databaseURL: URL,
         outputDirectoryURL: URL,
         retention: FASTQRiboDetectorRetention,
@@ -358,8 +381,8 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         let runID = await ProvenanceRecorder.shared.beginRun(
             name: "Deacon rRNA FASTQ filter",
             parameters: [
-                "input": .file(inputURLs[0]),
-                "inputs": .array(inputURLs.map { .file($0) }),
+                "input": .file(originalInputURLs[0]),
+                "inputs": .array(originalInputURLs.map { .file($0) }),
                 "outputDirectory": .file(outputDirectoryURL),
                 "retain": .string(retention.rawValue),
                 "databaseID": .string(resolvedDatabaseID),
@@ -387,9 +410,22 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
                 return .unknown
             }
         }()
-        let inputRecords = inputURLs.map {
-            ProvenanceRecorder.fileRecord(url: $0, format: fileFormat, role: .input)
-        } + provenanceRecords(for: databaseURL, role: .reference)
+        let inputRecords = inputRecords + provenanceRecords(for: databaseURL, role: .reference)
+
+        // The materialization or join that wrote a bundle's reads for the run.
+        for step in materializationSteps {
+            await ProvenanceRecorder.shared.recordStep(
+                runID: runID,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                command: step.argv,
+                inputs: step.inputs.map(Self.fileRecord),
+                outputs: step.outputs.map(Self.fileRecord),
+                exitCode: Int32(step.exitStatus ?? 0),
+                wallTime: step.wallTimeSeconds ?? 0,
+                stderr: step.stderr
+            )
+        }
 
         for invocation in invocations {
             let isDeacon = invocation.toolName == "deacon"
@@ -424,18 +460,30 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         }
     }
 
-    private func validateInputs(_ inputPaths: [String]) throws -> [URL] {
-        guard !inputPaths.isEmpty, inputPaths.count <= 2 else {
+    /// The files the tool reads, once the resolved inputs plan valid outputs.
+    private func validateInputs(_ resolvedInputs: [FASTQSubcommandInput]) throws -> [URL] {
+        guard !resolvedInputs.isEmpty, resolvedInputs.count <= 2 else {
             throw ValidationError("Deacon rRNA filtering requires one input file or one paired-end R1/R2 input pair.")
         }
 
-        let urls = try inputPaths.map { try validateInput($0) }
+        let urls = resolvedInputs.map(\.executionURL)
         _ = try Self.plannedOutputs(
             inputURLs: urls,
+            namedAfter: resolvedInputs.map(\.originalURL),
             outputDirectory: FileManager.default.temporaryDirectory,
             retention: .nonRRNA
         )
         return urls
+    }
+
+    private static func fileRecord(_ descriptor: ProvenanceFileDescriptor) -> FileRecord {
+        FileRecord(
+            path: descriptor.path,
+            sha256: descriptor.checksumSHA256,
+            sizeBytes: descriptor.fileSize,
+            format: descriptor.format,
+            role: descriptor.role
+        )
     }
 
     private func parsedRetention(_ value: String) throws -> FASTQRiboDetectorRetention {

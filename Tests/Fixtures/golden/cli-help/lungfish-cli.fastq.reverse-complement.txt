@@ -3,7 +3,7 @@ OVERVIEW: Reverse-complement FASTQ reads and reverse their quality scores
 USAGE: lungfish-cli fastq reverse-complement <input> --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   -o, --output <output>   Output file path (required)

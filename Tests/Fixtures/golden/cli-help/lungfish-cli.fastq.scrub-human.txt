@@ -3,7 +3,7 @@ OVERVIEW: Remove human reads from FASTQ
 USAGE: lungfish-cli fastq scrub-human <input> --output <output> [--force] [--compress] --database-id <database-id> [--remove-reads] [--pairing <pairing>]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file path
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   -o, --output <output>   Output file path (required)

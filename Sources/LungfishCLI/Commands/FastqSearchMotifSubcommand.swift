@@ -13,7 +13,7 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
         abstract: "Search FASTQ reads by sequence motif"
     )
 
-    @Argument(help: "Input FASTQ file path")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions
@@ -27,13 +27,14 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
     @OptionGroup var pairing: FASTQPairingOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "search-motif", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
 
         // The pair-aware branch re-extracts by fragment NAME, so a file that
         // mixes merged reads with pairs is safe: a merged read that carries
         // the motif comes back alone, a pair comes back whole.
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true, metadataFrom: resolvedInput.pairingMetadataURL)
         let isInterleaved = pairingDecision.pairAware
         var searchArgs = ["grep", "--by-seq", "-p", pattern]
         if regex {
@@ -64,7 +65,7 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
             }
         }
 
-        var cliArguments = ["search-motif", inputURL.path, "--output", output.output, "--pattern", pattern]
+        var cliArguments = ["search-motif", resolvedInput.originalURL.path, "--output", output.output, "--pattern", pattern]
         if regex {
             cliArguments.append("--regex")
         }
@@ -82,10 +83,10 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: args,
             result: result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "pattern": .string(pattern),
                 "regex": .boolean(regex),
@@ -104,6 +105,8 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
     }

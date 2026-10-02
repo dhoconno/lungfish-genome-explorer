@@ -3,7 +3,7 @@ OVERVIEW: Trim fixed number of bases from read ends
 USAGE: lungfish-cli fastq fixed-trim <input> [--front <front>] [--tail <tail>] [--pairing <pairing>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --front <front>         Bases to trim from 5' end (default: 0) (default: 0)

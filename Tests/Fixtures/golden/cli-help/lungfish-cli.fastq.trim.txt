@@ -3,7 +3,7 @@ OVERVIEW: Trim adapters and low-quality bases in one fastp pass
 USAGE: lungfish-cli fastq trim <input> [--threshold <threshold>] [--window <window>] [--mode <mode>] [--adapter-trimming] [--no-adapter-trimming] [--adapter <adapter>] [--extra-args <extra-args>] [--pairing <pairing>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --threshold <threshold> Quality threshold (default: 20) (default: 20)

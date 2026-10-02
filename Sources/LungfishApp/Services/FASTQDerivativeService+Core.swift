@@ -96,7 +96,12 @@ extension FASTQDerivativeService {
             guard let rootFASTQURL = FASTQBundle.resolvePrimarySequenceURL(for: sourceBundleURL) else {
                 throw FASTQDerivativeError.sourceFASTQMissing
             }
-            rootFASTQFilename = rootFASTQURL.lastPathComponent
+            // The primary file's member path (`chunks/run_0.fastq` for an ONT
+            // import), which the materializer expands to every member of a
+            // multi-file root. The bare name used to be recorded, which named
+            // no member of such a root (R3, lane 1x).
+            rootFASTQFilename = FASTQBundle.bundleRelativePath(of: rootFASTQURL, in: sourceBundleURL)
+                ?? rootFASTQURL.lastPathComponent
             resolvedRootBundleURL = sourceBundleURL
             pairingMode = SequenceFormat.from(url: rootFASTQURL) == .fastq
                 ? FASTQMetadataStore.load(for: rootFASTQURL)?.ingestion?.pairingMode

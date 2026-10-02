@@ -13,7 +13,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
         abstract: "Filter reads by sequence presence (adapter/barcode matching)"
     )
 
-    @Argument(help: "Input FASTQ file path")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions
@@ -42,14 +42,15 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
     @OptionGroup var pairing: FASTQPairingOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "sequence-filter", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
 
         guard sequence != nil || fastaPath != nil else {
             throw CLIError.conversionFailed(reason: "Either --sequence or --fasta-path must be specified")
         }
 
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         let isInterleaved = pairingDecision.pairAware
 
         var args: [String] = ["in=\(inputURL.path)"]
@@ -99,7 +100,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
             throw CLIError.conversionFailed(reason: result.stderr)
         }
 
-        var cliArguments = ["sequence-filter", inputURL.path, "--output", output.output]
+        var cliArguments = ["sequence-filter", resolvedInput.originalURL.path, "--output", output.output]
         if let sequence {
             cliArguments += ["--sequence", sequence]
         }
@@ -129,8 +130,8 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
             cliArguments.append("--compress")
         }
         let outputURL = URL(fileURLWithPath: output.output)
-        var inputURLs = [inputURL]
-        var inputRecords = [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)]
+        var inputURLs = [resolvedInput.originalURL]
+        var inputRecords = try resolvedInput.inputRecords()
         if let fastaPath {
             let fastaURL = try validateInput(fastaPath)
             inputURLs.append(fastaURL)
@@ -145,7 +146,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
             inputURLs: inputURLs,
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "sequence": sequence.map(ParameterValue.string) ?? .null,
                 "fastaPath": fastaPath.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
@@ -176,6 +177,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
                 "compress": .boolean(false)
             ],
             inputRecords: inputRecords,
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
     }

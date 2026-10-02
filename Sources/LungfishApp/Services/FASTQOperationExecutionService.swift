@@ -653,6 +653,15 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
         return request.replacingInputURLs(with: resolvedURLs)
     }
 
+    /// The one file the `fastq` subcommand reads for an input: a bundle, or
+    /// a file inside one, resolves through `FASTQCLIMaterializer`, the
+    /// resolution the dashboard's in-process derivative, `fastq materialize`
+    /// and a `fastq` subcommand given a bundle share. A single-file bundle is
+    /// its file in place, a bundle that holds several files is every file
+    /// joined in `source-files.json` order, a `fullPaired` bundle is R1 and
+    /// R2 interleaved, and a virtual derivative is materialized over every
+    /// file of its root. The exact-bare demultiplex engine reads every file
+    /// of a bundle itself, so it receives the bundle (R3, lane 1x).
     private func resolveSingleExecutionInput(
         from inputURL: URL,
         request: FASTQOperationLaunchRequest,
@@ -661,37 +670,22 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
     ) async throws -> URL {
         let standardizedInputURL = inputURL.standardizedFileURL
         if let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: standardizedInputURL) {
-            if FASTQBundle.isDerivedBundle(bundleURL) {
-                let materializedURL = try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
-                    fromBundle: bundleURL,
-                    tempDirectory: tempDirectory,
-                    progress: nil
-                )
-                return try await bridgeFASTAIfNeeded(
-                    inputURL: materializedURL,
-                    tempDirectory: tempDirectory,
-                    enabled: bridgeFASTAToFASTQ
-                )
-            }
-
-            if let allFASTQURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL),
+            if request.allowsDirectMultiFileFASTQBundleInput,
+               !FASTQBundle.isDerivedBundle(bundleURL),
+               let allFASTQURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL),
                allFASTQURLs.count > 1 {
-                if request.allowsDirectMultiFileFASTQBundleInput {
-                    return bundleURL
-                }
-                return try materializeConcatenatedFASTQ(
-                    from: allFASTQURLs,
-                    tempDirectory: tempDirectory
-                )
+                return bundleURL
             }
-
-            if let primarySequenceURL = SequenceInputResolver.resolvePrimarySequenceURL(for: bundleURL) {
-                return try await bridgeFASTAIfNeeded(
-                    inputURL: primarySequenceURL,
-                    tempDirectory: tempDirectory,
-                    enabled: bridgeFASTAToFASTQ
-                )
-            }
+            let materializedURL = try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
+                fromBundle: bundleURL,
+                tempDirectory: tempDirectory,
+                progress: nil
+            )
+            return try await bridgeFASTAIfNeeded(
+                inputURL: materializedURL,
+                tempDirectory: tempDirectory,
+                enabled: bridgeFASTAToFASTQ
+            )
         }
 
         if let primarySequenceURL = SequenceInputResolver.resolvePrimarySequenceURL(for: standardizedInputURL) {
@@ -707,43 +701,6 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
             tempDirectory: tempDirectory,
             enabled: bridgeFASTAToFASTQ
         )
-    }
-
-    private func materializeConcatenatedFASTQ(
-        from inputURLs: [URL],
-        tempDirectory: URL
-    ) throws -> URL {
-        guard let firstInputURL = inputURLs.first else {
-            throw ExtractionError.noSourceFASTQ
-        }
-
-        let fileExtension: String
-        if firstInputURL.pathExtension.lowercased() == "gz" {
-            let baseExtension = firstInputURL.deletingPathExtension().pathExtension
-            fileExtension = baseExtension.isEmpty ? "fastq.gz" : "\(baseExtension).gz"
-        } else {
-            fileExtension = firstInputURL.pathExtension.isEmpty ? "fastq" : firstInputURL.pathExtension
-        }
-
-        let outputURL = tempDirectory.appendingPathComponent(
-            FASTQSourceResolver.tempFileName(extension: fileExtension)
-        )
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-
-        for inputURL in inputURLs {
-            let inputHandle = try FileHandle(forReadingFrom: inputURL)
-            defer { try? inputHandle.close() }
-
-            while true {
-                let chunk = inputHandle.readData(ofLength: 1_048_576)
-                if chunk.isEmpty { break }
-                outputHandle.write(chunk)
-            }
-        }
-
-        return outputURL
     }
 
     private func bridgeFASTAIfNeeded(

@@ -13,7 +13,7 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
         abstract: "Search FASTQ reads by ID or description field"
     )
 
-    @Argument(help: "Input FASTQ file path")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions
@@ -30,13 +30,14 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
     @OptionGroup var pairing: FASTQPairingOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "search-text", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
 
         // Both pair-aware branches below pair records by fragment NAME, so a
         // file that mixes merged reads with pairs is safe: a matched pair
         // comes back whole and a matched merged read comes back alone.
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true, metadataFrom: resolvedInput.pairingMetadataURL)
         let isInterleaved = pairingDecision.pairAware
         let searchesDescription = field == "description"
         var searchArgs = ["grep", "-p", query]
@@ -80,7 +81,7 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
             }
         }
 
-        var cliArguments = ["search-text", inputURL.path, "--output", output.output, "--query", query]
+        var cliArguments = ["search-text", resolvedInput.originalURL.path, "--output", output.output, "--query", query]
         if field != "id" {
             cliArguments += ["--field", field]
         }
@@ -101,10 +102,10 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
             cliArguments: cliArguments,
             nativeArguments: args,
             result: result,
-            inputURLs: [inputURL],
+            inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "query": .string(query),
                 "field": .string(field),
@@ -125,6 +126,8 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            inputRecords: try resolvedInput.inputRecords(),
+            extraSteps: try resolvedInput.materializationSteps(),
             startedAt: startedAt
         )
     }

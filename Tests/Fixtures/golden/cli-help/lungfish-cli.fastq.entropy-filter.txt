@@ -10,7 +10,7 @@ Defaults are entropy 0.6, window 50, k-mer 5, and 4 bbduk threads (--threads).
 USAGE: lungfish-cli fastq entropy-filter [<options>] <input> --output <output>
 
 ARGUMENTS:
-  <input>                 Input FASTQ file
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --entropy <entropy>     Entropy threshold, 0.3-0.9 (default: 0.6) (default:

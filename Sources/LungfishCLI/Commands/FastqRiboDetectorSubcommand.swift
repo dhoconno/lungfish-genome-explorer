@@ -61,7 +61,7 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
 
     nonisolated(unsafe) static var toolRunner: RiboDetectorToolRunning = CondaRiboDetectorToolRunner()
 
-    @Argument(help: "Input FASTA/FASTQ file, or paired R1/R2 FASTQ files")
+    @Argument(help: "Input FASTA/FASTQ file or .lungfishfastq bundle, or paired R1/R2 FASTQ files")
     var inputs: [String]
 
     @Option(name: .customLong("retain"), help: "Read classes to retain: norrna, rrna, or both")
@@ -83,9 +83,17 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
     var outputDirectory: String
 
     func run() async throws {
-        let inputURLs = try validateInputs(inputs)
+        guard !inputs.isEmpty, inputs.count <= 2 else {
+            throw ValidationError("RiboDetector requires one input file or one paired-end R1/R2 input pair.")
+        }
         let outputDirectoryURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: outputDirectoryURL, withIntermediateDirectories: true)
+        // A bundle is read as its reads, resolved the way the dialog resolves
+        // it, and the outputs are named after the bundle (R3, lane 1x).
+        let resolvedInputs = try await FASTQSubcommandInput.resolve(inputs, operationName: "ribodetector", contextURL: outputDirectoryURL)
+        defer { resolvedInputs.cleanup() }
+        let inputURLs = try validateInputs(resolvedInputs)
+        let originalInputURLs = resolvedInputs.map(\.originalURL)
 
         let retention = try parsedRetention(retain)
         let ensureMode = try parsedEnsure(ensure)
@@ -100,7 +108,7 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         // pairs by position and would mis-pair it.
         let pairingDecision: FASTQPairingDecision?
         if inputURLs.count == 1 {
-            pairingDecision = pairing.resolvePairing(inputURL: inputURLs[0])
+            pairingDecision = pairing.resolvePairing(inputURL: inputURLs[0], metadataFrom: resolvedInputs[0].pairingMetadataURL)
         } else {
             guard pairing.pairing != .interleaved else {
                 throw ValidationError("--pairing interleaved applies to one interleaved input; R1/R2 inputs are already paired.")
@@ -113,6 +121,7 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         let effectiveThreads = max(1, threads ?? ProcessInfo.processInfo.activeProcessorCount)
         let outputs = try Self.plannedOutputs(
             inputURLs: inputURLs,
+            namedAfter: originalInputURLs,
             outputDirectory: outputDirectoryURL,
             retention: retention
         )
@@ -167,6 +176,9 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         guard result.exitCode == 0 else {
             try? await recordProvenance(
                 inputURLs: inputURLs,
+                originalInputURLs: originalInputURLs,
+                inputRecords: try resolvedInputs.inputRecords(),
+                materializationSteps: try resolvedInputs.materializationSteps(),
                 outputDirectoryURL: outputDirectoryURL,
                 retention: retention,
                 ensureMode: ensureMode,
@@ -202,6 +214,9 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
             for join in joins { try? FileManager.default.removeItem(at: join.output) }
             try? await recordProvenance(
                 inputURLs: inputURLs,
+                originalInputURLs: originalInputURLs,
+                inputRecords: try resolvedInputs.inputRecords(),
+                materializationSteps: try resolvedInputs.materializationSteps(),
                 outputDirectoryURL: outputDirectoryURL,
                 retention: retention,
                 ensureMode: ensureMode,
@@ -229,6 +244,9 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
 
         try await recordProvenance(
             inputURLs: inputURLs,
+            originalInputURLs: originalInputURLs,
+            inputRecords: try resolvedInputs.inputRecords(),
+            materializationSteps: try resolvedInputs.materializationSteps(),
             outputDirectoryURL: outputDirectoryURL,
             retention: retention,
             ensureMode: ensureMode,
@@ -252,6 +270,9 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
 
     private func recordProvenance(
         inputURLs: [URL],
+        originalInputURLs: [URL],
+        inputRecords: [FileRecord],
+        materializationSteps: [ProvenanceStep],
         outputDirectoryURL: URL,
         retention: FASTQRiboDetectorRetention,
         ensureMode: FASTQRiboDetectorEnsure,
@@ -281,8 +302,8 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         }()
 
         var parameters: [String: ParameterValue] = [
-            "input": .file(inputURLs[0]),
-            "inputs": .array(inputURLs.map { .file($0) }),
+            "input": .file(originalInputURLs[0]),
+            "inputs": .array(originalInputURLs.map { .file($0) }),
             "outputDirectory": .file(outputDirectoryURL),
             "retain": .string(retention.rawValue),
             "ensure": .string(ensureMode.rawValue),
@@ -304,9 +325,8 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
             toolName: "RiboDetector",
             toolVersion: toolVersion,
             command: command,
-            inputs: inputURLs.map {
-                ProvenanceRecorder.fileRecord(url: $0, format: fileFormat, role: .input)
-            },
+            extraSteps: materializationSteps,
+            inputs: inputRecords,
             outputs: outputs.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: fileFormat, role: .output)
             },
@@ -318,14 +338,19 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         )
     }
 
+    /// - Parameter namedAfter: the paths the user gave, which name the
+    ///   outputs, when `inputURLs` are files resolved for the run (a bundle's
+    ///   joined or materialized reads). Formats come from `inputURLs`.
     static func plannedOutputs(
         inputURLs: [URL],
+        namedAfter originalURLs: [URL]? = nil,
         outputDirectory: URL,
         retention: FASTQRiboDetectorRetention
     ) throws -> RiboDetectorOutputPlan {
         guard !inputURLs.isEmpty, inputURLs.count <= 2 else {
             throw ValidationError("RiboDetector requires one input file or one paired-end R1/R2 input pair.")
         }
+        let namingURLs = originalURLs ?? inputURLs
 
         let formats = try inputURLs.map { inputURL -> SequenceFormat in
             guard let format = SequenceFormat.from(url: inputURL) else {
@@ -338,13 +363,13 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         }
 
         let ext = formats[0].fileExtension
-        let normalNonRRNA = inputURLs.map { inputURL in
+        let normalNonRRNA = namingURLs.map { inputURL in
             outputDirectory.appendingPathComponent("\(sequenceStem(for: inputURL)).norrna.\(ext)")
         }
-        let hiddenNonRRNA = inputURLs.map { inputURL in
+        let hiddenNonRRNA = namingURLs.map { inputURL in
             outputDirectory.appendingPathComponent(".\(sequenceStem(for: inputURL)).norrna.discarded.\(ext)")
         }
-        let rRNAOutputs = inputURLs.map { inputURL in
+        let rRNAOutputs = namingURLs.map { inputURL in
             outputDirectory.appendingPathComponent("\(sequenceStem(for: inputURL)).rrna.\(ext)")
         }
 
@@ -456,14 +481,16 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         }
     }
 
-    private func validateInputs(_ inputPaths: [String]) throws -> [URL] {
-        guard !inputPaths.isEmpty, inputPaths.count <= 2 else {
+    /// The files the tool reads, once the resolved inputs plan valid outputs.
+    private func validateInputs(_ resolvedInputs: [FASTQSubcommandInput]) throws -> [URL] {
+        guard !resolvedInputs.isEmpty, resolvedInputs.count <= 2 else {
             throw ValidationError("RiboDetector requires one input file or one paired-end R1/R2 input pair.")
         }
 
-        let urls = try inputPaths.map { try validateInput($0) }
+        let urls = resolvedInputs.map(\.executionURL)
         _ = try Self.plannedOutputs(
             inputURLs: urls,
+            namedAfter: resolvedInputs.map(\.originalURL),
             outputDirectory: FileManager.default.temporaryDirectory,
             retention: .nonRRNA
         )

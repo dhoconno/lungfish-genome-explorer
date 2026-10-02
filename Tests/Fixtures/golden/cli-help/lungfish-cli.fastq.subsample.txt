@@ -3,7 +3,7 @@ OVERVIEW: Subsample reads by proportion or count
 USAGE: lungfish-cli fastq subsample <input> [--proportion <proportion>] [--count <count>] [--seed <seed>] [--pairing <pairing>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --proportion <proportion>

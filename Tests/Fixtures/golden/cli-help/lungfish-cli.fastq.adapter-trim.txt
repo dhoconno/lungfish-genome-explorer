@@ -3,7 +3,7 @@ OVERVIEW: Remove adapter sequences using fastp
 USAGE: lungfish-cli fastq adapter-trim <input> [--adapter <adapter>] [--pairing <pairing>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --adapter <adapter>     Adapter sequence (omit for auto-detect)

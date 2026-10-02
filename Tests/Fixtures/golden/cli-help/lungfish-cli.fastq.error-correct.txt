@@ -3,7 +3,7 @@ OVERVIEW: Correct sequencing errors using tadpole
 USAGE: lungfish-cli fastq error-correct <input> [--kmer <kmer>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --kmer <kmer>           K-mer size for correction (default: 50, max: 62)

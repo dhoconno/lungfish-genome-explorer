@@ -32,7 +32,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         abstract: "Remove human reads from FASTQ"
     )
 
-    @Argument(help: "Input FASTQ file path")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions
@@ -49,8 +49,9 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
     @OptionGroup var pairing: FASTQPairingOptions
 
     func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "scrub-human", output: output)
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
         _ = compatibilityRemoveReads
 
         // Resolve pairing against the original input (bundle metadata lives
@@ -59,7 +60,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         // human fragment; run on one file it would judge each mate alone. A
         // file that mixes merged reads with pairs runs as single reads: the
         // reformat split pairs by position and would mis-pair it.
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         let isInterleaved = pairingDecision.pairAware
 
         let runner = NativeToolRunner.shared
@@ -176,7 +177,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             }
         }
 
-        var cliArguments = ["scrub-human", inputURL.path, "--output", output.output, "--database-id", databaseID]
+        var cliArguments = ["scrub-human", resolvedInput.originalURL.path, "--output", output.output, "--database-id", databaseID]
         if compatibilityRemoveReads {
             cliArguments.append("--remove-reads")
         }
@@ -188,7 +189,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             cliArguments.append("--compress")
         }
         let options = Self.provenanceOptionMaps(
-            inputURL: inputURL,
+            inputURL: resolvedInput.originalURL,
             outputURL: outputURL,
             databaseID: databaseID,
             resolvedDatabaseID: resolvedDatabaseID,
@@ -208,7 +209,8 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             defaultOptions: options.defaults,
             resolvedOptions: options.resolved,
             command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
-            inputURL: inputURL,
+            inputRecords: try resolvedInput.inputRecords(),
+            materializationSteps: try resolvedInput.materializationSteps(),
             outputURL: outputURL,
             dbPath: dbPath,
             startedAt: startedAt,
@@ -222,7 +224,8 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         defaultOptions: [String: ParameterValue],
         resolvedOptions: [String: ParameterValue],
         command: [String],
-        inputURL: URL,
+        inputRecords: [FileRecord],
+        materializationSteps: [ProvenanceStep],
         outputURL: URL,
         dbPath: URL,
         startedAt: Date,
@@ -230,11 +233,12 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         invocations: [ScrubHumanInvocationRecord]
     ) async throws {
         let output = ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output))
-        var files = [ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input))]
+        var files = inputRecords.map { ProvenanceFileDescriptor(fileRecord: $0) }
         files += provenanceRecords(for: dbPath, role: .reference).map { ProvenanceFileDescriptor(fileRecord: $0) }
         files.append(output)
 
-        var steps: [ProvenanceStep] = []
+        var steps: [ProvenanceStep] = materializationSteps
+        files += materializationSteps.flatMap { $0.inputs + $0.outputs }
         for invocation in invocations {
             let inputDescriptors = Self.descriptors(for: invocation.inputs)
             let outputDescriptors = Self.descriptors(for: invocation.outputs)

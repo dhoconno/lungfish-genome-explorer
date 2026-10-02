@@ -10,7 +10,7 @@ file. A single-end file is refused.
 USAGE: lungfish-cli fastq deinterleave <input> --out1 <out1> --out2 <out2> [--unpaired <unpaired>]
 
 ARGUMENTS:
-  <input>                 Input interleaved FASTQ file
+  <input>                 Input interleaved FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --out1 <out1>           Output R1 file (required)

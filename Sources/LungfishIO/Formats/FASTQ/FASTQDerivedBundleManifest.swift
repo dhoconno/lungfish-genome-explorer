@@ -122,7 +122,10 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
     /// Relative path from this bundle to the root (physical FASTQ payload) bundle.
     public let rootBundleRelativePath: String
 
-    /// FASTQ filename inside the root bundle (first file for multi-file bundles).
+    /// Bundle-relative path of the root's primary sequence file. For a root
+    /// that holds several files (its `source-files.json`), this is the first
+    /// member (`chunks/run_0.fastq`) and the derivative's reads come from
+    /// every member, resolved through `FASTQBundle.rootSequenceURLs`.
     public let rootFASTQFilename: String
 
     /// What this derivative stores on disk (read ID list or trim positions).
@@ -194,20 +197,18 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
     /// Returns `nil` if the root bundle cannot be resolved.
     public func isStale(bundleURL: URL) -> Bool? {
         let rootURL = FASTQBundle.resolveBundle(relativePath: rootBundleRelativePath, from: bundleURL)
-        guard let rootFASTQ = try? FASTQBundle.validatedBundleMemberURL(
-            for: rootFASTQFilename,
-            in: rootURL,
-            field: "rootFASTQFilename",
-            allowExistingSymlinkEscape: true
-        ) else {
+        // Every root file the derivative reads (each member of a multi-file
+        // root), not only the recorded one.
+        guard let rootFiles = try? FASTQBundle.rootSequenceURLs(rootFASTQFilename: rootFASTQFilename, in: rootURL) else {
             return nil
         }
-
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: rootFASTQ.path),
-              let rootModDate = attrs[.modificationDate] as? Date else {
+        let modificationDates = rootFiles.compactMap { rootFile in
+            (try? FileManager.default.attributesOfItem(atPath: rootFile.path))?[.modificationDate] as? Date
+        }
+        guard modificationDates.count == rootFiles.count, let newest = modificationDates.max() else {
             return nil
         }
-        return rootModDate > createdAt
+        return newest > createdAt
     }
 
     public init(
@@ -309,13 +310,14 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
 
         let parentExists = fm.fileExists(atPath: parentURL.path)
         let rootExists = fm.fileExists(atPath: rootURL.path)
-        let rootPayloadURL = try? FASTQBundle.validatedBundleMemberURL(
-            for: rootFASTQFilename,
-            in: rootURL,
-            field: "rootFASTQFilename",
-            allowExistingSymlinkEscape: true
-        )
-        let rootPayloadExists = rootExists && rootPayloadURL.map { fm.fileExists(atPath: $0.path) } == true
+        // Every root file the derivative reads (each member of a multi-file
+        // root), not only the recorded one.
+        let rootFiles = rootExists
+            ? try? FASTQBundle.rootSequenceURLs(rootFASTQFilename: rootFASTQFilename, in: rootURL)
+            : nil
+        let rootPayloadExists = rootFiles.map { files in
+            !files.isEmpty && files.allSatisfy { fm.fileExists(atPath: $0.path) }
+        } == true
 
         // Check payload sidecar files exist
         func payloadFileExists(_ relativePath: String, field: String) -> Bool {
