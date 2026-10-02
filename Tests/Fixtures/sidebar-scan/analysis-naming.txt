@@ -1,0 +1,108 @@
+# Every analysis naming pattern, content probe and hidden folder the scanner handles.
+# Columns are type, title, badge, subtitle, path and routing keys.
+folder | Analyses | symbol flask | - | Analyses | accessibilityIdentifier=sidebar-group-analyses
+  analysisResult | bbmap-2026-01-15T10-00-00 | symbol m.circle | 2026-01-15T10-00-00 | Analyses/bbmap-2026-01-15T10-00-00 | analysisTool=bbmap
+  batchGroup | bbmap-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/bbmap-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol m.circle | - | Analyses/bbmap-batch-2026-01-15T11-00-00/HG002 | analysisTool=bbmap, sampleId=HG002
+  analysisResult | bowtie2-2026-01-15T10-00-00 | symbol m.circle | 2026-01-15T10-00-00 | Analyses/bowtie2-2026-01-15T10-00-00 | analysisTool=bowtie2
+  batchGroup | bowtie2-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/bowtie2-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol m.circle | - | Analyses/bowtie2-batch-2026-01-15T11-00-00/HG002 | analysisTool=bowtie2, sampleId=HG002
+  analysisResult | bwa-mem2-2026-01-15T10-00-00 | symbol m.circle | 2026-01-15T10-00-00 | Analyses/bwa-mem2-2026-01-15T10-00-00 | analysisTool=bwa-mem2
+  batchGroup | bwa-mem2-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/bwa-mem2-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol m.circle | - | Analyses/bwa-mem2-batch-2026-01-15T11-00-00/HG002 | analysisTool=bwa-mem2, sampleId=HG002
+  classificationResult | classification-2026-01-15T09-00-00 | text K2 | Classification (Viral) | Analyses/classification-2026-01-15T09-00-00 | analysisTool=kraken2
+  czIdResult | cz-id-2026-01-15T10-00-00 | text CZ | CZ-ID | Analyses/cz-id-2026-01-15T10-00-00 | analysisTool=cz-id
+  batchGroup | cz-id-batch-2026-01-15T11-00-00 | text CZ | 2026-01-15T11-00-00 | Analyses/cz-id-batch-2026-01-15T11-00-00 | -
+  czIdResult | cz-id-MMU-17 import | text CZ | CZ-ID | Analyses/cz-id-MMU-17 import | analysisTool=cz-id
+  folder | Empty group | symbol folder | - | Analyses/Empty group | -
+  esvirituResult | esviritu-2026-01-15T10-00-00 | text ES | Viral Detection | Analyses/esviritu-2026-01-15T10-00-00 | analysisTool=esviritu
+  batchGroup | esviritu-batch-2026-01-15T11-00-00 | text ES | 1 samples · 2026-01-15T11-00-00 | Analyses/esviritu-batch-2026-01-15T11-00-00 | -
+  analysisResult | flye-2026-01-15T10-00-00 | symbol s.circle | 2026-01-15T10-00-00 | Analyses/flye-2026-01-15T10-00-00 | analysisTool=flye
+  batchGroup | flye-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/flye-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol s.circle | - | Analyses/flye-batch-2026-01-15T11-00-00/HG002 | analysisTool=flye, sampleId=HG002
+  analysisResult | hifiasm-2026-01-15T10-00-00 | symbol s.circle | 2026-01-15T10-00-00 | Analyses/hifiasm-2026-01-15T10-00-00 | analysisTool=hifiasm
+  batchGroup | hifiasm-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/hifiasm-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol s.circle | - | Analyses/hifiasm-batch-2026-01-15T11-00-00/HG002 | analysisTool=hifiasm, sampleId=HG002
+  classificationResult | kraken2-2026-01-15T10-00-00 | text K2 | Classification | Analyses/kraken2-2026-01-15T10-00-00 | analysisTool=kraken2
+  batchGroup | kraken2-batch-2026-01-15T11-00-00 | text K2 | 1 samples · 2026-01-15T11-00-00 | Analyses/kraken2-batch-2026-01-15T11-00-00 | -
+  folder | Loose notes | symbol folder | - | Analyses/Loose notes | -
+    document | checklist.txt | symbol doc.plaintext | - | Analyses/Loose notes/checklist.txt | -
+  multipleSequenceAlignmentBundle | mafft-2026-01-15T10-00-00 | symbol rectangle.grid.1x2 | 2026-01-15T10-00-00 | Analyses/mafft-2026-01-15T10-00-00 | analysisTool=mafft
+  batchGroup | mafft-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/mafft-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol rectangle.grid.1x2 | - | Analyses/mafft-batch-2026-01-15T11-00-00/HG002 | analysisTool=mafft, sampleId=HG002
+  analysisResult | megahit-2026-01-15T10-00-00 | symbol s.circle | 2026-01-15T10-00-00 | Analyses/megahit-2026-01-15T10-00-00 | analysisTool=megahit
+  batchGroup | megahit-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/megahit-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol s.circle | - | Analyses/megahit-batch-2026-01-15T11-00-00/HG002 | analysisTool=megahit, sampleId=HG002
+  analysisResult | minimap2-2026-01-15T10-00-00 | symbol m.circle | 2026-01-15T10-00-00 | Analyses/minimap2-2026-01-15T10-00-00 | analysisTool=minimap2
+  batchGroup | minimap2-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/minimap2-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol m.circle | - | Analyses/minimap2-batch-2026-01-15T11-00-00/HG002 | analysisTool=minimap2, sampleId=HG002
+  referenceBundle | MT192765.1 | symbol cylinder.split.1x2 | - | Analyses/MT192765.1.lungfishref | -
+  naoMgsResult | naomgs-2026-01-15T10-00-00 | text NM | 2026-01-15T10-00-00 | Analyses/naomgs-2026-01-15T10-00-00 | analysisTool=naomgs
+  batchGroup | naomgs-batch-2026-01-15T11-00-00 | text NM | 2026-01-15T11-00-00 | Analyses/naomgs-batch-2026-01-15T11-00-00 | -
+  naoMgsResult | naomgs-MMU-17 import | text NM | 2026-01-15T12-00-00 | Analyses/naomgs-MMU-17 import | analysisTool=naomgs
+  nvdResult | nvd-2026-01-15T10-00-00 | text NVD | 2026-01-15T10-00-00 | Analyses/nvd-2026-01-15T10-00-00 | analysisTool=nvd
+  batchGroup | nvd-batch-2026-01-15T11-00-00 | text NVD | 2026-01-15T11-00-00 | Analyses/nvd-batch-2026-01-15T11-00-00 | -
+  nvdResult | nvd-MMU-17 import | text NVD | 2026-01-15T12-00-00 | Analyses/nvd-MMU-17 import | analysisTool=nvd
+  genotypeResultBundle | ont-genotyping-2026-01-15T10-00-00 | symbol tablecells.badge.ellipsis | 2026-01-15T10-00-00 | Analyses/ont-genotyping-2026-01-15T10-00-00 | analysisTool=ont-genotyping
+  batchGroup | ont-genotyping-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/ont-genotyping-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol tablecells.badge.ellipsis | - | Analyses/ont-genotyping-batch-2026-01-15T11-00-00/HG002 | analysisTool=ont-genotyping, sampleId=HG002
+  analysisResult | pbaa-2026-01-15T10-00-00 | symbol circle | 2026-01-15T10-00-00 | Analyses/pbaa-2026-01-15T10-00-00 | analysisTool=pbaa
+  batchGroup | pbaa-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/pbaa-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol circle | - | Analyses/pbaa-batch-2026-01-15T11-00-00/HG002 | analysisTool=pbaa, sampleId=HG002
+  analysisResult | primer-order-2026-01-15T10-00-00 | symbol circle | 2026-01-15T10-00-00 | Analyses/primer-order-2026-01-15T10-00-00 | analysisTool=primer-order
+  batchGroup | primer-order-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/primer-order-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol circle | - | Analyses/primer-order-batch-2026-01-15T11-00-00/HG002 | analysisTool=primer-order, sampleId=HG002
+  naoMgsResult | Probe ambiguous manifest | text NM | 2026-01-15T13-00-00 | Analyses/Probe ambiguous manifest | analysisTool=naomgs
+  analysisResult | Probe Bowtie2 | symbol m.circle | 2026-01-15T13-00-00 | Analyses/Probe Bowtie2 | analysisTool=bowtie2
+  czIdResult | Probe CZ ID | text CZ | CZ-ID · Sample-CZ-001 | Analyses/Probe CZ ID | analysisTool=cz-id
+  esvirituResult | Probe EsViritu | text ES | Viral Detection | Analyses/Probe EsViritu | analysisTool=esviritu
+  classificationResult | Probe Kraken2 | text K2 | Classification (Standard-8) | Analyses/Probe Kraken2 | analysisTool=kraken2
+  multipleSequenceAlignmentBundle | Probe MAFFT | symbol rectangle.grid.1x2 | 2026-01-15T13-00-00 | Analyses/Probe MAFFT | analysisTool=mafft
+  analysisResult | Probe MEGAHIT | symbol s.circle | 2026-01-15T13-00-00 | Analyses/Probe MEGAHIT | analysisTool=megahit
+  naoMgsResult | Probe NAO-MGS | text NM | 2026-01-15T13-00-00 | Analyses/Probe NAO-MGS | analysisTool=naomgs
+  nvdResult | Probe NVD | text NVD | 2026-01-15T13-00-00 | Analyses/Probe NVD | analysisTool=nvd
+  analysisResult | Probe SPAdes keys | symbol s.circle | 2026-01-15T13-00-00 | Analyses/Probe SPAdes keys | analysisTool=spades
+  analysisResult | Probe SPAdes schema 1 | symbol s.circle | 2026-01-15T13-00-00 | Analyses/Probe SPAdes schema 1 | analysisTool=spades
+  taxTriageResult | Probe TaxTriage | text TT | 2026-01-15T13-00-00 | Analyses/Probe TaxTriage | analysisTool=taxtriage
+  analysisResult | Probe Viral Recon | symbol v.circle | 2026-01-15T13-00-00 | Analyses/Probe Viral Recon | analysisTool=viralrecon
+  classificationResult | Renamed Kraken2 run | text K2 | Classification | Analyses/Renamed Kraken2 run | analysisTool=kraken2
+  batchGroup | Renamed SPAdes batch | symbol tray.2 | 1 samples | Analyses/Renamed SPAdes batch | -
+    analysisResult | HG002 | symbol s.circle | - | Analyses/Renamed SPAdes batch/HG002 | analysisTool=spades, sampleId=HG002
+  folder | Run group | symbol folder | - | Analyses/Run group | -
+    folder | Notes | symbol folder | - | Analyses/Run group/Notes | -
+      document | readme.txt | symbol doc.plaintext | - | Analyses/Run group/Notes/readme.txt | -
+    analysisResult | spades-2026-01-15T15-00-00 | symbol s.circle | 2026-01-15T15-00-00 | Analyses/Run group/spades-2026-01-15T15-00-00 | analysisTool=spades
+  analysisResult | savont-2026-01-15T10-00-00 | symbol circle | 2026-01-15T10-00-00 | Analyses/savont-2026-01-15T10-00-00 | analysisTool=savont
+  batchGroup | savont-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/savont-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol circle | - | Analyses/savont-batch-2026-01-15T11-00-00/HG002 | analysisTool=savont, sampleId=HG002
+  analysisResult | skesa-2026-01-15T10-00-00 | symbol s.circle | 2026-01-15T10-00-00 | Analyses/skesa-2026-01-15T10-00-00 | analysisTool=skesa
+  batchGroup | skesa-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/skesa-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol s.circle | - | Analyses/skesa-batch-2026-01-15T11-00-00/HG002 | analysisTool=skesa, sampleId=HG002
+  analysisResult | spades-2026-01-15T10-00-00 | symbol s.circle | 2026-01-15T10-00-00 | Analyses/spades-2026-01-15T10-00-00 | analysisTool=spades
+  batchGroup | spades-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/spades-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol s.circle | - | Analyses/spades-batch-2026-01-15T11-00-00/HG002 | analysisTool=spades, sampleId=HG002
+  document | summary.tsv | symbol tablecells | - | Analyses/summary.tsv | -
+  taxTriageResult | taxtriage-2026-01-15T10-00-00 | text TT | 2026-01-15T10-00-00 | Analyses/taxtriage-2026-01-15T10-00-00 | analysisTool=taxtriage
+  batchGroup | taxtriage-batch-2026-01-15T11-00-00 | text TT | 1 samples · 2026-01-15T11-00-00 | Analyses/taxtriage-batch-2026-01-15T11-00-00 | -
+  analysisResult | viralrecon-2026-01-15T10-00-00 | symbol v.circle | 2026-01-15T10-00-00 | Analyses/viralrecon-2026-01-15T10-00-00 | analysisTool=viralrecon
+  batchGroup | viralrecon-batch-2026-01-15T11-00-00 | symbol tray.2 | 1 samples | Analyses/viralrecon-batch-2026-01-15T11-00-00 | -
+    analysisResult | HG002 | symbol v.circle | - | Analyses/viralrecon-batch-2026-01-15T11-00-00/HG002 | analysisTool=viralrecon, sampleId=HG002
+folder | Imports | symbol folder | - | Imports | -
+  czIdResult | cornea | symbol c.circle | CZ-ID · Sample-CZ-001 | Imports/cornea.lungfishtax | -
+  fastqBundle | HG002 | symbol doc.text | - | Imports/HG002.lungfishfastq | -
+  document | legacy.lungfishtax | symbol shippingbox | - | Imports/legacy.lungfishtax | -
+    document | report.tsv | symbol tablecells | - | Imports/legacy.lungfishtax/report.tsv | -
+  fastqBundle | pooled | symbol doc.text | - | Imports/pooled.lungfishfastq | -
+    fastqBundle | barcode01 | symbol doc.text | - | Imports/pooled.lungfishfastq/demux/barcode01.lungfishfastq | -
+    fastqBundle | barcode02 | symbol doc.text | - | Imports/pooled.lungfishfastq/demux/barcode02.lungfishfastq | -
+    fastqBundle | barcode01 | symbol doc.text | demux-2 | Imports/pooled.lungfishfastq/demux-2/barcode01.lungfishfastq | -
+    batchGroup | Quality trim | symbol tray.2 | 1 processed | - | -
+      fastqBundle | barcode01-trimmed | symbol doc.text | - | Imports/pooled.lungfishfastq/demux/trimmed/barcode01-trimmed.lungfishfastq | -
+  document | primate.lungfish12sref | symbol shippingbox | - | Imports/primate.lungfish12sref | -
+    sequence | reference.fa | symbol doc.text | - | Imports/primate.lungfish12sref/reference.fa | -
+  folder | viralrecon notes | symbol folder | - | Imports/viralrecon notes | -
+    document | plan.txt | symbol doc.plaintext | - | Imports/viralrecon notes/plan.txt | -
+  document | workflow.lungfishflow | symbol shippingbox | - | Imports/workflow.lungfishflow | -
+    unknown | flow.json | symbol doc.questionmark | - | Imports/workflow.lungfishflow/flow.json | -
+  naoMgsResult | NAO-MGS: MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001 | text NM | - | Imports/naomgs-wastewater | -
+  nvdResult | NVD: 100 | text NVD | - | Imports/nvd-demo | -

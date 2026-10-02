@@ -1,0 +1,7 @@
+# The committed project Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish.
+# Columns are type, title, badge, subtitle, path and routing keys.
+folder | Inputs | symbol folder | - | Inputs | -
+  sequence | sars-cov-2-genomes.fasta | symbol doc.text | - | Inputs/sars-cov-2-genomes.fasta | -
+  document | source-metadata.tsv | symbol tablecells | - | Inputs/source-metadata.tsv | -
+folder | Multiple Sequence Alignments | symbol folder | - | Multiple Sequence Alignments | -
+document | README.md | symbol doc.plaintext | - | README.md | -
