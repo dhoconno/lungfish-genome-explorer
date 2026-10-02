@@ -88,6 +88,14 @@ public final class GeneTabBarView: NSView {
         // Height constraint — 0 when hidden
         barHeightConstraint = heightAnchor.constraint(equalToConstant: 0)
 
+        // The controls need 148 pt with this minimum, more than a narrow host
+        // gives, such as a reference viewport's detail pane at 96 pt on its
+        // first layout. Required, it made that layout unsatisfiable and AppKit
+        // broke it anyway. At 999 it yields in that case and still holds
+        // against the segmented control's compression resistance otherwise.
+        let overflowMinimumWidth = overflowPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 96)
+        overflowMinimumWidth.priority = NSLayoutConstraint.Priority(999)
+
         // Layout
         NSLayoutConstraint.activate([
             barHeightConstraint,
@@ -98,7 +106,7 @@ public final class GeneTabBarView: NSView {
 
             overflowPopup.centerYAnchor.constraint(equalTo: centerYAnchor),
             overflowPopup.trailingAnchor.constraint(lessThanOrEqualTo: dismissButton.leadingAnchor, constant: -8),
-            overflowPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 96),
+            overflowMinimumWidth,
 
             dismissButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             dismissButton.centerYAnchor.constraint(equalTo: centerYAnchor),
