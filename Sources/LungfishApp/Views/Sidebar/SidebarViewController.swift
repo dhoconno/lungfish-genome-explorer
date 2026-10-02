@@ -907,20 +907,12 @@ public class SidebarViewController: NSViewController {
     /// Extracts the `url` from the notification's `userInfo` and delegates to
     /// `selectItem(forURL:)` which locates the matching sidebar entry and selects it.
     @objc private func handleNavigateToSidebarItem(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let url = notification.userInfo?["url"] as? URL else { return }
         let found = selectItem(forURL: url)
         if !found {
             sidebarLogger.debug("handleNavigateToSidebarItem: No sidebar item found for \(url.lastPathComponent, privacy: .public)")
         }
-    }
-
-    private func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
-        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
-            return true
-        }
-        guard let windowStateScope else { return true }
-        return notificationScope == windowStateScope
     }
 
     func canWriteSidebarProjectOutputs(workflowName: String, targetURL: URL? = nil) -> Bool {

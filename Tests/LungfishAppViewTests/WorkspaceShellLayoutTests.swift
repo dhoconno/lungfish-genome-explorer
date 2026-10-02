@@ -452,7 +452,7 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         NotificationCenter.default.post(
             name: .sidebarPreferredWidthRecommended,
             object: self,
-            userInfo: ["width": CGFloat(320)]
+            userInfo: ["width": CGFloat(320), NotificationUserInfoKey.windowStateScope: controller.windowStateScope]
         )
 
         controller.testingSetShellFrames(sidebarWidth: 260, inspectorWidth: 280, totalWidth: 1500)

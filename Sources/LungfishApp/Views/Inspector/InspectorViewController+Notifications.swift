@@ -22,7 +22,7 @@ extension InspectorViewController {
     /// Document loading is handled exclusively by MainSplitViewController to avoid race conditions
     /// where both controllers attempt to load the same document concurrently.
     @objc func selectionDidChange(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
 
         // Handle empty selection (items array is empty, no "item" key)
         if let items = notification.userInfo?["items"] as? [SidebarItem], items.isEmpty {
@@ -152,7 +152,7 @@ extension InspectorViewController {
     /// Updates the selection section with the newly selected annotation.
     /// Passing nil in userInfo clears the selection.
     @objc func handleAnnotationSelected(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         let selectedAnnotation = notification.userInfo?[NotificationUserInfoKey.annotation] as? SequenceAnnotation
 
         // Translation track persists across annotation selection changes.
@@ -179,7 +179,7 @@ extension InspectorViewController {
 
     /// Handles variant selection notifications carrying row/track identity.
     @objc func handleVariantSelected(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let result = notification.userInfo?[NotificationUserInfoKey.searchResult] as? AnnotationSearchIndex.SearchResult else {
             viewModel.variantSectionViewModel.clear()
             return
@@ -192,7 +192,7 @@ extension InspectorViewController {
 
     /// Handles explicit empty/multi-row variant table selection payloads.
     @objc func handleVariantSelectionChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         let entries = notification.userInfo?[NotificationUserInfoKey.variantSelectionEntries]
             as? [VariantSelectionEntry] ?? []
         viewModel.selectedAnnotation = nil
@@ -207,7 +207,7 @@ extension InspectorViewController {
 
     /// Handles read selection from the viewer.
     @objc func handleReadSelected(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         let read = notification.userInfo?[NotificationUserInfoKey.alignedRead] as? AlignedRead
         viewModel.readStyleSectionViewModel.selectedRead = read
         if read != nil {
@@ -220,7 +220,7 @@ extension InspectorViewController {
     /// Extracts the manifest and bundle URL from the notification's userInfo
     /// and updates the document section view model.
     @objc func handleBundleDidLoad(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let userInfo = notification.userInfo else { return }
 
         let bundleURL = userInfo[NotificationUserInfoKey.bundleURL] as? URL
@@ -238,7 +238,7 @@ extension InspectorViewController {
 
     /// Handles requests to show/focus inspector with a specific tab.
     @objc func handleShowInspectorRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         applyInspectorTabSelection(from: notification)
     }
 
@@ -247,7 +247,7 @@ extension InspectorViewController {
     /// Always switches to the Bundle tab when a chromosome is selected so the
     /// chromosome metadata is immediately visible in the inspector.
     @objc func handleChromosomeInspectorRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         let chromosome = notification.userInfo?[NotificationUserInfoKey.chromosome] as? ChromosomeInfo
         updateSelectedChromosome(chromosome)
         if chromosome != nil {
@@ -256,7 +256,7 @@ extension InspectorViewController {
     }
 
     @objc func handleFASTQDatasetLoaded(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard shouldAcceptCurrentContentNotification(notification) else { return }
         guard let stats = notification.userInfo?["statistics"] as? FASTQDatasetStatistics else { return }
         viewModel.documentSectionViewModel.updateFASTQStatistics(stats)
@@ -349,7 +349,7 @@ extension InspectorViewController {
     /// for the new mode. If the current tab is no longer available, switches to the
     /// first available tab.
     @objc func handleContentModeChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let rawMode = notification.userInfo?[NotificationUserInfoKey.contentMode] as? String,
               let mode = ViewportContentMode(rawValue: rawMode) else { return }
 
@@ -376,7 +376,7 @@ extension InspectorViewController {
     /// When a batch aggregated manifest is saved to disk (first-load slow path), this transitions
     /// the Inspector status indicator from `.building` to `.cached`.
     @objc func handleBatchManifestCached(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard shouldAcceptCurrentContentNotification(notification) else { return }
         if viewModel.documentSectionViewModel.batchManifestStatus == .building {
             viewModel.documentSectionViewModel.batchManifestStatus = .cached
@@ -409,7 +409,7 @@ extension InspectorViewController {
     /// Sort reads by picker. If the picker's change sends the settings back,
     /// they carry the same mode and position, so the viewer is unchanged.
     @objc func handleReadSortPositionChosen(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification),
+        guard ScopedEventFilter.accept(notification, for: windowStateScope),
               let position = notification.userInfo?[NotificationUserInfoKey.readSortPosition] as? Int else { return }
         Self.applyChosenReadSortPosition(position, to: viewModel.readStyleSectionViewModel)
     }
@@ -417,14 +417,6 @@ extension InspectorViewController {
     static func applyChosenReadSortPosition(_ position: Int, to vm: ReadStyleSectionViewModel) {
         vm.readSortPosition = position
         vm.readSortMode = .baseAtPosition
-    }
-
-    func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
-        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
-            return true
-        }
-        guard let windowStateScope else { return true }
-        return notificationScope == windowStateScope
     }
 
     func operationRouteContext(for bundleURL: URL?) -> OperationRouteContext? {

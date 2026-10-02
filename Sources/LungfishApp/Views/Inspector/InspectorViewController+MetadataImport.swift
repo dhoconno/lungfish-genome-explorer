@@ -51,7 +51,7 @@ extension InspectorViewController {
         _ notification: Notification,
         shouldPresentPanel: Bool
     ) -> Bool {
-        guard shouldAcceptScopedNotification(notification) else { return false }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return false }
         guard shouldPresentPanel else { return true }
 
         presentMetadataImportPanel()

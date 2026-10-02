@@ -1501,14 +1501,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         ScopedEventFilter.scopedUserInfo(userInfo, scope: windowEventScope)
     }
 
-    func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
-        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
-            return true
-        }
-        guard let windowStateScope else { return true }
-        return notificationScope == windowStateScope
-    }
-
     private func canWriteVariantDatabaseOutputs(workflowName: String) -> Bool {
         let projectURL = searchIndex?.variantDatabaseHandles
             .compactMap { ProjectTempDirectory.findProjectRoot($0.db.databaseURL) }
@@ -1544,7 +1536,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Handles `.variantSelected` notification from the viewer to sync the drawer's selection.
     @objc func handleVariantSelected(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let result = notification.userInfo?[NotificationUserInfoKey.searchResult]
                 as? AnnotationSearchIndex.SearchResult else { return }
         // Ignore if we're the source of the notification
@@ -1614,7 +1606,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Handles `.viewportVariantsUpdated` notification to auto-sync the variant table.
     @objc func handleViewportVariantsUpdated(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard viewportSyncEnabled else { return }
         guard let expectedSource = viewportSyncSourceIdentifier,
               let sender = notification.object as AnyObject?,
@@ -1642,7 +1634,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Tracks viewer pan/zoom even when variant fetch notifications are delayed or skipped by cache reuse.
     @objc func handleViewerCoordinatesChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard viewportSyncEnabled else { return }
         guard let expectedSource = viewportSyncSourceIdentifier,
               let sender = notification.object as AnyObject?,
@@ -3985,7 +3977,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     }
 
     @objc func handleSampleDisplayStateChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         // Ignore if we are the source
         if notification.object as AnyObject? === self { return }
         guard let state = notification.userInfo?[NotificationUserInfoKey.sampleDisplayState] as? SampleDisplayState else { return }

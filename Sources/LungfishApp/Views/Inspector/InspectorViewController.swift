@@ -172,6 +172,7 @@ public class InspectorViewController: NSViewController {
     }
 
     @objc private func handleGenotypeViewModeChanged(_ notification: Notification) {
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let raw = notification.userInfo?["mode"] as? String,
               let mode = GenotypeSummaryViewMode(rawValue: raw) else { return }
         viewModel.genotypeResultDisplaySectionViewModel.setSummaryViewMode(mode)
@@ -183,6 +184,7 @@ public class InspectorViewController: NSViewController {
     }
 
     @objc private func handleGenotypeShowsAncillaryLociChanged(_ notification: Notification) {
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let value = notification.userInfo?["showsAncillaryLoci"] as? Bool else { return }
         viewModel.genotypeResultDisplaySectionViewModel.setShowsAncillaryLoci(value)
         // Mirror into the Document section's state so the toggle in SwiftUI
@@ -195,6 +197,7 @@ public class InspectorViewController: NSViewController {
     }
 
     @objc private func handleGenotypeIncludedLociChanged(_ notification: Notification) {
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let loci = notification.userInfo?["includedLoci"] as? [String] else { return }
         let included = Set(loci)
         viewModel.genotypeResultDisplaySectionViewModel.setIncludedLoci(included)
