@@ -525,40 +525,37 @@ extension AppDelegate {
             workflowName: "Add annotation",
             presentingWindow: targetMainWindowController(routeContext: routeContext)?.window ?? viewerController.view.window
         ) else { return }
-        let opID = OperationCenter.shared.start(
-            title: "Add Annotation",
-            detail: "Adding \(annotation.name)...",
-            operationType: .bundleBuild,
-            cliCommand: nil,
+        await Self.beginManualReferenceAnnotationOperation(
+            annotationName: annotation.name,
             routeContext: routeContext
-        )
+        ) { opID in
+            do {
+                let result = try await ReferenceBundleManualAnnotationService().addAnnotation(
+                    annotation,
+                    toBundleAt: bundleURL
+                )
+                guard OperationCenter.shared.complete(
+                    id: opID,
+                    detail: "Added annotation to \(result.track.name)"
+                ) else { return }
+                let targetController = targetMainWindowController(routeContext: routeContext)
+                let targetViewerController = targetController?.mainSplitViewController?.viewerController ?? viewerController
+                if let sidebarController = targetController?.mainSplitViewController?.sidebarController {
+                    await sidebarController.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
+                    _ = sidebarController.selectItem(forURL: bundleURL)
+                }
 
-        do {
-            let result = try await ReferenceBundleManualAnnotationService().addAnnotation(
-                annotation,
-                toBundleAt: bundleURL
-            )
-            guard OperationCenter.shared.complete(
-                id: opID,
-                detail: "Added annotation to \(result.track.name)"
-            ) else { return }
-            let targetController = targetMainWindowController(routeContext: routeContext)
-            let targetViewerController = targetController?.mainSplitViewController?.viewerController ?? viewerController
-            if let sidebarController = targetController?.mainSplitViewController?.sidebarController {
-                await sidebarController.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
-                _ = sidebarController.selectItem(forURL: bundleURL)
+                if let referenceViewport = targetViewerController.referenceBundleViewportController,
+                   referenceViewport.currentInput?.renderedBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                    try referenceViewport.reloadViewerBundleForInspectorChanges()
+                    targetController?.mainSplitViewController?.wireDirectReferenceViewportInspectorUpdates()
+                } else if targetViewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                    try targetViewerController.displayBundle(at: bundleURL)
+                }
+            } catch {
+                guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                showAlert(title: "Add Annotation Failed", message: error.localizedDescription)
             }
-
-            if let referenceViewport = targetViewerController.referenceBundleViewportController,
-               referenceViewport.currentInput?.renderedBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
-                try referenceViewport.reloadViewerBundleForInspectorChanges()
-                targetController?.mainSplitViewController?.wireDirectReferenceViewportInspectorUpdates()
-            } else if targetViewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
-                try targetViewerController.displayBundle(at: bundleURL)
-            }
-        } catch {
-            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-            showAlert(title: "Add Annotation Failed", message: error.localizedDescription)
         }
     }
 
@@ -708,69 +705,65 @@ extension AppDelegate {
             return
         }
 
-        let opID = OperationCenter.shared.start(
-            title: request.operation.displayName,
-            detail: "Running \(request.operation.displayName)...",
-            operationType: .bundleBuild,
-            targetBundleURL: request.bundleURL,
-            cliCommand: SequenceAnnotationOperationRunner.displayCommand(for: request),
+        Self.beginSequenceAnnotationOperation(
+            request: request,
             routeContext: routeContext
-        )
-
-        let cliCancellation = LungfishCLIRunner.CancellationHandle()
-        let task = Task.detached { [weak self] in
-            do {
-                let output = try SequenceAnnotationOperationRunner.run(
-                    request,
-                    cancellation: cliCancellation
-                )
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
-                    }
-                    if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
-                    }
-                    guard OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Created annotation track in \(request.bundleURL.lastPathComponent)"
-                    ) else { return }
-                    self?.refreshReferenceBundleAfterSequenceAnnotation(
-                        bundleURL: request.bundleURL,
-                        viewerController: viewerController,
-                        routeContext: routeContext
+        ) { opID in
+            let cliCancellation = LungfishCLIRunner.CancellationHandle()
+            let task = Task.detached { [weak self] in
+                do {
+                    let output = try SequenceAnnotationOperationRunner.run(
+                        request,
+                        cancellation: cliCancellation
                     )
-                }}
-            } catch LungfishCLIRunner.RunError.cancelled {
-                // The runner has exited and drained; acknowledge worker cancellation.
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.log(id: opID, level: .info, message: "\(request.operation.displayName) cancelled")
-                    OperationCenter.shared.acknowledgeCancellation(id: opID)
-                }}
-            } catch is CancellationError {
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.log(id: opID, level: .info, message: "\(request.operation.displayName) cancelled")
-                    OperationCenter.shared.acknowledgeCancellation(id: opID)
-                }}
-            } catch {
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    guard OperationCenter.shared.fail(
-                        id: opID,
-                        detail: "\(request.operation.displayName) failed",
-                        errorMessage: error.localizedDescription
-                    ) else { return }
-                    self?.showAlert(
-                        title: "\(request.operation.displayName) Failed",
-                        message: error.localizedDescription,
-                        presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
-                            ?? viewerController.view.window
-                    )
-                }}
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
+                        }
+                        if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
+                        }
+                        guard OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Created annotation track in \(request.bundleURL.lastPathComponent)"
+                        ) else { return }
+                        self?.refreshReferenceBundleAfterSequenceAnnotation(
+                            bundleURL: request.bundleURL,
+                            viewerController: viewerController,
+                            routeContext: routeContext
+                        )
+                    }}
+                } catch LungfishCLIRunner.RunError.cancelled {
+                    // The runner has exited and drained; acknowledge worker cancellation.
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        OperationCenter.shared.log(id: opID, level: .info, message: "\(request.operation.displayName) cancelled")
+                        OperationCenter.shared.acknowledgeCancellation(id: opID)
+                    }}
+                } catch is CancellationError {
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        OperationCenter.shared.log(id: opID, level: .info, message: "\(request.operation.displayName) cancelled")
+                        OperationCenter.shared.acknowledgeCancellation(id: opID)
+                    }}
+                } catch {
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        guard OperationCenter.shared.fail(
+                            id: opID,
+                            detail: "\(request.operation.displayName) failed",
+                            errorMessage: error.localizedDescription
+                        ) else { return }
+                        self?.showAlert(
+                            title: "\(request.operation.displayName) Failed",
+                            message: error.localizedDescription,
+                            presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                                ?? viewerController.view.window
+                        )
+                    }}
+                }
             }
-        }
-        OperationCenter.shared.setCancelCallback(for: opID) {
-            task.cancel()
-            cliCancellation.cancel()
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                task.cancel()
+                cliCancellation.cancel()
+            }
         }
     }
 

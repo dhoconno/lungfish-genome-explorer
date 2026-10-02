@@ -38,6 +38,7 @@ private let inspectorViewControllerOrderedSourceFiles: [String] = [
     "InspectorViewController+MetadataImport.swift",
     "InspectorViewController+VariantWorkflow.swift",
     "InspectorViewController+TrimDuplicateWorkflows.swift",
+    "InspectorViewController+OperationBegin.swift",
     "InspectorViewModel.swift",
     "InspectorView.swift",
 ]

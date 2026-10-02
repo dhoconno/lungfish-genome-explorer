@@ -765,59 +765,57 @@ extension InspectorViewController {
             return
         }
 
-        let operationID = OperationCenter.shared.start(
-            title: "Remove Derived Alignment",
-            detail: "Removing \(trackName)...",
-            operationType: .bamImport,
-            targetBundleURL: bundleURL,
+        Self.beginRemoveDerivedAlignmentOperation(
+            trackName: trackName,
+            bundleURL: bundleURL,
             routeContext: operationRouteContext(for: bundleURL)
-        )
+        ) { operationID in
+            Task(priority: .userInitiated) { [weak self] in
+                do {
+                    let result = try await BundleAlignmentTrackRemovalService()
+                        .removeDerivedAlignmentTrack(bundleURL: bundleURL, trackID: trackID)
 
-        Task(priority: .userInitiated) { [weak self] in
-            do {
-                let result = try await BundleAlignmentTrackRemovalService()
-                    .removeDerivedAlignmentTrack(bundleURL: bundleURL, trackID: trackID)
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard let self,
+                                  let split = self.parent as? MainSplitViewController else { return }
 
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self,
-                              let split = self.parent as? MainSplitViewController else { return }
-
-                        split.sidebarController.requestReloadFromFilesystem()
-                        do {
-                            if self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID == result.removedTrack.id {
-                                self.setVisibleAlignmentTrackSelection(nil)
+                            split.sidebarController.requestReloadFromFilesystem()
+                            do {
+                                if self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID == result.removedTrack.id {
+                                    self.setVisibleAlignmentTrackSelection(nil)
+                                }
+                                if shouldReloadMappingViewer {
+                                    try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                                } else {
+                                    try split.viewerController.displayBundle(at: bundleURL)
+                                }
+                                _ = OperationCenter.shared.complete(
+                                    id: operationID,
+                                    detail: "Removed derived alignment track \"\(result.removedTrack.name)\"."
+                                )
+                            } catch {
+                                _ = OperationCenter.shared.fail(id: operationID, detail: error.localizedDescription)
+                                self.presentSimpleAlert(
+                                    title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Reload Failed",
+                                    message: "The derived alignment was removed, but the updated bundle could not be reloaded: \(error.localizedDescription)"
+                                )
                             }
-                            if shouldReloadMappingViewer {
-                                try split.viewerController.reloadMappingViewerBundleIfDisplayed()
-                            } else {
-                                try split.viewerController.displayBundle(at: bundleURL)
-                            }
-                            _ = OperationCenter.shared.complete(
-                                id: operationID,
-                                detail: "Removed derived alignment track \"\(result.removedTrack.name)\"."
-                            )
-                        } catch {
-                            _ = OperationCenter.shared.fail(id: operationID, detail: error.localizedDescription)
-                            self.presentSimpleAlert(
-                                title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Reload Failed",
-                                message: "The derived alignment was removed, but the updated bundle could not be reloaded: \(error.localizedDescription)"
-                            )
                         }
                     }
-                }
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
-                            id: operationID,
-                            detail: error.localizedDescription,
-                            errorMessage: error.localizedDescription
-                        )
-                        self?.presentSimpleAlert(
-                            title: "Remove Derived Alignment Failed",
-                            message: error.localizedDescription
-                        )
+                } catch {
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.fail(
+                                id: operationID,
+                                detail: error.localizedDescription,
+                                errorMessage: error.localizedDescription
+                            )
+                            self?.presentSimpleAlert(
+                                title: "Remove Derived Alignment Failed",
+                                message: error.localizedDescription
+                            )
+                        }
                     }
                 }
             }

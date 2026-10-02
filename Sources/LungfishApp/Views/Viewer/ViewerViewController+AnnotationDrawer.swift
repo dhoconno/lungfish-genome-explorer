@@ -485,6 +485,18 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         }
     }
 
+    /// The `lungfish-cli` argv that deletes `rowIDs` from one annotation track.
+    /// The run executes it and the Operations row records it.
+    static func annotationRowDeletionArguments(bundleURL: URL, trackID: String, rowIDs: [Int64]) -> [String] {
+        var values = ["sequence", "delete-annotations", bundleURL.path, "--track-id", trackID]
+        for rowID in rowIDs {
+            values.append("--row-id")
+            values.append(String(rowID))
+        }
+        values.append("--quiet")
+        return values
+    }
+
     private func runAnnotationRowDeletion(
         bundleURL: URL,
         annotations: [AnnotationSearchIndex.SearchResult]
@@ -514,75 +526,60 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             return
         }
 
-        func makeArguments(trackID: String, rowIDs: [Int64]) -> [String] {
-            var values = [
-                "sequence",
-                "delete-annotations",
-                bundleURL.path,
-                "--track-id",
-                trackID,
-            ]
-            for rowID in rowIDs {
-                values.append("--row-id")
-                values.append(String(rowID))
-            }
-            values.append("--quiet")
-            return values
-        }
-
-        let arguments = makeArguments(trackID: group.key, rowIDs: group.value)
-        let command = ([CLICommandIdentity.executableName] + arguments).map(shellEscape).joined(separator: " ")
-        let deletedCount = group.value.count
-        let opID = OperationCenter.shared.start(
-            title: deletedCount == 1 ? "Delete Annotation" : "Delete Annotations",
-            detail: "Deleting \(deletedCount) annotation\(deletedCount == 1 ? "" : "s")...",
-            operationType: .bundleBuild,
-            targetBundleURL: bundleURL,
-            cliCommand: command
+        let arguments = Self.annotationRowDeletionArguments(
+            bundleURL: bundleURL,
+            trackID: group.key,
+            rowIDs: group.value
         )
-
-        let cliCancellation = LungfishCLIRunner.CancellationHandle()
-        let task = Task.detached { [weak self] in
-            do {
-                let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
-                    }
-                    if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
-                    }
-                }}
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    guard OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Deleted \(deletedCount) annotation\(deletedCount == 1 ? "" : "s")"
-                    ) else { return }
-                    do {
-                        try self?.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
-                    } catch {
-                        self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
-                    }
-                }}
-            } catch LungfishCLIRunner.RunError.cancelled {
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.log(id: opID, level: .info, message: "Delete Annotations cancelled")
-                    OperationCenter.shared.acknowledgeCancellation(id: opID)
-                }}
-            } catch {
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    guard OperationCenter.shared.fail(
-                        id: opID,
-                        detail: "Delete Annotations failed",
-                        errorMessage: error.localizedDescription
-                    ) else { return }
-                    self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotations Failed")
-                }}
+        let deletedCount = group.value.count
+        Self.beginAnnotationRowDeletionOperation(
+            bundleURL: bundleURL,
+            cliArguments: arguments,
+            deletedCount: deletedCount
+        ) { opID in
+            let cliCancellation = LungfishCLIRunner.CancellationHandle()
+            let task = Task.detached { [weak self] in
+                do {
+                    let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
+                        }
+                        if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
+                        }
+                    }}
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        guard OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Deleted \(deletedCount) annotation\(deletedCount == 1 ? "" : "s")"
+                        ) else { return }
+                        do {
+                            try self?.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
+                        } catch {
+                            self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
+                        }
+                    }}
+                } catch LungfishCLIRunner.RunError.cancelled {
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        OperationCenter.shared.log(id: opID, level: .info, message: "Delete Annotations cancelled")
+                        OperationCenter.shared.acknowledgeCancellation(id: opID)
+                    }}
+                } catch {
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        guard OperationCenter.shared.fail(
+                            id: opID,
+                            detail: "Delete Annotations failed",
+                            errorMessage: error.localizedDescription
+                        ) else { return }
+                        self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotations Failed")
+                    }}
+                }
             }
-        }
-        OperationCenter.shared.setCancelCallback(for: opID) {
-            task.cancel()
-            cliCancellation.cancel()
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                task.cancel()
+                cliCancellation.cancel()
+            }
         }
     }
 
@@ -615,6 +612,12 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         }
     }
 
+    /// The `lungfish-cli` argv that deletes one annotation track. The run
+    /// executes it and the Operations row records it.
+    static func annotationTrackDeletionArguments(bundleURL: URL, trackID: String) -> [String] {
+        ["sequence", "delete-annotation-track", bundleURL.path, "--track-id", trackID, "--quiet"]
+    }
+
     private func runAnnotationTrackDeletion(bundleURL: URL, trackID: String, trackName: String) {
         guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
             let alert = NSAlert()
@@ -625,63 +628,53 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             return
         }
 
-        let arguments = [
-            "sequence",
-            "delete-annotation-track",
-            bundleURL.path,
-            "--track-id",
-            trackID,
-            "--quiet",
-        ]
-        let command = ([CLICommandIdentity.executableName] + arguments).map(shellEscape).joined(separator: " ")
-        let opID = OperationCenter.shared.start(
-            title: "Delete Annotation Track",
-            detail: "Deleting \(trackName)...",
-            operationType: .bundleBuild,
-            targetBundleURL: bundleURL,
-            cliCommand: command
-        )
-
-        let cliCancellation = LungfishCLIRunner.CancellationHandle()
-        let task = Task.detached { [weak self] in
-            do {
-                let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
-                    }
-                    if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
-                    }
-                    guard OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Deleted annotation track \(trackName)"
-                    ) else { return }
-                    do {
-                        try self?.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
-                    } catch {
-                        self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
-                    }
-                }}
-            } catch LungfishCLIRunner.RunError.cancelled {
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.log(id: opID, level: .info, message: "Delete Annotation Track cancelled")
-                    OperationCenter.shared.acknowledgeCancellation(id: opID)
-                }}
-            } catch {
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    guard OperationCenter.shared.fail(
-                        id: opID,
-                        detail: "Delete Annotation Track failed",
-                        errorMessage: error.localizedDescription
-                    ) else { return }
-                    self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotation Track Failed")
-                }}
+        let arguments = Self.annotationTrackDeletionArguments(bundleURL: bundleURL, trackID: trackID)
+        Self.beginAnnotationTrackDeletionOperation(
+            bundleURL: bundleURL,
+            cliArguments: arguments,
+            trackName: trackName
+        ) { opID in
+            let cliCancellation = LungfishCLIRunner.CancellationHandle()
+            let task = Task.detached { [weak self] in
+                do {
+                    let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
+                        }
+                        if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
+                        }
+                        guard OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Deleted annotation track \(trackName)"
+                        ) else { return }
+                        do {
+                            try self?.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
+                        } catch {
+                            self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
+                        }
+                    }}
+                } catch LungfishCLIRunner.RunError.cancelled {
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        OperationCenter.shared.log(id: opID, level: .info, message: "Delete Annotation Track cancelled")
+                        OperationCenter.shared.acknowledgeCancellation(id: opID)
+                    }}
+                } catch {
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        guard OperationCenter.shared.fail(
+                            id: opID,
+                            detail: "Delete Annotation Track failed",
+                            errorMessage: error.localizedDescription
+                        ) else { return }
+                        self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotation Track Failed")
+                    }}
+                }
             }
-        }
-        OperationCenter.shared.setCancelCallback(for: opID) {
-            task.cancel()
-            cliCancellation.cancel()
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                task.cancel()
+                cliCancellation.cancel()
+            }
         }
     }
 
