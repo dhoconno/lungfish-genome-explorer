@@ -58,6 +58,17 @@ public enum MappingResultLayoutService {
         try AnalysesFolder.createAnalysisDirectory(tool: tool.rawValue, in: projectURL)
     }
 
+    /// The folder inside a mapping result that holds the reads materialized
+    /// from a virtual bundle for the run. `lungfish-cli map` and the Map
+    /// Reads window both write it, so the provenance of either names a file
+    /// that stays with the result.
+    public static let inputMaterializationDirectoryName = ".lungfish-map-inputs"
+
+    /// `<output directory>/.lungfish-map-inputs`.
+    public static func inputMaterializationDirectory(in outputDirectory: URL) -> URL {
+        outputDirectory.appendingPathComponent(inputMaterializationDirectoryName, isDirectory: true)
+    }
+
     // MARK: - Viewer bundle
 
     /// The reference bundle a run's viewer copy is taken from, or `nil` when

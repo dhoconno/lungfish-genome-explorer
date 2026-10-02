@@ -39,8 +39,6 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
             request: resolved.request,
             inputLayoutReason: resolved.layoutResolution.reason
         )
-        // The window removes its scratch directory when the run ends.
-        try FileManager.default.removeItem(at: resolved.scratchDirectory)
 
         try fixture.assertMapperReadMaterializedVirtualReads()
         try fixture.assertDurableVirtualInputProvenance(in: analysisDirectory)
@@ -57,7 +55,6 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
             request: resolved.request,
             inputLayoutReason: resolved.layoutResolution.reason
         )
-        try FileManager.default.removeItem(at: resolved.scratchDirectory)
         let windowReads = try fixture.readsSeenByMapper()
 
         let cliDirectory = try fixture.makeAnalysisDirectory()

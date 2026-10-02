@@ -1285,24 +1285,19 @@ extension AppDelegate {
     /// declaration is `@MainActor`-isolated -- it does NOT run "exactly
     /// like" the old per-request `Task.detached` body, which executed on a
     /// background executor throughout. What actually keeps this off the
-    /// main thread for the expensive parts is that `resolveInputFiles`,
+    /// main thread for the expensive parts is that `resolveManagedMappingInputs`,
     /// `ManagedMappingPipeline.run`, and `prepareMappingViewerBundleIfPossible`
     /// are themselves `async` calls whose bodies are not further
     /// `@MainActor`-isolated (`ManagedMappingPipeline` is a plain,
     /// non-actor `Sendable` class); `await`-ing them from a `@MainActor`
     /// caller still lets their own work run on a background executor, and
     /// control only returns to the main actor at each `await` resumption.
-    /// This depends on the current (default) Swift 6 concurrency model,
-    /// where a `nonisolated`/non-actor `async` function's body executes on
-    /// the caller-supplied executor rather than inheriting the caller's
-    /// actor; it would change under `NonisolatedNonsendingByDefault`
-    /// (SE-0461), which this package does not opt into (no
-    /// `SwiftSetting.enableUpcomingFeature("NonisolatedNonsendingByDefault")`
-    /// anywhere in `Package.swift`) -- if that mode is ever adopted here,
-    /// this method's off-main-actor guarantee for those calls would need
-    /// re-verification. `registerCancel` is invoked with the freshly-started
-    /// operation's ID so the caller can wire cancellation before any
-    /// awaiting begins.
+    /// This holds under the default Swift 6 model, where a non-actor `async`
+    /// body runs on the caller-supplied executor; the package does not enable
+    /// `NonisolatedNonsendingByDefault` (SE-0461), and the guarantee needs
+    /// re-verification if it ever does. `registerCancel` is invoked with the
+    /// freshly-started operation's ID so the caller can wire cancellation
+    /// before any awaiting begins.
     ///
     /// `preassignedAnalysisDirectory`, when non-nil, is used verbatim as the
     /// request's output directory and the usual per-child
@@ -1391,19 +1386,17 @@ extension AppDelegate {
                     OperationCenter.shared.log(id: opID, level: .info, message: message)
                 }}
             }
-            defer { try? FileManager.default.removeItem(at: resolved.scratchDirectory) }
             let resolvedRequest = resolved.request
-            let layoutResolution = resolved.layoutResolution
             let readLayoutPlan = resolvedRequest.readLayoutPlan
             OperationCenter.shared.log(
                 id: opID,
                 level: .info,
-                message: "Read layout: \(readLayoutPlan.layout.displayName), mapped \(readLayoutPlan.handling.displayName) (\(layoutResolution.reason))"
+                message: "Read layout: \(readLayoutPlan.layout.displayName), mapped \(readLayoutPlan.handling.displayName) (\(resolved.layoutResolution.reason))"
             )
             let pipeline = ManagedMappingPipeline()
             let result = try await pipeline.run(
                 request: resolvedRequest,
-                inputLayoutReason: layoutResolution.reason
+                inputLayoutReason: resolved.layoutResolution.reason
             ) { fraction, message in
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
@@ -1422,9 +1415,9 @@ extension AppDelegate {
 
             // capturedRequest carries the ORIGINAL (pre-resolve) input URLs
             // so findSourceBundle can still walk up to the enclosing bundle
-            // even when resolveInputFiles() materialized a virtual bundle's
-            // reads into a scratch temp directory (which has no enclosing
-            // .lungfishfastq bundle of its own). But summaryParameters()
+            // even when resolveManagedMappingInputs materialized a virtual
+            // bundle's reads into the run's .lungfish-map-inputs folder (which
+            // has no enclosing .lungfishfastq bundle). But summaryParameters()
             // must come from resolvedRequest -- the request actually run
             // through the pipeline -- so the persisted manifest records the
             // true isPairedEnd (and other resolved fields), not the
@@ -1471,63 +1464,32 @@ extension AppDelegate {
         }
     }
 
-    /// The request a window mapping run hands the pipeline, with the inputs
-    /// resolved to the files the mapper reads.
-    struct ManagedMappingResolvedInputs {
-        let request: MappingRunRequest
-        /// Why the inputs resolved to `request.inputLayout`.
-        let layoutResolution: FASTQInputLayoutResolution
-        /// The scratch directory a virtual bundle was materialized into.
-        /// The caller removes it when the run ends.
-        let scratchDirectory: URL
-    }
-
-    /// Turns the request the Map Reads dialog built, whose inputs are the
-    /// bundles the user chose, into the request the pipeline runs.
-    ///
-    /// Every bundle is resolved to the files it holds and a virtual bundle
-    /// is materialized first. `pairedEnd` is recomputed from the resolved
-    /// files (F2), the read layout is resolved from them, and both are
-    /// recorded on the request so the analysis manifest and provenance
-    /// carry them. This is the composition `runSingleManagedMappingAwaitingCompletion`
-    /// runs, exposed so a test can drive it.
+    /// Turns the request the Map Reads dialog built (inputs are the bundles
+    /// the user chose) into the request the pipeline runs: bundles resolved
+    /// to their files, virtual bundles materialized into the run's
+    /// `.lungfish-map-inputs` as `lungfish-cli map` does, `pairedEnd` and the
+    /// layout recomputed from the resolved files (F2), lineage carried (R3).
     func resolveManagedMappingInputs(
         for request: MappingRunRequest,
         progress: @escaping @Sendable (String) -> Void
-    ) async throws -> ManagedMappingResolvedInputs {
-        let materializeTempDir = try ProjectTempDirectory.createFromContext(
-            prefix: "\(request.tool.rawValue)-",
-            contextURL: request.inputFASTQURLs.first ?? request.referenceFASTAURL
+    ) async throws -> (request: MappingRunRequest, layoutResolution: FASTQInputLayoutResolution) {
+        let resolved = try await ResolvedSequenceInputs.resolve(
+            inputURLs: request.inputFASTQURLs,
+            materializationDirectory: MappingResultLayoutService.inputMaterializationDirectory(in: request.outputDirectory),
+            materializer: FASTQCLIMaterializer(runner: .shared),
+            progress: progress
         )
-        let resolvedFiles: [URL]
-        do {
-            resolvedFiles = try await self.resolveInputFiles(
-                request.inputFASTQURLs,
-                tempDirectory: materializeTempDir,
-                progress: progress
-            )
-        } catch {
-            try? FileManager.default.removeItem(at: materializeTempDir)
-            throw error
-        }
-
-        // F2 fix: pairedEnd is derived from the ACTUALLY-RESOLVED files'
-        // R1/R2 roles here, never from the pre-resolve URL count.
+        let resolvedFiles = resolved.executionInputURLs
+        // F2: pairedEnd and the layout come from the resolved files, never the pre-resolve URL count; the scan runs off the main actor.
         let resolvedPairedEnd = Self.resolvedPairedEnd(for: resolvedFiles)
-        // The read layout (single-end, interleaved pairs, mixed merged
-        // reads and pairs) is resolved from the same files, off the main
-        // actor because the resolver may scan records.
         let layoutResolution = await Task.detached {
             FASTQInputLayoutResolver.resolve(inputURLs: resolvedFiles, pairedFiles: resolvedPairedEnd)
         }.value
         let resolvedRequest = request
             .withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)
+            .withInputLineage(resolved)
             .withInputLayout(layoutResolution.layout)
-        return ManagedMappingResolvedInputs(
-            request: resolvedRequest,
-            layoutResolution: layoutResolution,
-            scratchDirectory: materializeTempDir
-        )
+        return (resolvedRequest, layoutResolution)
     }
 
     private func runMAFFTAlignment(
