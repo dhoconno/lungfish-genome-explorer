@@ -1,4 +1,4 @@
-// AppDelegateProjectWindowFocusTests.swift - NEW-03: focus an already-open
+// AppDelegateProjectWindowFocusTests.swift - Focus an already-open
 // project instead of creating a second window for it.
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
@@ -10,7 +10,7 @@ import XCTest
 @MainActor
 final class AppDelegateProjectWindowFocusTests: XCTestCase {
     /// `AppDelegate.controller(forProjectURL:)` backs both `openRecentProjectFromMenu`
-    /// and `openProjectFolder`'s "focus instead of duplicate" check. Before NEW-03,
+    /// and `openProjectFolder`'s "focus instead of duplicate" check. Before this fix,
     /// neither call site consulted it at all, so picking an already-open project from
     /// File > Open Recent (or the folder picker) always created a second window.
     func testControllerForProjectURLFindsTheWindowAlreadyOpenOnThatProject() throws {

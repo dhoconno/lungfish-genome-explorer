@@ -145,7 +145,7 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
             candidateSettings: .default
         )
 
-        // GEN-06 (D14): Min percent is each cell's read fraction. Shared
+        // Min percent is each cell's read fraction. Shared
         // candidate: S1 4/100 (hidden), S2 9/20 (kept). Singleton: S3 7/100.
         let fractionFiltered = projection.derive(.init(
             matrixMinimumPercent: 30,
@@ -423,7 +423,7 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
             settings: settings,
             usesBiologicalAlleleOrder: false
         )
-        // GEN-06 (D14): candidate cells use their own per-sample read
+        // Candidate cells use their own per-sample read
         // fraction, exactly like known occurrences.
         func candidateFraction(
             _ row: GenotypeCandidateMatrixRow,
@@ -571,7 +571,7 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
         return fractions
     }
 
-    /// Independent restatement of the GEN-05 (D13) denominator for this
+    /// Independent restatement of the denominator for this
     /// fixture: unique reads per sample per source locus, known calls plus
     /// candidate observations (all fixture loci are MHC-A1 / MHC-A).
     private func sourceLocusDenominators(

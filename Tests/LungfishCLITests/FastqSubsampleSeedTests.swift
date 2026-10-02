@@ -1,8 +1,8 @@
-// FastqSubsampleSeedTests.swift - WFL-10 regression coverage for `fastq subsample --seed`
+// FastqSubsampleSeedTests.swift - Regression coverage for `fastq subsample --seed`
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Reported 2026-09-23 (best-practices audit, WFL-10): `fastq subsample` had
+// Reported 2026-09-23: `fastq subsample` had
 // no seed option in the dialog, the request, or the CLI, so the exact reads
 // kept by a subsample run could never be reproduced from provenance. This
 // drives the real `seqkit` binary (skipping when unavailable, per project

@@ -566,7 +566,7 @@ final class TranslationEngineTests: XCTestCase {
         XCTAssertTrue(positions[2].isStop)
     }
 
-    // MARK: - SCI-10: transl_table qualifier resolution
+    // MARK: - transl_table qualifier resolution
 
     func testResolvedCodonTableDefaultsToStandard() {
         let annotation = SequenceAnnotation(type: .cds, name: "test", start: 0, end: 9)
@@ -639,7 +639,7 @@ final class TranslationEngineTests: XCTestCase {
         XCTAssertEqual(result?.protein, "RR*")
     }
 
-    // MARK: - SCI-10: codon_start / phase from the 5'-most segment
+    // MARK: - codon_start / phase from the 5'-most segment
 
     /// A codon_start=2 feature (phase 1) skips the first base before the
     /// first complete codon, matching GenBank's convention that phase is
@@ -664,7 +664,7 @@ final class TranslationEngineTests: XCTestCase {
 
     /// On the reverse strand, phase must be read from the 5'-most segment in
     /// TRANSCRIPTION order, which is the genomic-HIGHEST-coordinate segment,
-    /// not the lowest (SCI-10's "reverse-strand phase taken from the wrong
+    /// not the lowest ("reverse-strand phase taken from the wrong
     /// end").
     func testTranslateCDSReadsPhaseFromFivePrimeSegmentOnMinusStrand() {
         // Two exons: genomic [0,3) and [100,110). On the reverse strand,

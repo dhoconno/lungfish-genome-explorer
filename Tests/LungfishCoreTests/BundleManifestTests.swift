@@ -850,7 +850,7 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(removed.alignments[0].id, "aln_2")
     }
 
-    /// FEA-01 regression: removing variant tracks must round-trip every other
+    /// Regression: removing variant tracks must round-trip every other
     /// field (alignments, warnings, browserSummary, originBundlePath,
     /// recordStore, metadata) unchanged.
     func testRemovingAllVariantTracksPreservesOtherFields() throws {

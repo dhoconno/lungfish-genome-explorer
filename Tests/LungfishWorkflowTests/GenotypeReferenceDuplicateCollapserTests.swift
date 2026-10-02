@@ -1,14 +1,14 @@
 import XCTest
 @testable import LungfishWorkflow
 
-/// GEN-04 (D12): identical reference sequences, including reverse
+/// Identical reference sequences, including reverse
 /// complements, are collapsed onto one representative before mapping.
 final class GenotypeReferenceDuplicateCollapserTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gen04-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("duplicate-collapser-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 

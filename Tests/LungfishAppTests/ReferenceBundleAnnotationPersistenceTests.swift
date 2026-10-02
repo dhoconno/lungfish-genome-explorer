@@ -1,4 +1,4 @@
-// ReferenceBundleAnnotationPersistenceTests.swift - FEA-03/UX-01 regression coverage
+// ReferenceBundleAnnotationPersistenceTests.swift - Regression coverage
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -469,8 +469,8 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
     private func waitFor(
         // A CLI subprocess spawn plus real file I/O under the full parallel
         // unit tier's 13,000+ concurrent xctest processes can starve this
-        // unstructured Task of scheduling time well past a short budget
-        // (TST-10); 5s was observed to time out under that load even though
+        // unstructured Task of scheduling time well past a short budget;
+        // 5s was observed to time out under that load even though
         // the mutation completes correctly once it runs.
         timeout: TimeInterval = 20,
         _ predicate: () throws -> Bool

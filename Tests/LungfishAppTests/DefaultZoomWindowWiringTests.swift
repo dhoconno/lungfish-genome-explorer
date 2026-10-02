@@ -1,4 +1,4 @@
-// DefaultZoomWindowWiringTests.swift - FEA-10 regression coverage
+// DefaultZoomWindowWiringTests.swift - Regression coverage
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //

@@ -812,7 +812,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
     }
 
 
-    /// GEN-06 (D14): a candidate cell's percent is its read fraction in that
+    /// A candidate cell's percent is its read fraction in that
     /// sample over the same source-locus denominator as known alleles.
     func testCandidateRowsUsePerSampleReadFractionForGlobalThresholds() {
         let result = makeCandidateResult(

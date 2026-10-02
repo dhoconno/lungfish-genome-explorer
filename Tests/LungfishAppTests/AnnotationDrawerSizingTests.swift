@@ -89,7 +89,7 @@ final class AnnotationDrawerSizingTests: XCTestCase {
     func testOpeningOversizedPersistedDrawerKeepsItsBottomEdgeVisible() throws {
         // UserDefaults.standard resolves to the app's real bundle identity
         // (com.lungfish.browser) inside `xctest`, so a test must never write
-        // through it (TST-10). Use a suite-specific instance instead, injected
+        // through it. Use a suite-specific instance instead, injected
         // via ViewerViewController.annotationDrawerDefaults, and remove that
         // suite's persistent domain in teardown rather than mutating a saved
         // real-world value.
@@ -117,7 +117,7 @@ final class AnnotationDrawerSizingTests: XCTestCase {
         // immediately; only the visual layer interpolates. But under heavy
         // parallel-test CPU contention the runloop pump backing the 0.25s
         // NSAnimationContext can itself stall well past a short fixed sleep
-        // (TST-10: wall-clock budgets under load), so poll for the settled
+        // (wall-clock budgets under load), so poll for the settled
         // value instead of trusting a single fixed-duration wait.
         let bottomConstraint = try XCTUnwrap(viewer.annotationDrawerBottomConstraint)
         let deadline = Date().addingTimeInterval(10)

@@ -45,7 +45,7 @@ final class FASTQClumpingToolTests: XCTestCase {
     }
 
     func testAutoSkipsClumpingWhenEstimatedInputMayPressureBBToolsHeap() {
-        // Decision D1 (audit WFL-01): auto never silently substitutes Trim
+        // Auto never silently substitutes Trim
         // Galore, which also filters/trims reads, for a memory reason alone.
         // Above the BBTools clumpify budget, auto now skips clumping entirely
         // rather than picking a tool with side effects the user did not request.

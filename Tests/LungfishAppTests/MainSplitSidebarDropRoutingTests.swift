@@ -64,7 +64,7 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
         // `displayContent(for:)` call by 0.1s (MainSplitViewController+
         // SidebarSelection.swift) before `testQuickLookURL` is set. The
         // original fixed 0.1s wait raced that debounce and was observed
-        // insufficient under the full unit tier's parallel CPU load (TST-10);
+        // insufficient under the full unit tier's parallel CPU load;
         // poll for the fully-routed state instead, up to a generous deadline.
         let deadline = Date().addingTimeInterval(10)
         while controller.viewerController.testQuickLookURL == nil, Date() < deadline {

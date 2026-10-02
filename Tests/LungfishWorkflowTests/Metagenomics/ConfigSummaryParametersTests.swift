@@ -32,7 +32,7 @@ final class ConfigSummaryParametersTests: XCTestCase {
         XCTAssertNil(params["inputFiles"])
         XCTAssertNil(params["outputDirectory"])
         XCTAssertNil(params["databasePath"])
-        // WFL-10: EsViritu has no minimum-read-length option, so this value
+        // EsViritu has no minimum-read-length option, so this value
         // is never applied and must not appear in the reproducibility summary.
         XCTAssertNil(params["minReadLength"])
     }

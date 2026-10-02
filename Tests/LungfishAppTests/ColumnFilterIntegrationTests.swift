@@ -409,7 +409,7 @@ struct KrakenTaxonomyRegressionTests {
         #expect(Set(table.sortedChildren(of: root).map(\.name)) == Set(["Viruses", "Bacteria"]))
     }
 
-    // UX-05: the four classifier tables (BatchTableView, TaxonomyTableView,
+    // The four classifier tables (BatchTableView, TaxonomyTableView,
     // ViralDetectionTableView, NaoMgsResultViewController) used to each carry
     // an independently-drifting copy of the column-header sort/filter/exclude
     // menu. They now delegate to the single `LungfishKit.ColumnHeaderFilterMenu`

@@ -331,7 +331,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: unwritableURL.path))
     }
 
-    /// REC-03: the kebab-menu CSV/TSV taxonomy export used to write only the
+    /// The kebab-menu CSV/TSV taxonomy export used to write only the
     /// payload with no provenance sidecar at all, unlike the sibling
     /// `exportResults` path tested above. Asserts the sidecar now exists and
     /// records the source classification inputs.

@@ -1,4 +1,4 @@
-// BgzipIndexedFASTAReaderCRLFTests.swift - SCI-12 CRLF FASTA regression
+// BgzipIndexedFASTAReaderCRLFTests.swift - CRLF FASTA regression
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -6,7 +6,7 @@ import XCTest
 import LungfishTestSupport
 @testable import LungfishIO
 
-/// SCI-12: `BgzipIndexedFASTAReader` stripped only `"\n"`, leaving a stray
+/// `BgzipIndexedFASTAReader` stripped only `"\n"`, leaving a stray
 /// `"\r"` (and dropping a base per line) when fetching from a
 /// Windows-edited, CRLF-terminated FASTA. The fix reuses
 /// `FASTAIndex.sequenceText(fromIndexedWindow:)`, which already strips both

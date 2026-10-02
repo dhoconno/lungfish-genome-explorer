@@ -93,7 +93,7 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         for title in ["Genotype Matrix - All", "Genotype Matrix - Filtered"] {
             XCTAssertEqual(annotatedInspection[title]?["comments"] as? [String], expectedComments)
             XCTAssertEqual(annotatedInspection[title]?["formats"] as? [String], ["\"[\"0\"]\"", "0;-0;\"FN\""])
-            // Decision D8: evidence moves out of the comments into its own
+            // Evidence moves out of the comments into its own
             // Filtered-sheet column, so the notes above stay verbatim.
             let evidenceHeader = title == "Genotype Matrix - Filtered" ? ["Evidence (display / raw support)"] : []
             XCTAssertEqual(annotatedInspection[title]?["headers"] as? [String], ["Genotype", "Total Reads", "S1", "S2"] + evidenceHeader)
@@ -862,7 +862,7 @@ print(json.dumps(result))
             provisionalExon2SequencesByGenotype: [:], provisionalExon2ArtifactURLs: .empty, reviewableRowCatalog: nil)
         let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: .empty(generatedAt: timestamp),
             allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: nil),
-            // GEN-06 (D14): candidate cells use their own read fraction over
+            // Candidate cells use their own read fraction over
             // the source-locus denominator (100% here) plus the read minimum.
             filter: .init(matrixMinimumReads: 8, matrixMinimumPercent: 30, matrixDenominator: .viewedLocus))
         XCTAssertEqual(snapshot.allMatrix.rows.filter { $0.target.stableClusterID != nil }.count, 2)

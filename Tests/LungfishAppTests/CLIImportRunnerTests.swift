@@ -273,7 +273,7 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertTrue(args.contains("--quality-binning"))
         XCTAssertTrue(args.contains("--format"))
         XCTAssertTrue(args.contains("json"))
-        // FEA-02: --force must never be passed unless the caller explicitly
+        // --force must never be passed unless the caller explicitly
         // opts in (i.e. the user chose Replace in the duplicate dialog).
         XCTAssertFalse(args.contains("--force"))
         XCTAssertTrue(args.contains("--compression"))
@@ -303,14 +303,14 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertTrue(args.contains("none"))
         XCTAssertTrue(args.contains("--format"))
         XCTAssertTrue(args.contains("json"))
-        // FEA-02: --force must never be passed unless the caller explicitly
+        // --force must never be passed unless the caller explicitly
         // opts in (i.e. the user chose Replace in the duplicate dialog).
         XCTAssertFalse(args.contains("--force"))
         XCTAssertTrue(args.contains("--compression"))
         XCTAssertTrue(args.contains("fast"))
     }
 
-    /// FEA-02 regression: --force is appended only when the caller passes
+    /// Regression: --force is appended only when the caller passes
     /// `force: true` (i.e. after the user explicitly chose Replace).
     func testBuildCLIArgumentsPassesForceOnlyWhenExplicitlyRequested() {
         let base: (URL, URL?, URL, String, String?, String, Bool, String) = (
@@ -335,7 +335,7 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertTrue(withForce.contains("--force"))
     }
 
-    /// FEA-02 regression: an explicit bundle name reaches the CLI as `--name`,
+    /// Regression: an explicit bundle name reaches the CLI as `--name`,
     /// so Keep Both and sample-sheet names are not silently dropped.
     func testBuildCLIArgumentsForwardsBundleNameAsNameOption() {
         let args = CLIImportRunner.buildCLIArguments(
@@ -458,7 +458,7 @@ final class CLIImportRunnerTests: XCTestCase {
             importConfig: config
         )
 
-        // FEA-02: --force is no longer appended unconditionally — it is only
+        // --force is no longer appended unconditionally — it is only
         // passed after the user explicitly chooses Replace in the duplicate
         // dialog. This preview reflects the default (no --force) command.
         // The sheet's Pairing choice is pinned as --pairing (2026-09-24).

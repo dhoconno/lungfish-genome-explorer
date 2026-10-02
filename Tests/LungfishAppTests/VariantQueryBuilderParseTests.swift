@@ -126,7 +126,7 @@ final class VariantQueryBuilderParseTests: XCTestCase {
         XCTAssertEqual(roundTripped, original)
     }
 
-    // MARK: - FEA-13: preset logic normalization
+    // MARK: - Preset logic normalization
 
     func testMatchAnyPresetLogicNormalizesToMatchAll() {
         // OR-group execution isn't implemented yet, so a preset saved with

@@ -1102,7 +1102,7 @@ final class CondaManagerTests: XCTestCase {
         )
     }
 
-    /// PERF-14: `runTool`'s termination handler used to read the accumulated
+    /// `runTool`'s termination handler used to read the accumulated
     /// stdout/stderr buffers 100ms after the process exited, on the theory
     /// that any in-flight `readabilityHandler` callback would have finished
     /// by then. That is a race, not a guarantee, and output still sitting in

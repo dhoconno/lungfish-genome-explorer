@@ -23,7 +23,7 @@ final class VariantSampleMetadataMutationServiceTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.bundleURL))
         XCTAssertEqual(envelope.workflowName, "Variant sample metadata edit")
         XCTAssertEqual(envelope.options.explicit["sampleName"]?.stringValue, "SAMPLE_A")
-        // REC-01: inputs now go through `VariantMutationPublication`, which
+        // Inputs now go through `VariantMutationPublication`, which
         // records the database's SQLite *snapshot* path as `.path` and the
         // real database location as `.originPath` (matching the sibling
         // `VariantSampleMetadataImportService`, which already uses this path).
@@ -96,7 +96,7 @@ final class VariantSampleMetadataMutationServiceTests: XCTestCase {
         ))
     }
 
-    /// REC-01 regression: when both the provenance write AND the SQLite
+    /// Regression: when both the provenance write AND the SQLite
     /// restoration fail, the service must surface a
     /// `ScientificPublicationRecoveryRequired` carrying both error
     /// descriptions and keep the recovery snapshot on disk, instead of

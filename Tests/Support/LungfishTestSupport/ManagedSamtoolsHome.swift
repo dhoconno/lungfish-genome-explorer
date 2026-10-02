@@ -70,8 +70,7 @@ public struct ManagedSamtoolsHome: Sendable {
     /// Resolves the samtools path through ``CoreToolLocator`` (the same
     /// resolver production code uses) rather than hard-coding
     /// `.lungfish/conda/...`, so the fixture tracks whichever namespace the
-    /// test process's app identity actually resolves to. See TST-04 in
-    /// docs/reports/2026-09-23-best-practices-audit/testing-ci.md: tests that
+    /// test process's app identity actually resolves to. Tests that
     /// hard-coded `.lungfish` broke when the test process started resolving
     /// the Stable namespace (`.lungfish-stable`).
     ///

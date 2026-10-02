@@ -176,11 +176,11 @@ final class ProcessTreeTerminatorTests: XCTestCase {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
-    // MARK: - Shared cancellation harness (P1-B)
+    // MARK: - Shared cancellation harness
 
     /// A fake tool script that spawns a grandchild which ignores SIGTERM,
     /// and reports its own pid plus the grandchild's pid via files. Used by
-    /// every P1-B cancellation test (CLIImportRunner, VCF/BAM helper
+    /// every cancellation test (CLIImportRunner, VCF/BAM helper
     /// runners, ``terminate(rootPID:)`` itself) so they all exercise the
     /// same shape of "termination must reach a SIGTERM-ignoring descendant,
     /// not just the immediate child."
@@ -241,14 +241,14 @@ final class ProcessTreeTerminatorTests: XCTestCase {
         XCTAssertTrue(grandchildExited, "a SIGTERM-ignoring grandchild must not survive cancellation")
     }
 
-    // MARK: - PERF-11: injectable process table lister
+    // MARK: - Injectable process table lister
 
     private struct FakeProcessTableLister: ProcessTableLister {
         let rows: [ProcessTableRow]
         func snapshot() -> [ProcessTableRow] { rows }
     }
 
-    /// PERF-11 acceptance test: with the process table already known (no
+    /// Acceptance test: with the process table already known (no
     /// `/bin/ps` involved), `descendantProcessIDs(of:in:)` computes the same
     /// tree the previous `/bin/ps`-based implementation did.
     func testDescendantProcessIDsFromInjectedSnapshotMatchesTree() {
@@ -264,7 +264,7 @@ final class ProcessTreeTerminatorTests: XCTestCase {
         XCTAssertFalse(descendants.contains(999))
     }
 
-    /// PERF-11 acceptance test: `terminate(rootPID:)` with an injected
+    /// Acceptance test: `terminate(rootPID:)` with an injected
     /// process-table lister never calls the real libproc-backed lister —
     /// i.e. it reads the table it was given, not a fresh subprocess or
     /// syscall path outside the injection point. Restores the production
@@ -315,9 +315,9 @@ final class ProcessTreeTerminatorTests: XCTestCase {
         XCTAssertGreaterThan(counting.calls, 0, "terminate(rootPID:) must consult the injected lister")
     }
 
-    // MARK: - PERF-11: concurrent terminateAll
+    // MARK: - Concurrent terminateAll
 
-    /// PERF-11 acceptance test: terminating 4 fake roots, each with 3
+    /// Acceptance test: terminating 4 fake roots, each with 3
     /// SIGTERM-ignoring children, completes in well under 4x a single
     /// root's cost — i.e. roots are terminated concurrently, not serially.
     func testTerminateAllRunsRootsConcurrently() async throws {

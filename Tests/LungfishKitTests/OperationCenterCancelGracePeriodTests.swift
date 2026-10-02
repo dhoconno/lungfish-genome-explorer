@@ -5,7 +5,7 @@
 import XCTest
 @testable import LungfishKit
 
-/// NEW-08: live GUI testing found a cancelled EsViritu operation stayed in
+/// Live GUI testing found a cancelled EsViritu operation stayed in
 /// OperationCenter's active list indefinitely (40+ minutes, still shown as
 /// running in the quit warning) even though its tool processes were gone.
 ///
@@ -14,7 +14,7 @@ import XCTest
 /// pre-tool stage on an uninterruptible kernel call (a TCC-gated directory
 /// open under `~/Desktop` that a mismatched ad-hoc code-signature never
 /// resolves) that never observes `Task.isCancelled` and never returns. That
-/// specific block is environmental/design (tracked separately as NEW-11) and
+/// specific block is environmental/design (tracked separately) and
 /// is not fixable here. What IS in scope, and what these tests cover: when a
 /// worker never returns after `cancel(id:)` signals it, `OperationCenter`
 /// itself must still move the operation to a terminal `.cancelled` state and

@@ -1,4 +1,4 @@
-// ReadDepthCapTests.swift - Depth-capped viewport read fetch (owner decision D9)
+// ReadDepthCapTests.swift - Depth-capped viewport read fetch
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //

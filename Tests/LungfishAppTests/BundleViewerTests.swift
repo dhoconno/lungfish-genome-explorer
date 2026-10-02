@@ -2445,7 +2445,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(controller.testingToolTipTexts(), ["seq1", "seq2", "seq3"])
     }
 
-    /// PERF-10 regression: the row gutter's per-row "first-last" source-coordinate range must
+    /// Regression: the row gutter's per-row "first-last" source-coordinate range must
     /// cover every column visible in the (much wider) alignment canvas, not just the columns
     /// that would fit across the narrow gutter itself. Before the fix, `sourceCoordinateRangeText`
     /// derived its visible-column window from the gutter's own `bounds.width` (160-640pt), so at

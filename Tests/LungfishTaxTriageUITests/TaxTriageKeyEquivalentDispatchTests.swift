@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// UX-03: reproduced that the ⌘] / ⌘[ / ⌘0 shortcuts, when implemented as
+// Reproduced that the ⌘] / ⌘[ / ⌘0 shortcuts, when implemented as
 // TaxTriageResultViewController.performKeyEquivalent(with:) overrides, were
 // never reachable through real AppKit key-equivalent dispatch (NSWindow.sendEvent) —
 // AppKit dispatches key equivalents down the view hierarchy starting at the

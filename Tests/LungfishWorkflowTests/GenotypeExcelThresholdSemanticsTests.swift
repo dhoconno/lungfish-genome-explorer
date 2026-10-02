@@ -3,7 +3,7 @@ import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
-/// GEN-05/GEN-06 (decisions D13/D14) in the Excel capture: the Filtered
+/// In the Excel capture: the Filtered
 /// matrix applies Min percent as a per-sample read fraction over the shared
 /// source-locus denominator, and the Filters (Export Metadata) sheet states
 /// the percent basis and the separate "Seen in" prevalence control.

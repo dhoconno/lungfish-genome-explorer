@@ -24,7 +24,7 @@ struct UniqueReadStartCounterTests {
         #expect(counter.recordCount == 1)
     }
 
-    @Test("PERF-04: reads sharing position, end, and strand are deduplicated to one")
+    @Test("reads sharing position, end, and strand are deduplicated to one")
     func deduplicatesSamePositionEndStrand() {
         var counter = UniqueReadStartCounter()
         counter.ingest(line: samLine(name: "r1", flag: 0, pos1Based: 100, cigar: "50M"))
@@ -80,7 +80,7 @@ struct UniqueReadStartCounterTests {
 
     @Test("no cap: more than 100,000 distinct positions are all counted")
     func noCapOnManyUniquePositions() {
-        // PERF-04's whole point: AlignedRead.deduplicatedReadCount(from:) via
+        // The whole point: AlignedRead.deduplicatedReadCount(from:) via
         // fetchReads(maxReads: 100_000) can never report more than 100,000,
         // undercounting any contig with more true unique reads than that.
         // This streaming counter must not share that ceiling.

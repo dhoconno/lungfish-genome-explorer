@@ -224,7 +224,7 @@ final class CzIdImportWorkflowTests: XCTestCase {
         )
     }
 
-    // UX-08 (2026-09-23 best-practices audit): the action bar already
+    // The action bar already
     // disables Extract for CZ-ID (no per-read source IDs), but the embedded
     // Kraken2 table's own context menu still offered "Extract Reads..." and
     // "BLAST Matching Reads..." regardless, leading the user into a dialog

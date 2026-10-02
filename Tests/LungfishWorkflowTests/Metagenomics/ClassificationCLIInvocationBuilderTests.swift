@@ -27,7 +27,7 @@ final class ClassificationCLIInvocationBuilderTests: XCTestCase {
         )
     }
 
-    /// ARC-03: the GUI's old hand-built display command passed `--db
+    /// The GUI's old hand-built display command passed `--db
     /// <databasePath.path>`, but the CLI's `--db` is resolved as a registry
     /// *name*. The builder must use the name, not the path.
     func testBuildUsesRegistryNameNotFilesystemPathForDB() {
@@ -64,7 +64,7 @@ final class ClassificationCLIInvocationBuilderTests: XCTestCase {
         XCTAssertTrue(invocation.displayString.hasPrefix("lungfish conda classify"))
     }
 
-    /// P6-B: the same argv is what would be executed and what is recorded to
+    /// The same argv is what would be executed and what is recorded to
     /// provenance -- no separate encoding.
     func testExecutedArgumentsEqualsProvenanceArguments() {
         let invocation = ClassificationCLIInvocationBuilder.build(for: makeConfig())

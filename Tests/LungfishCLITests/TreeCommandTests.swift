@@ -100,7 +100,7 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertFalse(provenance.contains("\\/.tmp\\/"))
 
         XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
-        // WFL-02: `.tmp` is the shared project-wide scratch root used by
+        // `.tmp` is the shared project-wide scratch root used by
         // other concurrent operations (SRA downloads, MAFFT materialization,
         // etc). Only this run's own staging subdirectory may be removed —
         // the shared root itself must survive.
@@ -112,7 +112,7 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertTrue(remainingStagingDirs.isEmpty, "This run's own staging directory must be cleaned up")
     }
 
-    // Reported 2026-09-23 (best-practices audit, WFL-10e): the dialog told
+    // Reported 2026-09-23: the dialog told
     // users to "leave blank for random", but a blank seed silently mapped to
     // the CLI's hard-coded default of 1, which is not random at all. Omitting
     // `--seed` entirely must let IQ-TREE choose its own time-based random
@@ -205,7 +205,7 @@ final class TreeCommandTests: XCTestCase {
         }
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
-        // WFL-02: a failure must never delete the shared `.tmp` root (other
+        // A failure must never delete the shared `.tmp` root (other
         // concurrent operations may be using it) — only this run's own
         // staging subdirectory is removed.
         if FileManager.default.fileExists(atPath: projectURL.appendingPathComponent(".tmp").path) {
@@ -219,7 +219,7 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertTrue(recorder.joined().contains("simulated IQ-TREE failure"))
     }
 
-    // REC-02 remainder: `--force` must not delete the existing output tree
+    // `--force` must not delete the existing output tree
     // before inference starts. Build into staging and only atomically
     // replace the existing bundle once IQ-TREE succeeds. On failure the
     // previous tree must remain exactly as it was.

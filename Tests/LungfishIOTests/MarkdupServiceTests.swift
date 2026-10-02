@@ -173,7 +173,7 @@ final class MarkdupServiceTests: XCTestCase {
         XCTAssertLessThan(nonDup, 5, "Non-duplicate count must be less than total 5 (all duplicates)")
     }
 
-    // MARK: - SCI-17: pipeline robustness
+    // MARK: - Pipeline robustness
 
     /// A mid-pipeline failure (the `sort -n` stage) must fail the whole
     /// pipeline, not be masked by a successful exit from the final stage.
@@ -230,7 +230,7 @@ final class MarkdupServiceTests: XCTestCase {
     /// inside double-quoted shell text.
     /// The result's `totalReads`/`duplicateReads` must count primary reads,
     /// not alignment records: secondary and supplementary records for the
-    /// same 5 primary reads must not inflate either count (SCI-17).
+    /// same 5 primary reads must not inflate either count.
     func testMarkdupResultCountsPrimaryReadsNotAlignmentRecords() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

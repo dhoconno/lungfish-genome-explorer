@@ -516,7 +516,7 @@ final class SequenceExtractorTests: XCTestCase {
         }
     }
 
-    // MARK: - SCI-06: Strand- and splice-aware annotation extraction
+    // MARK: - Strand- and splice-aware annotation extraction
 
     /// Single-exon minus-strand CDS: extraction with reverseComplement=true must
     /// return the reverse complement of the plus-strand span, and translating it
@@ -599,7 +599,7 @@ final class SequenceExtractorTests: XCTestCase {
 
     /// flank5=3 on a minus-strand feature must add bases from the genomic-higher
     /// coordinate side (`end..end+3`), and after reverse complementing they land
-    /// at the 5' end of the output (SCI-06 acceptance test from the audit).
+    /// at the 5' end of the output.
     func testMinusStrandFlank5AddsFromGenomicHighSide() throws {
         // Genomic layout: feature at [10,20). Downstream (3' on genomic axis,
         // 5' in feature orientation) flank at [20,23) = "TTT".
@@ -682,7 +682,7 @@ final class SequenceExtractorTests: XCTestCase {
         XCTAssertEqual(result.nucleotideSequence, "TTT" + String(repeating: "A", count: 10))
     }
 
-    // MARK: - SCI-15: origin-spanning extraction preserves join order
+    // MARK: - Origin-spanning extraction preserves join order
 
     /// Concatenated extraction of an origin-spanning circular feature must
     /// use the annotation's own segment order, not a re-sort by ascending

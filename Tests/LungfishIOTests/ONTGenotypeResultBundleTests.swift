@@ -365,7 +365,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
     }
 
-    /// GEN-04 (D12): the `ambiguous_with` column carries a collapsed
+    /// The `ambiguous_with` column carries a collapsed
     /// identical-reference group onto the call; older CSVs without the
     /// column (and rows with an empty value) load with no group.
     func testGenotypeCSVRowCarriesReferenceAmbiguityGroup() throws {
@@ -387,7 +387,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertNil(ONTGenotypeResultBundle.makeCall(row: base)?.ambiguousWith)
         XCTAssertEqual(ONTGenotypeResultBundle.makeCall(row: base)?.passedUniqueReads, 20)
 
-        // GEN-10 (D15): full-length rows carry indel_bases; older CSVs do not.
+        // Full-length rows carry indel_bases; older CSVs do not.
         var indel = base
         indel["indel_bases"] = "9"
         indel["review_flag"] = "indel"

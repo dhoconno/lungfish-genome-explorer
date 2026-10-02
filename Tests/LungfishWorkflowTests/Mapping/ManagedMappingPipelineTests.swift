@@ -789,7 +789,7 @@ final class ManagedMappingPipelineTests: XCTestCase {
         }
     }
 
-    // MARK: - SCI-05: flagstat parsing reports primary reads, not alignment records
+    // MARK: - Flagstat parsing reports primary reads, not alignment records
 
     /// The worked example from the audit: 10 reads (8 mapped primaries, 2
     /// unmapped), with 4 supplementary and 4 secondary records for the

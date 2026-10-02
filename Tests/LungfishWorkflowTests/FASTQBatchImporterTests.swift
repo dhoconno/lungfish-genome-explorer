@@ -610,7 +610,7 @@ final class FASTQBatchImporterTests: XCTestCase {
             recipe: nil
         )
         XCTAssertNil(config.recipe)
-        // D1 (2026-09-23): binning is off by default everywhere.
+        // Binning is off by default everywhere.
         XCTAssertEqual(config.qualityBinning, .none, "Default binning should be none")
         XCTAssertEqual(config.threads, 4, "Default threads should be 4")
         XCTAssertNil(config.logDirectory)

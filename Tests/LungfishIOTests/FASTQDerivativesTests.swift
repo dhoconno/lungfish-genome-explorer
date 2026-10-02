@@ -1164,7 +1164,7 @@ final class FASTQDerivativesTests: XCTestCase {
         XCTAssertEqual(rcIDs.count, 2)
     }
 
-    // MARK: - PERF-08: single-pass orientation-set loading
+    // MARK: - Single-pass orientation-set loading
 
     /// `loadOrientationSets` must produce output identical to the old
     /// two-call `loadForwardReadIDs` + `loadRCReadIDs` pair it replaces,

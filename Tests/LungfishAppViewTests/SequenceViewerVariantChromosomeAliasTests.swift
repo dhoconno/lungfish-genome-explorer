@@ -1,4 +1,4 @@
-// SequenceViewerVariantChromosomeAliasTests.swift - SCI-14 chromosome alias resolution
+// SequenceViewerVariantChromosomeAliasTests.swift - Chromosome alias resolution
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -8,8 +8,8 @@ import os.log
 @testable import LungfishCore
 @testable import LungfishIO
 
-/// SCI-14: `SequenceViewerView.buildVariantChromosomeAliasMap` must route
-/// through the shared `ChromosomeAliasResolver` (SIMP-07) rather than its own
+/// `SequenceViewerView.buildVariantChromosomeAliasMap` must route
+/// through the shared `ChromosomeAliasResolver` rather than its own
 /// separate length-only fallback, and must never fabricate a mapping between
 /// contigs whose lengths merely happen to be close.
 final class SequenceViewerVariantChromosomeAliasTests: XCTestCase {
@@ -67,7 +67,7 @@ final class SequenceViewerVariantChromosomeAliasTests: XCTestCase {
         XCTAssertEqual(aliasMap["MN908947"], "MN908947.3")
     }
 
-    /// SCI-14 worked example: a VCF contig on a 20%-shorter genome than the
+    /// Worked example: a VCF contig on a 20%-shorter genome than the
     /// reference must NOT be silently mapped by the old proportional-length
     /// fallback. `ChromosomeAliasResolver`'s default proportional tolerance
     /// (5% for large contigs, 20% for small ones) must reject a mismatch
@@ -97,7 +97,7 @@ final class SequenceViewerVariantChromosomeAliasTests: XCTestCase {
     /// A VCF contig within the resolver's proportional length tolerance (a
     /// small contig, matched within 20%) is still surfaced as a length-only
     /// match via `ChromosomeAliasResolver.lengthMatchedSources`, so callers
-    /// can warn the user instead of trusting it silently (SCI-14).
+    /// can warn the user instead of trusting it silently.
     func testLengthOnlyMatchIsDistinguishableFromNameMatch() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

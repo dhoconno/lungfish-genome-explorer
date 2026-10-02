@@ -7,7 +7,7 @@ import XCTest
 /// pure functions of the bundle manifest, so each signal is exercised alone.
 final class VariantCallingPloidyDefaultsTests: XCTestCase {
 
-    // MARK: - Viral and bacterial references stay haploid (SCI-04)
+    // MARK: - Viral and bacterial references stay haploid
 
     func testNCBIVirusMetadataGroupIsHaploid() {
         let manifest = makeManifest(

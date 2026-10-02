@@ -1,8 +1,8 @@
-// RenamedClassifierBatchRoutingTests.swift - WFL-06 regression coverage
+// RenamedClassifierBatchRoutingTests.swift - Regression coverage
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Reported 2026-09-23 (best-practices audit, WFL-06): renaming a classifier
+// Reported 2026-09-23: renaming a classifier
 // batch folder to anything that does not start with the tool's own prefix
 // (e.g. "kraken2-batch-...") made `displayBatchGroup` fall through to
 // "Unrecognized batch prefix", even though `analysis-metadata.json` still

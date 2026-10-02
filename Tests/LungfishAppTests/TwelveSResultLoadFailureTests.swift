@@ -3,7 +3,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 
-/// UX-09 (2026-09-23 best-practices audit): a 12S bundle that fails to load
+/// A 12S bundle that fails to load
 /// used to call `showNoSequenceSelected()`, which reads exactly like an
 /// empty, unselected viewport — the user cannot tell a load failed from
 /// having simply not clicked anything. Assembly and Mapping already surface

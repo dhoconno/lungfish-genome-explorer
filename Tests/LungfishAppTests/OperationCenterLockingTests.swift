@@ -40,7 +40,7 @@ final class OperationCenterLockingTests: XCTestCase {
 
     // MARK: - begin(...): a refusal the caller cannot ignore
 
-    /// The core contract test for ARC-04/FEA-07: `begin` must hand back a
+    /// The core contract test: `begin` must hand back a
     /// value the caller has to switch on, and the refused case must not be
     /// mistakable for a started operation.
     func testBeginReturnsRefusedWhenBundleIsLocked() throws {
@@ -383,7 +383,7 @@ final class OperationCenterLockingTests: XCTestCase {
             return ""
         }
         // Annotation import call sites now use `begin(...)`, whose refusal the
-        // caller must switch on (ARC-04/FEA-07), rather than the deprecated
+        // caller must switch on, rather than the deprecated
         // `start(...)` that returned a plain UUID even when refused.
         let candidates = ["OperationCenter.shared.begin(", "OperationCenter.shared.start("]
         for candidate in candidates {

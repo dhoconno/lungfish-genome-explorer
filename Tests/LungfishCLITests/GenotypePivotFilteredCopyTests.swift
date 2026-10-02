@@ -171,7 +171,7 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
         )
         XCTAssertEqual(inspection["rowLabel"] as? String, "Duplicate candidate")
         XCTAssertEqual(inspection["rowValue"] as? Int, 12)
-        // Decision D8: the note is the user's text verbatim; the review is
+        // The note is the user's text verbatim; the review is
         // carried only by formatting (bracketed number, grey italic).
         XCTAssertEqual(inspection["cellNote"] as? String, "exact stable note")
         XCTAssertEqual(inspection["cellNumberFormat"] as? String, "\"[\"0\"]\"")

@@ -1,9 +1,9 @@
-// SequenceViewerDirtyRectPixelDiffTests.swift - Pixel-identity guard for the PERF-09 dirtyRect skip
+// SequenceViewerDirtyRectPixelDiffTests.swift - Pixel-identity guard for the dirtyRect skip
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// 2026-09-23 best-practices audit (concurrency-performance.md, WP8 / "SequenceViewerView
-// draw(_:) ignores dirtyRect and repaints every track"). `drawBundleContent` now skips the
+// SequenceViewerView
+// draw(_:) used to ignore dirtyRect and repaint every track. `drawBundleContent` now skips the
 // coverage-strip and packed/base-read draw calls when their vertical band does not intersect
 // the dirtyRect AppKit actually asked to repaint. This must never change what a FULL redraw
 // paints — a full redraw's dirtyRect always covers the whole view, so every band still

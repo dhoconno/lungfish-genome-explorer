@@ -122,7 +122,7 @@ final class AssemblyStatisticsTests: XCTestCase {
         XCTAssertEqual(stats.gcFraction, 0.5, accuracy: 0.001)
     }
 
-    /// SCI-20: N bases count toward contig length (this part was already
+    /// N bases count toward contig length (this part was already
     /// correct) but must be EXCLUDED from the GC fraction's denominator,
     /// since they carry no G/C information. The old behavior divided by all
     /// 8 bases including the 4 Ns, understating GC (0.25 instead of 0.5).
@@ -136,7 +136,7 @@ final class AssemblyStatisticsTests: XCTestCase {
         XCTAssertEqual(stats.gcFraction, 0.5, accuracy: 0.001)  // 2 GC out of 4 unambiguous (ATCG) bases, N excluded
     }
 
-    /// SCI-20 acceptance test: the exact worked example from the audit.
+    /// Acceptance test: the exact worked example from the audit.
     /// IUPAC ambiguity codes (R, Y here) must count toward contig length,
     /// like N, but must also be excluded from the GC denominator like N.
     func testFASTAWithIUPACAmbiguityCodesCountTowardLengthButNotGCDenominator() {

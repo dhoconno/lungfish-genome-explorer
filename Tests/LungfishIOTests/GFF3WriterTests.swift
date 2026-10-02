@@ -425,7 +425,7 @@ final class GFF3WriterTests: XCTestCase {
         // Should have header + 3 feature lines (one per interval)
         XCTAssertEqual(lines.count, 4)
 
-        // SCI-11: multi-interval features share ONE ID across every segment
+        // Multi-interval features share ONE ID across every segment
         // line (the standard GFF3 idiom for a single multi-line feature) and
         // carry no `Parent` attribute, since this writer never emits a
         // separate parent feature for that ID to point at. The old behavior
@@ -447,7 +447,7 @@ final class GFF3WriterTests: XCTestCase {
         }
     }
 
-    /// SCI-11 golden test: a 2-segment CDS (segment lengths 10 and 8, so the
+    /// Golden test: a 2-segment CDS (segment lengths 10 and 8, so the
     /// second segment starts mid-codon) exports correct per-segment phase
     /// using the shared `CDSSegmentPhases` helper, and the file round-trips
     /// cleanly through `GFF3Reader` with the phase preserved per segment.

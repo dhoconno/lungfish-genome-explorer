@@ -7,7 +7,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishWorkflow
 
-/// P6-B acceptance test (WFL-11): for each migrated CLI runner family, the
+/// Acceptance test: for each migrated CLI runner family, the
 /// argv `buildCLIArguments` produces is both what gets executed
 /// (`runner.run(arguments:)`) and what the Operations panel displays
 /// (`OperationCenter.buildCLICommand(subcommand:args:)` is built from the

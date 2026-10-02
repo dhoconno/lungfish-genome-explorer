@@ -28,8 +28,7 @@ public enum BundleFixtureResourceError: Error, CustomStringConvertible {
 /// `Contents/Resources/` (so the same fixture lands at
 /// `<bundle>/Contents/Resources/Resources/primerschemes/x`). A lookup that
 /// only tries the top level silently returns nil under Swift Build, crashing
-/// callers that force-unwrap it (SIGTRAP) — see TST-03 in
-/// docs/reports/2026-09-23-best-practices-audit/testing-ci.md.
+/// callers that force-unwrap it (SIGTRAP).
 ///
 /// This helper tries every layout SwiftPM is known to produce and returns the
 /// first that exists on disk, so tests do not depend on the active engine.

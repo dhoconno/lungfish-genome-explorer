@@ -250,7 +250,7 @@ final class EsVirituConfigTests: XCTestCase {
         XCTAssertTrue(args.contains("--db"))
     }
 
-    /// WFL-10: `EsVirituConfig.minReadLength` has no corresponding flag in
+    /// `EsVirituConfig.minReadLength` has no corresponding flag in
     /// the real EsViritu tool (verified against upstream cmmr/EsViritu's
     /// argparse definitions: no `-l`/`--min-read-length`/length option
     /// exists, and its fastp invocation is not parameterized with one

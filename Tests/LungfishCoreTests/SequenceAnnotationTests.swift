@@ -140,7 +140,7 @@ final class SequenceAnnotationTests: XCTestCase {
 
     // MARK: - Interval Tests
 
-    /// SCI-15: `SequenceAnnotation.init` no longer force-sorts `intervals`
+    /// `SequenceAnnotation.init` no longer force-sorts `intervals`
     /// ascending by start. Doing so silently corrupted the segment order of a
     /// GenBank `join(...)` location that wraps a circular molecule's origin
     /// (for example `join(4000..4200,1..100)`), where the caller-supplied

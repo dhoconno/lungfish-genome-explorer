@@ -1917,7 +1917,7 @@ enum MappingRoutingFixture {
         excluding previous: SampleMetadataPresentationContext? = nil
     ) throws -> SampleMetadataPresentationContext {
         // 3s was observed insufficient under the full unit tier's parallel CPU
-        // load (TST-10); the context installs correctly once the runloop
+        // load; the context installs correctly once the runloop
         // catches up.
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {

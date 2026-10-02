@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// 2026-09-23 best-practices audit follow-up (PerfBenchGenotypeMatrixTests). Profiling that
+// Follow-up to PerfBenchGenotypeMatrixTests. Profiling that
 // harness found `tableView(_:viewFor:row:)` -> `applyCellStyle` -> `font(for:)` resolving an
 // `NSFont` from `ContentTypography` (an AppKit preferred-font lookup plus, for italic cells,
 // `NSFontManager.shared.convert`) on every visible cell, on every scroll frame: ~595ms to build

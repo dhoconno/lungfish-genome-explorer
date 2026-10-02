@@ -55,7 +55,7 @@ private final class FASTQStatisticsToolFixture {
         let seqkitURL = binURL.appendingPathComponent("seqkit")
         try Self.seqkitScript.write(to: seqkitURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: seqkitURL.path)
-        // TST-04: the fake home above is built under `.lungfish` (the Preview
+        // The fake home above is built under `.lungfish` (the Preview
         // namespace); pin the runner's identity to `.preview` explicitly so this
         // test does not depend on which channel the xctest process itself
         // resolves to (it currently reports Stable, which would look for

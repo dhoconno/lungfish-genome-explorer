@@ -139,7 +139,7 @@ final class BAMPrimerTrimSubcommandTests: XCTestCase {
         }
     }
 
-    // MARK: - WFL-08: scheme/BAM contig reconciliation
+    // MARK: - Scheme/BAM contig reconciliation
 
     /// The sarscov2 fixture BAM's `@SQ SN` is `MT192765.1`. A scheme whose
     /// *canonical* accession is a different name, but which declares
@@ -291,7 +291,7 @@ final class BAMPrimerTrimSubcommandTests: XCTestCase {
     /// `makeIntegrationFixture()`, but with a freshly-written primer scheme
     /// whose canonical/equivalent accessions are set by the caller instead
     /// of reusing the fixed `mt192765-integration` scheme -- used by the
-    /// WFL-08 contig-reconciliation tests, which need to exercise a
+    /// contig-reconciliation tests, which need to exercise a
     /// canonical accession that does NOT literally match the BAM's own
     /// `@SQ SN:MT192765.1`.
     private func makeIntegrationFixture(
@@ -350,8 +350,8 @@ final class BAMPrimerTrimSubcommandTests: XCTestCase {
         let manifestJSON = """
         {
           "schema_version": 1,
-          "name": "wfl08-test-scheme",
-          "display_name": "WFL-08 Test Scheme",
+          "name": "contig-reconciliation-test-scheme",
+          "display_name": "Contig Reconciliation Test Scheme",
           "description": "Synthetic scheme for BAM/scheme contig-reconciliation tests.",
           "reference_accessions": [ \(referenceAccessionsJSON) ],
           "primer_count": 2,

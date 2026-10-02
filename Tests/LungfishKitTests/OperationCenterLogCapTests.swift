@@ -1,11 +1,11 @@
-// OperationCenterLogCapTests.swift - PERF-15 bounded operation log history
+// OperationCenterLogCapTests.swift - Bounded operation log history
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import XCTest
 @testable import LungfishKit
 
-/// PERF-15: `OperationCenter.Item.logEntries` used to grow without a cap
+/// `OperationCenter.Item.logEntries` used to grow without a cap
 /// through `log`/`updateWithLog`, and 132 production call sites append to it,
 /// some carrying full tool stderr. These tests pin the retention cap added to
 /// stop that unbounded growth.

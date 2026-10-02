@@ -7,7 +7,7 @@ import XCTest
 import LungfishCore
 @testable import LungfishIO
 
-/// PERF-09 regression tests: the loading-badge spinner must invalidate only the badge rect(s)
+/// Regression tests: the loading-badge spinner must invalidate only the badge rect(s)
 /// drawn on the last pass, not the whole view, and horizontal-pan redraws must be throttled
 /// (redraw as soon as a frame interval has elapsed) rather than debounced (reset a one-shot
 /// timer on every event, which can starve entirely under fast input).
@@ -31,7 +31,7 @@ final class SequenceViewerLoadingAnimationAndPanThrottleTests: XCTestCase {
         let invalidated = try! XCTUnwrap(view.testLoadingAnimationInvalidatedRects.first)
         XCTAssertNotEqual(
             invalidated, view.bounds,
-            "a spinner tick during a fetch must not invalidate the whole view (PERF-09)"
+            "a spinner tick during a fetch must not invalidate the whole view"
         )
         // The invalidated rect must fully contain the badge (allowing the documented 2pt outset)
         // and must not be anywhere near the size of the 800x600 view.
@@ -99,7 +99,7 @@ final class SequenceViewerLoadingAnimationAndPanThrottleTests: XCTestCase {
         view.scrollRedrawTimer?.invalidate()
     }
 
-    // MARK: - Per-frame maxReadSpan scan (PERF-09)
+    // MARK: - Per-frame maxReadSpan scan
 
     func testCachedMaxReadSpanIsRecomputedOnlyWhenReadSetChangesNotPerDraw() {
         let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))

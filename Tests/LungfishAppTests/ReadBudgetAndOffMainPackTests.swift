@@ -40,7 +40,7 @@ final class ReadBudgetAndOffMainPackTests: XCTestCase {
         ReferenceFrame(chromosome: "chr1", start: 100, end: 220, pixelWidth: pixelWidth)
     }
 
-    // MARK: - Displayed-depth cap (owner decision D9)
+    // MARK: - Displayed-depth cap
     //
     // The old 50,000-read budget and its stride trim (`applyReadBudget`,
     // `ReadViewportPolicy.sampleReads`) are gone: a uniform count budget

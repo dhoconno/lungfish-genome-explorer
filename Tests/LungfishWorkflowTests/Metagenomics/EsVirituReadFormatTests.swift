@@ -1,4 +1,4 @@
-// EsVirituReadFormatTests.swift - EsViritu -p read format and interleaved guard (NEW-06, D19)
+// EsVirituReadFormatTests.swift - EsViritu -p read format and interleaved guard
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

@@ -53,7 +53,7 @@ final class DocumentationFixtureThresholdTests: XCTestCase {
         // bcftools+LoFreq one; the amplicon-specific wording and coordinates this
         // test previously pinned no longer exist anywhere in the manual. The facts
         // that used to be asserted via that wording are still true, just phrased
-        // differently, so assert those instead of the retired strings (TST-01 group 3).
+        // differently, so assert those instead of the retired strings.
         let chapter = try String(
             contentsOf: repositoryRoot
                 .appendingPathComponent("docs/user-manual/chapters/05-variants/01-calling-variants-from-amplicons.md"),

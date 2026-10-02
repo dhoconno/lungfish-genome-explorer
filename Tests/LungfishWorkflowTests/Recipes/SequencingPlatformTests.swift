@@ -18,7 +18,7 @@ struct SequencingPlatformTests {
         #expect(platform.displayName == "Illumina")
         #expect(platform.defaultPairing == .interleaved)
         #expect(platform.defaultOptimizeStorage == true)
-        #expect(platform.defaultQualityBinning == .none)  // D1: binning off by default everywhere
+        #expect(platform.defaultQualityBinning == .none)  // binning off by default everywhere
         #expect(platform.defaultCompressionLevel == .balanced)
     }
 
@@ -44,7 +44,7 @@ struct SequencingPlatformTests {
         #expect(platform.displayName == "Ultima Genomics")
         #expect(platform.defaultPairing == .interleaved)
         #expect(platform.defaultOptimizeStorage == true)
-        #expect(platform.defaultQualityBinning == .none)  // D1: binning off by default everywhere
+        #expect(platform.defaultQualityBinning == .none)  // binning off by default everywhere
     }
 
     @Test func testAutoDetectIllumina() {

@@ -11,7 +11,7 @@ import LungfishIO
 final class MSAViewportInteractionTests: XCTestCase {
     private var temporaryDirectory: URL!
     // UserDefaults.standard resolves to the app's real bundle identity inside
-    // xctest (TST-10), so tests must never read or write through it. Use a
+    // xctest, so tests must never read or write through it. Use a
     // suite-specific instance per test, injected into each controller before
     // its view loads, and remove that suite's persistent domain in teardown.
     private var gutterWidthSuiteName = ""

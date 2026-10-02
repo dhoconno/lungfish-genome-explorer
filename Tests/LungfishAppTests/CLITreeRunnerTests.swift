@@ -5,7 +5,7 @@ import LungfishWorkflow
 
 /// Replaces `CLITreeInferenceRunnerTests` and `CLITreeTransformRunnerTests`,
 /// which duplicated the same fixture and assertions against two
-/// near-identical runners (ARC-02, SIMP-04). `CLITreeRunner` now backs both
+/// near-identical runners. `CLITreeRunner` now backs both
 /// "tree infer" and "tree transform" launch sites, so one parameterized suite
 /// covers both labels against the shared `CLIEvent` wire schema.
 final class CLITreeRunnerTests: XCTestCase {

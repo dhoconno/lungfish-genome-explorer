@@ -1597,7 +1597,7 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         )
     }
 
-    // MARK: - GEN-02 (2026-09-23 best-practices audit)
+    // MARK: - Shipped MCM definition set
 
     /// Loads the shipped MCM MiSeq haplotype definition set exactly as the
     /// app ships it, from `Sources/LungfishWorkflow/Resources/MCMHaplotyping`.
@@ -1618,7 +1618,7 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         return try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data)
     }
 
-    // MARK: - GEN-02 golden table (all 28 genotypes per MCM locus)
+    // MARK: - Golden table (all 28 genotypes per MCM locus)
 
     /// One outcome per synthetic genotype: "status h1 / h2".
     static func shippedMCMGoldenOutcomes(
@@ -1690,12 +1690,12 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         return headers
     }
 
-    /// GEN-02 (D11) golden: every homozygous and heterozygous genotype
+    /// Golden: every homozygous and heterozygous genotype
     /// (28 per locus) at MCM MHC-DP, DQ and DR, synthesized from the
     /// shipped definition and reference headers (100 reads per diagnostic
     /// allele per haplotype copy) and run through the real analyzer.
     ///
-    /// Before the D11 rule (pre-audit): DQ M2/M2 and M6/M6 were called
+    /// Before this rule: DQ M2/M2 and M6/M6 were called
     /// "M2 / M6", DR M4/M4 and M5/M5 "M4 / M5", DP M4/M4 and M7/M7
     /// "M4 / M7". The interim mitigation turned those six into
     /// `ambiguous`. Now DQ and DR are 28/28 correct (homozygotes carry the
@@ -1796,7 +1796,7 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         }
     }
 
-    /// GEN-02 (D11): no genotype at any MCM locus, class I included, may be
+    /// No genotype at any MCM locus, class I included, may be
     /// `called` with a haplotype pair other than the truth, and every
     /// `ambiguous` call must be compatible with the truth.
     func testMCMShippedDefinitionNeverCallsWrongPairAtAnyLocus() throws {
@@ -1826,7 +1826,7 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         }
     }
 
-    /// GEN-02 (D11): a dropped candidate is explained in the call notes, and
+    /// A dropped candidate is explained in the call notes, and
     /// a true heterozygote sharing an allele is still called.
     func testSharedAlleleHomozygoteIsCalledHomozygousWithNote() throws {
         let definitionSet = try Self.shippedMCMDefinitionSet()

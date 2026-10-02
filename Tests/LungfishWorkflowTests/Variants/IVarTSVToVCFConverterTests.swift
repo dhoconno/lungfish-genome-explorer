@@ -193,7 +193,7 @@ struct IVarTSVToVCFConverterTests {
         #expect(!actual.contains("\t101\t.\tG\tT\t"))
     }
 
-    @Test("SCI-02: duplicate rows for overlapping CDS (ORF1a/ORF1ab) collapse to one VCF record")
+    @Test("duplicate rows for overlapping CDS (ORF1a/ORF1ab) collapse to one VCF record")
     func deduplicatesOverlappingCDSRows() throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("ivar-converter-dup-\(UUID().uuidString).vcf")

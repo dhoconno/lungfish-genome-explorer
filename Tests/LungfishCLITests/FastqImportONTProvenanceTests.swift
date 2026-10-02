@@ -6,7 +6,7 @@ import LungfishWorkflow
 import XCTest
 
 final class FastqImportONTProvenanceTests: XCTestCase {
-    // SCI-08 remainder: quality-binning help must describe the actual level
+    // Quality-binning help must describe the actual level
     // counts (illumina4 -> 7 levels, eightLevel -> ~21 levels), not the
     // misleading "4-level"/"8-level" names the raw values imply.
     func testQualityBinningHelpDescribesActualLevelCounts() {

@@ -3,7 +3,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishWorkflow
 
-/// REC-03: the BLAST results table's CSV/TSV export used to write only the
+/// The BLAST results table's CSV/TSV export used to write only the
 /// payload with `content.write(to:atomically:encoding:)`, with no provenance
 /// sidecar at all. Asserts `writeExportFile` now writes one atomically,
 /// through `ScientificFileExportProvenance`.

@@ -558,7 +558,7 @@ final class CLIFunctionalTests: XCTestCase {
         }
     }
 
-    // NEW-01: `import bam <bam> -o <bundle.lungfishref>` used to write loose
+    // `import bam <bam> -o <bundle.lungfishref>` used to write loose
     // files into whatever `-o` pointed to, even an existing `.lungfishref`
     // bundle, leaving `manifest.alignments` empty — the GUI sidebar/viewer
     // never sees the alignment. `-o` pointed at an existing bundle must now

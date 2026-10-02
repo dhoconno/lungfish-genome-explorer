@@ -6,10 +6,10 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
-/// P6-B acceptance test: the argv `ClassificationCLIInvocationBuilder` builds
+/// Acceptance test: the argv `ClassificationCLIInvocationBuilder` builds
 /// for the Operations-panel "Copy CLI command" and for provenance must be the
 /// exact argv the real `ClassifyCommand` parser accepts, and its parsed
-/// options must round-trip the request's key values (ARC-03: before this
+/// options must round-trip the request's key values (before this
 /// builder existed, the GUI's hand-built Kraken2 replay command passed a
 /// filesystem path where the CLI expects a registry name, and a user who
 /// pasted it got an immediate "Database ... not found in registry" error).
