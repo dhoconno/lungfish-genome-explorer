@@ -25,7 +25,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 2 | 2041 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8361 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 12 | 3372 | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 467 | 215052 | 1304 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 467 | 215064 | 1304 | LungfishCore, LungfishIO |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 22 | 4057 | 22 | LungfishCore, LungfishIO, LungfishWorkflow |
 
 ## Test targets
@@ -49,7 +49,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 2 | 735 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3180 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 11 | 2324 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 326 | 144489 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 327 | 144994 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -1713,7 +1713,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 467, lines 215052
+- Swift files. 467, lines 215064
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1735,7 +1735,7 @@ None.
 | DemoProjects | 5 | 1065 |
 | Demultiplex | 4 | 4947 |
 | Dependencies | 9 | 2482 |
-| Engines | 8 | 3929 |
+| Engines | 8 | 3924 |
 | Exports | 1 | 505 |
 | Extraction | 17 | 8116 |
 | FASTQ | 1 | 271 |
@@ -1749,7 +1749,7 @@ None.
 | Native/ToolProvisioning | 5 | 2014 |
 | ONTGenotyping | 85 | 47671 |
 | Orient | 1 | 668 |
-| PBAA | 4 | 965 |
+| PBAA | 4 | 929 |
 | PrimerAnalysis | 10 | 3193 |
 | PrimerDesign | 27 | 10078 |
 | Primers | 8 | 1968 |
@@ -1761,7 +1761,7 @@ None.
 | SequenceAnnotation | 1 | 1311 |
 | SequenceProcessing | 1 | 238 |
 | Storage | 13 | 9606 |
-| TaxTriage | 7 | 3913 |
+| TaxTriage | 7 | 3903 |
 | ToolReference | 2 | 473 |
 | TwelveS | 9 | 4104 |
 | Variants | 20 | 7387 |
@@ -2046,7 +2046,7 @@ None.
 - `ContainerLogStreamer` actor, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:55`
 - `ContainerProcess` class, `Sources/LungfishWorkflow/Containers/ContainerProcess.swift:56`
 - `ContainerRuntimeError` enum, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProtocol.swift:270`
-- `ContainerRuntimeFactory` enum, `Sources/LungfishWorkflow/Engines/NextflowRunner.swift:502`
+- `ContainerRuntimeFactory` enum, `Sources/LungfishWorkflow/Engines/NextflowRunner.swift:497`
 - `ContainerRuntimeProbing` protocol, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProbe.swift:55`
 - `ContainerRuntimeProtocol` protocol, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProtocol.swift:150`
 - `ContainerRuntimeType` enum, `Sources/LungfishWorkflow/Engines/ContainerRuntimeProtocol.swift:17`
@@ -2614,7 +2614,7 @@ None.
 - `PreparedAlignmentAttachmentService` actor, `Sources/LungfishWorkflow/Alignment/PreparedAlignmentAttachmentService.swift:152`
 - `PreparedMetagenomicsDatabaseInstallation` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:365`
 - `PreparedReferenceSource` struct, `Sources/LungfishWorkflow/Bundles/ReferenceSourcePreparer.swift:49`
-- `PrerequisiteStatus` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift:1803`
+- `PrerequisiteStatus` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift:1793`
 - `PrimalScheme3AlleleLabelMap` struct, `Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3AlleleLabelMap.swift:4`
 - `PrimalScheme3AlleleOptions` struct, `Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3AlleleOptions.swift:29`
 - `PrimalScheme3CoverageMetric` enum, `Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift:24`
@@ -3046,8 +3046,8 @@ None.
 - `ViralVariantCallingPipelineError` enum, `Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift:105`
 - `ViralVariantCallingPipelineResult` struct, `Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift:71`
 - `WorkflowDefinition` struct, `Sources/LungfishWorkflow/WorkflowDefinition.swift:109`
-- `WorkflowEngineLaunch` struct, `Sources/LungfishWorkflow/WorkflowEngineLaunch.swift:22`
-- `WorkflowEngineNotInstalled` struct, `Sources/LungfishWorkflow/WorkflowEngineLaunch.swift:168`
+- `WorkflowEngineLaunch` struct, `Sources/LungfishWorkflow/WorkflowEngineLaunch.swift:29`
+- `WorkflowEngineNotInstalled` struct, `Sources/LungfishWorkflow/WorkflowEngineLaunch.swift:207`
 - `WorkflowEngineType` enum, `Sources/LungfishWorkflow/WorkflowDefinition.swift:16`
 - `WorkflowError` enum, `Sources/LungfishWorkflow/WorkflowError.swift:35`
 - `WorkflowPackageBundleType` enum, `Sources/LungfishWorkflow/WorkflowPackages/WorkflowPackageManifest.swift:15`
@@ -3068,7 +3068,7 @@ None.
 - `WorkflowResult` struct, `Sources/LungfishWorkflow/WorkflowRunner.swift:17`
 - `WorkflowRun` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceRecord.swift:17`
 - `WorkflowRunner` protocol, `Sources/LungfishWorkflow/WorkflowRunner.swift:168`
-- `WorkflowRunnerRegistry` actor, `Sources/LungfishWorkflow/WorkflowRunner.swift:571`
+- `WorkflowRunnerRegistry` actor, `Sources/LungfishWorkflow/WorkflowRunner.swift:595`
 - `WorkflowRuntime` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceRecord.swift:229`
 - `WorkflowSource` enum, `Sources/LungfishWorkflow/WorkflowDefinition.swift:373`
 - `WorkflowStateMachine` actor, `Sources/LungfishWorkflow/WorkflowState.swift:186`

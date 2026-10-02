@@ -5,20 +5,27 @@
 import Foundation
 import LungfishCore
 
-/// How `lungfish-cli workflow run` launches a workflow engine (Nextflow or Snakemake).
+/// How Lungfish launches a workflow engine (Nextflow or Snakemake).
+///
+/// This is the one place a Nextflow launch gets its executable and its
+/// environment. `lungfish-cli workflow run`, the app's workflow services and
+/// the in-process callers (``TaxTriagePipeline``, ``ProcessPBAANextflowRunner``,
+/// ``NextflowRunner`` and the version probe in ``BaseWorkflowRunner``) all
+/// start from it. A caller that needs a setting of its own states it with
+/// ``overridingEnvironment(set:unset:)`` instead of building a second
+/// environment.
 ///
 /// The CLI is usually spawned by the app, and an app launched from Finder
 /// inherits a bare `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`). Looking the engine
 /// up with `/usr/bin/env nextflow` therefore fails with exit status 127 even
-/// though Lungfish installed its own copy under the managed conda root. The
-/// engine is resolved the same way the in-process runners do it: the managed
-/// copy wins. ``resolve(executableName:homeDirectory:appIdentity:baseEnvironment:)``
+/// though Lungfish installed its own copy under the managed conda root, so the
+/// managed copy wins. ``resolve(executableName:homeDirectory:appIdentity:baseEnvironment:isExecutable:)``
 /// still describes a `PATH` lookup when the managed copy is absent, for
-/// availability probes and runtime evidence; the CLI launches only through
-/// ``resolveManaged(executableName:homeDirectory:appIdentity:baseEnvironment:)``,
+/// availability probes and runtime evidence. Every launch goes through
+/// ``resolveManaged(executableName:homeDirectory:appIdentity:baseEnvironment:isExecutable:)``,
 /// which refuses that fallback. Either way the environment is widened so the
 /// engine and the tasks it spawns can find the managed conda tools and Docker
-/// Desktop's CLI.
+/// Desktop's CLI, and a managed engine gets its bundled JDK as `JAVA_HOME`.
 public struct WorkflowEngineLaunch: Equatable, Sendable {
     /// The process to execute: the managed engine, or `/usr/bin/env` for a PATH lookup.
     public let executableURL: URL
@@ -52,12 +59,41 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
         return nil
     }
 
+    /// This launch with caller-stated changes to its environment.
+    ///
+    /// Names in `unset` are removed first, then `set` adds or replaces
+    /// variables, so a name in both ends up set. The executable and arguments
+    /// are unchanged. TaxTriage states its profile settings this way, on top of
+    /// the shared environment rather than in a copy of it.
+    public func overridingEnvironment(
+        set values: [String: String] = [:],
+        unset names: Set<String> = []
+    ) -> WorkflowEngineLaunch {
+        var environment = self.environment
+        for name in names {
+            environment.removeValue(forKey: name)
+        }
+        for (name, value) in values {
+            environment[name] = value
+        }
+        return WorkflowEngineLaunch(
+            executableURL: executableURL,
+            argumentPrefix: argumentPrefix,
+            environment: environment
+        )
+    }
+
     /// Resolves the launch for an engine named after its managed conda environment.
+    ///
+    /// - Parameter isExecutable: The file probe that decides whether the
+    ///   managed engine and its bundled JDK exist. Tests pass their own to
+    ///   describe a Mac with or without a JDK, whatever this machine has.
     public static func resolve(
         executableName: String,
         homeDirectory: URL,
         appIdentity: LungfishAppIdentity = .current,
-        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        isExecutable: (String) -> Bool = FileManager.default.isExecutableFile(atPath:)
     ) -> WorkflowEngineLaunch {
         let managedExecutable = CoreToolLocator.executableURL(
             environment: executableName,
@@ -65,7 +101,7 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
             homeDirectory: homeDirectory,
             appIdentity: appIdentity
         ).standardizedFileURL
-        let hasManagedExecutable = FileManager.default.isExecutableFile(atPath: managedExecutable.path)
+        let hasManagedExecutable = isExecutable(managedExecutable.path)
 
         let condaRoot = CoreToolLocator.condaRoot(homeDirectory: homeDirectory, appIdentity: appIdentity).standardizedFileURL
         var toolPaths: [String] = []
@@ -97,7 +133,7 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
                 .deletingLastPathComponent()
                 .appendingPathComponent("lib/jvm", isDirectory: true)
             let bundledJava = jvmHome.appendingPathComponent("bin/java")
-            if FileManager.default.isExecutableFile(atPath: bundledJava.path) {
+            if isExecutable(bundledJava.path) {
                 environment["JAVA_HOME"] = jvmHome.path
             }
         }
@@ -123,8 +159,8 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
         )
     }
 
-    /// The launch `lungfish-cli workflow run` actually uses: Lungfish's
-    /// managed copy of the engine, never a copy found on `PATH`.
+    /// The launch every engine start uses: Lungfish's managed copy of the
+    /// engine, never a copy found on `PATH`.
     ///
     /// A `PATH` fallback (`~/miniforge3/bin/nextflow`, say) is a different,
     /// unpinned version; nf-core/viralrecon then failed deep inside Nextflow
@@ -132,19 +168,22 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
     /// managed engine was simply missing from this tool root (the Debug
     /// channel's `~/.lungfish-debug`, for instance). The missing engine is a
     /// ``MissingToolError``, so the CLI exits with the documented status 126
-    /// and names Required Setup. ``resolve(executableName:homeDirectory:appIdentity:baseEnvironment:)``
+    /// and names Required Setup. In-process callers report it as their own
+    /// "not installed" error. ``resolve(executableName:homeDirectory:appIdentity:baseEnvironment:isExecutable:)``
     /// keeps the fallback for availability probes and runtime evidence only.
     public static func resolveManaged(
         executableName: String,
         homeDirectory: URL,
         appIdentity: LungfishAppIdentity = .current,
-        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        isExecutable: (String) -> Bool = FileManager.default.isExecutableFile(atPath:)
     ) throws -> WorkflowEngineLaunch {
         let launch = resolve(
             executableName: executableName,
             homeDirectory: homeDirectory,
             appIdentity: appIdentity,
-            baseEnvironment: baseEnvironment
+            baseEnvironment: baseEnvironment,
+            isExecutable: isExecutable
         )
         guard launch.usesManagedExecutable else {
             throw WorkflowEngineNotInstalled(

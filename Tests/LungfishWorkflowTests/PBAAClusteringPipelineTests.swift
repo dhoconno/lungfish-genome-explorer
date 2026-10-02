@@ -3,22 +3,23 @@ import LungfishCore
 @testable import LungfishWorkflow
 
 final class PBAAClusteringPipelineTests: XCTestCase {
-    func testProcessRunnerUsesIdentityAwareNextflowHome() {
+    func testProcessRunnerUsesIdentityAwareNextflowHome() throws {
         let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
-        let executable = URL(fileURLWithPath: "/tmp/nextflow")
+        // Every channel's tool root has a managed Nextflow in this probe.
+        let managedNextflowExists: (String) -> Bool = { $0.hasSuffix("/envs/nextflow/bin/nextflow") }
 
-        let stable = ProcessPBAANextflowRunner(
+        let stable = try XCTUnwrap(ProcessPBAANextflowRunner(
             homeDirectoryProvider: { home },
             appIdentity: .stable
-        ).nextflowExecutionEnvironment(for: executable)
-        let preview = ProcessPBAANextflowRunner(
+        ).nextflowLaunch(isExecutable: managedNextflowExists)).environment
+        let preview = try XCTUnwrap(ProcessPBAANextflowRunner(
             homeDirectoryProvider: { home },
             appIdentity: .preview
-        ).nextflowExecutionEnvironment(for: executable)
-        let debug = ProcessPBAANextflowRunner(
+        ).nextflowLaunch(isExecutable: managedNextflowExists)).environment
+        let debug = try XCTUnwrap(ProcessPBAANextflowRunner(
             homeDirectoryProvider: { home },
             appIdentity: .debug
-        ).nextflowExecutionEnvironment(for: executable)
+        ).nextflowLaunch(isExecutable: managedNextflowExists)).environment
 
         XCTAssertEqual(stable["NXF_HOME"], "/Users/example/.nextflow")
         XCTAssertEqual(preview["NXF_HOME"], "/Users/example/.nextflow")

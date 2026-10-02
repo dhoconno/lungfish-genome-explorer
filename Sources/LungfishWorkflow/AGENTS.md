@@ -53,7 +53,7 @@ Target LungfishWorkflowTests in Tests/LungfishWorkflowTests, with subfolders tha
 
 | Trap | Evidence |
 |---|---|
-| Nextflow environments are built four ways. TaxTriage and NextflowRunner set no JAVA_HOME, and PBAA runs `/usr/bin/env which nextflow` | TaxTriage/TaxTriagePipeline.swift lines 1500 to 1562, Engines/NextflowRunner.swift lines 240 to 250, PBAA/PBAAClusteringPipeline.swift line 552 (R7) |
+| Every Nextflow start takes its executable and environment from `WorkflowEngineLaunch`. It puts the managed engine's bin first on PATH, sets JAVA_HOME to the engine's bundled JDK and sets NXF_HOME for the app channel. A start needs the managed engine (`resolveManaged`), so a Nextflow found on PATH never runs. A caller adds its own settings with `overridingEnvironment` and never builds a second environment, as TaxTriage does for its micromamba root and conda profile. Hand-built environments once left out JAVA_HOME, and Nextflow then fails on a Mac without a system JDK | WorkflowEngineLaunch.swift, `buildLaunchEnvironment` in TaxTriage/TaxTriagePipeline.swift, `nextflowLaunch` in PBAA/PBAAClusteringPipeline.swift and Engines/NextflowRunner.swift, `getEngineVersion` in WorkflowRunner.swift (R7) |
 | `CondaManager.runTool` has a 3600 s default timeout and different PATH rules from `NativeToolRunner` | Conda/CondaManager.swift line 1118 (R2, R17) |
 | Shelling out to a tool macOS does not ship | Bundles/ReferenceSourcePreparer.swift line 227 runs `zstd` (R7) |
 | Mapper indexes are rebuilt per run inside the output folder | Mapping/ManagedMappingPipeline.swift lines 521 to 539 (R17) |
