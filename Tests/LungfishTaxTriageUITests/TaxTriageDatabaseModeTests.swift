@@ -46,6 +46,14 @@ private final class RecordingEvidenceViewer: NSObject, ClassifierAlignmentViewer
     func clear() {}
 }
 
+/// A project-window stand-in that owns a scope, so a viewport shown in its window
+/// accepts window events that carry it. LungfishKitTestSupport has the shared copy,
+/// but this test target does not link it.
+@MainActor
+private final class ProjectWindowStandIn: NSWindowController, WindowStateScopeOwner {
+    let windowStateScope = WindowStateScope()
+}
+
 @MainActor
 final class TaxTriageDatabaseModeTests: XCTestCase {
 
@@ -398,9 +406,14 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        // The viewport observes the sample selection of the project window that shows it.
+        let projectWindow = ProjectWindowStandIn(window: window)
         window.contentViewController = vc
         window.orderFront(nil)
-        defer { window.orderOut(nil) }
+        defer {
+            window.orderOut(nil)
+            withExtendedLifetime(projectWindow) {}
+        }
         vc.configureFromDatabase(fixture.database, resultURL: fixture.root)
         window.layoutIfNeeded()
         fixture.waitForRows(vc) { $0.count == 4 }
@@ -434,14 +447,22 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
 
         // Untick sample-2 in the Inspector Sample Filter.
         vc.samplePickerState.selectedSamples = ["sample-1"]
-        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+        NotificationCenter.default.post(
+            name: .metagenomicsSampleSelectionChanged,
+            object: nil,
+            userInfo: ScopedEventFilter.scopedUserInfo(scope: projectWindow.windowStateScope)
+        )
         fixture.waitForRows(vc) { rows in !rows.isEmpty && rows.allSatisfy { $0.sample == "sample-1" } }
         try selectAndAssert(sample: "sample-1", organism: "Beta virus", contig: "NC_1002", "after unticking a sample")
         try selectAndAssert(sample: "sample-1", organism: "Alpha virus", contig: "NC_1001", "after reselecting a row")
 
         // Tick it again.
         vc.samplePickerState.selectedSamples = ["sample-1", "sample-2"]
-        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+        NotificationCenter.default.post(
+            name: .metagenomicsSampleSelectionChanged,
+            object: nil,
+            userInfo: ScopedEventFilter.scopedUserInfo(scope: projectWindow.windowStateScope)
+        )
         fixture.waitForRows(vc) { $0.count == 4 }
         try selectAndAssert(sample: "sample-2", organism: "Gamma virus", contig: "NC_2001", "after ticking it again")
 
