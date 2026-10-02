@@ -99,85 +99,79 @@ extension InspectorViewController {
         }
 
         let cliArguments = CLIVariantCallingRunner.buildCLIArguments(request: request)
-        let cliCommand = OperationCenter.buildCLICommand(
-            subcommand: "variants",
-            args: Array(cliArguments.dropFirst())
-        )
-        let operationTitle = "Calling variants with \(state.selectedCaller.displayName)"
         let shouldReloadMappingViewer = (parent as? MainSplitViewController)?
             .viewerController
             .activeMappingViewportController != nil
-        let opID = OperationCenter.shared.start(
-            title: operationTitle,
+        Self.beginVariantCallingOperation(
+            title: "Calling variants with \(state.selectedCaller.displayName)",
             detail: "Preparing \(state.selectedCaller.displayName)...",
-            operationType: .variantCalling,
-            targetBundleURL: bundleURL,
-            cliCommand: cliCommand,
+            bundleURL: bundleURL,
+            cliArguments: cliArguments,
             routeContext: operationRouteContext(for: bundleURL)
-        )
+        ) { opID in
+            let runner = CLIVariantCallingRunner()
 
-        let runner = CLIVariantCallingRunner()
-
-        let task = Task(priority: .userInitiated) { [weak self] in
-            do {
-                let result = try await runner.run(arguments: cliArguments) { event in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            Self.applyVariantCallingEvent(event, operationID: opID)
-                        }
-                    }
-                }
-
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        let detail = result.trackName.map { "Created variant track \($0)" }
-                            ?? "Variant calling complete"
-                        guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
-                        if let self, let split = self.parent as? MainSplitViewController {
-                            split.sidebarController.requestReloadFromFilesystem()
-                            do {
-                                if shouldReloadMappingViewer {
-                                    try split.viewerController.reloadMappingViewerBundleIfDisplayed()
-                                } else {
-                                    try split.viewerController.displayBundle(at: bundleURL)
-                                }
-                            } catch {
-                                self.presentSimpleAlert(
-                                    title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Variant Calling Reload Failed",
-                                    message: "Variant calling completed, but the bundle could not be reloaded: \(error.localizedDescription)"
-                                )
+            let task = Task(priority: .userInitiated) { [weak self] in
+                do {
+                    let result = try await runner.run(arguments: cliArguments) { event in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                Self.applyVariantCallingEvent(event, operationID: opID)
                             }
                         }
                     }
-                }
-            } catch is CancellationError {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
+
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            let detail = result.trackName.map { "Created variant track \($0)" }
+                                ?? "Variant calling complete"
+                            guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
+                            if let self, let split = self.parent as? MainSplitViewController {
+                                split.sidebarController.requestReloadFromFilesystem()
+                                do {
+                                    if shouldReloadMappingViewer {
+                                        try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                                    } else {
+                                        try split.viewerController.displayBundle(at: bundleURL)
+                                    }
+                                } catch {
+                                    self.presentSimpleAlert(
+                                        title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Variant Calling Reload Failed",
+                                        message: "Variant calling completed, but the bundle could not be reloaded: \(error.localizedDescription)"
+                                    )
+                                }
+                            }
+                        }
                     }
-                }
-            } catch {
-                let message = error.localizedDescription
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.fail(
-                            id: opID,
-                            detail: message,
-                            errorMessage: message
-                        ) else { return }
-                        self?.presentSimpleAlert(
-                            title: "Variant Calling Failed",
-                            message: message
-                        )
+                } catch is CancellationError {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
+                        }
+                    }
+                } catch {
+                    let message = error.localizedDescription
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.fail(
+                                id: opID,
+                                detail: message,
+                                errorMessage: message
+                            ) else { return }
+                            self?.presentSimpleAlert(
+                                title: "Variant Calling Failed",
+                                message: message
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        OperationCenter.shared.setCancelCallback(for: opID) {
-            task.cancel()
-            Task {
-                await runner.cancel()
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                task.cancel()
+                Task {
+                    await runner.cancel()
+                }
             }
         }
     }
@@ -190,97 +184,162 @@ extension InspectorViewController {
         outputTrackName: String,
         displayName: String
     ) {
-        let commandPreview = request.commands.map(\.shellCommand).joined(separator: " && ")
-        let operationTitle = "Calling variants with \(displayName)"
         let shouldReloadMappingViewer = (parent as? MainSplitViewController)?
             .viewerController
             .activeMappingViewportController != nil
-        let opID = OperationCenter.shared.start(
-            title: operationTitle,
+        Self.beginGATKVariantCallingOperation(
+            title: "Calling variants with \(displayName)",
             detail: "Running \(displayName)...",
-            operationType: .variantCalling,
-            targetBundleURL: bundleURL,
-            cliCommand: commandPreview,
+            bundleURL: bundleURL,
+            request: request,
             routeContext: operationRouteContext(for: bundleURL)
-        )
+        ) { opID in
+            let task = Task(priority: .userInitiated) { [weak self] in
+                do {
+                    let executor = GATKPipelineExecutor(runner: ManagedGATKCommandRunner())
+                    let result = try await executor.run(request)
 
-        let task = Task(priority: .userInitiated) { [weak self] in
-            do {
-                let executor = GATKPipelineExecutor(runner: ManagedGATKCommandRunner())
-                let result = try await executor.run(request)
-
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.updateWithLog(
-                            id: opID,
-                            progress: 0.75,
-                            detail: "Attaching GATK variants to bundle..."
-                        )
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.updateWithLog(
+                                id: opID,
+                                progress: 0.75,
+                                detail: "Attaching GATK variants to bundle..."
+                            )
+                        }
                     }
-                }
 
-                let outputVCFURL = try Self.primaryGATKVCFOutputURL(from: request)
-                let attachment = try await GATKBundleVariantAttachmentService().attach(
-                    request: GATKBundleVariantAttachmentRequest(
-                        bundleURL: bundleURL,
-                        alignmentTrackID: alignmentTrackID,
-                        outputTrackID: outputTrackID,
-                        outputTrackName: outputTrackName.isEmpty ? displayName : outputTrackName,
-                        outputVCFURL: outputVCFURL,
-                        executionProvenanceURL: result.provenanceURL,
-                        executionRequest: request
+                    let outputVCFURL = try Self.primaryGATKVCFOutputURL(from: request)
+                    let attachment = try await GATKBundleVariantAttachmentService().attach(
+                        request: GATKBundleVariantAttachmentRequest(
+                            bundleURL: bundleURL,
+                            alignmentTrackID: alignmentTrackID,
+                            outputTrackID: outputTrackID,
+                            outputTrackName: outputTrackName.isEmpty ? displayName : outputTrackName,
+                            outputVCFURL: outputVCFURL,
+                            executionProvenanceURL: result.provenanceURL,
+                            executionRequest: request
+                        )
                     )
-                )
 
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "Created variant track \(attachment.trackInfo.name)"
-                        ) else { return }
-                        if let self, let split = self.parent as? MainSplitViewController {
-                            split.sidebarController.requestReloadFromFilesystem()
-                            do {
-                                if shouldReloadMappingViewer {
-                                    try split.viewerController.reloadMappingViewerBundleIfDisplayed()
-                                } else {
-                                    try split.viewerController.displayBundle(at: bundleURL)
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.complete(
+                                id: opID,
+                                detail: "Created variant track \(attachment.trackInfo.name)"
+                            ) else { return }
+                            if let self, let split = self.parent as? MainSplitViewController {
+                                split.sidebarController.requestReloadFromFilesystem()
+                                do {
+                                    if shouldReloadMappingViewer {
+                                        try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                                    } else {
+                                        try split.viewerController.displayBundle(at: bundleURL)
+                                    }
+                                } catch {
+                                    self.presentSimpleAlert(
+                                        title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Variant Calling Reload Failed",
+                                        message: "GATK completed, but the bundle could not be reloaded: \(error.localizedDescription)"
+                                    )
                                 }
-                            } catch {
-                                self.presentSimpleAlert(
-                                    title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Variant Calling Reload Failed",
-                                    message: "GATK completed, but the bundle could not be reloaded: \(error.localizedDescription)"
-                                )
                             }
                         }
                     }
-                }
-            } catch is CancellationError {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
+                } catch is CancellationError {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
+                        }
                     }
-                }
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.fail(
-                            id: opID,
-                            detail: error.localizedDescription,
-                            errorMessage: error.localizedDescription
-                        ) else { return }
-                        self?.presentSimpleAlert(
-                            title: "GATK Variant Calling Failed",
-                            message: error.localizedDescription
-                        )
+                } catch {
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.fail(
+                                id: opID,
+                                detail: error.localizedDescription,
+                                errorMessage: error.localizedDescription
+                            ) else { return }
+                            self?.presentSimpleAlert(
+                                title: "GATK Variant Calling Failed",
+                                message: error.localizedDescription
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        OperationCenter.shared.setCancelCallback(for: opID) {
-            task.cancel()
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                task.cancel()
+            }
         }
+    }
+
+    /// Registers the variant-calling row and, only when it starts, calls
+    /// `launch` with the operation ID. The row locks `bundleURL` and records
+    /// the `lungfish-cli variants call` command built from `cliArguments`,
+    /// the argv the runner executes.
+    @discardableResult
+    static func beginVariantCallingOperation(
+        title: String,
+        detail: String,
+        bundleURL: URL,
+        cliArguments: [String],
+        routeContext: OperationRouteContext?,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: title,
+            detail: detail,
+            operationType: .variantCalling,
+            targetBundleURL: bundleURL,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "variants",
+                args: Array(cliArguments.dropFirst())
+            ),
+            routeContext: routeContext
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
+    }
+
+    /// Registers the GATK variant-calling row and, only when it starts, calls
+    /// `launch` with the operation ID. The row locks `bundleURL`.
+    ///
+    /// CLI parity gap. `lungfish-cli gatk haplotype-caller --execute` runs the
+    /// GATK step, but no CLI command attaches the VCF to the bundle, and the
+    /// pipeline runs in the app process (finding R3). The row keeps recording
+    /// the GATK commands joined by `&&` until a CLI command covers the run.
+    @discardableResult
+    static func beginGATKVariantCallingOperation(
+        title: String,
+        detail: String,
+        bundleURL: URL,
+        request: GATKPipelineExecutionRequest,
+        routeContext: OperationRouteContext?,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: title,
+            detail: detail,
+            operationType: .variantCalling,
+            targetBundleURL: bundleURL,
+            cliCommand: request.commands.map(\.shellCommand).joined(separator: " && "),
+            routeContext: routeContext
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
     }
 
     private static func primaryGATKVCFOutputURL(

@@ -121,30 +121,36 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
         )
     }
 
-    func testStartFilteredAlignmentWorkflowOperationLocksBundleUntilCompletion() {
+    func testBeginFilteredAlignmentWorkflowOperationLocksBundleUntilCompletion() throws {
         let bundleURL = URL(fileURLWithPath: "/tmp/filter-running-fixture.lungfishref", isDirectory: true)
+        let center = OperationCenter()
+        var launchedID: UUID?
 
-        let operationID = InspectorViewController.startFilteredAlignmentWorkflowOperation(
+        InspectorViewController.beginFilteredAlignmentWorkflowOperation(
             bundleURL: bundleURL,
-            outputTrackName: "Exact Matches"
-        )
-        defer {
-            _ = OperationCenter.shared.fail(id: operationID, detail: "Cancelled for test cleanup")
-        }
+            serviceTarget: .bundle(bundleURL),
+            request: AlignmentFilterInspectorLaunchRequest(
+                sourceTrackID: "aln-1",
+                outputTrackName: "Exact Matches",
+                filterRequest: AlignmentFilterRequest(identityFilter: .exactMatch)
+            ),
+            reporter: center
+        ) { launchedID = $0 }
+        let operationID = try XCTUnwrap(launchedID, "a free bundle must start and launch")
 
-        XCTAssertFalse(OperationCenter.shared.canStartOperation(on: bundleURL))
+        XCTAssertFalse(center.canStartOperation(on: bundleURL))
         XCTAssertEqual(
-            OperationCenter.shared.activeLockHolder(for: bundleURL)?.title,
+            center.activeLockHolder(for: bundleURL)?.title,
             "Create Filtered Alignment Track"
         )
 
-        _ = OperationCenter.shared.complete(
+        _ = center.complete(
             id: operationID,
             detail: "Created filtered alignment track \"Exact Matches\"."
         )
 
-        XCTAssertTrue(OperationCenter.shared.canStartOperation(on: bundleURL))
-        XCTAssertNil(OperationCenter.shared.activeLockHolder(for: bundleURL))
+        XCTAssertTrue(center.canStartOperation(on: bundleURL))
+        XCTAssertNil(center.activeLockHolder(for: bundleURL))
     }
 
     func testApplyFilteredAlignmentSuccessFocusesAnalysisFilteringSection() {

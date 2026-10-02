@@ -16,8 +16,8 @@ The table follows the calls in order. Every file was read for this trace. Line n
 | 2. Eligibility and lock pre-check | `presentVariantCallingDialog` asks `BAMVariantCallingEligibility` for analysis-ready BAM tracks, checks `OperationCenter.shared.canStartOperation(on:)`, then presents the dialog. | `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` and `Sources/LungfishApp/Views/BAM/BAMVariantCallingEligibility.swift` |
 | 3. Dialog | `BAMVariantCallingDialogPresenter` shows the sheet. `BAMVariantCallingDialogState` collects choices and exposes `pendingRequest`, a `BundleVariantCallingRequest`. | `Sources/LungfishApp/Views/BAM/BAMVariantCallingDialogPresenter.swift` and `Sources/LungfishApp/Views/BAM/BAMVariantCallingDialogState.swift` |
 | 4. Request type | `BundleVariantCallingRequest` is a plain `Sendable` value owned by Workflow, so the GUI and the CLI describe a run with the same type. | `Sources/LungfishWorkflow/Variants/BundleVariantCallingModels.swift` |
-| 5. argv and command string | `launchVariantCallingOperation(state:)` builds argv once with `CLIVariantCallingRunner.buildCLIArguments(request:)` and builds the displayed command from that same array with `OperationCenter.buildCLICommand(subcommand:args:)`. | `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` and `Sources/LungfishApp/Services/CLIVariantCallingRunner.swift` |
-| 6. Operations panel row | The launcher registers the row with `OperationCenter.shared.start(title:detail:operationType:targetBundleURL:cliCommand:routeContext:)`, passing `.variantCalling` and the bundle as lock target. This is the deprecated `start`, guarded by the hand-written pre-check in step 2 (see the gaps below). | `Sources/LungfishKit/OperationCenter.swift` |
+| 5. argv and command string | `launchVariantCallingOperation(state:)` builds argv once with `CLIVariantCallingRunner.buildCLIArguments(request:)` and passes that array to `beginVariantCallingOperation`, which builds the displayed command from it with `OperationCenter.buildCLICommand(subcommand:args:)`. | `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` and `Sources/LungfishApp/Services/CLIVariantCallingRunner.swift` |
+| 6. Operations panel row | `beginVariantCallingOperation(title:detail:bundleURL:cliArguments:routeContext:reporter:launch:)` calls `begin` on an `OperationReporting`, passing `.variantCalling`, the bundle as lock target and the command. It calls its `launch` closure only when the row started, and that closure creates the runner. The pre-check in step 2 stays as the friendly alert. | `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` and `Sources/LungfishKit/OperationReporting.swift` |
 | 7. Subprocess | `CLIVariantCallingRunner.run(arguments:onEvent:)` hands argv to `CLISubprocessTransport.run(arguments:isCancelled:onEvent:)`, which finds the binary through `CLIBinaryLocator`, launches it with the managed storage environment, and decodes each stdout line as a `CLIEvent`. | `Sources/LungfishKit/CLISubprocessTransport.swift` and `Sources/LungfishKit/CLIBinaryLocator.swift` |
 | 8. Event schema | `CLIEvent` has six cases (`start`, `progress`, `log`, `output`, `complete`, `failed`). The transport folds `complete` into its return value and `failed` into a thrown error, so a caller cannot forget either. | `Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift` |
 | 9. Progress into the panel | The launcher's `onEvent` closure hops to the main thread with `DispatchQueue.main.async` and `MainActor.assumeIsolated`, then `applyVariantCallingEvent(_:operationID:)` calls both `OperationCenter.shared.update` and `OperationCenter.shared.log`. | `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` |
@@ -37,6 +37,7 @@ The table follows the calls in order. Every file was read for this trace. Line n
 |---|---|
 | `Tests/LungfishAppTests/CLIVariantCallingRunnerTests.swift` | argv construction per caller, completion parsing, cancel kills the process tree |
 | `Tests/LungfishAppTests/CLIRunnerArgvRoundTripTests.swift` | the argv the GUI runs and displays also parses through the real `CallSubcommand` |
+| `Tests/LungfishAppTests/InspectorVariantWorkflowOperationTests.swift` | a held bundle lock refuses the row and launches nothing, and the recorded command parses through the real CLI parser with the run's values |
 | `Tests/LungfishAppTests/BAMVariantCallingDialogRoutingTests.swift` | the dialog routes to the right launcher |
 | `Tests/LungfishCLITests/VariantsCommandTests.swift` and `Tests/LungfishCLITests/VariantsCallAlignmentTrackResolutionTests.swift` | CLI options, event stream and track resolution |
 | `Tests/LungfishWorkflowTests/Variants/ViralVariantCallingPipelineTests.swift` and `Tests/LungfishWorkflowTests/Variants/BundleVariantTrackAttachmentServiceTests.swift` | the pipeline and the bundle write, including provenance |
@@ -44,11 +45,10 @@ The table follows the calls in order. Every file was read for this trace. Line n
 
 ### Where today's path falls short of the rules
 
-Variant calling is the recommended example because its layering is right. It still has three gaps, and a new operation must not copy them.
+Variant calling is the recommended example because its layering is right. It still has two gaps, and a new operation must not copy them.
 
 | Gap | Rule it breaks | Copy this instead |
 |---|---|---|
-| It calls the deprecated `OperationCenter.shared.start` with a bundle target and relies on a separate `canStartOperation` pre-check. `scripts/ratchets/unchecked-operation-start.sh` counts such sites. | Rule 1 | `runIQTreeInferenceViaCLI` in `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift` calls `begin` and switches on `.started` before creating `CLITreeRunner` |
 | Its `onEvent` closure and `applyVariantCallingEvent` repeat the event-to-panel mapping by hand. | Rule 8 | `OperationCenterCLIBridge.onEvent(operationID:)` in `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift`, used by `Sources/LungfishApp/Services/CLITreeRunner.swift` |
 | It writes the legacy `WorkflowRun` sidecar shape, not a `ProvenanceEnvelope`. | Rule 6 | `CLIProvenanceSupport.recordSingleStepRun` in `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift`, which builds with `ProvenanceRunBuilder` and writes with `ProvenanceWriter` |
 
@@ -98,8 +98,8 @@ Each rule is a requirement. A reviewer rejects a change that breaks one. The col
 
 | Rule | Requirement | Reference |
 |---|---|---|
-| 1. `begin`, never `start` | Register the row with `OperationCenter.shared.begin(...)`, switch on the result, and launch nothing (no subprocess, no bundle write) unless it is `.started`. The `.refused` case already shows a visible "Bundle is busy" row. | `begin` in `Sources/LungfishKit/OperationCenter.swift`, `runIQTreeInferenceViaCLI` in `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift` |
-| 2. Type and command always passed | Pass an explicit `operationType` and a non-nil `cliCommand` on every call. Both still have defaults (`.download` and `nil`), so the compiler will not catch an omission. Build `cliCommand` with `OperationCenter.buildCLICommand(subcommand:args:)` from the exact argv array you execute, and add an `OperationType` case if none fits. | `OperationType` and `buildCLICommand` in `Sources/LungfishKit/OperationCenter.swift` |
+| 1. `begin`, never `start` | Register the row with `begin` on an `OperationReporting`, which production code defaults to `OperationCenter.shared`. Switch on the result, and launch nothing (no subprocess, no bundle write) unless it is `.started`. The `.refused` case already shows a visible "Bundle is busy" row. Put the call in a begin helper with a launch closure, as "Migrating a start() site to begin()" below describes, so a test can check it. | `Sources/LungfishKit/OperationReporting.swift`, `beginVariantCallingOperation` in `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` |
+| 2. Type and command always passed | Pass an explicit `operationType` and a non-nil `cliCommand` on every call. The `begin` that `OperationReporting` adds has no default for either, so the compiler catches an omission there. The `OperationCenter` methods keep their defaults (`.download` and `nil`) until Phase 1 removes them. Build `cliCommand` with `OperationCenter.buildCLICommand(subcommand:args:)` from the exact argv array you execute, and add an `OperationType` case if none fits. | `OperationType` and `buildCLICommand` in `Sources/LungfishKit/OperationCenter.swift` |
 | 3. Lock scope declared | Pass the bundle the operation writes as `targetBundleURL` (exact lock). Pass every other bundle it writes, or whose contents must not change mid-run, in `additionalLockedBundleURLs` (whole-tree lock). An operation that writes no bundle says so in review. | `insertOperation` in `Sources/LungfishKit/OperationCenter.swift` |
 | 4. Analysis directory created without `try?` | Create an `Analyses/` result folder with `AnalysesFolder.createAnalysisDirectory(tool:in:isBatch:date:command:)` inside a `do` block and fail the operation when it throws. A `try?` hides the error and the run writes somewhere unexpected. On failure or cancel, call `AnalysesFolder.discardFailedAnalysisDirectory`. | `Sources/LungfishIO/Bundles/AnalysesFolder.swift`, called through `MappingResultLayoutService.createAnalysisDirectory` in `Sources/LungfishCLI/Commands/MapCommand.swift` |
 | 5. Analysis directory tracked and completed | The CLI or Workflow producer calls `AnalysesFolder.markAnalysisComplete` as its last successful step. The GUI launcher calls `OperationCenter.shared.trackAnalysisOutput(_:for:)` for the folder. Without both, the run record stays and the sidebar hides the result. | `Sources/LungfishCLI/Commands/MapCommand.swift`, `trackAnalysisOutput` in `Sources/LungfishKit/OperationCenter.swift`, `Sources/LungfishCore/Services/AnalysisRunRecord.swift` |
@@ -148,6 +148,111 @@ A new operation named Foo that writes an `Analyses/` folder touches these places
 ### Where a new domain goes
 
 Today a new domain is a folder under `Sources/LungfishWorkflow/`, beside Mapping, Variants and TwelveS. Phase 4d of `docs/plans/2026-10-02-architecture-program.md` splits LungfishWorkflow into a core target and domain targets and creates an empty LungfishRNASeq target. Domain code moves into its target when that target exists. RNA-seq work waits for the Phase 5 prerequisites listed in "Prerequisites that must exist first" in `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`.
+
+## Migrating a start() site to begin()
+
+Phase 1 moves every `OperationCenter.start` call to `begin`. Lane 1a.1 migrated ten sites in five files, and the table at the end of this section names the one to copy for each shape of site. Each migrated site gets a begin helper, a launch closure and two kinds of test.
+
+### 1. Write a begin helper
+
+Add a static function on the type that owns the launch site, named `begin<Name>Operation`. It takes the values the run uses, then `reporter` and `launch`. It registers the row and calls `launch` only when the row started.
+
+```swift
+@discardableResult
+static func beginPrimerTrimOperation(
+    title: String,
+    bundleURL: URL,
+    cliArguments: [String],
+    routeContext: OperationRouteContext?,
+    reporter: any OperationReporting = OperationCenter.shared,
+    launch: (UUID) -> Void
+) -> OperationStartResult {
+    let result = reporter.begin(
+        title: title,
+        detail: "Preparing primer trim...",
+        operationType: .bamPrimerTrim,
+        targetBundleURL: bundleURL,
+        cliCommand: OperationCenter.buildCLICommand(
+            subcommand: "bam primer-trim",
+            args: Array(cliArguments.dropFirst(2))
+        ),
+        routeContext: routeContext
+    )
+    switch result {
+    case .started(let operationID):
+        launch(operationID)
+    case .refused:
+        break // The panel already shows the refused row. Nothing was launched.
+    }
+    return result
+}
+```
+
+| Helper rule | Reason |
+|---|---|
+| Name `operationType` and `cliCommand` in the call. Keep today's operation type, title, detail and `routeContext`. | The protocol's `begin` has no default for type or command, and a changed panel label is a behaviour change. |
+| Keep exactly the lock targets the site declares today, in `targetBundleURL` and `additionalLockedBundleURLs`. Add none and remove none. | Lock scope is a reviewed decision (Rule 3). |
+| Build `cliCommand` inside the helper from the same values the run uses, with the existing builder. | The helper's tests then cover the builder too. |
+| Call `launch` only for `.started`. | A refused row launches nothing and changes nothing. |
+| Default `reporter` to `OperationCenter.shared`. | Production call sites stay short, and tests pass their own reporter. |
+
+`scripts/ratchets/file-size.sh` lets no file listed in `scripts/ratchets/file-size.baseline` grow, and no other Swift file pass 800 lines. Keep the helper beside its launch site only when that file is not in the baseline and stays at or under 800 lines. Otherwise put it in a sibling file in the same folder named `<Type>+OperationBegin.swift`. One sibling can hold the helpers of several launch-site files of its type. `InspectorViewController+OperationBegin.swift` holds the primer-trim, filter and annotation helpers for the baselined `InspectorViewController+TrimDuplicateWorkflows.swift`, while the variant-calling helpers stay in `InspectorViewController+VariantWorkflow.swift`, which is not baselined. Batches that run at the same time never create the same new file, so when another running batch also migrates sites of your type, name the sibling after your launch-site file, `<Type>+<Feature>OperationBegin.swift` for `<Type>+<Feature>.swift`. The helper call is shorter than the `start` call and command building it replaces, so the launch-site file shrinks. Lower the baseline with `python3 scripts/ratchets/file-size.sh --update` when your files shrank, and never use it to raise one.
+
+### 2. Move the launch into the closure
+
+At the call site, everything that starts work goes inside the closure. That covers the running flag in the view model, the activity indicator, the `Task`, the runner and `setCancelCallback`. A pre-check that only shows an alert, such as `canStartOperation`, stays before the call. Inside the closure, progress and terminal calls may keep using `OperationCenter.shared`, the object production passes as `reporter`, until the Phase 3 launcher replaces them.
+
+```swift
+Self.beginPrimerTrimOperation(
+    title: "Primer-trimming with \(scheme.manifest.displayName)",
+    bundleURL: bundleURL,
+    cliArguments: cliArguments,
+    routeContext: operationRouteContext(for: bundleURL)
+) { opID in
+    let runner = CLIPrimerTrimRunner()
+    let task = Task(priority: .userInitiated) { /* run, then complete or fail opID */ }
+    OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+}
+```
+
+A call site that must undo its own state on refusal switches on the returned result. `TaxonomyReadExtractionAction` returns its dialog to idle that way. A `var` that the closure hands to a detached task becomes a `let` before the call, or strict concurrency rejects the capture.
+
+An async service entry point that returns a value takes `reporter` as a parameter and sends every report through it. It ends its `begin` call with `.requireStarted()`, which returns the operation ID or throws `OperationRefusedError` on `.refused`. `ReferenceBundleMergeService.merge` is the model.
+
+### 3. Make the command reproduce the run
+
+The recorded command is the `lungfish-cli` invocation built from the configuration the GUI executes. When today's command leaves out a flag the run uses, fix the builder. The Kraken2 BLAST command gained `--result-dir`, and the classifier bundle extraction now names its `-o` file inside the project's Extractions folder, where the app writes the bundle. When no CLI command reproduces the run, keep today's value and name the closest command in the helper's doc comment. The Phase 1 inventory lists these sites as CLI parity gaps. Never invent a command.
+
+### 4. Test the site
+
+Put the tests in Tests/LungfishAppTests, one file per migrated source file, named after it with an `OperationTests` suffix (for example `InspectorVariantWorkflowOperationTests.swift`). The file imports LungfishKitTestSupport for the recording reporter and uses `@testable import LungfishCLI` for the parse. No test touches `OperationCenter.shared`.
+
+| Test | Applies to | How |
+|---|---|---|
+| Refused lock launches nothing | sites that declare a lock | Make a fresh `OperationCenter()` hold the lock through its own `begin`. Pass that center as `reporter` with a launch closure that sets a flag. Assert `.refused` and that the flag is still false. |
+| Recorded row | every site | Call the helper with a `RecordingOperationReporter()`. Assert that the launch closure received the item's ID and that `operationType`, `targetBundleURL` and `additionalLockedBundleURLs` match today's values. |
+| Command parses | sites with a CLI equivalent | `RecordedCLICommand.parse(_:as:)` splits the recorded string, applies the shipped binary's argument normalization and runs `LungfishCLI.parseAsRoot`. Assert that the parsed values equal the run's configuration. |
+| Parity gap pinned | sites with no CLI equivalent | Assert today's `cliCommand` with `XCTAssertEqual` or `XCTAssertNil`, and assert that `RecordedCLICommand.parse` throws. A CLI command added later fails this test, which prompts a parse test in its place. |
+
+A real held lock proves the site declares the lock it should. `RecordingOperationReporter(lockHeldBy:)` refuses every `begin` instead, which suits a site with no lock whose refusal branch still needs a test, such as the merge service's `OperationRefusedError`.
+
+### 5. Check the batch
+
+Run `python3 scripts/ratchets/unchecked-operation-start.sh --print`, and record a lower count with `--update`. Run the new test file and the existing suites for the feature, one `swift test` at a time.
+
+### The exemplar sites
+
+| Shape of site | Model | File |
+|---|---|---|
+| `lungfish-cli` runner with a bundle lock | `beginPrimerTrimOperation` in a sibling file, `beginVariantCallingOperation` beside its launch site | `Sources/LungfishApp/Views/Inspector/InspectorViewController+OperationBegin.swift` and `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` |
+| In-process service with a bundle lock and a new command builder | `beginFilteredAlignmentWorkflowOperation` and `beginMappedReadsAnnotationWorkflowOperation` | `Sources/LungfishApp/Views/Inspector/InspectorViewController+OperationBegin.swift` |
+| Bundle lock with no CLI equivalent | `beginGATKVariantCallingOperation` | `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` |
+| No lock, and the old command missed a flag the run used | `beginKraken2BlastVerificationOperation` | `Sources/LungfishApp/Views/Viewer/ViewerViewController+Taxonomy.swift` |
+| No lock and no CLI equivalent | `beginTaxaCollectionExtractionOperation` | `Sources/LungfishApp/Views/Viewer/ViewerViewController+Taxonomy.swift` |
+| Async service entry point that returns a value | `ReferenceBundleMergeService.merge` with `requireStarted()` | `Sources/LungfishApp/Services/ReferenceBundleMergeService.swift` |
+| Command built by the caller and reused as provenance, with the dialog reset on refusal | `beginExtractionOperation` | `Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction+OperationBegin.swift` |
+
+The protocol is in `Sources/LungfishKit/OperationReporting.swift`, the recording reporter in `Tests/Support/LungfishKitTestSupport/RecordingOperationReporter.swift` and the parse helper in `Tests/LungfishAppTests/RecordedCLICommand.swift`.
 
 ## What changes later in the program
 
