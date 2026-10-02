@@ -50,11 +50,17 @@ struct FASTQPairingOptions: ParsableArguments {
     ///   records by fragment name, which may run pair-aware on a file that
     ///   mixes merged reads with pairs. Positional tools (`interleaved=t`, an
     ///   R1/R2 split) leave it `false` and run mixed input as single reads.
-    func resolvePairing(inputURL: URL, pairsByName: Bool = false) -> FASTQPairingDecision {
+    /// - Parameter metadataFrom: the bundle whose metadata describes
+    ///   `inputURL` when the input is a copy written for this run
+    ///   (``FASTQSubcommandInput/pairingMetadataURL``), the hint the GUI
+    ///   derives its `--pairing` argument from. Nil reads the metadata beside
+    ///   `inputURL` itself.
+    func resolvePairing(inputURL: URL, pairsByName: Bool = false, metadataFrom hintURL: URL? = nil) -> FASTQPairingDecision {
         let decision = FASTQPairingModeResolver.resolvePairing(
             inputURL: inputURL,
             explicit: explicitInterleaved,
-            pairsByName: pairsByName
+            pairsByName: pairsByName,
+            metadataFrom: hintURL
         )
         if let warning = decision.warning {
             FileHandle.standardError.write(Data("Warning: \(warning)\n".utf8))

@@ -608,13 +608,13 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
         XCTAssertEqual(command.input, source.bundleURL.path)
         XCTAssertEqual(command.output.output, payload.path)
 
-        // The fastq subcommands do not open a bundle yet, so the command runs
-        // on the FASTQ the bundle holds, which the derivative read.
+        // The command runs on the bundle it names (lane 1x), and writes the
+        // same bytes the derivative holds.
         let cliOutput = fixture.root.appendingPathComponent("cli-reverse-complement.fastq")
         try await runRecordedCommand(
             toolCommand,
             as: FastqReverseComplementSubcommand.self,
-            replacing: [source.bundleURL.path: source.fastqURL.path, payload.path: cliOutput.path]
+            replacing: [payload.path: cliOutput.path]
         )
         XCTAssertEqual(try Data(contentsOf: cliOutput), try Data(contentsOf: payload))
     }
@@ -639,11 +639,12 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
         XCTAssertEqual(command.frame, 1)
         XCTAssertEqual(command.output.output, payload.path)
 
+        // The command runs on the bundle it names (lane 1x).
         let cliOutput = fixture.root.appendingPathComponent("cli-translate.fasta")
         try await runRecordedCommand(
             toolCommand,
             as: FastqTranslateSubcommand.self,
-            replacing: [source.bundleURL.path: source.fastqURL.path, payload.path: cliOutput.path]
+            replacing: [payload.path: cliOutput.path]
         )
         let run = try fastaRecords(at: payload)
         let cli = try fastaRecords(at: cliOutput)

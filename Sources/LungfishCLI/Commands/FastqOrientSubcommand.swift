@@ -36,9 +36,11 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
     var extraArgs: String = ""
 
     func run() async throws {
-        let inputURL = try validateInput(input)
         let referenceURL = try validateInput(reference)
         try output.validateOutput()
+        let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "orient", contextURL: URL(fileURLWithPath: output.output))
+        defer { resolvedInput.cleanup() }
+        let inputURL = resolvedInput.executionURL
 
         let tabbedOutput = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-orient-\(UUID().uuidString).tsv")
@@ -61,7 +63,7 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
             throw CLIError.conversionFailed(reason: result.stderr)
         }
         let outputURL = URL(fileURLWithPath: output.output)
-        var cliArguments = ["orient", inputURL.path, "--output", output.output, "--reference", referenceURL.path]
+        var cliArguments = ["orient", resolvedInput.originalURL.path, "--output", output.output, "--reference", referenceURL.path]
         if wordLength != 12 {
             cliArguments += ["--word-length", String(wordLength)]
         }
@@ -81,7 +83,7 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish fastq orient",
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(resolvedInput.originalURL),
                 "output": .file(outputURL),
                 "reference": .file(referenceURL),
                 "wordLength": .integer(wordLength),
@@ -105,8 +107,8 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
             toolVersion: toolVersion,
             command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             stepCommand: result.arguments.isEmpty ? [NativeTool.vsearch.executableName] + args : result.arguments,
-            inputs: [
-                ProvenanceRecorder.fileRecord(url: inputURL, format: fileFormat, role: .input),
+            extraSteps: try resolvedInput.materializationSteps(),
+            inputs: try resolvedInput.inputRecords() + [
                 ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)
             ],
             outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: fileFormat, role: .output)],
