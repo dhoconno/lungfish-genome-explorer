@@ -139,7 +139,8 @@ let package = Package(
                 .product(name: "Collections", package: "swift-collections"),
                 .product(name: "Algorithms", package: "swift-algorithms"),
             ],
-            path: "Sources/LungfishCore"
+            path: "Sources/LungfishCore",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishCoreTests",
@@ -156,6 +157,7 @@ let package = Package(
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
             ],
             path: "Sources/LungfishIO",
+            exclude: ["AGENTS.md"],
             resources: [
                 .copy("Resources/GenotypeWorkbook")
             ]
@@ -181,6 +183,7 @@ let package = Package(
                 .product(name: "ContainerizationExtras", package: "containerization"),
             ],
             path: "Sources/LungfishWorkflow",
+            exclude: ["AGENTS.md"],
             resources: [
                 .copy("Resources/Containerization"),
                 .copy("Resources/ManagedTools"),
@@ -216,7 +219,8 @@ let package = Package(
                 "LungfishIO",
                 "LungfishWorkflow",
             ],
-            path: "Sources/LungfishKit"
+            path: "Sources/LungfishKit",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishKitTests",
@@ -233,7 +237,8 @@ let package = Package(
                 "LungfishWorkflow",
                 "LungfishKit",
             ],
-            path: "Sources/LungfishTwelveSUI"
+            path: "Sources/LungfishTwelveSUI",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishTwelveSUITests",
@@ -250,7 +255,8 @@ let package = Package(
                 "LungfishWorkflow",
                 "LungfishKit",
             ],
-            path: "Sources/LungfishAlignmentUI"
+            path: "Sources/LungfishAlignmentUI",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishAlignmentUITests",
@@ -267,7 +273,8 @@ let package = Package(
                 "LungfishWorkflow",
                 "LungfishKit",
             ],
-            path: "Sources/LungfishAssemblyUI"
+            path: "Sources/LungfishAssemblyUI",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishAssemblyUITests",
@@ -284,7 +291,8 @@ let package = Package(
                 "LungfishWorkflow",
                 "LungfishKit",
             ],
-            path: "Sources/LungfishNvdUI"
+            path: "Sources/LungfishNvdUI",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishNvdUITests",
@@ -301,7 +309,8 @@ let package = Package(
                 "LungfishWorkflow",
                 "LungfishKit",
             ],
-            path: "Sources/LungfishNaoMgsUI"
+            path: "Sources/LungfishNaoMgsUI",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishNaoMgsUITests",
@@ -318,7 +327,8 @@ let package = Package(
                 "LungfishWorkflow",
                 "LungfishKit",
             ],
-            path: "Sources/LungfishTaxTriageUI"
+            path: "Sources/LungfishTaxTriageUI",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishTaxTriageUITests",
@@ -335,7 +345,8 @@ let package = Package(
                 "LungfishWorkflow",
                 "LungfishKit",
             ],
-            path: "Sources/LungfishEsVirituUI"
+            path: "Sources/LungfishEsVirituUI",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishEsVirituUITests",
@@ -352,7 +363,8 @@ let package = Package(
                 "LungfishWorkflow",
                 "LungfishKit",
             ],
-            path: "Sources/LungfishGenotypeUI"
+            path: "Sources/LungfishGenotypeUI",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishGenotypeUITests",
@@ -369,7 +381,8 @@ let package = Package(
                 "LungfishWorkflow",
                 "LungfishKit",
             ],
-            path: "Sources/LungfishPhylogeneticsUI"
+            path: "Sources/LungfishPhylogeneticsUI",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishPhylogeneticsUITests",
@@ -396,6 +409,7 @@ let package = Package(
                 "LungfishPhylogeneticsUI",
             ],
             path: "Sources/LungfishApp",
+            exclude: ["AGENTS.md"],
             resources: [
                 .process("Resources/Assets.xcassets"),
                 .copy("Resources/Help"),
@@ -431,6 +445,7 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/Lungfish",
+            exclude: ["AGENTS.md"],
             resources: [
                 .copy("AppIcon.icns"),
             ]
@@ -445,12 +460,14 @@ let package = Package(
                 "LungfishWorkflow",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
-            path: "Sources/LungfishCLI"
+            path: "Sources/LungfishCLI",
+            exclude: ["AGENTS.md"]
         ),
         .executableTarget(
             name: "LungfishCLIExecutable",
             dependencies: ["LungfishCLI"],
-            path: "Sources/LungfishCLIExecutable"
+            path: "Sources/LungfishCLIExecutable",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishCLITests",
