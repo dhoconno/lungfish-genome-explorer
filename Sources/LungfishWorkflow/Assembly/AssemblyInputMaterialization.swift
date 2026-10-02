@@ -89,12 +89,21 @@ public enum AssemblyInputMaterialization {
         )
     }
 
+    /// `originalInputURLs[i]` is the input `executionInputURLs[i]` came from.
+    /// A joined copy of a bundle's files (``SequenceInputConcatenation``) is
+    /// recorded as that bundle, whose checksum covers every file it holds,
+    /// not as its first file or the scratch copy.
     public static func inputRecordsPreservingLineage(
         originalInputURLs: [URL],
         executionInputURLs: [URL]
     ) -> [InputFileRecord] {
         var records: [InputFileRecord] = []
         for (index, originalURL) in originalInputURLs.enumerated() {
+            if executionInputURLs.indices.contains(index),
+               let concatenation = SequenceInputConcatenation.load(for: executionInputURLs[index]) {
+                records.append(bundleAggregateRecord(for: concatenation.bundleURL))
+                continue
+            }
             records.append(contentsOf: originalInputRecords(for: originalURL))
             guard executionInputURLs.indices.contains(index) else { continue }
             let executionURL = executionInputURLs[index].standardizedFileURL

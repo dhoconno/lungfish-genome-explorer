@@ -150,6 +150,39 @@ public extension AssemblyRunRequest {
         }
     }
 
+    /// The layout of a single short-read input once the inputs are resolved,
+    /// by the rule `lungfish-cli assemble` applies, or `nil` when there is
+    /// nothing to resolve (R1/R2 files, a long-read assembler, several pooled
+    /// files). An explicit layout wins, a concatenation of a bundle's files
+    /// keeps its `pooled` single-read layout, and otherwise
+    /// ``FASTQInputLayoutResolver`` scans the execution file with the
+    /// original bundle's metadata as hints, since a materialized scratch
+    /// copy carries no sidecar.
+    static func resolveInputLayout(
+        tool: AssemblyTool,
+        readType: AssemblyReadType,
+        pairedEnd: Bool,
+        explicit: FASTQInputLayout?,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL],
+        pooled: FASTQInputLayoutResolution? = nil
+    ) -> FASTQInputLayoutResolution? {
+        guard [AssemblyTool.spades, .megahit, .skesa].contains(tool),
+              readType == .illuminaShortReads,
+              !pairedEnd,
+              executionInputURLs.count == 1,
+              let executionURL = executionInputURLs.first else {
+            return nil
+        }
+        if let explicit {
+            return FASTQInputLayoutResolver.resolve(inputURLs: [executionURL], explicit: explicit)
+        }
+        if let pooled { return pooled }
+        let originalURL = originalInputURLs.first?.standardizedFileURL
+        let hintURL = originalURL == executionURL.standardizedFileURL ? nil : originalURL
+        return FASTQInputLayoutResolver.resolve(fastqURL: executionURL, metadataFrom: hintURL)
+    }
+
     /// Returns a copy with `inputLayout` set explicitly.
     func withInputLayout(_ inputLayout: FASTQInputLayout?) -> AssemblyRunRequest {
         AssemblyRunRequest(

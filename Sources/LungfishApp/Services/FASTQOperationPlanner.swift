@@ -344,45 +344,24 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             .assemble(let originalAssemblyRequest, let outputMode),
             .assemble(let resolvedAssemblyRequest, let resolvedOutputMode)
         )
-            where outputMode == .perInput &&
-                  resolvedOutputMode == .perInput &&
-                  !originalAssemblyRequest.pairedEnd &&
-                  !resolvedAssemblyRequest.pairedEnd &&
-                  originalAssemblyRequest.inputURLs.count > 1 &&
-                  originalAssemblyRequest.inputURLs.count == resolvedAssemblyRequest.inputURLs.count:
-            // `pairedEnd` gates this split (unchanged from the original
-            // implementation) because by the time a request reaches this
-            // planner, `inputURLs` may equally be N independent single-end
-            // files (safe to split, one CLI run per file) OR the two files
-            // of one genuine paired-end sample already resolved to raw R1/R2
-            // paths (MUST stay together as one `--paired` run -- see
-            // `testExecuteKeepsPairedAssemblyAsSinglePerInputPlan`). The
-            // planner cannot tell those two shapes apart from file count
-            // alone, so `pairedEnd` -- set correctly upstream -- remains the
-            // authoritative signal here.
-            //
-            // The MB-2 multi-bundle fix does NOT touch this predicate: real
-            // per-bundle splitting for a wizard-driven N>1 BUNDLE selection
-            // happens earlier and separately, in `FASTQOperationLaunchRequest
-            // .independentAssembleLaunchRequests` (driven by the user's
-            // explicit `.perBundle` picker choice, with each child's
-            // `pairedEnd` derived from that ONE bundle's own real content via
-            // `AppDelegate.resolvedAssemblyPairedEnd(for:)`) -- by the time
-            // any request reaches this planner, that fan-out has already
-            // reduced it to a single bundle's worth of input, so this branch
-            // is effectively dead for the GUI dialog flow and exists only for
-            // direct/API callers of `FASTQOperationExecutionService` with a
-            // pre-resolved multi-file, non-paired input list.
-            return zip(originalAssemblyRequest.inputURLs, resolvedAssemblyRequest.inputURLs).map { originalInputURL, resolvedInputURL in
+            where originalAssemblyRequest.inputURLs.count == resolvedAssemblyRequest.inputURLs.count:
+            // One run per sample (R3). The files of one bundle are one run that
+            // names the bundle, because `lungfish-cli assemble` reads any file
+            // of a bundle as the whole bundle: one run per file assembled that
+            // bundle once per file, and Flye and hifiasm refused the files. In
+            // per-input mode each loose file and each bundle is its own run.
+            // `pairedEnd` keeps two R1/R2 files in one run, a combined request
+            // is one run, and the wizard's per-bundle batch splits its bundles
+            // earlier, in `FASTQOperationLaunchRequest.independentAssembleLaunchRequests`.
+            let splitsPerSample = outputMode == .perInput && resolvedOutputMode == .perInput
+                && !originalAssemblyRequest.pairedEnd && !resolvedAssemblyRequest.pairedEnd
+            let runs = splitsPerSample
+                ? AssemblyInputSamples.groups(originalAssemblyRequest.inputURLs)
+                : [Array(originalAssemblyRequest.inputURLs.indices)]
+            return runs.map { positions in
                 (
-                    .assemble(
-                        request: originalAssemblyRequest.replacingInputURLs(with: [originalInputURL]),
-                        outputMode: outputMode
-                    ),
-                    .assemble(
-                        request: resolvedAssemblyRequest.replacingInputURLs(with: [resolvedInputURL]),
-                        outputMode: resolvedOutputMode
-                    )
+                    .assemble(request: originalAssemblyRequest.run(ofInputsAt: positions), outputMode: outputMode),
+                    .assemble(request: resolvedAssemblyRequest.run(ofInputsAt: positions), outputMode: resolvedOutputMode)
                 )
             }
 

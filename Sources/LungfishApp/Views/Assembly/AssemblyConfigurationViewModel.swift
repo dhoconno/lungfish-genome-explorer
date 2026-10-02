@@ -25,6 +25,20 @@ private func performAssemblyOperationCenterUpdate(_ block: @escaping @MainActor 
     }
 }
 
+/// Hands the shared input resolution the materializer closure the runner was
+/// given: the derivative service's, or a test's.
+private struct ClosureAssemblyInputMaterializer: CLISequenceInputMaterializing, Sendable {
+    let body: AssemblyRunner.ManagedAssemblyMaterializer
+
+    func materialize(
+        bundleURL: URL,
+        tempDirectory: URL,
+        progress: (@Sendable (String) -> Void)?
+    ) async throws -> URL {
+        try await body(bundleURL, tempDirectory, progress)
+    }
+}
+
 // MARK: - AssemblyRunner
 
 /// Runs an assembly as a background operation tracked by ``OperationCenter``.
@@ -93,20 +107,7 @@ public enum AssemblyRunner {
             return
         }
 
-        let executionRequest = AssemblyRunRequest(
-            tool: request.tool,
-            readType: request.readType,
-            inputURLs: request.inputURLs,
-            projectName: request.projectName,
-            outputDirectory: baseOutputDirectory.appendingPathComponent(projectName, isDirectory: true),
-            pairedEnd: request.pairedEnd,
-            threads: request.threads,
-            memoryGB: request.memoryGB,
-            minContigLength: request.effectiveMinContigLength,
-            selectedProfileID: request.selectedProfileID,
-            extraArguments: request.extraArguments,
-            profileSelectionBasis: request.profileSelectionBasis
-        )
+        let executionRequest = Self.executionRequest(for: request)
 
         logger.info("Starting managed assembly: tool=\(request.tool.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
@@ -126,6 +127,28 @@ public enum AssemblyRunner {
 
             OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
+    }
+
+    /// The request `runValidated` hands the managed pipeline: `request`
+    /// writing into `<output>/<project name>` with its effective minimum
+    /// contig length and every other field, `inputLayout` included, as the
+    /// recorded command (`cliCommandPreview`) carries them (R3).
+    nonisolated static func executionRequest(for request: AssemblyRunRequest) -> AssemblyRunRequest {
+        AssemblyRunRequest(
+            tool: request.tool,
+            readType: request.readType,
+            inputURLs: request.inputURLs,
+            projectName: request.projectName,
+            outputDirectory: request.outputDirectory.appendingPathComponent(request.projectName, isDirectory: true),
+            pairedEnd: request.pairedEnd,
+            threads: request.threads,
+            memoryGB: request.memoryGB,
+            minContigLength: request.effectiveMinContigLength,
+            selectedProfileID: request.selectedProfileID,
+            extraArguments: request.extraArguments,
+            profileSelectionBasis: request.profileSelectionBasis,
+            inputLayout: request.inputLayout
+        )
     }
 
     /// Registers the assembly row and, only when it starts, calls `launch` with the
@@ -221,10 +244,12 @@ public enum AssemblyRunner {
 
     // MARK: - Pipeline Execution
 
-    typealias ManagedAssemblyMaterializer = (URL, URL, (@Sendable (String) -> Void)?) async throws -> URL
+    typealias ManagedAssemblyMaterializer = @Sendable (URL, URL, (@Sendable (String) -> Void)?) async throws -> URL
 
     struct ManagedAssemblyMaterializationResult {
         let request: AssemblyRunRequest
+        /// The input each of `request.inputURLs` came from, one per execution file.
+        let originalInputURLs: [URL]
         let materializationStartedAt: Date?
         let materializationEndedAt: Date?
     }
@@ -232,7 +257,7 @@ public enum AssemblyRunner {
     static func materializedManagedAssemblyRequest(
         from request: AssemblyRunRequest,
         tempDirectory: URL,
-        materialize: ManagedAssemblyMaterializer
+        materialize: @escaping ManagedAssemblyMaterializer
     ) async throws -> AssemblyRunRequest {
         try await materializedManagedAssemblyRequestResult(
             from: request,
@@ -241,50 +266,62 @@ public enum AssemblyRunner {
         ).request
     }
 
+    /// The request the managed pipeline runs, its inputs resolved the way
+    /// `lungfish-cli assemble` resolves them (R3,
+    /// `ResolvedSequenceInputs.resolveForAssembly`): every read a bundle
+    /// holds, a virtual bundle materialized into `tempDirectory` by
+    /// `materialize`, the unpaired files of one bundle joined there, and the
+    /// R1 and R2 files of a mate pair kept apart and assembled as pairs. The
+    /// layout of a single file is resolved by the same rule as well
+    /// (`AssemblyRunRequest.resolveInputLayout`): the request's own
+    /// `inputLayout` (the recorded `--read-layout`) wins, otherwise the
+    /// bundle metadata and then the records decide.
     static func materializedManagedAssemblyRequestResult(
         from request: AssemblyRunRequest,
         tempDirectory: URL,
-        materialize: ManagedAssemblyMaterializer
+        materialize: @escaping ManagedAssemblyMaterializer
     ) async throws -> ManagedAssemblyMaterializationResult {
         try validatePreMaterializationTopology(for: request)
-
-        var resolvedInputURLs: [URL] = []
-        var materializationStartedAt: Date?
-        var materializationEndedAt: Date?
-        for inputURL in request.inputURLs {
-            if let bundleURL = AssemblyInputMaterialization.bundleRequiringMaterialization(for: inputURL) {
-                if materializationStartedAt == nil {
-                    materializationStartedAt = Date()
-                }
-                try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-                let materializedURL = try await materialize(bundleURL, tempDirectory, nil)
-                materializationEndedAt = Date()
-                resolvedInputURLs.append(materializedURL.standardizedFileURL)
-                continue
-            }
-
-            let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) ?? inputURL
-            resolvedInputURLs.append(resolvedURL.standardizedFileURL)
+        let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+            inputURLs: request.inputURLs,
+            materializationDirectory: tempDirectory,
+            materializer: ClosureAssemblyInputMaterializer(body: materialize)
+        )
+        if request.inputLayout != nil, resolved.resolvedAsMatePair {
+            throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                "--read-layout describes one input file; \(request.inputURLs[0].lastPathComponent) holds R1 and R2 files."
+            )
         }
-
+        let pairedEnd = request.pairedEnd || resolved.resolvedAsMatePair
+        let layout = AssemblyRunRequest.resolveInputLayout(
+            tool: request.tool,
+            readType: request.readType,
+            pairedEnd: pairedEnd,
+            explicit: request.inputLayout,
+            originalInputURLs: resolved.originalInputURLs,
+            executionInputURLs: resolved.executionInputURLs,
+            pooled: resolved.pooledLayoutResolution
+        )
         let executionRequest = AssemblyRunRequest(
             tool: request.tool,
             readType: request.readType,
-            inputURLs: resolvedInputURLs,
+            inputURLs: resolved.executionInputURLs,
             projectName: request.projectName,
             outputDirectory: request.outputDirectory,
-            pairedEnd: request.pairedEnd,
+            pairedEnd: pairedEnd,
             threads: request.threads,
             memoryGB: request.memoryGB,
             minContigLength: request.minContigLength,
             selectedProfileID: request.selectedProfileID,
             extraArguments: request.extraArguments,
-            profileSelectionBasis: request.profileSelectionBasis
+            profileSelectionBasis: request.profileSelectionBasis,
+            inputLayout: layout?.layout
         )
         return ManagedAssemblyMaterializationResult(
             request: executionRequest,
-            materializationStartedAt: materializationStartedAt,
-            materializationEndedAt: materializationEndedAt
+            originalInputURLs: resolved.originalInputURLs,
+            materializationStartedAt: resolved.materializationStartedAt,
+            materializationEndedAt: resolved.materializationEndedAt
         )
     }
 
@@ -325,13 +362,14 @@ public enum AssemblyRunner {
         }
     }
 
+    /// `originalInputURLs[i]` is the input `executionInputURLs[i]` came from.
     static func managedAssemblyInputRecords(
-        originalRequest: AssemblyRunRequest,
-        executionRequest: AssemblyRunRequest
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
     ) -> [InputFileRecord] {
         AssemblyInputMaterialization.inputRecordsPreservingLineage(
-            originalInputURLs: originalRequest.inputURLs,
-            executionInputURLs: executionRequest.inputURLs
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
         )
     }
 
@@ -387,20 +425,19 @@ public enum AssemblyRunner {
                 OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
 
-            let materializationStep = try managedAssemblyMaterializationStep(
-                originalRequest: request,
-                executionRequest: executionRequest,
-                startedAt: materializationResult.materializationStartedAt,
-                endedAt: materializationResult.materializationEndedAt
-            )
             let provenance = ProvenanceBuilder.build(
                 request: executionRequest,
                 result: result,
                 inputRecords: managedAssemblyInputRecords(
-                    originalRequest: request,
-                    executionRequest: executionRequest
+                    originalInputURLs: materializationResult.originalInputURLs,
+                    executionInputURLs: executionRequest.inputURLs
                 ),
-                steps: materializationStep.map { [$0] } ?? []
+                steps: try managedAssemblyMaterializationSteps(
+                    originalInputURLs: materializationResult.originalInputURLs,
+                    executionInputURLs: executionRequest.inputURLs,
+                    startedAt: materializationResult.materializationStartedAt,
+                    endedAt: materializationResult.materializationEndedAt
+                )
             )
 
             let bundleBuilder = AssemblyBundleBuilder()
@@ -456,15 +493,45 @@ public enum AssemblyRunner {
         }
     }
 
+    /// The steps that wrote the execution files, as `lungfish-cli assemble`
+    /// records them: one materialization step for the virtual bundles, then
+    /// a `cat` step for each concatenation of a bundle's files.
+    static func managedAssemblyMaterializationSteps(
+        originalInputURLs: [URL],
+        executionInputURLs: [URL],
+        startedAt: Date?,
+        endedAt: Date?
+    ) throws -> [ProvenanceStep] {
+        let concatenatedPairs = CLISequenceInputMaterialization.originalAndExecutionInputs(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
+        ).filter { CLISequenceInputMaterialization.concatenation(forExecutionURL: $0.executionURL) != nil }
+        let concatenationSteps = try CLISequenceInputMaterialization.materializationProvenanceSteps(
+            workflowVersion: WorkflowRun.currentAppVersion,
+            originalInputURLs: concatenatedPairs.map(\.originalURL),
+            executionInputURLs: concatenatedPairs.map(\.executionURL),
+            startedAt: startedAt ?? Date(),
+            endedAt: endedAt ?? startedAt ?? Date()
+        )
+        let materializationStep = try managedAssemblyMaterializationStep(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+        return (materializationStep.map { [$0] } ?? []) + concatenationSteps
+    }
+
+    /// `originalInputURLs[i]` is the input `executionInputURLs[i]` came from.
     static func managedAssemblyMaterializationStep(
-        originalRequest: AssemblyRunRequest,
-        executionRequest: AssemblyRunRequest,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL],
         startedAt: Date?,
         endedAt: Date?
     ) throws -> ProvenanceStep? {
-        let inputPairs = zipOriginalAndExecutionInputs(
-            originalInputURLs: originalRequest.inputURLs,
-            executionInputURLs: executionRequest.inputURLs
+        let inputPairs = CLISequenceInputMaterialization.originalAndExecutionInputs(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
         )
         let materializedPairs = inputPairs.filter { originalURL, executionURL in
             AssemblyInputMaterialization.requiresMaterialization(originalURL)
@@ -512,16 +579,6 @@ public enum AssemblyRunner {
             startedAt: startedAt,
             completedAt: completedAt
         )
-    }
-
-    private static func zipOriginalAndExecutionInputs(
-        originalInputURLs: [URL],
-        executionInputURLs: [URL]
-    ) -> [(originalURL: URL, executionURL: URL)] {
-        executionInputURLs.enumerated().map { index, executionURL in
-            let originalURL = originalInputURLs.indices.contains(index) ? originalInputURLs[index] : executionURL
-            return (originalURL, executionURL)
-        }
     }
 
     // MARK: - Disk Space Check

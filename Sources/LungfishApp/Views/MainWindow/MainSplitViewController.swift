@@ -134,14 +134,11 @@ extension FASTQOperationLaunchRequest {
     /// `AssemblyWizardSheet.multiBundleRunPolicy`), so it never reaches here
     /// with N>1 pooled inputs.
     ///
-    /// Each child's `pairedEnd`/`inputURLs` are corrected from that ONE
-    /// bundle's own real content via
-    /// `AppDelegate.resolvedAssemblyPairedEnd(for:)` (point 2: never
-    /// inferred from group size), and the topology invariant `pairedEnd
-    /// implies inputURLs.count == 2` is asserted on every child before it is
-    /// returned (point 4's validation requirement) -- `resolvedAssemblyPairedEnd`
-    /// only ever returns `pairedEnd: true` paired with a 2-element list by
-    /// construction, but the check stays as a load-bearing regression guard.
+    /// Each child names its one bundle URL, without `pairedEnd` (R3). It runs
+    /// `lungfish-cli assemble <bundle>`, which reads every file the bundle
+    /// holds and pairs a bundle's R1 and R2 files itself, as the single-bundle
+    /// launch does. A child therefore has one input, so the dispatch never
+    /// fans it out again, and a bundle's files never become runs of their own.
     ///
     /// BG4 (batch-results-grouping spec §3): when `projectURL` is non-nil,
     /// ONE `Analyses/<tool>-batch-<timestamp>/` directory is precomputed up
@@ -193,16 +190,11 @@ extension FASTQOperationLaunchRequest {
 
         var usedProjectNames = Set<String>()
         return batchRequest.inputURLs.enumerated().map { index, bundleURL in
-            let resolved = AppDelegate.resolvedAssemblyPairedEnd(for: bundleURL)
-            precondition(
-                !resolved.pairedEnd || resolved.inputURLs.count == 2,
-                "resolvedAssemblyPairedEnd must never report pairedEnd for a non-2-element input list"
-            )
             let bundleSampleName = MetagenomicsSampleGrouper.sanitizeSampleId(bundleURL.lungfishDisplayName)
             let childProjectName = Self.uniqueAssemblyProjectName(bundleSampleName, usedNames: &usedProjectNames)
             var childRequest = batchRequest
-                .replacingInputURLs(with: resolved.inputURLs)
-                .replacingPairedEnd(with: resolved.pairedEnd)
+                .replacingInputURLs(with: [bundleURL])
+                .replacingPairedEnd(with: false)
                 .replacingProjectName(with: childProjectName)
             if let batchSampleDirectories {
                 childRequest = childRequest.replacingOutputDirectory(with: batchSampleDirectories[index])
