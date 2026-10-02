@@ -485,18 +485,6 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         }
     }
 
-    /// The `lungfish-cli` argv that deletes `rowIDs` from one annotation track.
-    /// The run executes it and the Operations row records it.
-    static func annotationRowDeletionArguments(bundleURL: URL, trackID: String, rowIDs: [Int64]) -> [String] {
-        var values = ["sequence", "delete-annotations", bundleURL.path, "--track-id", trackID]
-        for rowID in rowIDs {
-            values.append("--row-id")
-            values.append(String(rowID))
-        }
-        values.append("--quiet")
-        return values
-    }
-
     private func runAnnotationRowDeletion(
         bundleURL: URL,
         annotations: [AnnotationSearchIndex.SearchResult]
@@ -526,7 +514,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             return
         }
 
-        let arguments = Self.annotationRowDeletionArguments(
+        let arguments = ReferenceBundleManualAnnotationService.annotationRowDeletionArguments(
             bundleURL: bundleURL,
             trackID: group.key,
             rowIDs: group.value

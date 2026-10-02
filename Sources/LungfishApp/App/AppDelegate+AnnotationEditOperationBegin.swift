@@ -18,37 +18,14 @@ import LungfishKit
 /// `SequenceAnnotationTrackWorkflow` function `lungfish-cli sequence
 /// update-annotation` and `sequence delete-annotations` call, with the same
 /// bundle, track, row and values. So both rows record that command. They used
-/// to record no command.
+/// to record no command. The service builds the argv of both commands, and
+/// its provenance records the same argv (finding R8).
 extension AppDelegate {
-    /// The arguments after `lungfish-cli sequence update-annotation` that
-    /// persist the edit of `annotation` at `location`, with the values
-    /// `ReferenceBundleManualAnnotationService.updateAnnotation` writes, the
-    /// name, type, strand and note. The edited values are joined to their
-    /// options, so the parser reads the reverse strand `-` or a hyphen-leading
-    /// name as a value. A nil note clears the note on both paths, so the
-    /// command passes no `--note` then.
-    nonisolated static func annotationUpdateCLIArguments(
-        annotation: SequenceAnnotation,
-        location: ReferenceBundleAnnotationRowLocation,
-        bundleURL: URL
-    ) -> [String] {
-        var arguments = [
-            bundleURL.path,
-            "--track-id", location.trackID,
-            "--row-id", String(location.rowID),
-            "--name=\(annotation.name)",
-            "--type=\(annotation.type.rawValue)",
-            "--strand=\(annotation.strand.rawValue)",
-        ]
-        if let note = annotation.note {
-            arguments.append("--note=\(note)")
-        }
-        return arguments
-    }
-
     /// Registers the row for an annotation rename, retype or note edit and
     /// returns the result. The row locks `bundleURL` and records the
-    /// `lungfish-cli sequence update-annotation` command for the edit.
+    /// `lungfish-cli sequence update-annotation` command for the edit, built
+    /// by `ReferenceBundleManualAnnotationService.annotationUpdateArguments`
+    /// from the name, type, strand and note the service writes.
     @discardableResult
     static func beginAnnotationUpdateOperation(
         annotation: SequenceAnnotation,
@@ -57,14 +34,22 @@ extension AppDelegate {
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared
     ) -> OperationStartResult {
-        reporter.begin(
+        let arguments = ReferenceBundleManualAnnotationService.annotationUpdateArguments(
+            location: location,
+            name: annotation.name,
+            type: annotation.type.rawValue,
+            strand: annotation.strand.rawValue,
+            note: annotation.note,
+            bundleURL: bundleURL
+        )
+        return reporter.begin(
             title: "Update Annotation",
             detail: "Updating \(annotation.name)...",
             operationType: .bundleBuild,
             targetBundleURL: bundleURL,
             cliCommand: OperationCenter.buildCLICommand(
                 subcommand: "sequence update-annotation",
-                args: annotationUpdateCLIArguments(annotation: annotation, location: location, bundleURL: bundleURL)
+                args: Array(arguments.dropFirst(2))
             ),
             routeContext: routeContext
         )
@@ -73,7 +58,8 @@ extension AppDelegate {
     /// Registers the row for an annotation delete and returns the result. The
     /// row locks `bundleURL` and records the `lungfish-cli sequence
     /// delete-annotations` command the annotation drawer records for the same
-    /// row, built by `ViewerViewController.annotationRowDeletionArguments`.
+    /// row, built by
+    /// `ReferenceBundleManualAnnotationService.annotationRowDeletionArguments`.
     @discardableResult
     static func beginAnnotationDeletionOperation(
         location: ReferenceBundleAnnotationRowLocation,
@@ -81,7 +67,7 @@ extension AppDelegate {
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared
     ) -> OperationStartResult {
-        let arguments = ViewerViewController.annotationRowDeletionArguments(
+        let arguments = ReferenceBundleManualAnnotationService.annotationRowDeletionArguments(
             bundleURL: bundleURL,
             trackID: location.trackID,
             rowIDs: [location.rowID]

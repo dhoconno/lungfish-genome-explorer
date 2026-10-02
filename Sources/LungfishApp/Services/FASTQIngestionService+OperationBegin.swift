@@ -14,10 +14,10 @@ import LungfishWorkflow
 /// the row started, so a test can check the row and its command without
 /// touching `OperationCenter.shared`.
 ///
-/// None of the four launches declares a bundle lock, so `begin` cannot refuse
+/// None of the three launches declares a bundle lock, so `begin` cannot refuse
 /// them on a real `OperationCenter` today. Each launch still switches on the
 /// result and runs nothing on a refusal, which keeps it correct if a lock is
-/// added later. The three launches that take a `completion` also deliver the
+/// added later. The two launches that take a `completion` also deliver the
 /// refusal through it as an `OperationRefusedError`, so the caller's progress
 /// indicator and continuation are released.
 extension FASTQIngestionService {
@@ -164,67 +164,5 @@ extension FASTQIngestionService {
             recipeName: nil,
             compressionLevel: nil
         )
-    }
-
-    // MARK: - Batch import subprocess
-
-    /// Registers the batch import row and, only when it starts, calls `launch`
-    /// with the operation ID. The row locks no bundle.
-    ///
-    /// The run executes `lungfish-cli import fastq` with the arguments of
-    /// ``batchSubprocessImportArguments(inputDirectory:projectDirectory:recipe:qualityBinning:)``
-    /// and the row records the command built from those same arguments. The row
-    /// used to leave out `--quality-binning`. The run passes it, and a command
-    /// without it would bin nothing, because the CLI defaults to `none`.
-    @discardableResult
-    static func beginBatchSubprocessImportOperation(
-        inputDirectory: URL,
-        projectDirectory: URL,
-        recipe: String,
-        qualityBinning: QualityBinningScheme,
-        routeContext: OperationRouteContext?,
-        reporter: any OperationReporting = OperationCenter.shared,
-        launch: (UUID) -> Void
-    ) -> OperationStartResult {
-        let arguments = batchSubprocessImportArguments(
-            inputDirectory: inputDirectory,
-            projectDirectory: projectDirectory,
-            recipe: recipe,
-            qualityBinning: qualityBinning
-        )
-        let result = reporter.begin(
-            title: "FASTQ Batch Import",
-            detail: "Starting batch import\u{2026}",
-            operationType: .ingestion,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "import fastq",
-                args: Array(arguments.dropFirst(2))
-            ),
-            routeContext: routeContext
-        )
-        switch result {
-        case .started(let operationID):
-            launch(operationID)
-        case .refused:
-            break // The panel already shows the refused row. Nothing was launched.
-        }
-        return result
-    }
-
-    /// The argv the batch import subprocess runs, starting with the `import`
-    /// and `fastq` words. `runCLISubprocess` executes it and the row records it.
-    nonisolated static func batchSubprocessImportArguments(
-        inputDirectory: URL,
-        projectDirectory: URL,
-        recipe: String,
-        qualityBinning: QualityBinningScheme
-    ) -> [String] {
-        [
-            "import", "fastq",
-            inputDirectory.path,
-            "--project", projectDirectory.path,
-            "--recipe", recipe,
-            "--quality-binning", qualityBinning.rawValue,
-        ]
     }
 }

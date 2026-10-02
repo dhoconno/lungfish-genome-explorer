@@ -1,5 +1,7 @@
+import ArgumentParser
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
@@ -519,6 +521,216 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
             "Orient and unoriented bundles should not remain after provenance writing fails."
         )
     }
+    // MARK: - The command the manifest records (R3, R8)
+
+    // The manifest's toolCommand, which the Inspector shows with Copy, is the
+    // lungfish-cli command the dataset viewport row records, with the source
+    // bundle and the final output. It used to be the native tool command on
+    // the run's scratch files. The native tools stay in the envelope's steps.
+
+    func testFastpTrimRecordsTheQualityTrimCommandAndTheEnvelopeKeepsTheFastpStep() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.fastp])
+        defer { fixture.cleanup() }
+        let source = try fixture.makeBundle(named: "fastp-command-source")
+        try fixture.writeFASTQ([("trim-1", "AACCGGTT"), ("trim-2", "TTGGCCAA")], to: source.fastqURL)
+
+        let outputBundle = try await FASTQDerivativeService(runner: fixture.runner).createDerivative(
+            from: source.bundleURL,
+            request: .qualityTrim(threshold: 25, windowSize: 5, mode: .cutBoth)
+        )
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        let toolCommand = try XCTUnwrap(manifest.operation.toolCommand)
+        XCTAssertFalse(toolCommand.hasPrefix("fastp "), toolCommand)
+        let command = try RecordedCLICommand.parse(toolCommand, as: FastqQualityTrimSubcommand.self)
+        XCTAssertEqual(command.input, source.bundleURL.path)
+        XCTAssertEqual(command.threshold, 25)
+        XCTAssertEqual(command.windowSize, 5)
+        XCTAssertEqual(command.mode, "cut-both")
+        XCTAssertEqual(command.output.output, outputBundle.path, "a trim derivative holds trim positions, so -o names the bundle")
+        XCTAssertEqual(manifest.lineage.last?.toolCommand, toolCommand)
+        XCTAssertEqual(manifest.operation.toolUsed, "fastp")
+
+        let envelope = try loadProvenance(from: outputBundle)
+        let fastpStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "fastp" })
+        XCTAssertTrue(fastpStep.toolVersion.contains("0.23.4"))
+        XCTAssertTrue(fastpStep.argv.first?.hasSuffix("/fastp") == true)
+        XCTAssertTrue(fastpStep.argv.contains("--cut_front"))
+        XCTAssertTrue(fastpStep.argv.contains("--cut_right"))
+    }
+
+    func testEntropyFilterRecordsTheEntropyFilterCommandAndTheEnvelopeKeepsTheBBDukStep() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.bbduk, .seqkit])
+        defer { fixture.cleanup() }
+        let source = try fixture.makeBundle(named: "bbduk-command-source")
+        try fixture.writeFASTQ([("keep-1", "ACGTTGCAAC"), ("keep-2", "TTGACCAGTA")], to: source.fastqURL)
+
+        let outputBundle = try await FASTQDerivativeService(runner: fixture.runner).createDerivative(
+            from: source.bundleURL,
+            request: .lowComplexityFilter(entropy: 0.6, window: 50, kmer: 5)
+        )
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        let toolCommand = try XCTUnwrap(manifest.operation.toolCommand)
+        XCTAssertFalse(toolCommand.hasPrefix("bbduk.sh "), toolCommand)
+        let command = try RecordedCLICommand.parse(toolCommand, as: FastqEntropyFilterSubcommand.self)
+        XCTAssertEqual(command.input, source.bundleURL.path)
+        XCTAssertEqual(command.entropy, 0.6)
+        XCTAssertEqual(command.window, 50)
+        XCTAssertEqual(command.kmer, 5)
+        XCTAssertEqual(command.output.output, outputBundle.path, "a subset derivative holds read IDs, so -o names the bundle")
+        XCTAssertEqual(manifest.operation.toolUsed, "bbduk")
+
+        let envelope = try loadProvenance(from: outputBundle)
+        let bbdukStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bbduk.sh" })
+        XCTAssertTrue(bbdukStep.toolVersion.contains("39.01"))
+        XCTAssertTrue(bbdukStep.argv.first?.hasSuffix("/bbduk.sh") == true)
+        XCTAssertTrue(bbdukStep.argv.contains("entropy=0.6"))
+        XCTAssertTrue(bbdukStep.argv.contains("entropywindow=50"))
+    }
+
+    func testReverseComplementRecordsACommandThatWritesTheSameReads() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [])
+        defer { fixture.cleanup() }
+        let source = try fixture.makeBundle(named: "reverse-complement-source")
+        try fixture.writeFASTQ([("read-1", "AACCGTTT"), ("read-2", "GATTACAA")], to: source.fastqURL)
+
+        let outputBundle = try await FASTQDerivativeService(runner: fixture.runner).createDerivative(
+            from: source.bundleURL,
+            request: .reverseComplement
+        )
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        let payload = outputBundle.appendingPathComponent("reads.fastq")
+        let toolCommand = try XCTUnwrap(manifest.operation.toolCommand)
+        XCTAssertFalse(toolCommand.contains("lungfish fastq"), "the legacy executable name is gone: \(toolCommand)")
+        let command = try RecordedCLICommand.parse(toolCommand, as: FastqReverseComplementSubcommand.self)
+        XCTAssertEqual(command.input, source.bundleURL.path)
+        XCTAssertEqual(command.output.output, payload.path)
+
+        // The fastq subcommands do not open a bundle yet, so the command runs
+        // on the FASTQ the bundle holds, which the derivative read.
+        let cliOutput = fixture.root.appendingPathComponent("cli-reverse-complement.fastq")
+        try await runRecordedCommand(
+            toolCommand,
+            as: FastqReverseComplementSubcommand.self,
+            replacing: [source.bundleURL.path: source.fastqURL.path, payload.path: cliOutput.path]
+        )
+        XCTAssertEqual(try Data(contentsOf: cliOutput), try Data(contentsOf: payload))
+    }
+
+    func testTranslateRecordsTheTranslateCommandWhoseHeadersDifferFromTheRun() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [])
+        defer { fixture.cleanup() }
+        let source = try fixture.makeBundle(named: "translate-source")
+        try fixture.writeFASTQ([("read-1 sample=A", "ATGGCCAAATGG"), ("read-2", "ATGTAAGGG")], to: source.fastqURL)
+
+        let outputBundle = try await FASTQDerivativeService(runner: fixture.runner).createDerivative(
+            from: source.bundleURL,
+            request: .translate(frameOffset: 0)
+        )
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        let payload = outputBundle.appendingPathComponent("reads.fasta")
+        let toolCommand = try XCTUnwrap(manifest.operation.toolCommand)
+        XCTAssertFalse(toolCommand.contains("fasta translate"), "`lungfish fasta translate` is no command: \(toolCommand)")
+        let command = try RecordedCLICommand.parse(toolCommand, as: FastqTranslateSubcommand.self)
+        XCTAssertEqual(command.input, source.bundleURL.path)
+        XCTAssertEqual(command.frame, 1)
+        XCTAssertEqual(command.output.output, payload.path)
+
+        let cliOutput = fixture.root.appendingPathComponent("cli-translate.fasta")
+        try await runRecordedCommand(
+            toolCommand,
+            as: FastqTranslateSubcommand.self,
+            replacing: [source.bundleURL.path: source.fastqURL.path, payload.path: cliOutput.path]
+        )
+        let run = try fastaRecords(at: payload)
+        let cli = try fastaRecords(at: cliOutput)
+        XCTAssertEqual(cli.map(\.sequence), run.map(\.sequence), "the command translates the same proteins")
+        XCTAssertEqual(run.map(\.sequence), ["MAKW", "M*G"])
+        // Pinned difference (owner decision list). The in-process translate
+        // names a record `<id>_frame1` and keeps the read's description, while
+        // `lungfish-cli fastq translate` names it `<id>_frame+1` and describes
+        // the codon table and the protein length. When one side changes to
+        // match the other, update this pin.
+        XCTAssertEqual(run.map(\.header), ["read-1_frame1 sample=A", "read-2_frame1"])
+        XCTAssertEqual(cli.map(\.header), ["read-1_frame+1 [Standard] [4 aa]", "read-2_frame+1 [Standard] [3 aa]"])
+    }
+
+    func testSubsampleRecordsTheSubsampleCommandWithTheSeedItDrew() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.seqkit])
+        defer { fixture.cleanup() }
+        let source = try fixture.makeBundle(named: "subsample-command-source")
+        try fixture.writeFASTQ([("read-1", "ACGTACGT"), ("read-2", "TTTTAAAA")], to: source.fastqURL)
+
+        let outputBundle = try await FASTQDerivativeService(runner: fixture.runner).createDerivative(
+            from: source.bundleURL,
+            request: .subsampleProportion(0.5)
+        )
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        let seed = try XCTUnwrap(manifest.operation.randomSeed)
+        let command = try RecordedCLICommand.parse(manifest.operation.toolCommand, as: FastqSubsampleSubcommand.self)
+        XCTAssertEqual(command.input, source.bundleURL.path)
+        XCTAssertEqual(command.proportion, 0.5)
+        XCTAssertEqual(command.seed, Int64(seed), "the manifest used to record no command for a subsample")
+        XCTAssertEqual(command.output.output, outputBundle.path)
+    }
+
+    func testPairedEndMergeRecordsTheMergeCommand() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.bbmerge])
+        defer { fixture.cleanup() }
+        let source = try fixture.makeBundle(named: "merge-command-source")
+        try fixture.writeFASTQ([("pair-1/1", "ACGTACGT"), ("pair-1/2", "ACGTACGT")], to: source.fastqURL)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: .interleaved)),
+            for: source.fastqURL
+        )
+
+        let outputBundle = try await FASTQDerivativeService(runner: fixture.runner).createDerivative(
+            from: source.bundleURL,
+            request: .pairedEndMerge(strictness: .strict, minOverlap: 8)
+        )
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        let toolCommand = try XCTUnwrap(manifest.operation.toolCommand)
+        XCTAssertFalse(toolCommand.contains("bbmerge.sh"), toolCommand)
+        let command = try RecordedCLICommand.parse(toolCommand, as: FastqMergeSubcommand.self)
+        XCTAssertEqual(command.input, source.bundleURL.path)
+        XCTAssertEqual(command.minOverlap, 8)
+        XCTAssertTrue(command.strict)
+        XCTAssertTrue(command.countDuplicates)
+        XCTAssertEqual(command.output.output, outputBundle.path, "a merge derivative holds several files, so -o names the bundle")
+        let envelope = try loadProvenance(from: outputBundle)
+        XCTAssertNotNil(envelope.steps.first { $0.toolName == "bbmerge.sh" })
+    }
+
+    /// Runs `toolCommand` through the real CLI parser with some words
+    /// replaced, as a user would edit a copied command.
+    private func runRecordedCommand<Command: AsyncParsableCommand>(
+        _ toolCommand: String,
+        as type: Command.Type,
+        replacing replacements: [String: String]
+    ) async throws {
+        let words = try RecordedCLICommand.arguments(of: toolCommand).map { replacements[$0] ?? $0 }
+        let parsed = try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(words))
+        var command = try XCTUnwrap(parsed as? Command)
+        try await command.run()
+    }
+
+    /// The header line (without `>`) and the joined sequence of each record.
+    private func fastaRecords(at url: URL) throws -> [(header: String, sequence: String)] {
+        var records: [(header: String, sequence: String)] = []
+        for line in try String(contentsOf: url, encoding: .utf8).split(separator: "\n") {
+            if line.hasPrefix(">") {
+                records.append((String(line.dropFirst()), ""))
+            } else if !records.isEmpty {
+                records[records.count - 1].sequence += line
+            }
+        }
+        return records
+    }
 }
 
 private struct FailingDerivativeProvenanceWriter: FASTQDerivativeProvenanceWriting {
@@ -652,6 +864,7 @@ private final class FASTQDerivativeToolFixture {
         case bbmerge
         case cutadapt
         case vsearch
+        case bbduk
     }
 
     let root: URL
@@ -674,6 +887,8 @@ private final class FASTQDerivativeToolFixture {
                 try Self.install(script: Self.cutadaptScript(), tool: "cutadapt", environment: "cutadapt", homeDirectory: homeDirectory)
             case .vsearch:
                 try Self.install(script: Self.vsearchScript(), tool: "vsearch", environment: "vsearch", homeDirectory: homeDirectory)
+            case .bbduk:
+                try Self.install(script: Self.bbdukScript(), tool: "bbduk.sh", environment: "bbtools", homeDirectory: homeDirectory)
             }
         }
         runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory, appIdentity: .preview)
@@ -825,6 +1040,32 @@ private final class FASTQDerivativeToolFixture {
           esac
         done
         printf '@merged-1\\nACGTACGTACGT\\n+\\nIIIIIIIIIIII\\n' > "$out"
+        exit 0
+        """
+    }
+
+    /// Keeps every read, as bbduk does when no read falls below the entropy
+    /// threshold.
+    private static func bbdukScript() -> String {
+        """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then
+          echo "BBDuk version 39.01"
+          exit 0
+        fi
+        input=""
+        output=""
+        for arg in "$@"; do
+          case "$arg" in
+            in=*)
+              input="${arg#in=}"
+              ;;
+            out=*)
+              output="${arg#out=}"
+              ;;
+          esac
+        done
+        cp "$input" "$output"
         exit 0
         """
     }

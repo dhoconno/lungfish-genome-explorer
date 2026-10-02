@@ -713,11 +713,17 @@ final class SequenceMenuOperationTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift"),
             encoding: .utf8
         )
+        // The drawer runs the argv ReferenceBundleManualAnnotationService
+        // builds, which the Inspector delete and its provenance share.
+        let builderSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Services/ReferenceBundleManualAnnotationService.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(drawerSource.contains("didRequestDeleteAnnotations"))
         XCTAssertFalse(drawerSource.contains("searchIndex.deleteAnnotations(rowIDsByTrack: rowIDsByTrack)"))
-        XCTAssertTrue(viewerDrawerSource.contains("\"delete-annotations\""))
-        XCTAssertTrue(viewerDrawerSource.contains("--row-id"))
+        XCTAssertTrue(viewerDrawerSource.contains("ReferenceBundleManualAnnotationService.annotationRowDeletionArguments("))
+        XCTAssertTrue(builderSource.contains("\"delete-annotations\""))
     }
 
     func testViewportAnnotationSelectionSyncsBottomDrawer() throws {

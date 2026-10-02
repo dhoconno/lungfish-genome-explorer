@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The genomics display launches register four kinds of Operations panel rows
+// The genomics display launches register three kinds of Operations panel rows
 // through static begin helpers (R4). None of them declares a bundle lock, so a
 // real center never refuses them, and a recording reporter that holds a lock
-// stands in for the refusal. The two reference downloads have no lungfish-cli
-// equivalent, so their tests pin the missing command. The FASTQ derivative
+// stands in for the refusal. The reference download has no lungfish-cli
+// equivalent, so its tests pin the missing command. The FASTQ derivative
 // row and the FASTQ operations dialog row record the `lungfish-cli fastq`
 // command FASTQOperationCLIInvocationBuilder builds for the same request
 // (R3), which the tests parse with the real CLI parser and compare with the
@@ -34,7 +34,7 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         isDirectory: true
     )
 
-    // MARK: - Reference downloads (sites 40 and 41)
+    // MARK: - Reference download (site 40)
 
     func testNakedBundleReferenceDownloadRecordsADownloadRowWithNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
@@ -64,33 +64,6 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
     }
 
-    func testVCFReferenceDownloadRecordsADownloadRowWithNoCommandAsAParityGap() throws {
-        let reporter = RecordingOperationReporter()
-        var launchedID: UUID?
-
-        let result = MainSplitViewController.beginVCFReferenceDownloadOperation(
-            assembly: "ASM985889v3",
-            routeContext: routeContext,
-            reporter: reporter
-        ) { launchedID = $0 }
-
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(reporter.items.count, 1)
-        XCTAssertEqual(result.startedID, item.id)
-        XCTAssertEqual(launchedID, item.id)
-        XCTAssertEqual(item.title, "ASM985889v3 Reference")
-        XCTAssertEqual(item.initialDetail, "Searching NCBI...")
-        XCTAssertEqual(item.operationType, .download)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        XCTAssertEqual(item.routeContext, routeContext)
-        // CLI parity gap. `fetch genome` takes one accession, while this run
-        // can also search by organism and assembly name. When one command
-        // covers both searches, record it and replace this pin with a parse test.
-        XCTAssertNil(item.cliCommand)
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
-    }
-
     func testRefusedReferenceDownloadsLaunchNothing() {
         let reporter = RecordingOperationReporter(lockHeldBy: "Importing BAM")
         var launched = false
@@ -100,16 +73,10 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
             routeContext: routeContext,
             reporter: reporter
         ) { _ in launched = true }
-        let vcf = MainSplitViewController.beginVCFReferenceDownloadOperation(
-            assembly: "ASM985889v3",
-            routeContext: routeContext,
-            reporter: reporter
-        ) { _ in launched = true }
 
         XCTAssertNil(naked.startedID)
-        XCTAssertNil(vcf.startedID)
         XCTAssertFalse(launched)
-        XCTAssertEqual(reporter.items.map(\.state), [.refused, .refused])
+        XCTAssertEqual(reporter.items.map(\.state), [.refused])
     }
 
     // MARK: - FASTQ derivative from the dataset viewport (site 42)
