@@ -1,0 +1,21 @@
+# The TestData reference bundles, the committed primer schemes and the SARS-CoV-2 fixture files.
+# Columns are type, title, badge, subtitle, path and routing keys.
+folder | Inputs | symbol folder | - | Inputs | -
+  sequence | genome.fasta | symbol doc.text | - | Inputs/genome.fasta | -
+  annotation | genome.gff3 | symbol list.bullet.rectangle | - | Inputs/genome.gff3 | -
+  annotation | genome.gtf | symbol list.bullet.rectangle | - | Inputs/genome.gtf | -
+  document | minimal_taxon_report.tsv | symbol tablecells | - | Inputs/minimal_taxon_report.tsv | -
+  unknown | sarcopterygian.nwk | symbol doc.questionmark | - | Inputs/sarcopterygian.nwk | -
+  sequence | test_1.fastq.gz | symbol doc.text | - | Inputs/test_1.fastq.gz | -
+  sequence | test_2.fastq.gz | symbol doc.text | - | Inputs/test_2.fastq.gz | -
+  annotation | test.bed | symbol list.bullet.rectangle | - | Inputs/test.bed | -
+  alignment | test.paired_end.sorted.bam | symbol chart.bar | - | Inputs/test.paired_end.sorted.bam | -
+  alignment | test.paired_end.sorted.markers.bam | symbol chart.bar | - | Inputs/test.paired_end.sorted.markers.bam | -
+  annotation | test.vcf | symbol chart.bar.xaxis | - | Inputs/test.vcf | -
+  annotation | test.vcf.gz | symbol chart.bar.xaxis | - | Inputs/test.vcf.gz | -
+folder | Primer Schemes | symbol folder | - | Primer Schemes | -
+  primerSchemeBundle | mt192765-integration | symbol line.horizontal.3.decrease.circle | - | Primer Schemes/mt192765-integration.lungfishprimers | -
+  primerSchemeBundle | QIASeqDIRECT-SARS2 | symbol line.horizontal.3.decrease.circle | - | Primer Schemes/QIASeqDIRECT-SARS2.lungfishprimers | -
+folder | Reference Sequences | symbol folder | - | Reference Sequences | -
+  referenceBundle | HepatitisB | symbol cylinder.split.1x2 | - | Reference Sequences/HepatitisB.lungfishref | -
+  referenceBundle | TestGenome | symbol cylinder.split.1x2 | - | Reference Sequences/TestGenome.lungfishref | -

@@ -1,0 +1,9 @@
+# The committed seeds in Tests/Fixtures/analyses placed in a project Analyses folder.
+# Columns are type, title, badge, subtitle, path and routing keys.
+folder | Analyses | symbol flask | - | Analyses | accessibilityIdentifier=sidebar-group-analyses
+  esvirituResult | esviritu-2026-01-15T10-00-00 | text ES | Viral Detection (2 viruses) | Analyses/esviritu-2026-01-15T10-00-00 | analysisTool=esviritu
+  batchGroup | esviritu-batch-2026-01-15T15-00-00 | text ES | 2 samples · 2026-01-15T15-00-00 | Analyses/esviritu-batch-2026-01-15T15-00-00 | -
+  classificationResult | kraken2-2026-01-15T11-00-00 | text K2 | Classification (standard) | Analyses/kraken2-2026-01-15T11-00-00 | analysisTool=kraken2
+  analysisResult | minimap2-2026-01-15T14-00-00 | symbol m.circle | 2026-01-15T14-00-00 | Analyses/minimap2-2026-01-15T14-00-00 | analysisTool=minimap2
+  analysisResult | spades-2026-01-15T13-00-00 | symbol s.circle | 2026-01-15T13-00-00 | Analyses/spades-2026-01-15T13-00-00 | analysisTool=spades
+  taxTriageResult | taxtriage-2026-01-15T12-00-00 | text TT | 2026-01-15T12-00-00 | Analyses/taxtriage-2026-01-15T12-00-00 | analysisTool=taxtriage

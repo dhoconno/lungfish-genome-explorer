@@ -1,0 +1,32 @@
+# The practice data of the Genes and Sequences, Pathogen Detection, 12S and MHC demo projects.
+# Columns are type, title, badge, subtitle, path and routing keys.
+folder | Haplotype Definitions | symbol folder | - | Haplotype Definitions | -
+  unknown | mhc-simulated-mcm-teaching.lungfishhaplotypedef.json | symbol doc.questionmark | - | Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json | -
+folder | Practice Data | symbol folder | - | Practice Data | -
+  folder | czid | symbol folder | - | Practice Data/czid | -
+    document | minimal_taxon_report.tsv | symbol tablecells | - | Practice Data/czid/minimal_taxon_report.tsv | -
+  folder | hbb-gene | symbol folder | - | Practice Data/hbb-gene | -
+    sequence | NG_000007.3.gb | symbol doc.richtext | - | Practice Data/hbb-gene/NG_000007.3.gb | -
+  folder | human-mito | symbol folder | - | Practice Data/human-mito | -
+    sequence | NC_012920.1.fasta | symbol doc.text | - | Practice Data/human-mito/NC_012920.1.fasta | -
+  folder | naomgs | symbol folder | - | Practice Data/naomgs | -
+    document | virus_hits_final.tsv.gz | symbol tablecells | - | Practice Data/naomgs/virus_hits_final.tsv.gz | -
+  folder | nvd-demo | symbol folder | - | Practice Data/nvd-demo | -
+    folder | results | symbol folder | - | Practice Data/nvd-demo/results | -
+      folder | 02_human_viruses | symbol folder | - | Practice Data/nvd-demo/results/02_human_viruses | -
+        folder | 03_human_virus_results | symbol folder | - | Practice Data/nvd-demo/results/02_human_viruses/03_human_virus_results | -
+          sequence | SampleA.human_virus.fasta | symbol doc.text | - | Practice Data/nvd-demo/results/02_human_viruses/03_human_virus_results/SampleA.human_virus.fasta | -
+          sequence | SampleB.human_virus.fasta | symbol doc.text | - | Practice Data/nvd-demo/results/02_human_viruses/03_human_virus_results/SampleB.human_virus.fasta | -
+          sequence | SampleC.human_virus.fasta | symbol doc.text | - | Practice Data/nvd-demo/results/02_human_viruses/03_human_virus_results/SampleC.human_virus.fasta | -
+      folder | 05_labkey_bundling | symbol folder | - | Practice Data/nvd-demo/results/05_labkey_bundling | -
+        document | demo_blast_concatenated.csv | symbol tablecells | - | Practice Data/nvd-demo/results/05_labkey_bundling/demo_blast_concatenated.csv | -
+  folder | primate-12s | symbol folder | - | Practice Data/primate-12s | -
+    sequence | primate-12s-dedup.fasta | symbol doc.text | - | Practice Data/primate-12s/primate-12s-dedup.fasta | -
+    document | primate-12s-midori.tsv | symbol tablecells | - | Practice Data/primate-12s/primate-12s-midori.tsv | -
+    sequence | SIMULATED-12S-mixture.amplicons.fasta | symbol doc.text | - | Practice Data/primate-12s/SIMULATED-12S-mixture.amplicons.fasta | -
+    sequence | SIMULATED-12S-mixture.fastq.gz | symbol doc.text | - | Practice Data/primate-12s/SIMULATED-12S-mixture.fastq.gz | -
+    document | SIMULATED-12S-mixture.truth.tsv | symbol tablecells | - | Practice Data/primate-12s/SIMULATED-12S-mixture.truth.tsv | -
+  folder | primate-mito | symbol folder | - | Practice Data/primate-mito | -
+    sequence | primate-mito.fasta | symbol doc.text | - | Practice Data/primate-mito/primate-mito.fasta | -
+folder | Reference allele databases | symbol folder | - | Reference allele databases | -
+  mhcReferenceBundle | SIMULATED-MHC-MCM-teaching | symbol cylinder.split.1x2 | - | Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref | -
