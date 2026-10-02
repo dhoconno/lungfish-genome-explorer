@@ -807,7 +807,7 @@ final class OperationRoutingTests: XCTestCase {
             in: source
         )
         let fanout = try XCTUnwrap(body.range(of: "request.independentSavontLaunchRequests"))
-        let operationStart = try XCTUnwrap(body.range(of: "OperationCenter.shared.start"))
+        let operationStart = try XCTUnwrap(body.range(of: "Self.beginFASTQLaunchRequestOperation("))
 
         XCTAssertLessThan(fanout.lowerBound, operationStart.lowerBound)
         // BG5 (batch-results-grouping spec §4/§6): the fan-out loop now
@@ -833,7 +833,7 @@ final class OperationRoutingTests: XCTestCase {
 
     /// MB-2 review round 1, point 4: a pooled `.perBundle`-mode `.assemble`
     /// request with N>1 bundle URLs must fan out BEFORE any
-    /// `OperationCenter.shared.start` call (matching the pre-existing
+    /// `beginFASTQLaunchRequestOperation` call (matching the pre-existing
     /// `.savont` fan-out exactly), recursing into
     /// `runFASTQOperationLaunchRequestValidated` once per independent
     /// request rather than sharing a single operation/CLI-invocation loop --
@@ -912,7 +912,7 @@ final class OperationRoutingTests: XCTestCase {
         )
         let savontFanout = try XCTUnwrap(body.range(of: "request.independentSavontLaunchRequests"))
         let assembleFanout = try XCTUnwrap(body.range(of: "request.independentAssembleLaunchRequests"))
-        let operationStart = try XCTUnwrap(body.range(of: "OperationCenter.shared.start"))
+        let operationStart = try XCTUnwrap(body.range(of: "Self.beginFASTQLaunchRequestOperation("))
 
         // Both fan-outs precede the shared single-operation path.
         XCTAssertLessThan(savontFanout.lowerBound, operationStart.lowerBound)
