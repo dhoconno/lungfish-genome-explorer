@@ -17,7 +17,8 @@ extension ViewerViewController {
     /// `launch` with the operation ID. The row locks `bundleURL` and records
     /// the `lungfish-cli sequence delete-annotations` command built from
     /// `cliArguments`, the argv the run executes. The launch-site file builds
-    /// that argv with ``annotationRowDeletionArguments(bundleURL:trackID:rowIDs:)``.
+    /// that argv with
+    /// ``ReferenceBundleManualAnnotationService/annotationRowDeletionArguments(bundleURL:trackID:rowIDs:)``.
     @discardableResult
     static func beginAnnotationRowDeletionOperation(
         bundleURL: URL,
