@@ -13,7 +13,7 @@ Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
 Sources/LungfishApp/Services/FASTQBundleMergeService.swift 861
 Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1747
 Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 803
-Sources/LungfishApp/Services/FASTQIngestionService.swift 1538
+Sources/LungfishApp/Services/FASTQIngestionService.swift 1338
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 901
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1337
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1245
@@ -82,7 +82,7 @@ Sources/LungfishApp/Views/Viewer/SequenceViewerView+MultiSequence.swift 1066
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1235
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 958
 Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2844
-Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 913
+Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 901
 Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 871
 Sources/LungfishApp/Views/Viewer/ViewerViewController+Mapping.swift 956
 Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4424
