@@ -38,14 +38,51 @@ struct OperationCenterDependencySink: DependencyOperationSink {
     func start(title: String, detail: String) -> UUID {
         let handle = UUID()
         onMain {
-            let operationID = OperationCenter.shared.start(
-                title: title,
-                detail: detail,
-                operationType: .condaPluginPack
-            )
-            Registry.shared.record(handle: handle, operationID: operationID)
+            Self.beginDependencyOperation(title: title, detail: detail) { operationID in
+                Registry.shared.record(handle: handle, operationID: operationID)
+            }
         }
         return handle
+    }
+
+    /// Registers a reconciler row and, only when it starts, calls `launch` with the
+    /// operation ID, which the sink records against its handle. The row is a plugin
+    /// pack row and locks no bundle.
+    ///
+    /// When `begin` refuses the row, `launch` never runs and the handle stays
+    /// unrecorded, so every later `update`, `log` and terminal call for it finds no
+    /// operation and does nothing. A real `OperationCenter` refuses only on a bundle
+    /// lock, and this row asks for none.
+    ///
+    /// CLI parity gap. The row records no command. `lungfish-cli tools update --apply
+    /// --yes` is the closest, and it runs the same `DependencyReconciler` plan. The
+    /// reconciler opens one parent row for the whole run and one row for every item
+    /// inside it, through this same call. The sink sees only a title and a detail, so
+    /// it cannot tell which command a row belongs to or which items the user chose in
+    /// the Update Tools sheet. The command has no option for an arbitrary choice of
+    /// items, and no command runs a single item. The row keeps recording no command
+    /// until the sink protocol carries one.
+    @MainActor
+    @discardableResult
+    static func beginDependencyOperation(
+        title: String,
+        detail: String,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: title,
+            detail: detail,
+            operationType: .condaPluginPack,
+            cliCommand: nil
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
     }
 
     func update(id: UUID, progress: Double, detail: String) {

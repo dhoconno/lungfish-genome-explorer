@@ -2491,10 +2491,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
             }
         }
 
-        isDownloading = true
-        downloadProgress = 0
-        errorMessage = nil
-
         let totalCount = recordsToDownload.count
 
         // Capture services and values for task
@@ -2508,7 +2504,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
         let genomeVM = genomeDownloadViewModel
         let genBankVM = genBankDownloadViewModel
         if currentSource == .pathoplexus, pathoplexusOrganism == nil {
-            isDownloading = false
             errorMessage = "Select a Pathoplexus organism"
             return
         }
@@ -2535,267 +2530,200 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 ? recordsToDownload[0].accession
                 : "\(currentSource.displayName): \(accessionList)\(accessionSuffix)"
         }
-        // Build CLI command for Operations Panel display
-        let cliAccessions = recordsToDownload.map(\.accession)
-        let cliCommand: String
-        if currentSource == .ena {
-            // ENA source is used for SRA/FASTQ downloads
-            cliCommand = OperationCenter.buildCLICommand(
-                subcommand: "fetch sra download",
-                args: cliAccessions + ["--output-dir", "."]
-            )
-        } else if currentSource == .ncbi && searchType == .genome {
-            cliCommand = OperationCenter.buildCLICommand(
-                subcommand: "fetch genome",
-                args: ["--accession"] + cliAccessions + ["-o", "."]
-            )
-        } else {
-            cliCommand = OperationCenter.buildCLICommand(
-                subcommand: "fetch ncbi",
-                args: cliAccessions + ["--save-to", "."]
-            )
-        }
-        let downloadCenterTaskID = DownloadCenter.shared.start(
+
+        // Register the Operations panel row, and start downloading only when it began.
+        Self.beginBatchDownloadOperation(
             title: downloadTitle,
-            detail: "Preparing \(totalCount) record(s)...",
-            cliCommand: cliCommand,
+            accessions: recordsToDownload.map(\.accession),
+            source: currentSource,
+            searchType: searchType,
             routeContext: routeContext
-        )
+        ) { downloadCenterTaskID in
+            isDownloading = true
+            downloadProgress = 0
+            errorMessage = nil
 
-        // Log details about selected records for debugging
-        logger.info("performBatchDownload: Starting download of \(totalCount) record(s)")
-        logger.info("performBatchDownload: selectedRecords.count = \(self.selectedRecords.count)")
-        for (idx, record) in recordsToDownload.enumerated() {
-            logger.info("performBatchDownload: Record[\(idx)] id=\(record.id, privacy: .public) accession=\(record.accession, privacy: .public)")
-        }
-
-        // For ENA/SRA downloads, present the FASTQ import config sheet so the
-        // user can confirm platform, quality binning, and recipe before download.
-        // The config sheet is shown before the browser sheet is dismissed, so
-        // we need to detect platform info asynchronously then show the sheet.
-        if currentSource == .ena {
-            isDownloading = true  // prevent double-click while fetching metadata
-            Task {
-                // Quick fetch of the first record to detect platform / pairing
-                let firstAccession = recordsToDownload[0].accession
-                var detectedPlatform: LungfishIO.SequencingPlatform = .unknown
-                var isPaired = false
-                var firstRunBytes: Int64?
-                do {
-                    let readRecords = try await ena.searchReads(term: firstAccession, limit: 1)
-                    if let readRecord = readRecords.first {
-                        switch readRecord.instrumentPlatform?.uppercased() {
-                        case "ILLUMINA":       detectedPlatform = .illumina
-                        case "OXFORD_NANOPORE": detectedPlatform = .oxfordNanopore
-                        case "PACBIO_SMRT":     detectedPlatform = .pacbio
-                        case "ULTIMA":          detectedPlatform = .ultima
-                        default:                detectedPlatform = .unknown
-                        }
-                        isPaired = readRecord.libraryLayout?.uppercased() == "PAIRED"
-                        firstRunBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
-                    } else if let runInfo = try await ncbiService.sraEFetchRunInfo(ids: [firstAccession]).first {
-                        switch runInfo.platform?.uppercased() {
-                        case "ILLUMINA":        detectedPlatform = .illumina
-                        case "OXFORD_NANOPORE": detectedPlatform = .oxfordNanopore
-                        case "PACBIO_SMRT":     detectedPlatform = .pacbio
-                        case "ULTIMA":          detectedPlatform = .ultima
-                        default:                detectedPlatform = .unknown
-                        }
-                        isPaired = runInfo.libraryLayout?.uppercased() == "PAIRED"
-                        firstRunBytes = runInfo.size.map { Int64($0) * 1_000_000 }
-                    }
-                } catch {
-                    logger.warning("Failed to fetch ENA metadata for config sheet, using defaults: \(error.localizedDescription, privacy: .public)")
-                }
-
-                // Build placeholder pairs for the config sheet display
-                let placeholderPairs = recordsToDownload.map { record in
-                    FASTQFilePair(
-                        r1: URL(fileURLWithPath: "/\(record.accession)_1.fastq.gz"),
-                        r2: isPaired ? URL(fileURLWithPath: "/\(record.accession)_2.fastq.gz") : nil
-                    )
-                }
-
-                // Present config sheet on the main window. The database browser
-                // sheet is dismissed first so the config sheet can attach to the
-                // main window without sheet stacking issues.
-                self.onDownloadStarted?()
-
-                guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
-                    logger.error("No window available for config sheet presentation")
-                    self.isDownloading = false
-                    return
-                }
-
-                // The placeholder files do not exist yet, so the sheet's own
-                // size line would read zero. Show the size the archive reports.
-                FASTQImportConfigSheet.present(
-                    on: window,
-                    pairs: placeholderPairs,
-                    detectedPlatform: detectedPlatform,
-                    summaryOverride: FASTQImportConfigSheet.downloadSummary(
-                        pairs: placeholderPairs,
-                        knownDownloadBytes: recordsToDownload.count == 1 ? firstRunBytes : nil
-                    ),
-                    onImport: { [downloadCenterTaskID, totalCount] importConfig in
-                        // User confirmed — start the actual download with captured config
-                        self.startENADownloadTask(
-                            records: recordsToDownload,
-                            importConfig: importConfig,
-                            downloadCenterTaskID: downloadCenterTaskID,
-                            totalCount: totalCount
-                        )
-                    },
-                    onCancel: { [downloadCenterTaskID] in
-                        // User cancelled — cancel the DownloadCenter task
-                        _ = DownloadCenter.shared.fail(
-                            id: downloadCenterTaskID,
-                            detail: "Cancelled by user"
-                        )
-                    }
-                )
+            // Log details about selected records for debugging
+            logger.info("performBatchDownload: Starting download of \(totalCount) record(s)")
+            logger.info("performBatchDownload: selectedRecords.count = \(self.selectedRecords.count)")
+            for (idx, record) in recordsToDownload.enumerated() {
+                logger.info("performBatchDownload: Record[\(idx)] id=\(record.id, privacy: .public) accession=\(record.accession, privacy: .public)")
             }
-            return
-        }
 
-        // Dismiss the sheet immediately so the user can see the main window
-        // while the download progresses in the background via DownloadCenter.
-        // Bundle delivery happens through DownloadCenter.onBundleReady (set by
-        // AppDelegate at startup), eliminating the fragile callback chain through
-        // the sheet controller which gets deallocated on dismissal.
-        onDownloadStarted?()
+            // For ENA/SRA downloads, present the FASTQ import config sheet so the
+            // user can confirm platform, quality binning, and recipe before download.
+            // The config sheet is shown before the browser sheet is dismissed, so
+            // we need to detect platform info asynchronously then show the sheet.
+            if currentSource == .ena {
+                isDownloading = true  // prevent double-click while fetching metadata
+                Task {
+                    // Quick fetch of the first record to detect platform / pairing
+                    let firstAccession = recordsToDownload[0].accession
+                    var detectedPlatform: LungfishIO.SequencingPlatform = .unknown
+                    var isPaired = false
+                    var firstRunBytes: Int64?
+                    do {
+                        let readRecords = try await ena.searchReads(term: firstAccession, limit: 1)
+                        if let readRecord = readRecords.first {
+                            switch readRecord.instrumentPlatform?.uppercased() {
+                            case "ILLUMINA":       detectedPlatform = .illumina
+                            case "OXFORD_NANOPORE": detectedPlatform = .oxfordNanopore
+                            case "PACBIO_SMRT":     detectedPlatform = .pacbio
+                            case "ULTIMA":          detectedPlatform = .ultima
+                            default:                detectedPlatform = .unknown
+                            }
+                            isPaired = readRecord.libraryLayout?.uppercased() == "PAIRED"
+                            firstRunBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
+                        } else if let runInfo = try await ncbiService.sraEFetchRunInfo(ids: [firstAccession]).first {
+                            switch runInfo.platform?.uppercased() {
+                            case "ILLUMINA":        detectedPlatform = .illumina
+                            case "OXFORD_NANOPORE": detectedPlatform = .oxfordNanopore
+                            case "PACBIO_SMRT":     detectedPlatform = .pacbio
+                            case "ULTIMA":          detectedPlatform = .ultima
+                            default:                detectedPlatform = .unknown
+                            }
+                            isPaired = runInfo.libraryLayout?.uppercased() == "PAIRED"
+                            firstRunBytes = runInfo.size.map { Int64($0) * 1_000_000 }
+                        }
+                    } catch {
+                        logger.warning("Failed to fetch ENA metadata for config sheet, using defaults: \(error.localizedDescription, privacy: .public)")
+                    }
 
-        // Capture project URL for project-local temp allocation
-        let batchProjectURL = routeContext?.projectURL
+                    // Build placeholder pairs for the config sheet display
+                    let placeholderPairs = recordsToDownload.map { record in
+                        FASTQFilePair(
+                            r1: URL(fileURLWithPath: "/\(record.accession)_1.fastq.gz"),
+                            r2: isPaired ? URL(fileURLWithPath: "/\(record.accession)_2.fastq.gz") : nil
+                        )
+                    }
 
-        // Use Task.detached to break out of MainActor context.
-        // This is critical when running in a modal sheet - regular Task {}
-        // inherits MainActor isolation and may not execute due to the modal
-        // run loop blocking task scheduling on MainActor.
-        Task.detached {
-            var downloadedURLs: [URL] = []
-            var failedCount = 0
-            var failureDetails: [String] = []
+                    // Present config sheet on the main window. The database browser
+                    // sheet is dismissed first so the config sheet can attach to the
+                    // main window without sheet stacking issues.
+                    self.onDownloadStarted?()
 
-            // Create a unique batch directory once for all downloads in this batch
-            // This avoids filename collisions when records have the same accession
-            let batchDir = try ProjectTempDirectory.create(prefix: "batch-", in: batchProjectURL)
-            logger.info("performBatchDownload: Created batch directory at \(batchDir.path, privacy: .public)")
+                    guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+                        logger.error("No window available for config sheet presentation")
+                        self.isDownloading = false
+                        return
+                    }
 
-            for (index, record) in recordsToDownload.enumerated() {
-                // Update progress via performOnMainRunLoop for modal compatibility.
-                // DownloadCenter update must not be gated on [weak self] since the
-                // view model may already be deallocated after sheet dismissal.
-                let progressFraction = Double(index) / Double(totalCount)
-                performOnMainRunLoop {
-                    _ = DownloadCenter.shared.update(
-                        id: downloadCenterTaskID,
-                        progress: progressFraction,
-                        detail: "Downloading \(record.accession) (\(index + 1)/\(totalCount))"
+                    // The placeholder files do not exist yet, so the sheet's own
+                    // size line would read zero. Show the size the archive reports.
+                    FASTQImportConfigSheet.present(
+                        on: window,
+                        pairs: placeholderPairs,
+                        detectedPlatform: detectedPlatform,
+                        summaryOverride: FASTQImportConfigSheet.downloadSummary(
+                            pairs: placeholderPairs,
+                            knownDownloadBytes: recordsToDownload.count == 1 ? firstRunBytes : nil
+                        ),
+                        onImport: { [downloadCenterTaskID, totalCount] importConfig in
+                            // User confirmed — start the actual download with captured config
+                            self.startENADownloadTask(
+                                records: recordsToDownload,
+                                importConfig: importConfig,
+                                downloadCenterTaskID: downloadCenterTaskID,
+                                totalCount: totalCount
+                            )
+                        },
+                        onCancel: { [downloadCenterTaskID] in
+                            // User cancelled — cancel the DownloadCenter task
+                            _ = DownloadCenter.shared.fail(
+                                id: downloadCenterTaskID,
+                                detail: "Cancelled by user"
+                            )
+                        }
                     )
                 }
+                return
+            }
 
-                do {
-                    var fileURL: URL?
-                    let normalizedRecordAccession = record.accession.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Dismiss the sheet immediately so the user can see the main window
+            // while the download progresses in the background via DownloadCenter.
+            // Bundle delivery happens through DownloadCenter.onBundleReady (set by
+            // AppDelegate at startup), eliminating the fragile callback chain through
+            // the sheet controller which gets deallocated on dismissal.
+            onDownloadStarted?()
 
-                    switch currentSource {
-                    case .ncbi:
-                        // Handle genome downloads: download FASTA + GFF3 and build .lungfishref bundle
-                        if searchType == .genome {
-                            // For genome downloads, get the assembly summary and use
-                            // GenomeDownloadViewModel to download FASTA + GFF3 annotations
-                            // and build a .lungfishref reference bundle.
-                            logger.info("performBatchDownload: Fetching assembly summary for id=\(record.id, privacy: .public)")
-                            let assemblySummaries = try await ncbi.assemblyEsummary(ids: [record.id])
-                            guard let summary = assemblySummaries.first else {
-                                throw DatabaseServiceError.notFound(accession: record.accession)
-                            }
-                            logger.info("performBatchDownload: Got assembly summary: \(summary.assemblyAccession ?? "nil", privacy: .public) organism=\(summary.organism ?? "nil", privacy: .public)")
+            // Capture project URL for project-local temp allocation
+            let batchProjectURL = routeContext?.projectURL
 
-                            performOnMainRunLoop {
-                                _ = DownloadCenter.shared.update(
-                                    id: downloadCenterTaskID,
-                                    progress: progressFraction,
-                                    detail: "Downloading genome for \(record.accession)..."
-                                )
-                            }
+            // Use Task.detached to break out of MainActor context.
+            // This is critical when running in a modal sheet - regular Task {}
+            // inherits MainActor isolation and may not execute due to the modal
+            // run loop blocking task scheduling on MainActor.
+            Task.detached {
+                var downloadedURLs: [URL] = []
+                var failedCount = 0
+                var failureDetails: [String] = []
 
-                            logger.info("performBatchDownload: Calling genomeVM.downloadAndBuild for \(record.accession, privacy: .public)")
-                            let bundleURL = try await genomeVM.downloadAndBuild(
-                                assembly: summary,
-                                outputDirectory: batchDir
-                            ) { progress, message in
-                                let overall = (Double(index) + progress) / Double(totalCount)
-                                performOnMainRunLoop {
-                                    _ = DownloadCenter.shared.update(
-                                        id: downloadCenterTaskID,
-                                        progress: overall,
-                                        detail: "\(record.accession): \(message)"
-                                    )
-                                }
-                            }
+                // Create a unique batch directory once for all downloads in this batch
+                // This avoids filename collisions when records have the same accession
+                let batchDir = try ProjectTempDirectory.create(prefix: "batch-", in: batchProjectURL)
+                logger.info("performBatchDownload: Created batch directory at \(batchDir.path, privacy: .public)")
 
-                            fileURL = bundleURL
-                            logger.info("performBatchDownload: Built genome bundle at \(bundleURL.path, privacy: .public)")
-                        } else {
-                            // Nucleotide and virus downloads always end as .lungfishref bundles.
-                            logger.info("performBatchDownload: Starting GenBank bundle build for \(record.accession, privacy: .public)")
-                            let bundleURL = try await genBankVM.downloadAndBuild(
-                                accession: record.accession,
-                                outputDirectory: batchDir,
-                                includeGFF3Annotations: includeGFF3Annotations
-                            ) { progress, message in
-                                let overall = (Double(index) + progress) / Double(totalCount)
-                                performOnMainRunLoop {
-                                    _ = DownloadCenter.shared.update(
-                                        id: downloadCenterTaskID,
-                                        progress: overall,
-                                        detail: "\(record.accession): \(message)"
-                                    )
-                                }
-                            }
-                            fileURL = bundleURL
-                            logger.info("performBatchDownload: Built GenBank bundle at \(bundleURL.path, privacy: .public)")
-                        }
-
-                    case .ena:
-                        // ENA/SRA downloads are now handled by startENADownloadTask()
-                        // which is called after the user confirms the import config sheet.
-                        // This case should not be reachable since performBatchDownload()
-                        // returns early for ENA source before entering this Task.detached.
-                        assertionFailure("ENA downloads should not reach this code path")
-                        throw DatabaseServiceError.invalidQuery(
-                            reason: "Internal error: ENA downloads should use the config sheet path"
+                for (index, record) in recordsToDownload.enumerated() {
+                    // Update progress via performOnMainRunLoop for modal compatibility.
+                    // DownloadCenter update must not be gated on [weak self] since the
+                    // view model may already be deallocated after sheet dismissal.
+                    let progressFraction = Double(index) / Double(totalCount)
+                    performOnMainRunLoop {
+                        _ = DownloadCenter.shared.update(
+                            id: downloadCenterTaskID,
+                            progress: progressFraction,
+                            detail: "Downloading \(record.accession) (\(index + 1)/\(totalCount))"
                         )
+                    }
 
-                    case .pathoplexus:
-                        // Check if this record has an INSDC accession for GenBank retrieval
-                        let pathoplexusService = PathoplexusService()
-                        let ppMeta = try await pathoplexusService.fetchMetadataForAccession(
-                            organism: ppOrganism,
-                            accession: normalizedRecordAccession
-                        )
+                    do {
+                        var fileURL: URL?
+                        let normalizedRecordAccession = record.accession.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                        if ppMeta?.dataUseTerms?.uppercased() == DataUseTerms.restricted.rawValue {
-                            throw DatabaseServiceError.invalidQuery(
-                                reason: "Record \(normalizedRecordAccession) is restricted and cannot be downloaded"
-                            )
-                        } else if let insdcAccession = ppMeta?.bestINSDCAccession?.trimmingCharacters(in: .whitespacesAndNewlines), !insdcAccession.isEmpty {
-                            // Prefer INSDC GenBank retrieval for rich annotations; if unavailable,
-                            // fall back to direct Pathoplexus FASTA so the sample still downloads.
-                            logger.info("performBatchDownload: Pathoplexus record \(record.accession, privacy: .public) has INSDC accession \(insdcAccession, privacy: .public), fetching from GenBank")
-                            do {
+                        switch currentSource {
+                        case .ncbi:
+                            // Handle genome downloads: download FASTA + GFF3 and build .lungfishref bundle
+                            if searchType == .genome {
+                                // For genome downloads, get the assembly summary and use
+                                // GenomeDownloadViewModel to download FASTA + GFF3 annotations
+                                // and build a .lungfishref reference bundle.
+                                logger.info("performBatchDownload: Fetching assembly summary for id=\(record.id, privacy: .public)")
+                                let assemblySummaries = try await ncbi.assemblyEsummary(ids: [record.id])
+                                guard let summary = assemblySummaries.first else {
+                                    throw DatabaseServiceError.notFound(accession: record.accession)
+                                }
+                                logger.info("performBatchDownload: Got assembly summary: \(summary.assemblyAccession ?? "nil", privacy: .public) organism=\(summary.organism ?? "nil", privacy: .public)")
+
                                 performOnMainRunLoop {
                                     _ = DownloadCenter.shared.update(
                                         id: downloadCenterTaskID,
                                         progress: progressFraction,
-                                        detail: "Fetching GenBank record \(insdcAccession)..."
+                                        detail: "Downloading genome for \(record.accession)..."
                                     )
                                 }
 
+                                logger.info("performBatchDownload: Calling genomeVM.downloadAndBuild for \(record.accession, privacy: .public)")
+                                let bundleURL = try await genomeVM.downloadAndBuild(
+                                    assembly: summary,
+                                    outputDirectory: batchDir
+                                ) { progress, message in
+                                    let overall = (Double(index) + progress) / Double(totalCount)
+                                    performOnMainRunLoop {
+                                        _ = DownloadCenter.shared.update(
+                                            id: downloadCenterTaskID,
+                                            progress: overall,
+                                            detail: "\(record.accession): \(message)"
+                                        )
+                                    }
+                                }
+
+                                fileURL = bundleURL
+                                logger.info("performBatchDownload: Built genome bundle at \(bundleURL.path, privacy: .public)")
+                            } else {
+                                // Nucleotide and virus downloads always end as .lungfishref bundles.
+                                logger.info("performBatchDownload: Starting GenBank bundle build for \(record.accession, privacy: .public)")
                                 let bundleURL = try await genBankVM.downloadAndBuild(
-                                    accession: insdcAccession,
+                                    accession: record.accession,
                                     outputDirectory: batchDir,
                                     includeGFF3Annotations: includeGFF3Annotations
                                 ) { progress, message in
@@ -2804,29 +2732,117 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                         _ = DownloadCenter.shared.update(
                                             id: downloadCenterTaskID,
                                             progress: overall,
-                                            detail: "\(insdcAccession): \(message)"
+                                            detail: "\(record.accession): \(message)"
                                         )
                                     }
                                 }
-
-                                // Append Pathoplexus metadata to the bundle manifest
-                                if let meta = ppMeta {
-                                    appendPathoplexusMetadata(meta, organism: ppOrganism, toBundleAt: bundleURL)
-                                }
-
                                 fileURL = bundleURL
-                                logger.info("performBatchDownload: Built GenBank bundle from Pathoplexus INSDC at \(bundleURL.path, privacy: .public)")
-                            } catch {
-                                logger.warning("performBatchDownload: INSDC fetch failed for \(record.accession, privacy: .public) (\(insdcAccession, privacy: .public)); falling back to Pathoplexus FASTA. Error: \(error.localizedDescription, privacy: .public)")
+                                logger.info("performBatchDownload: Built GenBank bundle at \(bundleURL.path, privacy: .public)")
+                            }
+
+                        case .ena:
+                            // ENA/SRA downloads are now handled by startENADownloadTask()
+                            // which is called after the user confirms the import config sheet.
+                            // This case should not be reachable since performBatchDownload()
+                            // returns early for ENA source before entering this Task.detached.
+                            assertionFailure("ENA downloads should not reach this code path")
+                            throw DatabaseServiceError.invalidQuery(
+                                reason: "Internal error: ENA downloads should use the config sheet path"
+                            )
+
+                        case .pathoplexus:
+                            // Check if this record has an INSDC accession for GenBank retrieval
+                            let pathoplexusService = PathoplexusService()
+                            let ppMeta = try await pathoplexusService.fetchMetadataForAccession(
+                                organism: ppOrganism,
+                                accession: normalizedRecordAccession
+                            )
+
+                            if ppMeta?.dataUseTerms?.uppercased() == DataUseTerms.restricted.rawValue {
+                                throw DatabaseServiceError.invalidQuery(
+                                    reason: "Record \(normalizedRecordAccession) is restricted and cannot be downloaded"
+                                )
+                            } else if let insdcAccession = ppMeta?.bestINSDCAccession?.trimmingCharacters(in: .whitespacesAndNewlines), !insdcAccession.isEmpty {
+                                // Prefer INSDC GenBank retrieval for rich annotations; if unavailable,
+                                // fall back to direct Pathoplexus FASTA so the sample still downloads.
+                                logger.info("performBatchDownload: Pathoplexus record \(record.accession, privacy: .public) has INSDC accession \(insdcAccession, privacy: .public), fetching from GenBank")
+                                do {
+                                    performOnMainRunLoop {
+                                        _ = DownloadCenter.shared.update(
+                                            id: downloadCenterTaskID,
+                                            progress: progressFraction,
+                                            detail: "Fetching GenBank record \(insdcAccession)..."
+                                        )
+                                    }
+
+                                    let bundleURL = try await genBankVM.downloadAndBuild(
+                                        accession: insdcAccession,
+                                        outputDirectory: batchDir,
+                                        includeGFF3Annotations: includeGFF3Annotations
+                                    ) { progress, message in
+                                        let overall = (Double(index) + progress) / Double(totalCount)
+                                        performOnMainRunLoop {
+                                            _ = DownloadCenter.shared.update(
+                                                id: downloadCenterTaskID,
+                                                progress: overall,
+                                                detail: "\(insdcAccession): \(message)"
+                                            )
+                                        }
+                                    }
+
+                                    // Append Pathoplexus metadata to the bundle manifest
+                                    if let meta = ppMeta {
+                                        appendPathoplexusMetadata(meta, organism: ppOrganism, toBundleAt: bundleURL)
+                                    }
+
+                                    fileURL = bundleURL
+                                    logger.info("performBatchDownload: Built GenBank bundle from Pathoplexus INSDC at \(bundleURL.path, privacy: .public)")
+                                } catch {
+                                    logger.warning("performBatchDownload: INSDC fetch failed for \(record.accession, privacy: .public) (\(insdcAccession, privacy: .public)); falling back to Pathoplexus FASTA. Error: \(error.localizedDescription, privacy: .public)")
+                                    performOnMainRunLoop {
+                                        _ = DownloadCenter.shared.update(
+                                            id: downloadCenterTaskID,
+                                            progress: progressFraction,
+                                            detail: "GenBank unavailable for \(record.accession); falling back to FASTA..."
+                                        )
+                                    }
+
+                                    let dbRecord = try await pathoplexusService.fetch(accession: record.accession, organism: ppOrganism)
+                                    let bundleURL = try await genBankVM.buildBundleFromSequence(
+                                        accession: dbRecord.accession,
+                                        title: dbRecord.title,
+                                        sequence: dbRecord.sequence,
+                                        outputDirectory: batchDir,
+                                        sourceDatabase: "Pathoplexus",
+                                        sourceURL: URL(string: "https://pathoplexus.org/\(ppOrganism)/search?accession=\(dbRecord.accession)"),
+                                        notes: "Generated from Pathoplexus FASTA fallback after INSDC lookup failed"
+                                    ) { progress, message in
+                                        let overall = (Double(index) + progress) / Double(totalCount)
+                                        performOnMainRunLoop {
+                                            _ = DownloadCenter.shared.update(
+                                                id: downloadCenterTaskID,
+                                                progress: overall,
+                                                detail: "\(dbRecord.accession): \(message)"
+                                            )
+                                        }
+                                    }
+                                    if let meta = ppMeta {
+                                        appendPathoplexusMetadata(meta, organism: ppOrganism, toBundleAt: bundleURL)
+                                    }
+                                    fileURL = bundleURL
+                                }
+                            } else {
+                                // No INSDC accession — download FASTA only from Pathoplexus
+                                logger.info("performBatchDownload: Pathoplexus record \(record.accession, privacy: .public) has no INSDC accession, building bundle from Pathoplexus FASTA")
                                 performOnMainRunLoop {
                                     _ = DownloadCenter.shared.update(
                                         id: downloadCenterTaskID,
                                         progress: progressFraction,
-                                        detail: "GenBank unavailable for \(record.accession); falling back to FASTA..."
+                                        detail: "Building bundle from Pathoplexus sequence for \(record.accession)..."
                                     )
                                 }
 
-                                let dbRecord = try await pathoplexusService.fetch(accession: record.accession, organism: ppOrganism)
+                                let dbRecord = try await pathoplexusService.fetch(accession: normalizedRecordAccession, organism: ppOrganism)
                                 let bundleURL = try await genBankVM.buildBundleFromSequence(
                                     accession: dbRecord.accession,
                                     title: dbRecord.title,
@@ -2834,7 +2850,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                     outputDirectory: batchDir,
                                     sourceDatabase: "Pathoplexus",
                                     sourceURL: URL(string: "https://pathoplexus.org/\(ppOrganism)/search?accession=\(dbRecord.accession)"),
-                                    notes: "Generated from Pathoplexus FASTA fallback after INSDC lookup failed"
+                                    notes: "Generated from Pathoplexus sequence (no INSDC accession available)"
                                 ) { progress, message in
                                     let overall = (Double(index) + progress) / Double(totalCount)
                                     performOnMainRunLoop {
@@ -2850,106 +2866,72 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                 }
                                 fileURL = bundleURL
                             }
-                        } else {
-                            // No INSDC accession — download FASTA only from Pathoplexus
-                            logger.info("performBatchDownload: Pathoplexus record \(record.accession, privacy: .public) has no INSDC accession, building bundle from Pathoplexus FASTA")
-                            performOnMainRunLoop {
-                                _ = DownloadCenter.shared.update(
-                                    id: downloadCenterTaskID,
-                                    progress: progressFraction,
-                                    detail: "Building bundle from Pathoplexus sequence for \(record.accession)..."
-                                )
-                            }
 
-                            let dbRecord = try await pathoplexusService.fetch(accession: normalizedRecordAccession, organism: ppOrganism)
-                            let bundleURL = try await genBankVM.buildBundleFromSequence(
-                                accession: dbRecord.accession,
-                                title: dbRecord.title,
-                                sequence: dbRecord.sequence,
-                                outputDirectory: batchDir,
-                                sourceDatabase: "Pathoplexus",
-                                sourceURL: URL(string: "https://pathoplexus.org/\(ppOrganism)/search?accession=\(dbRecord.accession)"),
-                                notes: "Generated from Pathoplexus sequence (no INSDC accession available)"
-                            ) { progress, message in
-                                let overall = (Double(index) + progress) / Double(totalCount)
-                                performOnMainRunLoop {
-                                    _ = DownloadCenter.shared.update(
-                                        id: downloadCenterTaskID,
-                                        progress: overall,
-                                        detail: "\(dbRecord.accession): \(message)"
-                                    )
-                                }
-                            }
-                            if let meta = ppMeta {
-                                appendPathoplexusMetadata(meta, organism: ppOrganism, toBundleAt: bundleURL)
-                            }
-                            fileURL = bundleURL
+                        default:
+                            throw DatabaseServiceError.invalidQuery(reason: "Unsupported database")
                         }
 
-                    default:
-                        throw DatabaseServiceError.invalidQuery(reason: "Unsupported database")
-                    }
+                        if let fileURL {
+                            downloadedURLs.append(fileURL)
+                        }
+                        logger.info("Downloaded \(normalizedRecordAccession, privacy: .public)")
 
-                    if let fileURL {
-                        downloadedURLs.append(fileURL)
+                    } catch {
+                        logger.error("Failed to download \(record.accession.trimmingCharacters(in: .whitespacesAndNewlines), privacy: .public): \(error, privacy: .public)")
+                        failedCount += 1
+                        failureDetails.append("\(record.accession.trimmingCharacters(in: .whitespacesAndNewlines)): \(error.localizedDescription)")
+                        // Store the last error detail for the DownloadCenter failure message
+                        performOnMainRunLoop {
+                            _ = DownloadCenter.shared.update(
+                                id: downloadCenterTaskID,
+                                progress: Double(index + 1) / Double(totalCount),
+                                detail: "Failed: \(record.accession) — \(error.localizedDescription)"
+                            )
+                        }
                     }
-                    logger.info("Downloaded \(normalizedRecordAccession, privacy: .public)")
+                }
 
-                } catch {
-                    logger.error("Failed to download \(record.accession.trimmingCharacters(in: .whitespacesAndNewlines), privacy: .public): \(error, privacy: .public)")
-                    failedCount += 1
-                    failureDetails.append("\(record.accession.trimmingCharacters(in: .whitespacesAndNewlines)): \(error.localizedDescription)")
-                    // Store the last error detail for the DownloadCenter failure message
-                    performOnMainRunLoop {
-                        _ = DownloadCenter.shared.update(
+                // Complete - update DownloadCenter with bundle URLs.
+                // DownloadCenter.onBundleReady (set by AppDelegate) handles importing
+                // the bundles into the sidebar. This avoids the fragile callback chain
+                // through the sheet controller which was deallocated on dismissal.
+                let finalDownloadedURLs = downloadedURLs
+                let finalFailedCount = failedCount
+                let finalFailureDetails = failureDetails
+                performOnMainRunLoop {
+                    if finalDownloadedURLs.isEmpty && finalFailedCount > 0 {
+                        let reasonSummary = finalFailureDetails.prefix(3).joined(separator: "; ")
+                        _ = DownloadCenter.shared.fail(
                             id: downloadCenterTaskID,
-                            progress: Double(index + 1) / Double(totalCount),
-                            detail: "Failed: \(record.accession) — \(error.localizedDescription)"
+                            detail: reasonSummary.isEmpty
+                                ? "Completed with \(finalFailedCount) failure(s)"
+                                : "Completed with \(finalFailedCount) failure(s): \(reasonSummary)"
+                        )
+                    } else {
+                        let bundleNames = finalDownloadedURLs.map { $0.deletingPathExtension().lastPathComponent }
+                        let detail: String
+                        if finalFailedCount > 0 {
+                            let reasonSummary = finalFailureDetails.prefix(3).joined(separator: "; ")
+                            detail = "Completed \(finalDownloadedURLs.count) download(s), \(finalFailedCount) failed. \(reasonSummary)"
+                        } else if totalCount == 1 {
+                            if currentSource == .ena {
+                                detail = "FASTQ ready: \(bundleNames.first ?? "unknown")"
+                            } else {
+                                detail = "Bundle ready: \(bundleNames.first ?? "unknown")"
+                            }
+                        } else {
+                            let unit = currentSource == .ena ? "file(s)" : "bundle(s)"
+                            detail = "Completed \(finalDownloadedURLs.count) \(unit)"
+                        }
+                        _ = DownloadCenter.shared.complete(
+                            id: downloadCenterTaskID,
+                            detail: detail,
+                            bundleURLs: finalDownloadedURLs
                         )
                     }
-                }
-            }
 
-            // Complete - update DownloadCenter with bundle URLs.
-            // DownloadCenter.onBundleReady (set by AppDelegate) handles importing
-            // the bundles into the sidebar. This avoids the fragile callback chain
-            // through the sheet controller which was deallocated on dismissal.
-            let finalDownloadedURLs = downloadedURLs
-            let finalFailedCount = failedCount
-            let finalFailureDetails = failureDetails
-            performOnMainRunLoop {
-                if finalDownloadedURLs.isEmpty && finalFailedCount > 0 {
-                    let reasonSummary = finalFailureDetails.prefix(3).joined(separator: "; ")
-                    _ = DownloadCenter.shared.fail(
-                        id: downloadCenterTaskID,
-                        detail: reasonSummary.isEmpty
-                            ? "Completed with \(finalFailedCount) failure(s)"
-                            : "Completed with \(finalFailedCount) failure(s): \(reasonSummary)"
-                    )
-                } else {
-                    let bundleNames = finalDownloadedURLs.map { $0.deletingPathExtension().lastPathComponent }
-                    let detail: String
-                    if finalFailedCount > 0 {
-                        let reasonSummary = finalFailureDetails.prefix(3).joined(separator: "; ")
-                        detail = "Completed \(finalDownloadedURLs.count) download(s), \(finalFailedCount) failed. \(reasonSummary)"
-                    } else if totalCount == 1 {
-                        if currentSource == .ena {
-                            detail = "FASTQ ready: \(bundleNames.first ?? "unknown")"
-                        } else {
-                            detail = "Bundle ready: \(bundleNames.first ?? "unknown")"
-                        }
-                    } else {
-                        let unit = currentSource == .ena ? "file(s)" : "bundle(s)"
-                        detail = "Completed \(finalDownloadedURLs.count) \(unit)"
-                    }
-                    _ = DownloadCenter.shared.complete(
-                        id: downloadCenterTaskID,
-                        detail: detail,
-                        bundleURLs: finalDownloadedURLs
-                    )
+                    logger.info("performBatchDownload: Complete - \(finalDownloadedURLs.count) downloaded, \(finalFailedCount) failed")
                 }
-
-                logger.info("performBatchDownload: Complete - \(finalDownloadedURLs.count) downloaded, \(finalFailedCount) failed")
             }
         }
     }
