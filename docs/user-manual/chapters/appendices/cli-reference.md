@@ -136,7 +136,7 @@ For a run you intend to reproduce exactly, pin `--threads` to a fixed number. Se
 
 ## Command index
 
-The program has 46 top-level commands. Each row names the section that lists its subcommands and flags, and the chapter that teaches the operation in the window, where one does.
+The program has 45 top-level commands. Each row names the section that lists its subcommands and flags, and the chapter that teaches the operation in the window, where one does.
 
 | Command | What it is for | Section | Chapter |
 |---|---|---|---|
@@ -173,7 +173,6 @@ The program has 46 top-level commands. Each row names the section that lists its
 | `primers` | Import primer schemes, design primers, and export orders. | [Primer schemes and primer design](#primer-schemes-and-primer-design) | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) |
 | `project` | Lock, unlock, and migrate a shared project. | [Projects, provenance, and run history](#projects-provenance-and-run-history) | [Shared Projects and Bundle Migration](shared-projects.md) |
 | `provenance` | Print citations, export scripts, and verify signatures. | [Projects, provenance, and run history](#projects-provenance-and-run-history) | [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md) |
-| `provision-tools` | Install the micromamba helper. | [Tool packs, databases, and managed tools](#tool-packs-databases-and-managed-tools) | [Plugin Packs](../01-foundations/07-plugin-packs.md) |
 | `run-headless` | Run a workflow quietly. | [Workflows](#workflows) | [Running External Workflows](../08-workflows/03-running-external-workflows.md) |
 | `search` | Find a pattern in a FASTA and write BED. | [Sequence utilities](#sequence-utilities) | None |
 | `sequence` | Find ORFs and edit annotation tracks in a bundle. | [Reference bundles](#reference-bundles) | [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md) |
@@ -4303,21 +4302,6 @@ The scan covers `databases/`, `conda/pkgs/`, and `conda/envs/` under each folder
 | `--apply` | Replace duplicates with verified clones and reclaim space. |
 | `--skip-envs` | Leave `conda/envs/` out of the scan. Hard-linked package files then stay unshared. |
 | `--format <format>` | Output format, `text` or `json`. The default is `text`. |
-
-### `provision-tools`
-
-Copies the pinned micromamba helper into `Sources/LungfishWorkflow/Resources/Tools` under the current folder. It is a developer command for an LGE source checkout, and the installed app never needs it.
-
-```text
-lungfish-cli provision-tools <options>
-```
-
-| Argument or flag | What it does |
-|---|---|
-| `--arch <arch>` | Target architecture (arm64, x86_64, or current). The default is `current`. |
-| `--force-rebuild` | Force rebuild even if tools are already installed. |
-| `--list-tools` | List the bundled bootstrap tool without provisioning. |
-| `--status` | Check installation status of the bundled bootstrap tool. |
 
 ## Demo projects
 

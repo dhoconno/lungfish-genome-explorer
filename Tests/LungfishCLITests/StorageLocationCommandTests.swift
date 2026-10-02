@@ -1,22 +1,9 @@
 import ArgumentParser
 import XCTest
-import Darwin
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
 final class StorageLocationCommandTests: XCTestCase {
-    func testProvisionToolsStatusReportsConfiguredStorageRoot() async throws {
-        let orchestrator = ToolProvisioningOrchestrator()
-        let expectedOutputDirectory = await orchestrator.getOutputDirectory()
-
-        let output = try await captureStandardOutput {
-            var command = try ProvisionToolsCommand.parse(["--status"])
-            try await command.run()
-        }
-
-        XCTAssertTrue(output.contains(expectedOutputDirectory.path), "Expected status output to mention \(expectedOutputDirectory.path), got: \(output)")
-    }
-
     func testCondaHelpMentionsConfiguredStorageRoot() throws {
         let root = URL(fileURLWithPath: "/Volumes/Lungfish SSD/custom-storage-root", isDirectory: true)
         let originalOverride = CondaCommand.storageRootOverride
@@ -101,29 +88,6 @@ final class StorageLocationCommandTests: XCTestCase {
         XCTAssertNoThrow(try CondaCommand.validateExplicitStorageOverrides(
             explicitCondaRoot: "/tmp/lungfish-explicit-conda-root"
         ))
-    }
-
-    private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
-        let pipe = Pipe()
-        let originalStdout = dup(STDOUT_FILENO)
-        dup2(pipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
-
-        do {
-            try await operation()
-            fflush(stdout)
-        } catch {
-            fflush(stdout)
-            dup2(originalStdout, STDOUT_FILENO)
-            close(originalStdout)
-            pipe.fileHandleForWriting.closeFile()
-            throw error
-        }
-
-        dup2(originalStdout, STDOUT_FILENO)
-        close(originalStdout)
-        pipe.fileHandleForWriting.closeFile()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
     }
 }
 
