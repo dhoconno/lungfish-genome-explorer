@@ -13,19 +13,19 @@ final class ViewerEmbeddedFilePreviewTests: XCTestCase {
     private var root: URL!
     private var viewer: ViewerViewController!
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    override func setUp() async throws {
+        try await super.setUp()
         root = try TestTempDirectory.make(prefix: "ViewerEmbeddedFilePreview")
         viewer = ViewerViewController()
         viewer.loadViewIfNeeded()
         viewer.view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         viewer.clearViewport()
         viewer = nil
         TestTempDirectory.cleanup(root)
-        try super.tearDownWithError()
+        try await super.tearDown()
     }
 
     func testFileQuickLookCanPreviewIsHandedToTheRenderer() throws {

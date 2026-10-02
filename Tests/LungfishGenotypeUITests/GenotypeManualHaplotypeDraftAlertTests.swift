@@ -16,16 +16,16 @@ final class GenotypeManualHaplotypeDraftAlertTests: GenotypeResultViewportTestCa
     private var bundleURL: URL!
     private var window: NSWindow?
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    override func setUp() async throws {
+        try await super.setUp()
         bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeDraftAlert")
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         window?.orderOut(nil)
         window = nil
         TestTempDirectory.cleanup(bundleURL)
-        try super.tearDownWithError()
+        try await super.tearDown()
     }
 
     func testCancelButtonKeepsTheDraftAndRefusesTheTransition() async throws {
