@@ -369,7 +369,7 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             tempDirectory: materializationDirectory,
             materializer: materializer
         )
-        let executionURL = try XCTUnwrap(resolved.inputURLs.first)
+        let executionURL = try XCTUnwrap(resolved.executionInputURLs.first)
         XCTAssertTrue(FileManager.default.fileExists(atPath: executionURL.path))
 
         let relativeInputArgument = "relative-fixture.lungfish"
@@ -393,7 +393,7 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
                 parentArgv: argv,
                 parentDurableReplayArgv: durableReplayArgv,
                 originalInputURLs: [fixture.derivedBundleURL],
-                executionInputURLs: resolved.inputURLs,
+                executionInputURLs: resolved.executionInputURLs,
                 outputDirectory: outputDirectory,
                 operationName: "classification",
                 startedAt: Date(timeIntervalSince1970: 100),
@@ -412,7 +412,7 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             outputDirectory: outputDirectory,
             originalInputURLs: [fixture.derivedBundleURL]
         )
-        context.executionInputURLs = resolved.inputURLs
+        context.executionInputURLs = resolved.executionInputURLs
         context.durableReplayArgv = durableReplayArgv
         context.inputFormat = .fastq
         context.materializationStartedAt = resolved.materializationStartedAt
@@ -1260,9 +1260,9 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             materializer: materializer
         )
 
-        XCTAssertEqual(resolved.inputURLs.map(\.standardizedFileURL), [materializedURL.standardizedFileURL])
+        XCTAssertEqual(resolved.executionInputURLs.map(\.standardizedFileURL), [materializedURL.standardizedFileURL])
         XCTAssertEqual(materializer.bundleURLs, [fixture.derivedBundleURL.standardizedFileURL])
-        XCTAssertFalse(resolved.inputURLs.map(\.standardizedFileURL).contains(fixture.rootFASTQURL.standardizedFileURL))
+        XCTAssertFalse(resolved.executionInputURLs.map(\.standardizedFileURL).contains(fixture.rootFASTQURL.standardizedFileURL))
     }
 
     func testClassifyMaterializationPreflightsAllInputsBeforeWritingOutputs() async throws {
@@ -4539,9 +4539,16 @@ private func captureStandardError(_ operation: () async throws -> Void) async re
     }
 }
 
-private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing {
+/// Sendable because `AssembleCommand.resolveExecutionInputs` hands the
+/// materializer to the shared resolver's `@Sendable` closure.
+private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing, @unchecked Sendable {
     let materializedURL: URL
-    private(set) var bundleURLs: [URL] = []
+    private let lock = NSLock()
+    private var recordedBundleURLs: [URL] = []
+
+    var bundleURLs: [URL] {
+        lock.withLock { recordedBundleURLs }
+    }
 
     init(materializedURL: URL) {
         self.materializedURL = materializedURL
@@ -4552,13 +4559,14 @@ private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing {
         tempDirectory: URL,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
-        bundleURLs.append(bundleURL.standardizedFileURL)
+        lock.withLock { recordedBundleURLs.append(bundleURL.standardizedFileURL) }
         return materializedURL
     }
 }
 
-/// Sendable because `MapCommand.resolveExecutionInputs` hands the
-/// materializer to the shared resolver's `@Sendable` closure.
+/// Sendable because `MapCommand.resolveExecutionInputs` and
+/// `ClassifyCommand.resolveExecutionInputs` hand the materializer to the
+/// shared resolver's `@Sendable` closure.
 private final class RecordingCLISequenceMaterializer: CLISequenceInputMaterializing, @unchecked Sendable {
     let materializedURL: URL
     private let lock = NSLock()
@@ -4582,15 +4590,21 @@ private final class RecordingCLISequenceMaterializer: CLISequenceInputMaterializ
     }
 }
 
-private final class FailingSecondCLISequenceMaterializer: CLISequenceInputMaterializing {
-    private var invocationCount = 0
+/// Sendable because `ClassifyCommand.resolveExecutionInputs` hands the
+/// materializer to the shared resolver's `@Sendable` closure.
+private final class FailingSecondCLISequenceMaterializer: CLISequenceInputMaterializing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var invocations = 0
 
     func materialize(
         bundleURL: URL,
         tempDirectory: URL,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
-        invocationCount += 1
+        let invocationCount = lock.withLock {
+            invocations += 1
+            return invocations
+        }
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         let outputURL = tempDirectory.appendingPathComponent("materialized-\(invocationCount).fastq")
         try "@read\(invocationCount)\nACGT\n+\nIIII\n".write(to: outputURL, atomically: true, encoding: .utf8)

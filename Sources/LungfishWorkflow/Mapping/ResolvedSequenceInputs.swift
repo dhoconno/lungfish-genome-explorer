@@ -13,10 +13,13 @@ import LungfishIO
 /// bundle contributes every FASTQ file it holds, through
 /// ``FASTQSourceResolver``, and a virtual bundle (subset, trim,
 /// demultiplexed or oriented reads) is materialized into
-/// `materializationDirectory` first. `lungfish-cli map` resolves its inputs
-/// the same way, so a bundle maps the same reads through the window and
-/// through the recorded CLI command; `classify` still resolves one primary
-/// file per input through
+/// `materializationDirectory` first. `lungfish-cli map`, `lungfish-cli conda
+/// classify` and `lungfish-cli assemble` resolve their inputs the same way,
+/// so a bundle maps, classifies or assembles the same reads through the app
+/// and through the recorded CLI command, and `lungfish-cli fastq materialize`
+/// joins a multi-file bundle through ``concatenateMultiFileBundle(_:into:)``.
+/// The `fastq demultiplex` format probe still resolves one primary file per
+/// input through
 /// ``CLISequenceInputMaterialization/resolveExecutionInputs(for:tempDirectory:materializer:operationName:progress:)``,
 /// so the two are not interchangeable for a bundle that holds several files.
 ///
@@ -332,6 +335,86 @@ public struct ResolvedSequenceInputs: Sendable, Equatable {
         for entry in currentEntries where !preexistingEntries.contains(entry) {
             try? fileManager.removeItem(at: directory.appendingPathComponent(entry))
         }
+    }
+}
+
+extension ResolvedSequenceInputs {
+    /// ``resolve(inputURLs:materializationDirectory:materializer:concatenateUnpairedFiles:progress:)``
+    /// for a command that resolved one primary file per input through
+    /// ``CLISequenceInputMaterialization/resolveExecutionInputs(for:tempDirectory:materializer:operationName:progress:)``
+    /// before. The command keeps that resolver's refusals, made before
+    /// anything is written (a container-only demux group, an input with no
+    /// readable FASTQ or FASTA payload), and its progress lines (the
+    /// materializer's own messages, not the shared resolver's), and now
+    /// reads every file of a bundle, each its own execution file.
+    public static func resolvePreflighted(
+        inputURLs: [URL],
+        operationName: String,
+        materializationDirectory: URL,
+        materializer: any CLISequenceInputMaterializing & Sendable,
+        progress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> ResolvedSequenceInputs {
+        for inputURL in inputURLs.map(\.standardizedFileURL) {
+            if let message = CLISequenceInputMaterialization.unsupportedSequenceInputMessage(
+                for: inputURL,
+                operationName: operationName
+            ) {
+                throw CLISequenceInputMaterializationError.unsupportedSequenceInput(message)
+            }
+            if !CLISequenceInputMaterialization.requiresMaterialization(inputURL),
+               SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) == nil {
+                throw CLISequenceInputMaterializationError.unreadableSequenceInput(inputURL.path)
+            }
+        }
+        return try await resolve(
+            inputURLs: inputURLs,
+            materializationDirectory: materializationDirectory,
+            materializer: MaterializerOwnProgress(materializer: materializer, progress: progress)
+        )
+    }
+
+    /// Joins every file of a multi-file root bundle (its `source-files.json`,
+    /// an ONT import) into one file in `directory`, in the manifest's order,
+    /// as the app's one-file resolution of a bundle joins them, with the
+    /// ``SequenceInputConcatenation`` sidecar beside it. Returns nil for any
+    /// other bundle, whose one file the materializer writes.
+    public static func concatenateMultiFileBundle(
+        _ bundleURL: URL,
+        into directory: URL
+    ) throws -> SequenceInputConcatenation? {
+        guard !FASTQBundle.isDerivedBundle(bundleURL),
+              FASTQBundle.isMultiFileBundle(bundleURL),
+              let memberURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL),
+              memberURLs.count > 1 else {
+            return nil
+        }
+        return try concatenate(memberURLs, of: bundleURL.standardizedFileURL, into: directory.standardizedFileURL)
+    }
+
+    /// The raw command-line argument behind each execution file, for a
+    /// durable replay command, or none when `arguments` do not name the
+    /// inputs one to one (a folder argument expanded into several inputs).
+    public func argumentsPerExecutionFile(_ arguments: [String]) -> [String] {
+        guard arguments.count == inputs.count else { return [] }
+        return zip(arguments, inputs).flatMap { argument, input in
+            input.executionURLs.map { _ in argument }
+        }
+    }
+}
+
+/// Hands the materializer the caller's `progress` in place of the callback
+/// the shared resolver passes, so only the materializer's own messages
+/// reach the caller.
+private struct MaterializerOwnProgress: CLISequenceInputMaterializing, Sendable {
+    let materializer: any CLISequenceInputMaterializing & Sendable
+    let progress: (@Sendable (String) -> Void)?
+
+    func materialize(
+        bundleURL: URL,
+        tempDirectory: URL,
+        progress _: (@Sendable (String) -> Void)?
+    ) async throws -> URL {
+        try await materializer.materialize(bundleURL: bundleURL, tempDirectory: tempDirectory, progress: progress)
     }
 }
 

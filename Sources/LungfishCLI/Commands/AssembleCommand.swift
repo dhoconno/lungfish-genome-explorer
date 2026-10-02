@@ -39,21 +39,10 @@ enum AssembleReadTypeResolutionError: LocalizedError {
     }
 }
 
-protocol AssemblyInputMaterializing {
-    func materialize(
-        bundleURL: URL,
-        tempDirectory: URL,
-        progress: (@Sendable (String) -> Void)?
-    ) async throws -> URL
-}
+/// The materializer `assemble` hands the shared resolver, which runs it from a `@Sendable` closure.
+protocol AssemblyInputMaterializing: CLISequenceInputMaterializing, Sendable {}
 
 extension FASTQCLIMaterializer: AssemblyInputMaterializing {}
-
-struct AssemblyResolvedExecutionInputs {
-    let inputURLs: [URL]
-    let materializationStartedAt: Date?
-    let materializationEndedAt: Date?
-}
 
 struct AssembleCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -225,13 +214,11 @@ struct AssembleCommand: AsyncParsableCommand {
             throw CLIExitCode.inputError.exitCode
         }
 
-        let executionInputURLs: [URL]
-        let materializationStartedAt: Date?
-        let materializationEndedAt: Date?
+        let resolvedInputs: ResolvedSequenceInputs
         let resolvedReadType: AssemblyReadType
         let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true)
         do {
-            let resolvedInputs = try await Self.resolveExecutionInputs(
+            resolvedInputs = try await Self.resolveExecutionInputs(
                 for: inputURLs,
                 tempDirectory: materializationDirectory,
                 materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
@@ -241,14 +228,11 @@ struct AssembleCommand: AsyncParsableCommand {
                     }
                 }
             )
-            executionInputURLs = resolvedInputs.inputURLs
-            materializationStartedAt = resolvedInputs.materializationStartedAt
-            materializationEndedAt = resolvedInputs.materializationEndedAt
             resolvedReadType = try preMaterializationReadType ?? Self.resolveReadType(
                     for: tool,
                     explicitReadType: readType,
-                    originalInputURLs: inputURLs,
-                    executionInputURLs: executionInputURLs
+                    originalInputURLs: resolvedInputs.originalInputURLs,
+                    executionInputURLs: resolvedInputs.executionInputURLs
                 )
             guard AssemblyCompatibility.isSupported(tool: tool, for: resolvedReadType) else {
                 print(formatter.error("\(tool.displayName) is not available for \(resolvedReadType.displayName) in v1."))
@@ -266,6 +250,16 @@ struct AssembleCommand: AsyncParsableCommand {
             print(formatter.error(error.localizedDescription))
             throw CLIExitCode.workflowError.exitCode
         }
+        // Every read a bundle holds, as `map` hands the mapper: one original
+        // per execution file, and a bundle that holds the R1 and R2 of a mate
+        // pair is assembled as pairs, as `map` and the app's per-bundle launch do.
+        let executionInputURLs = resolvedInputs.executionInputURLs
+        let executionOriginalInputURLs = resolvedInputs.originalInputURLs
+        let effectivePairedEnd = pairedEnd || resolvedInputs.resolvedAsMatePair
+        if readLayout != .auto, resolvedInputs.resolvedAsMatePair {
+            print(formatter.error("--read-layout describes one input file; \(inputURLs[0].lastPathComponent) holds R1 and R2 files."))
+            throw CLIExitCode.inputError.exitCode
+        }
 
         let resolvedProfile = await Self.resolveProfile(
             tool: tool,
@@ -280,10 +274,11 @@ struct AssembleCommand: AsyncParsableCommand {
         let layoutResolution = Self.resolveInputLayout(
             tool: tool,
             readType: resolvedReadType,
-            pairedEnd: pairedEnd,
+            pairedEnd: effectivePairedEnd,
             explicit: readLayout.explicitLayout,
-            originalInputURLs: inputURLs,
-            executionInputURLs: executionInputURLs
+            originalInputURLs: executionOriginalInputURLs,
+            executionInputURLs: executionInputURLs,
+            pooled: resolvedInputs.pooledLayoutResolution
         )
 
         let request = AssemblyRunRequest(
@@ -292,7 +287,7 @@ struct AssembleCommand: AsyncParsableCommand {
             inputURLs: executionInputURLs,
             projectName: projectName,
             outputDirectory: outputDirectory,
-            pairedEnd: pairedEnd,
+            pairedEnd: effectivePairedEnd,
             threads: globalOptions.effectiveThreads,
             memoryGB: memoryGB,
             minContigLength: minContigLength,
@@ -354,13 +349,13 @@ struct AssembleCommand: AsyncParsableCommand {
             _ = try Self.writeProvenance(
                 request: executionRequest,
                 result: result,
-                originalInputURLs: inputURLs,
+                originalInputURLs: executionOriginalInputURLs,
                 executionInputURLs: executionInputURLs,
                 argv: CommandLine.arguments,
                 startedAt: startedAt,
                 endedAt: Date(),
-                materializationStartedAt: materializationStartedAt,
-                materializationEndedAt: materializationEndedAt,
+                materializationStartedAt: resolvedInputs.materializationStartedAt,
+                materializationEndedAt: resolvedInputs.materializationEndedAt,
                 layoutResolution: layoutResolution
             )
         } catch {
@@ -479,14 +474,16 @@ struct AssembleCommand: AsyncParsableCommand {
     ///
     /// A materialized scratch copy of a derived bundle carries no sidecar,
     /// so the ORIGINAL input supplies the bundle metadata as hints (a VSP2
-    /// merge recipe in the lineage demotes strict to mixed).
+    /// merge recipe in the lineage demotes strict to mixed). A concatenation
+    /// of a bundle's files keeps their `pooled` single-read layout, as `map`.
     static func resolveInputLayout(
         tool: AssemblyTool,
         readType: AssemblyReadType,
         pairedEnd: Bool,
         explicit: FASTQInputLayout?,
         originalInputURLs: [URL],
-        executionInputURLs: [URL]
+        executionInputURLs: [URL],
+        pooled: FASTQInputLayoutResolution? = nil
     ) -> FASTQInputLayoutResolution? {
         guard Self.shortReadTools.contains(tool),
               readType == .illuminaShortReads,
@@ -498,6 +495,7 @@ struct AssembleCommand: AsyncParsableCommand {
         if let explicit {
             return FASTQInputLayoutResolver.resolve(inputURLs: [executionURL], explicit: explicit)
         }
+        if let pooled { return pooled }
         let originalURL = originalInputURLs.first?.standardizedFileURL
         let hintURL = originalURL == executionURL.standardizedFileURL ? nil : originalURL
         return FASTQInputLayoutResolver.resolve(fastqURL: executionURL, metadataFrom: hintURL)
@@ -563,7 +561,7 @@ struct AssembleCommand: AsyncParsableCommand {
             return parsedReadType
         }
 
-        let inputDetections = zipOriginalAndExecutionInputs(
+        let inputDetections = CLISequenceInputMaterialization.originalAndExecutionInputs(
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs
         ).map { originalURL, executionURL in
@@ -700,6 +698,8 @@ struct AssembleCommand: AsyncParsableCommand {
             .appendingPathComponent("assembly-\(projectName)")
     }
 
+    /// One primary file per input, for inputs that need no materialization (a
+    /// test seam). `run` reads every file of a bundle (`resolveExecutionInputs`).
     static func resolveExecutionInputURLs(for inputURLs: [URL]) throws -> [URL] {
         try inputURLs.map { inputURL in
             if AssemblyInputMaterialization.requiresMaterialization(inputURL) {
@@ -723,46 +723,40 @@ struct AssembleCommand: AsyncParsableCommand {
             tempDirectory: tempDirectory,
             materializer: materializer,
             progress: progress
-        ).inputURLs
+        ).executionInputURLs
     }
 
+    /// Resolves the inputs as `lungfish-cli map` does (``ResolvedSequenceInputs``):
+    /// every read a bundle holds, a virtual bundle materialized and the unpaired
+    /// files of one bundle (a multi-file import, a `fullMixed` derivative)
+    /// concatenated into `tempDirectory`, the R1 and R2 of a mate pair kept
+    /// apart. An input with no readable payload is refused before anything is written.
     static func resolveExecutionInputs(
         for inputURLs: [URL],
         tempDirectory: URL,
-        materializer: AssemblyInputMaterializing,
+        materializer: any AssemblyInputMaterializing,
         progress: (@Sendable (String) -> Void)? = nil
-    ) async throws -> AssemblyResolvedExecutionInputs {
-        var resolvedURLs: [URL] = []
-        var materializationStartedAt: Date?
-        var materializationEndedAt: Date?
-        for inputURL in inputURLs {
-            if let bundleURL = AssemblyInputMaterialization.bundleRequiringMaterialization(for: inputURL) {
-                if materializationStartedAt == nil {
-                    materializationStartedAt = Date()
-                }
-                try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-                let materializedURL = try await materializer.materialize(
-                    bundleURL: bundleURL,
-                    tempDirectory: tempDirectory,
-                    progress: progress
-                )
-                materializationEndedAt = Date()
-                resolvedURLs.append(materializedURL.standardizedFileURL)
-                continue
-            }
-
-            guard let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) else {
+    ) async throws -> ResolvedSequenceInputs {
+        // Files of one bundle given separately (the app's per-bundle batch names a pair's R1 and R2) are that bundle, once.
+        var seen = Set<String>()
+        let inputURLs = inputURLs.map { SequenceInputResolver.enclosingFASTQBundleURL(for: $0) ?? $0.standardizedFileURL }
+            .filter { seen.insert($0.path).inserted }
+        for inputURL in inputURLs where !AssemblyInputMaterialization.requiresMaterialization(inputURL) {
+            guard SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) != nil else {
                 throw AssembleInputResolutionError.unreadableBundlePayload(inputURL.standardizedFileURL.path)
             }
-            resolvedURLs.append(resolvedURL.standardizedFileURL)
         }
-        return AssemblyResolvedExecutionInputs(
-            inputURLs: resolvedURLs,
-            materializationStartedAt: materializationStartedAt,
-            materializationEndedAt: materializationEndedAt
+        return try await ResolvedSequenceInputs.resolve(
+            inputURLs: inputURLs,
+            materializationDirectory: tempDirectory,
+            materializer: materializer,
+            concatenateUnpairedFiles: true,
+            progress: progress
         )
     }
 
+    /// `originalInputURLs[i]` is the input `executionInputURLs[i]` came from
+    /// (one per execution file). The explicit `originalInputs` lists each once.
     @discardableResult
     static func writeProvenance(
         request: AssemblyRunRequest,
@@ -808,7 +802,7 @@ struct AssembleCommand: AsyncParsableCommand {
             )
         )
 
-        let inputPairs = zipOriginalAndExecutionInputs(
+        let inputPairs = CLISequenceInputMaterialization.originalAndExecutionInputs(
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs
         )
@@ -867,6 +861,19 @@ struct AssembleCommand: AsyncParsableCommand {
                 )
             )
         }
+        // Each concatenation of a bundle's files is a `cat` step, as `map` records it.
+        let concatenatedPairs = inputPairs.filter {
+            CLISequenceInputMaterialization.concatenation(forExecutionURL: $0.executionURL) != nil
+        }
+        for step in try CLISequenceInputMaterialization.materializationProvenanceSteps(
+            workflowVersion: LungfishCLI.configuration.version,
+            originalInputURLs: concatenatedPairs.map(\.originalURL),
+            executionInputURLs: concatenatedPairs.map(\.executionURL),
+            startedAt: materializationStartedAt ?? startedAt,
+            endedAt: materializationEndedAt ?? materializationStartedAt ?? startedAt
+        ) {
+            builder = builder.step(step)
+        }
 
         builder = builder.step(
             ProvenanceStep(
@@ -892,16 +899,6 @@ struct AssembleCommand: AsyncParsableCommand {
         return try writer.write(envelope, to: request.outputDirectory)
     }
 
-    private static func zipOriginalAndExecutionInputs(
-        originalInputURLs: [URL],
-        executionInputURLs: [URL]
-    ) -> [(originalURL: URL, executionURL: URL)] {
-        executionInputURLs.enumerated().map { index, executionURL in
-            let originalURL = originalInputURLs.indices.contains(index) ? originalInputURLs[index] : executionURL
-            return (originalURL, executionURL)
-        }
-    }
-
     private static func assemblyDefaultOptions() -> [String: ParameterValue] {
         [
             "assembler": .string("spades"),
@@ -925,12 +922,15 @@ struct AssembleCommand: AsyncParsableCommand {
         executionInputURLs: [URL],
         layoutResolution: FASTQInputLayoutResolution?
     ) -> [String: ParameterValue] {
-        assemblyResolvedOptions(
+        var options = assemblyResolvedOptions(
             for: request,
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs,
             layoutResolution: layoutResolution
         )
+        let givenInputURLs = originalInputURLs.reduce(into: [URL]()) { if !$0.contains($1) { $0.append($1) } }
+        options["originalInputs"] = .array(givenInputURLs.map { .file($0.standardizedFileURL) })
+        return options
     }
 
     /// `pairedEnd` says whether MATES REACHED THE ASSEMBLER AS PAIRS, for

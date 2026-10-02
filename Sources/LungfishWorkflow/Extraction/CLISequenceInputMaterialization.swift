@@ -213,6 +213,17 @@ public enum CLISequenceInputMaterialization {
         return concatenation(forExecutionURL: executionURL)?.bundleURL
     }
 
+    /// Each execution file with the input it came from, index by index. An
+    /// execution file past the end of `originalInputURLs` is its own original.
+    public static func originalAndExecutionInputs(
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) -> [(originalURL: URL, executionURL: URL)] {
+        executionInputURLs.enumerated().map { index, executionURL in
+            (originalInputURLs.indices.contains(index) ? originalInputURLs[index] : executionURL, executionURL)
+        }
+    }
+
     public static func materializedInputPairs(
         originalInputURLs: [URL],
         executionInputURLs: [URL]
