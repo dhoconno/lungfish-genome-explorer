@@ -11,7 +11,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 1 | 300 | 1 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 554 | 236426 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 586 | 236632 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1996 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 117 | 60242 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
@@ -84,7 +84,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 554, lines 236426
+- Swift files. 586, lines 236632
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -94,31 +94,31 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| App | 57 | 23096 |
-| Services | 121 | 38535 |
+| App | 61 | 23138 |
+| Services | 132 | 38588 |
 | Services/AI | 4 | 1929 |
 | StateManagement | 7 | 595 |
 | Support | 2 | 94 |
 | UITestSupport | 4 | 485 |
 | ViewModels | 4 | 2397 |
-| Views | 359 | 171224 |
+| Views | 376 | 171335 |
 | Views/AI | 1 | 1011 |
 | Views/Assembly | 5 | 2060 |
 | Views/BAM | 12 | 1580 |
 | Views/Components | 2 | 242 |
-| Views/DatabaseBrowser | 10 | 5331 |
+| Views/DatabaseBrowser | 12 | 5337 |
 | Views/DemoProjects | 4 | 937 |
 | Views/Dependencies | 3 | 892 |
 | Views/Extraction | 1 | 229 |
 | Views/FASTQ | 8 | 5183 |
 | Views/Help | 1 | 576 |
 | Views/ImportCenter | 6 | 1769 |
-| Views/Inspector | 51 | 23580 |
+| Views/Inspector | 56 | 23600 |
 | Views/Layout | 3 | 293 |
 | Views/MainWindow | 21 | 10180 |
 | Views/Mapping | 4 | 2228 |
-| Views/Metagenomics | 32 | 13869 |
-| Views/Operations | 6 | 2279 |
+| Views/Metagenomics | 38 | 13923 |
+| Views/Operations | 9 | 2303 |
 | Views/Phylogenetics | 3 | 490 |
 | Views/PluginManager | 4 | 2732 |
 | Views/PrimerAnalysis | 15 | 2596 |
@@ -130,7 +130,7 @@ None.
 | Views/Shared | 8 | 1038 |
 | Views/Sidebar | 18 | 9139 |
 | Views/TranslationTool | 1 | 213 |
-| Views/Viewer | 105 | 66354 |
+| Views/Viewer | 106 | 66361 |
 | Views/Welcome | 1 | 1827 |
 | Views/WorkflowLibrary | 3 | 1050 |
 | Views/WorkflowOperations | 5 | 4294 |
@@ -189,13 +189,13 @@ None.
 - `DebugRelocationSmoke` enum, `Sources/LungfishApp/App/DebugRelocationSmoke.swift:5`
 - `DetectedFormat` struct, `Sources/LungfishApp/Services/ImportService.swift:15`
 - `DocumentLoader` enum, `Sources/LungfishApp/App/DocumentLoader.swift:69`
-- `DocumentLoadError` enum, `Sources/LungfishApp/App/DocumentManager.swift:767`
-- `DocumentManager` class, `Sources/LungfishApp/App/DocumentManager.swift:177`
+- `DocumentLoadError` enum, `Sources/LungfishApp/App/DocumentLoadError.swift:14`
+- `DocumentManager` class, `Sources/LungfishApp/App/DocumentManager.swift:21`
 - `DocumentSection` struct, `Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift:691`
 - `DocumentSectionViewModel` class, `Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift:21`
-- `DocumentType` enum, `Sources/LungfishApp/App/DocumentManager.swift:108`
+- `DocumentType` enum, `Sources/LungfishApp/App/DocumentType.swift:14`
 - `DownloadCenter` typealias, `Sources/LungfishApp/Services/DownloadCenter.swift:9`
-- `EnhancedCoordinateRulerDelegate` protocol, `Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift:969`
+- `EnhancedCoordinateRulerDelegate` protocol, `Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerDelegate.swift:13`
 - `EnhancedCoordinateRulerView` class, `Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift:37`
 - `FASTACollectionViewController` class, `Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift:28`
 - `FASTQDatasetViewController` class, `Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift:112`
@@ -232,7 +232,7 @@ None.
 - `InspectorView` struct, `Sources/LungfishApp/Views/Inspector/InspectorView.swift:26`
 - `InspectorViewController` class, `Sources/LungfishApp/Views/Inspector/InspectorViewController.swift:25`
 - `InspectorViewModel` class, `Sources/LungfishApp/Views/Inspector/InspectorViewModel.swift:24`
-- `LoadedDocument` class, `Sources/LungfishApp/App/DocumentManager.swift:73`
+- `LoadedDocument` class, `Sources/LungfishApp/App/LoadedDocument.swift:18`
 - `MainMenu` class, `Sources/LungfishApp/App/MainMenu.swift:30`
 - `MainSplitViewController` class, `Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift:340`
 - `MainWindowController` class, `Sources/LungfishApp/Views/MainWindow/MainWindowController.swift:20`
@@ -316,8 +316,8 @@ None.
 - `SunburstLayout` struct, `Sources/LungfishApp/Views/Metagenomics/SunburstGeometry.swift:177`
 - `SunburstSegment` struct, `Sources/LungfishApp/Views/Metagenomics/SunburstGeometry.swift:26`
 - `TabColumnPreferences` struct, `Sources/LungfishApp/Views/Viewer/ColumnConfigurationPopover.swift:28`
-- `TaxaCollectionsDrawerDelegate` protocol, `Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerView.swift:21`
-- `TaxaCollectionsDrawerView` class, `Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerView.swift:211`
+- `TaxaCollectionsDrawerDelegate` protocol, `Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerDelegate.swift:19`
+- `TaxaCollectionsDrawerView` class, `Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerView.swift:51`
 - `TaxonomyOutlineView` class, `Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift:1546`
 - `TaxonomyReadExtractionAction` class, `Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift:90`
 - `TaxonomySunburstView` class, `Sources/LungfishApp/Views/Metagenomics/TaxonomySunburstView.swift:48`

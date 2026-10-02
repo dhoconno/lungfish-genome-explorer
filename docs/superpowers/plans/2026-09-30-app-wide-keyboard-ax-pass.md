@@ -67,7 +67,7 @@ Defaults taken by the coordinator (not asked): retarget View > Expand All / Coll
 | DemoProjects/DemoProjectsView.swift | already VStack | verify |
 | Inspector/Sections/VariantSection.swift 491 | selected variants (hundreds) | VStack capped at 100 with "showing 100 of N" |
 | VariantSection.swift 535, 692 | fields | VStack |
-| Inspector/Sections/MultipleSequenceAlignmentDocumentSection.swift 411 | pairwise rows N(N-1)/2 | Table, max height 320 |
+| Inspector/Sections/MSAPairwiseIdentitySection.swift 189 | pairwise rows N(N-1)/2 | Table, max height 320 |
 | PluginManager/PluginManagerView.swift 448 | packs | VStack |
 | PrimerAnalysis/PrimerBindingInspectionView.swift 253 | per-row comparisons | Table |
 | PrimerAnalysis/PrimerOrderResultView.swift 110, 131 | pools, oligos | pools VStack, oligos Table |
