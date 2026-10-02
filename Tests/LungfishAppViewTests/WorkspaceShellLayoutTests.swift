@@ -4,18 +4,43 @@ import LungfishCore
 import LungfishKit
 import LungfishTestSupport
 
+/// The shell controller defers its layout work with `DispatchQueue.main.async`, and a visibility
+/// change queues a restore pass that queues a second pass when it runs. These tests therefore
+/// never wait a fixed time. Each wait is a `waitUntil` on the state the next assertion reads, or
+/// on a marker queued behind the work the test needs to have run. See `loadedMachineTimeout`.
 @MainActor
 final class WorkspaceShellLayoutTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    /// Every process-wide defaults key these tests read or the controller writes. The controller
+    /// uses `UserDefaults.standard`, so a test saves what it found, starts from none and puts the
+    /// saved values back instead of leaving the keys cleared for whatever runs next.
+    private nonisolated static let shellLayoutDefaultsKeys = [
+        MainSplitViewController.sidebarCollapsedDefaultsKey,
+        MainSplitViewController.inspectorCollapsedDefaultsKey,
+        MainSplitViewController.sidebarWidthDefaultsKey,
+        MainSplitViewController.inspectorWidthDefaultsKey,
+        "NSSplitView Subview Frames \(MainSplitViewController.legacyShellAutosaveName)",
+    ]
+
+    /// The ceiling for every wait in this file. A wait ends as soon as its condition holds, so the
+    /// ceiling only matters when the machine is too loaded to finish the work before it.
+    private static let loadedMachineTimeout: Duration = .seconds(30)
+
+    private var savedShellLayoutDefaults: [String: Any] = [:]
+
+    override func setUp() async throws {
+        try await super.setUp()
+        savedShellLayoutDefaults = snapshotShellLayoutDefaults()
+        // Work an earlier test left on the main queue runs before the keys are cleared.
+        await drainMainQueue()
         clearShellLayoutDefaults()
     }
 
-    override func tearDown() {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        clearShellLayoutDefaults()
-        super.tearDown()
+    override func tearDown() async throws {
+        // Work this test left on the main queue runs before the saved values go back.
+        await drainMainQueue()
+        restoreShellLayoutDefaults(savedShellLayoutDefaults)
+        savedShellLayoutDefaults = [:]
+        try await super.tearDown()
     }
 
     func testMainSplitExtensionHeadersNameTheirSplitFiles() throws {
@@ -115,8 +140,8 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertNil(decision.inspectorWidthToPersist)
     }
 
-    func testControllerPersistsUserDraggedShellWidthsAndIgnoresOrdinaryResizeCallbacks() {
-        let (controller, window) = makeController()
+    func testControllerPersistsUserDraggedShellWidthsAndIgnoresOrdinaryResizeCallbacks() async {
+        let (controller, window) = await makeController()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
@@ -141,15 +166,15 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey), 330)
     }
 
-    func testControllerRestoresPersistedShellWidthsFromDefaults() {
+    func testControllerRestoresPersistedShellWidthsFromDefaults() async {
         UserDefaults.standard.set(305, forKey: MainSplitViewController.sidebarWidthDefaultsKey)
         UserDefaults.standard.set(325, forKey: MainSplitViewController.inspectorWidthDefaultsKey)
 
-        let (controller, window) = makeController()
+        let (controller, window) = await makeController()
         controller.testingSetShellFrames(sidebarWidth: 240, inspectorWidth: 280, totalWidth: 1500)
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        await waitForShellToSettle(controller)
         controller.testingRestorePersistedShellLayout()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
@@ -160,15 +185,15 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertEqual(controller.testingInspectorWidth, 325, accuracy: 2)
     }
 
-    func testControllerClampsPersistedShellWidthsOnNarrowerWindowRestore() {
+    func testControllerClampsPersistedShellWidthsOnNarrowerWindowRestore() async {
         UserDefaults.standard.set(500, forKey: MainSplitViewController.sidebarWidthDefaultsKey)
         UserDefaults.standard.set(430, forKey: MainSplitViewController.inspectorWidthDefaultsKey)
 
-        let (controller, window) = makeController()
+        let (controller, window) = await makeController()
         controller.testingSetShellFrames(sidebarWidth: 240, inspectorWidth: 280, totalWidth: 1000)
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        await waitForShellToSettle(controller)
         controller.testingRestorePersistedShellLayout()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
@@ -188,11 +213,11 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(inspectorWidth, 430)
     }
 
-    func testOrdinaryWindowResizeMirrorsLiveSplitWidthsWithoutPersistingClampedWidths() {
+    func testOrdinaryWindowResizeMirrorsLiveSplitWidthsWithoutPersistingClampedWidths() async {
         UserDefaults.standard.set(500, forKey: MainSplitViewController.sidebarWidthDefaultsKey)
         UserDefaults.standard.set(430, forKey: MainSplitViewController.inspectorWidthDefaultsKey)
 
-        let (controller, window) = makeController()
+        let (controller, window) = await makeController()
         controller.testingSetShellFrames(sidebarWidth: 500, inspectorWidth: 430, totalWidth: 1500)
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
@@ -211,8 +236,8 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey), 430)
     }
 
-    func testControllerPersistsWideUserDraggedInspectorWidthLikeSidebar() {
-        let (controller, window) = makeController()
+    func testControllerPersistsWideUserDraggedInspectorWidthLikeSidebar() async {
+        let (controller, window) = await makeController()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
@@ -224,8 +249,8 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertEqual(controller.testingShellLayoutState.lastUserInspectorWidth, 640)
     }
 
-    func testControllerLetsUserDragInspectorDividerToResizePane() {
-        let (controller, window) = makeController()
+    func testControllerLetsUserDragInspectorDividerToResizePane() async {
+        let (controller, window) = await makeController()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
@@ -310,10 +335,10 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(splitView.requestedDividerPosition(at: 0)), 220, accuracy: 1)
     }
 
-    func testControllerReappliesPersistedSidebarWidthAfterHideThenShow() {
+    func testControllerReappliesPersistedSidebarWidthAfterHideThenShow() async {
         UserDefaults.standard.set(320, forKey: MainSplitViewController.sidebarWidthDefaultsKey)
 
-        let (controller, window) = makeController()
+        let (controller, window) = await makeController()
         controller.testingSetShellFrames(sidebarWidth: 240, inspectorWidth: 280, totalWidth: 1500)
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
@@ -325,7 +350,8 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertEqual(controller.testingSidebarWidth, 320, accuracy: 2)
 
         controller.setSidebarVisible(false, animated: false)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        // The restore pass the hide queued has run before the sidebar comes back.
+        await waitForShellToSettle(controller)
         XCTAssertFalse(controller.isSidebarVisible)
         XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.sidebarWidthDefaultsKey), 320)
 
@@ -333,18 +359,22 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
         controller.testingProcessShellResize()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        window.layoutIfNeeded()
-        controller.view.layoutSubtreeIfNeeded()
+        // The reveal restore has run to its end and the laid-out width is the stored one.
+        await waitForShellToSettle(controller)
+        await waitUntil(timeout: Self.loadedMachineTimeout) {
+            window.layoutIfNeeded()
+            controller.view.layoutSubtreeIfNeeded()
+            return abs(controller.testingSidebarWidth - 320) <= 2
+        }
 
         XCTAssertTrue(controller.isSidebarVisible)
         XCTAssertEqual(controller.testingSidebarWidth, 320, accuracy: 2)
     }
 
-    func testControllerReappliesPersistedInspectorWidthAfterHideThenShow() {
+    func testControllerReappliesPersistedInspectorWidthAfterHideThenShow() async {
         UserDefaults.standard.set(340, forKey: MainSplitViewController.inspectorWidthDefaultsKey)
 
-        let (controller, window) = makeController()
+        let (controller, window) = await makeController()
         controller.testingSetShellFrames(sidebarWidth: 240, inspectorWidth: 280, totalWidth: 1500)
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
@@ -356,7 +386,8 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertEqual(controller.testingInspectorWidth, 340, accuracy: 2)
 
         controller.setInspectorVisible(false, animated: false)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        // The restore pass the hide queued has run before the inspector comes back.
+        await waitForShellToSettle(controller)
         XCTAssertFalse(controller.isInspectorVisible)
         XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey), 340)
 
@@ -364,18 +395,22 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
         controller.testingProcessShellResize()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        window.layoutIfNeeded()
-        controller.view.layoutSubtreeIfNeeded()
+        // The reveal restore has run to its end and the laid-out width is the stored one.
+        await waitForShellToSettle(controller)
+        await waitUntil(timeout: Self.loadedMachineTimeout) {
+            window.layoutIfNeeded()
+            controller.view.layoutSubtreeIfNeeded()
+            return abs(controller.testingInspectorWidth - 340) <= 2
+        }
 
         XCTAssertTrue(controller.isInspectorVisible)
         XCTAssertEqual(controller.testingInspectorWidth, 340, accuracy: 2)
     }
 
-    func testControllerQueuedAnimatedInspectorToggleDoesNotOverwriteStoredWidth() {
+    func testControllerQueuedAnimatedInspectorToggleDoesNotOverwriteStoredWidth() async {
         UserDefaults.standard.set(340, forKey: MainSplitViewController.inspectorWidthDefaultsKey)
 
-        let (controller, window) = makeController()
+        let (controller, window) = await makeController()
         controller.testingRestorePersistedShellLayout()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
@@ -385,17 +420,20 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         controller.setInspectorVisible(false, animated: true, source: "test.queue.hide")
         controller.setInspectorVisible(true, animated: true, source: "test.queue.show")
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        // Both animated transitions have finished, and the queued show left the inspector visible.
+        await waitUntil(timeout: Self.loadedMachineTimeout) {
+            controller.isInspectorVisible && !controller.testingHasPendingShellWork
+        }
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        await waitForShellToSettle(controller)
 
         XCTAssertEqual(controller.testingShellLayoutState.lastUserInspectorWidth, 340)
         XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey), 340)
     }
 
-    func testControllerStaleInspectorRecoveryDoesNotBlockLaterUserDragPersistence() {
-        let (controller, window) = makeController()
+    func testControllerStaleInspectorRecoveryDoesNotBlockLaterUserDragPersistence() async {
+        let (controller, window) = await makeController()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
@@ -443,8 +481,8 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertEqual(sidebarOnlyWidths.inspectorWidth, 0, accuracy: 0.5)
     }
 
-    func testControllerDeferredSidebarRecommendationDoesNotOverwriteFreshUserDrag() {
-        let (controller, window) = makeController()
+    func testControllerDeferredSidebarRecommendationDoesNotOverwriteFreshUserDrag() async {
+        let (controller, window) = await makeController()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
@@ -461,7 +499,8 @@ final class WorkspaceShellLayoutTests: XCTestCase {
 
         XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.sidebarWidthDefaultsKey), 260)
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        // The deferred recommendation has run before the check that it did not win.
+        await waitForShellToSettle(controller)
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
@@ -469,8 +508,8 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertEqual(controller.testingSidebarConstraintWidth, 260, accuracy: 2)
     }
 
-    func testControllerIgnoresSidebarRecommendationFromDifferentWindowScope() {
-        let (controller, window) = makeController()
+    func testControllerIgnoresSidebarRecommendationFromDifferentWindowScope() async {
+        let (controller, window) = await makeController()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
@@ -484,21 +523,22 @@ final class WorkspaceShellLayoutTests: XCTestCase {
             ]
         )
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        // Work an accepted recommendation would have queued has run before the check that none applied.
+        await waitForShellToSettle(controller)
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
         XCTAssertNotEqual(controller.testingSidebarConstraintWidth, 360, accuracy: 0.5)
     }
 
-    func testFocusViewerCollapsesBothSidePanesAndRestoreShowsThemAgain() {
-        let (controller, window) = makeController()
+    func testFocusViewerCollapsesBothSidePanesAndRestoreShowsThemAgain() async {
+        let (controller, window) = await makeController()
         controller.testingSetShellFrames(sidebarWidth: 320, inspectorWidth: 340, totalWidth: 1500)
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
         controller.focusViewer()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        await waitForShellToSettle(controller)
 
         XCTAssertFalse(controller.isSidebarVisible)
         XCTAssertFalse(controller.isInspectorVisible)
@@ -508,7 +548,7 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         controller.restoreSidePanes()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        await waitForShellToSettle(controller)
 
         XCTAssertTrue(controller.isSidebarVisible)
         XCTAssertTrue(controller.isInspectorVisible)
@@ -516,7 +556,7 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertFalse(UserDefaults.standard.bool(forKey: MainSplitViewController.inspectorCollapsedDefaultsKey))
     }
 
-    private func makeController() -> (MainSplitViewController, NSWindow) {
+    private func makeController() async -> (MainSplitViewController, NSWindow) {
         let controller = MainSplitViewController()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1500, height: 900),
@@ -527,20 +567,63 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         window.contentViewController = controller
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        // The first layout queued the initial restore of the persisted widths.
+        await waitForShellToSettle(controller)
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        await waitForShellToSettle(controller)
         return (controller, window)
+    }
+
+    /// Returns once every block already queued on the main queue has run.
+    ///
+    /// The controller defers layout work with `DispatchQueue.main.async`, and the main queue runs
+    /// its blocks in the order they were queued. A marker queued now therefore runs after all of
+    /// that work, however long a loaded machine takes to get there.
+    private func drainMainQueue() async {
+        let marker = MainQueueMarker()
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { marker.hasRun = true }
+        }
+        await waitUntil(timeout: Self.loadedMachineTimeout) { marker.hasRun }
+    }
+
+    /// Returns once the shell has run the layout work its last change queued.
+    ///
+    /// A restore pass queues a second pass when it runs, so the main queue is drained twice. The
+    /// controller's own flags must then show no reveal, transition or suppression left pending.
+    private func waitForShellToSettle(_ controller: MainSplitViewController) async {
+        await drainMainQueue()
+        await drainMainQueue()
+        await waitUntil(timeout: Self.loadedMachineTimeout) { !controller.testingHasPendingShellWork }
     }
 
     private nonisolated func clearShellLayoutDefaults() {
         let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: MainSplitViewController.sidebarCollapsedDefaultsKey)
-        defaults.removeObject(forKey: MainSplitViewController.inspectorCollapsedDefaultsKey)
-        defaults.removeObject(forKey: MainSplitViewController.sidebarWidthDefaultsKey)
-        defaults.removeObject(forKey: MainSplitViewController.inspectorWidthDefaultsKey)
-        defaults.removeObject(forKey: "NSSplitView Subview Frames \(MainSplitViewController.legacyShellAutosaveName)")
+        for key in Self.shellLayoutDefaultsKeys {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private nonisolated func snapshotShellLayoutDefaults() -> [String: Any] {
+        var snapshot: [String: Any] = [:]
+        for key in Self.shellLayoutDefaultsKeys {
+            if let value = UserDefaults.standard.object(forKey: key) {
+                snapshot[key] = value
+            }
+        }
+        return snapshot
+    }
+
+    private nonisolated func restoreShellLayoutDefaults(_ snapshot: [String: Any]) {
+        let defaults = UserDefaults.standard
+        for key in Self.shellLayoutDefaultsKeys {
+            if let value = snapshot[key] {
+                defaults.set(value, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
     }
 
     private nonisolated func storedCGFloat(forKey key: String) -> CGFloat? {
@@ -549,11 +632,30 @@ final class WorkspaceShellLayoutTests: XCTestCase {
     }
 }
 
+/// A flag the main queue sets once it reaches a block queued behind other work.
+@MainActor
+private final class MainQueueMarker {
+    var hasRun = false
+}
+
 /// Shell-layout probes and drivers for these tests. They read and drive
 /// internal `MainSplitViewController` state through `@testable import`.
 private extension MainSplitViewController {
     var testingShellLayoutState: WorkspaceShellLayoutState {
         shellLayoutCoordinator.state
+    }
+
+    /// Whether a visibility change, a reveal restore or an inspector transition still has work the
+    /// controller tracks. That covers a pending reveal or reveal width, a transition in flight or
+    /// queued, and a programmatic resize suppression that has not been released.
+    var testingHasPendingShellWork: Bool {
+        pendingSidebarRevealRestore
+            || pendingInspectorRevealRestore
+            || pendingSidebarRevealWidth != nil
+            || pendingInspectorRevealWidth != nil
+            || inspectorTransitionInFlight
+            || queuedInspectorCollapsedState != nil
+            || programmaticShellResizeSuppressionDepth > 0
     }
 
     var testingSidebarWidth: CGFloat {
