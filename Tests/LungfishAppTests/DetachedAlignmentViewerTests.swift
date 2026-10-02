@@ -73,17 +73,24 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
         await waitUntil(timeout: .seconds(30)) { viewer.viewerView.testCachedAlignedReads.count == 2 }
         let frame = try XCTUnwrap(viewer.referenceFrame)
-        preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
+        await packDetachedLayout(viewer.viewerView, region: region, frame: frame)
         let initiallyPacked = viewer.viewerView.testCachedPackedReads
         guard initiallyPacked.count == 2 else { return XCTFail("Detached fetch did not reach the renderer") }
         let selectedSecondID = initiallyPacked[1].1.id
         viewer.viewerView.testSetSelectedReadIDs([selectedSecondID])
+        let firstFetchReadIDs = Set(initiallyPacked.map(\.1.id))
 
         viewer.updateDetachedAlignmentSettings(minMapQ: 1, excludeFlags: 0xD04)
         viewer.updateDetachedAlignmentSettings(minMapQ: 2, excludeFlags: 0xD04)
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        await waitUntil(timeout: .seconds(30)) { viewer.viewerView.testCachedAlignedReads.count == 2 }
-        preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
+        // The refetch parses the same two alignments into new read
+        // identities, so it has arrived once two reads are cached and none
+        // of them carries an identity from the first fetch.
+        await waitUntil(timeout: .seconds(30)) {
+            let reads = viewer.viewerView.testCachedAlignedReads
+            return reads.count == 2 && firstFetchReadIDs.isDisjoint(with: reads.map(\.id))
+        }
+        await packDetachedLayout(viewer.viewerView, region: region, frame: frame)
 
         let reparsedPacked = viewer.viewerView.testCachedPackedReads
         guard reparsedPacked.count == 2 else { return XCTFail("Detached refetch did not reach the renderer") }
@@ -133,7 +140,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
 
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
         await waitUntil(timeout: .seconds(30)) { viewer.viewerView.testCachedAlignedReads.count == 1 }
-        preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
+        await packDetachedLayout(viewer.viewerView, region: region, frame: frame)
         let selected = try XCTUnwrap(viewer.viewerView.testCachedPackedReads.first?.1)
         viewer.viewerView.testSetSelectedReadIDs([selected.id])
         NotificationCenter.default.post(name: .readSelected, object: viewer.viewerView, userInfo: [NotificationUserInfoKey.alignedRead: selected])
@@ -142,9 +149,16 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         try "empty".write(to: mode, atomically: true, encoding: .utf8)
         viewer.updateDetachedAlignmentSettings(minMapQ: 1, excludeFlags: 0xD04)
         viewer.updateDetachedAlignmentSettings(minMapQ: 2, excludeFlags: 0xD04)
+        // Every committed fetch replaces the cached read set and advances its
+        // generation, so a generation past this one means the refetch is in.
+        let readSetBeforeRefetch = viewer.viewerView.testCachedReadSetGeneration
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        await waitUntil(timeout: .seconds(30)) { !(viewer.viewerView.testIsFetchingReads || !viewer.viewerView.testCachedAlignedReads.isEmpty) }
+        await waitUntil(timeout: .seconds(30)) {
+            viewer.viewerView.testCachedReadSetGeneration > readSetBeforeRefetch
+                && !viewer.viewerView.testIsFetchingReads
+        }
 
+        XCTAssertTrue(viewer.viewerView.testCachedAlignedReads.isEmpty, "the refetch must return no reads")
         XCTAssertTrue(viewer.viewerView.testSelectedReadIDs.isEmpty)
         XCTAssertNil(inspector.readStyleSectionViewModel.selectedRead)
     }
@@ -189,7 +203,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
     func testDetachedReadHitTestFindsAReadAfterDrawing() async throws {
         let (viewer, source, region) = try await makeViewerWithOneFetchedRead()
         let frame = try XCTUnwrap(viewer.referenceFrame)
-        preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
+        await packDetachedLayout(viewer.viewerView, region: region, frame: frame)
         _ = source
 
         // Render into an offscreen context so the draw path publishes its
@@ -215,22 +229,29 @@ final class DetachedAlignmentViewerTests: XCTestCase {
                        "a click on the drawn read must hit-test to that read")
     }
 
-    /// Async packing means `prepareDetachedReadLayout` only queues a background
-    /// pack; drain it so assertions see the resulting layout (same seam
-    /// `ReadLayoutCacheTests` uses).
+    /// Packs the cached reads through the real background pack and waits
+    /// until that layout is installed.
+    ///
+    /// `prepareDetachedReadLayout` only queues the pack. This helper used to
+    /// drain it with `testDrainPendingPack`, which cancels the background task
+    /// and installs a pack of its own. A task that has already finished keeps
+    /// the commit it queued on the main queue, though, and that commit still
+    /// carries the current pack generation. On a loaded machine it arrived
+    /// after the test had changed the filter settings, put the first fetch's
+    /// layout back over the cleared cache and used up the preserved selection
+    /// keys meant for the refetch (two unit-gate runs on 2026-10-02). Waiting
+    /// for the real pack leaves no commit queued behind the test.
     @MainActor
-    private func preparePackedLayoutSynchronously(
+    private func packDetachedLayout(
         _ view: SequenceViewerView,
         region: GenomicRegion,
         frame: ReferenceFrame
-    ) {
-        let result = view.prepareDetachedReadLayout(region: region, frame: frame)
-        view.testDrainPendingPack(
-            reads: view.testCachedAlignedReads.filter { $0.chromosome == region.chromosome },
-            frame: ReadPackFrame(frame),
-            maxRows: result.maxRows,
-            prioritizedRegion: region.start..<region.end
-        )
+    ) async {
+        _ = view.prepareDetachedReadLayout(region: region, frame: frame)
+        await waitUntil(timeout: .seconds(30)) {
+            view.inFlightPackKey == nil
+                && view.cachedPackKey?.readGeneration == view.testCachedReadSetGeneration
+        }
     }
 
     func testSourceReplacementDoesNotRestorePendingSelectionWithMatchingReadIdentity() throws {
@@ -300,16 +321,17 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         await gate.release(requests[0].bamURL)
         await gate.release(requests[1].bamURL)
         await gate.release(requests[2].bamURL)
-        // Time-bounded, and waits for BOTH the latest source and both
-        // superseded cancellations: under the parallel unit tier a
-        // yield-count loop could stop before the second cancellation was
-        // recorded.
+        // Waits for both the latest source and both superseded
+        // cancellations. Under the parallel unit tier a yield-count loop
+        // could stop before the second cancellation was recorded, and a loop
+        // that checks its deadline first gives up without a last look when
+        // the main thread is held past the deadline.
         let expectedCancelled = Set(requests.prefix(2).map(\.bamURL))
-        let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline {
-            let shown = controller.viewer.viewerView.testDetachedAlignmentSource?.identityURL == requests[2].bamURL
-            if shown, await gate.cancelledURLs() == expectedCancelled { break }
-            try await Task.sleep(nanoseconds: 10_000_000)
+        await waitUntil(timeout: .seconds(30)) {
+            guard controller.viewer.viewerView.testDetachedAlignmentSource?.identityURL == requests[2].bamURL else {
+                return false
+            }
+            return await gate.cancelledURLs() == expectedCancelled
         }
 
         let cancelled = await gate.cancelledURLs()
@@ -667,11 +689,10 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertFalse(view.detachedEvidenceIsCurrent(source), "evidence must be pending until the first checksum completes")
         let baseline = view.testDisplayInvalidationCount
 
-        var becameCurrent = false
-        for _ in 0..<250 {
-            if view.detachedEvidenceIsCurrent(source) { becameCurrent = true; break }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        // The first checksum runs on a utility-QoS queue, which a loaded
+        // machine serves last, so wait on the clock rather than for a fixed
+        // number of polls.
+        let becameCurrent = await waitUntil(timeout: .seconds(30)) { view.detachedEvidenceIsCurrent(source) }
         XCTAssertTrue(becameCurrent, "the monitor check never established the evidence signatures")
         XCTAssertGreaterThan(
             view.testDisplayInvalidationCount, baseline,
