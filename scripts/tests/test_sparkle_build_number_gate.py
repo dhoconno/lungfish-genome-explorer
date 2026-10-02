@@ -92,7 +92,7 @@ class SparkleBuildNumberGateTests(unittest.TestCase):
             self.assertNotEqual(self.run_gate(planned, "4024").returncode, 0)
 
     def test_yank_marker_keeps_the_floor_at_the_withdrawn_build(self):
-        # REL-04: a yank removes the bad item and restores an older one, but
+        # A yank removes the bad item and restores an older one, but
         # leaves an lge:yanked marker so the floor never drops below the
         # withdrawn build.
         with tempfile.TemporaryDirectory() as temp_dir:

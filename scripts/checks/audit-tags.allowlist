@@ -1,0 +1,16 @@
+# Audit finding tags that stay on purpose. One `<path>:<tag>` entry per remaining tag.
+# An entry exempts that tag in that file only, so a different tag added to the same file still fails.
+# Remove an entry when its tag is gone. The lint reports an entry that matches no tag.
+
+# Three string literals become the notes of exported genotype calls, so rewording them changes exported output.
+Sources/LungfishIO/Bundles/GenotypeHaplotypeAnalyzer.swift:GEN-02
+Sources/LungfishIO/Bundles/GenotypeHaplotypeAnalyzer.swift:GEN-08
+
+# Bundled script whose SHA-256 is recorded in run provenance, so rewording even a comment changes provenance content.
+Sources/LungfishWorkflow/Resources/ONTGenotyping/barcode-demux-filter.py:GEN-01
+Sources/LungfishWorkflow/Resources/ONTGenotyping/barcode-demux-filter.py:GEN-04
+Sources/LungfishWorkflow/Resources/ONTGenotyping/barcode-demux-filter.py:GEN-09
+Sources/LungfishWorkflow/Resources/ONTGenotyping/barcode-demux-filter.py:GEN-12
+
+# A comment inside an embedded fake gh script, which lives in a string literal of the test file.
+scripts/tests/test_release_builder_phases.py:REL-05

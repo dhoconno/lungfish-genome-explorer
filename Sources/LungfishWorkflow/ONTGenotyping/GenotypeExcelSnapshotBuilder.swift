@@ -6,14 +6,14 @@ import LungfishIO
 /// Captures scientific authority once. No workbook participates in this operation.
 public enum GenotypeExcelSnapshotBuilder {
     public static let filteredEvidenceRowPolicy = "positive-displayed-count-in-visible-samples"
-    /// Filters-sheet and provenance statement of what "Min percent" means
-    /// (GEN-05/GEN-06, decisions D13/D14).
+    /// Filters-sheet and provenance statement of what "Min percent"
+    /// means.
     public static let percentBasisDescription =
         "Per-sample read fraction for known and candidate rows alike. viewedLocus is "
         + GenotypeLocusDenominator.basisLabel + ": "
         + GenotypeLocusDenominator.basisDescription
         + ". sampleRetained: unique retained reads of the whole sample."
-    /// The separate prevalence control (decision D14).
+    /// The separate prevalence control.
     public static let prevalenceMetadataLabel = "Seen in at least N% of animals"
     public static let prevalenceBasisDescription =
         "Samples where the row is visible with positive reads / full logical sample roster; 0 is off"
@@ -198,7 +198,7 @@ public enum GenotypeExcelSnapshotBuilder {
 
         // Catalog-only candidate evidence follows the native matrix rules:
         // Min percent is the cell's per-sample read fraction over the shared
-        // source-locus denominator (GEN-05/GEN-06, D13/D14), and prevalence
+        // source-locus denominator, and prevalence
         // is the separate "Seen in at least N% of animals" control.
         let locusDenominator = GenotypeLocusDenominator(result: result)
         let retainedBySample = Dictionary(

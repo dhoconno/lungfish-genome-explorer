@@ -697,7 +697,7 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         }
     }
 
-    /// GEN-01 (2026-09-23 best-practices audit): previously a free two-bit
+    /// Previously a free two-bit
     /// leftmost k-mer scan over the whole read, which matched several MCM
     /// DRB alleles' own sequence as a barcode. Replaced with
     /// `ONTFluidigmAnchoredBarcodeAssigner`, which only looks in the short

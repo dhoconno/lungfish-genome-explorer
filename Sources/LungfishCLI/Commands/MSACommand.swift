@@ -937,8 +937,8 @@ extension MSACommand {
                 }
                 // Do NOT delete an existing output here. When --force is set,
                 // the publication snapshot below backs up the existing output
-                // before any new bytes are written, and restores it on failure
-                // (WFL-02/REC-02); deleting it up front would leave nothing to
+                // before any new bytes are written, and restores it on failure;
+                // deleting it up front would leave nothing to
                 // restore if writing failed partway through.
 
                 emitter.emitProgress(actionID: actionID, progress: 0.15, message: "Loading MSA bundle.")
@@ -1014,7 +1014,7 @@ extension MSACommand {
                     // directory, so build the new bundle at a fresh sibling
                     // path first and only replace `outputURL` after the build
                     // succeeds — never delete the pre-existing output up
-                    // front (WFL-02/REC-02). The old bundle is moved aside
+                    // front. The old bundle is moved aside
                     // rather than deleted so a failed swap cannot lose it.
                     let existedBeforeBuild = FileManager.default.fileExists(atPath: outputURL.path)
                     let buildTargetURL = existedBeforeBuild
@@ -1228,7 +1228,7 @@ extension MSACommand {
                 if existedBeforeBuild, force == false {
                     throw ValidationError("Output already exists: \(outputURL.path). Use --force to overwrite.")
                 }
-                // Do NOT delete an existing output here (WFL-02/REC-02). With
+                // Do NOT delete an existing output here. With
                 // --force, the new bundle is built at a fresh sibling path
                 // below and only swapped into place once the build succeeds.
 
@@ -1275,7 +1275,7 @@ extension MSACommand {
                 // `importAlignment` refuses to write into an existing
                 // directory, so build at a fresh sibling path first and only
                 // replace `outputURL` after the build succeeds — never
-                // delete the pre-existing output up front (WFL-02/REC-02).
+                // delete the pre-existing output up front.
                 let buildTargetURL = existedBeforeBuild
                     ? stagingDir.appendingPathComponent("built").appendingPathExtension(outputURL.pathExtension)
                     : outputURL
@@ -1622,7 +1622,7 @@ extension MSACommand {
                 if existedBeforeBuild, force == false {
                     throw ValidationError("Output already exists: \(outputURL.path). Use --force to overwrite.")
                 }
-                // Do NOT delete an existing output here (WFL-02/REC-02). With
+                // Do NOT delete an existing output here. With
                 // --force, the new bundle is built at a fresh sibling path
                 // below and only swapped into place once the build succeeds.
 
@@ -1675,7 +1675,7 @@ extension MSACommand {
                 // `importAlignment` refuses to write into an existing
                 // directory, so build at a fresh sibling path first and only
                 // replace `outputURL` after the build succeeds — never
-                // delete the pre-existing output up front (WFL-02/REC-02).
+                // delete the pre-existing output up front.
                 let buildTargetURL = existedBeforeBuild
                     ? stagingDir.appendingPathComponent("built").appendingPathExtension(outputURL.pathExtension)
                     : outputURL
@@ -2296,7 +2296,7 @@ private struct MSATrimMetadata: Codable, Equatable {
 /// the call-site shape every MSA action subcommand already uses
 /// (`emitStart(actionID:message:)`, `emitProgress`, `emitWarning`,
 /// `emitComplete`, `emitFailed`). Replaces the private per-command
-/// `msaActionStart`/`msaActionProgress`/… JSON schema (ARC-02, SIMP-04) with
+/// `msaActionStart`/`msaActionProgress`/… JSON schema with
 /// the shared `CLIEvent` wire format. `actionID`/`warningCount` are accepted
 /// for source compatibility but not part of the wire schema: no GUI caller
 /// ever read them (`CLIMSAActionRunner`'s callers all discard its result).

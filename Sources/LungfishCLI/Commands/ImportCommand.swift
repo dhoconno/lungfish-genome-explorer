@@ -530,7 +530,7 @@ extension ImportCommand {
 
             let outputDirectory = resolveOutputDirectory(outputDir)
 
-            // NEW-01: `-o` historically meant "a plain directory to drop
+            // `-o` historically meant "a plain directory to drop
             // loose alignment files into", which silently produced a BAM/BAI
             // pair with no manifest entry when someone pointed it at an
             // existing `.lungfishref` bundle — the sidebar and viewer never
@@ -780,7 +780,7 @@ extension ImportCommand {
             }
         }
 
-        /// NEW-01: attaches `inputURL` to an existing `.lungfishref` bundle as a
+        /// Attaches `inputURL` to an existing `.lungfishref` bundle as a
         /// real manifest alignment track, using the same
         /// `PreparedAlignmentAttachmentService` primitive the GUI Import
         /// Center's `--bam-import-helper` path uses (`BAMImportHelper.swift`
@@ -1052,7 +1052,7 @@ extension ImportCommand {
     /// Validates the VCF header, counts variants, and copies the file
     /// (and companion index) to the output directory. When the output
     /// directory is an existing `.lungfishref` bundle, the variants are
-    /// attached to the bundle's variant database instead (FEA-12).
+    /// attached to the bundle's variant database instead.
     struct VCFSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "vcf",
@@ -1116,7 +1116,7 @@ extension ImportCommand {
 
             let outputDirectory = resolveOutputDirectory(outputDir)
 
-            // FEA-12: an existing `.lungfishref` bundle gets the variants
+            // An existing `.lungfishref` bundle gets the variants
             // attached to its variant database through the same
             // `VCFBundleVariantImport` core the GUI Import Center uses.
             if outputDirectory.pathExtension.lowercased() == "lungfishref" {

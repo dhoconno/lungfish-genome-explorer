@@ -12,7 +12,7 @@ import LungfishIO
 /// EsViritu accepts `unpaired`, `paired` (two files) and `interleaved`
 /// (one file whose records strictly alternate R1/R2; passed to fastp with
 /// `--interleaved_in`). There is no mixed mode, so a file holding interleaved
-/// pairs plus merged or orphan reads runs as `unpaired` (decision D19).
+/// pairs plus merged or orphan reads runs as `unpaired`.
 public enum EsVirituReadFormat: String, Codable, Sendable, CaseIterable {
     case unpaired
     case paired
@@ -408,7 +408,7 @@ extension EsVirituConfig {
     /// fastp's `--interleaved_in` pairs records blindly by position, so a
     /// mixed file (VSP2 merged reads plus pairs) would be mis-paired. Running
     /// such input as `unpaired` is correct for merged reads and acceptable for
-    /// pairs (decision D19). Other formats are returned unchanged.
+    /// pairs. Other formats are returned unchanged.
     public func verifyingInterleavedInput(
         recordLimit: Int = FASTQReadLayoutClassifier.defaultRecordLimit
     ) -> EsVirituConfig {

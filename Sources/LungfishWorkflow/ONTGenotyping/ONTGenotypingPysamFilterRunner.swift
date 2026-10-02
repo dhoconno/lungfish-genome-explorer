@@ -2,7 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// SIMP-16 (2026-09-23 best-practices audit): the pysam filter script used to
+// The pysam filter script used to
 // live as a ~190-line raw string literal in this file. It is unchanged
 // (byte-identical) and now lives at Resources/ONTGenotyping/pysam-filter.py,
 // loaded once via Bundle.module.

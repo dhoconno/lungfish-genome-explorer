@@ -110,7 +110,7 @@ public struct GFF3Feature: Sendable, Identifiable {
             name: name,
             chromosome: seqid,  // Associate annotation with its source sequence
             // Convert to 0-based; carry the GFF3 phase column onto the interval
-            // (SCI-10) so translation can honor it instead of always assuming
+            // so translation can honor it instead of always assuming
             // phase 0. Only meaningful for CDS features; GFF3 writes "." (nil)
             // for everything else.
             intervals: [AnnotationInterval(start: start - 1, end: end, phase: phase)],
@@ -755,9 +755,9 @@ public final class GFF3Writer {
         // Determine seqid
         let seqid = annotation.chromosome ?? "unknown"
 
-        // Determine phase for CDS features (SCI-11). Per-segment phase is
-        // computed from the shared helper (also used by the iVar GFF exporter,
-        // SCI-01), which accounts for cumulative CDS length in transcription
+        // Determine phase for CDS features. Per-segment phase is
+        // computed from the shared helper (also used by the iVar GFF exporter),
+        // which accounts for cumulative CDS length in transcription
         // order rather than writing phase 0 on every segment.
         let isCDS = annotation.type == .cds
         let phaseBySegmentStart: [Int: Int]
@@ -774,7 +774,7 @@ public final class GFF3Writer {
         // Create a feature for each interval. Multi-interval features
         // (spliced CDS/mRNA) share the SAME ID across every line, which is the
         // standard GFF3 idiom for a single multi-line feature and needs no
-        // `Parent` attribute (SCI-11: previously each segment got a distinct
+        // `Parent` attribute (previously each segment got a distinct
         // `_N`-suffixed ID and a `Parent` pointing at an ID that this writer
         // never emits, producing a dangling reference and splitting one CDS
         // into unrelated features on re-import).

@@ -142,7 +142,7 @@ struct ClassifyCommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     /// `--read-format` values. `auto` resolves per input, mirroring
-    /// `lungfish esviritu detect` (NEW-06, D19).
+    /// `lungfish esviritu detect`.
     enum ReadFormatChoice: String, ExpressibleByArgument, CaseIterable, Sendable {
         case auto
         case unpaired

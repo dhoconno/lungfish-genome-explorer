@@ -6,7 +6,7 @@ import Foundation
 
 /// Shared CSV/TSV field escaping rules.
 ///
-/// SIMP-10 (2026-09-23 best-practices audit): the codebase had about 15
+/// The codebase had about 15
 /// separate escaper implementations with inconsistent rules - some TSV
 /// escapers replaced tabs/LF/CR with a space, some forgot CR entirely, and
 /// CSV quoting implementations varied in whether they handled embedded

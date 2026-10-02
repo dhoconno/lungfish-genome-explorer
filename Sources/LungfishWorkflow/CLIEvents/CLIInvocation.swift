@@ -5,8 +5,8 @@
 import Foundation
 
 /// A concrete `lungfish-cli` command line, built once by a typed request
-/// builder and then used for three purposes that used to drift independently
-/// (ARC-03, ARC-09, SIMP-01, WFL-11, FEA-12, REC-03):
+/// builder and then used for three purposes that used to drift
+/// independently:
 ///
 /// 1. **Execution** — `arguments` is handed to `CLISubprocessTransport` (or,
 ///    for a still-in-process feature, parsed and asserted against the real

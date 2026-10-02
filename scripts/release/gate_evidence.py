@@ -145,7 +145,7 @@ def _kill_descendant_tree(root_pid, sig):
 def command_record(argv, root, directory, name, *, split=False, timeout_seconds=None):
     """Retain the actual exit, including a watchdog termination; never promote it.
 
-    `timeout_seconds`, when given, is an overall wall-clock budget (TST-05):
+    `timeout_seconds`, when given, is an overall wall-clock budget:
     a hung process (for example a cancellation test whose subject leaves a
     live child that ignores SIGTERM, so the harness never observes exit)
     would otherwise stall the gate forever, reading as "still running"
@@ -154,12 +154,12 @@ def command_record(argv, root, directory, name, *, split=False, timeout_seconds=
     descendant PID still alive (by parent/child walk, independent of process
     group) is also SIGKILLed directly: `swift test --parallel` starts each
     per-class xctest worker in its OWN new session/process group, so a
-    worker that is itself hung (confirmed live: TST-05's
+    worker that is itself hung (confirmed live:
     CLIImportRunnerTests/testCancelTerminatesCLIProcessTree leaves a grandchild
     that traps SIGTERM) is not reachable through the outer process's group
     alone. The record's ``intervention`` is set to ``"timeout"``. Still
     best-effort, not a guarantee: a descendant that reparents to PID 1
-    between the walk and the kill could be missed (see PERF-13/WFL-12 for
+    between the walk and the kill could be missed (see ProcessTreeTerminator for
     the app-side process-tree cancellation contract this does not attempt
     to replace).
     """
@@ -492,9 +492,9 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
 
 
 # Overall wall-clock budget (seconds) for the primary test-runner attempt,
-# by tier (TST-05). A hung test previously stalled the gate indefinitely
+# by tier. A hung test previously stalled the gate indefinitely
 # instead of failing it; these are generous upper bounds meant to comfortably
-# exceed a healthy run, not tuned lower-bound SLAs. The audited unit tier
+# exceed a healthy run, not tuned lower-bound SLAs. The unit tier
 # took ~26 min including one hang; under concurrent load on a shared
 # machine (multiple worktrees building/testing at once) a clean run has
 # been observed to take the full 30 min, so the budget has headroom above
@@ -969,8 +969,8 @@ def main():
     swift.add_argument("--parallel", action="store_true")
     swift.add_argument("--require-tools", action="store_true")
     swift.add_argument("--timeout-seconds", type=int, default=None,
-                        help="Overall wall-clock budget for the primary test-runner attempt "
-                             "(TST-05). Overrides the tier default in DEFAULT_TIER_TIMEOUT_SECONDS; "
+                        help="Overall wall-clock budget for the primary test-runner attempt. "
+                             "Overrides the tier default in DEFAULT_TIER_TIMEOUT_SECONDS; "
                              "a hung test is killed (process group SIGTERM then SIGKILL) and the "
                              "gate fails with intervention=timeout rather than hanging forever.")
     swift.add_argument("gate_argv", nargs=argparse.REMAINDER)

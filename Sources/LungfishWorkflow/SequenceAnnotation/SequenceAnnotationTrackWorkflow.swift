@@ -444,8 +444,8 @@ public enum SequenceAnnotationTrackWorkflow {
         try FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: true)
         // Only delete the backup once we know restoration is unnecessary
         // (success) or has actually completed. If a restore is attempted and
-        // fails, `backupRoot` must survive as the last recovery artifact
-        // (REC-01) — deleting it unconditionally here would discard the only
+        // fails, `backupRoot` must survive as the last recovery artifact —
+        // deleting it unconditionally here would discard the only
         // remaining copy of the pre-mutation files.
         var backupRootSafeToDelete = true
         defer { if backupRootSafeToDelete { try? FileManager.default.removeItem(at: backupRoot) } }
@@ -539,8 +539,8 @@ public enum SequenceAnnotationTrackWorkflow {
         try FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: true)
         // Only delete the backup once we know restoration is unnecessary
         // (success) or has actually completed. If a restore is attempted and
-        // fails, `backupRoot` must survive as the last recovery artifact
-        // (REC-01) — deleting it unconditionally here would discard the only
+        // fails, `backupRoot` must survive as the last recovery artifact —
+        // deleting it unconditionally here would discard the only
         // remaining copy of the pre-mutation files.
         var backupRootSafeToDelete = true
         defer { if backupRootSafeToDelete { try? FileManager.default.removeItem(at: backupRoot) } }

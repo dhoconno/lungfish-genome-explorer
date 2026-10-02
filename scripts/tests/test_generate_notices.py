@@ -1,4 +1,4 @@
-"""Tests for scripts/release/generate-notices.py (REL-03).
+"""Tests for scripts/release/generate-notices.py.
 
 Covers: license resolution from overrides vs. .build/checkouts, the hard
 failure when a dependency has neither, the check-mode staleness gate, and
@@ -64,7 +64,7 @@ class GenerateNoticesRealRepoTests(unittest.TestCase):
         return module.render_notices(tool_lock, bundled_payloads, shipped, excluded)
 
     def test_generated_and_committed_notices_have_no_moving_branch_urls(self):
-        # REL-03 / D16: a license or source link on main/master/dev can change
+        # A license or source link on main/master/dev can change
         # after the release ships, so every link must be pinned.
         module = _load_module()
         rendered = self._render_real_repo(module)

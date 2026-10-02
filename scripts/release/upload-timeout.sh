@@ -1,7 +1,7 @@
 #!/bin/bash
 # upload-timeout.sh
 #
-# REL-05: a fixed 180s timeout applied to every `gh` call (including the DMG
+# A fixed 180s timeout applied to every `gh` call (including the DMG
 # upload) times out well before a ~167 MB DMG can finish uploading at the
 # ~100 KB/s rates this project has recorded in practice. Asset uploads need a
 # budget that scales with file size instead of the flat metadata-call budget.

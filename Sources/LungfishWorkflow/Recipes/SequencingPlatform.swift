@@ -76,7 +76,7 @@ public enum SequencingPlatform: String, Codable, CaseIterable, Sendable {
 
     /// Default quality binning scheme for this platform.
     ///
-    /// D1 (2026-09-23): quality binning is off by default everywhere. It is
+    /// Quality binning is off by default everywhere. It is
     /// opt-in only, at import time, via an explicit user choice — never
     /// applied silently to downloads or derived operation outputs.
     public var defaultQualityBinning: QualityBinningScheme {

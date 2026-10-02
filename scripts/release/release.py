@@ -248,7 +248,7 @@ def _sha256_file(path: Path) -> str:
 
 # Well-known pointer written by scripts/full-suite-gate.sh --tier unit (via
 # the pre-push hook) or the optional nightly job, recording where that run's
-# gate.result.json lives. See TST-02/D6: release.py must refuse to package
+# gate.result.json lives. release.py must refuse to package
 # unless a green unit-tier result exists for the EXACT release commit,
 # reusing gate_evidence.py's fail-closed evidence model rather than the
 # narrow "release" profile (186 of ~14.2K tests) that previously authorized
@@ -705,7 +705,7 @@ def run_yank(
     runner=None,
     prompt=input,
 ) -> int:
-    """REL-04: withdraw a release from a Sparkle channel feed.
+    """Withdraw a release from a Sparkle channel feed.
 
     Plan-only unless ``execute``. Executing requires typing the exact
     version. See sparkle_yank.py for the behaviour and safety rules.

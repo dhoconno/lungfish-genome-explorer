@@ -7,7 +7,7 @@ import Foundation
 
 /// Shared SHA-256 hashing for files and in-memory data.
 ///
-/// SIMP-10 (2026-09-23 best-practices audit): the codebase had 49 separate
+/// The codebase had 49 separate
 /// `sha256`/`computeSHA256` helpers spread across 5 modules. Some read the
 /// whole file into memory (unbounded memory use on large files); others
 /// streamed with differing, undocumented chunk sizes. `FileDigest` is the

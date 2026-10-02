@@ -133,7 +133,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                     "force": "false",
                 ],
                 runtimeContext: [
-                    // GEN-05/GEN-06 (D13/D14): one read-fraction basis for
+                    // One read-fraction basis for
                     // known and candidate rows; prevalence is its own control.
                     "percentBasis": GenotypeExcelSnapshotBuilder.percentBasisDescription,
                     "knownPercentBasis": percentBasis.denominator.rawValue,

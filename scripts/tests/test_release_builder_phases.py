@@ -168,7 +168,7 @@ class ReleaseBuilderFixture:
 
     def _install_internal_phase_wrappers(self):
         release_dir = self.repo / "scripts" / "release"
-        # REL-03 (a9f982c67) made the builder check/regenerate
+        # Commit a9f982c67 made the builder check/regenerate
         # THIRD-PARTY-NOTICES from real manifests. Notice generation has its
         # own tests (test_generate_notices); this fixture commits a notices
         # file and a double that reports it current, so the builder phases
@@ -906,7 +906,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
     def test_preview_package_binds_app_smoke_when_policy_requires_it(self):
         """Known release-code bug (triage R1, found 2026-09-24).
 
-        b35a3c006 (TST-02/D6) widened release-candidate-receipt.py's smoke
+        b35a3c006 widened release-candidate-receipt.py's smoke
         requirement from Stable-only to every channel whenever
         gates.appSmokeRequired is true, but build-notarized-dmg.sh still runs
         app_smoke_gate.py only when "$CHANNEL" = "stable" (the REQUIRE_APP_SMOKE

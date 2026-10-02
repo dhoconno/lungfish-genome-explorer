@@ -100,7 +100,7 @@ public enum GenotypeCohortSubjectBuilder {
             let hasErrorAtAnyLocus = effectiveCalls.contains { $0.isError }
             // "Homozygous across all" means every CALLED locus is either
             // explicitly homozygous (haplotype1 == haplotype2, which the
-            // analyzer now emits directly for `.homozygous` calls -- GEN-08)
+            // analyzer now emits directly for `.homozygous` calls)
             // or, for calls from before that change / other producers,
             // shows the legacy single-match placeholder (h2 == "-").
             // `.unresolvedSecondHaplotype` calls (h2 == "?") deliberately do
@@ -115,7 +115,7 @@ public enum GenotypeCohortSubjectBuilder {
                 calledLocusCalls.allSatisfy { call in
                     guard !call.h1.hasPrefix("ERR") else { return false }
                     // Legacy single-match placeholder (h2 = "-") still counts
-                    // as homozygous for calls that predate GEN-08.
+                    // as homozygous for calls that predate the `.homozygous` status.
                     if call.h2 == "-" || call.h2.isEmpty { return true }
                     return call.h1 == call.h2
                 }
@@ -171,7 +171,7 @@ public enum GenotypeCohortSubjectBuilder {
         case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes, .ambiguous:
             return true
         case .called, .notAssayed, .specialCase, .homozygous, .unresolvedSecondHaplotype:
-            // GEN-08: neither new status is itself an error. `.homozygous`
+            // Neither new status is itself an error. `.homozygous`
             // is a confident call; `.unresolvedSecondHaplotype`'s h1 slot is
             // also confident (only its h2 = "?" flags uncertainty, already
             // caught by the `name == "?"` check above for that slot).

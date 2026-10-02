@@ -5,7 +5,7 @@
 import Foundation
 
 /// Canonical labels for actions repeated (with drifting wording) across
-/// Kraken2, EsViritu, TaxTriage, NAO-MGS and NVD row context menus (UX-07).
+/// Kraken2, EsViritu, TaxTriage, NAO-MGS and NVD row context menus.
 ///
 /// This does not yet drive a shared menu builder — each viewer still builds
 /// its own `NSMenuItem`s — but it gives every viewer one place to read the

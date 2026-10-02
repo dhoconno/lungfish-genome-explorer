@@ -9,8 +9,8 @@ import Foundation
 /// Before this type existed, each long-running CLI subcommand (tree
 /// inference, tree transform, MSA actions, variant calling, primer trim,
 /// imports, …) declared its own private `Event` struct on the CLI side and
-/// its own untyped `dict["message"] as? String` parser on the GUI side
-/// (ARC-02, SIMP-04). A renamed field or event name broke progress reporting
+/// its own untyped `dict["message"] as? String` parser on the GUI side.
+/// A renamed field or event name broke progress reporting
 /// silently, because a parse failure only logged a warning.
 ///
 /// `CLIEvent` is the one schema both sides share. The CLI emits it with

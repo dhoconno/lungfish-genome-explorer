@@ -753,7 +753,7 @@ public final class GenBankReader: Sendable {
             // Map feature type string to AnnotationType
             let annotationType = mapFeatureType(featureType)
 
-            // Carry `/codon_start` onto the 5'-most interval's phase (SCI-10),
+            // Carry `/codon_start` onto the 5'-most interval's phase,
             // so translation honors a partial CDS instead of always assuming
             // phase 0. `/codon_start` is 1-based (1, 2, or 3); GFF3/internal
             // phase is 0-based bases-to-skip, so subtract 1. The 5'-most

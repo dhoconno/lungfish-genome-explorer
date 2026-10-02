@@ -19,8 +19,8 @@ public enum ProvenanceFileHasherError: Error, LocalizedError, Sendable {
     }
 }
 
-/// Provenance-manifest-shaped wrapper over `LungfishCore.FileDigest`
-/// (SIMP-10). The streaming, cancellable SHA-256 implementation itself now
+/// Provenance-manifest-shaped wrapper over `LungfishCore.FileDigest`.
+/// The streaming, cancellable SHA-256 implementation itself now
 /// lives in Core so other layers can hash files without depending on
 /// Workflow; this type keeps its existing API for the ~30 existing call
 /// sites and the directory-manifest logic below.

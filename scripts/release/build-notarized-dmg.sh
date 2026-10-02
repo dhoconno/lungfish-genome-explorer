@@ -659,7 +659,7 @@ github_cli() {
         --timeout 180 --phase github --public-stdout -- gh --repo "$GH_REPO" "$@"
 }
 
-# REL-05: metadata calls (release view/edit/create without an asset) are
+# Metadata calls (release view/edit/create without an asset) are
 # fast and stay on the 180s budget above. An asset upload's duration scales
 # with file size and the operator's network, not with GitHub API latency, so
 # it needs its own budget; see upload-timeout.sh.
@@ -884,7 +884,7 @@ install_app_icon() {
 }
 
 install_third_party_notices() {
-    # REL-03: THIRD-PARTY-NOTICES is not part of the Xcode project's resource
+    # THIRD-PARTY-NOTICES is not part of the Xcode project's resource
     # phase (the app is built from the local SwiftPM package graph, not a
     # hand-maintained pbxproj file list), so it is never in the archived app
     # unless a build step copies it in, same as the app icon above. Regenerate
@@ -983,7 +983,7 @@ publish_github_release_dmg() {
                 echo "existing release DMG digest differs; refusing recovery overwrite: $GITHUB_RELEASE_TAG" >&2
                 exit 64
             fi
-            # REL-05: the asset is already present and verified. If the
+            # The asset is already present and verified. If the
             # release is still a draft (an earlier run uploaded the asset but
             # the process died before undrafting), finish that step now.
             existing_is_draft=$(github_cli release view "$GITHUB_RELEASE_TAG" --json isDraft --jq .isDraft)
@@ -993,7 +993,7 @@ publish_github_release_dmg() {
             printf 'Existing release DMG already matches local artifact; keeping it: %s\n' "$DMG_PATH"
             return
         fi
-        # REL-05: give this recovery upload its own size-scaled budget instead
+        # Give this recovery upload its own size-scaled budget instead
         # of the 180s metadata timeout, which a ~167 MB DMG cannot meet at
         # typical operator upload speeds.
         github_cli_upload_asset "$GITHUB_RELEASE_TAG" "$DMG_PATH"
@@ -1001,7 +1001,7 @@ publish_github_release_dmg() {
         return
     fi
 
-    # REL-05 draft-then-publish: create the release as a draft with no asset,
+    # Draft-then-publish: create the release as a draft with no asset,
     # upload the DMG on its own size-scaled budget, verify the uploaded
     # digest, and only then flip the release out of draft. A timeout or crash
     # between these steps leaves a draft (invisible to Sparkle and to a
@@ -1043,7 +1043,7 @@ undraft_versioned_release() {
     # A full (non-prerelease) publish additionally marks --latest here,
     # matching the previous single-step `release create --latest` behavior.
     # This fires GitHub's 'released' event, but nothing in ci.yml listens for
-    # it (REL-14): there is no automatic post-release conformance run.
+    # it: there is no automatic post-release conformance run.
     local edit_args=(release edit "$GITHUB_RELEASE_TAG" --draft=false)
     if [ "$GITHUB_PRERELEASE" != "true" ]; then
         edit_args+=(--latest)
@@ -1345,7 +1345,7 @@ IDENTITY_PY
     # app bundle xcodebuild produces below: an 0700/0600 app is unreadable by
     # any other macOS account it is installed for. Scope the restrictive
     # umask to directory creation only, then restore a normal umask before
-    # the build step. See REL-01.
+    # the build step.
     umask 077
     prepare_release_dir
     /bin/mkdir -p "$RELEASE_LOG_DIR"
@@ -1419,7 +1419,7 @@ IDENTITY_PY
         echo "archived app not found: $APP_PATH" >&2
         exit 72
     fi
-    # Belt-and-suspenders for REL-01: normalize modes on the freshly archived
+    # Belt-and-suspenders against an owner-only app bundle: normalize modes on the freshly archived
     # app regardless of what umask was active during the build, so a shipped
     # bundle is always world-readable/executable. Mode bits are not part of
     # the code signature seal, so this is safe to do before signing.

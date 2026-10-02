@@ -2,7 +2,7 @@
 """features-yaml-entry-points.py - Verify docs/user-manual/features.yaml menu
 entry points against the titles MainMenu.swift actually builds.
 
-Background (2026-09-23 best-practices audit, FEA-16): features.yaml is the
+Background: features.yaml is the
 manual pipeline's ground truth for GUI entry points, but several entries
 named menu paths that do not exist ("File > Open", "Tools > Freyja Demix",
 "Tools > Operations > Call Variants", ...). Those propagate into chapters
@@ -22,7 +22,7 @@ It is intentionally conservative:
     not the full submenu depth, since deeper items (Search Online Databases
     submenu entries, Export > Provenance > format) are numerous and mostly
     named consistently already; the two-segment check catches the class of
-    bug this audit found (a whole submenu path invented) without the far
+    bug described above (a whole submenu path invented) without the far
     larger job of reproducing NSMenu's full tree structure.
   - A trailing ellipsis (single-character U+2026 or "...") and surrounding
     whitespace are ignored when comparing titles.

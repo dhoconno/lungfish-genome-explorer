@@ -310,8 +310,8 @@ public actor BgzipIndexedFASTAReader {
             throw BgzipError.decompressionFailed("Invalid UTF-8 in sequence data")
         }
         
-        // Remove newlines (LF and CR) and trim to exact length. SCI-12:
-        // stripping only "\n" left a stray "\r" (and dropped a base) for
+        // Remove newlines (LF and CR) and trim to exact length.
+        // Stripping only "\n" left a stray "\r" (and dropped a base) for
         // every line of a CRLF-terminated FASTA. Shares the exact stripping
         // logic FASTAIndex.fetch already used correctly for plain FASTA.
         let sequence = IndexedFASTAReader.sequenceText(fromIndexedWindow: rawString)
@@ -586,7 +586,7 @@ public final class SyncBgzipFASTAReader: Sendable {
             throw BgzipError.decompressionFailed("Invalid UTF-8 in sequence data")
         }
 
-        // Remove newlines (LF and CR) and trim to exact length (SCI-12: see
+        // Remove newlines (LF and CR) and trim to exact length (see
         // fetch(region:) above for why CR must also be stripped).
         let sequence = IndexedFASTAReader.sequenceText(fromIndexedWindow: rawString)
         let clampedLength = min(region.length, sequence.count)

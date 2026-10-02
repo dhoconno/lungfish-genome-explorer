@@ -965,7 +965,7 @@ class RunnerAndCITests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         # The project-storage skip-comparison job was removed from
         # .github/workflows/ci.yml in 34548a699 (release-workflow rebuild), and
-        # hosted CI is now paused (2026-09-23 audit TST-06/REL-02). The runner
+        # hosted CI is now paused (2026-09-23). The runner
         # script remains the supported local entry point, so only it is checked.
 
     def test_runner_has_exact_suites_pipe_statuses_and_same_worktree(self):

@@ -5,8 +5,8 @@
 import Foundation
 
 /// Builds the `lungfish conda classify` argv for a ``ClassificationConfig``,
-/// used both to execute a classification and to display/record it (ARC-03,
-/// P6-B).
+/// used both to execute a classification
+/// and to display/record it.
 ///
 /// Before this type existed, the single-sample GUI path
 /// (`AppDelegate+Classification.runClassification`) built its own,
@@ -36,7 +36,7 @@ public enum ClassificationCLIInvocationBuilder {
         arguments += ["--threads", String(config.threads)]
 
         // The read format is always pinned so a pasted command reproduces
-        // the run instead of re-detecting the layout (NEW-06 parity with
+        // the run instead of re-detecting the layout (parity with
         // `lungfish esviritu detect --read-format`).
         switch config.readFormat {
         case .paired:

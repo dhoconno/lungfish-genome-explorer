@@ -660,7 +660,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             return "(INFO/SR[2]+INFO/SR[3])/(INFO/SR[0]+INFO/SR[1]+INFO/SR[2]+INFO/SR[3])"
         case .bcftools:
             // bcftools call has no native AF tag; with `-a FORMAT/AD` (added
-            // in bcftoolsMpileupArguments for SCI-04) the alt-allele
+            // in bcftoolsMpileupArguments) the alt-allele
             // frequency is AD[1]/(AD[0]+AD[1]).
             return "(FORMAT/AD[0:1])/(FORMAT/AD[0:0]+FORMAT/AD[0:1])"
         case .clair3:
@@ -1758,7 +1758,7 @@ public struct ViralVariantCallingPipeline: Sendable {
         ]
     }
 
-    /// `--ploidy` is haploid for viral and bacterial references (SCI-04) and
+    /// `--ploidy` is haploid for viral and bacterial references and
     /// diploid for a human or other eukaryotic reference; see
     /// `VariantCallingPloidyDefaults` for how the default is derived and
     /// `validateAdvancedArguments` for why Extra arguments cannot set it.

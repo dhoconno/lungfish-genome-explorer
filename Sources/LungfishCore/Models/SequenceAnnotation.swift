@@ -73,7 +73,7 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
         self.type = type
         self.name = name
         self.chromosome = chromosome
-        // Preserve caller-supplied interval order (SCI-15). For a linear feature
+        // Preserve caller-supplied interval order. For a linear feature
         // this is normally already ascending genomic order, but for a GenBank
         // `join()` location that wraps a circular molecule's origin (for example
         // `join(4000..4200,1..100)`), the caller's order IS transcription order
@@ -152,7 +152,7 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
     }
 
     /// Whether `intervals` are stored in an order that is not genomic-
-    /// ascending by start position (SCI-15).
+    /// ascending by start position.
     ///
     /// `SequenceAnnotation.init` preserves caller-supplied interval order
     /// rather than force-sorting it, specifically so an origin-spanning

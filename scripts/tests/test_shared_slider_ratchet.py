@@ -1,4 +1,4 @@
-"""Tests for scripts/ratchets/shared-slider-control.sh (owner decision D10)."""
+"""Tests for scripts/ratchets/shared-slider-control.sh."""
 import shutil
 import subprocess
 import sys

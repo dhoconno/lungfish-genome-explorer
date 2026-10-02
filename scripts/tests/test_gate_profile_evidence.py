@@ -246,7 +246,7 @@ while True: time.sleep(.01)
             self.assertFalse(result['passed'])
 
     def test_command_record_timeout_kills_the_whole_process_group(self):
-        # TST-05 regression: a hung test (a fake CLI child that ignores
+        # Regression: a hung test (a fake CLI child that ignores
         # SIGTERM) previously stalled the gate forever instead of failing
         # it. This spawns a parent that itself ignores SIGTERM and forks a
         # grandchild that also ignores SIGTERM, so only a process-group
@@ -292,7 +292,7 @@ else:
                 os.kill(child_pid, 0)
 
     def test_command_record_timeout_also_kills_a_child_in_its_own_process_group(self):
-        # Live-observed TST-05 gap: `swift test --parallel` starts each
+        # Live-observed gap: `swift test --parallel` starts each
         # per-class xctest worker in its OWN new session/process group (not
         # the outer swift-test process's group), so a hung worker was not
         # reached by os.killpg(outer_pid, ...) alone. Reproduce that shape

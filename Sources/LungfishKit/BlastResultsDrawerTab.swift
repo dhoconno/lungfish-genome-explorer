@@ -1560,7 +1560,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     ///
     /// `internal` (not `private`) so the write-and-sidecar behaviour is
     /// directly testable, matching the seam `TaxonomyViewController.writeDelimitedExport`
-    /// uses for the same purpose (REC-03).
+    /// uses for the same purpose.
     func writeExportFile(
         result: BlastVerificationResult,
         to url: URL,
@@ -1618,7 +1618,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         }
 
         let content = lines.joined(separator: "\n") + "\n"
-        // REC-03: this export previously wrote only the CSV/TSV payload, with
+        // This export previously wrote only the CSV/TSV payload, with
         // no provenance sidecar recording which BLAST verification produced
         // it. Writes atomically through `ScientificFileExportProvenance`, the
         // same helper used by sequence and taxonomy table exports.

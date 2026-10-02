@@ -15,7 +15,7 @@ private let transportLogger = Logger(subsystem: LogSubsystem.app, category: "CLI
 ///
 /// Before this type existed, nine `CLI*Runner` actors under
 /// `Sources/LungfishApp/Services/` each hand-rolled this exact
-/// launch/pipe-drain/cancel choreography (ARC-02, SIMP-04): `diff
+/// launch/pipe-drain/cancel choreography: `diff
 /// CLITreeInferenceRunner.swift CLITreeTransformRunner.swift` showed only 36
 /// changed lines out of 297. `CLISubprocessTransport` is that shared
 /// implementation. A runner now supplies only argv, an `OperationType`, and

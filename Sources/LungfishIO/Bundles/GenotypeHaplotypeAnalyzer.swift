@@ -6,8 +6,8 @@ public enum GenotypeHaplotypeAnalyzer {
     /// `schemaVersion`. Bump it whenever a rule change alters calls users
     /// see, so a persisted analysis from older rules compares unequal to a
     /// fresh one and is recomputed rather than trusted.
-    /// 2: GEN-02 (D11) independent-support rule and ambiguity groups.
-    /// 3: GEN-05 (D13) the dropout locus fraction divides by the unique
+    /// 2: independent-support rule and ambiguity groups.
+    /// 3: the dropout locus fraction divides by the unique
     ///    retained reads of the call's own source locus
     ///    (`GenotypeLocusDenominator`), not the pooled haplotype group.
     public static let callingRulesVersion = 3
@@ -562,7 +562,7 @@ public enum GenotypeHaplotypeAnalyzer {
         return calls.filter { call in
             let sample = normalizedSampleName(call.sample)
             let sampleTotal = sampleTotals[sample] ?? 0
-            // GEN-05 (D13): the locus fraction divides by the call's own
+            // The locus fraction divides by the call's own
             // source locus, never the pooled haplotype group. The per-locus
             // threshold override is still keyed by the definition locus.
             let effectiveLocus = GenotypeHaplotypeLocusResolver.canonicalLocus(
@@ -685,7 +685,7 @@ public enum GenotypeHaplotypeAnalyzer {
         scoredMatches = scoredMatches.filter { scored in
             matched.contains(where: { $0.name == scored.match.name })
         }
-        // GEN-02 (D11): a haplotype is only a candidate when at least one of
+        // A haplotype is only a candidate when at least one of
         // its observed diagnostic alleles is not explained by another
         // candidate. Candidates whose observed alleles are a strict subset
         // of another candidate's are dropped; candidates with identical
@@ -727,7 +727,7 @@ public enum GenotypeHaplotypeAnalyzer {
                 locusDefinition: locusDefinition,
                 diagnosticCalls: diagnosticCalls
             ) {
-                // GEN-08: a single haplotype's diagnostic set was matched,
+                // A single haplotype's diagnostic set was matched,
                 // but the sample also shows diagnostic genotype calls at
                 // this locus that AREN'T part of that haplotype's
                 // definition. A true homozygote would show no such
@@ -746,7 +746,7 @@ public enum GenotypeHaplotypeAnalyzer {
                   support.groups.count <= 2,
                   support.groups.contains(where: { $0.count > 1 }),
                   !scoredMatches.allSatisfy(\.hasCompletePrimaryEvidence) {
-            // GEN-02 (D11): an ambiguity group without complete primary
+            // An ambiguity group without complete primary
             // evidence is not a usable partial call. Stay loud (TMH) and
             // never fall through to the two-match branch, which would turn a
             // lone group such as M4|M7 into a heterozygous "M4 / M7".
@@ -756,7 +756,7 @@ public enum GenotypeHaplotypeAnalyzer {
             status = .tooManyHaplotypes
         } else if support.groups.count <= 2,
                   support.groups.contains(where: { $0.count > 1 }) {
-            // GEN-02 (D11): at least one slot is a group of haplotypes that
+            // At least one slot is a group of haplotypes that
             // the observed diagnostic alleles cannot tell apart (identical
             // definitions such as MCM DP M4 and M7). Report the group as an
             // explicit ambiguity token ("M4|M7") for review, never as a
@@ -887,7 +887,7 @@ public enum GenotypeHaplotypeAnalyzer {
               remaining.allSatisfy({ selected[1].readSupport > $0.readSupport * 10 }) else {
             return nil
         }
-        // GEN-02 (D11): decline when a selected slot belongs to an
+        // Decline when a selected slot belongs to an
         // ambiguity group (e.g. DP M5 and M6 are identical definitions, so
         // picking one of them by offset order would assert an arbitrary
         // identity). The caller falls back to its loud TMH status.
@@ -1012,7 +1012,7 @@ public enum GenotypeHaplotypeAnalyzer {
         }
     }
 
-    /// GEN-08 (2026-09-23 best-practices audit): true when `diagnosticCalls`
+    /// True when `diagnosticCalls`
     /// include a genotype that is diagnostic for a DIFFERENT haplotype at
     /// this locus than the one in `matched` -- real, specific evidence that
     /// a second haplotype may be present. A true homozygote's diagnostic
@@ -1048,7 +1048,7 @@ public enum GenotypeHaplotypeAnalyzer {
         }
     }
 
-    /// GEN-02 (D11) independent-support resolution for one locus.
+    /// Independent-support resolution for one locus.
     ///
     /// Rule: a candidate haplotype stays in `matched` only when at least one
     /// of its observed diagnostic alleles is not explained by another
@@ -1289,7 +1289,7 @@ public enum GenotypeHaplotypeAnalyzer {
             return lhs.0 < rhs.0
         }.map(\.1)
 
-        // GEN-02 (D11): the same independent-support rule as the main
+        // The same independent-support rule as the main
         // caller. A complete candidate whose observed alleles are a strict
         // subset of another complete candidate's is not independently
         // supported and cannot be selected.
@@ -1312,7 +1312,7 @@ public enum GenotypeHaplotypeAnalyzer {
                selected[0].readSupport <= completeScores[1].readSupport * 10 {
                 continue
             }
-            // GEN-02 (D11): skip a selection when a selected candidate has a
+            // Skip a selection when a selected candidate has a
             // twin with identical observed alleles (e.g. DP M5 and M6).
             // Picking one by offset order would assert an arbitrary
             // identity; fall through to TMG/TMH instead.

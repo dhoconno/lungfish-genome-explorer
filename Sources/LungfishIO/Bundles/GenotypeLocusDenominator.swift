@@ -1,7 +1,7 @@
 import Foundation
 
-/// The one read denominator behind every "percent of locus" number
-/// (GEN-05, decision D13).
+/// The one read denominator behind every "percent of locus"
+/// number.
 ///
 /// A locus percentage is an allele's unique retained reads divided by the
 /// unique retained reads of the same sample at the same **source locus**

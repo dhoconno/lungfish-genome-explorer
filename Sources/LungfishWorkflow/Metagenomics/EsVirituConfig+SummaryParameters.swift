@@ -15,7 +15,7 @@ extension EsVirituConfig {
         var parameters: [String: AnalysisParameterValue] = [
             "sampleName": .string(sampleName),
             "qualityFilter": .bool(qualityFilter),
-            // WFL-10: "minReadLength" intentionally omitted. EsViritu has no
+            // "minReadLength" intentionally omitted. EsViritu has no
             // minimum-read-length option in its own CLI (verified against
             // upstream cmmr/EsViritu's argparse definitions) and its fastp
             // invocation is not parameterized with one either, so this value

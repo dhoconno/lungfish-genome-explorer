@@ -341,7 +341,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         addSubview(sv)
         self.scrollView = sv
 
-        // UX-14: overlay shown in place of a blank grid when a filter
+        // Overlay shown in place of a blank grid when a filter
         // narrows the table to zero rows, so "no matches" reads as an
         // explicit state rather than looking like a bug.
         let statusView = ViewportStatusView()
@@ -568,7 +568,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         applyContentTypography()
     }
 
-    // MARK: - Responder Contract (UX-04, UX-17)
+    // MARK: - Responder Contract
 
     /// Standard Mac responder contract for result tables: `copy:` puts the
     /// selected rows on the pasteboard as TSV (header plus one line per
@@ -776,7 +776,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         didApplyDisplayedRows()
     }
 
-    /// Shows the "no matches" overlay (UX-14) when a free-text or column
+    /// Shows the "no matches" overlay when a free-text or column
     /// filter has narrowed a non-empty table to zero rows. Stays hidden
     /// when the table is legitimately empty (no rows were ever loaded), so
     /// this overlay never substitutes for a tool-specific empty-result
@@ -1328,7 +1328,7 @@ extension BatchTableView {
     public var testSearchField: NSSearchField { searchField }
     public var testTableView: NSTableView { tableView }
 
-    /// Whether the UX-14 "no matches" overlay is currently visible.
+    /// Whether the "no matches" overlay is currently visible.
     public var testNoMatchesStatusVisible: Bool { !noMatchesStatusView.isHidden }
 
     /// Renders the cell view for `row`/`columnID` through the real

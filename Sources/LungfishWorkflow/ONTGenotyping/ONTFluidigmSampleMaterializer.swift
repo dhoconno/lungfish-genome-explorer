@@ -6,13 +6,13 @@ public struct ONTFluidigmSampleMaterializationRequest: Sendable {
     public let barcodeDefinitionsURL: URL
     public let outputDirectory: URL
     public let force: Bool
-    /// GEN-01 (2026-09-23 best-practices audit): the CS1 Fluidigm adapter
+    /// The CS1 Fluidigm adapter
     /// that precedes the amplicon insert in the sequenced read. Used to
     /// anchor barcode assignment to the short window after rc(reversePrimer)
     /// so the barcode can never match inside the amplicon itself. Defaults
     /// to the same CS1 sequence as `ONTFluidigmAmpliconMaterializer`.
     public let forwardPrimer: String
-    /// GEN-01: the CS2 Fluidigm adapter. Its reverse complement appears
+    /// The CS2 Fluidigm adapter. Its reverse complement appears
     /// immediately before the barcode in the sequenced (CS1-first) read.
     public let reversePrimer: String
 
@@ -271,7 +271,7 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
         }
     }
 
-    /// GEN-01 (2026-09-23 best-practices audit): previously a free two-bit
+    /// Previously a free two-bit
     /// leftmost k-mer scan over the whole read with no CS1/CS2 awareness at
     /// all, so it matched barcode-length substrings inside the amplicon
     /// insert itself. Replaced with `ONTFluidigmAnchoredBarcodeAssigner`,

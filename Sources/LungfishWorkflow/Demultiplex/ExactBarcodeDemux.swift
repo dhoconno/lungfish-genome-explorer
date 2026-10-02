@@ -198,8 +198,8 @@ public enum ExactBarcodeDemux {
         // Build lookup table: leftBarcode → [(rightBarcode, sampleIndex)].
         // Kept as a dictionary for O(1) left-barcode lookup, but every place
         // that iterates it below sorts its keys/values first so assignment
-        // is deterministic regardless of Swift's per-process hash seeding
-        // (GEN-11).
+        // is deterministic regardless of Swift's per-process hash
+        // seeding.
         var leftToRight: [String: [(rightBarcode: String, sampleIndex: Int)]] = [:]
 
         // All barcodes should be the same length for PacBio kits.
@@ -228,7 +228,7 @@ public enum ExactBarcodeDemux {
         // each left barcode's targets by (rightBarcode, sampleIndex). This
         // makes the search order — and therefore which sample a chimeric or
         // multi-matching read is attributed to before the ambiguity check
-        // below — reproducible across process launches (GEN-11).
+        // below — reproducible across process launches.
         let sortedLeftToRight: [(leftBarcode: String, targets: [(rightBarcode: String, sampleIndex: Int)])] =
             leftToRight
                 .map { key, targets in
@@ -323,8 +323,8 @@ public enum ExactBarcodeDemux {
             // stopping at the first hit, so a read matching two samples'
             // barcode pairs is recognized as ambiguous rather than being
             // silently handed to whichever sample happened to be visited
-            // first under Swift's per-process Dictionary iteration order
-            // (GEN-11).
+            // first under Swift's per-process Dictionary iteration
+            // order.
             var matchedSampleIndices: [Int] = []
             for (leftBC, targets) in sortedLeftToRight {
                 // Find the left barcode anywhere in the read

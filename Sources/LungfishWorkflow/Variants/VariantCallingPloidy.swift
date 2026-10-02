@@ -28,8 +28,8 @@ public enum VariantCallingPloidy: Int, Sendable, Codable, CaseIterable, Equatabl
 
     /// The user-facing message shown when `--ploidy` turns up in Extra
     /// arguments for a bcftools run. Ploidy has its own control, and letting
-    /// two sources set it made the dialog's value silently lose (the audit
-    /// regression that motivated the control), so the conflict is rejected
+    /// two sources set it made the dialog's value silently lose (the regression
+    /// that motivated the control), so the conflict is rejected
     /// rather than resolved by argument order.
     public static let reservedExtraArgumentMessage =
         "Extra arguments must not include --ploidy for bcftools. Use the Ploidy setting instead (--ploidy on the command line)."
@@ -98,7 +98,7 @@ public struct VariantCallingPloidyInference: Sendable, Equatable {
 /// note, then the record's own taxonomy (Virus group, GenBank division), then
 /// name matching on the organism and assembly, then the 10 Mb length rule
 /// the variant browser already uses. Anything unresolved keeps the viral
-/// default of haploid, which is the case the SCI-04 audit fixed.
+/// default of haploid.
 public enum VariantCallingPloidyDefaults {
 
     /// The genome length at or above which a reference with no organism

@@ -463,7 +463,7 @@ private struct HaplotypeDefinitionValidatePayload: Encodable {
     let assayID: String
     let displayName: String
     let speciesCode: String
-    /// Non-fatal definition lint (GEN-02), e.g. indistinguishable haplotypes.
+    /// Non-fatal definition lint, e.g. indistinguishable haplotypes.
     let warnings: [String]
 
     init(definition: GenotypeHaplotypeDefinitionSet, warnings: [String]) {

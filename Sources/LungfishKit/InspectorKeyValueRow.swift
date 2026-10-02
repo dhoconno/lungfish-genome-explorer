@@ -3,7 +3,7 @@ import SwiftUI
 /// A selectable Inspector key/value row that stays aligned when it fits and
 /// moves the value below its label before either string becomes compressed.
 ///
-/// Promoted from `LungfishGenotypeUI.GenotypeInspectorValueRow` (UX-12) so
+/// Promoted from `LungfishGenotypeUI.GenotypeInspectorValueRow` so
 /// every Inspector section shares one label/value layout, font token, and
 /// combined accessibility element instead of maintaining private per-section
 /// row helpers with drifting label widths and alignment.

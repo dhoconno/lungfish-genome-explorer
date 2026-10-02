@@ -5,8 +5,8 @@
 import AppKit
 
 /// Presents an export failure to the user. Injectable so tests can assert a
-/// failure was surfaced without driving real `NSAlert` UI (2026-09-23
-/// best-practices audit, UX-02: several classifier export paths logged
+/// failure was surfaced without driving real `NSAlert` UI (several
+/// classifier export paths logged
 /// failures and showed nothing to the user, leaving the user to believe a
 /// file was written when it was not).
 @MainActor

@@ -25,7 +25,7 @@
 #                                                   # wall-clock budget for the test-runner
 #                                                   # attempt; a hung test is killed and the
 #                                                   # gate fails with a named timeout instead
-#                                                   # of hanging forever (see TST-05)
+#                                                   # of hanging forever
 #
 # Every run retains a unique evidence directory under .build/gate-logs.
 # Parallel XCTest uses xUnit plus explicit case records; serial XCTest uses
@@ -72,7 +72,7 @@ while [ $# -gt 0 ]; do
         --require-tools) REQUIRE_TOOLS=1; shift ;;
         --parallel) PARALLEL=1; shift ;;
         --timeout-seconds)
-            # Overall wall-clock budget for the test-runner attempt (TST-05).
+            # Overall wall-clock budget for the test-runner attempt.
             # Without this, a hung test (a fake CLI process that ignores
             # SIGTERM, for example) stalls the gate forever instead of
             # failing it. Tiers get a sane default in gate_evidence.py;
@@ -150,11 +150,11 @@ CLI_E2E_SUITES='CLIExitCodeProcessTests|ToolsCommandTests|DbCommandUpdateTargetT
 # deadline instead it passed 8/8 parallel runs, three of them under CPU load.
 PARALLEL_HAZARD_SUITES='AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests|TaxonomyLayoutPreferenceTests|EsVirituViewControllerBatchModeTests'
 # CLIImportRunnerTests/testCancelTerminatesCLIProcessTree: this was
-# confirmed live during the 2026-09-23 best-practices audit (TST-05) to hang
+# confirmed live to hang
 # indefinitely because CLIImportRunner.run() blocked its own actor's
 # executor on a synchronous Process.waitUntilExit(), so the actor-isolated
 # cancel() could never run concurrently to kill the process tree -- a
-# self-deadlock, not a ProcessTreeTerminator defect (P1-B). Fixed by
+# self-deadlock, not a ProcessTreeTerminator defect. Fixed by
 # replacing the blocking wait with a terminationHandler-driven continuation
 # and making cancel() nonisolated. Reverified stable: 5/5 consecutive runs
 # passed in under 1s each (previously hung for 30+ minutes). No test is
@@ -167,8 +167,8 @@ KNOWN_HANGING_TESTS=''
 # Quarantine for failures PROVEN to exist at a known base. Each entry needs an
 # owner decision before it can be fixed, so it is recorded here rather than
 # silently skipped. Keep it empty unless such a failure is open. History: the
-# five Genotype Excel entries (ledger TST-15) were removed on 2026-09-24 once
-# decision D8 (exact user notes in Filtered-sheet comments, evidence in its own
+# five Genotype Excel entries were removed on 2026-09-24 once
+# the owner decision (exact user notes in Filtered-sheet comments, evidence in its own
 # column) was implemented and the tests were reconciled.
 # Remove an entry as soon as its decision is made and the test is fixed.
 KNOWN_PREEXISTING_FAILURES=''
@@ -249,7 +249,7 @@ run_gate() {
         "${command[@]}"
         status=$?
     fi
-    # Record where this run's evidence lives (TST-02/D6): release.py refuses
+    # Record where this run's evidence lives: release.py refuses
     # to package unless it finds a green unit-tier result here for the exact
     # commit it is releasing. Recorded on both pass and fail, so a red run
     # is visible to release.py rather than just leaving the prior pointer.

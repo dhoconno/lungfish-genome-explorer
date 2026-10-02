@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """compile-embedded-python.py - py_compile every bundled Python resource script.
 
-Background (2026-09-23 best-practices audit, SIMP-16): about 1.4K lines of
+Background: about 1.4K lines of
 Python used to live as raw string literals inside Swift files, which meant
 no syntax checking, no linting, and noisy Swift diffs for every Python
 change. Those scripts now live as ordinary .py files under each Swift
 target's Resources/ directory, loaded at runtime via Bundle.module. This
 script is the "add a py_compile step to the push gate" half of that
-recommendation: it finds every .py file under Sources/*/Resources and
+change: it finds every .py file under Sources/*/Resources and
 confirms it still parses as valid Python 3, catching a syntax error before
 it reaches a shipped app that would only discover it when the script
 actually runs.

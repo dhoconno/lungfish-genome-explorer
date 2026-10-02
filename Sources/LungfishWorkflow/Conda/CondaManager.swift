@@ -8,7 +8,7 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "CondaManager")
 
-// MARK: - PERF-14: EOF-synchronized pipe drain
+// MARK: - EOF-synchronized pipe drain
 
 /// A lock-protected `Data` accumulator fed by a `Pipe`'s `readabilityHandler`.
 ///
@@ -1175,7 +1175,7 @@ public actor CondaManager {
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
 
-                // PERF-14: drain to true EOF (signaled by the readabilityHandler
+                // Drain to true EOF (signaled by the readabilityHandler
                 // itself observing empty data) rather than a fixed delay after
                 // `terminationHandler` fires. A time delay is not a
                 // happens-before edge: a handler invocation still in flight when
@@ -1209,7 +1209,7 @@ public actor CondaManager {
                     // Cancel the timeout timer since the process finished.
                     timeoutItem.cancel()
 
-                    // PERF-14: wait for both pipes' real EOF (not a fixed
+                    // Wait for both pipes' real EOF (not a fixed
                     // delay) before reading the accumulated buffers. This
                     // dispatches to a background queue, never the actor, so
                     // the semaphore waits below do not block CondaManager's
@@ -1558,7 +1558,7 @@ public actor CondaManager {
             // both already use for this exact continuation-double-resume hazard.
             let runState = NativeProcessRunState()
 
-            // PERF-14: see the comment in `runTool` -- drain to real EOF
+            // See the comment in `runTool` -- drain to real EOF
             // instead of a fixed delay after `terminationHandler` fires.
             let stdoutDrain = CondaPipeDrainBuffer()
             let stderrDrain = CondaPipeDrainBuffer()

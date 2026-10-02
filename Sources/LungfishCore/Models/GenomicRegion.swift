@@ -148,7 +148,7 @@ extension GenomicRegion {
     }
 }
 
-// MARK: - Display String (SCI-13)
+// MARK: - Display String
 
 extension GenomicRegion {
     /// The single, canonical way to show or copy a region as text:

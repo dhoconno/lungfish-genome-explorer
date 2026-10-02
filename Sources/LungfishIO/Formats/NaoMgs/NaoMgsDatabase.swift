@@ -87,7 +87,7 @@ public struct NaoMgsTaxonSummaryRow: Codable, Sendable {
 /// The provenance of a NAO-MGS accession's stored reference length.
 ///
 /// `coverage_fraction` is only a meaningful breadth-of-coverage metric when
-/// the reference length came from the real reference FASTA (SCI-09). When
+/// the reference length came from the real reference FASTA. When
 /// references were never fetched (offline import, or an accession that no
 /// longer resolves), LGE falls back to the furthest alignment end, which
 /// systematically overstates coverage for any read set that does not span
@@ -111,7 +111,7 @@ public struct NaoMgsAccessionSummary: Sendable {
     public let coveredBasePairs: Int
     public let coverageFraction: Double
     /// Provenance of `referenceLength`. Determines whether `coverageFraction`
-    /// may be shown as a real breadth-of-coverage percentage (SCI-09).
+    /// may be shown as a real breadth-of-coverage percentage.
     public let referenceLengthSource: NaoMgsReferenceLengthSource
 }
 
@@ -372,8 +372,8 @@ public final class NaoMgsDatabase: @unchecked Sendable {
     public func updateReferenceLengths(_ lengths: [String: Int]) throws {
         guard let db else { throw NaoMgsDatabaseError.queryFailed("Database not open") }
         // Called only with lengths read from a downloaded reference FASTA's
-        // `.fai` index, so these are always the real, measured length
-        // (SCI-09): mark source 'fasta', overwriting any alignment-extent
+        // `.fai` index, so these are always the real, measured length:
+        // mark source 'fasta', overwriting any alignment-extent
         // fallback previously stored for the accession.
         let sql = """
         INSERT OR REPLACE INTO reference_lengths (accession, length, source)
@@ -431,7 +431,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         }
         // Schema migrations
         sqlite3_exec(instance.db, "CREATE TABLE IF NOT EXISTS reference_lengths (accession TEXT PRIMARY KEY, length INTEGER NOT NULL)", nil, nil, nil)
-        // SCI-09: track whether a stored length came from a real reference
+        // Track whether a stored length came from a real reference
         // FASTA or is only the furthest observed alignment end. Existing
         // rows predate this column and default to the historical
         // (alignment-extent) behaviour.
@@ -455,7 +455,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             PRIMARY KEY (sample, tax_id, accession)
         )
         """, nil, nil, nil)
-        // SCI-09: track whether reference_length came from a real reference
+        // Track whether reference_length came from a real reference
         // FASTA or is only the furthest alignment end. Existing rows predate
         // this column and default to the historical (alignment-extent)
         // behaviour; they are corrected the next time references are fetched

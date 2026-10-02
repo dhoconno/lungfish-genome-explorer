@@ -319,8 +319,8 @@ extension NaoMgsDatabase {
     }
 
     static func refreshAccessionSummaryReferenceLengths(db: OpaquePointer) throws {
-        // Copies both the length and its source from `reference_lengths`
-        // (SCI-09): a row there only becomes source 'fasta' once
+        // Copies both the length and its source from `reference_lengths`:
+        // a row there only becomes source 'fasta' once
         // `updateReferenceLengths` stores a length read from a downloaded
         // reference's `.fai` index. Until then it stays 'alignment-extent',
         // and the UI must not present `coverage_fraction` as a measured

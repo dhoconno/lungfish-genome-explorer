@@ -44,7 +44,7 @@ public struct ChromosomeAliasResolver: Sendable, Equatable {
     /// alias, version-stripped, chr-prefix, synonym, fuzzy-prefix or
     /// FASTA-description match was found, so the mapping rests solely on
     /// sequence length (or, with proportional matching, on the furthest
-    /// variant/alignment position as a length proxy) (SCI-14). Callers that
+    /// variant/alignment position as a length proxy). Callers that
     /// display or act on a mapped track should surface these to the user
     /// rather than silently trusting a length coincidence.
     public let lengthMatchedSources: Set<String>

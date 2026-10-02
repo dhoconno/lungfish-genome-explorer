@@ -93,7 +93,7 @@ def make_gate_fixture(directory, source, channel="stable", modules=None, *, cont
 def make_unit_gate_pointer(root, source, *, tier="unit", authorized=True):
     """Writes a minimal unit-tier gate.result.json plus the
     .build/gate-logs/latest-unit.json pointer release.py's
-    verify_unit_gate_precondition (TST-02/D6) reads, bound to `source`.
+    verify_unit_gate_precondition reads, bound to `source`.
 
     Shaped like make_gate_fixture's per-step "swift" result (the same
     fields gate_evidence.validate_result checks), just for a standalone

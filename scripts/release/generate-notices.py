@@ -30,7 +30,7 @@ If a SwiftPM dependency's license text cannot be found in ``.build/checkouts``
 and it has no entry in the overrides file, this script FAILS with a clear
 message naming the dependency, rather than silently omitting it.
 
-Every URL in the output is pinned (REL-03, D16). A license or source link
+Every URL in the output is pinned. A license or source link
 that follows a moving branch (``main``, ``master``, ``dev`` and so on) can
 change or vanish after a release ships, so the notice would no longer
 describe the shipped bytes. Manifests therefore write placeholders that this
