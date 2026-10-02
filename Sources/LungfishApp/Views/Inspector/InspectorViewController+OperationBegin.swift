@@ -174,4 +174,38 @@ extension InspectorViewController {
         }
         return OperationCenter.buildCLICommand(subcommand: "bam annotate", args: args)
     }
+
+    /// Registers the derived-alignment removal row and, only when it starts,
+    /// calls `launch` with the operation ID. The row locks `bundleURL` and
+    /// records no command.
+    ///
+    /// CLI parity gap. No lungfish-cli command removes an alignment track from
+    /// a bundle, because only the app calls `BundleAlignmentTrackRemovalService`.
+    /// The closest is `bam filter`, which creates the derived tracks this
+    /// removes. The row keeps recording no command until a removal command
+    /// exists.
+    @discardableResult
+    static func beginRemoveDerivedAlignmentOperation(
+        trackName: String,
+        bundleURL: URL,
+        routeContext: OperationRouteContext?,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: "Remove Derived Alignment",
+            detail: "Removing \(trackName)...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL,
+            cliCommand: nil,
+            routeContext: routeContext
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
+    }
 }

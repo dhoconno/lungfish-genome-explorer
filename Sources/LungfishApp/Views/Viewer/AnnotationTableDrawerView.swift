@@ -3146,29 +3146,29 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             projectURL: session?.projectURL ?? owner?.mainSplitViewController?.sidebarController?.currentProjectURL
                 ?? ProjectTempDirectory.findProjectRoot(bundleURL),
             windowStateScope: scope)
-        let operationID = center.start(title: title, detail: "Updating stored data and provenance", operationType: .workflow,
-            targetBundleURL: bundleURL, routeContext: route)
-        guard center.items.first(where: { $0.id == operationID })?.state == .running else { return nil }
-        variantStorageOperationID = operationID
-        let task = Task { @MainActor [weak self] in
-            defer {
-                if self?.variantStorageOperationID == operationID {
-                    self?.variantStorageOperationID = nil
-                    self?.variantStorageMutationTask = nil
+        var task: Task<Void, Never>?
+        Self.beginVariantStorageMutationOperation(title: title, bundleURL: bundleURL, routeContext: route, reporter: center) { operationID in
+            variantStorageOperationID = operationID
+            task = Task { @MainActor [weak self] in
+                defer {
+                    if self?.variantStorageOperationID == operationID {
+                        self?.variantStorageOperationID = nil
+                        self?.variantStorageMutationTask = nil
+                    }
+                }
+                do {
+                    let result = try await Task.detached(priority: .userInitiated, operation: work).value
+                    center.complete(id: operationID, detail: "Data and provenance updated")
+                    guard let self, self.searchIndex === source, self.window === sourceWindow,
+                          self.windowStateScope == scope, session?.documentGeneration == generation else { return }
+                    publish(result)
+                } catch {
+                    center.fail(id: operationID, detail: "Stored data update failed", errorMessage: error.localizedDescription)
+                    annotationDrawerLogger.error("Stored data update failed: \(error.localizedDescription)")
                 }
             }
-            do {
-                let result = try await Task.detached(priority: .userInitiated, operation: work).value
-                center.complete(id: operationID, detail: "Data and provenance updated")
-                guard let self, self.searchIndex === source, self.window === sourceWindow,
-                      self.windowStateScope == scope, session?.documentGeneration == generation else { return }
-                publish(result)
-            } catch {
-                center.fail(id: operationID, detail: "Stored data update failed", errorMessage: error.localizedDescription)
-                annotationDrawerLogger.error("Stored data update failed: \(error.localizedDescription)")
-            }
+            variantStorageMutationTask = task
         }
-        variantStorageMutationTask = task
         return task
     }
 
