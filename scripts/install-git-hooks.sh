@@ -5,18 +5,19 @@
 #   - a pre-push hook that first runs the unchecked-operation-start ratchet
 #     (scripts/ratchets/unchecked-operation-start.sh), which fails the push if
 #     a new caller passes a bundle target to the deprecated
-#     OperationCenter.start(...) instead of begin(...) (see ARC-04/FEA-07 in
-#     docs/reports/2026-09-23-best-practices-audit/), then checks that every
+#     OperationCenter.start(...) instead of begin(...), then checks that every
 #     File/Tools/... menu entry point named in docs/user-manual/features.yaml
-#     still resolves to a real MainMenu.swift title (FEA-16 in the same
-#     audit; scripts/checks/features-yaml-entry-points.py), then py_compiles
-#     every bundled Python resource script under Sources/*/Resources (SIMP-16
-#     in the same audit; scripts/checks/compile-embedded-python.py), then
+#     still resolves to a real MainMenu.swift title
+#     (scripts/checks/features-yaml-entry-points.py), then py_compiles
+#     every bundled Python resource script under Sources/*/Resources
+#     (scripts/checks/compile-embedded-python.py), then
 #     runs the architecture-program ratchets and checks (file-size,
 #     concurrency-hatches, source-text-assertions, doc-path-references,
 #     module-map-current, features-yaml-sources, duplicate-public-types; docs/plans/2026-10-02-architecture-program.md), then
 #     checks that no plan, spec, issue or verification note under docs/ looks finished or
 #     stale (scripts/checks/working-memory-staleness.py, finding R5), then
+#     checks that no comment in Sources, Tests or scripts cites an audit finding tag,
+#     which would point at a deleted report (scripts/checks/audit-tags.py, finding R5), then
 #     runs the unit tier of the full-suite gate (scripts/full-suite-gate.sh
 #     --tier unit) before pushing, so the regression gate runs locally on
 #     this fast Apple-Silicon Mac instead of on slow/usage-limited hosted CI.
@@ -158,6 +159,12 @@ if ! python3 "$REPO_ROOT/scripts/checks/working-memory-staleness.py"; then
     exit 1
 fi
 
+echo "pre-push: checking for audit finding tags in comments (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/checks/audit-tags.py"; then
+    echo "pre-push: audit-tags check FAILED (a source, test or script comment cites an audit finding tag; rewrite it as a self-contained sentence) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
 echo "pre-push: checking that MODULES.md is current (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/checks/module-map-current.py"; then
     echo "pre-push: module-map check FAILED (run python3 scripts/index/generate-module-map.py and commit docs/architecture/MODULES.md) — push aborted. Use --no-verify to bypass." >&2
@@ -192,13 +199,12 @@ fi
 HOOK_EOF
 chmod +x "$PRE_PUSH_HOOK"
 echo "Installed pre-push hook at $PRE_PUSH_HOOK"
-echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches and source-text-assertions ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, working-memory-staleness, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
+echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches and source-text-assertions ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, working-memory-staleness, audit-tags, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
 
 cat > "$PRE_COMMIT_HOOK" << 'HOOK_EOF'
 #!/bin/bash
 # Lungfish pre-commit hook: reject new/modified files over 500 KB under docs/.
-# docs/ is meant to stay small (see docs/README.md and
-# docs/reports/2026-09-23-best-practices-audit/docs-strategy.md); large
+# docs/ is meant to stay small (see docs/README.md); large
 # binaries belong in the manual-media repo, pinned by docs/user-manual/media.lock.
 # Override the limit with LUNGFISH_DOCS_SIZE_LIMIT_KB, or bypass a specific
 # commit with: git commit --no-verify

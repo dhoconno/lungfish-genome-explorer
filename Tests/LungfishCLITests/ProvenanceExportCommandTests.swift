@@ -1114,7 +1114,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
     func testCanonicalDurableReplaySelectionWithAndWithoutStepsAcrossScriptFormats() throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        // Isolated canonical fixture from the audit cli-probes.json, with local runtime defaults.
+        // Isolated canonical fixture with local runtime defaults.
         let audit = ["printf", "historical-execution"]
         let replay = ["printf", "durable-replay"]
         for includeSteps in [false, true] {

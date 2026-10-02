@@ -31,7 +31,7 @@ REQUIRED_FILES = (
     "scripts/tests/test_release_smoke.py",
 )
 
-# yank (REL-04) is an incident command documented in docs/release/sparkle-updates.md.
+# yank is an incident command documented in docs/release/sparkle-updates.md.
 PUBLIC_COMMANDS = ("debug", "configure-fork", "configure-machine", "setup", "doctor", "package", "publish", "yank")
 PUBLIC_COMMAND_LINES = (
     "python3 scripts/release/release.py debug [--portable] [--jobs N]",
