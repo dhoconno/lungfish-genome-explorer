@@ -453,6 +453,18 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private var manualHaplotypeDraftDecisionProvider:
         ((GenotypeManualHaplotypeDraftCoordinator.Transition) async
             -> GenotypeManualHaplotypeDraftDecision)?
+    /// Shows the "Save Haplotype Assignment Changes?" alert as a sheet on the
+    /// window and returns the button the user chose. Production keeps this
+    /// default. Tests install a double, so the decision path runs without a
+    /// sheet-modal session that nothing in a test process would end.
+    var manualHaplotypeDraftAlertPresenter:
+        @MainActor (NSAlert, NSWindow) async -> NSApplication.ModalResponse = { alert, window in
+            await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { response in
+                    continuation.resume(returning: response)
+                }
+            }
+        }
     private let manualHaplotypeTransitionMutationCoordinator =
         GenotypeManualHaplotypeTransitionMutationCoordinator()
     private var manualHaplotypingSelection: Set<String> = []
@@ -8746,19 +8758,10 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private func presentManualHaplotypeDraftDecision(
         for transition: GenotypeManualHaplotypeDraftCoordinator.Transition
     ) async -> GenotypeManualHaplotypeDraftDecision {
-        // A real NSAlert here deadlocks `swift test`: nothing pumps the run
-        // loop's sheet-modal session, and no on-screen window exists to
-        // present it against. Callers already route through an installed
-        // `manualHaplotypeDraftDecisionProvider` first (this method is only
-        // reached when none is installed), so under XCTest we resolve to
-        // `.cancel` without presenting UI. Runtime app behavior is unchanged.
-        // Probed rather than read from the environment: the SwiftPM runner sets
-        // no XCTEST* variables, so the environment form never fired and this
-        // guard was one uninstalled decision provider away from deadlocking the
-        // suite on a modal it can never dismiss.
-        if TestHarness.isRunning {
-            return .cancel
-        }
+        // Reached only when no `manualHaplotypeDraftDecisionProvider` is
+        // installed. The sheet goes through `manualHaplotypeDraftAlertPresenter`,
+        // which a test replaces with a double, because a real sheet in a test
+        // process never ends and hangs the suite.
         guard let window = view.window ?? NSApp.keyWindow else {
             return .cancel
         }
@@ -8770,17 +8773,13 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Discard Changes")
         alert.addButton(withTitle: "Cancel")
-        return await withCheckedContinuation { continuation in
-            alert.beginSheetModal(for: window) { response in
-                switch response {
-                case .alertFirstButtonReturn:
-                    continuation.resume(returning: .save)
-                case .alertSecondButtonReturn:
-                    continuation.resume(returning: .discard)
-                default:
-                    continuation.resume(returning: .cancel)
-                }
-            }
+        switch await manualHaplotypeDraftAlertPresenter(alert, window) {
+        case .alertFirstButtonReturn:
+            return .save
+        case .alertSecondButtonReturn:
+            return .discard
+        default:
+            return .cancel
         }
     }
 
