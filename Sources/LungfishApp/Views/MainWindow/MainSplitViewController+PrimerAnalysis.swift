@@ -130,17 +130,15 @@ extension MainSplitViewController {
         let schemesFolder = projectURL.appendingPathComponent(PrimerSchemesFolder.folderName, isDirectory: true)
         let destination = schemesFolder.appendingPathComponent(name + ".lungfishprimers", isDirectory: true)
         let route = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
-        let cliCommand = ["lungfish-cli", "primers", "scheme-from-analysis", analysisURL.path,
-            "--result-id", candidate.resultID.uuidString, "--output", name, "--project", projectURL.path]
         // begin(...) refuses a conflicting bundle lock and inserts the visible
         // "Bundle is busy" row itself, so nothing is launched on refusal.
         guard let id = center.begin(title: title, detail: "Verifying saved \(candidate.engine) result…", operationType: .workflow,
-            targetBundleURL: destination, cliCommand: cliCommand.map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " "),
+            targetBundleURL: destination,
+            cliCommand: Self.primerSchemeSaveCLICommand(analysisURL: analysisURL, resultID: candidate.resultID,
+                name: name, projectURL: projectURL),
             routeContext: route).startedID else { return }
-        let request = PrimerSchemeFromAnalysisRequest(analysisURL: analysisURL, resultID: candidate.resultID,
-            outputURL: URL(fileURLWithPath: name), projectURL: projectURL, displayName: nil,
-            argv: CommandLine.arguments, workflowName: "lungfish primers scheme-from-analysis",
-            toolVersion: LungfishAppVersion.cliToolVersion)
+        let request = Self.primerSchemeSaveRequest(analysisURL: analysisURL, resultID: candidate.resultID,
+            name: name, projectURL: projectURL)
         let task = Task { @MainActor [weak self] in
             guard center.items.first(where: { $0.id == id })?.state.isActive == true else { return }
             do {
@@ -338,6 +336,66 @@ extension MainSplitViewController {
             args += [flag, value]
         }
         return args
+    }
+
+    /// The arguments after `lungfish-cli primers scheme-from-analysis` that
+    /// save result `resultID` of the analysis at `analysisURL` as the scheme
+    /// `name` in the project's Primer Schemes folder, the save
+    /// `savePrimerScheme` runs (findings R3 and R8). The row command and the
+    /// scheme's provenance argv are both built from this list. The name is
+    /// joined to `--output`, so the parser reads a name that starts with a
+    /// hyphen as a value.
+    static func primerSchemeSaveCLIArguments(
+        analysisURL: URL,
+        resultID: UUID,
+        name: String,
+        projectURL: URL
+    ) -> [String] {
+        [analysisURL.path, "--result-id", resultID.uuidString, "--output=\(name)", "--project", projectURL.path]
+    }
+
+    /// The `lungfish-cli primers scheme-from-analysis` command the Save as
+    /// Primer Scheme row records, quoted by `OperationCenter.buildCLICommand`.
+    /// The row used to quote only the words that held a space, so a name with
+    /// an apostrophe gave a command no shell could read.
+    static func primerSchemeSaveCLICommand(
+        analysisURL: URL,
+        resultID: UUID,
+        name: String,
+        projectURL: URL
+    ) -> String {
+        OperationCenter.buildCLICommand(
+            subcommand: "primers scheme-from-analysis",
+            args: primerSchemeSaveCLIArguments(
+                analysisURL: analysisURL, resultID: resultID, name: name, projectURL: projectURL
+            )
+        )
+    }
+
+    /// The request `savePrimerScheme` hands `PrimerSchemeFromAnalysisService`.
+    /// It names the output and the project as the recorded command does, and
+    /// its argv, which the scheme's provenance records, is that command as
+    /// words. The argv used to be the app process's own launch arguments,
+    /// which named no save at all.
+    static func primerSchemeSaveRequest(
+        analysisURL: URL,
+        resultID: UUID,
+        name: String,
+        projectURL: URL
+    ) -> PrimerSchemeFromAnalysisRequest {
+        PrimerSchemeFromAnalysisRequest(
+            analysisURL: analysisURL,
+            resultID: resultID,
+            outputURL: URL(fileURLWithPath: name),
+            projectURL: projectURL,
+            displayName: nil,
+            argv: [CLICommandIdentity.executableName, "primers", "scheme-from-analysis"]
+                + primerSchemeSaveCLIArguments(
+                    analysisURL: analysisURL, resultID: resultID, name: name, projectURL: projectURL
+                ),
+            workflowName: "lungfish primers scheme-from-analysis",
+            toolVersion: LungfishAppVersion.cliToolVersion
+        )
     }
 
     /// The argv the provenance of a primer FASTA bundle or reference amplicon
