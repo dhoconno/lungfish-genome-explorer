@@ -112,30 +112,34 @@ enum ReferenceBundleMergeService {
     nonisolated(unsafe) static var recordStoreThreadingProbe: (@Sendable () -> Void)?
     #endif
 
+    /// Reports the run through `reporter`, and throws `OperationRefusedError`,
+    /// having written nothing, when `begin` is refused.
     @MainActor
     static func merge(
         sourceBundleURLs: [URL],
         outputDirectory: URL,
-        bundleName: String
+        bundleName: String,
+        reporter: any OperationReporting = OperationCenter.shared
     ) async throws -> URL {
-        let operationID = OperationCenter.shared.start(
+        let operationID = try reporter.begin(
             title: "Merge Reference Bundles",
             detail: "Preparing to merge \(sourceBundleURLs.count) reference bundles\u{2026}",
-            operationType: .bundleBuild
-        )
-        OperationCenter.shared.log(
+            operationType: .bundleBuild,
+            cliCommand: nil // CLI parity gap. No lungfish-cli command merges reference bundles. The closest is `bundle create`.
+        ).requireStarted()
+        reporter.log(
             id: operationID,
             level: .info,
             message: "Merging \(sourceBundleURLs.count) reference bundles into \"\(bundleName)\"."
         )
 
-        // The reporter is the ONLY thing that touches the main actor. Everything else runs
-        // on the cooperative pool -- see `runDetached`.
-        let reporter = ProgressReporter { progress, detail, log in
+        // The progress sink is the ONLY thing that touches the main actor. Everything else
+        // runs on the cooperative pool -- see `runDetached`.
+        let progressReporter = ProgressReporter { progress, detail, log in
             await MainActor.run {
-                _ = OperationCenter.shared.update(id: operationID, progress: progress, detail: detail)
+                _ = reporter.update(id: operationID, progress: progress, detail: detail)
                 if let log {
-                    OperationCenter.shared.log(id: operationID, level: log.level, message: log.message)
+                    reporter.log(id: operationID, level: log.level, message: log.message)
                 }
             }
         }
@@ -146,26 +150,26 @@ enum ReferenceBundleMergeService {
                 outputDirectory: outputDirectory,
                 bundleName: bundleName,
                 provenanceWriter: .live,
-                reporter: reporter
+                reporter: progressReporter
             )
-            OperationCenter.shared.log(
+            reporter.log(
                 id: operationID,
                 level: .info,
                 message: "Merged bundle written to \(mergedURL.lastPathComponent)."
             )
-            OperationCenter.shared.complete(
+            reporter.complete(
                 id: operationID,
                 detail: "Merged \(sourceBundleURLs.count) reference bundles",
                 bundleURLs: [mergedURL]
             )
             return mergedURL
         } catch {
-            OperationCenter.shared.log(
+            reporter.log(
                 id: operationID,
                 level: .error,
                 message: "Reference bundle merge failed: \(error.localizedDescription)"
             )
-            OperationCenter.shared.fail(
+            reporter.fail(
                 id: operationID,
                 detail: "Reference bundle merge failed",
                 errorMessage: error.localizedDescription
@@ -283,11 +287,6 @@ enum ReferenceBundleMergeService {
         // force-quit mid-merge leaves the output directory looking complete.
         OperationMarker.markInProgress(outputDirectory, detail: "Merging reference bundles\u{2026}")
         defer { OperationMarker.clearInProgress(outputDirectory) }
-
-        // Crash-recovery sentinel. The previous implementation got this for free by routing
-        // through `ReferenceBundleImportService.importAsReferenceBundle`; building through
-        // `NativeBundleBuilder` directly means we own it. Without the marker, a crash or
-        // force-quit mid-merge leaves the output directory looking complete.
 
         var createdBundleURL: URL?
         do {

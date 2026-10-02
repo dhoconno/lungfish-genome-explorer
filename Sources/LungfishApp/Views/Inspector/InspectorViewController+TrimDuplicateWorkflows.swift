@@ -121,113 +121,106 @@ extension InspectorViewController {
             ivarSlidingWindow: primerTrimRequest.slidingWindow,
             ivarPrimerOffset: primerTrimRequest.primerOffset
         )
-        let cliCommand = OperationCenter.buildCLICommand(
-            subcommand: "bam primer-trim",
-            args: Array(cliArguments.dropFirst(2))
-        )
-        let operationTitle = "Primer-trimming with \(scheme.manifest.displayName)"
-        let opID = OperationCenter.shared.start(
-            title: operationTitle,
-            detail: "Preparing primer trim...",
-            operationType: .bamPrimerTrim,
-            targetBundleURL: bundleURL,
-            cliCommand: cliCommand,
+        Self.beginPrimerTrimOperation(
+            title: "Primer-trimming with \(scheme.manifest.displayName)",
+            bundleURL: bundleURL,
+            cliArguments: cliArguments,
             routeContext: operationRouteContext(for: bundleURL)
-        )
+        ) { opID in
+            final class ResultTracker: @unchecked Sendable {
+                var completedTrackName: String?
+            }
+            let tracker = ResultTracker()
+            let runner = CLIPrimerTrimRunner()
 
-        final class ResultTracker: @unchecked Sendable {
-            var completedTrackName: String?
-        }
-        let tracker = ResultTracker()
-        let runner = CLIPrimerTrimRunner()
-
-        let task = Task(priority: .userInitiated) { [weak self] in
-            do {
-                if AppUITestConfiguration.current.isEnabled,
-                   AppUITestConfiguration.current.backendMode == .deterministic {
-                    let result = try AppUITestPrimerTrimBackend.writeResult(
-                        bundleURL: bundleURL,
-                        alignmentTrackID: alignmentTrackID,
-                        scheme: scheme,
-                        outputTrackName: outputTrackName,
-                        cliArguments: cliArguments,
-                        minReadLength: primerTrimRequest.minReadLength,
-                        minQuality: primerTrimRequest.minQuality,
-                        slidingWindow: primerTrimRequest.slidingWindow,
-                        primerOffset: primerTrimRequest.primerOffset
-                    )
-                    tracker.completedTrackName = result.trackName
-                    let events: [CLIEvent] = [
-                        .start(message: "Starting deterministic UI test primer trim"),
-                        .log(level: .info, message: "Adopting deterministic primer-trimmed BAM into bundle"),
-                        .complete(
-                            outputs: [result.bamURL.path, result.indexURL.path, result.provenanceSidecarURL.path],
-                            message: "trackID=\(result.trackID) trackName=\(result.trackName)"
+            let task = Task(priority: .userInitiated) { [weak self] in
+                do {
+                    if AppUITestConfiguration.current.isEnabled,
+                       AppUITestConfiguration.current.backendMode == .deterministic {
+                        let result = try AppUITestPrimerTrimBackend.writeResult(
+                            bundleURL: bundleURL,
+                            alignmentTrackID: alignmentTrackID,
+                            scheme: scheme,
+                            outputTrackName: outputTrackName,
+                            cliArguments: cliArguments,
+                            minReadLength: primerTrimRequest.minReadLength,
+                            minQuality: primerTrimRequest.minQuality,
+                            slidingWindow: primerTrimRequest.slidingWindow,
+                            primerOffset: primerTrimRequest.primerOffset
                         )
-                    ]
-                    for event in events {
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                Self.applyPrimerTrimEvent(event, operationID: opID)
+                        tracker.completedTrackName = result.trackName
+                        let events: [CLIEvent] = [
+                            .start(message: "Starting deterministic UI test primer trim"),
+                            .log(level: .info, message: "Adopting deterministic primer-trimmed BAM into bundle"),
+                            .complete(
+                                outputs: [result.bamURL.path, result.indexURL.path, result.provenanceSidecarURL.path],
+                                message: "trackID=\(result.trackID) trackName=\(result.trackName)"
+                            )
+                        ]
+                        for event in events {
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    Self.applyPrimerTrimEvent(event, operationID: opID)
+                                }
                             }
                         }
-                    }
-                } else {
-                    let result = try await runner.run(arguments: cliArguments) { event in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                Self.applyPrimerTrimEvent(event, operationID: opID)
+                    } else {
+                        let result = try await runner.run(arguments: cliArguments) { event in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    Self.applyPrimerTrimEvent(event, operationID: opID)
+                                }
                             }
                         }
+                        tracker.completedTrackName = result.trackName
                     }
-                    tracker.completedTrackName = result.trackName
-                }
 
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        let detail = tracker.completedTrackName.map { "Adopted alignment track \($0)" }
-                            ?? "Primer trim complete"
-                        guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
-                        if let self, let split = self.parent as? MainSplitViewController {
-                            do {
-                                try split.displayReferenceBundleAfterWorkflow(at: bundleURL)
-                            } catch {
-                                self.presentSimpleAlert(
-                                    title: "Bundle Reload Failed",
-                                    message: "Primer trim completed, but the bundle could not be reloaded: \(error.localizedDescription)"
-                                )
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            let detail = tracker.completedTrackName.map { "Adopted alignment track \($0)" }
+                                ?? "Primer trim complete"
+                            guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
+                            if let self, let split = self.parent as? MainSplitViewController {
+                                do {
+                                    try split.displayReferenceBundleAfterWorkflow(at: bundleURL)
+                                } catch {
+                                    self.presentSimpleAlert(
+                                        title: "Bundle Reload Failed",
+                                        message: "Primer trim completed, but the bundle could not be reloaded: \(error.localizedDescription)"
+                                    )
+                                }
                             }
                         }
                     }
-                }
-            } catch is CancellationError {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
+                } catch is CancellationError {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
+                        }
                     }
-                }
-            } catch {
-                let message = error.localizedDescription
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.fail(
-                            id: opID,
-                            detail: message,
-                            errorMessage: message
-                        ) else { return }
-                        self?.presentSimpleAlert(
-                            title: "Primer Trim Failed",
-                            message: message
-                        )
+                } catch {
+                    let message = error.localizedDescription
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.fail(
+                                id: opID,
+                                detail: message,
+                                errorMessage: message
+                            ) else { return }
+                            self?.presentSimpleAlert(
+                                title: "Primer Trim Failed",
+                                message: message
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        OperationCenter.shared.setCancelCallback(for: opID) {
-            task.cancel()
-            Task {
-                await runner.cancel()
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                task.cancel()
+                Task {
+                    await runner.cancel()
+                }
             }
         }
     }
@@ -308,93 +301,92 @@ extension InspectorViewController {
             launchContext = context
         }
 
-        let operationID = Self.startMappedReadsAnnotationWorkflowOperation(
-            bundleURL: bundleURL,
-            outputTrackName: request.outputTrackName
-        )
-        let sourceTrackName = viewModel.readStyleSectionViewModel.alignmentFilterTrackOptions
-            .first(where: { $0.id == request.sourceTrackID })?.name ?? request.sourceTrackID
-        viewModel.readStyleSectionViewModel.latestMappedReadsAnnotationMessage = nil
-        viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = true
-        split.activityIndicator.show(message: "Converting mapped reads to annotations...", style: .indeterminate)
+        let workflowRequest = request.workflowRequest(bundleURL: bundleURL)
+        Self.beginMappedReadsAnnotationWorkflowOperation(request: workflowRequest) { operationID in
+            let sourceTrackName = viewModel.readStyleSectionViewModel.alignmentFilterTrackOptions
+                .first(where: { $0.id == request.sourceTrackID })?.name ?? request.sourceTrackID
+            viewModel.readStyleSectionViewModel.latestMappedReadsAnnotationMessage = nil
+            viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = true
+            split.activityIndicator.show(message: "Converting mapped reads to annotations...", style: .indeterminate)
 
-        Task(priority: .userInitiated) { [weak self] in
-            do {
-                let result = try await MappedReadsAnnotationService().convertMappedReads(
-                    request: request.workflowRequest(bundleURL: bundleURL),
-                    progressHandler: { [weak self] progress, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.updateWithLog(
-                                    id: operationID,
-                                    progress: max(0.01, min(0.99, progress)),
-                                    detail: message
-                                )
-                                if let self,
-                                   let split = self.parent as? MainSplitViewController {
-                                    split.activityIndicator.updateMessage(message)
+            Task(priority: .userInitiated) { [weak self] in
+                do {
+                    let result = try await MappedReadsAnnotationService().convertMappedReads(
+                        request: workflowRequest,
+                        progressHandler: { [weak self] progress, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    _ = OperationCenter.shared.updateWithLog(
+                                        id: operationID,
+                                        progress: max(0.01, min(0.99, progress)),
+                                        detail: message
+                                    )
+                                    if let self,
+                                       let split = self.parent as? MainSplitViewController {
+                                        split.activityIndicator.updateMessage(message)
+                                    }
                                 }
                             }
                         }
-                    }
-                )
+                    )
 
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.complete(
-                            id: operationID,
-                            detail: "Created annotation track \"\(result.annotationTrackInfo.name)\"."
-                        ) else { return }
-                        guard let self,
-                              let split = self.parent as? MainSplitViewController else { return }
-                        self.viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = false
-                        split.activityIndicator.hide()
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.complete(
+                                id: operationID,
+                                detail: "Created annotation track \"\(result.annotationTrackInfo.name)\"."
+                            ) else { return }
+                            guard let self,
+                                  let split = self.parent as? MainSplitViewController else { return }
+                            self.viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = false
+                            split.activityIndicator.hide()
 
-                        let createdTrackName = result.annotationTrackInfo.name
-                        self.viewModel.readStyleSectionViewModel.noteMappedReadsAnnotationCreation(
-                            createdTrackName: createdTrackName,
-                            sourceTrackName: sourceTrackName
-                        )
-                        do {
-                            try launchContext.reload(
-                                using: FilteredAlignmentWorkflowReloadActions(
-                                    reloadMappingViewerBundle: {
-                                        try split.viewerController.reloadMappingViewerBundleIfDisplayed()
-                                    },
-                                    displayBundle: { url in
-                                        try split.viewerController.displayBundle(at: url)
-                                    }
+                            let createdTrackName = result.annotationTrackInfo.name
+                            self.viewModel.readStyleSectionViewModel.noteMappedReadsAnnotationCreation(
+                                createdTrackName: createdTrackName,
+                                sourceTrackName: sourceTrackName
+                            )
+                            do {
+                                try launchContext.reload(
+                                    using: FilteredAlignmentWorkflowReloadActions(
+                                        reloadMappingViewerBundle: {
+                                            try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                                        },
+                                        displayBundle: { url in
+                                            try split.viewerController.displayBundle(at: url)
+                                        }
+                                    )
                                 )
-                            )
-                            self.viewModel.selectedTab = .analysis
-                            self.presentSimpleAlert(
-                                title: "Mapped Reads Converted",
-                                message: "Created annotation track \"\(createdTrackName)\" from \"\(sourceTrackName)\". Open the annotation table to sort and filter mapped-read fields."
-                            )
-                        } catch {
-                            self.presentSimpleAlert(
-                                title: launchContext.reloadFailureAlertTitle,
-                                message: "Annotation track \"\(createdTrackName)\" was created, but the updated bundle could not be reloaded: \(error.localizedDescription)"
-                            )
+                                self.viewModel.selectedTab = .analysis
+                                self.presentSimpleAlert(
+                                    title: "Mapped Reads Converted",
+                                    message: "Created annotation track \"\(createdTrackName)\" from \"\(sourceTrackName)\". Open the annotation table to sort and filter mapped-read fields."
+                                )
+                            } catch {
+                                self.presentSimpleAlert(
+                                    title: launchContext.reloadFailureAlertTitle,
+                                    message: "Annotation track \"\(createdTrackName)\" was created, but the updated bundle could not be reloaded: \(error.localizedDescription)"
+                                )
+                            }
                         }
                     }
-                }
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
-                            id: operationID,
-                            detail: error.localizedDescription,
-                            errorMessage: error.localizedDescription
-                        )
-                        guard let self,
-                              let split = self.parent as? MainSplitViewController else { return }
-                        self.viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = false
-                        split.activityIndicator.hide()
-                        self.presentSimpleAlert(
-                            title: "Mapped-Read Annotation Failed",
-                            message: error.localizedDescription
-                        )
+                } catch {
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.fail(
+                                id: operationID,
+                                detail: error.localizedDescription,
+                                errorMessage: error.localizedDescription
+                            )
+                            guard let self,
+                                  let split = self.parent as? MainSplitViewController else { return }
+                            self.viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = false
+                            split.activityIndicator.hide()
+                            self.presentSimpleAlert(
+                                title: "Mapped-Read Annotation Failed",
+                                message: error.localizedDescription
+                            )
+                        }
                     }
                 }
             }
@@ -426,97 +418,99 @@ extension InspectorViewController {
             launchContext = context
         }
 
-        let operationID = Self.startFilteredAlignmentWorkflowOperation(
+        Self.beginFilteredAlignmentWorkflowOperation(
             bundleURL: bundleURL,
-            outputTrackName: request.outputTrackName
-        )
-        let sourceTrackName = viewModel.readStyleSectionViewModel.alignmentFilterTrackOptions
-            .first(where: { $0.id == request.sourceTrackID })?.name ?? request.sourceTrackID
-        viewModel.readStyleSectionViewModel.latestDerivedAlignmentMessage = nil
-        viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = true
-        split.activityIndicator.show(message: "Creating filtered alignment track...", style: .indeterminate)
+            serviceTarget: launchContext.serviceTarget,
+            request: request
+        ) { operationID in
+            let sourceTrackName = viewModel.readStyleSectionViewModel.alignmentFilterTrackOptions
+                .first(where: { $0.id == request.sourceTrackID })?.name ?? request.sourceTrackID
+            viewModel.readStyleSectionViewModel.latestDerivedAlignmentMessage = nil
+            viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = true
+            split.activityIndicator.show(message: "Creating filtered alignment track...", style: .indeterminate)
 
-        Task(priority: .userInitiated) { [weak self] in
-            do {
-                let result = try await BundleAlignmentFilterService().deriveFilteredAlignment(
-                    target: launchContext.serviceTarget,
-                    sourceTrackID: request.sourceTrackID,
-                    outputTrackName: request.outputTrackName,
-                    filterRequest: request.filterRequest,
-                    progressHandler: { [weak self] progress, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.updateWithLog(
-                                    id: operationID,
-                                    progress: max(0.01, min(0.99, progress)),
-                                    detail: message
-                                )
-                                if let self,
-                                   let split = self.parent as? MainSplitViewController {
-                                    split.activityIndicator.updateMessage(message)
+            Task(priority: .userInitiated) { [weak self] in
+                do {
+                    let result = try await BundleAlignmentFilterService().deriveFilteredAlignment(
+                        target: launchContext.serviceTarget,
+                        sourceTrackID: request.sourceTrackID,
+                        outputTrackName: request.outputTrackName,
+                        filterRequest: request.filterRequest,
+                        progressHandler: { [weak self] progress, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    _ = OperationCenter.shared.updateWithLog(
+                                        id: operationID,
+                                        progress: max(0.01, min(0.99, progress)),
+                                        detail: message
+                                    )
+                                    if let self,
+                                       let split = self.parent as? MainSplitViewController {
+                                        split.activityIndicator.updateMessage(message)
+                                    }
                                 }
                             }
                         }
-                    }
-                )
+                    )
 
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.complete(
-                            id: operationID,
-                            detail: "Created filtered alignment track \"\(result.trackInfo.name)\"."
-                        ) else { return }
-                        guard let self,
-                              let split = self.parent as? MainSplitViewController else { return }
-                        self.viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = false
-                        split.activityIndicator.hide()
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.complete(
+                                id: operationID,
+                                detail: "Created filtered alignment track \"\(result.trackInfo.name)\"."
+                            ) else { return }
+                            guard let self,
+                                  let split = self.parent as? MainSplitViewController else { return }
+                            self.viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = false
+                            split.activityIndicator.hide()
 
-                        let createdTrackName = result.trackInfo.name
-                        self.viewModel.readStyleSectionViewModel.noteDerivedAlignmentCreation(
-                            createdTrackName: createdTrackName,
-                            sourceTrackName: sourceTrackName
-                        )
-                        do {
-                            try launchContext.reload(
-                                using: FilteredAlignmentWorkflowReloadActions(
-                                    reloadMappingViewerBundle: {
-                                        try split.viewerController.reloadMappingViewerBundleIfDisplayed()
-                                    },
-                                    displayBundle: { url in
-                                        try split.viewerController.displayBundle(at: url)
-                                    }
+                            let createdTrackName = result.trackInfo.name
+                            self.viewModel.readStyleSectionViewModel.noteDerivedAlignmentCreation(
+                                createdTrackName: createdTrackName,
+                                sourceTrackName: sourceTrackName
+                            )
+                            do {
+                                try launchContext.reload(
+                                    using: FilteredAlignmentWorkflowReloadActions(
+                                        reloadMappingViewerBundle: {
+                                            try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                                        },
+                                        displayBundle: { url in
+                                            try split.viewerController.displayBundle(at: url)
+                                        }
+                                    )
                                 )
-                            )
-                            self.applyFilteredAlignmentSuccess(createdTrackID: result.trackInfo.id)
-                            self.viewModel.readStyleSectionViewModel.onSettingsChanged?()
-                            self.presentSimpleAlert(
-                                title: "Filtered Alignment Created",
-                                message: "Created a new filtered alignment from \"\(sourceTrackName)\". The source alignment was not changed. Now viewing \"\(createdTrackName)\". Use Bundle > Alignment Tracks or View > Alignment to switch between them."
-                            )
-                        } catch {
-                            self.presentSimpleAlert(
-                                title: launchContext.reloadFailureAlertTitle,
-                                message: "Filtered alignment track \"\(createdTrackName)\" was created, but the updated bundle could not be reloaded: \(error.localizedDescription)"
-                            )
+                                self.applyFilteredAlignmentSuccess(createdTrackID: result.trackInfo.id)
+                                self.viewModel.readStyleSectionViewModel.onSettingsChanged?()
+                                self.presentSimpleAlert(
+                                    title: "Filtered Alignment Created",
+                                    message: "Created a new filtered alignment from \"\(sourceTrackName)\". The source alignment was not changed. Now viewing \"\(createdTrackName)\". Use Bundle > Alignment Tracks or View > Alignment to switch between them."
+                                )
+                            } catch {
+                                self.presentSimpleAlert(
+                                    title: launchContext.reloadFailureAlertTitle,
+                                    message: "Filtered alignment track \"\(createdTrackName)\" was created, but the updated bundle could not be reloaded: \(error.localizedDescription)"
+                                )
+                            }
                         }
                     }
-                }
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
-                            id: operationID,
-                            detail: error.localizedDescription,
-                            errorMessage: error.localizedDescription
-                        )
-                        guard let self,
-                              let split = self.parent as? MainSplitViewController else { return }
-                        self.viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = false
-                        split.activityIndicator.hide()
-                        self.presentSimpleAlert(
-                            title: "Filtered Alignment Failed",
-                            message: error.localizedDescription
-                        )
+                } catch {
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.fail(
+                                id: operationID,
+                                detail: error.localizedDescription,
+                                errorMessage: error.localizedDescription
+                            )
+                            guard let self,
+                                  let split = self.parent as? MainSplitViewController else { return }
+                            self.viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = false
+                            split.activityIndicator.hide()
+                            self.presentSimpleAlert(
+                                title: "Filtered Alignment Failed",
+                                message: error.localizedDescription
+                            )
+                        }
                     }
                 }
             }
@@ -558,30 +552,6 @@ extension InspectorViewController {
                 serviceTarget: serviceTarget,
                 reloadTarget: isMappingViewerDisplayedAtLaunch ? .mappingViewer : .bundleViewer
             )
-        )
-    }
-
-    static func startFilteredAlignmentWorkflowOperation(
-        bundleURL: URL,
-        outputTrackName: String
-    ) -> UUID {
-        OperationCenter.shared.start(
-            title: "Create Filtered Alignment Track",
-            detail: "Preparing \(outputTrackName)...",
-            operationType: .bamImport,
-            targetBundleURL: bundleURL
-        )
-    }
-
-    static func startMappedReadsAnnotationWorkflowOperation(
-        bundleURL: URL,
-        outputTrackName: String
-    ) -> UUID {
-        OperationCenter.shared.start(
-            title: "Convert Mapped Reads to Annotations",
-            detail: "Preparing \(outputTrackName)...",
-            operationType: .bamImport,
-            targetBundleURL: bundleURL
         )
     }
 

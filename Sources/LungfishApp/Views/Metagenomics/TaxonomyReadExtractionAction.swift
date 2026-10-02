@@ -311,7 +311,7 @@ public final class TaxonomyReadExtractionAction {
                 // because the host already has the extraction dialog attached
                 // as a sheet, and AppKit only supports one sheet per window.
                 let panelHost = sheetWindow ?? hostWindow
-                var destination = try await self.resolveDestination(
+                let resolvedDestination = try await self.resolveDestination(
                     model: model,
                     context: context,
                     savePanel: self.savePanelPresenter,
@@ -319,116 +319,115 @@ public final class TaxonomyReadExtractionAction {
                 )
 
                 // Build extraction options.
-                var options = ExtractionOptions(
+                let dialogOptions = ExtractionOptions(
                     format: model.format,
                     includeUnmappedMates: model.includeUnmappedMates
                 )
 
                 // Log the equivalent CLI command so the operations panel row
                 // reproduces what the GUI did.
-                let cli = Self.buildCLIString(context: context, options: options, destination: destination)
-                destination = Self.destination(destination, recordingProvenanceCommand: cli, context: context)
-                options = Self.optionsByRecordingFileProvenance(
-                    options,
+                let cli = Self.buildCLIString(context: context, options: dialogOptions, destination: resolvedDestination)
+                let destination = Self.destination(resolvedDestination, recordingProvenanceCommand: cli, context: context)
+                let options = Self.optionsByRecordingFileProvenance(
+                    dialogOptions,
                     context: context,
                     destination: destination
                 )
 
-                let opID = OperationCenter.shared.start(
-                    title: "Extract Reads — \(context.tool.displayName)",
-                    detail: "Running \(context.tool.displayName) extraction…",
-                    operationType: .taxonomyExtraction,
-                    cliCommand: cli,
-                    routeContext: context.routeContext
-                )
-                OperationCenter.shared.log(id: opID, level: .info, message: "Extraction started: \(cli)")
+                let started = Self.beginExtractionOperation(context: context, cliCommand: cli) { opID in
+                    OperationCenter.shared.log(id: opID, level: .info, message: "Extraction started: \(cli)")
 
-                // `Context` is Sendable, so the outer variable
-                // is captured directly by the detached closure — no local copy.
-                let task = Task.detached { [weak self] in
-                    let resolver = resolverFactory()
-                    do {
-                        let outcome = try await resolver.resolveAndExtract(
-                            tool: context.tool,
-                            resultPath: context.resultPath,
-                            selections: context.selections,
-                            options: options,
-                            destination: destination,
-                            progress: { fraction, message in
-                                DispatchQueue.main.async { [weak model] in
-                                    MainActor.assumeIsolated {
-                                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                                        OperationCenter.shared.log(id: opID, level: .info, message: message)
-                                        model?.progressFraction = fraction
-                                        model?.progressMessage = message
+                    // `Context` is Sendable, so the outer variable
+                    // is captured directly by the detached closure — no local copy.
+                    let task = Task.detached { [weak self] in
+                        let resolver = resolverFactory()
+                        do {
+                            let outcome = try await resolver.resolveAndExtract(
+                                tool: context.tool,
+                                resultPath: context.resultPath,
+                                selections: context.selections,
+                                options: options,
+                                destination: destination,
+                                progress: { fraction, message in
+                                    DispatchQueue.main.async { [weak model] in
+                                        MainActor.assumeIsolated {
+                                            _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                                            OperationCenter.shared.log(id: opID, level: .info, message: message)
+                                            model?.progressFraction = fraction
+                                            model?.progressMessage = message
+                                        }
+                                    }
+                                }
+                            )
+                            DispatchQueue.main.async { [weak self] in
+                                MainActor.assumeIsolated {
+                                    guard OperationCenter.shared.complete(id: opID, detail: "Extracted \(outcome.readCount) reads") else { return }
+                                    self?.handleSuccess(
+                                        outcome: outcome,
+                                        opID: opID,
+                                        context: context,
+                                        hostWindow: hostWindow,
+                                        sheetWindow: sheetWindow
+                                    )
+                                }
+                            }
+                        } catch is CancellationError {
+                            DispatchQueue.main.async { [weak model, weak hostWindow, weak sheetWindow] in
+                                MainActor.assumeIsolated {
+                                    _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled by user")
+                                    model?.isRunning = false
+                                    model?.errorMessage = "Cancelled"
+                                    // Dismiss the sheet now that the detached
+                                    // task has honored the cancel — the dialog's
+                                    // onCancel closure deferred dismissal to this
+                                    // branch so the user doesn't see a stale
+                                    // bundle appear after clicking Cancel.
+                                    if let hostWindow, let sheetWindow,
+                                       hostWindow.attachedSheet === sheetWindow {
+                                        hostWindow.endSheet(sheetWindow)
                                     }
                                 }
                             }
-                        )
-                        DispatchQueue.main.async { [weak self] in
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.complete(id: opID, detail: "Extracted \(outcome.readCount) reads") else { return }
-                                self?.handleSuccess(
-                                    outcome: outcome,
-                                    opID: opID,
-                                    context: context,
-                                    hostWindow: hostWindow,
-                                    sheetWindow: sheetWindow
-                                )
-                            }
-                        }
-                    } catch is CancellationError {
-                        DispatchQueue.main.async { [weak model, weak hostWindow, weak sheetWindow] in
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled by user")
-                                model?.isRunning = false
-                                model?.errorMessage = "Cancelled"
-                                // Dismiss the sheet now that the detached
-                                // task has honored the cancel — the dialog's
-                                // onCancel closure deferred dismissal to this
-                                // branch so the user doesn't see a stale
-                                // bundle appear after clicking Cancel.
-                                if let hostWindow, let sheetWindow,
-                                   hostWindow.attachedSheet === sheetWindow {
-                                    hostWindow.endSheet(sheetWindow)
+                        } catch {
+                            let errorDesc = error.localizedDescription
+                            // Schedule the failure handling on the main queue. The
+                            // alert presentation needs to await a sheet modal, so
+                            // we hand off to a separate @MainActor helper rather
+                            // than spawning a nested main-actor task while inside
+                            // an `assumeIsolated` block.
+                            DispatchQueue.main.async { [weak self, weak model] in
+                                let accepted = MainActor.assumeIsolated {
+                                    let accepted = OperationCenter.shared.fail(
+                                        id: opID,
+                                        detail: errorDesc,
+                                        errorMessage: errorDesc
+                                    )
+                                    OperationCenter.shared.log(id: opID, level: .error, message: errorDesc)
+                                    model?.isRunning = false
+                                    model?.errorMessage = accepted ? errorDesc : "Cancelled"
+                                    return accepted
+                                }
+                                guard accepted else { return }
+                                // Spawn the alert-presentation Task from the GCD
+                                // main queue, NOT from inside `assumeIsolated`.
+                                // The Task body is implicitly @MainActor because
+                                // `presentErrorAlert` is `@MainActor`.
+                                Task { [weak self] in
+                                    await self?.presentErrorAlert(errorDesc, on: hostWindow)
                                 }
                             }
                         }
-                    } catch {
-                        let errorDesc = error.localizedDescription
-                        // Schedule the failure handling on the main queue. The
-                        // alert presentation needs to await a sheet modal, so
-                        // we hand off to a separate @MainActor helper rather
-                        // than spawning a nested main-actor task while inside
-                        // an `assumeIsolated` block.
-                        DispatchQueue.main.async { [weak self, weak model] in
-                            let accepted = MainActor.assumeIsolated {
-                                let accepted = OperationCenter.shared.fail(
-                                    id: opID,
-                                    detail: errorDesc,
-                                    errorMessage: errorDesc
-                                )
-                                OperationCenter.shared.log(id: opID, level: .error, message: errorDesc)
-                                model?.isRunning = false
-                                model?.errorMessage = accepted ? errorDesc : "Cancelled"
-                                return accepted
-                            }
-                            guard accepted else { return }
-                            // Spawn the alert-presentation Task from the GCD
-                            // main queue, NOT from inside `assumeIsolated`.
-                            // The Task body is implicitly @MainActor because
-                            // `presentErrorAlert` is `@MainActor`.
-                            Task { [weak self] in
-                                await self?.presentErrorAlert(errorDesc, on: hostWindow)
-                            }
-                        }
                     }
+                    // Store the task handle on the shared box so the dialog's
+                    // Cancel button can cancel it, and register the same
+                    // cancellation with the Operations Panel row.
+                    taskBox.extractionTask = task
+                    OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
                 }
-                // Store the task handle on the shared box so the dialog's
-                // Cancel button can cancel it, and register the same
-                // cancellation with the Operations Panel row.
-                taskBox.extractionTask = task
-                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                if case .refused(let refusal) = started { // Nothing launched. Return the dialog to idle.
+                    model.isRunning = false
+                    model.errorMessage = refusal.message
+                }
             } catch {
                 model.isRunning = false
                 model.errorMessage = error.localizedDescription
@@ -594,7 +593,7 @@ public final class TaxonomyReadExtractionAction {
     /// the default-name behavior. If you want a recipe, pass
     /// `--bundle-name` explicitly yourself.
     ///
-    /// Used by `OperationCenter.start(cliCommand:)`.
+    /// A `.bundle` destination's `-o` names a file in ``bundleOutputDirectory(projectRoot:)``, where the app writes the bundle.
     static func buildCLIString(
         context: Context,
         options: ExtractionOptions,
@@ -630,12 +629,12 @@ public final class TaxonomyReadExtractionAction {
         case .file(let url):
             args.append("-o")
             args.append(url.path)
-        case .bundle(_, let name, _):
+        case .bundle(let projectRoot, let name, _):
             args.append("--bundle")
             args.append("--bundle-name")
             args.append(name)
             args.append("-o")
-            args.append("\(name).\(options.format.rawValue)")
+            args.append(bundleOutputDirectory(projectRoot: projectRoot).appendingPathComponent("\(name).\(options.format.rawValue)").path)
         case .clipboard, .share:
             // Not CLI-expressible; leave the -o off and annotate.
             args.append("# (\(destinationLabel(destination)) — GUI only)")

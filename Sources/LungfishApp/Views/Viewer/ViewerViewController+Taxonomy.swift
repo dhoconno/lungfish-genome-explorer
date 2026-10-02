@@ -89,71 +89,67 @@ extension ViewerViewController {
                 projectURL: ProjectTempDirectory.findProjectRoot(classResult.outputURL),
                 windowStateScope: self.windowStateScope
             )
-            let batchExtractCliCmd = "# Taxonomy Read Extraction workflow for collection '\(collection.name)' (batch pipeline; see output provenance for replay details)"
-            let opID = OperationCenter.shared.start(
-                title: "Extract \(collection.name)",
-                detail: "Preparing batch extraction\u{2026}",
-                operationType: .taxonomyExtraction,
-                cliCommand: batchExtractCliCmd,
+            ViewerViewController.beginTaxaCollectionExtractionOperation(
+                collection: collection,
                 routeContext: routeContext
-            )
+            ) { opID in
+                let tree = classResult.tree
+                let outputDir = classResult.config.outputDirectory
+                    .appendingPathComponent("extracted-\(collection.id)")
 
-            let tree = classResult.tree
-            let outputDir = classResult.config.outputDirectory
-                .appendingPathComponent("extracted-\(collection.id)")
+                let task = Task.detached {
+                    do {
+                        let pipeline = TaxonomyExtractionPipeline()
+                        let outputURLs = try await pipeline.extractBatch(
+                            collection: collection,
+                            classificationResult: classResult,
+                            tree: tree,
+                            outputDirectory: outputDir,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        _ = OperationCenter.shared.update(
+                                            id: opID,
+                                            progress: fraction,
+                                            detail: message
+                                        )
+                                    }
+                                }
+                            }
+                        )
 
-            let task = Task.detached {
-                do {
-                    let pipeline = TaxonomyExtractionPipeline()
-                    let outputURLs = try await pipeline.extractBatch(
-                        collection: collection,
-                        classificationResult: classResult,
-                        tree: tree,
-                        outputDirectory: outputDir,
-                        progress: { fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    _ = OperationCenter.shared.update(
-                                        id: opID,
-                                        progress: fraction,
-                                        detail: message
-                                    )
+                        let capturedURLs = outputURLs
+                        scheduleTaxonomyOnMainRunLoop {
+                            MainActor.assumeIsolated {
+                                let count = capturedURLs.count
+                                _ = OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: "Extracted \(count) taxa from \(collection.name)",
+                                    bundleURLs: capturedURLs
+                                )
+
+                                // Refresh sidebar to pick up new extracted files
+                                if let sidebar = (self.parent as? MainSplitViewController)?.sidebarController {
+                                    sidebar.requestReloadFromFilesystem()
                                 }
                             }
                         }
-                    )
-
-                    let capturedURLs = outputURLs
-                    scheduleTaxonomyOnMainRunLoop {
-                        MainActor.assumeIsolated {
-                            let count = capturedURLs.count
-                            _ = OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "Extracted \(count) taxa from \(collection.name)",
-                                bundleURLs: capturedURLs
-                            )
-
-                            // Refresh sidebar to pick up new extracted files
-                            if let sidebar = (self.parent as? MainSplitViewController)?.sidebarController {
-                                sidebar.requestReloadFromFilesystem()
+                    } catch {
+                        let errorDesc = error.localizedDescription
+                        scheduleTaxonomyOnMainRunLoop {
+                            MainActor.assumeIsolated {
+                                _ = OperationCenter.shared.fail(
+                                    id: opID,
+                                    detail: errorDesc
+                                )
+                                showTaxonomyExtractionErrorAlert(errorDesc)
                             }
                         }
                     }
-                } catch {
-                    let errorDesc = error.localizedDescription
-                    scheduleTaxonomyOnMainRunLoop {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.fail(
-                                id: opID,
-                                detail: errorDesc
-                            )
-                            showTaxonomyExtractionErrorAlert(errorDesc)
-                        }
-                    }
                 }
-            }
 
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            }
         }
 
         // Wire BLAST verification callback.
@@ -168,164 +164,158 @@ extension ViewerViewController {
         controller.blastVerificationDirectoryResolver = { _ in capturedResultDirectory }
 
         controller.onBlastVerification = { [weak controller] node, readCount in
-            let blastRunID = controller?.beginBlastVerification(for: node)
-            let weakController = controller
-            let blastCliCmd = OperationCenter.buildCLICommand(
-                subcommand: "blast verify",
-                args: blastVerifyCLIArguments(
-                    classResult: result,
-                    sourceURL: capturedSource,
-                    taxId: node.taxId,
-                    readCount: readCount
-                )
-            )
-            let opID = OperationCenter.shared.start(
-                title: "BLAST \(node.name)",
-                detail: "Preparing BLAST verification\u{2026}",
-                operationType: .blastVerification,
-                cliCommand: blastCliCmd
-            )
-            // WFL-12: the drawer's own Cancel button reads this to actually
-            // cancel the run, rather than only logging.
-            controller?.currentBlastOperationID = opID
+            ViewerViewController.beginKraken2BlastVerificationOperation(
+                taxonName: node.name,
+                classResult: result,
+                sourceURL: capturedSource,
+                taxId: node.taxId,
+                readCount: readCount,
+                resultDirectory: capturedResultDirectory
+            ) { opID in
+                let blastRunID = controller?.beginBlastVerification(for: node)
+                let weakController = controller
+                // WFL-12: the drawer's own Cancel button reads this to actually
+                // cancel the run, rather than only logging.
+                controller?.currentBlastOperationID = opID
 
-            let taxId = node.taxId
-            let taxonName = node.name
-            let resolvedSource = capturedSource
-            let classificationOutput = capturedOutputURL
-            let tree = capturedTree
-            let resultDirectory = capturedResultDirectory
-            let startedAt = Date()
+                let taxId = node.taxId
+                let taxonName = node.name
+                let resolvedSource = capturedSource
+                let classificationOutput = capturedOutputURL
+                let tree = capturedTree
+                let resultDirectory = capturedResultDirectory
+                let startedAt = Date()
 
 
-            let task = Task.detached {
-                do {
-                    // Guard: source FASTQ must exist for BLAST read extraction
-                    guard let sourceURL = resolvedSource else {
-                        taxonomyLogger.error("BLAST: could not resolve a source FASTQ for this classification")
-                        throw BlastServiceError.noSequences
-                    }
-                    guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-                        taxonomyLogger.error("BLAST: source FASTQ not found at \(sourceURL.path, privacy: .public)")
-                        throw BlastServiceError.noSequences
-                    }
-
-                    // Build read ID set for this taxon using the indexed
-                    // sidecar when available (O(k) vs O(n) linear scan).
-                    // Clade (sampling targets and supporting hits) plus the
-                    // genus relatives the tree knows about.
-                    let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
-                    let targetTaxIds = taxonomyContext.cladeTaxIds
-                    let acceptedTaxonNames = taxonomyContext.cladeNames
-
-                    let blastService = BlastService.shared
-                    let request: BlastVerificationRequest
-
-                    let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
-                    if let db = try? KrakenIndexDatabase(url: indexURL),
-                       db.canResolve(taxIds: targetTaxIds) {
-                        // Fast path: use indexed lookup
-                        let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
-                        db.close()
-                        taxonomyLogger.info("BLAST: indexed lookup found \(matchingReadIds.count, privacy: .public) reads for \(targetTaxIds.count, privacy: .public) taxIds")
-
-                        request = try await blastService.buildVerificationRequestFromReadIds(
-                            taxonName: taxonName,
-                            taxId: taxId,
-                            matchingReadIds: matchingReadIds,
-                            sourceURL: sourceURL,
-                            readCount: readCount,
-                            targetTaxIds: targetTaxIds,
-                            classificationOutputURL: classificationOutput,
-                            acceptedTaxonNames: acceptedTaxonNames,
-                            taxonomyContext: taxonomyContext
-                        )
-                    } else {
-                        // Slow path: linear scan (index will be built on next classification)
-                        taxonomyLogger.info("BLAST: no index available, using linear scan")
-                        request = try await blastService.buildVerificationRequest(
-                            taxonName: taxonName,
-                            taxId: taxId,
-                            targetTaxIds: targetTaxIds,
-                            classificationOutputURL: classificationOutput,
-                            sourceURL: sourceURL,
-                            readCount: readCount,
-                            acceptedTaxonNames: acceptedTaxonNames,
-                            taxonomyContext: taxonomyContext
-                        )
-                    }
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.updateWithLog(
-                                id: opID,
-                                progress: 0.1,
-                                detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
-                            ) else { return }
-                            weakController?.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
+                let task = Task.detached {
+                    do {
+                        // Guard: source FASTQ must exist for BLAST read extraction
+                        guard let sourceURL = resolvedSource else {
+                            taxonomyLogger.error("BLAST: could not resolve a source FASTQ for this classification")
+                            throw BlastServiceError.noSequences
                         }
-                    }
+                        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                            taxonomyLogger.error("BLAST: source FASTQ not found at \(sourceURL.path, privacy: .public)")
+                            throw BlastServiceError.noSequences
+                        }
 
-                    // Submit and wait for results
-                    let blastResult = try await blastService.verify(
-                        request: request,
-                        progress: { fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    guard OperationCenter.shared.updateWithLog(
-                                        id: opID,
-                                        progress: fraction,
-                                        detail: message
-                                    ) else { return }
-                                    let lower = message.lowercased()
-                                    if lower.contains("waiting") {
-                                        weakController?.showBlastLoading(phase: .waiting, requestId: nil, runID: blastRunID)
-                                    } else if lower.contains("parsing") {
-                                        weakController?.showBlastLoading(phase: .parsing, requestId: nil, runID: blastRunID)
-                                    } else {
-                                        weakController?.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
+                        // Build read ID set for this taxon using the indexed
+                        // sidecar when available (O(k) vs O(n) linear scan).
+                        // Clade (sampling targets and supporting hits) plus the
+                        // genus relatives the tree knows about.
+                        let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
+                        let targetTaxIds = taxonomyContext.cladeTaxIds
+                        let acceptedTaxonNames = taxonomyContext.cladeNames
+
+                        let blastService = BlastService.shared
+                        let request: BlastVerificationRequest
+
+                        let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
+                        if let db = try? KrakenIndexDatabase(url: indexURL),
+                           db.canResolve(taxIds: targetTaxIds) {
+                            // Fast path: use indexed lookup
+                            let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
+                            db.close()
+                            taxonomyLogger.info("BLAST: indexed lookup found \(matchingReadIds.count, privacy: .public) reads for \(targetTaxIds.count, privacy: .public) taxIds")
+
+                            request = try await blastService.buildVerificationRequestFromReadIds(
+                                taxonName: taxonName,
+                                taxId: taxId,
+                                matchingReadIds: matchingReadIds,
+                                sourceURL: sourceURL,
+                                readCount: readCount,
+                                targetTaxIds: targetTaxIds,
+                                classificationOutputURL: classificationOutput,
+                                acceptedTaxonNames: acceptedTaxonNames,
+                                taxonomyContext: taxonomyContext
+                            )
+                        } else {
+                            // Slow path: linear scan (index will be built on next classification)
+                            taxonomyLogger.info("BLAST: no index available, using linear scan")
+                            request = try await blastService.buildVerificationRequest(
+                                taxonName: taxonName,
+                                taxId: taxId,
+                                targetTaxIds: targetTaxIds,
+                                classificationOutputURL: classificationOutput,
+                                sourceURL: sourceURL,
+                                readCount: readCount,
+                                acceptedTaxonNames: acceptedTaxonNames,
+                                taxonomyContext: taxonomyContext
+                            )
+                        }
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.updateWithLog(
+                                    id: opID,
+                                    progress: 0.1,
+                                    detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
+                                ) else { return }
+                                weakController?.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
+                            }
+                        }
+
+                        // Submit and wait for results
+                        let blastResult = try await blastService.verify(
+                            request: request,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        guard OperationCenter.shared.updateWithLog(
+                                            id: opID,
+                                            progress: fraction,
+                                            detail: message
+                                        ) else { return }
+                                        let lower = message.lowercased()
+                                        if lower.contains("waiting") {
+                                            weakController?.showBlastLoading(phase: .waiting, requestId: nil, runID: blastRunID)
+                                        } else if lower.contains("parsing") {
+                                            weakController?.showBlastLoading(phase: .parsing, requestId: nil, runID: blastRunID)
+                                        } else {
+                                            weakController?.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
+                                        }
                                     }
                                 }
                             }
-                        }
-                    )
+                        )
 
-                    saveBlastVerification(
-                        blastResult,
-                        request: request,
-                        resultDirectory: resultDirectory,
-                        classResult: result,
-                        sourceURL: sourceURL,
-                        readCount: readCount,
-                        startedAt: startedAt
-                    )
+                        saveBlastVerification(
+                            blastResult,
+                            request: request,
+                            resultDirectory: resultDirectory,
+                            classResult: result,
+                            sourceURL: sourceURL,
+                            readCount: readCount,
+                            startedAt: startedAt
+                        )
 
-                    let capturedResult = blastResult
-                    scheduleTaxonomyOnMainRunLoop {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: blastVerificationCompletionDetail(capturedResult)
-                            ) else { return }
-                            weakController?.showBlastResults(capturedResult, runID: blastRunID)
+                        let capturedResult = blastResult
+                        scheduleTaxonomyOnMainRunLoop {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: blastVerificationCompletionDetail(capturedResult)
+                                ) else { return }
+                                weakController?.showBlastResults(capturedResult, runID: blastRunID)
+                            }
                         }
-                    }
-                } catch {
-                    let errorDesc = error.localizedDescription
-                    scheduleTaxonomyOnMainRunLoop {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.fail(
-                                id: opID,
-                                detail: errorDesc
-                            ) else { return }
-                            weakController?.showBlastFailure(message: errorDesc, runID: blastRunID)
-                            showBlastVerificationErrorAlert(errorDesc)
+                    } catch {
+                        let errorDesc = error.localizedDescription
+                        scheduleTaxonomyOnMainRunLoop {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.fail(
+                                    id: opID,
+                                    detail: errorDesc
+                                ) else { return }
+                                weakController?.showBlastFailure(message: errorDesc, runID: blastRunID)
+                                showBlastVerificationErrorAlert(errorDesc)
+                            }
                         }
                     }
                 }
-            }
 
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            }
         }
 
         taxonomyViewController = controller
@@ -399,157 +389,151 @@ extension ViewerViewController {
 
         controller.onBlastVerification = { [weak controller] node, readCount in
             guard let controller else { return }
-            let blastRunID = controller.beginBlastVerification(for: node)
             guard let sampleDirectory = kraken2SampleResultDirectory(resultURL: resultURL, controller: controller, node: node),
                   let sampleResult = try? ClassificationResult.load(from: sampleDirectory) else {
                 taxonomyLogger.warning("BLAST: failed to resolve a Kraken2 classification sidecar for \(resultURL.path, privacy: .public)")
                 return
             }
             let startedAt = Date()
-
-            let weakController = controller
-            let blastCliCmd = OperationCenter.buildCLICommand(
-                subcommand: "blast verify",
-                args: blastVerifyCLIArguments(
-                    classResult: sampleResult,
-                    sourceURL: try? ClassifierReadResolver.resolveKraken2PrimarySource(classResult: sampleResult),
-                    taxId: node.taxId,
-                    readCount: readCount
-                )
-            )
-            let opID = OperationCenter.shared.start(
-                title: "BLAST \(node.name)",
-                detail: "Preparing BLAST verification\u{2026}",
-                operationType: .blastVerification,
-                cliCommand: blastCliCmd
-            )
-            // WFL-12: the drawer's own Cancel button reads this to actually
-            // cancel the run, rather than only logging.
-            controller.currentBlastOperationID = opID
-
-            let taxId = node.taxId
-            let taxonName = node.name
             let resolvedSource = try? ClassifierReadResolver.resolveKraken2PrimarySource(
                 classResult: sampleResult
             )
-            let classificationOutput = sampleResult.outputURL
-            let tree = sampleResult.tree
 
-            let task = Task.detached {
-                do {
-                    guard let sourceURL = resolvedSource else {
-                        taxonomyLogger.error("BLAST: could not resolve a source FASTQ for the selected sample")
-                        throw BlastServiceError.noSequences
-                    }
-                    guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-                        taxonomyLogger.error("BLAST: source FASTQ not found at \(sourceURL.path, privacy: .public)")
-                        throw BlastServiceError.noSequences
-                    }
+            ViewerViewController.beginKraken2BlastVerificationOperation(
+                taxonName: node.name,
+                classResult: sampleResult,
+                sourceURL: resolvedSource,
+                taxId: node.taxId,
+                readCount: readCount,
+                resultDirectory: sampleDirectory
+            ) { opID in
+                let blastRunID = controller.beginBlastVerification(for: node)
+                let weakController = controller
+                // WFL-12: the drawer's own Cancel button reads this to actually
+                // cancel the run, rather than only logging.
+                controller.currentBlastOperationID = opID
 
-                    // Clade (sampling targets and supporting hits) plus the
-                    // genus relatives the tree knows about.
-                    let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
-                    let targetTaxIds = taxonomyContext.cladeTaxIds
-                    let acceptedTaxonNames = taxonomyContext.cladeNames
+                let taxId = node.taxId
+                let taxonName = node.name
+                let classificationOutput = sampleResult.outputURL
+                let tree = sampleResult.tree
 
-                    let blastService = BlastService.shared
-                    let request: BlastVerificationRequest
-
-                    let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
-                    if let db = try? KrakenIndexDatabase(url: indexURL),
-                       db.canResolve(taxIds: targetTaxIds) {
-                        let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
-                        db.close()
-                        request = try await blastService.buildVerificationRequestFromReadIds(
-                            taxonName: taxonName,
-                            taxId: taxId,
-                            matchingReadIds: matchingReadIds,
-                            sourceURL: sourceURL,
-                            readCount: readCount,
-                            targetTaxIds: targetTaxIds,
-                            classificationOutputURL: classificationOutput,
-                            acceptedTaxonNames: acceptedTaxonNames,
-                            taxonomyContext: taxonomyContext
-                        )
-                    } else {
-                        request = try await blastService.buildVerificationRequest(
-                            taxonName: taxonName,
-                            taxId: taxId,
-                            targetTaxIds: targetTaxIds,
-                            classificationOutputURL: classificationOutput,
-                            sourceURL: sourceURL,
-                            readCount: readCount,
-                            acceptedTaxonNames: acceptedTaxonNames,
-                            taxonomyContext: taxonomyContext
-                        )
-                    }
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.updateWithLog(
-                                id: opID,
-                                progress: 0.1,
-                                detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
-                            ) else { return }
-                            weakController.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
+                let task = Task.detached {
+                    do {
+                        guard let sourceURL = resolvedSource else {
+                            taxonomyLogger.error("BLAST: could not resolve a source FASTQ for the selected sample")
+                            throw BlastServiceError.noSequences
                         }
-                    }
+                        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                            taxonomyLogger.error("BLAST: source FASTQ not found at \(sourceURL.path, privacy: .public)")
+                            throw BlastServiceError.noSequences
+                        }
 
-                    let blastResult = try await blastService.verify(
-                        request: request,
-                        progress: { fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    guard OperationCenter.shared.updateWithLog(
-                                        id: opID,
-                                        progress: fraction,
-                                        detail: message
-                                    ) else { return }
-                                    let lower = message.lowercased()
-                                    if lower.contains("waiting") {
-                                        weakController.showBlastLoading(phase: .waiting, requestId: nil, runID: blastRunID)
-                                    } else if lower.contains("parsing") {
-                                        weakController.showBlastLoading(phase: .parsing, requestId: nil, runID: blastRunID)
-                                    } else {
-                                        weakController.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
+                        // Clade (sampling targets and supporting hits) plus the
+                        // genus relatives the tree knows about.
+                        let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
+                        let targetTaxIds = taxonomyContext.cladeTaxIds
+                        let acceptedTaxonNames = taxonomyContext.cladeNames
+
+                        let blastService = BlastService.shared
+                        let request: BlastVerificationRequest
+
+                        let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
+                        if let db = try? KrakenIndexDatabase(url: indexURL),
+                           db.canResolve(taxIds: targetTaxIds) {
+                            let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
+                            db.close()
+                            request = try await blastService.buildVerificationRequestFromReadIds(
+                                taxonName: taxonName,
+                                taxId: taxId,
+                                matchingReadIds: matchingReadIds,
+                                sourceURL: sourceURL,
+                                readCount: readCount,
+                                targetTaxIds: targetTaxIds,
+                                classificationOutputURL: classificationOutput,
+                                acceptedTaxonNames: acceptedTaxonNames,
+                                taxonomyContext: taxonomyContext
+                            )
+                        } else {
+                            request = try await blastService.buildVerificationRequest(
+                                taxonName: taxonName,
+                                taxId: taxId,
+                                targetTaxIds: targetTaxIds,
+                                classificationOutputURL: classificationOutput,
+                                sourceURL: sourceURL,
+                                readCount: readCount,
+                                acceptedTaxonNames: acceptedTaxonNames,
+                                taxonomyContext: taxonomyContext
+                            )
+                        }
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.updateWithLog(
+                                    id: opID,
+                                    progress: 0.1,
+                                    detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
+                                ) else { return }
+                                weakController.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
+                            }
+                        }
+
+                        let blastResult = try await blastService.verify(
+                            request: request,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        guard OperationCenter.shared.updateWithLog(
+                                            id: opID,
+                                            progress: fraction,
+                                            detail: message
+                                        ) else { return }
+                                        let lower = message.lowercased()
+                                        if lower.contains("waiting") {
+                                            weakController.showBlastLoading(phase: .waiting, requestId: nil, runID: blastRunID)
+                                        } else if lower.contains("parsing") {
+                                            weakController.showBlastLoading(phase: .parsing, requestId: nil, runID: blastRunID)
+                                        } else {
+                                            weakController.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
+                                        }
                                     }
                                 }
                             }
-                        }
-                    )
+                        )
 
-                    saveBlastVerification(
-                        blastResult,
-                        request: request,
-                        resultDirectory: sampleDirectory,
-                        classResult: sampleResult,
-                        sourceURL: sourceURL,
-                        readCount: readCount,
-                        startedAt: startedAt
-                    )
+                        saveBlastVerification(
+                            blastResult,
+                            request: request,
+                            resultDirectory: sampleDirectory,
+                            classResult: sampleResult,
+                            sourceURL: sourceURL,
+                            readCount: readCount,
+                            startedAt: startedAt
+                        )
 
-                    scheduleTaxonomyOnMainRunLoop {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: blastVerificationCompletionDetail(blastResult)
-                            ) else { return }
-                            weakController.showBlastResults(blastResult, runID: blastRunID)
+                        scheduleTaxonomyOnMainRunLoop {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: blastVerificationCompletionDetail(blastResult)
+                                ) else { return }
+                                weakController.showBlastResults(blastResult, runID: blastRunID)
+                            }
                         }
-                    }
-                } catch {
-                    let errorDesc = error.localizedDescription
-                    scheduleTaxonomyOnMainRunLoop {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
-                            weakController.showBlastFailure(message: errorDesc, runID: blastRunID)
-                            showBlastVerificationErrorAlert(errorDesc)
+                    } catch {
+                        let errorDesc = error.localizedDescription
+                        scheduleTaxonomyOnMainRunLoop {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
+                                weakController.showBlastFailure(message: errorDesc, runID: blastRunID)
+                                showBlastVerificationErrorAlert(errorDesc)
+                            }
                         }
                     }
                 }
-            }
 
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            }
         }
 
         taxonomyViewController = controller
@@ -561,6 +545,76 @@ extension ViewerViewController {
         geneTabBarView.isHidden = true
 
         taxonomyLogger.info("displayTaxonomyFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
+    }
+
+    /// Registers the batch-extraction row for a taxa collection and, only when
+    /// it starts, calls `launch` with the operation ID. The run writes into
+    /// the classification folder and locks no bundle.
+    ///
+    /// CLI parity gap. No `lungfish-cli` command extracts a whole collection.
+    /// The closest is `lungfish-cli conda extract`, run once per taxon. The
+    /// row keeps recording today's note until a CLI command covers the batch.
+    @discardableResult
+    static func beginTaxaCollectionExtractionOperation(
+        collection: TaxaCollection,
+        routeContext: OperationRouteContext?,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: "Extract \(collection.name)",
+            detail: "Preparing batch extraction\u{2026}",
+            operationType: .taxonomyExtraction,
+            cliCommand: "# Taxonomy Read Extraction workflow for collection '\(collection.name)' (batch pipeline; see output provenance for replay details)",
+            routeContext: routeContext
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
+    }
+
+    /// Registers the BLAST verification row for a Kraken2 taxon and, only
+    /// when it starts, calls `launch` with the operation ID. The row records
+    /// the `lungfish-cli blast verify` command for the same inputs, including
+    /// the `--result-dir` the app saves the verification into. It locks no
+    /// bundle.
+    @discardableResult
+    static func beginKraken2BlastVerificationOperation(
+        taxonName: String,
+        classResult: ClassificationResult,
+        sourceURL: URL?,
+        taxId: Int,
+        readCount: Int,
+        resultDirectory: URL,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: "BLAST \(taxonName)",
+            detail: "Preparing BLAST verification\u{2026}",
+            operationType: .blastVerification,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "blast verify",
+                args: blastVerifyCLIArguments(
+                    classResult: classResult,
+                    sourceURL: sourceURL,
+                    taxId: taxId,
+                    readCount: readCount,
+                    resultDirectory: resultDirectory
+                )
+            )
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
     }
 
     /// Removes the taxonomy classification browser and restores normal viewer components.
@@ -602,14 +656,16 @@ private func showTaxonomyExtractionErrorAlert(_ errorDescription: String) {
     }
 }
 
-/// Presents an error alert for a failed BLAST verification request.
 /// Arguments for the `lungfish-cli blast verify` command that reproduces an
-/// in-app BLAST verification. The app always includes descendant taxa.
+/// in-app BLAST verification. The app always includes descendant taxa, and
+/// it saves the verification under `<resultDirectory>/blast-verifications/`,
+/// which `--result-dir` reproduces.
 func blastVerifyCLIArguments(
     classResult: ClassificationResult,
     sourceURL: URL?,
     taxId: Int,
-    readCount: Int
+    readCount: Int,
+    resultDirectory: URL
 ) -> [String] {
     var args = [
         "--kreport", classResult.reportURL.path,
@@ -619,6 +675,7 @@ func blastVerifyCLIArguments(
         args += ["--source", sourceURL.path]
     }
     args += ["--taxid", "\(taxId)", "--include-children", "--reads", "\(readCount)"]
+    args += ["--result-dir", resultDirectory.path]
     return args
 }
 
@@ -673,9 +730,9 @@ func saveBlastVerification(
             classResult: classResult,
             sourceURL: sourceURL,
             taxId: result.taxId,
-            readCount: readCount
+            readCount: readCount,
+            resultDirectory: resultDirectory
         )
-        + ["--result-dir", resultDirectory.path]
     do {
         try BlastVerificationArchive.save(
             result,
@@ -690,6 +747,7 @@ func saveBlastVerification(
     }
 }
 
+/// Presents an error alert for a failed BLAST verification request.
 private func showBlastVerificationErrorAlert(_ errorDescription: String) {
     MainActor.assumeIsolated {
         let alert = NSAlert()
