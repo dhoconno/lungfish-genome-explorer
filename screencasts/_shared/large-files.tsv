@@ -1,0 +1,3 @@
+# Shared takes used by several videos, stored in the internal LGE LabKey area (docs/development/large-files.md).
+area	remote_path	bytes	sha256	note	url
+internal	screencasts/_shared/takes/demo-orient.mov	1452914977	5c77f433372e9bc8b8e698fee09a131cef9d3724d31ad9c59c6dc63781a28c27	Help > Demo Projects on Lungfish 2026.9.72, used by the B02 to B04 orientation beats	https://dholk.primate.wisc.edu/_webdav/dho/public/lge/internal/%40files/screencasts/_shared/takes/demo-orient.mov

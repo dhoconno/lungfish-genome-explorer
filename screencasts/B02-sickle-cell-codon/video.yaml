@@ -50,6 +50,28 @@ window_points: [1440, 810]
 beats:
   - {kind: card, id: title, duration: 3.0, icon: true, title: Find the sickle cell codon, sub: Lungfish Genome Explorer
       for beginners, shows: Title card., transition: fade}
+
+  - kind: take
+    id: orient
+    take: ../_shared/takes/demo-orient.mov
+    in: 0.5
+    duration: 10.0
+    caption: Start from the Genes and Sequences demo
+    kicker: Help · Demo Projects
+    crop: [0.335, 0.215, 0.53, 0.72]
+    blur:
+    - [0.1, 0.107, 0.33, 0.035]
+    - [0.308, 0.19, 0.225, 0.03]
+    highlights:
+    - at: 1.2
+      region: [0.025, 0.185, 0.967, 0.165]
+    shows: Help > Demo Projects with the Genes and Sequences row outlined.
+    capture: 'Shared take of Help > Demo Projects on Stable (screencasts/_shared/takes/demo-orient.mov): the top of
+      the list for 9 s, then scrolled to Human Mapping and Variants (with results). Nothing is downloaded. The Save
+      to path and an update notice from the owner''s own copy are blurred.'
+    narration: This video uses the Genes and Sequences demo project. Choose Help, then Demo Projects, and click Download
+      and Open beside it. It holds NG_000007.3, the human beta globin record from NCBI GenBank. The video Your first
+      project shows each step.
   - {kind: take, id: open, take: takes/open.mov, duration: 15.0, caption: Open a human gene record, kicker: Reference
       Sequences · NG_000007.3, shows: Selecting NG_000007.3 and pressing Focus shows the human beta globin region
       with its genes drawn as features., capture: 'Click NG_000007.3 under Reference Sequences, then Focus. Hold on

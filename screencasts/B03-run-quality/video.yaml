@@ -52,6 +52,27 @@ beats:
       for beginners, shows: Title card., transition: fade}
 
   - kind: take
+    id: orient
+    take: ../_shared/takes/demo-orient.mov
+    in: 0.5
+    duration: 10.0
+    caption: Start from the Human Reads demo
+    kicker: Help · Demo Projects
+    crop: [0.335, 0.215, 0.53, 0.72]
+    blur:
+    - [0.1, 0.107, 0.33, 0.035]
+    - [0.308, 0.19, 0.225, 0.03]
+    highlights:
+    - at: 1.2
+      region: [0.025, 0.395, 0.967, 0.2]
+    shows: Help > Demo Projects with the Human Reads row outlined.
+    capture: 'Shared take of Help > Demo Projects on Stable (screencasts/_shared/takes/demo-orient.mov): the top of
+      the list for 9 s, then scrolled to Human Mapping and Variants (with results). Nothing is downloaded. The Save
+      to path and an update notice from the owner''s own copy are blurred.'
+    narration: This video uses the Human Reads demo project. Choose Help, then Demo Projects, and click Download and
+      Open beside Human Reads. The video Your first project shows each step.
+
+  - kind: take
     id: cards
     take: takes/qc.mov
     duration: 10.0
@@ -110,26 +131,6 @@ beats:
     - at: 0.6
       regions:
       - *id002
-
-  - kind: take
-    id: meanq
-    take: takes/qc.mov
-    duration: 8.0
-    caption: A low Mean Q can be normal
-    kicker: Mean Q · 25.3
-    shows: The Mean Q card, outlined.
-    capture: Same take, held on the cards.
-    narration: Mean Q reads 25. It averages the chance of error, so a few poor bases pull it down. Judge the run by
-      Q30 instead.
-    in: 25.0
-    zoom:
-      at: 0.0
-      dur: 0.3
-      region: *id001
-    highlights:
-    - at: 0.6
-      regions:
-      - [0.6884, 0.0046, 0.0746, 0.0561]
 
   - kind: take
     id: position

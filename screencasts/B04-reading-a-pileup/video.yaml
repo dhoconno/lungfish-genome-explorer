@@ -51,6 +51,27 @@ beats:
       beginners, shows: Title card., transition: fade}
 
   - kind: take
+    id: orient
+    take: ../_shared/takes/demo-orient.mov
+    in: 11.0
+    duration: 10.0
+    caption: Start from the mapping demo with results
+    kicker: Help · Demo Projects
+    crop: [0.335, 0.215, 0.53, 0.72]
+    blur:
+    - [0.1, 0.107, 0.33, 0.035]
+    - [0.308, 0.19, 0.225, 0.03]
+    highlights:
+    - at: 1.2
+      region: [0.025, 0.205, 0.967, 0.226]
+    shows: Help > Demo Projects scrolled to Human Mapping and Variants (with results), outlined.
+    capture: 'Shared take of Help > Demo Projects on Stable (screencasts/_shared/takes/demo-orient.mov): the top of
+      the list for 9 s, then scrolled to Human Mapping and Variants (with results). Nothing is downloaded. The Save
+      to path and an update notice from the owner''s own copy are blurred.'
+    narration: This video uses the Human Mapping and Variants demo project, the version with results. Choose Help,
+      then Demo Projects, and click Download and Open beside it. The video Your first project shows each step.
+
+  - kind: take
     id: coverage
     take: takes/coverage.mov
     duration: 19.0

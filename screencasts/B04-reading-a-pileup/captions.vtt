@@ -1,52 +1,61 @@
 WEBVTT
 
-00:00:03.200 --> 00:00:07.690
+00:00:03.200 --> 00:00:08.829
+This video uses the Human Mapping and Variants demo project, the version with results.
+
+00:00:08.829 --> 00:00:13.477
+Choose Help, then Demo Projects, and click Download and Open beside it.
+
+00:00:13.477 --> 00:00:16.422
+The video Your first project shows each step.
+
+00:00:17.520 --> 00:00:22.010
 A pileup is reads stacked on the reference sequence they matched.
 
-00:00:07.690 --> 00:00:15.287
+00:00:22.010 --> 00:00:29.607
 Open the minimap2 result under Analyses, the program that lined the reads up, select its row, and click Focus.
 
-00:00:15.287 --> 00:00:20.813
+00:00:29.607 --> 00:00:35.133
 The curve shows coverage, also called depth, the number of reads over each base.
 
-00:00:20.813 --> 00:00:23.023
+00:00:35.133 --> 00:00:37.343
 Here it averages about 45 reads.
 
-00:00:24.120 --> 00:00:29.151
+00:00:38.440 --> 00:00:43.471
 Type a 300 base range into the position field above the viewer and press Return.
 
-00:00:29.151 --> 00:00:30.597
+00:00:43.471 --> 00:00:44.917
 Each read is now a bar.
 
-00:00:30.597 --> 00:00:33.490
+00:00:44.917 --> 00:00:47.810
 Where it matches the reference it stays plain.
 
-00:00:33.490 --> 00:00:35.502
+00:00:47.810 --> 00:00:49.822
 A different base shows in color.
 
-00:00:36.600 --> 00:00:39.625
+00:00:50.920 --> 00:00:53.945
 You carry two copies of each chromosome.
 
-00:00:39.625 --> 00:00:46.129
+00:00:53.945 --> 00:01:00.449
 At position 2,078 every read has A where the reference has G, so both copies carry it.
 
-00:00:46.129 --> 00:00:48.096
+00:01:00.449 --> 00:01:02.416
 This is called homozygous.
 
-00:00:49.200 --> 00:00:53.022
+00:01:03.520 --> 00:01:07.342
 At 2,162 about half the reads have T instead of A.
 
-00:00:53.022 --> 00:00:54.933
+00:01:07.342 --> 00:01:09.253
 Only one copy carries it.
 
-00:00:54.933 --> 00:00:57.073
+00:01:09.253 --> 00:01:11.393
 This is called heterozygous.
 
-00:00:57.073 --> 00:01:03.647
+00:01:11.393 --> 00:01:17.967
 The Variants tab under the viewer lists the calls a program made at these same places.
 
-00:01:04.750 --> 00:01:08.537
+00:01:19.070 --> 00:01:22.857
 To learn more, read the manual chapter Reading an Alignment.
 
-00:01:08.537 --> 00:01:11.692
+00:01:22.857 --> 00:01:26.012
 More videos are on the Videos page of the website.
