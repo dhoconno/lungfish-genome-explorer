@@ -1120,7 +1120,7 @@ final class OperationRoutingTests: XCTestCase {
             endingBefore: "    private func runMAFFTAlignment",
             in: source
         )
-        let opStart = try XCTUnwrap(single.range(of: "OperationCenter.shared.start"))
+        let opStart = try XCTUnwrap(single.range(of: "Self.beginManagedMappingOperation("))
         let warningLog = try XCTUnwrap(single.range(of: "OperationCenter.shared.log(id: opID, level: .warning, message: warning)"))
         XCTAssertLessThan(opStart.lowerBound, warningLog.lowerBound)
         XCTAssertTrue(single.contains("if let warning {"))
