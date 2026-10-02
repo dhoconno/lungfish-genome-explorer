@@ -67,13 +67,23 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
 
         let materializer = FASTQCLIMaterializer(runner: NativeToolRunner.shared)
         let startedAt = Date()
-        let materializedURL = try await materializer.materialize(
-            bundleURL: inputURL,
-            tempDirectory: tempDirectory,
-            progress: { message in
-                FileHandle.standardError.write(Data("\(message)\n".utf8))
-            }
-        )
+        // A multi-file root bundle (an ONT import) is every file it holds, in
+        // order, as the app's one-file resolution of a bundle reads it, not
+        // its first chunk. Any other bundle is the materializer's (R3).
+        let concatenation = try ResolvedSequenceInputs.concatenateMultiFileBundle(inputURL, into: tempDirectory)
+        defer { concatenation?.removeOutput() }
+        let materializedURL: URL
+        if let concatenation {
+            materializedURL = concatenation.outputURL
+        } else {
+            materializedURL = try await materializer.materialize(
+                bundleURL: inputURL,
+                tempDirectory: tempDirectory,
+                progress: { message in
+                    FileHandle.standardError.write(Data("\(message)\n".utf8))
+                }
+            )
+        }
         let materializedSequenceFormat = Self.materializedSequenceFormat(
             inputURL: inputURL,
             materializedURL: materializedURL,
@@ -115,7 +125,15 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
         if output.compress {
             cliArguments.append("--compress")
         }
-        let inputRecords = try CLISequenceInputMaterialization.originalInputRecords(for: inputURL)
+        // A joined bundle records every file it was made from.
+        let inputRecords: [FileRecord]
+        if let concatenation {
+            inputRecords = try CLISequenceInputMaterialization.concatenationMemberDescriptors(for: concatenation).map {
+                FileRecord(path: $0.path, sha256: $0.checksumSHA256, sizeBytes: $0.fileSize, format: $0.format, role: $0.role)
+            }
+        } else {
+            inputRecords = try CLISequenceInputMaterialization.originalInputRecords(for: inputURL)
+        }
         var parameters: [String: ParameterValue] = [
             "inputBundle": .file(inputURL),
             "output": .file(outputURL),
@@ -123,7 +141,9 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
             "force": .boolean(output.force),
             "compress": .boolean(output.compress)
         ]
-        if let inputPayload = FASTQBundle.resolvePrimarySequenceURL(for: inputURL) {
+        if let concatenation {
+            parameters["inputPayloads"] = .array(concatenation.memberURLs.map { .file($0) })
+        } else if let inputPayload = FASTQBundle.resolvePrimarySequenceURL(for: inputURL) {
             parameters["inputPayload"] = .file(inputPayload)
         }
         var extraSteps: [ProvenanceStep] = []

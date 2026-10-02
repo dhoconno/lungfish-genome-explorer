@@ -61,6 +61,50 @@ final class BundleResolutionCLIParityTests: XCTestCase {
             }
         }
     }
+
+    /// The app's FASTQ operations read one file per bundle (the QC summary
+    /// and the derivative operations, through the execution service's input
+    /// resolver), which joins the chunks of a multi-file bundle in order.
+    /// `lungfish-cli fastq materialize` must write that file's bytes.
+    func testFastqMaterializeWritesTheFileTheAppsOneFileResolutionReads() async throws {
+        // fullPaired and fullMixed interleave their mates through the managed
+        // reformat.sh on both paths, unchanged by lane 1n.
+        for (shape, bundle) in shapes.all where !shape.contains("fullPaired") && !shape.contains("fullMixed") {
+            let cliOutput = root.appendingPathComponent("cli-\(UUID().uuidString).out")
+            try await FastqMaterializeSubcommand.parse([bundle.path, "--output", cliOutput.path]).run()
+
+            let spy = OneFilePerBundleSpy()
+            let workDirectory = root.appendingPathComponent("app-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+            _ = try? await FASTQOperationExecutionService(commandRunner: spy)
+                .execute(request: .refreshQCSummary(inputURLs: [bundle]), workingDirectory: workDirectory)
+
+            XCTAssertEqual(spy.inputs, [try Data(contentsOf: cliOutput)], "\(shape): the same bytes")
+        }
+    }
+}
+
+/// Keeps the bytes of the file each `fastq qc-summary` invocation reads, while
+/// the app's resolution of it still exists.
+private final class OneFilePerBundleSpy: @unchecked Sendable, FASTQOperationCommandRunning {
+    private let lock = NSLock()
+    private var recorded: [Data] = []
+
+    var inputs: [Data] { lock.withLock { recorded } }
+
+    func run(
+        invocation: FASTQCLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
+        // `fastq qc-summary <input> --output <target>`
+        if invocation.arguments.first == "qc-summary",
+           invocation.arguments.count > 1,
+           let data = FileManager.default.contents(atPath: invocation.arguments[1]) {
+            lock.withLock { recorded.append(data) }
+        }
+        return FASTQCLIExecutionResult(outputURLs: [outputDirectory])
+    }
 }
 
 /// The bundle shapes of lane 1n's tables, in a project's `Imports` folder.
