@@ -19,7 +19,7 @@ Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1337
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1266
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
 Sources/LungfishApp/Services/ReferenceBundleMergeService.swift 1056
-Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift 983
+Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift 981
 Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift 1284
 Sources/LungfishApp/ViewModels/SequenceExtractionPipeline.swift 833
 Sources/LungfishApp/Views/AI/AIAssistantPanel.swift 1011
