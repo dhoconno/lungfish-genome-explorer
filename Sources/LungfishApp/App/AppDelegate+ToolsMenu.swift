@@ -1351,6 +1351,7 @@ extension AppDelegate {
         let opID = OperationCenter.shared.start(
             title: "Map Reads (\(request.tool.displayName)): \(request.sampleName)",
             detail: "Mapping \(request.inputFASTQURLs.count) file(s) to \(request.referenceFASTAURL.lastPathComponent)",
+            operationType: .mapping,
             cliCommand: OperationCenter.buildCLICommand(
                 subcommand: "map",
                 args: MappingCLIInvocationBuilder.arguments(for: request)
