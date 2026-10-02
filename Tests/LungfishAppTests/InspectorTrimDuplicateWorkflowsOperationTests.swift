@@ -238,4 +238,70 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
         XCTAssertFalse(command.includeQualities)
         XCTAssertTrue(command.replaceExisting)
     }
+
+    // MARK: - One builder for the bam filter and bam annotate commands (R3)
+
+    /// The exact strings these rows recorded while the App had argv builders
+    /// of its own, kept so that building them with the Workflow builders the
+    /// provenance uses changes no recorded command.
+    func testFilterAndAnnotateRowsRecordTheCommandsTheyRecordedBefore() throws {
+        let mappingResultURL = URL(fileURLWithPath: "/tmp/lane 1a1/Analyses/minimap2-run", isDirectory: true)
+        XCTAssertEqual(
+            InspectorViewController.filteredAlignmentCLICommand(serviceTarget: .bundle(bundleURL), request: filterRequest()),
+            "lungfish-cli bam filter --bundle '/tmp/lane 1a1/Sample.lungfishref' --alignment-track aln-1"
+                + " --output-track-name 'Exact Matches' --mapped-only --primary-only --min-mapq 30"
+                + " --remove-duplicates --min-percent-identity 99.5"
+        )
+        XCTAssertEqual(
+            InspectorViewController.filteredAlignmentCLICommand(
+                serviceTarget: .mappingResult(mappingResultURL),
+                request: AlignmentFilterInspectorLaunchRequest(
+                    sourceTrackID: "aln-1",
+                    outputTrackName: "Exact Matches",
+                    filterRequest: AlignmentFilterRequest(duplicateMode: .exclude, identityFilter: .exactMatch)
+                )
+            ),
+            "lungfish-cli bam filter --mapping-result '/tmp/lane 1a1/Analyses/minimap2-run' --alignment-track aln-1"
+                + " --output-track-name 'Exact Matches' --exclude-marked-duplicates --exact-match"
+        )
+        XCTAssertEqual(
+            InspectorViewController.mappedReadsAnnotationCLICommand(request: annotationRequest()),
+            "lungfish-cli bam annotate --bundle '/tmp/lane 1a1/Sample.lungfishref' --alignment-track aln-1"
+                + " --output-track-name 'Mapped Reads' --output-track-id mapped_reads_1 --primary-only"
+                + " --include-sequence --replace"
+        )
+        XCTAssertEqual(
+            InspectorViewController.mappedReadsAnnotationCLICommand(request: MappedReadsAnnotationRequest(
+                bundleURL: bundleURL, sourceTrackID: "aln-1", outputTrackName: "Mapped Reads"
+            )),
+            "lungfish-cli bam annotate --bundle '/tmp/lane 1a1/Sample.lungfishref' --alignment-track aln-1"
+                + " --output-track-name 'Mapped Reads'"
+        )
+    }
+
+    func testFilterAndAnnotateRowsRecordTheArgvTheWorkflowBuildersBuildForTheProvenance() throws {
+        let target = AlignmentFilterTarget.bundle(bundleURL)
+        let request = filterRequest()
+        XCTAssertEqual(
+            try RecordedCLICommand.arguments(of: InspectorViewController.filteredAlignmentCLICommand(
+                serviceTarget: target, request: request
+            )),
+            Array(BundleAlignmentFilterService.cliArgv(
+                target: target,
+                sourceTrackID: request.sourceTrackID,
+                outputTrackID: nil,
+                outputTrackName: request.outputTrackName,
+                filterRequest: request.filterRequest
+            ).dropFirst())
+        )
+        let annotation = annotationRequest()
+        XCTAssertEqual(
+            try RecordedCLICommand.arguments(of: InspectorViewController.mappedReadsAnnotationCLICommand(request: annotation)),
+            Array(MappedReadsAnnotationService.cliArgv(
+                request: annotation,
+                bundleURL: annotation.bundleURL,
+                outputTrackName: annotation.outputTrackName
+            ).dropFirst())
+        )
+    }
 }

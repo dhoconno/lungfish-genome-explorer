@@ -101,12 +101,13 @@ extension MainSplitViewController {
     ///
     /// `cliCommand` is `FASTQDerivativeRequest.cliCommand` for the first input
     /// bundle, with the output shown as `<derived>` and the `--pairing` the
-    /// bundle recorded. FASTQOperationOutputImporter calls the same builder to
-    /// record derivative provenance, so changing the builder changes
-    /// provenance content. A request kind whose string is not a lungfish-cli
-    /// command, or parses without reproducing the run, is a CLI parity gap and
-    /// keeps today's string. The parity gap tests in
-    /// MainSplitGenomicsDisplayOperationTests list those kinds.
+    /// bundle recorded. That is the `lungfish-cli` invocation
+    /// `FASTQOperationCLIInvocationBuilder` builds, the one the FASTQ
+    /// operations dialog runs for the same request, so this row and the dialog
+    /// row record the same command. FASTQOperationOutputImporter records the
+    /// same invocation as derivative provenance. A request with a setting no
+    /// `lungfish-cli` option expresses records no command, a CLI parity gap
+    /// that MainSplitGenomicsDisplayOperationTests pins.
     static func beginFASTQDerivativeOperation(
         request: FASTQDerivativeRequest,
         inputURL: URL,

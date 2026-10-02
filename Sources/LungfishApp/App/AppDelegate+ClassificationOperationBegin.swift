@@ -43,15 +43,11 @@ extension AppDelegate {
         case .profile: goalLabel = "Profiling"
         case .extract: goalLabel = "Classifying (extract)"
         }
-        let invocation = ClassificationCLIInvocationBuilder.build(for: config)
         let result = reporter.begin(
             title: "\(goalLabel) \(inputName)",
             detail: "Starting Kraken2 with \(config.databaseName)...",
             operationType: .classification,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "conda classify",
-                args: Array(invocation.arguments.dropFirst(2))
-            ),
+            cliCommand: classificationCLICommand(for: config),
             routeContext: routeContext
         )
         switch result {
@@ -63,17 +59,39 @@ extension AppDelegate {
         return result
     }
 
-    /// Registers the Kraken2 batch row and calls `launch` with the operation
-    /// ID only when the row started. The row locks no bundle.
+    /// The `lungfish-cli conda classify` command for one sample, built from
+    /// `config` by `ClassificationCLIInvocationBuilder`, the argv mapping the
+    /// batch provenance replay command uses too.
+    nonisolated static func classificationCLICommand(for config: ClassificationConfig) -> String {
+        OperationCenter.buildCLICommand(
+            subcommand: "conda classify",
+            args: Array(ClassificationCLIInvocationBuilder.build(for: config).arguments.dropFirst(2))
+        )
+    }
+
+    /// The command a Kraken2 batch row records, one `lungfish-cli conda
+    /// classify` command per sample on its own line, or nil for an empty
+    /// batch (R3).
     ///
-    /// CLI parity gap. The row records one `lungfish-cli conda classify --db
-    /// <database path> <every input of every sample>` command. The batch runs
-    /// one classification per sample, so no single command reproduces it, and
-    /// `--db` carries a filesystem path where the CLI looks up a registry
-    /// name. The provenance replay command, `classificationBatchReplayCommand`,
-    /// is the one that reproduces the batch. It runs `conda classify` once per
-    /// sample with the registry name, the output folder and the run's
-    /// settings. The row keeps its own value and the two stay different.
+    /// `conda classify` has no batch form, and the batch runs one
+    /// classification per sample, so each line is that sample's command from
+    /// `classificationCLICommand(for:)`. Each line is the `conda classify`
+    /// command of that sample in the provenance replay command,
+    /// `classificationBatchReplayCommand`, with the registry name in `--db`,
+    /// the sample's output folder and the run's settings. The replay command
+    /// also checks the database's installation receipt before each sample,
+    /// which the row leaves out because those checks are shell tests, not
+    /// `lungfish-cli` commands. The row used to record one command with the
+    /// database path in `--db`, no output folder and every input of every
+    /// sample in one unpaired list, which reproduced nothing.
+    nonisolated static func classificationBatchCLICommand(for configs: [ClassificationConfig]) -> String? {
+        guard !configs.isEmpty else { return nil }
+        return configs.map(classificationCLICommand(for:)).joined(separator: "\n")
+    }
+
+    /// Registers the Kraken2 batch row and calls `launch` with the operation
+    /// ID only when the row started. The row locks no bundle and records
+    /// `classificationBatchCLICommand(for:)`.
     @discardableResult
     static func beginClassificationBatchOperation(
         configs: [ClassificationConfig],
@@ -82,18 +100,11 @@ extension AppDelegate {
         launch: (UUID) -> Void
     ) -> OperationStartResult {
         let sampleCount = configs.count
-        var arguments = ["--batch"]
-        if let first = configs.first {
-            arguments = ["--db", first.databasePath.path]
-            for config in configs {
-                arguments += config.inputFiles.map(\.path)
-            }
-        }
         let result = reporter.begin(
             title: "Classification Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting Kraken2/Bracken batch\u{2026}",
             operationType: .classification,
-            cliCommand: OperationCenter.buildCLICommand(subcommand: "conda classify", args: arguments),
+            cliCommand: classificationBatchCLICommand(for: configs),
             routeContext: routeContext
         )
         switch result {

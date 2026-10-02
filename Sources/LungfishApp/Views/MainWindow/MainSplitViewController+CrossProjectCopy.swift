@@ -51,11 +51,9 @@ extension MainSplitViewController {
             var lastDestination: URL?
 
             for url in urls {
-                let startResult = OperationCenter.shared.begin(
-                    title: "Copy \(url.lastPathComponent)",
-                    detail: "Copying into \(projectURL.deletingPathExtension().lastPathComponent)...",
-                    operationType: .ingestion,
-                    cliCommand: nil,
+                let startResult = Self.beginCrossProjectCopyOperation(
+                    itemURL: url,
+                    projectURL: projectURL,
                     routeContext: routeContext
                 )
                 guard case .started(let opID) = startResult else {
@@ -107,6 +105,32 @@ extension MainSplitViewController {
                 alert.beginSheetModal(for: window, completionHandler: nil)
             }
         }
+    }
+
+    /// Registers the row for copying one dropped Lungfish item into the open
+    /// project and returns the result. The row locks no bundle, as before,
+    /// and the launch skips the item on a refusal.
+    ///
+    /// CLI parity gap (R3). No `lungfish-cli` command copies an item between
+    /// projects. `CrossProjectItemCopier` lands the item in the folder the
+    /// project expects, rewrites the links it can resolve and lists the
+    /// sources the project lacks, and it runs only in the app, so the row
+    /// records no command. A copy command in the CLI would replace the pin in
+    /// MainSplitCrossProjectCopyOperationTests with a parse test.
+    @discardableResult
+    static func beginCrossProjectCopyOperation(
+        itemURL: URL,
+        projectURL: URL,
+        routeContext: OperationRouteContext?,
+        reporter: any OperationReporting = OperationCenter.shared
+    ) -> OperationStartResult {
+        reporter.begin(
+            title: "Copy \(itemURL.lastPathComponent)",
+            detail: "Copying into \(projectURL.deletingPathExtension().lastPathComponent)...",
+            operationType: .ingestion,
+            cliCommand: nil,
+            routeContext: routeContext
+        )
     }
 
     nonisolated static func projectRelativeDescription(of url: URL, in projectURL: URL) -> String {

@@ -318,6 +318,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         let operation = derivativeOperation(
             for: originalRequest,
             sourceURL: sourceURL,
+            sourceInputURL: sourceInputURL,
             outputURL: recordedOutputURL
         )
         let parentBundleURL = sourceInputURL.flatMap(enclosingFASTQBundleURL(for:))
@@ -370,12 +371,15 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         )
     }
 
+    /// `toolCommand` is the `lungfish-cli` invocation that ran, from the request and builder the execution
+    /// service used, with this output's input and final path (the bundles' folder for a folder output).
     private func derivativeOperation(
         for request: FASTQOperationLaunchRequest,
         sourceURL: URL,
+        sourceInputURL: URL?,
         outputURL: URL
     ) -> FASTQDerivativeOperation {
-        guard case .derivative(let derivativeRequest, _, _) = request else {
+        guard case .derivative(let derivativeRequest, let inputURLs, _) = request else {
             return FASTQDerivativeOperation(
                 kind: .deduplicate,
                 toolUsed: "lungfish",
@@ -384,7 +388,11 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         }
 
         let kind = FASTQDerivativeOperationKind(rawValue: derivativeRequest.operationKindString) ?? .deduplicate
-        let pairingMode = FASTQPairingModeResolver.bundlePairingMode(for: sourceURL)
+        let outputTarget = derivativeRequest.usesDirectoryOutput
+            ? outputURL.deletingLastPathComponent().deletingLastPathComponent() : outputURL
+        let toolCommand = (sourceInputURL ?? inputURLs.first).flatMap {
+            derivativeRequest.cliCommand(inputPath: $0.path, outputPath: outputTarget.path)
+        }
         switch derivativeRequest {
         case .ribosomalRNAFilter(let retention, let ensure):
             let outputRetention = riboDetectorRetention(for: outputURL, fallback: retention)
@@ -393,22 +401,14 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 riboDetectorRetention: outputRetention,
                 riboDetectorEnsure: ensure,
                 toolUsed: "deacon",
-                toolCommand: derivativeRequest.cliCommand(
-                    inputPath: sourceURL.path,
-                    outputPath: outputURL.path,
-                    pairingMode: pairingMode
-                )
+                toolCommand: toolCommand
             )
 
         default:
             return FASTQDerivativeOperation(
                 kind: kind,
                 toolUsed: CLICommandIdentity.executableName,
-                toolCommand: derivativeRequest.cliCommand(
-                    inputPath: sourceURL.path,
-                    outputPath: outputURL.path,
-                    pairingMode: pairingMode
-                )
+                toolCommand: toolCommand
             )
         }
     }

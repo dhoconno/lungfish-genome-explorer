@@ -76,51 +76,21 @@ extension InspectorViewController {
 
     /// The `lungfish-cli bam filter` command that reproduces a run of
     /// `BundleAlignmentFilterService.deriveFilteredAlignment` with this target
-    /// and request. The run passes no output track ID, so the command passes
-    /// none and both generate one. The Inspector never sets
-    /// `filterRequest.region`, which the CLI cannot express.
+    /// and request, built by `BundleAlignmentFilterService.cliArgv`, the
+    /// builder the run's provenance uses (R3). The run passes no output track
+    /// ID, so the command passes none and both generate one. The Inspector
+    /// never sets `filterRequest.region`, which the CLI cannot express.
     static func filteredAlignmentCLICommand(
         serviceTarget: AlignmentFilterTarget,
         request: AlignmentFilterInspectorLaunchRequest
     ) -> String {
-        var args: [String]
-        switch serviceTarget {
-        case .bundle(let url):
-            args = ["--bundle", url.path]
-        case .mappingResult(let url):
-            args = ["--mapping-result", url.path]
-        }
-        args += [
-            "--alignment-track", request.sourceTrackID,
-            "--output-track-name", request.outputTrackName,
-        ]
-        let filter = request.filterRequest
-        if filter.mappedOnly {
-            args.append("--mapped-only")
-        }
-        if filter.primaryOnly {
-            args.append("--primary-only")
-        }
-        if let minimumMAPQ = filter.minimumMAPQ {
-            args += ["--min-mapq", String(minimumMAPQ)]
-        }
-        switch filter.duplicateMode {
-        case .exclude:
-            args.append("--exclude-marked-duplicates")
-        case .remove:
-            args.append("--remove-duplicates")
-        case nil:
-            break
-        }
-        switch filter.identityFilter {
-        case .exactMatch:
-            args.append("--exact-match")
-        case .minimumPercentIdentity(let threshold):
-            args += ["--min-percent-identity", AlignmentFilterIdentityFilter.formattedThreshold(threshold)]
-        case nil:
-            break
-        }
-        return OperationCenter.buildCLICommand(subcommand: "bam filter", args: args)
+        BundleAlignmentFilterService.cliArgv(
+            target: serviceTarget,
+            sourceTrackID: request.sourceTrackID,
+            outputTrackID: nil,
+            outputTrackName: request.outputTrackName,
+            filterRequest: request.filterRequest
+        ).map(shellEscape).joined(separator: " ")
     }
 
     /// Registers the mapped-reads annotation row and, only when it starts,
@@ -150,29 +120,15 @@ extension InspectorViewController {
     }
 
     /// The `lungfish-cli bam annotate` command that reproduces a run of
-    /// `MappedReadsAnnotationService.convertMappedReads` with this request.
+    /// `MappedReadsAnnotationService.convertMappedReads` with this request,
+    /// built by `MappedReadsAnnotationService.cliArgv`, the builder the run's
+    /// provenance uses (R3).
     static func mappedReadsAnnotationCLICommand(request: MappedReadsAnnotationRequest) -> String {
-        var args = [
-            "--bundle", request.bundleURL.path,
-            "--alignment-track", request.sourceTrackID,
-            "--output-track-name", request.outputTrackName,
-        ]
-        if let outputTrackID = request.outputTrackID {
-            args += ["--output-track-id", outputTrackID]
-        }
-        if request.primaryOnly {
-            args.append("--primary-only")
-        }
-        if request.includeSequence {
-            args.append("--include-sequence")
-        }
-        if request.includeQualities {
-            args.append("--include-qualities")
-        }
-        if request.replaceExisting {
-            args.append("--replace")
-        }
-        return OperationCenter.buildCLICommand(subcommand: "bam annotate", args: args)
+        MappedReadsAnnotationService.cliArgv(
+            request: request,
+            bundleURL: request.bundleURL,
+            outputTrackName: request.outputTrackName
+        ).map(shellEscape).joined(separator: " ")
     }
 
     /// Registers the derived-alignment removal row and, only when it starts,

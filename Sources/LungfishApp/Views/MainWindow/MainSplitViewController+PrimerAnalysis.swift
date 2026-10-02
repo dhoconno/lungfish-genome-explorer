@@ -87,7 +87,9 @@ extension MainSplitViewController {
                     do {
                         try Task.checkCancellation()
                         _ = try await PrimerOrderExportService().export(selection: draft.selection, metadata: metadata,
-                            destinationURL: destination.url, invocationArgv: CommandLine.arguments,
+                            destinationURL: destination.url,
+                            invocationArgv: Self.primerOrderExportProvenanceArgv(draft: draft, metadata: metadata,
+                                destinationURL: destination.url),
                             progress: { fraction, message in
                                 Task { @MainActor in center.updateWithLog(id: id, progress: fraction, detail: message) }
                             }, publish: { [weak self] stagedURL, finalURL in
@@ -181,7 +183,9 @@ extension MainSplitViewController {
                         try Task.checkCancellation()
                         _ = try await PrimerAnalysisSelectionExportService().export(
                             analysisURL: analysisURL, selection: selection, kind: kind,
-                            destinationURL: destination.url, invocationArgv: CommandLine.arguments,
+                            destinationURL: destination.url,
+                            invocationArgv: Self.primerSelectionExportProvenanceArgv(analysisURL: analysisURL,
+                                selection: selection, kind: kind, destinationURL: destination.url),
                             progress: { fraction, message in
                                 Task { @MainActor in center.updateWithLog(id: id, progress: fraction, detail: message) }
                             }, publish: { [weak self] stagedURL, finalURL in
@@ -259,20 +263,71 @@ extension MainSplitViewController {
         metadata: PrimerOrderMetadata,
         destinationURL: URL
     ) -> String? {
-        let selection = draft.selection
-        var args = [selection.analysisURL.path, "--output", destinationURL.path]
-        if selection.isPrimer3CandidateSelection {
-            args += ["--scope", "candidate-pairs"]
-            for pairID in selection.selectedAssayIDs ?? [] {
-                args += ["--candidate-pair-id", pairID]
-            }
-        } else if selection.selectedAssayIDs != nil {
-            args += ["--scope", selection.includesAllReportedAssays == true ? "all-reported-assays" : "selected-assays"]
-        } else {
-            guard selection.settings == PrimerAnalysisDisplaySettings() else { return nil }
-            args += ["--scope", "displayed"]
+        primerOrderExportCLIArguments(draft: draft, metadata: metadata, destinationURL: destinationURL).map {
+            OperationCenter.buildCLICommand(subcommand: "primers analysis export-order", args: $0)
         }
-        args += ["--name", metadata.name]
+    }
+
+    /// The arguments after `lungfish-cli primers analysis export-order` for a
+    /// primer order export, or nil when no command reproduces it. The row
+    /// command and the provenance argv are both built from this list.
+    static func primerOrderExportCLIArguments(
+        draft: PrimerOrderDraft,
+        metadata: PrimerOrderMetadata,
+        destinationURL: URL
+    ) -> [String]? {
+        guard let scope = primerOrderExportScopeArguments(draft.selection, includesViewSettings: false) else {
+            return nil
+        }
+        return [draft.selection.analysisURL.path, "--output", destinationURL.path] + scope
+            + primerOrderMetadataArguments(metadata)
+    }
+
+    /// The argv the order's provenance records (findings R3 and R8). It is the
+    /// `lungfish-cli primers analysis export-order` command the row records,
+    /// as words. A PrimalScheme order from a filtered view has no command, so
+    /// its argv names the app and the filtered view, as the app's other
+    /// exports do with `Lungfish.app <action>`. It used to be the app
+    /// process's own launch arguments, which named no export at all.
+    static func primerOrderExportProvenanceArgv(
+        draft: PrimerOrderDraft,
+        metadata: PrimerOrderMetadata,
+        destinationURL: URL
+    ) -> [String] {
+        if let arguments = primerOrderExportCLIArguments(
+            draft: draft, metadata: metadata, destinationURL: destinationURL
+        ) {
+            return [CLICommandIdentity.executableName, "primers", "analysis", "export-order"] + arguments
+        }
+        let scope = primerOrderExportScopeArguments(draft.selection, includesViewSettings: true) ?? []
+        return ["Lungfish.app", "export-primer-order", draft.selection.analysisURL.path,
+                "--output", destinationURL.path] + scope + primerOrderMetadataArguments(metadata)
+    }
+
+    /// The `--scope` arguments for the captured selection, or nil for a
+    /// PrimalScheme view that is not the default one, unless
+    /// `includesViewSettings` asks for that view to be named as `--view filtered`.
+    private static func primerOrderExportScopeArguments(
+        _ selection: PrimerOrderSelection,
+        includesViewSettings: Bool
+    ) -> [String]? {
+        if selection.isPrimer3CandidateSelection {
+            return ["--scope", "candidate-pairs"]
+                + (selection.selectedAssayIDs ?? []).flatMap { ["--candidate-pair-id", $0] }
+        }
+        if selection.selectedAssayIDs != nil {
+            return ["--scope", selection.includesAllReportedAssays == true ? "all-reported-assays" : "selected-assays"]
+        }
+        if selection.settings == PrimerAnalysisDisplaySettings() {
+            return ["--scope", "displayed"]
+        }
+        return includesViewSettings ? ["--scope", "displayed", "--view", "filtered"] : nil
+    }
+
+    /// `--name` and the order fields the user filled in. `--name` is always
+    /// passed because the CLI's default name differs from the app's.
+    private static func primerOrderMetadataArguments(_ metadata: PrimerOrderMetadata) -> [String] {
+        var args = ["--name", metadata.name]
         let optionalFields = [
             ("--requested-by", metadata.requestedBy),
             ("--project", metadata.project),
@@ -282,7 +337,34 @@ extension MainSplitViewController {
         for (flag, value) in optionalFields where !value.isEmpty {
             args += [flag, value]
         }
-        return OperationCenter.buildCLICommand(subcommand: "primers analysis export-order", args: args)
+        return args
+    }
+
+    /// The argv the provenance of a primer FASTA bundle or reference amplicon
+    /// export records (findings R3 and R8). No `lungfish-cli` command exports
+    /// a selection, so the argv names the app, as the app's other exports do
+    /// with `Lungfish.app <action>`, and lists the analysis, the export kind,
+    /// the selected primer, amplicon or pool and the output bundle. It used to
+    /// be the app process's own launch arguments.
+    static func primerSelectionExportProvenanceArgv(
+        analysisURL: URL,
+        selection: PrimerAnalysisExportSelection,
+        kind: PrimerAnalysisExportKind,
+        destinationURL: URL
+    ) -> [String] {
+        let selectionArguments: [String]
+        switch selection {
+        case .primer(let targetID, let primerID):
+            selectionArguments = ["--target-id", targetID, "--primer-id", primerID]
+        case .amplicon(let targetID, let ampliconID):
+            selectionArguments = ["--target-id", targetID, "--amplicon-id", ampliconID]
+        case .pool(let sourceResultID, let pool):
+            selectionArguments = ["--source-result-id", sourceResultID, "--pool", String(pool)]
+        case .nativePool(let sourceResultID, let pool):
+            selectionArguments = ["--source-result-id", sourceResultID, "--native-pool", pool]
+        }
+        return ["Lungfish.app", "export-primer-selection", analysisURL.path, "--kind", kind.rawValue]
+            + selectionArguments + ["--output", destinationURL.path]
     }
 
     /// Registers the primer selection export row ("Save Primer FASTA Bundle"
