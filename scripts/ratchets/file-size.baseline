@@ -1,5 +1,5 @@
 # file-size baseline: Swift files over 800 lines (path, length). Lengths may only fall.
-Sources/LungfishApp/App/AppDelegate+Classification.swift 2780
+Sources/LungfishApp/App/AppDelegate+Classification.swift 2714
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3390
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
