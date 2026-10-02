@@ -5,7 +5,8 @@ import LungfishWorkflow
 struct FastqPBAAClusterSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "pbaa-cluster",
-        abstract: "Cluster PacBio HiFi amplicon reads with pbAA in pinned containers"
+        abstract: "Cluster PacBio HiFi amplicon reads with pbAA in pinned containers",
+        discussion: "The pbAA thread count comes from --threads. The default is the number of active processor cores."
     )
 
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
@@ -20,8 +21,10 @@ struct FastqPBAAClusterSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("output-name"), help: "Output bundle name and pbAA prefix")
     var outputName: String = "pbaa-clusters"
 
-    @Option(name: .customLong("threads"), help: "Threads for pbAA")
-    var threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount)
+    /// The global `--threads`. The root command parses it before this one,
+    /// so an option of this command's own would never receive the value.
+    @OptionGroup var globalOptions: GlobalOptions
+    var threads: Int { globalOptions.threads ?? max(1, ProcessInfo.processInfo.activeProcessorCount) }
 
     @Option(name: .customLong("seed"), help: "pbAA random seed")
     var seed: Int = 1984

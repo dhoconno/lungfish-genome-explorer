@@ -6,9 +6,10 @@ sample. Barcode definitions must contain sample_id, barcode_1, and
 barcode_2 columns, or headerless rows in that order.
 
 Repeated sample IDs are numbered _1, _2, and so on.
-Unique sample IDs remain unchanged.
+Unique sample IDs remain unchanged. The thread count (--threads) is a
+compatibility option for legacy chunked demux paths and defaults to 1.
 
-USAGE: lungfish-cli fastq ont-pacbio-barcode-demux <input> --barcodes <barcodes> --output <output> [--threads <threads>] [--chunk-jobs <chunk-jobs>] [--max-reads-per-slice <max-reads-per-slice>] [--max-bytes-per-cutadapt <max-bytes-per-cutadapt>] [--force]
+USAGE: lungfish-cli fastq ont-pacbio-barcode-demux [<options>] <input> --barcodes <barcodes> --output <output>
 
 ARGUMENTS:
   <input>                 Input ONT FASTQ file, barcode directory, run
@@ -18,8 +19,17 @@ OPTIONS:
   --barcodes <barcodes>   CSV/TSV file with sample_id, barcode_1, and barcode_2
                           columns, or headerless rows in that order
   -o, --output <output>   Output directory for per-sample .lungfishfastq bundles
-  --threads <threads>     Compatibility option for legacy chunked demux paths
-                          (default: 1) (default: 1)
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
   --chunk-jobs <chunk-jobs>
                           Compatibility option for legacy chunked demux paths
                           (default: active cores) (default: 14)

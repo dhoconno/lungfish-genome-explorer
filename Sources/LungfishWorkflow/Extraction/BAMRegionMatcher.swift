@@ -12,7 +12,11 @@ import Foundation
 /// Strategies are tried in order — the first that produces at least one match
 /// wins:
 ///
-/// 1. **Exact** — region string == BAM reference name verbatim.
+/// 1. **Exact** — region string == BAM reference name verbatim, or samtools
+///    region notation on such a name (`chr1:11-25`, `chr1:500-`, `chr1:-200`,
+///    `chr1:500`, or the braced `{name}` and `{name}:range` for a name that
+///    holds a colon). Notation passes to samtools as given, so samtools selects
+///    the reads that overlap it.
 /// 2. **Prefix** — a BAM reference name starts with the region string.
 /// 3. **Contains** — a BAM reference name contains the region string as a
 ///    substring.
@@ -126,15 +130,39 @@ public enum BAMRegionMatcher {
         bamRefs: [String],
         bamRefSet: Set<String>
     ) -> RegionMatchResult? {
-        let matched = uniqueRegions.filter { bamRefSet.contains($0) }
+        let coordinateRegions = uniqueRegions.filter { isRegionNotation($0, onReferences: bamRefSet) }
+        let matched = uniqueRegions.filter { bamRefSet.contains($0) || coordinateRegions.contains($0) }
         guard !matched.isEmpty else { return nil }
-        let unmatched = uniqueRegions.filter { !bamRefSet.contains($0) }
+        let unmatched = uniqueRegions.filter { !matched.contains($0) }
         return RegionMatchResult(
             matchedRegions: matched,
             unmatchedRegions: unmatched,
             strategy: .exact,
-            bamReferenceNames: bamRefs
+            bamReferenceNames: bamRefs,
+            coordinateRegions: coordinateRegions
         )
+    }
+
+    /// Whether `region` is samtools region notation on one of `references`,
+    /// as htslib's region parser reads it: `NAME:BEG-END`, `NAME:BEG-`,
+    /// `NAME:-END` or `NAME:BEG` with digits that may hold thousands commas,
+    /// or `{NAME}` and `{NAME}:RANGE` for a name that holds a colon itself. A
+    /// region that is itself a reference name is that whole reference, not
+    /// notation. samtools still reports a range it cannot read.
+    static func isRegionNotation(_ region: String, onReferences references: Set<String>) -> Bool {
+        guard !references.contains(region) else { return false }
+        if region.hasPrefix("{"), let close = region.lastIndex(of: "}") {
+            let name = String(region[region.index(after: region.startIndex)..<close])
+            let rest = region[region.index(after: close)...]
+            guard references.contains(name) else { return false }
+            return rest.isEmpty || (rest.first == ":" && isRange(rest.dropFirst()))
+        }
+        guard let colon = region.lastIndex(of: ":") else { return false }
+        return references.contains(String(region[..<colon])) && isRange(region[region.index(after: colon)...])
+    }
+
+    private static func isRange(_ text: Substring) -> Bool {
+        text.range(of: #"^([0-9][0-9,]*(-([0-9][0-9,]*)?)?|-[0-9][0-9,]*)$"#, options: .regularExpression) != nil
     }
 
     private static func tryPrefix(

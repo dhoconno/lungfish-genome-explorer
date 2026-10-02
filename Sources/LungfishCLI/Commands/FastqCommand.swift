@@ -1711,7 +1711,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
             that per-read complexity metrics miss, and that otherwise inflate
             apparent mapping depth.
 
-            Defaults are entropy 0.6, window 50, k-mer 5.
+            Defaults are entropy 0.6, window 50, k-mer 5, and 4 bbduk threads (--threads).
             """
     )
 
@@ -1727,8 +1727,8 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("kmer"), help: "K-mer length for entropy estimation (default: 5)")
     var kmer: Int = FASTQEntropyFilterDefaults.kmer
 
-    @Option(name: .customLong("threads"), help: "bbduk thread count (default: 4)")
-    var threads: Int = 4
+    @OptionGroup var globalOptions: GlobalOptions
+    var threads: Int { globalOptions.threads ?? 4 }
 
     @OptionGroup var pairing: FASTQPairingOptions
 
@@ -2936,7 +2936,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             embedded cutadapt. Supports single- and dual-indexed Illumina kits,
             Fluidigm Access Array indexes, custom barcode definition files, and
             terminally anchored barcode location (5', 3', or both ends) for
-            cutadapt demultiplexing.
+            cutadapt demultiplexing. Cutadapt runs 4 threads unless --threads sets another count.
 
             Useful for internal Illumina barcodes within ONT reads, re-demultiplexing,
             or demultiplexing with custom barcode sets.
@@ -3010,9 +3010,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
           help: "Discard reads that do not match any barcode")
     var discardUnassigned: Bool = false
 
-    @Option(name: .customLong("threads"),
-            help: "Cutadapt thread count (default: 4)")
-    var threads: Int = 4
+    @OptionGroup var globalOptions: GlobalOptions
+    var threads: Int { globalOptions.threads ?? 4 }
 
     @Flag(name: .customLong("replace"),
           help: "Delete an existing, non-empty output directory before writing. Without it the command refuses to overwrite earlier results and names the directory.")
@@ -3307,7 +3306,7 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
             used by amplicon genotyping, extracts the CS1-CS2 amplicon insert, then
             writes one physical .lungfishfastq bundle per sample containing unique
             insert exemplars. Payloads are gzip-compressed and duplicate support is
-            encoded in FASTQ headers as size=N.
+            encoded in FASTQ headers as size=N. The thread count (--threads) is recorded in provenance, is reserved for parallel materialization, and defaults to 1.
             """
     )
 
@@ -3320,8 +3319,8 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
     @Option(name: [.customLong("output"), .customShort("o")], help: "Output directory for per-sample .lungfishfastq bundles")
     var output: String
 
-    @Option(name: .customLong("threads"), help: "Worker count reserved for future parallel materialization; currently recorded for provenance")
-    var threads: Int = 1
+    @OptionGroup var globalOptions: GlobalOptions
+    var threads: Int { globalOptions.threads ?? 1 }
 
     @Option(name: .customLong("primer-mismatches"), help: "Maximum mismatches allowed when detecting CS1/CS2 primer boundaries (default: 2)")
     var primerMismatches: Int = 2
@@ -3504,7 +3503,7 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
             barcode_2 columns, or headerless rows in that order.
 
             Repeated sample IDs are numbered _1, _2, and so on.
-            Unique sample IDs remain unchanged.
+            Unique sample IDs remain unchanged. The thread count (--threads) is a compatibility option for legacy chunked demux paths and defaults to 1.
             """
     )
 
@@ -3517,8 +3516,8 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
     @Option(name: [.customLong("output"), .customShort("o")], help: "Output directory for per-sample .lungfishfastq bundles")
     var output: String
 
-    @Option(name: .customLong("threads"), help: "Compatibility option for legacy chunked demux paths (default: 1)")
-    var threads: Int = 1
+    @OptionGroup var globalOptions: GlobalOptions
+    var threads: Int { globalOptions.threads ?? 1 }
 
     @Option(name: .customLong("chunk-jobs"), help: "Compatibility option for legacy chunked demux paths (default: active cores)")
     var chunkJobs: Int = ONTPacBioBarcodeDemuxMaterializationRequest.defaultChunkJobs

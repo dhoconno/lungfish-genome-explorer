@@ -255,7 +255,7 @@ lungfish-cli extract reads --by-region \
   --output hg002-chr20-reads.fastq
 ```
 
-`chr20_10.0-10.5Mb` is the reference sequence's own name from the FASTA header. The summary reports `Reads extracted: 91148`, the primary read count, which differs from the Inspector's Total Mapped for the reasons [Mapping Reads to a Reference](01-mapping-reads-to-a-reference.md#reading-the-results) gives. The `--region` flag matches reference sequence names, not coordinates, so a `name:start-end` range is refused with "No BAM reference names matched the requested regions", and the app's **Extract Reads in Selected Region...** is the way to take a coordinate range. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
+`chr20_10.0-10.5Mb` is the reference sequence's own name from the FASTA header. The summary reports `Reads extracted: 91148`, the primary read count, which differs from the Inspector's Total Mapped for the reasons [Mapping Reads to a Reference](01-mapping-reads-to-a-reference.md#reading-the-results) gives. The `--region` flag also takes a range on one sequence, written `name:start-end` and counted from 1 with both ends included, and then writes the reads that overlap that range.
 
 ## Next
 

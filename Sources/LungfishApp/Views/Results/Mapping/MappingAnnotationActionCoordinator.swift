@@ -46,8 +46,10 @@ public enum MappingAnnotationActionCoordinator {
         guard !regions.isEmpty else { return nil }
 
         let outputBaseName = sanitizedOutputBaseName(for: annotation.name)
+        // The service refuses a region extraction without an explicit index.
         return BAMRegionExtractionConfig(
             bamURL: mappingResult.bamURL,
+            indexURL: mappingResult.baiURL,
             regions: regions,
             fallbackToAll: false,
             outputDirectory: outputDirectory,

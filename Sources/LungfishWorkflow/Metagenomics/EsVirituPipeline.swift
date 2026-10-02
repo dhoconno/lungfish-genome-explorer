@@ -482,7 +482,7 @@ public actor EsVirituPipeline {
         }
         let runID = await provenanceRecorder.beginRun(
             name: "Viral Metagenomics Detection",
-            parameters: provenanceParameters
+            parameters: provenanceParameters.merging(Self.inputLineageParameters(for: config)) { current, _ in current }
         )
 
         // Phase 3: Run EsViritu (0.15 -- 0.85)
@@ -531,7 +531,7 @@ public actor EsVirituPipeline {
         let esVirituWallTime = Date().timeIntervalSince(esVirituStart)
 
         if esVirituResult.exitCode != 0 {
-            let inputRecords = config.inputFiles.map { url in
+            let inputRecords = Self.inputLineageRecords(for: config) ?? config.inputFiles.map { url in
                 ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
             }
             let failureOutputs = fm.fileExists(atPath: effectiveConfig.detectionOutputURL.path)
@@ -625,7 +625,7 @@ public actor EsVirituPipeline {
         // Record tool provenance after any temp output copy so file descriptors
         // point at final stored payloads. This happens before wrapper sidecar
         // persistence so failed sidecar writes still leave external tool provenance.
-        let inputRecords = config.inputFiles.map { url in
+        let inputRecords = Self.inputLineageRecords(for: config) ?? config.inputFiles.map { url in
             ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
         }
         let outputRecords = [

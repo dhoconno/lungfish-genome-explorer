@@ -5,7 +5,8 @@ import LungfishWorkflow
 struct FastqSavontClusterSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "savont-cluster",
-        abstract: "Cluster FASTQ reads into counted consensus sequences with Savont"
+        abstract: "Cluster FASTQ reads into counted consensus sequences with Savont",
+        discussion: "The Savont thread count comes from --threads. The default is the number of active processor cores."
     )
 
     struct Runtime {
@@ -24,8 +25,10 @@ struct FastqSavontClusterSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("output"), help: "Output counted-cluster FASTA file")
     var output: String
 
-    @Option(name: .customLong("threads"), help: "Threads for Savont")
-    var threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount)
+    /// The global `--threads`. The root command parses it before this one,
+    /// so an option of this command's own would never receive the value.
+    @OptionGroup var globalOptions: GlobalOptions
+    var threads: Int { globalOptions.threads ?? max(1, ProcessInfo.processInfo.activeProcessorCount) }
 
     @Option(
         name: .customLong("quality-value-cutoff"),

@@ -75,13 +75,11 @@ extension ViewerViewController {
     /// directory, so the command names that file in `-o`. The annotation
     /// action sets no map quality, flag or read group filter, and its
     /// duplicate exclusion is the command's default, so the command needs no
-    /// option for them. The command names no index, because the CLI finds the
-    /// BAM's companion index itself.
-    ///
-    /// Known limits of the shared service. `extractByBAMRegion` matches whole
-    /// reference names, so a coordinate region such as `chr1:11-25` finds no
-    /// match and the CLI reports `noMatchingRegions`. The run passes no index,
-    /// which the service requires, so it throws `explicitIndexRequired` first.
+    /// option for them. The run passes the mapping's index, and the command
+    /// names none because the CLI finds the BAM's companion index, the same
+    /// file. The shared service hands each coordinate region, such as
+    /// `chr1:11-25`, to samtools as given, so the run and the command write
+    /// the same reads, the ones that overlap the annotation's blocks.
     static func overlappingReadsExtractionCLICommand(config: BAMRegionExtractionConfig) -> String {
         var args = ["--by-region", "--bam", config.bamURL.path]
         for region in config.regions {

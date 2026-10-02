@@ -6,12 +6,12 @@
 // TaxTriage) register their rows through static begin helpers (R4). None
 // declares a lock, so no real OperationCenter refuses them, and a reporter
 // that refuses every begin proves each launch closure sits behind the
-// `.started` case. The single-sample Kraken2 and TaxTriage rows record a
-// command that parses through the real CLI parser with the run's values. The
-// EsViritu rows, the Kraken2 batch row and the multi-sample TaxTriage row
-// have no command that reproduces the run, and their tests pin today's value
-// as a parity gap, so a change to the CLI or to the recorded string fails
-// here and prompts a deliberate test change.
+// `.started` case. The single-sample Kraken2, EsViritu and TaxTriage rows
+// record a command that parses through the real CLI parser with the run's
+// values. The EsViritu batch row, the Kraken2 batch row and the multi-sample
+// TaxTriage row have no command that reproduces the run, and their tests pin
+// today's value as a parity gap, so a change to the CLI or to the recorded
+// string fails here and prompts a deliberate test change.
 
 import XCTest
 @testable import LungfishApp
@@ -226,18 +226,28 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(reporter.items.first).title, "Classification Batch (1 sample)")
     }
 
-    // MARK: - EsViritu, a CLI parity gap
+    // MARK: - EsViritu
 
     func testEsVirituRowRecordsTheCommandTheBuilderMakes() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = makeRouteContext()
-        let inputs = [importURL("Sample 1_R1.fastq.gz"), importURL("Sample 1_R2.fastq.gz")]
+        let imports = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lane-1k1-esviritu-\(UUID().uuidString)/Imports", isDirectory: true)
+        try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: imports.deletingLastPathComponent()) }
+        let inputs = [imports.appendingPathComponent("Sample 1_R1.fastq"), imports.appendingPathComponent("Sample 1_R2.fastq")]
+        for (index, input) in inputs.enumerated() {
+            try "@r1/\(index + 1)\nACGT\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        }
         let config = EsVirituConfig(
             inputFiles: inputs,
             isPairedEnd: true,
             sampleName: "Sample 1",
             outputDirectory: analysisURL("esviritu-2026-10-02/Sample 1"),
             databasePath: URL(fileURLWithPath: "/tmp/lane 1a2/Databases/EsViritu"),
+            qualityFilter: false,
+            threads: 6,
+            extraArguments: ["--min_read_len", "120"],
             readFormat: .paired
         )
         var launchedID: UUID?
@@ -256,8 +266,8 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // The row records the inputs, the sample and the read format, the
-        // arguments the run's provenance also records.
+        // The row records every setting the run uses, the same arguments the
+        // run's provenance records (R3).
         XCTAssertEqual(
             try RecordedCLICommand.arguments(of: item.cliCommand),
             ["esviritu", "detect"] + AppDelegate.esVirituDetectCLIArguments(for: config)
@@ -266,16 +276,30 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertEqual(command.inputFiles, inputs.map(\.path))
         XCTAssertEqual(command.sampleName, "Sample 1")
         XCTAssertEqual(command.readFormat, .paired)
+        XCTAssertEqual(command.databasePath, config.databasePath.path)
+        XCTAssertEqual(command.outputDir, config.outputDirectory.path)
+        XCTAssertEqual(command.globalOptions.threads, 6)
+        XCTAssertTrue(command.noQC)
+        XCTAssertEqual(command.extraArgs, "--min_read_len 120")
+        // The pasted command runs EsViritu with the arguments the run used.
+        let cliConfig = try command.makeConfigForTesting(
+            databaseURL: URL(fileURLWithPath: try XCTUnwrap(command.databasePath)),
+            outputDirectory: URL(fileURLWithPath: try XCTUnwrap(command.outputDir))
+        )
+        XCTAssertEqual(cliConfig.esVirituArguments(), config.esVirituArguments())
     }
 
-    func testEsVirituRowPinsTheCLIRefusalOfTheBundleTheRunNames() throws {
+    func testEsVirituRowForABundleReplaysThroughTheCLIResolution() async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lane-1a2-esviritu-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("lane-1k1-esviritu-\(UUID().uuidString)", isDirectory: true)
         let bundleURL = directory.appendingPathComponent("Sample 1.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
+        let readsURL = bundleURL.appendingPathComponent("Sample 1.fastq")
+        try "@r1\nACGT\n+\nIIII\n@r2\nACGT\n+\nIIII\n".write(to: readsURL, atomically: true, encoding: .utf8)
         XCTAssertTrue(FASTQBundle.isBundleURL(bundleURL))
         let databaseURL = directory.appendingPathComponent("EsViritu DB", isDirectory: true)
+        try FileManager.default.createDirectory(at: databaseURL, withIntermediateDirectories: true)
         let outputURL = directory.appendingPathComponent("esviritu-out", isDirectory: true)
         let config = EsVirituConfig(
             inputFiles: [bundleURL],
@@ -289,23 +313,26 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
 
         AppDelegate.beginEsVirituOperation(config: config, routeContext: nil, reporter: reporter) { _ in }
 
-        // CLI parity gap. The wizard hands the run a `.lungfishfastq` bundle, so
-        // the row records `esviritu detect --input <bundle>`. The command parses,
-        // and then `EsVirituConfig.validate` refuses the bundle because it is a
-        // directory. Only the app materializes a virtual bundle before it runs
-        // EsViritu. When `esviritu detect` accepts a bundle, record that and
-        // replace this pin with a round-trip test.
+        // The wizard hands the run a `.lungfishfastq` bundle, so the row
+        // records `esviritu detect --input <bundle>`. The command resolves the
+        // bundle to the file it holds, as the run does, and EsViritu accepts
+        // the result (R3). It used to refuse the bundle as a directory.
         let item = try XCTUnwrap(reporter.items.first)
         let command = try RecordedCLICommand.parse(item.cliCommand, as: EsVirituCommand.DetectSubcommand.self)
         XCTAssertEqual(command.inputFiles, [bundleURL.path])
         XCTAssertEqual(command.readFormat, .unpaired)
-        let cliConfig = try command.makeConfigForTesting(databaseURL: databaseURL, outputDirectory: outputURL)
-        XCTAssertThrowsError(try cliConfig.validate()) { error in
-            guard case EsVirituConfigError.inputPathIsDirectory(let refused) = error else {
-                return XCTFail("expected inputPathIsDirectory, got \(error)")
-            }
-            XCTAssertEqual(refused.standardizedFileURL.path, bundleURL.standardizedFileURL.path)
-        }
+        let resolved = try await EsVirituCommand.DetectSubcommand.resolveExecutionInputs(
+            for: [bundleURL],
+            materializationDirectory: outputURL.appendingPathComponent(
+                EsVirituCommand.DetectSubcommand.materializationDirectoryName,
+                isDirectory: true
+            ),
+            materializer: FASTQCLIMaterializer(runner: .shared)
+        )
+        XCTAssertEqual(resolved.executionInputURLs, [readsURL.standardizedFileURL])
+        var cliConfig = try command.makeConfigForTesting(databaseURL: databaseURL, outputDirectory: outputURL)
+        cliConfig.inputFiles = resolved.executionInputURLs
+        XCTAssertNoThrow(try cliConfig.validate())
     }
 
     func testEsVirituBatchRowPinsTodaysCommandAsAParityGap() throws {

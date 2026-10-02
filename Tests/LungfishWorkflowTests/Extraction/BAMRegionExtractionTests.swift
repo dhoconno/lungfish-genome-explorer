@@ -24,6 +24,16 @@ final class BAMRegionExtractionTests: XCTestCase {
             ["view", "-b", "-q", "30", "-F", "2308", "-r", "normal", "-r", "tumor",
              "-o", "/stage/extracted.bam", "-X", "/evidence/sample.bam", "/evidence/sample.bam.bai", "chrSynthetic:5-9"]
         )
+        // The union of overlapping regions, which writes a read that overlaps
+        // two of them once (R3), adds only `-M` before the other options.
+        XCTAssertEqual(
+            config.explicitViewArguments(
+                outputBAM: URL(fileURLWithPath: "/stage/extracted.bam"),
+                mergingOverlappingRegions: true
+            ),
+            ["view", "-b", "-M", "-q", "30", "-F", "2308", "-r", "normal", "-r", "tumor",
+             "-o", "/stage/extracted.bam", "-X", "/evidence/sample.bam", "/evidence/sample.bam.bai", "chrSynthetic:5-9"]
+        )
     }
 
     /// Catches a publication regression where the viewer can receive a raw

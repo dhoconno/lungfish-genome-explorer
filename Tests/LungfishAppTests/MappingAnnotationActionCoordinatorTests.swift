@@ -69,6 +69,10 @@ final class MappingAnnotationActionCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(config?.bamURL, result.bamURL)
+        // ReadExtractionService.extractByBAMRegion refuses a region extraction
+        // without an explicit index, so the action passes the mapping's own
+        // (R3).
+        XCTAssertEqual(config?.indexURL, result.baiURL)
         XCTAssertEqual(config?.outputDirectory, tempDir)
         XCTAssertEqual(config?.regions, ["chr1:11-25"])
         XCTAssertEqual(config?.outputBaseName, "n")

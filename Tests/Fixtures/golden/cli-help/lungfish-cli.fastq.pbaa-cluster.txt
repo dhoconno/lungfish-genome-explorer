@@ -1,6 +1,9 @@
 OVERVIEW: Cluster PacBio HiFi amplicon reads with pbAA in pinned containers
 
-USAGE: lungfish-cli fastq pbaa-cluster <input> --guide <guide> --output-dir <output-dir> [--output-name <output-name>] [--threads <threads>] [--seed <seed>] [--extra-args <extra-args>]
+The pbAA thread count comes from --threads. The default is the number of active
+processor cores.
+
+USAGE: lungfish-cli fastq pbaa-cluster [<options>] <input> --guide <guide> --output-dir <output-dir>
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
@@ -12,7 +15,17 @@ OPTIONS:
   --output-name <output-name>
                           Output bundle name and pbAA prefix (default:
                           pbaa-clusters)
-  --threads <threads>     Threads for pbAA (default: 14)
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
   --seed <seed>           pbAA random seed (default: 1984)
   --extra-args <extra-args>
                           Advanced pbAA arguments

@@ -501,6 +501,9 @@ private func synthesizedCommandArguments(
     quiet: Bool,
     extra: [String]
 ) -> [String] {
+    // A value that can start with "-" (a reverse-only frame list, a
+    // hyphenated name) is joined to its option, or the replayed command fails
+    // to parse, as SequenceAnnotationOperationRunner does in the app.
     var arguments = [
         executable,
         "sequence",
@@ -508,7 +511,7 @@ private func synthesizedCommandArguments(
         bundle,
     ]
     if let sequence {
-        arguments += ["--sequence", sequence]
+        arguments.append("--sequence=\(sequence)")
     }
     if let start {
         arguments += ["--start", String(start)]
@@ -516,12 +519,12 @@ private func synthesizedCommandArguments(
     if let end {
         arguments += ["--end", String(end)]
     }
-    arguments += ["--frames", frames, "--table", String(table)]
+    arguments += ["--frames=\(frames)", "--table", String(table)]
     if let trackID {
-        arguments += ["--track-id", trackID]
+        arguments.append("--track-id=\(trackID)")
     }
     if let trackName {
-        arguments += ["--track-name", trackName]
+        arguments.append("--track-name=\(trackName)")
     }
     arguments += extra
     if quiet {
