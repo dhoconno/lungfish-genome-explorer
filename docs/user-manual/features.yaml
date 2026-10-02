@@ -1169,6 +1169,7 @@ features:
     viewport_class: sequence
     sources:
       - Sources/LungfishApp/Views/Inspector/Sections/MultipleSequenceAlignmentDocumentSection.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift
       - Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesInspectorModel.swift
       - Sources/LungfishApp/Views/Inspector/InspectorViewController+MSADiscriminatingSites.swift
       - Sources/LungfishApp/Services/MSADiscriminatingSitesRequest.swift
