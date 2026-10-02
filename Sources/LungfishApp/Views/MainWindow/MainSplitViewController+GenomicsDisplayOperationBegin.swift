@@ -56,40 +56,6 @@ extension MainSplitViewController {
         return result
     }
 
-    /// Registers the reference download row for the VCF dashboard's "Download
-    /// Reference" action and, only when it starts, calls `launch` with the
-    /// operation ID. The row is a download row, locks no bundle and records no
-    /// command.
-    ///
-    /// CLI parity gap. The closest command is `lungfish-cli fetch genome`,
-    /// which takes one accession and does its own bundle build. This run
-    /// searches the assembly database by the inferred accession or, without
-    /// one, by organism and assembly name, so no single `fetch genome`
-    /// invocation reproduces every case. The row keeps recording no command
-    /// until a command covers both searches.
-    @discardableResult
-    static func beginVCFReferenceDownloadOperation(
-        assembly: String,
-        routeContext: OperationRouteContext?,
-        reporter: any OperationReporting = OperationCenter.shared,
-        launch: (UUID) -> Void
-    ) -> OperationStartResult {
-        let result = reporter.begin(
-            title: "\(assembly) Reference",
-            detail: "Searching NCBI...",
-            operationType: .download,
-            cliCommand: nil,
-            routeContext: routeContext
-        )
-        switch result {
-        case .started(let operationID):
-            launch(operationID)
-        case .refused:
-            break // The panel already shows the refused row. Nothing was launched.
-        }
-        return result
-    }
-
     // MARK: - FASTQ operations
 
     /// Registers the row for a FASTQ derivative run from the FASTQ dataset
