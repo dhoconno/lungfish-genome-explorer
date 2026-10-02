@@ -2,7 +2,7 @@
 """unchecked-operation-start.sh - Ratchet on deprecated OperationCenter.start(...) calls
 that carry a bundle target.
 
-Background (2026-09-23 best-practices audit, ARC-04 / FEA-07): OperationCenter.start(...)
+Background: OperationCenter.start(...)
 returns a plain UUID even when the requested bundle lock is refused, and every existing
 caller that passed targetBundleURL/additionalLockedBundleURLs had to hand-roll its own
 pre-check (canStartOperation) or post-check (state == .running / .isActive) to notice a
@@ -14,7 +14,7 @@ targetBundleURL / additionalLockedBundleURLs overload.
 This script counts call sites that still invoke the deprecated start(...) with a bundle
 target. That count must never rise: new bundle-mutating callers must use begin(...)
 instead. Existing callers may remain on start(...) only because they already carry a
-correct pre-check or post-check (verified by hand during the P1-A package); migrating them
+correct pre-check or post-check (verified by hand); migrating them
 to begin(...) is encouraged but not required by this ratchet.
 
 Usage:
@@ -122,8 +122,8 @@ def main(argv):
         print(
             "New bundle-mutating callers must use OperationCenter.begin(...) instead, "
             "whose OperationStartResult the caller must switch on before launching a "
-            "transport/subprocess or mutating the bundle. See ARC-04 / FEA-07 in "
-            "docs/reports/2026-09-23-best-practices-audit/.",
+            "transport/subprocess or mutating the bundle. start(...) returns a plain UUID "
+            "even when the requested bundle lock is refused, so a refusal can be silently ignored.",
             file=sys.stderr,
         )
         print("Offending call sites:", file=sys.stderr)

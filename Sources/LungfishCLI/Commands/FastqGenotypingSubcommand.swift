@@ -174,7 +174,7 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             extraArguments: parsedExtraArguments,
             mode: parsedMode,
             readType: parsedReadType,
-            // WFL-13: `genotype` defaults to `--mode auto` and accepts ONT
+            // `genotype` defaults to `--mode auto` and accepts ONT
             // amplicon input, so it must not hard-code the MiSeq/Illumina
             // workflow kind -- that mislabels an ONT run as "MiSeq" in the
             // bundle manifest and makes the viewport apply MiSeq-only

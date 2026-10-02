@@ -89,8 +89,8 @@ public enum TranslationEngine {
     ///   - annotation: The annotation to translate (should be a CDS or gene with exon intervals).
     ///   - sequenceProvider: A closure that extracts nucleotides for a given genomic range (0-based, half-open).
     ///   - table: Codon table to use. When `nil` (the default), the table is
-    ///     derived from the annotation's `/transl_table` qualifier if present
-    ///     (SCI-10), falling back to the standard genetic code (table 1). Pass
+    ///     derived from the annotation's `/transl_table` qualifier if present,
+    ///     falling back to the standard genetic code (table 1). Pass
     ///     an explicit table to override per-annotation qualifiers, for example
     ///     a user-selected genetic code in the viewer.
     /// - Returns: A `TranslationResult` with the protein, coding sequence, and coordinate mapping,
@@ -108,7 +108,7 @@ public enum TranslationEngine {
         // ascending genomic order on '+' and descending on '-', matching the
         // app-level rendering convention (`SequenceViewerView.
         // codingCoordinateOrder`). `SequenceAnnotation.intervals` is no longer
-        // force-sorted ascending by `SequenceAnnotation.init` (SCI-15), so for
+        // force-sorted ascending by `SequenceAnnotation.init`, so for
         // an origin-spanning feature on a circular molecule (GenBank
         // `join(4000..4200,1..100)`) the stored order already IS the correct
         // transcription order and sorting it — in either direction — would
@@ -149,7 +149,7 @@ public enum TranslationEngine {
         }
 
         // Determine phase offset from the 5'-most segment in transcription order,
-        // i.e. the first element of `exonSequences` (SCI-10: previously this used
+        // i.e. the first element of `exonSequences` (previously this used
         // `exonSequences.first` after an ascending sort, which for the reverse
         // strand picked the 3'-most segment instead of the 5'-most one).
         let phaseOffset = exonSequences.first?.interval.phase ?? 0
@@ -230,7 +230,7 @@ public enum TranslationEngine {
 
     /// Resolves the codon table for an annotation from its `/transl_table`
     /// qualifier (GenBank) or `transl_table`/`genetic_code` GFF3 attribute,
-    /// falling back to the standard genetic code (SCI-10). This matters most
+    /// falling back to the standard genetic code. This matters most
     /// for mitochondrial genes: without it, vertebrate mitochondrial CDS
     /// (`/transl_table=2`) translate AGA/AGG as Arg instead of a stop, and TGA
     /// as a stop instead of Trp.

@@ -62,7 +62,7 @@ public enum ClumpingTool: String, Codable, Sendable, CaseIterable {
             } else {
                 // Clumping only improves compression. Never substitute a tool
                 // that trims or filters reads (Trim Galore) without an explicit
-                // request: skip clumping instead (audit WFL-01 / decision D1).
+                // request: skip clumping instead.
                 resolved = .none
                 reason = "skipped clumping: estimated input exceeds the BBTools clumpify memory budget"
             }

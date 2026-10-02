@@ -446,10 +446,10 @@ struct TreeCommand: AsyncParsableCommand {
             // SRA downloads, classification/MAFFT materialization). Only this
             // invocation's own staging subdirectory may ever be removed —
             // deleting `.tmp` itself can destroy an unrelated operation's
-            // in-flight working files (WFL-02).
+            // in-flight working files.
             let tempRoot = projectURL.appendingPathComponent(".tmp", isDirectory: true)
             let stagingURL = tempRoot.appendingPathComponent("lungfish-tree-iqtree-\(UUID().uuidString)", isDirectory: true)
-            // Refuse-without-force must delete nothing. REC-02: with --force,
+            // Refuse-without-force must delete nothing. With --force,
             // the new bundle is built at a fresh sibling path and only
             // atomically swapped into place once IQ-TREE succeeds — the
             // existing output must never be deleted before work starts, so a
@@ -610,7 +610,7 @@ struct TreeCommand: AsyncParsableCommand {
                 )
 
                 if outputExisted {
-                    // Atomic swap (REC-02): move the old bundle aside, move
+                    // Atomic swap: move the old bundle aside, move
                     // the new one into place, then discard the old one only
                     // after the replace has succeeded. Restore on failure so
                     // a mid-swap error never leaves the output missing.
@@ -635,7 +635,7 @@ struct TreeCommand: AsyncParsableCommand {
                 // Only remove the output if THIS invocation created it fresh
                 // (no pre-existing bundle). A plain refusal (exists, no
                 // --force) or a failed --force run must leave the existing
-                // output untouched (WFL-02/REC-02): the --force build target
+                // output untouched: the --force build target
                 // lives under `stagingURL` and is discarded with it below,
                 // never touching `outputURL` unless the atomic swap above
                 // already completed. Never remove the shared `.tmp` root —
@@ -875,7 +875,7 @@ private func runProcess(
     // Drain both pipes concurrently on background threads *before* waiting
     // for exit. IQ-TREE (e.g. with `-m MFP`) can write more to stdout/stderr
     // than the pipe buffer holds; reading only after `waitUntilExit()` can
-    // deadlock forever once the child blocks on a full pipe (WFL-02).
+    // deadlock forever once the child blocks on a full pipe.
     final class PipeCollector: @unchecked Sendable {
         private let lock = NSLock()
         private var data = Data()

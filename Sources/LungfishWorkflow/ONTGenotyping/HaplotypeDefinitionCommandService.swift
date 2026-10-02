@@ -104,7 +104,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         }
     }
 
-    /// GEN-02 (D11) definition lint. Non-fatal: returns one warning per
+    /// Definition lint. Non-fatal: returns one warning per
     /// group of haplotypes at a locus whose required (full-weight)
     /// diagnostic allele sets are identical. The deterministic caller can
     /// never tell such haplotypes apart and reports them as an ambiguity

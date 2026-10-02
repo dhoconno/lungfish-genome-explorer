@@ -6,10 +6,10 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-/// GEN-04 (D12): identical reference sequences, including reverse
+/// Identical reference sequences, including reverse
 /// complements, make every perfect read tie across all copies. minimap2
 /// then reports only a few secondary hits, so per-allele counts become
-/// arbitrary (the audit's `e1` fixture: 8 identical references and 20
+/// arbitrary (the `e1` test fixture: 8 identical references and 20
 /// perfect reads gave counts from 9 to 19) and locus sums are inflated by
 /// the tie multiplicity.
 ///

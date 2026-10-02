@@ -376,7 +376,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         guard proportion != nil || count != nil else {
             throw ValidationError("Specify --proportion or --count")
         }
-        // WFL-10: always resolve a seed (random when omitted) and record the
+        // Always resolve a seed (random when omitted) and record the
         // actual value, so any run can be replayed exactly from provenance.
         let resolvedSeed = seed ?? Int64.random(in: 0...Int64.max)
         if let proportion {
@@ -390,7 +390,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
             }
         }
 
-        // SCI-16: paired imports are stored interleaved (mates on adjacent
+        // Paired imports are stored interleaved (mates on adjacent
         // records). `seqkit sample`/`sample2` samples records independently,
         // which orphans mates in interleaved input. Resolve pairing from the
         // --pairing flag, the bundle metadata, or read names (identical mate

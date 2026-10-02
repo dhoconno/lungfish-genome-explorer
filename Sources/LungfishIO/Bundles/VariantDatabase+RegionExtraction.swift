@@ -17,10 +17,10 @@ extension VariantDatabase {
     /// database is zero-based relative to the extracted sub-sequence. When
     /// `isReverseComplement` is true, each record's position is additionally
     /// mirrored to the reverse-complemented coordinate system and its REF/ALT
-    /// alleles are reverse-complemented (SCI-07), so the extracted variants stay
+    /// alleles are reverse-complemented, so the extracted variants stay
     /// consistent with the reverse-complemented sequence in the derived bundle.
     ///
-    /// A record whose span starts before the region (SCI-21) is excluded rather
+    /// A record whose span starts before the region is excluded rather
     /// than truncated: trimming would leave a REF that no longer matches the
     /// extracted sequence at that position, which is worse than omitting the
     /// record. This is documented app-visible behavior, not a bug to silently
@@ -255,7 +255,7 @@ extension VariantDatabase {
             let filter = sqlite3_column_text(variantQueryStmt, 9).map { String(cString: $0) }
             let info = sqlite3_column_text(variantQueryStmt, 10).map { String(cString: $0) }
 
-            // SCI-21: a record whose span starts before the region is excluded
+            // A record whose span starts before the region is excluded
             // rather than truncated. Trimming the REF would leave it not
             // matching the extracted sequence at the truncated position, which
             // is worse than omitting the record from the extracted track.
@@ -276,7 +276,7 @@ extension VariantDatabase {
             let finalRef: String
             let finalAlt: String
             if isReverseComplement {
-                // SCI-07: mirror the position into the reverse-complemented
+                // Mirror the position into the reverse-complemented
                 // coordinate system and reverse-complement REF/ALT so the
                 // variant stays anchored to the correct base in the RC'd
                 // extracted sequence. Symbolic/breakend ALTs cannot be
@@ -484,7 +484,7 @@ extension VariantDatabase {
     /// Whether an allele string is a plain sequence of nucleotide bases (including
     /// IUPAC ambiguity codes) that `TranslationEngine.reverseComplement` can
     /// transform meaningfully. Symbolic alleles (`<DEL>`, `<INS>`, ...) and
-    /// breakend alleles (containing `[` or `]`) are excluded (SCI-07).
+    /// breakend alleles (containing `[` or `]`) are excluded.
     static func isSimpleAllele(_ allele: String) -> Bool {
         guard !allele.isEmpty else { return false }
         if allele == "." { return false }

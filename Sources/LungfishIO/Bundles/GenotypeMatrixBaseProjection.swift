@@ -25,10 +25,10 @@ public struct GenotypeMatrixBaseProjection: Sendable {
     /// Matrix visibility thresholds.
     ///
     /// Every percent threshold is a per-sample READ FRACTION, applied cell by
-    /// cell to known and candidate rows alike (GEN-06, decision D14). With the
+    /// cell to known and candidate rows alike. With the
     /// `.viewedLocus` basis the denominator is `GenotypeLocusDenominator`, the
-    /// sample's unique retained reads at the allele's source locus (GEN-05,
-    /// D13). Prevalence across animals is a separate control,
+    /// sample's unique retained reads at the allele's source locus.
+    /// Prevalence across animals is a separate control,
     /// `minimumPrevalencePercent` ("Seen in at least N% of animals").
     public struct Filter: Codable, Equatable, Sendable {
         public var globalMinimumPercent: Double
@@ -184,7 +184,7 @@ public struct GenotypeMatrixBaseProjection: Sendable {
         locusDisplayOrder: [String]? = nil,
         usesNumericReferenceOrder: Bool = false
     ) {
-        // GEN-05 (D13): one per-source-locus denominator, shared with the
+        // One per-source-locus denominator, shared with the
         // haplotype caller, the evidence pane and the Excel filter.
         let locusDenominator = GenotypeLocusDenominator(
             calls: calls,
@@ -259,7 +259,7 @@ public struct GenotypeMatrixBaseProjection: Sendable {
                 retainedFractions[identity] = fraction
             }
         }
-        // GEN-06 (D14): a candidate cell's percent is its read fraction in
+        // A candidate cell's percent is its read fraction in
         // that sample, with the same denominators as known alleles.
         var candidateViewed: [CandidateCell: Double] = [:]
         var candidateRetained: [CandidateCell: Double] = [:]

@@ -24,7 +24,7 @@ public struct ProcessTableRow: Sendable, Equatable {
 
 /// Reads the whole-system process table.
 ///
-/// PERF-11: the default implementation queries `libproc`
+/// The default implementation queries `libproc`
 /// (`proc_listallpids` + `proc_pidinfo(PROC_PIDTBSDINFO)`) directly —
 /// microseconds, no subprocess — in place of the previous `/bin/ps -Ao
 /// pid=,ppid=` and `/bin/ps -o stat= -p <pid>` spawns, which measured
@@ -141,7 +141,7 @@ public enum ProcessTreeTerminator {
     /// Same as ``descendantProcessIDs(of:)`` but computed from an
     /// already-fetched snapshot, so a caller walking several roots (or
     /// re-checking liveness in a loop) pays for one process-table read
-    /// instead of one per PID (PERF-11).
+    /// instead of one per PID.
     public static func descendantProcessIDs(of rootPID: Int32, in snapshot: [ProcessTableRow]) -> [Int32] {
         guard rootPID > 0 else { return [] }
 
@@ -181,7 +181,7 @@ public enum ProcessTreeTerminator {
     public static func terminate(rootPID: Int32, gracePeriod: TimeInterval = 0.5) {
         guard rootPID > 0 else { return }
 
-        // PERF-11: every liveness check and descendant lookup below reads
+        // Every liveness check and descendant lookup below reads
         // from a snapshot already fetched this call, rather than spawning
         // `/bin/ps` (or even a fresh libproc query) per PID. A `snapshot ==
         // nil` row means "not found in the last table read", which is
@@ -297,7 +297,7 @@ public enum ProcessTreeTerminator {
 /// `BAMImportHelperClient`) polled `process.isRunning` on a 100 ms
 /// `Thread.sleep` loop and called `process.terminate()` on cancellation,
 /// which signals only the helper root — descendant tool processes such as
-/// `bcftools` or `samtools` were left running (PERF-13). This utility
+/// `bcftools` or `samtools` were left running. This utility
 /// registers the process with ``NativeProcessRegistry`` for the duration of
 /// the wait (so app quit also reaches it), waits for exit via
 /// `Process.terminationHandler` rather than blocking on `waitUntilExit()`
@@ -404,7 +404,7 @@ public final class NativeProcessRegistry: @unchecked Sendable {
 
     /// Terminates every registered process tree concurrently.
     ///
-    /// PERF-11: the previous implementation terminated each root serially,
+    /// The previous implementation terminated each root serially,
     /// so N roots each paid their own grace period plus per-PID `ps` cost —
     /// measured at roughly 1 s per root, so quitting with four running tools
     /// took about 4 s of blocking time. `ProcessTreeTerminator.terminate`

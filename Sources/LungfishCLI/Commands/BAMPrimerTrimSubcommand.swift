@@ -207,7 +207,7 @@ extension BAMCommand {
 
             // Determine the target reference name.
             //
-            // WFL-08: an explicit `--target-reference` override is trusted as-is.
+            // An explicit `--target-reference` override is trusted as-is.
             // Otherwise, defaulting blindly to the scheme's canonical accession is
             // wrong whenever the BAM was mapped against an *equivalent* accession
             // (e.g. scheme keyed on `MN908947.3`, BAM `@SQ SN:NC_045512.2`):
@@ -505,7 +505,7 @@ extension BAMCommand {
     }
 }
 
-/// Encodes over the shared `CLIEvent` wire schema (ARC-02, SIMP-04) instead of
+/// Encodes over the shared `CLIEvent` wire schema instead of
 /// `PrimerTrimEvent`'s own ad hoc JSON shape. The rich completion fields
 /// (`outputAlignmentTrackID`, `bamPath`, `baiPath`, `provenanceSidecarPath`)
 /// that `CLIPrimerTrimRunner`'s only GUI caller never reads beyond the track

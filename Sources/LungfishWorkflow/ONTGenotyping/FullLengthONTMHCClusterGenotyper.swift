@@ -13,7 +13,7 @@ public struct FullLengthONTMHCClusterGenotypeRow: Codable, Equatable, Sendable {
     public let mappingQuality: Int?
     public let cigar: String?
     public let evidence: ONTMHCEvidenceLocator?
-    /// GEN-10 (D15): inserted plus deleted bases (outside introns) in the
+    /// Inserted plus deleted bases (outside introns) in the
     /// zero-SNP hit that made this a known call. Known calls still allow
     /// indels, because stochastic ONT indels would otherwise cause false
     /// negatives, but any indel base flags the call for review. Nil in
@@ -148,15 +148,15 @@ public struct FullLengthONTMHCReportRow: Codable, Equatable, Sendable {
     public let overallInputReads: Int
     public let overallUniqueRetainedReads: Int
     public let overallUniqueRetainedPercent: Double?
-    /// GEN-04 (D12): every reference that tied for this call's best hit in
+    /// Every reference that tied for this call's best hit in
     /// at least one of its clusters (identical references always tie),
     /// sorted; nil when the call was unique.
     public var ambiguousWith: [String]?
-    /// GEN-10 (D15): largest indel base count among the clusters behind
+    /// Largest indel base count among the clusters behind
     /// this call; nil when unknown.
     public var indelBases: Int?
 
-    /// GEN-10 (D15): known calls tolerate ONT indels, but any indel base
+    /// Known calls tolerate ONT indels, but any indel base
     /// means the call needs review.
     public var reviewFlag: String {
         (indelBases ?? 0) > 0 ? "indel" : ""
@@ -702,7 +702,7 @@ public enum FullLengthONTMHCClusterReportBuilder {
                 total + (clusterRows.map(\.clusterReads).max() ?? 0)
             }
         }
-        // GEN-04 (D12): every row of one sample cluster is an equal-best
+        // Every row of one sample cluster is an equal-best
         // known hit, so more than one reference per cluster is a tie (always
         // the case for identical references). Each tied call keeps the full
         // cluster reads and lists the whole tie group.

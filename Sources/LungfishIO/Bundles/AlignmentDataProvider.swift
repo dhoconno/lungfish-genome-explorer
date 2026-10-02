@@ -545,8 +545,8 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     /// purpose by TaxTriage and EsViritu's "Unique Reads" figure) parses at
     /// most `maxReads` (100,000 by default) reads and buffers up to 500 MB
     /// of raw SAM text before returning, so any contig with more than
-    /// 100,000 mapped reads silently under-reports its unique-read count
-    /// (PERF-04). The dedup key here is identical to
+    /// 100,000 mapped reads silently under-reports its unique-read count.
+    /// The dedup key here is identical to
     /// `AlignedRead.deduplicatedReadCount(from:)` in `AlignedReadDedup.swift`:
     /// a read's 0-based start, its reference-consuming alignment end, and
     /// its strand. Two reads sharing all three count as one.

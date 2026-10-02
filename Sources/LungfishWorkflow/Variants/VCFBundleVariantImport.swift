@@ -12,7 +12,7 @@ import LungfishIO
 /// which metadata the database carries, and how the database, provenance
 /// sidecar and manifest are published together.
 ///
-/// FEA-12: the GUI Import Center (`performVCFImport`, which builds the database
+/// The GUI Import Center (`performVCFImport`, which builds the database
 /// out of process through `--vcf-import-helper`) and `lungfish-cli import vcf
 /// <path> --output-dir <bundle.lungfishref>` (which builds it in process through
 /// `attachInProcess`) both call these functions, so the two entry points cannot

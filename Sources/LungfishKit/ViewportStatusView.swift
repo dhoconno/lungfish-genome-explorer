@@ -4,7 +4,7 @@
 
 import AppKit
 
-/// Accessible status overlay for result tables and viewports (UX-14).
+/// Accessible status overlay for result tables and viewports.
 ///
 /// Covers the "no matches" case (a filter or column filter narrowed the
 /// table to zero rows) and the "empty" case (a classifier run legitimately
@@ -17,7 +17,7 @@ import AppKit
 /// converge onto shared contracts.
 public final class ViewportStatusView: NSView {
     /// Overlay display cases. `.loading` and `.failed` are provided for
-    /// future adopters (UX-09) beyond `BatchTableView`'s current `.noMatches` use.
+    /// future adopters beyond `BatchTableView`'s current `.noMatches` use.
     public enum State {
         case loading(message: String)
         case empty(message: String, actionTitle: String? = nil)

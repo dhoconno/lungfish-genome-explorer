@@ -38,7 +38,7 @@ public enum LocusQueryError: Error, LocalizedError, Equatable {
 }
 
 /// Parses the genomic-location grammar the app displays back to the user, so
-/// pasting a coordinate string the ruler showed always works (SCI-13/FEA-09).
+/// pasting a coordinate string the ruler showed always works.
 ///
 /// Accepts, case- and whitespace-tolerantly:
 /// - `chr1` — a bare chromosome/contig name (rejected only if it also parses

@@ -215,7 +215,7 @@ public enum MSAReferenceBundleBuilder {
             }
         }
 
-        // Never delete the pre-existing output up front (WFL-02/REC-02): with
+        // Never delete the pre-existing output up front: with
         // --force, build the new bundle at a fresh sibling path and only
         // replace the requested output after the build succeeds, so a failure
         // partway through leaves the original bundle untouched.

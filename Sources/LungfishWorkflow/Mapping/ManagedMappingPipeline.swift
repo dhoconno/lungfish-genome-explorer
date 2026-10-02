@@ -1190,7 +1190,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     /// " mapped (") and primary-read counts ("primary", "primary mapped").
     /// The record counts include secondary and supplementary alignments,
     /// which inflates mapping-rate displays for chimeric or multi-mapped
-    /// data (SCI-05). LGE reports the primary-read counts so "reads mapped"
+    /// data. LGE reports the primary-read counts so "reads mapped"
     /// means reads, not alignment records. Falls back to the record-count
     /// lines only if a flagstat build predates the "primary" lines
     /// (samtools < 1.9).

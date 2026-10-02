@@ -288,7 +288,7 @@ public final class IndexedFASTAReader: Sendable {
     ///
     /// Both LF and CR must be stripped, not just LF: a CRLF-terminated FASTA
     /// (common from Windows-edited references) otherwise leaves a stray `\r`
-    /// in the sequence, shifting every base after it (SCI-12). Shared with
+    /// in the sequence, shifting every base after it. Shared with
     /// ``BgzipIndexedFASTAReader``, which reads the same on-disk byte layout
     /// for bgzip-compressed FASTA.
     static func sequenceText(fromIndexedWindow rawSequence: String) -> String {

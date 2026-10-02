@@ -162,7 +162,7 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertIn("TeamIdentifier=not set", signature.stderr)
 
     def test_smoke_test_fails_when_app_bundle_is_owner_only(self):
-        # REL-01 regression: a release packaged under a stray `umask 077`
+        # Regression: a release packaged under a stray `umask 077`
         # produces a 0700/0600 app that other macOS accounts cannot launch.
         with tempfile.TemporaryDirectory() as temp_dir:
             app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)

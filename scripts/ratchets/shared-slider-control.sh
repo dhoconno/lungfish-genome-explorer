@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """shared-slider-control.sh - Every slider in LGE goes through the shared control.
 
-Owner decision D10 (2026-09-24, docs/reports/2026-09-23-best-practices-audit/decisions.md):
+Owner decision (2026-09-24):
 every slider uses NumericSliderField / InlineNumericSliderField from
 Sources/LungfishKit/NumericSliderField.swift, so each one has the same look and a numeric
 field for direct entry. This fails when a bare SwiftUI `Slider(` appears anywhere else in

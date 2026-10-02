@@ -159,7 +159,7 @@ extension SequenceAppearance {
     ///
     /// - Parameter defaults: Storage to save into. Defaults to the app's real
     ///   preferences domain; tests must inject a suite-specific instance instead
-    ///   (TST-10 — this domain is `UserDefaults.standard` for non-fork builds,
+    ///   (this domain is `UserDefaults.standard` for non-fork builds,
     ///   which resolves to the app's actual real bundle identity inside xctest).
     ///
     /// ## Thread Safety
@@ -183,7 +183,7 @@ extension SequenceAppearance {
     ///
     /// - Parameter defaults: Storage to load from. Defaults to the app's real
     ///   preferences domain; tests must inject the same suite-specific instance
-    ///   passed to ``save(to:)`` (see its note on TST-10).
+    ///   passed to ``save(to:)`` (see its note).
     ///
     /// ## Thread Safety
     /// This method is safe to call from any thread, as UserDefaults
@@ -211,7 +211,7 @@ extension SequenceAppearance {
     ///
     /// - Parameter defaults: Storage to clear. Defaults to the app's real
     ///   preferences domain; tests must inject the same suite-specific instance
-    ///   passed to ``save(to:)`` (see its note on TST-10).
+    ///   passed to ``save(to:)`` (see its note).
     /// - Returns: The default SequenceAppearance
     @discardableResult
     public static func resetToDefaults(in defaults: UserDefaults = LungfishAppIdentity.current.preferences) -> SequenceAppearance {

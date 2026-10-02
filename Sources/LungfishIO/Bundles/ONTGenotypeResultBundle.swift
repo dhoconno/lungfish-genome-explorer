@@ -602,17 +602,17 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
     public let overallInputReads: Int?
     public let overallUniqueRetainedReads: Int?
     public let overallUniqueRetainedPercent: Double?
-    /// GEN-04 (D12): when the reference held identical sequences (including
+    /// When the reference held identical sequences (including
     /// reverse complements), they were collapsed onto this row's genotype
     /// before mapping. Lists every member of that ambiguity group, this
     /// genotype first. Nil for ordinary rows and for older bundles.
     public let ambiguousWith: [String]?
-    /// GEN-10 (D15): full-length ONT only. Indel bases in the zero-SNP hit
+    /// Full-length ONT only. Indel bases in the zero-SNP hit
     /// behind this known call (largest over its clusters). Nil for amplicon
     /// calls and for older bundles.
     public let indelBases: Int?
 
-    /// GEN-10 (D15): a known full-length call whose hit carries indels.
+    /// A known full-length call whose hit carries indels.
     /// It stays a known call, but needs review.
     public var needsIndelReview: Bool {
         (indelBases ?? 0) > 0
@@ -3811,7 +3811,7 @@ public enum ONTGenotypeResultBundle {
         )
     }
 
-    /// GEN-04: `ambiguous_with` is a ";"-separated member list. Absent or
+    /// `ambiguous_with` is a ";"-separated member list. Absent or
     /// empty (older bundles, rows without duplicates) means no group.
     static func parseAmbiguityGroup(_ value: String?) -> [String]? {
         let members = (value ?? "")

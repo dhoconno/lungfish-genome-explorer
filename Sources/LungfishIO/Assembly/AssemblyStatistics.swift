@@ -81,8 +81,8 @@ public enum AssemblyStatisticsCalculator {
     public static func compute(fromFASTAString fasta: String) -> AssemblyStatistics {
         var contigLengths: [Int64] = []
         var gcCount: Int64 = 0
-        // Denominator for GC fraction: unambiguous A/C/G/T bases only
-        // (SCI-20). Distinct from total assembly length, which counts every
+        // Denominator for GC fraction: unambiguous A/C/G/T bases only.
+        // Distinct from total assembly length, which counts every
         // residue including N and IUPAC ambiguity codes.
         var totalUnambiguousBases: Int64 = 0
         var currentLength: Int64 = 0
@@ -104,7 +104,7 @@ public enum AssemblyStatisticsCalculator {
                 currentGC = 0
                 currentUnambiguousBases = 0
             } else {
-                // Sequence line. SCI-20: contig length counts every residue,
+                // Sequence line. Contig length counts every residue,
                 // including IUPAC ambiguity codes (R, Y, K, M, S, W, B, D, H,
                 // V) and N — dropping them undercounts contig and assembly
                 // length relative to QUAST and every other assembly tool.

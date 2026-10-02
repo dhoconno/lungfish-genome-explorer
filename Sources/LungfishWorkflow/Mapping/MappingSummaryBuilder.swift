@@ -31,7 +31,7 @@ public enum MappingSummaryBuilder {
     /// alignments (as well as QC-fail and duplicate records, samtools
     /// coverage's own defaults) so per-contig mapped-read counts share one
     /// consistent primary-read numerator with the flagstat-derived
-    /// `mappedReads` (SCI-05).
+    /// `mappedReads`.
     static let primaryMappedReadExclusionFlags = "UNMAP,SECONDARY,SUPPLEMENTARY,QCFAIL,DUP"
 
     /// samtools filter flags used to count primary *records* regardless of
@@ -39,7 +39,7 @@ public enum MappingSummaryBuilder {
     /// This is the correct denominator for a mapped-read percentage: it
     /// should equal flagstat's "primary" count. Previously this denominator
     /// counted every alignment record, including unmapped, secondary and
-    /// supplementary ones (SCI-05).
+    /// supplementary ones.
     static let primaryRecordExclusionFlags = "SECONDARY,SUPPLEMENTARY,QCFAIL,DUP"
 
     public static func build(
@@ -58,7 +58,7 @@ public enum MappingSummaryBuilder {
             // Exclude supplementary alignments in addition to samtools coverage's
             // own default filter (UNMAP, SECONDARY, QCFAIL, DUP), so `numreads`
             // counts primary reads only and is comparable to `totalReads`
-            // (primary reads from flagstat). See SCI-05.
+            // (primary reads from flagstat).
             let coverageResult = try await runner.run(
                 .samtools,
                 arguments: ["coverage", "--ff", Self.primaryMappedReadExclusionFlags, sortedBAMURL.path],
@@ -266,7 +266,7 @@ public enum MappingSummaryBuilder {
 
         let view = Process()
         view.executableURL = samtoolsPath
-        // Exclude supplementary alignments here too (SCI-05), matching the
+        // Exclude supplementary alignments here too, matching the
         // unfiltered path's `coverage --ff` so numreads means primary reads
         // on both the read-group-filtered and unfiltered paths.
         view.arguments = ["view", "-h", "-F", Self.primaryMappedReadExclusionFlags, "-R", listURL.path, sortedBAMURL.path]
@@ -335,8 +335,8 @@ public enum MappingSummaryBuilder {
             // Count primary reads only (exclude unmapped, secondary and
             // supplementary), so this denominator is consistent with the
             // unfiltered path's flagstat-derived `totalReads` and with the
-            // numerator produced by `runFilteredCoverageSynchronously` above
-            // (SCI-05). Previously this counted every alignment record.
+            // numerator produced by `runFilteredCoverageSynchronously` above.
+            // Previously this counted every alignment record.
             let output = try await runProcessCapturingOutput(
                 executableURL: samtoolsPath,
                 arguments: ["view", "-c", "-F", Self.primaryRecordExclusionFlags, "-R", listURL.path, sortedBAMURL.path],

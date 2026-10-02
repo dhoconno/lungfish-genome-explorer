@@ -101,7 +101,7 @@ if [ ! -f "$SIGNED_BOOTSTRAP_SMOKE" ]; then
     exit 69
 fi
 
-# REL-01: a release packaged under a stray `umask 077` produces an app that
+# A release packaged under a stray `umask 077` produces an app that
 # is unreadable by any macOS account other than the one that built it. Fail
 # the smoke test if any file lacks other-read or any directory lacks
 # other-read+execute.
@@ -129,7 +129,7 @@ if [ ! -f "$APP_ICON_PATH" ]; then
     exit 66
 fi
 
-# REL-03: THIRD-PARTY-NOTICES must be bundled (it ships the GPL-2.0 kernel
+# THIRD-PARTY-NOTICES must be bundled (it ships the GPL-2.0 kernel
 # notice/source offer and every compiled-in SwiftPM dependency's license).
 if [ ! -f "$THIRD_PARTY_NOTICES_PATH" ]; then
     echo "THIRD-PARTY-NOTICES missing from app bundle: $THIRD_PARTY_NOTICES_PATH" >&2

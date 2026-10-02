@@ -1180,7 +1180,7 @@ public actor NativeToolRunner {
         try Task.checkCancellation()
         let logger = self.logger
 
-        // PERF-02: the process launch, wait and drain below must not run
+        // The process launch, wait and drain below must not run
         // synchronously on this actor's executor — that would pin the actor
         // for the child's whole lifetime and stall every other
         // `NativeToolRunner.shared` caller. `Task.detached` moves the
@@ -1523,7 +1523,7 @@ extension NativeToolRunner {
 
         try Task.checkCancellation()
 
-        // PERF-02: see the comment in `runWithFileOutput`. The launch/wait/drain
+        // See the comment in `runWithFileOutput`. The launch/wait/drain
         // below must not block this actor's executor.
         return try await withTaskCancellationHandler {
             try await Task.detached(priority: .utility) {
@@ -1708,7 +1708,7 @@ extension NativeToolRunner {
 
         try Task.checkCancellation()
 
-        // PERF-02: see the comment in `runWithFileOutput`. The launch/wait/drain
+        // See the comment in `runWithFileOutput`. The launch/wait/drain
         // below must not block this actor's executor.
         return try await withTaskCancellationHandler {
             try await Task.detached(priority: .utility) {

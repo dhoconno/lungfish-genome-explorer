@@ -62,7 +62,7 @@ extension FullLengthONTMHCGenotypingPipeline {
                 "overall_input_reads",
                 "overall_unique_retained_reads",
                 "overall_unique_retained_percent",
-                // GEN-10 (D15) and GEN-04 (D12). Readers treat these as
+                // Readers treat these as
                 // optional, so bundles written without them still load.
                 "indel_bases",
                 "review_flag",

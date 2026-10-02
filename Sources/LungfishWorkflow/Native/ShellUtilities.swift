@@ -127,7 +127,7 @@ public enum AdvancedCommandLineOptions {
 ///   - timeout: Timeout per attempt in seconds (default: 30).
 /// - Returns: The version string, or `"unknown"` if detection fails.
 /// - Throws: `CancellationError` if the enclosing task is cancelled while a
-///   probe is in flight (NEW-08). `condaManager.runTool` kills the probe
+///   probe is in flight. `condaManager.runTool` kills the probe
 ///   process and throws `CancellationError` on cancellation, but this
 ///   function used to catch every error indiscriminately and move on to the
 ///   next flag, silently absorbing the cancellation and returning

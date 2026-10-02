@@ -1,4 +1,4 @@
-"""Tests for scripts/release/upload-timeout.sh (REL-05).
+"""Tests for scripts/release/upload-timeout.sh.
 
 github_cli_asset_upload_timeout_seconds computes the timeout for a `gh
 release upload`/`create` call whose last argument is a local file, since the
@@ -58,10 +58,10 @@ class UploadTimeoutTests(unittest.TestCase):
         self.assertEqual(compute_timeout(0), 600)
 
     def test_dmg_sized_asset_scales_above_the_floor(self):
-        # 166,935,984 bytes was the actual 2026.9.38 DMG size cited in the
-        # audit (REL-05). At 50,000 bytes/s that is ~3339s (~55 minutes),
-        # comfortably above the old flat 180s bound and above the roughly
-        # 28-minute real-world upload time the audit measured.
+        # 166,935,984 bytes was the actual 2026.9.38 DMG size. At 50,000
+        # bytes/s that is ~3339s (~55 minutes), comfortably above the old
+        # flat 180s bound and above the roughly 28-minute real-world upload
+        # time at the ~100 KB/s this project has recorded in practice.
         dmg_size = 166_935_984
         timeout = compute_timeout(dmg_size)
         self.assertGreater(timeout, 180)

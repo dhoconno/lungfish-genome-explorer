@@ -47,7 +47,7 @@ public struct ExtractionRequest: Sendable {
     }
 
     /// Builds the default extraction request for an annotation, in feature
-    /// (5'->3') orientation (SCI-06): reverse-complements a minus-strand
+    /// (5'->3') orientation: reverse-complements a minus-strand
     /// feature and concatenates exons for spliced types, matching every other
     /// genome tool (UCSC, gffread, SnapGene, Geneious). Callers that need the
     /// raw plus-strand genomic span with introns intact — an explicit
@@ -287,13 +287,13 @@ public enum SequenceExtractor {
         // '-' for an ordinary linear feature — matching `TranslationEngine.
         // translateCDS` and the app-level rendering convention. For an
         // origin-spanning feature on a circular molecule, the annotation's
-        // stored interval order already IS transcription order (SCI-15) and
+        // stored interval order already IS transcription order and
         // must not be re-sorted in either genomic direction.
         let transcriptionOrderIntervals: [AnnotationInterval] = annotation.isOriginSpanning
             ? annotation.intervals
             : (annotation.strand == .reverse ? genomicOrderIntervals.reversed() : genomicOrderIntervals)
 
-        // SCI-06: flanks are specified in feature orientation (5' flank is
+        // Flanks are specified in feature orientation (5' flank is
         // upstream of the gene, 3' flank is downstream), not by coordinate. For
         // a minus-strand feature, "upstream" is the higher genomic coordinate,
         // so the flank amounts are swapped before being applied to the genomic
@@ -324,7 +324,7 @@ public enum SequenceExtractor {
 
             // Exon sequences, individually reverse-complemented when requested
             // and assembled in transcription order — matching
-            // `TranslationEngine.translateCDS` (SCI-06/SCI-15). Whole-string RC
+            // `TranslationEngine.translateCDS`. Whole-string RC
             // of a single ascending-order concatenation is only equivalent to
             // this for a linear feature; it is NOT equivalent for an
             // origin-spanning circular feature, whose stored interval order is
@@ -442,7 +442,7 @@ public enum SequenceExtractor {
             parts.append("[exons concatenated]")
         }
 
-        // SCI-06: label output that has been reoriented to feature (5'->3')
+        // Label output that has been reoriented to feature (5'->3')
         // orientation, as distinct from the raw plus-strand genomic span, so a
         // reader is not misled about which convention the header coordinates
         // and sequence follow.

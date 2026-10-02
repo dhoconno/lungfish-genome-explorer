@@ -79,7 +79,7 @@ public enum GenotypeHaplotypeLocusResolver {
     /// MHC-A while the name heuristic says MHC-B, so every grouping path must
     /// come through here rather than calling the heuristic on `locusGroup`.
     /// This grouping never feeds a read denominator: percentages divide by
-    /// the source locus (`GenotypeLocusDenominator`, GEN-05/D13).
+    /// the source locus (`GenotypeLocusDenominator`).
     public static func haplotypeEvidenceLocus(for call: ONTGenotypeCall) -> String {
         metadataHaplotypeGroupLocus(for: call.genotype)
             ?? haplotypeEvidenceLocusName(call.locusGroup)

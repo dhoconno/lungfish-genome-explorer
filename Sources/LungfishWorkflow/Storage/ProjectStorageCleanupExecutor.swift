@@ -2329,7 +2329,7 @@ public struct ProjectStorageCleanupExecutor: Sendable {
             case .workbookArchive:
                 workbookParents.insert(source.deletingLastPathComponent())
             case .interruptedOutput:
-                // FEA-06's scanInterruptedOperationOutputs(projectURL:) pass
+                // The scanInterruptedOperationOutputs(projectURL:) pass
                 // produces entries with .reviewRequired disposition (never
                 // .isSelectedByDefault) specifically so they never reach a
                 // cleanup journal built from selected/removable entries.

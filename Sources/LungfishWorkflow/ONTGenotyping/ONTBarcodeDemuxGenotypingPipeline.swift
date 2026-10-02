@@ -927,13 +927,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             }
         }
         progressHandler?(0.04, "Preparing amplicon genotyping output workspace.")
-        // GEN-12 / D5 (2026-09-23 best-practices audit): AI haplotyping is
+        // AI haplotyping is
         // disabled (the owner found it unreliable) and every entry point is
         // unreachable, but every MCM-preset run still copied the AI
         // specialist prompt into artifacts/ai-haplotyping/prompts and hashed
         // it into provenance -- a needless step and reviewer confusion
-        // ("was AI used here?") while the feature is off. Skip it while D5
-        // is in force.
+        // ("was AI used here?") while the feature is off. Skip it while AI
+        // haplotyping stays disabled.
         let supportDirectory = request.outputDirectory
             .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
         var failureCleanupDispositions: [AmpliconWorkDirectoryDisposition] = []
@@ -976,7 +976,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 )
             }
         }
-        // GEN-04 (D12): collapse identical reference sequences (including
+        // Collapse identical reference sequences (including
         // reverse complements) to one representative before mapping, so
         // perfect reads are not split arbitrarily across tied copies.
         reference.duplicateCollapse = try GenotypeReferenceDuplicateCollapser.collapse(
@@ -2013,7 +2013,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private struct ReferenceResolution {
         let referenceFASTAURL: URL
         let sourceReferenceBundleURL: URL?
-        /// GEN-04 (D12): identical-sequence collapse applied before mapping.
+        /// Identical-sequence collapse applied before mapping.
         var duplicateCollapse: GenotypeReferenceDuplicateCollapser.Collapse? = nil
 
         /// FASTA that minimap2 and the filter see: the collapsed copy when the
@@ -2048,7 +2048,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         /// the full-reference-span filter can call the 244 bp DRB amplicons.
         var mappingFASTQURL: URL
         let prefixedFASTQURL: URL
-        /// GEN-07 (2026-09-23 best-practices audit): mate/record count of
+        /// Mate/record count of
         /// `fastqURL` as imported. For interleaved paired input this counts
         /// EACH mate once (so a 1,000-pair sample reads 2,000 here), matching
         /// what `countWeightedFASTQRecords` returns before any merging. Use
@@ -2060,12 +2060,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         /// How the reads were prepared for mapping, recorded in provenance.
         var mergeOutcome: IlluminaAmpliconPairMerger.Outcome?
 
-        /// GEN-07 (2026-09-23 best-practices audit): the sample's read count
+        /// The sample's read count
         /// in FRAGMENT units -- one count per physical read/amplicon
         /// molecule, whether or not its mates were merged. This is the
         /// correct denominator for retention percentages and pivot
         /// `percent_reads_unmapped`; `readCount` alone halves retention for
-        /// any sample that needed on-the-fly bbmerge (GEN-07's original
+        /// any sample that needed on-the-fly bbmerge (the original
         /// defect), because it counts pre-merge mates while the retained
         /// side counts post-merge fragments.
         ///
@@ -2447,7 +2447,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "mappingInputLabel": sample.prefixedFASTQURL.lastPathComponent,
                 "readCount": sample.readCount,
                 "readCountSource": sample.readCountSource,
-                // GEN-07: fragment-denominated total, always present so the
+                // Fragment-denominated total, always present so the
                 // filter's `sample_total_reads` (and every retention
                 // percentage derived from it) counts physical molecules, not
                 // pre-merge mates. See `totalFragmentCount` for why this can
@@ -4747,7 +4747,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "options": options,
             "resolvedDefaults": resolvedDefaults,
             "runtimeIdentity": runtimeIdentity,
-            // GEN-12 (2026-09-23 best-practices audit): bbtools/bbmerge was
+            // bbtools/bbmerge was
             // missing from this list even on runs where Illumina pair
             // merging actually ran (IlluminaAmpliconPairMerger, invoked from
             // mergeIlluminaPairsIfNeeded), so provenance never named a tool

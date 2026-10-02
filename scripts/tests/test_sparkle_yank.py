@@ -1,4 +1,4 @@
-"""Tests for scripts/release/sparkle_yank.py and `release.py yank` (REL-04, D17).
+"""Tests for scripts/release/sparkle_yank.py and `release.py yank`.
 
 Every GitHub or network call goes through a fake YankRunner. Nothing here
 contacts GitHub.

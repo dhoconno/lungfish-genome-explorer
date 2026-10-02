@@ -2,7 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// SIMP-16 (2026-09-23 best-practices audit): this script used to live as a
+// This script used to live as a
 // 550-line raw string literal in this file, which meant no syntax
 // highlighting, no linting, and noisy Swift diffs for every Python change.
 // The script itself is unchanged (byte-identical) and now lives at

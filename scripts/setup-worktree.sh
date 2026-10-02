@@ -222,7 +222,7 @@ echo "Copied $copy_count runtime file(s)"
 echo "Linked $link_count runtime file(s)"
 echo "Removed $removed_count retired runtime file(s)"
 
-# TST-02: the pre-push hook (unit-tier gate) must always be installed, so a
+# The pre-push hook (unit-tier gate) must always be installed, so a
 # fresh worktree never silently skips local gating. Previously
 # setup-worktree.sh did not install it, and the primary checkout's hooks
 # directory held only *.sample files, so 11 releases shipped over a red

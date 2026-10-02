@@ -72,7 +72,7 @@ EXPECTED_GATES = {
     "appSmokeTests": ['LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateLaunchAndChannelIdentity', 'LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateImportFailureStatus', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateNativeOpenSaveCloseReopen', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership', 'LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser'],
     "dependencyPolicy": "manifest",
     # False until the owner creates the dedicated lungfish-release-qa macOS account the
-    # real-app smoke runs under (decision D6, amended 2026-09-24). Flip both together.
+    # real-app smoke runs under. Flip both together.
     "appSmokeRequired": False,
     "focusedReleaseTests": [
         "scripts.tests.test_test_catalog",

@@ -91,7 +91,7 @@ extension NaoMgsDatabase {
         // A 'fasta' (real, measured) length always wins over an
         // 'alignment-extent' (fallback) length from another staged sample,
         // regardless of which is numerically larger. Only when both sides
-        // share the same source does the larger extent win (SCI-09).
+        // share the same source does the larger extent win.
         let mergeReferenceLengthSQL = """
         INSERT INTO reference_lengths (accession, length, source)
         VALUES (?, ?, ?)

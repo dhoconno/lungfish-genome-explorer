@@ -1366,7 +1366,7 @@ extension VariantsCommand {
             )
         }
 
-        /// Encodes over the shared `CLIEvent` wire schema (ARC-02, SIMP-04)
+        /// Encodes over the shared `CLIEvent` wire schema
         /// instead of `VariantCallingEvent`'s own ad hoc JSON shape. The rich
         /// completion fields (`variantTrackID`, `vcfPath`, `tbiPath`,
         /// `databasePath`) that GUI callers never read are folded into

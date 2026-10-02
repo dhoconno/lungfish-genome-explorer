@@ -4,7 +4,7 @@
 The floor is the highest ``sparkle:version`` in the feed, including builds
 that ``release.py yank`` withdrew. A yank removes the item but leaves an
 ``<lge:yanked build="N">`` marker in the channel, so the next publish must
-still exceed the yanked build (REL-04).
+still exceed the yanked build.
 """
 
 from __future__ import annotations

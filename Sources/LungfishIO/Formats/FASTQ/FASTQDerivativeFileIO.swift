@@ -45,7 +45,7 @@ public enum FASTQOrientMapFile {
     /// Both read-ID sets a materializer needs from an orient map, computed in
     /// one streaming pass.
     ///
-    /// PERF-08: every materialization path previously called
+    /// Every materialization path previously called
     /// ``loadForwardReadIDs(from:)`` and ``loadRCReadIDs(from:)`` back to
     /// back, each loading the whole `orient-map.tsv` into a `String` and
     /// building its own `Set<String>`. For a 20M-read orient derivative (read

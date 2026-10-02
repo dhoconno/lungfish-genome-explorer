@@ -179,7 +179,7 @@ public struct ProjectStorageScanner {
         )
     }
 
-    /// FEA-06: finds directories still carrying the `.processing` sentinel
+    /// Finds directories still carrying the `.processing` sentinel
     /// (see ``OperationMarker``) — outputs from an operation the sidebar is
     /// hiding because it looks unfinished, whether that is still true or the
     /// operation was interrupted by a quit, a crash, or a cancelled window

@@ -3,7 +3,7 @@ import Foundation
 /// Shared anchored barcode assignment for the Fluidigm ONT read layout
 /// `CS1 + insert + rc(CS2) + spacer + barcode`.
 ///
-/// GEN-01 (2026-09-23 best-practices audit): both the Swift materializers
+/// Both the Swift materializers
 /// (`ONTFluidigmAmpliconMaterializer`, `ONTFluidigmSampleMaterializer`) and
 /// the embedded Python demux filter used a free `regex.search` /
 /// leftmost-two-bit-code scan for the barcode sequence *anywhere* in the
@@ -42,7 +42,7 @@ enum ONTFluidigmAnchoredBarcodeAssigner {
 
     /// Default trailing spacer between the anchor and the barcode, matching
     /// the shipped Fluidigm layout (`rc(CS2) + NN + barcode`, `NN` typically
-    /// 0-2bp). Kept generous (8bp) per GEN-01's recommendation to tolerate
+    /// 0-2bp). Kept generous (8bp) to tolerate
     /// spacer-length variation without reopening the whole read to search.
     static let defaultWindowLength = 8
 

@@ -259,7 +259,7 @@ class FrontDoorTransactionTests(unittest.TestCase):
         self.assertNotIn("builder-package-only", operations.events)
 
     def test_unit_gate_precondition_refuses_missing_stale_or_red_evidence(self):
-        # TST-02/D6: release.py must not package unless a green unit-tier
+        # release.py must not package unless a green unit-tier
         # gate.result.json is on record for the exact candidate commit.
         # This is the "a deliberately failing test makes the release package
         # preflight exit non-zero" acceptance test, exercised at the

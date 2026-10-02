@@ -1,4 +1,4 @@
-"""Withdraw ("yank") a bad release from a Sparkle channel feed (REL-04, D17).
+"""Withdraw ("yank") a bad release from a Sparkle channel feed.
 
 Each publish overwrites the mutable per-channel appcast asset
 (``sparkle-beta/appcast-beta.xml``, ``sparkle-stable/appcast-stable.xml``)

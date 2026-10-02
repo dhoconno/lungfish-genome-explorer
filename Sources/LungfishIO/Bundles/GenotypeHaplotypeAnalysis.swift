@@ -283,7 +283,7 @@ public enum GenotypeHaplotypeCallStatus: String, Codable, Equatable, Sendable {
     case tooManyHaplotypes
     case tooManyGenotypes
     case specialCase
-    /// GEN-02 (D11): two or more candidate haplotypes have identical
+    /// Two or more candidate haplotypes have identical
     /// observed diagnostic alleles, so the data cannot tell them apart
     /// (e.g. MCM DP M4 and M7, whose definitions are identical). The
     /// affected slot is an ambiguity token joining the candidates with "|"
@@ -294,7 +294,7 @@ public enum GenotypeHaplotypeCallStatus: String, Codable, Equatable, Sendable {
     /// such as DQ M2/M2 vs M6, are no longer ambiguous: the analyzer drops
     /// candidates without independent evidence and calls them homozygous.)
     case ambiguous
-    /// GEN-08 (2026-09-23 best-practices audit): only one haplotype's
+    /// Only one haplotype's
     /// diagnostic alleles were observed, AND every diagnostic call at this
     /// locus is explained by that one haplotype -- no residual, unexplained
     /// diagnostic evidence remains. This is the confident homozygous case.
@@ -302,7 +302,7 @@ public enum GenotypeHaplotypeCallStatus: String, Codable, Equatable, Sendable {
     /// name), distinct from `.called`'s "-" placeholder, which is now
     /// reserved for `unresolvedSecondHaplotype` below.
     case homozygous
-    /// GEN-08 (2026-09-23 best-practices audit): only one haplotype's
+    /// Only one haplotype's
     /// diagnostic alleles were observed, but the sample also carries
     /// diagnostic genotype calls at this locus that are NOT explained by
     /// that one matched haplotype (evidence of a second, undefined or

@@ -28,7 +28,7 @@ public struct ProjectStorageClassification: Codable, Equatable, Sendable {
         case unknownOwnedPattern
         case inspectionFailed
         case resourceLimitExceeded
-        /// FEA-06: a directory still carrying the `.processing` sentinel
+        /// A directory still carrying the `.processing` sentinel
         /// (``OperationMarker``) from an operation that was interrupted by
         /// quit, crash, or a cancelled window close, rather than one that is
         /// still actively running in this app session.
@@ -84,7 +84,7 @@ public struct ProjectStorageEntry: Identifiable, Equatable, Sendable {
         case workbookArchive
         case workflowStaging
         case temporary
-        /// FEA-06: directories left behind by an operation that was
+        /// Directories left behind by an operation that was
         /// interrupted (quit, crash, cancelled window close) before it
         /// could clear its ``OperationMarker`` `.processing` sentinel.
         /// Reported with a "reveal" affordance rather than being hidden.

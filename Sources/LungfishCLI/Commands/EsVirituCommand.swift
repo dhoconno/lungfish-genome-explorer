@@ -132,7 +132,7 @@ extension EsVirituCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        /// `--read-format` values. `auto` resolves per input (NEW-06, D19).
+        /// `--read-format` values. `auto` resolves per input.
         enum ReadFormatChoice: String, ExpressibleByArgument, CaseIterable, Sendable {
             case auto
             case unpaired
@@ -267,7 +267,7 @@ extension EsVirituCommand {
                 outputDirectory: outputDirectory,
                 databasePath: dbURL,
                 qualityFilter: !noQC,
-                // WFL-10: no CLI flag feeds this any more -- see the removed
+                // No CLI flag feeds this any more -- see the removed
                 // `--min-read-length` option above. EsViritu itself has no
                 // minimum-read-length option and its fastp invocation is not
                 // parameterized with one either, so the flag never reached

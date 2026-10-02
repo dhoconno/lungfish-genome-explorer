@@ -431,7 +431,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 // Exon/intron numbering here is genomic left-to-right (gap inference
                 // from alignment), not transcription order, so sort ascending
                 // explicitly rather than relying on `cds.intervals`' stored order
-                // (SCI-15: SequenceAnnotation preserves parser/caller order).
+                // (SequenceAnnotation preserves parser/caller order).
                 let genomicOrderIntervals = cds.intervals.sorted { $0.start < $1.start }
                 annotations.append(contentsOf: genomicOrderIntervals.enumerated().map { index, interval in
                     SequenceAnnotation(

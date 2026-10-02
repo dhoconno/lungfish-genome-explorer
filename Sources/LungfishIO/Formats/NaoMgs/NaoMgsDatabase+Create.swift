@@ -708,7 +708,7 @@ extension NaoMgsDatabase {
                     sqlite3_bind_double(stmt, 8, coverageFraction)
                     // Rows are always created from alignment extents at this
                     // point; a later reference fetch upgrades the source via
-                    // refreshAccessionSummaryReferenceLengths (SCI-09).
+                    // refreshAccessionSummaryReferenceLengths.
                     naoBindText(stmt, 9, NaoMgsReferenceLengthSource.alignmentExtent.rawValue)
 
                     guard sqlite3_step(stmt) == SQLITE_DONE else {
@@ -749,7 +749,7 @@ extension NaoMgsDatabase {
 
         // These are fallback lengths only (furthest alignment end), never a
         // measured reference length, so they are always stored with source
-        // 'alignment-extent' (SCI-09). `updateReferenceLengths` overwrites
+        // 'alignment-extent'. `updateReferenceLengths` overwrites
         // with source 'fasta' once a real reference is fetched.
         let sql = """
         INSERT OR IGNORE INTO reference_lengths (accession, length, source)
