@@ -174,7 +174,7 @@ extension ViewerViewController {
             ) { opID in
                 let blastRunID = controller?.beginBlastVerification(for: node)
                 let weakController = controller
-                // WFL-12: the drawer's own Cancel button reads this to actually
+                // The drawer's own Cancel button reads this to actually
                 // cancel the run, rather than only logging.
                 controller?.currentBlastOperationID = opID
 
@@ -409,7 +409,7 @@ extension ViewerViewController {
             ) { opID in
                 let blastRunID = controller.beginBlastVerification(for: node)
                 let weakController = controller
-                // WFL-12: the drawer's own Cancel button reads this to actually
+                // The drawer's own Cancel button reads this to actually
                 // cancel the run, rather than only logging.
                 controller.currentBlastOperationID = opID
 

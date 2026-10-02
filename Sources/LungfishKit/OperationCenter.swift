@@ -253,7 +253,7 @@ public final class OperationCenter: ObservableObject {
         public var cliCommand: String?
         /// Step-by-step log entries recorded during this operation.
         ///
-        /// PERF-15: bounded by ``appendLogEntryCapped(_:)`` to at most
+        /// Bounded by ``appendLogEntryCapped(_:)`` to at most
         /// ``maxRetainedLogEntries`` (the first ``keepFirstLogEntries`` plus
         /// the most recent entries, joined by one elision-marker entry once
         /// the cap is exceeded), so a long-running operation with many
@@ -455,7 +455,7 @@ public final class OperationCenter: ObservableObject {
     /// Canonical paths and their active owner/scope share one lock authority.
     private var bundleLocks: [String: BundleLock] = [:]
     /// Operations that ``cancel(id:)`` forced to `.cancelled` after the grace
-    /// period while their worker was still running (NEW-08), keyed by ID with a
+    /// period while their worker was still running, keyed by ID with a
     /// snapshot of the item. Their bundle locks stay held until the worker
     /// itself calls a terminal method, because it may still be writing.
     private var abandonedWorkers: [UUID: Item] = [:]
@@ -485,7 +485,7 @@ public final class OperationCenter: ObservableObject {
 
     /// All currently running or cancelling operations.
     ///
-    /// Used by FEA-06's quit and window-close warnings: `applicationShouldTerminate`
+    /// Used by the quit and window-close warnings: `applicationShouldTerminate`
     /// checks every active item, while a window-close check narrows to
     /// ``activeItems(forProjectURL:)`` so closing one project window does not
     /// warn about work running in a different project's window.
@@ -1024,14 +1024,14 @@ public final class OperationCenter: ObservableObject {
     /// Running operations without a cancel callback are left unchanged because the
     /// center has no mechanism to stop their underlying work.
     ///
-    /// NEW-08: `onCancel` only *signals* the worker (e.g. `task.cancel()`, killing a
+    /// `onCancel` only *signals* the worker (e.g. `task.cancel()`, killing a
     /// subprocess tree); it does not, by itself, guarantee the worker's `Task` ever
     /// returns to call a terminal method (`complete`/`fail`/`acknowledgeCancellation`).
     /// A worker blocked in an uninterruptible pre-tool stage -- a synchronous
     /// filesystem call stuck waiting on something outside the process, for
     /// example -- never observes `Task.isCancelled` and never returns, so without a
     /// fallback the operation stays `.cancelling` (shown as active, bundle still
-    /// locked) forever, exactly as NEW-08 was found live: tool processes gone, but
+    /// locked) forever, exactly as it was found live: tool processes gone, but
     /// the row never left the active list. After ``cancelGracePeriod``, if the
     /// operation is still `.cancelling`, this forces it to a terminal `.cancelled`
     /// state and releases its bundle lock itself. `finishWorker`'s own guard

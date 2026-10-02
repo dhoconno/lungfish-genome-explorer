@@ -728,7 +728,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertTrue(args.contains("--skip_krona"))
     }
 
-    // Reported 2026-09-23 (best-practices audit, WFL-10b): `classifiers` was
+    // Reported 2026-09-23: `classifiers` was
     // recorded in provenance and the inspector but never reached the
     // Nextflow arguments, so a user's classifier selection silently had no
     // effect on the run.
