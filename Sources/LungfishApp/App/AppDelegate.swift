@@ -120,7 +120,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private var isTerminating = false
     private var manualHaplotypeTerminationTask: Task<Void, Never>?
     private var isReenteringManualHaplotypeTermination = false
-    /// FEA-06: set once the user has confirmed "Cancel Operations and Quit"
+    /// Set once the user has confirmed "Cancel Operations and Quit"
     /// (or there was nothing running to warn about), so the re-entrant
     /// `terminate()` call this triggers does not show the sheet again.
     private var hasConfirmedQuitWithRunningOperations = false
@@ -366,7 +366,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    // NEW-03: internal (not private) so other files in this module — e.g.
+    // Internal (not private) so other files in this module — e.g.
     // AppDelegate+MenuActions.swift's Open Recent / Open Project Folder
     // handlers — can check for an already-open project before creating a
     // second window for it.
@@ -839,9 +839,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Ensure app-managed imports/workflows and any native tool descendants
         // are stopped before AppKit tears down the process. By the time
         // applicationWillTerminate runs, applicationShouldTerminate's
-        // running-operations sheet (FEA-06) has already been confirmed and
+        // running-operations sheet has already been confirmed and
         // OperationCenter.cancelAll() already called once, so this is
-        // normally a fast no-op backstop; terminateAll (PERF-11) terminates
+        // normally a fast no-op backstop; terminateAll terminates
         // every registered root concurrently rather than serially, so N
         // stragglers still cost about one grace period total, not N.
         OperationCenter.shared.cancelAll()
@@ -900,7 +900,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return .terminateLater
         }
 
-        // FEA-06: quitting with running operations previously gave no
+        // Quitting with running operations previously gave no
         // warning at all — `OperationCenter.shared.items` was never
         // consulted here, only manual-haplotype edits and project-load
         // tasks. Ask first, unless the user already confirmed once for
@@ -940,8 +940,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     // make it safe to tear down the process.
                     // AppKit was already told `.terminateLater`, so the outcome
                     // of the re-run must always reach `reply`: a `.terminateNow`
-                    // result was previously discarded and the app never quit
-                    // (NEW-09). `.terminateLater` means the inner path owns the
+                    // result was previously discarded and the app never quit.
+                    // `.terminateLater` means the inner path owns the
                     // reply itself.
                     switch self.applicationShouldTerminate(reply: reply) {
                     case .terminateNow:
@@ -988,7 +988,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         return .terminateLater
     }
 
-    /// FEA-06: shows the quit-with-running-operations warning sheet and
+    /// Shows the quit-with-running-operations warning sheet and
     /// returns `true` if the user chose to cancel the operations and quit.
     ///
     /// HIG-style destructive-action sheet: lists the running operations by
@@ -1437,7 +1437,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// For a loose document, the edit is applied in-memory (the document is what gets
     /// saved). For a reference bundle -- where `currentDocument` is `nil` -- the edit
     /// must be written to the bundle's SQLite annotation database directly, or it is
-    /// lost on the next redraw/reload (FEA-03/UX-01).
+    /// lost on the next redraw/reload.
     @objc private func handleAnnotationUpdated(_ notification: Notification) {
         guard let annotation = notification.userInfo?[NotificationUserInfoKey.annotation] as? SequenceAnnotation else {
             return
@@ -1499,8 +1499,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// but a reference bundle's annotation must be deleted from its SQLite annotation
     /// database through the same persistent path the annotation drawer already uses
     /// (`ReferenceBundleManualAnnotationService.deleteAnnotation`), or the confirmation's
-    /// "cannot be undone" is a lie and the annotation reappears on the next redraw
-    /// (FEA-03/UX-01).
+    /// "cannot be undone" is a lie and the annotation reappears on the next
+    /// redraw.
     @objc private func handleAnnotationDeleted(_ notification: Notification) {
         guard let annotation = notification.userInfo?[NotificationUserInfoKey.annotation] as? SequenceAnnotation else {
             return

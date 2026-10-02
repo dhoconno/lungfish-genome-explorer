@@ -86,7 +86,7 @@ final class ThirdPartyLicensesWindowController: NSWindowController {
     /// There is deliberately no dynamic fallback here: a summary built only
     /// from the managed-tool manifest omits the bundled GPL-2.0 kernel and
     /// every compiled-in SwiftPM dependency's license, which is the defect
-    /// this file's generation was built to fix (REL-03). Missing the bundled
+    /// this file's generation was built to fix. Missing the bundled
     /// resource is a packaging bug that should be visible, not papered over.
     private static func loadLicenseText() -> String {
         if let url = Bundle.main.url(forResource: "THIRD-PARTY-NOTICES", withExtension: nil),

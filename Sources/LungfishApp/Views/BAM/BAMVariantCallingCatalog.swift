@@ -64,7 +64,7 @@ enum BAMVariantCallingToolID: String, CaseIterable, Sendable {
         ViralVariantCaller(rawValue: rawValue)
     }
 
-    /// D4 (2026-09-23 best-practices audit, WFL-03): "GATK + WhatsHap
+    /// "GATK + WhatsHap
     /// Phased" reports readiness in the dialog but every launcher then
     /// treats it as not-ready (`pendingPhasedVariantPlan` is read nowhere),
     /// so the tool always dead-ends with a contradictory "Not Ready" alert.

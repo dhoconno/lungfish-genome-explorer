@@ -95,8 +95,8 @@ extension SequenceViewerView {
     /// - Sequence is only fetched when zoomed in enough to be visible (<500 bp/pixel)
     ///   because reading 240 MB of bgzip data for a full chromosome is impractical
     ///
-    /// - Parameter dirtyRect: The rect AppKit actually asked to repaint. PERF-09/audit
-    ///   finding "SequenceViewerView draw(_:) ignores dirtyRect and repaints every track":
+    /// - Parameter dirtyRect: The rect AppKit actually asked to repaint.
+    ///   `SequenceViewerView.draw(_:)` used to ignore it and repaint every track:
     ///   each track's *drawing* call below is skipped when its vertical band does not
     ///   intersect `dirtyRect`, so a narrow invalidation (e.g. the loading-badge rect) no
     ///   longer repaints the ruler/annotations/variants/coverage/reads it doesn't touch.
@@ -249,7 +249,7 @@ extension SequenceViewerView {
         // layout pass (expanded mode sizes it from label/sub-track heights actually drawn), so
         // unlike coverage/reads below, this track's own draw call cannot be skipped without
         // duplicating that layout logic — variant/read positioning depends on the real value.
-        // It stays unconditional; PERF-09/audit's dirtyRect skip is applied to reads and coverage
+        // It stays unconditional; the dirtyRect skip is applied to reads and coverage
         // instead, which do not have this forward dependency.
         if cachedAnnotationRegion?.chromosome == visibleRegion.chromosome,
            !cachedBundleAnnotations.isEmpty {
@@ -404,7 +404,7 @@ extension SequenceViewerView {
                 width: bounds.width,
                 height: coverageStripHeight
             )
-            // PERF-09/audit: the coverage strip's Y band is fully known before it draws (unlike
+            // The coverage strip's Y band is fully known before it draws (unlike
             // annotations above), so a narrow dirtyRect that doesn't reach it — the loading-badge
             // rect being the common case — can skip the O(depth points) draw entirely. A full
             // redraw's dirtyRect always covers bounds, hence always intersects this band.
@@ -478,7 +478,7 @@ extension SequenceViewerView {
                     // every pixel of pan.
                     let viewportSpan = max(1, visibleRegion.end - visibleRegion.start)
                     let panQuantum = max(1, viewportSpan / 4)
-                    // PERF-09: cached on the cachedAlignedReads didSet instead of rescanning up
+                    // Cached on the cachedAlignedReads didSet instead of rescanning up
                     // to 50,000 reads every draw() call (including every loading-badge tick).
                     let maxReadSpan = cachedMaxReadSpan ?? 500
                     let packPadding = max(maxReadSpan, min(10_000, max(500, viewportSpan)))
@@ -598,9 +598,9 @@ extension SequenceViewerView {
                     // viewport are culled instead of being walked read-by-read.
                     let contentClipRect = clipRect.offsetBy(dx: 0, dy: readScrollOffset)
 
-                    // PERF-09/audit: ReadTrackRenderer already culls rows to `clipRect`
-                    // internally (ReadTrackCulling.visibleRowRange, listed as exemplary in the
-                    // audit's "Preserve" section) — it just was never told about a narrow
+                    // ReadTrackRenderer already culls rows to `clipRect` internally
+                    // (ReadTrackCulling.visibleRowRange) — it just was never told
+                    // about a narrow
                     // invalidation, so a badge-only redraw still walked every visible row when
                     // packing 50k+ reads. Narrowing the clip passed in to `dirtyRect`'s overlap
                     // lets that existing culling skip rows outside the current repaint, and
@@ -1000,8 +1000,8 @@ extension SequenceViewerView {
     /// Builds a map from reference chromosome names to variant DB chromosome names.
     ///
     /// When a VCF uses different chromosome naming (e.g., "7" vs "NC_041760.1"),
-    /// this delegates to the shared ``ChromosomeAliasResolver`` (SCI-14,
-    /// SIMP-07): exact match, known alias, version-suffix stripping, `chr`
+    /// this delegates to the shared ``ChromosomeAliasResolver``:
+    /// exact match, known alias, version-suffix stripping, `chr`
     /// prefix, well-known synonyms and FASTA-description matching are all
     /// tried before falling back to length. The previous implementation had
     /// its own separate length-matching logic (contig length within 10bp, or
@@ -1027,7 +1027,7 @@ extension SequenceViewerView {
     /// Same matching as ``buildVariantChromosomeAliasMap`` (identical resolver,
     /// identical cascade, identical result), but also returns short,
     /// user-facing note strings for every mapping the resolver could only make
-    /// by contig length (SCI-14). The matching logic itself is untouched --
+    /// by contig length. The matching logic itself is untouched --
     /// this only adds a user-visible surface for what was previously logged
     /// but never shown in the UI.
     ///
@@ -1085,7 +1085,7 @@ extension SequenceViewerView {
             sequenceViewerLogger.warning("buildVariantChromosomeAliasMap: Could not match VCF chromosomes [\(vcfSample)] to reference chromosomes [\(refSample)] — variant queries may return empty results")
         }
 
-        // SCI-14: surface every length-only mapping individually. A VCF
+        // Surface every length-only mapping individually. A VCF
         // shown against the wrong, similarly-sized contig has REF alleles
         // that will not match the displayed sequence, so this must not be
         // silent or buried in a count.
@@ -1114,7 +1114,7 @@ extension SequenceViewerView {
         var lengthMatchNotes: [String] = []
     }
 
-    /// PERF-07 (2026-09-23 best-practices audit): the body of `setReferenceBundle`'s variant-track
+    /// The body of `setReferenceBundle`'s variant-track
     /// scan, extracted so it can run off the main actor. Opens every variant database declared by
     /// the bundle and reads `sampleCount()` / `allChromosomes()` plus the fast alias map — the
     /// same work `setReferenceBundle` used to do synchronously on main. `VariantDatabase` is

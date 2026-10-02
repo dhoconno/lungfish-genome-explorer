@@ -193,7 +193,7 @@ public class SequenceViewerView: NSView {
             // changes need to be tracked.
             cachedReadSetGeneration += 1
             cachedPackKey = nil
-            // PERF-09: maxReadSpan used to be recomputed by scanning up to 50,000 reads on
+            // maxReadSpan used to be recomputed by scanning up to 50,000 reads on
             // every draw() call, including every ~55ms loading-badge animation tick. The scan
             // result only depends on the read set itself, so compute it once here (keyed
             // implicitly by cachedReadSetGeneration, which just advanced) instead of per frame.
@@ -320,7 +320,7 @@ public class SequenceViewerView: NSView {
     /// Badge rects (view coordinates) drawn by `drawTrackLoadingBadge` during the most recent
     /// `draw(_:)` pass. Cleared at the top of every full draw and repopulated as each badge is
     /// drawn. The spinner-animation timer invalidates only the union of these rects instead of
-    /// the whole view (PERF-09), so a spinner tick during a fetch does not force a full re-run
+    /// the whole view, so a spinner tick during a fetch does not force a full re-run
     /// of ruler/annotation/variant/coverage/read-track drawing every ~55ms.
     var lastDrawnLoadingBadgeRects: [CGRect] = []
 
@@ -329,7 +329,7 @@ public class SequenceViewerView: NSView {
     var testLoadingAnimationInvalidatedRects: [CGRect] = []
 
     /// One tick of the loading-badge spinner: advances the phase and invalidates only the
-    /// badge rect(s) drawn on the last full pass, instead of the whole view (PERF-09). Factored
+    /// badge rect(s) drawn on the last full pass, instead of the whole view. Factored
     /// out of the timer closure so it is directly callable from tests without a live RunLoop timer.
     func advanceLoadingAnimationTick() {
         trackLoadingAnimationPhase += 0.34
@@ -456,7 +456,7 @@ public class SequenceViewerView: NSView {
     /// Whether to tint read backgrounds by strand direction.
     var showStrandColorsSetting: Bool = true
 
-    /// How reads are ordered before packing into rows (FEA-08: the renderer
+    /// How reads are ordered before packing into rows (the renderer
     /// implements every `ReadSortMode`, but every production call site used
     /// to hard-code `.position` — there was no way to reach the others).
     var readSortModeSetting: ReadSortMode = .position
@@ -466,7 +466,7 @@ public class SequenceViewerView: NSView {
     /// view when Base at Position is chosen in the Inspector.
     var readSortPositionSetting: Int?
 
-    /// How reads are colored (FEA-08: `ReadTrackRenderer.readColors(for:colorMode:)`
+    /// How reads are colored (`ReadTrackRenderer.readColors(for:colorMode:)`
     /// implements every `ReadColorMode`, but it was previously called only from
     /// tests — the packed-read draw path only ever branched on a strand boolean).
     var readColorModeSetting: ReadColorMode = .strand
@@ -1140,7 +1140,7 @@ public class SequenceViewerView: NSView {
     var variantChromosomeAliasMap: [String: String] = [:]
     /// Short, user-facing notes for every entry in `variantChromosomeAliasMap`
     /// that `ChromosomeAliasResolver` could only match by contig length, not
-    /// by name/alias/version/synonym (SCI-14), e.g. "Matched VCF contig
+    /// by name/alias/version/synonym, e.g. "Matched VCF contig
     /// NC_045512.2 to MN908947.3 by length". Surfaced as a tooltip on the
     /// Variants tab in `AnnotationTableDrawerView` so this is visible in the
     /// GUI rather than only logged.
@@ -1246,7 +1246,7 @@ public class SequenceViewerView: NSView {
     var scrollRedrawTimer: Timer?
 
     /// Wall-clock time of the last pan-driven redraw actually performed, used by
-    /// `throttledPanRedraw` (PERF-09) to redraw at most once per ~1/60s frame during a pan
+    /// `throttledPanRedraw` to redraw at most once per ~1/60s frame during a pan
     /// instead of resetting a one-shot debounce timer on every scroll event, which can starve
     /// entirely under fast trackpad momentum (each event arrives before the previous timer
     /// fires, so it keeps getting cancelled and rescheduled).
@@ -1752,7 +1752,7 @@ public class SequenceViewerView: NSView {
 
     #if DEBUG
     /// Test seam: fires on `variantAliasWarmupQueue` at the start of `setReferenceBundle`'s
-    /// PERF-07 variant-track scan, before any `VariantDatabase` is opened. Lets tests assert the
+    /// variant-track scan, before any `VariantDatabase` is opened. Lets tests assert the
     /// scan actually left the main thread. `nonisolated(unsafe)` matches the existing
     /// `fastaOperationThreadingProbe` pattern. Debug-only; compiled out of release builds.
     nonisolated(unsafe) static var variantTrackScanThreadingProbe: (@Sendable () -> Void)?
@@ -2131,8 +2131,8 @@ public class SequenceViewerView: NSView {
 
         guard !aminoAcidPositions.isEmpty else { return nil }
         // The 5'-most segment in transcription order carries the phase: ascending
-        // genomic order for '+', descending for '-' (SCI-10). `annotation.intervals`
-        // may not be genomic-ascending (SCI-15 origin-spanning features), so anchor
+        // genomic order for '+', descending for '-'. `annotation.intervals`
+        // may not be genomic-ascending (origin-spanning features), so anchor
         // explicitly rather than relying on array order.
         let fivePrimeInterval = annotation.strand == .reverse
             ? annotation.intervals.max(by: { $0.start < $1.start })
@@ -2371,7 +2371,7 @@ public class SequenceViewerView: NSView {
 
         // Cache sample count and build a fast chromosome alias map from variant databases.
         //
-        // PERF-07 (2026-09-23 best-practices audit): this used to open every variant database,
+        // This used to open every variant database,
         // and call `sampleCount()` + `allChromosomes()` + the fast alias-map builder,
         // synchronously on the main actor. A cohort VCF with tens of millions of variant rows
         // costs roughly 1-2s here on bundle open. The scan now runs in a detached task and

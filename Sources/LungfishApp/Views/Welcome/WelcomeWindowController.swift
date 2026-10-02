@@ -42,7 +42,7 @@ public final class RecentProjectsManager: ObservableObject {
     public func addRecentProject(url: URL, name: String) {
         logger.info("Adding recent project: \(name, privacy: .public) at \(url.path, privacy: .public)")
 
-        // NEW-03: dedupe by standardized, symlink-resolved path rather than
+        // Dedupe by standardized, symlink-resolved path rather than
         // raw URL equality. Two URLs that name the same project (e.g. one
         // built via URL(fileURLWithPath:) without a trailing slash, one via
         // appendingPathComponent(isDirectory: true), or one through a

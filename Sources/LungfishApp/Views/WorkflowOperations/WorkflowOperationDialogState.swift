@@ -1264,7 +1264,7 @@ final class WorkflowOperationDialogState {
                     extraArguments: parsedExtraArguments,
                     mode: launchMode,
                     readType: readType,
-                    // WFL-13: do not hard-code the MiSeq workflow kind here.
+                    // Do not hard-code the MiSeq workflow kind here.
                     // `ONTBarcodeDemuxGenotypingPipeline.resolvedResultWorkflowKind`
                     // already derives the correct kind from the resolved
                     // input mode (`.miSeqAmpliconMHCGenotype` only for
@@ -1290,7 +1290,7 @@ final class WorkflowOperationDialogState {
                     extraArguments: parsedExtraArguments,
                     mode: launchMode,
                     readType: readType,
-                    // WFL-13: see the deterministic-haplotyping branch above.
+                    // See the deterministic-haplotyping branch above.
                     resultWorkflowKind: nil
                 )
             }

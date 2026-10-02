@@ -187,7 +187,7 @@ public enum BAMImportHelperClient {
             throw BAMImportHelperClientError.helperLaunchFailed(error.localizedDescription)
         }
 
-        // PERF-13: terminate the whole process tree on cancel (not just the
+        // Terminate the whole process tree on cancel (not just the
         // helper root), and register with NativeProcessRegistry so app quit
         // also reaches it. The BAM import helper can spawn samtools children
         // that must not outlive a cancelled import.

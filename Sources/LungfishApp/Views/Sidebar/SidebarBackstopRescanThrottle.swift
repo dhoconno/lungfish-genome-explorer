@@ -6,7 +6,7 @@ import Foundation
 
 /// Decides whether an activation-driven backstop rescan of the sidebar may run.
 ///
-/// NEW-02: FSEvents occasionally misses external changes (seen with the app
+/// FSEvents occasionally misses external changes (seen with the app
 /// backgrounded and several windows open). The sidebar rescans the project
 /// when its window becomes key or the app becomes active. Both notifications
 /// usually arrive together, so this throttle lets at most one rescan through

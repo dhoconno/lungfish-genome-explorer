@@ -697,8 +697,8 @@ extension SequenceViewerView {
         let excludeFlags = excludeFlagsSetting
         let readGroupFilter = selectedReadGroupsSetting
         resetLoadAllOverrideIfWindowChanged(to: expandedRegion)
-        // Each track is fetched with a displayed-depth cap (owner decision
-        // D9): bins deeper than the cap are `--subsample`d to about the cap and
+        // Each track is fetched with a displayed-depth cap:
+        // bins deeper than the cap are `--subsample`d to about the cap and
         // every other bin keeps every read, so shallow flanks are never
         // hollowed out to afford a deep amplicon. The fraction per bin and the
         // seed are fixed, so the sample is stable across redraws. "Load all"

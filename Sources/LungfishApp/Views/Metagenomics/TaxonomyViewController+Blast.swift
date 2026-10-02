@@ -160,7 +160,7 @@ extension TaxonomyViewController {
         }
 
         blastTab.onCancelBlast = { [weak self] in
-            // WFL-12: previously this only logged — the button looked like
+            // Previously this only logged — the button looked like
             // it worked but the BLAST request kept running in the
             // background. Route to the same OperationCenter cancel callback
             // the Operations panel's own Cancel button uses.

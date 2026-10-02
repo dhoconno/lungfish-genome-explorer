@@ -141,7 +141,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// Currently selected sample IDs for filtering.
     private var selectedSamples: Set<String> = []
 
-    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.
     var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
 

@@ -1787,7 +1787,7 @@ public struct GenotypeResultDisplaySection: View {
                 .controlSize(.regular)
                 }
             }
-            // GEN-06 (D14): prevalence is its own control, never folded into
+            // Prevalence is its own control, never folded into
             // Min percent, which is always a per-sample read fraction.
             VStack(alignment: .leading, spacing: 4) {
                 Text(

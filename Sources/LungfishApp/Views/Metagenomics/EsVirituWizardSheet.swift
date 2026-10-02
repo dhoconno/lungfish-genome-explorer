@@ -7,7 +7,7 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 
-/// The EsViritu read format chosen for one grouped sample (NEW-06, D19).
+/// The EsViritu read format chosen for one grouped sample.
 ///
 /// Separate R1/R2 files run `paired`. A single file or bundle is classified
 /// by ``FASTQReadLayoutClassifier``: strictly interleaved input runs
@@ -605,7 +605,7 @@ struct EsVirituWizardSheet: View {
     private var advancedSettings: some View {
         DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
             VStack(alignment: .leading, spacing: 12) {
-                // WFL-10: a "Min read length" stepper used to live here, but
+                // A "Min read length" stepper used to live here, but
                 // EsViritu's own CLI has no minimum-read-length flag and its
                 // fastp invocation is not parameterized with one either --
                 // there was never a way for this control's value to reach
@@ -725,7 +725,7 @@ struct EsVirituWizardSheet: View {
                 outputDirectory: outputDir,
                 databasePath: dbPath,
                 qualityFilter: qualityFilter,
-                // WFL-10: no wizard control feeds this; `EsVirituConfig`
+                // No wizard control feeds this; `EsVirituConfig`
                 // keeps its documented default since the field is not
                 // forwarded to the EsViritu tool at all (see
                 // `esVirituArguments()`).

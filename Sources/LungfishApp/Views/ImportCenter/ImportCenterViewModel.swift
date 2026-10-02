@@ -713,7 +713,7 @@ final class ImportCenterViewModel {
         // BAM and VCF each mutate the SAME open bundle and take its write lock for the
         // whole import (see `performBAMImport`/`performVCFImport`), so firing all of them
         // at once has every import after the first refused by `canStartOperation` while
-        // Import Center still records all of them as `succeeded: true` (FEA-05). Queue
+        // Import Center still records all of them as `succeeded: true`. Queue
         // them instead: start one, wait for it to reach a terminal state, then start the
         // next, and record each file's history entry with its own true outcome.
         switch action {
@@ -802,7 +802,7 @@ final class ImportCenterViewModel {
     /// Starts `urls` one at a time against `start`, waiting for each `OperationCenter`
     /// operation to reach a terminal state before starting the next, since all of them
     /// target the same open bundle and its write lock only ever admits one importer at a
-    /// time (FEA-05). Each file's history entry reflects whether IT was actually accepted
+    /// time. Each file's history entry reflects whether IT was actually accepted
     /// (`start` returned a non-nil operation id), not the batch as a whole -- a file
     /// refused because a prior sibling still held the lock, or because a bundle-level
     /// precondition failed (e.g. an unsaved-changes prompt was declined), is recorded as

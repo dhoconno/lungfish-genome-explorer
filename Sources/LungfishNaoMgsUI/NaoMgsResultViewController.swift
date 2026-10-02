@@ -65,7 +65,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// URL of the NAO-MGS bundle directory.
     private var bundleURL: URL?
 
-    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.
     var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
 
@@ -117,12 +117,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private let sampleFilterButton = NSButton(title: "All Samples", target: nil, action: nil)
     private let taxonomySearchField = NSSearchField()
 
-    /// Shared column-header sort/filter menu (UX-05: replaces a hand-rolled
+    /// Shared column-header sort/filter menu (replaces a hand-rolled
     /// copy that drifted from `TaxonomyTableView`/`ViralDetectionTableView`).
     /// See `LungfishKit.ColumnHeaderFilterMenu`.
     private lazy var columnHeaderFilterMenuController = ColumnHeaderFilterMenu(host: self)
 
-    /// Free-text filter applied to the taxon and sample columns (UX-05: NAO-MGS
+    /// Free-text filter applied to the taxon and sample columns (NAO-MGS
     /// previously had no search field at all).
     private var searchText: String = ""
 
@@ -1142,7 +1142,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 from: NSNumber(value: accessionSummary.referenceLength),
                 number: .decimal
             )
-            // SCI-09: coverage_fraction is only a real breadth-of-coverage
+            // coverage_fraction is only a real breadth-of-coverage
             // measurement when reference_length came from the actual
             // reference FASTA. When references were never fetched (offline
             // import, or a withdrawn accession), the stored length is only
@@ -1766,7 +1766,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         taxonomyFilterBar.addArrangedSubview(sampleFilterButton)
 
-        // Free-text search field (UX-05: NAO-MGS previously had no search).
+        // Free-text search field (NAO-MGS previously had no search).
         taxonomySearchField.translatesAutoresizingMaskIntoConstraints = false
         taxonomySearchField.placeholderString = "Filter taxa\u{2026}"
         taxonomySearchField.target = self
@@ -2576,7 +2576,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
     var testTaxonomyTableView: NSTableView { taxonomyTableView }
     var testTaxonomyScrollView: NSScrollView { taxonomyTableScrollView }
-    /// UX-05: NAO-MGS previously had no free-text search field at all.
+    /// NAO-MGS previously had no free-text search field at all.
     var testTaxonomySearchField: NSSearchField { taxonomySearchField }
     func testSetTaxonomySearchText(_ text: String) {
         taxonomySearchField.stringValue = text

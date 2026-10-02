@@ -120,7 +120,7 @@ public final class ReadStyleSectionViewModel {
     /// Reverse strand display color.
     public var reverseReadColor: Color = Color(red: 0.87, green: 0.69, blue: 0.69)
 
-    /// How reads are ordered before packing into rows (FEA-08).
+    /// How reads are ordered before packing into rows.
     public var readSortMode: ReadSortMode = .position
 
     /// Reference position (0-based) `readSortMode == .baseAtPosition` sorts by, set
@@ -128,7 +128,7 @@ public final class ReadStyleSectionViewModel {
     /// sorts at the centre of the visible range.
     public var readSortPosition: Int?
 
-    /// How reads are colored (FEA-08).
+    /// How reads are colored.
     public var readColorMode: ReadColorMode = .strand
 
     /// Whether the active viewport is a native multiple sequence alignment bundle.
@@ -2081,7 +2081,7 @@ public struct ReadStyleSection: View {
                     }
                     .help("When on, forward reads are blue-tinted and reverse reads are pink-tinted. When off, all reads have a neutral gray background.")
 
-                // FEA-08: ReadTrackRenderer implements every ReadSortMode and
+                // ReadTrackRenderer implements every ReadSortMode and
                 // ReadColorMode, but until now there was no UI control that
                 // reached them — every production call site hard-coded
                 // .position/.strand. These two pickers are that control.

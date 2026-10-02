@@ -862,7 +862,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                 guard !changedCounts.isEmpty else { return }
                 // `updatingVariantCounts` round-trips every other field (alignments,
                 // warnings, browserSummary, originBundlePath, recordStore, metadata)
-                // unchanged via BundleManifest.copy — see FEA-01.
+                // unchanged via BundleManifest.copy.
                 let updatedManifest = manifest.updatingVariantCounts(changedCounts)
                 try updatedManifest.save(to: bundleURL)
                 annotDrawerLogger.info("syncVariantCountsToManifest: Persisted updated variant counts")

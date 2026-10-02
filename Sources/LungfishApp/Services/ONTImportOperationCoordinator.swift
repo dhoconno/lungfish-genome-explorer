@@ -100,7 +100,7 @@ public final class ONTImportOperationCoordinator {
             )
             return result
         } catch {
-            // WFL-19: show the user-facing localized message, not the raw
+            // Show the user-facing localized message, not the raw
             // enum/struct description; keep the raw text for diagnostics.
             _ = operationCenter.fail(
                 id: opID,

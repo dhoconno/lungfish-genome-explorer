@@ -186,7 +186,7 @@ extension MainSplitViewController {
             case .primerOrder:
                 displayPrimerOrderFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             case .fastaFile:
-                // WFL-05: Savont's per-sample output is a loose FASTA file,
+                // Savont's per-sample output is a loose FASTA file,
                 // not a typed bundle -- route through the existing generic
                 // sequence-file display path instead of "Unsupported
                 // analysis: savont".
@@ -623,7 +623,7 @@ extension MainSplitViewController {
             )
             recordUITestEvent("twelveS.display.failed \(url.lastPathComponent) error=\(error.localizedDescription)")
             inspectorController.clearSelection()
-            // Surface the failure the same way Assembly and Mapping do (UX-09):
+            // Surface the failure the same way Assembly and Mapping do:
             // a status-bar message naming the failure, not the generic "No
             // sequence selected" empty state, which read as if nothing had
             // been clicked at all.

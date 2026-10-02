@@ -335,7 +335,7 @@ public enum FASTQIngestionService {
             }
         } catch {
             logger.error("Ingestion failed: \(error)")
-            // WFL-19: show the user-facing localized message, not the raw
+            // Show the user-facing localized message, not the raw
             // enum/struct description; keep the raw text for diagnostics.
             let localizedMessage = error.localizedDescription
             let rawDetail = "\(error)"
@@ -1596,7 +1596,7 @@ public enum FASTQIngestionService {
             }
         } catch {
             logger.error("CLI subprocess failed: \(error)")
-            // WFL-19: show the user-facing localized message, not the raw
+            // Show the user-facing localized message, not the raw
             // enum/struct description; keep the raw text for diagnostics.
             let localizedMessage = error.localizedDescription
             let rawDetail = "\(error)"

@@ -645,10 +645,10 @@ public final class MainMenu {
 
         viewMenu.addItem(.separator())
 
-        // TaxTriage sample stepping (UX-03: previously implemented only as
+        // TaxTriage sample stepping (previously implemented only as
         // NSViewController.performKeyEquivalent overrides, which AppKit never
         // reaches — key equivalents are dispatched down the view hierarchy,
-        // not to view controllers. These use nil target (responder chain) so
+        // not to view controllers). These use nil target (responder chain) so
         // they auto-disable when no TaxTriageResultViewController is active,
         // matching the Taxonomy Expand/Collapse pattern above. ⌘0 is already
         // Zoom to Fit, so "All Samples" uses ⌥⌘0 instead.

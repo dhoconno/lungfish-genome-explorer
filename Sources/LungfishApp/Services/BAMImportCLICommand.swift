@@ -8,7 +8,7 @@ import LungfishKit
 /// Builds the "Copy CLI Command" string the Operations panel shows for a BAM
 /// import.
 ///
-/// FEA-12: the import itself runs out-of-process by re-launching this same
+/// The import itself runs out-of-process by re-launching this same
 /// app executable with `--bam-import-helper` (`BAMImportHelperClient.swift`),
 /// which is not a `lungfish-cli` flag — copying that string into a terminal
 /// failed immediately. `lungfish-cli import bam <path> --output-dir

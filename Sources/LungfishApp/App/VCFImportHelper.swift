@@ -282,7 +282,7 @@ public enum VCFImportHelper {
             "single-import start chrom=\(chromosome ?? "all") profile=\(importProfile.rawValue) outputDB=\(outputDBURL.lastPathComponent)",
             debugLogURL: debugLogURL
         )
-        // Shared with `lungfish-cli import vcf --output-dir <bundle>` (FEA-12).
+        // Shared with `lungfish-cli import vcf --output-dir <bundle>`.
         let count = try VCFBundleVariantImport.createDatabase(
             vcfURL: vcfURL,
             outputDBURL: outputDBURL,

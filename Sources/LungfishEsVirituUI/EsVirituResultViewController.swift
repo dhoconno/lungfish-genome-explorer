@@ -197,13 +197,13 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Background task computing unique reads across all samples in batch mode.
     private var batchUniqueReadComputationTask: Task<Void, Never>?
 
-    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.
     var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
 
     /// Sidecar filename for persisted unique read counts.
     ///
-    /// PERF-04: versioned `v2` because unique-read counts before this fix
+    /// Versioned `v2` because unique-read counts before this fix
     /// were computed from `AlignmentDataProvider.fetchReads(maxReads:
     /// 100_000)`, capping any contig with more than 100,000 mapped reads at
     /// that ceiling. The `v2` counter streams the whole contig through
@@ -1029,7 +1029,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                         if Task.isCancelled { return }
                         guard contig.length > 0 else { continue }
 
-                        // PERF-04: stream the whole contig through the
+                        // Stream the whole contig through the
                         // uncapped counter instead of fetchReads(maxReads:)
                         // + AlignedRead.deduplicatedReadCount(from:), which
                         // silently undercounted any contig with more than
@@ -2248,7 +2248,7 @@ struct EsVirituProvenanceView: View {
                 Divider()
                 provenanceRow("Paired-End", value: config.readFormat.pairedEndLabel)
                 provenanceRow("Quality Filter", value: config.qualityFilter ? "Enabled" : "Disabled")
-                // WFL-10: "Min Read Length" intentionally removed --
+                // "Min Read Length" intentionally removed --
                 // EsViritu has no such option, so this value was never
                 // applied and echoing it here contradicted the actual
                 // computation.

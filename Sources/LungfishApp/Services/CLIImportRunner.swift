@@ -221,7 +221,7 @@ public actor CLIImportRunner {
         args += ["--quality-binning", qualityBinning]
         args += ["--compression", compressionLevel]
         // `--force` is only passed after the user has explicitly chosen
-        // Replace in the duplicate-file dialog (see FEA-02). Passing it
+        // Replace in the duplicate-file dialog. Passing it
         // unconditionally caused same-named imports to silently overwrite
         // an existing bundle and its derivatives.
         if force {
@@ -662,7 +662,7 @@ public actor CLIImportRunner {
             // `CLIImportRunner` actor; a blocking, non-suspending wait here
             // would occupy the actor's executor for the whole subprocess
             // lifetime, and `cancel()` (also an actor method) could never
-            // run concurrently to kill it — a deadlock (see TST-05/PERF-13).
+            // run concurrently to kill it — a deadlock.
             let exitStatus = await exitCompletion.wait()
             proc.terminationHandler = nil
             stdoutHandle.readabilityHandler = nil

@@ -11,7 +11,7 @@ import LungfishWorkflow
 /// This is the one place that turns a decoded `CLIEvent` into
 /// `OperationCenter.shared.update`/`.log` calls, replacing the per-runner
 /// `handleLine`/`DispatchQueue.main.async { MainActor.assumeIsolated { ... } }`
-/// switch that used to live in each of the nine `CLI*Runner` types (ARC-02).
+/// switch that used to live in each of the nine `CLI*Runner` types.
 ///
 /// `.complete` and `.failed` are intentionally not handled here: the
 /// transport folds those into its return value / thrown error so the caller

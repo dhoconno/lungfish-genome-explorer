@@ -102,7 +102,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// shown via a sheet-modal NSAlert.
     var warningPresenter: ((String, String) -> Void)?
 
-    /// UX-08 (2026-09-23 best-practices audit): whether read-level actions
+    /// Whether read-level actions
     /// (Extract Reads…, BLAST Matching Reads…/Verify) are meaningful for the
     /// classification result this controller is showing. CZ-ID imports have
     /// no per-read source IDs — it sets this to `false` so the action bar
@@ -327,7 +327,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     var currentBlastRunID: UUID?
 
     /// The ``OperationCenter`` operation ID for the currently active BLAST
-    /// verification run, if any. WFL-12: the drawer's own Cancel button
+    /// verification run, if any. The drawer's own Cancel button
     /// needs this to actually cancel the run, rather than only logging.
     var currentBlastOperationID: UUID?
 
@@ -1669,7 +1669,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// Builds and writes the delimited export content. Extracted from the
     /// NSSavePanel callback so the write-failure path is directly testable.
     ///
-    /// REC-03: this export previously wrote only the CSV/TSV payload, with no
+    /// This export previously wrote only the CSV/TSV payload, with no
     /// provenance sidecar recording which classification result and inputs
     /// produced it. Writes atomically through
     /// `ScientificFileExportProvenance`, the same helper used by sequence and

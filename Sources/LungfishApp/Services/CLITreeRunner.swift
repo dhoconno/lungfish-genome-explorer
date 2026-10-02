@@ -8,8 +8,8 @@ import LungfishKit
 import LungfishWorkflow
 
 /// Replaces `CLITreeInferenceRunner` and `CLITreeTransformRunner`, which were
-/// 297-line files differing only in six string literals (ARC-02, SIMP-04:
-/// `diff` showed 36 changed lines out of 297). Both launched IQ-TREE
+/// 297-line files differing only in six string literals
+/// (`diff` showed 36 changed lines out of 297). Both launched IQ-TREE
 /// inference or a tree transform (reroot / extract-subtree / relabel) as a
 /// `lungfish-cli tree ...` subprocess and hand-rolled their own `Process`,
 /// pipe draining, and event parsing.

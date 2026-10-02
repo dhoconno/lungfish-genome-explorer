@@ -1259,7 +1259,7 @@ public final class AnnotationSearchIndex {
     /// and `annotation_db_row_id`). `AnnotationDatabaseRecord.toAnnotation()`
     /// alone sets only the row id, so an annotation selected from the drawer
     /// could not be resolved to a `ReferenceBundleAnnotationRowLocation` and
-    /// Inspector edits/deletes on it were silently dropped (FEA-03).
+    /// Inspector edits/deletes on it were silently dropped.
     public func lookupSequenceAnnotation(for result: SearchResult) -> SequenceAnnotation? {
         guard let (record, trackID) = lookupAnnotationWithTrack(for: result) else { return nil }
         var annotation = record.toAnnotation()

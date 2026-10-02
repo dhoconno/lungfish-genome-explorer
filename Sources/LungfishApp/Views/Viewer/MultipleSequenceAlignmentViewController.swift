@@ -427,7 +427,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     private static let maximumGutterWidth: CGFloat = 640
 
     /// Storage for the persisted gutter width. Defaults to `.standard`; tests
-    /// must inject a suite-specific instance instead (TST-10 -- `UserDefaults
+    /// must inject a suite-specific instance instead (`UserDefaults
     /// .standard` inside `xctest` resolves to the app's own real bundle
     /// identity). Set this before `gutterWidth` is first read (i.e. before the
     /// view loads) for it to take effect.
@@ -3044,7 +3044,7 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
     var selectedRowIndices = IndexSet()
 
     /// Width of the alignment canvas's visible viewport (the scroll view's `contentView.bounds`),
-    /// NOT this gutter view's own `bounds.width` (the 232pt name column). PERF-10: the per-row
+    /// NOT this gutter view's own `bounds.width` (the 232pt name column). The per-row
     /// "first-last" source-coordinate range must cover every column visible in the canvas, but
     /// the gutter is far narrower than the canvas, so using `bounds.width` under-reported the
     /// visible span to roughly the gutter's own width worth of columns.
@@ -3167,7 +3167,7 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
 
     /// Registers a single full-bounds tooltip whose text is resolved lazily from the hover point
     /// (`view(_:stringForToolTip:point:userData:)` below), instead of one `addToolTip` rect per
-    /// visible row re-registered on every `draw(_:)` call. PERF-10: mutating tooltip/tracking
+    /// visible row re-registered on every `draw(_:)` call. Mutating tooltip/tracking
     /// state from inside drawing is an AppKit anti-pattern and ran on every scroll frame; this
     /// only needs to run once per configure/layout since it does not depend on scroll position.
     private func updateNameToolTip() {
@@ -3242,7 +3242,7 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
 
     private func visibleAlignmentColumnsForNumbering() -> [Int] {
         guard !displayedColumns.isEmpty else { return [] }
-        // PERF-10: use the canvas's visible viewport width, not this gutter view's own
+        // Use the canvas's visible viewport width, not this gutter view's own
         // (much narrower) bounds.width, or the "first-last" range under-reports the visible
         // span to roughly the gutter's own width worth of columns. Fall back to the gutter's
         // width only if the canvas width hasn't been supplied yet (e.g. before first layout).

@@ -69,7 +69,7 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
 
     private var manualHaplotypeCloseResolutionTask: Task<Void, Never>?
     private var isReenteringManualHaplotypeWindowClose = false
-    /// FEA-06: set once the user confirms closing this window with running
+    /// Set once the user confirms closing this window with running
     /// operations, so the re-entrant `performClose` this triggers does not
     /// show the warning sheet again.
     private var hasConfirmedCloseWithRunningOperations = false
@@ -894,7 +894,7 @@ extension MainWindowController: NSWindowDelegate {
             return false
         }
 
-        // FEA-06: closing a project window previously checked only
+        // Closing a project window previously checked only
         // manual-haplotype edits, never OperationCenter — a running import
         // or classification scoped to this window's project was silently
         // interrupted. Scope the check to this window's project so a long
@@ -946,7 +946,7 @@ extension MainWindowController: NSWindowDelegate {
         return false
     }
 
-    /// FEA-06: shows the close-with-running-operations warning sheet scoped
+    /// Shows the close-with-running-operations warning sheet scoped
     /// to this window, and returns `true` if the user chose to cancel the
     /// operations and close.
     private func presentCloseWithRunningOperationsAlert(
