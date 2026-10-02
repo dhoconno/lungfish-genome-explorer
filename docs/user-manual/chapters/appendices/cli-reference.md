@@ -130,7 +130,7 @@ These flags work on every command. Type them before or after the subcommand.
 
 `--project` is not global. It belongs to the commands that list it, and a command that does not list it rejects it.
 
-A few commands declare their own `--threads` or `--format`. The global flag takes the value first, so the command's own flag never receives it. For example, `lungfish-cli fastq entropy-filter reads.fastq -o out.fastq --threads 2` still runs bbduk with 4 threads, its own default. This is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release). The affected commands say so in their entries below. Several commands, among them `conda packs`, `ops stats`, `workflow list`, and `version`, also ignore `--format json` and print ordinary text, which the same registry lists.
+A few commands have a thread count default of their own. They read `-t, --threads` from the global option like every other command and use their own default when you leave it out. For example, `lungfish-cli fastq entropy-filter reads.fastq -o out.fastq` runs bbduk with 4 threads, and adding `--threads 2` runs it with 2. Their entries below give each default. Several commands, among them `conda packs`, `ops stats`, `workflow list`, and `version`, ignore `--format json` and print ordinary text. That is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
 
 For a run you intend to reproduce exactly, pin `--threads` to a fixed number. Several wrapped tools give slightly different numbers at different thread counts, so two runs can disagree in the last decimal place without either being wrong.
 
@@ -1224,7 +1224,7 @@ Removes low-complexity reads, such as long single-base runs or short repeats, wh
 lungfish-cli fastq entropy-filter <input> [--entropy <entropy>] [--window <window>] [--kmer <kmer>] [--threads <threads>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
-Its own `--threads` flag has no effect, because the global `--threads` takes the value first, so bbduk runs with the default of 4.
+The global `-t, --threads` sets the bbduk thread count, and the default here is 4.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1232,7 +1232,7 @@ Its own `--threads` flag has no effect, because the global `--threads` takes the
 | `--entropy <entropy>` | Entropy threshold, 0.3-0.9. The default is `0.6`. |
 | `--window <window>` | Entropy sliding window in bases. The default is `50`. |
 | `--kmer <kmer>` | K-mer length for entropy estimation. The default is `5`. |
-| `--threads <threads>` | bbduk thread count. It has no effect, as the note above explains. The default is `4`. |
+| `-t, --threads <threads>` | bbduk thread count, read from the global option. The default is `4`. |
 | `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq scrub-human`
@@ -1597,7 +1597,7 @@ Splits pooled reads into one bundle per barcode, using cutadapt or an exact matc
 lungfish-cli fastq demultiplex <input> --kit <kit> --output <output> [--location <location>] [--max-distance-5prime <max-distance-5prime>] [--max-distance-3prime <max-distance-3prime>] [--error-rate <error-rate>] [--overlap <overlap>] [--engine <engine>] [--no-trim] [--discard-unassigned] [--threads <threads>] [--replace]
 ```
 
-The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `nextera-xt-v2`, `idt-ud-indexes`, `fluidigm-access-array`, `pacbio-sequel-16-v3`, `pacbio-sequel-96-v2`, `pacbio-sequel-384-v1`, `m13-universal-primers`, `ont-nbd104`, `ont-nbd114`, `ont-nbd104-114`, `ont-nbd114-96`, `ont-pbc096`, `ont-rbk004`, `ont-rbk114-24`, `ont-rbk114-96`, `ont-16s114-24`, and `ont-rab204-214`. `--kit` also takes the path of your own barcode file, a CSV, TSV, or whitespace-separated text file with the columns `id,sequence`, optionally followed by `secondary_sequence` and `sample_name`. A header line may name the columns instead, so a file headed `id,sequence,sample_name` carries sample names in its third column and the per-barcode bundles are named after them. The long-read kits, meaning the Oxford Nanopore native, rapid, PCR, and 16S barcoding kits and the PacBio kits, are searched as the platform's whole adapter and barcode construct at both ends of each read in both orientations, and a read is assigned only when both ends carry the same barcode. `--location` and the two `--max-distance` flags do not apply to those kits, and the command prints a note on standard error and ignores them. A read with a barcode at one end only joins the unassigned reads, which `--discard-unassigned` drops. The `exact-bare` engine matches plain A, C, G, and T barcodes exactly anywhere in a read and on both strands, and never trims. Its own `--threads` flag has no effect, because the global `--threads` takes the value first. The command runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
+The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `nextera-xt-v2`, `idt-ud-indexes`, `fluidigm-access-array`, `pacbio-sequel-16-v3`, `pacbio-sequel-96-v2`, `pacbio-sequel-384-v1`, `m13-universal-primers`, `ont-nbd104`, `ont-nbd114`, `ont-nbd104-114`, `ont-nbd114-96`, `ont-pbc096`, `ont-rbk004`, `ont-rbk114-24`, `ont-rbk114-96`, `ont-16s114-24`, and `ont-rab204-214`. `--kit` also takes the path of your own barcode file, a CSV, TSV, or whitespace-separated text file with the columns `id,sequence`, optionally followed by `secondary_sequence` and `sample_name`. A header line may name the columns instead, so a file headed `id,sequence,sample_name` carries sample names in its third column and the per-barcode bundles are named after them. The long-read kits, meaning the Oxford Nanopore native, rapid, PCR, and 16S barcoding kits and the PacBio kits, are searched as the platform's whole adapter and barcode construct at both ends of each read in both orientations, and a read is assigned only when both ends carry the same barcode. `--location` and the two `--max-distance` flags do not apply to those kits, and the command prints a note on standard error and ignores them. A read with a barcode at one end only joins the unassigned reads, which `--discard-unassigned` drops. The `exact-bare` engine matches plain A, C, G, and T barcodes exactly anywhere in a read and on both strands, and never trims. The global `--threads` sets the cutadapt thread count, and the default here is 4. The command runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
 
 | Argument or flag | What it does |
 |---|---|
@@ -1612,7 +1612,7 @@ The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `n
 | `--engine <engine>` | Demultiplexing engine, one of `cutadapt` or `exact-bare`. The default is `cutadapt`. |
 | `--no-trim` | Cutadapt only. Keep barcode sequences in output reads (exact-bare always preserves reads). |
 | `--discard-unassigned` | Discard reads that do not match any barcode. |
-| `--threads <threads>` | Cutadapt thread count. It has no effect, as the note above explains. The default is `4`. |
+| `-t, --threads <threads>` | Cutadapt thread count, read from the global option. The default is `4`. |
 | `--replace` | Delete an output directory that already holds files, then write. Without it the command refuses to overwrite earlier results, names the directory, and lists what it holds. |
 
 ### `fastq scout`
@@ -1664,14 +1664,14 @@ Assigns Oxford Nanopore reads to samples by exact Fluidigm barcode, cuts out the
 lungfish-cli fastq ont-fluidigm-samples <input> --barcodes <barcodes> --output <output> [--threads <threads>] [--primer-mismatches <primer-mismatches>] [--minimum-insert-length <minimum-insert-length>] [--canonicalize-reverse-complements] [--no-canonicalize-reverse-complements] [--force]
 ```
 
-Its own `--threads` flag has no effect, because the global `--threads` takes the value first.
+The global `--threads` value is recorded in provenance and reserved for parallel materialization, and the default here is 1.
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input FASTQ file, directory, or `.lungfishfastq` bundle. |
 | `--barcodes <barcodes>` | CSV/TSV file with sample and Fluidigm barcode sequence columns. |
 | `-o, --output <output>` | Output directory for per-sample `.lungfishfastq` bundles. |
-| `--threads <threads>` | Worker count reserved for future parallel materialization. Currently recorded for provenance. The default is `1`. |
+| `-t, --threads <threads>` | Worker count reserved for future parallel materialization, read from the global option and recorded for provenance. The default is `1`. |
 | `--primer-mismatches <primer-mismatches>` | Maximum mismatches allowed when detecting CS1/CS2 primer boundaries. The default is `2`. |
 | `--minimum-insert-length <minimum-insert-length>` | Minimum CS1-CS2 insert length to retain. The default is `20`. |
 | `--canonicalize-reverse-complements/--no-canonicalize-reverse-complements` | Canonicalize exact reverse-complement insert duplicates after orienting CS1-CS2 reads. The default is `--no-canonicalize-reverse-complements`. |
@@ -1685,14 +1685,14 @@ Splits full-length MHC Oxford Nanopore amplicons into one bundle per sample usin
 lungfish-cli fastq ont-pacbio-barcode-demux <input> --barcodes <barcodes> --output <output> [--threads <threads>] [--chunk-jobs <chunk-jobs>] [--max-reads-per-slice <max-reads-per-slice>] [--max-bytes-per-cutadapt <max-bytes-per-cutadapt>] [--force]
 ```
 
-Its own `--threads` flag has no effect, because the global `--threads` takes the value first.
+The global `--threads` is a compatibility option for legacy chunked demux paths here, and the default is 1.
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input ONT FASTQ file, barcode directory, run directory, or `.lungfishfastq` bundle. |
 | `--barcodes <barcodes>` | CSV/TSV file with sample_id, barcode_1, and barcode_2 columns, or headerless rows in that order. |
 | `-o, --output <output>` | Output directory for per-sample `.lungfishfastq` bundles. |
-| `--threads <threads>` | Compatibility option for legacy chunked demux paths. The default is `1`. |
+| `-t, --threads <threads>` | Compatibility option for legacy chunked demux paths, read from the global option. The default is `1`. |
 | `--chunk-jobs <chunk-jobs>` | Compatibility option for older chunked demultiplexing. The default is the number of active cores. |
 | `--max-reads-per-slice <max-reads-per-slice>` | Compatibility option for legacy chunked demux paths. 0 disables sub-slicing. The default is `100000`. |
 | `--max-bytes-per-cutadapt <max-bytes-per-cutadapt>` | Compatibility option for legacy chunked demux paths. The default is `536870912`. |
@@ -1970,7 +1970,7 @@ Builds a plan that calls variants with GATK HaplotypeCaller and then phases them
 lungfish-cli variants phase [--execute] [--dry-run] --reference <reference> --bam <bam> --output-vcf <output-vcf> [--output-dir <output-dir>] [--sample <sample>] [--threads <threads>] [--extra-gatk-args <extra-gatk-args>] [--extra-whatshap-args <extra-whatshap-args>]
 ```
 
-The plan always calls with `-ERC NONE`, writes `gatk-unphased.vcf.gz` and `phased-variant-command-plan.json` into the output folder, and does not index the phased VCF. `--output-dir` defaults to the output VCF's folder, and `--dry-run` wins over `--execute`. The phased entry of the Call Variants dialog is switched off, so this command is the only phased route. Its own `--threads` flag has no effect, because the global `--threads` takes the value first, so HaplotypeCaller always runs with one thread. The result is still correct.
+The plan always calls with `-ERC NONE`, writes `gatk-unphased.vcf.gz` and `phased-variant-command-plan.json` into the output folder, and does not index the phased VCF. `--output-dir` defaults to the output VCF's folder, and `--dry-run` wins over `--execute`. The phased entry of the Call Variants dialog is switched off, so this command is the only phased route. The global `--threads` sets the HaplotypeCaller PairHMM thread count, passed as `--native-pair-hmm-threads`, and the default here is 1.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1979,7 +1979,7 @@ The plan always calls with `-ERC NONE`, writes `gatk-unphased.vcf.gz` and `phase
 | `--output-vcf <output-vcf>` | Final phased VCF path. |
 | `--output-dir <output-dir>` | Command-plan/provenance output directory. |
 | `--sample <sample>` | Optional sample name passed to WhatsHap. |
-| `--threads <threads>` | GATK PairHMM threads, meant to set how many threads HaplotypeCaller uses. It has no effect, as the note above explains. The default is `1`. |
+| `-t, --threads <threads>` | GATK PairHMM threads, the number of threads HaplotypeCaller uses, read from the global option. The default is `1`. |
 | `--extra-gatk-args <extra-gatk-args>` | Additional GATK HaplotypeCaller arguments. |
 | `--extra-whatshap-args <extra-whatshap-args>` | Additional WhatsHap phase arguments. |
 
@@ -3522,13 +3522,13 @@ Clusters reads into counted consensus sequences with Savont.
 lungfish-cli fastq savont-cluster <input> --output <output> [--threads <threads>] [--quality-value-cutoff <quality-value-cutoff>] [--min-cluster-size <min-cluster-size>] [--min-read-length <min-read-length>] [--max-read-length <max-read-length>] [--single-strand]
 ```
 
-Its own `--threads` flag has no effect, because the global `--threads` takes the value first.
+The global `--threads` sets the Savont thread count, and the default here is the number of active processor cores.
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--output <output>` | Output counted-cluster FASTA file. |
-| `--threads <threads>` | Threads for Savont. The default is `14`. |
+| `-t, --threads <threads>` | Threads for Savont, read from the global option. The default is the number of active processor cores. |
 | `--quality-value-cutoff <quality-value-cutoff>` | Savont quality-value cutoff. The default is `90`. |
 | `--min-cluster-size <min-cluster-size>` | Minimum reads per cluster. The default is `3`. |
 | `--min-read-length <min-read-length>` | Optional minimum read length. |
@@ -3543,7 +3543,7 @@ Clusters PacBio HiFi amplicon reads with pbAA and writes the clusters as a `.lun
 lungfish-cli fastq pbaa-cluster <input> --guide <guide> --output-dir <output-dir> [--output-name <output-name>] [--threads <threads>] [--seed <seed>] [--extra-args <extra-args>]
 ```
 
-Its own `--threads` flag has no effect, because the global `--threads` takes the value first.
+The global `--threads` sets the pbAA thread count, and the default here is the number of active processor cores.
 
 | Argument or flag | What it does |
 |---|---|
@@ -3551,7 +3551,7 @@ Its own `--threads` flag has no effect, because the global `--threads` takes the
 | `--guide <guide>` | Guide FASTA file or `.lungfishref` bundle. |
 | `--output-dir <output-dir>` | Directory for raw outputs and the `.lungfishref` result. |
 | `--output-name <output-name>` | Output bundle name and pbAA prefix. The default is `pbaa-clusters`. |
-| `--threads <threads>` | Threads for pbAA. The default is `14`. |
+| `-t, --threads <threads>` | Threads for pbAA, read from the global option. The default is the number of active processor cores. |
 | `--seed <seed>` | pbAA random seed. The default is `1984`. |
 | `--extra-args <extra-args>` | Advanced pbAA arguments. |
 
@@ -4565,7 +4565,7 @@ Four operations have no command-line route. Attaching an annotation file, such a
 
 ## Known defects
 
-The command-line faults this release is known to have, including the shadowed `--threads` and `--format` flags and the experimental packs that `conda install` cannot reach, are listed with their workarounds in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
+The command-line faults this release is known to have, including the commands that ignore `--format json` and the experimental packs that `conda install` cannot reach, are listed with their workarounds in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
 
 ## Next
 

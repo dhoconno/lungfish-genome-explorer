@@ -1,13 +1,26 @@
 OVERVIEW: Cluster FASTQ reads into counted consensus sequences with Savont
 
-USAGE: lungfish-cli fastq savont-cluster <input> --output <output> [--threads <threads>] [--quality-value-cutoff <quality-value-cutoff>] [--min-cluster-size <min-cluster-size>] [--min-read-length <min-read-length>] [--max-read-length <max-read-length>] [--single-strand]
+The Savont thread count comes from --threads. The default is the number of
+active processor cores.
+
+USAGE: lungfish-cli fastq savont-cluster [<options>] <input> --output <output>
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --output <output>       Output counted-cluster FASTA file
-  --threads <threads>     Threads for Savont (default: 14)
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
   --quality-value-cutoff <quality-value-cutoff>
                           Savont quality-value cutoff (default: 90)
   --min-cluster-size <min-cluster-size>

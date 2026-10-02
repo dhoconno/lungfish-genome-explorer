@@ -1,7 +1,9 @@
 OVERVIEW: Construct a phase-aware GATK HaplotypeCaller plus WhatsHap command
 plan
 
-USAGE: lungfish-cli variants phase [--execute] [--dry-run] --reference <reference> --bam <bam> --output-vcf <output-vcf> [--output-dir <output-dir>] [--sample <sample>] [--threads <threads>] [--extra-gatk-args <extra-gatk-args>] [--extra-whatshap-args <extra-whatshap-args>]
+The GATK PairHMM thread count comes from --threads. The default is 1.
+
+USAGE: lungfish-cli variants phase [<options>] --reference <reference> --bam <bam> --output-vcf <output-vcf>
 
 OPTIONS:
   --execute               Run GATK and WhatsHap through managed tool packs.
@@ -14,7 +16,17 @@ OPTIONS:
   --output-dir <output-dir>
                           Command-plan/provenance output directory
   --sample <sample>       Optional sample name passed to WhatsHap
-  --threads <threads>     GATK PairHMM threads (default: 1)
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
   --extra-gatk-args <extra-gatk-args>
                           Additional GATK HaplotypeCaller arguments
   --extra-whatshap-args <extra-whatshap-args>
