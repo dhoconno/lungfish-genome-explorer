@@ -9,11 +9,13 @@
 // command must parse with the run's values. The primer FASTA and reference
 // amplicon exports have none yet, and a PrimalScheme order from a filtered
 // view has none either. Their tests pin the missing command and fail when one
-// is added.
+// is added. The provenance argv of every export is the row's command as words,
+// or for an export with no command an argv that names the app (R3, R8).
 
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
+import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
@@ -281,6 +283,68 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
             // command exists, record it and replace this pin with a parse test.
             XCTAssertNil(item.cliCommand)
             XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        }
+    }
+
+    // MARK: - Provenance argv (R3, R8)
+
+    func testOrderProvenanceArgvIsTheExportOrderCommandTheRowRecords() throws {
+        // The export used to record the app process's own launch arguments.
+        let drafts = [
+            makeDraft(selectedAssayIDs: [UUID().uuidString, UUID().uuidString], primer3CandidatePairs: true),
+            makeDraft(selectedAssayIDs: [UUID().uuidString.lowercased()], includesAllReportedAssays: false),
+            makeDraft(selectedAssayIDs: [UUID().uuidString.lowercased()], includesAllReportedAssays: true),
+            makeDraft(),
+        ]
+        for draft in drafts {
+            let item = try recordedOrder(draft: draft)
+            let argv = MainSplitViewController.primerOrderExportProvenanceArgv(
+                draft: draft, metadata: orderMetadata(), destinationURL: destinationURL
+            )
+            XCTAssertEqual(argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: item.cliCommand)))
+            XCTAssertEqual(Array(argv.prefix(4)), [CLICommandIdentity.executableName, "primers", "analysis", "export-order"])
+        }
+    }
+
+    func testFilteredPrimalSchemeOrderProvenanceArgvNamesTheAppAndTheFilteredView() throws {
+        let draft = makeDraft(settings: PrimerAnalysisDisplaySettings(hiddenPrimerIDs: ["primer-3"]))
+
+        let argv = MainSplitViewController.primerOrderExportProvenanceArgv(
+            draft: draft, metadata: orderMetadata(), destinationURL: destinationURL
+        )
+
+        XCTAssertEqual(argv, [
+            "Lungfish.app", "export-primer-order", analysisURL.path, "--output", destinationURL.path,
+            "--scope", "displayed", "--view", "filtered", "--name", "Spring panel order",
+            "--requested-by", "Pat Lee", "--project", "Panel 7", "--order-reference", "PO 1234",
+            "--notes", "Rush it, it's for Monday",
+        ])
+        XCTAssertThrowsError(
+            try RecordedCLICommand.parse(argv.map(shellEscape).joined(separator: " ")),
+            "no lungfish-cli command reproduces a filtered view, so the argv names the app"
+        )
+    }
+
+    func testSelectionExportProvenanceArgvNamesTheAppTheKindAndTheSelection() throws {
+        let cases: [(PrimerAnalysisExportSelection, PrimerAnalysisExportKind, [String])] = [
+            (.primer(targetID: "target-1", primerID: "primer-3"), .primerFASTA,
+             ["--target-id", "target-1", "--primer-id", "primer-3"]),
+            (.amplicon(targetID: "target-1", ampliconID: "amplicon-2"), .referenceAmplicon,
+             ["--target-id", "target-1", "--amplicon-id", "amplicon-2"]),
+            (.pool(sourceResultID: "result-1", pool: 2), .primerFASTA,
+             ["--source-result-id", "result-1", "--pool", "2"]),
+            (.nativePool(sourceResultID: "result-1", pool: "B"), .primerFASTA,
+             ["--source-result-id", "result-1", "--native-pool", "B"]),
+        ]
+        for (selection, kind, selectionArguments) in cases {
+            let argv = MainSplitViewController.primerSelectionExportProvenanceArgv(
+                analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: destinationURL
+            )
+            XCTAssertEqual(
+                argv,
+                ["Lungfish.app", "export-primer-selection", analysisURL.path, "--kind", kind.rawValue]
+                    + selectionArguments + ["--output", destinationURL.path]
+            )
         }
     }
 }
