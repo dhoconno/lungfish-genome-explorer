@@ -17,7 +17,7 @@ Foundation and system frameworks, plus Collections and Algorithms from Package.s
 | `Sequence` | Sources/LungfishCore/Models/Sequence.swift line 24 |
 | `GenomicRegion` | Sources/LungfishCore/Models/GenomicRegion.swift line 16 |
 | `BundleManifest` (the .lungfishref manifest) | Sources/LungfishCore/Bundles/BundleManifest.swift line 112 |
-| `AppSettings` | Sources/LungfishCore/Models/AppSettings.swift line 147 |
+| `AppSettings` | Sources/LungfishCore/Models/AppSettings.swift line 29 |
 | App-wide notification names | Sources/LungfishCore/Models/Notifications.swift |
 | `CLICommandIdentity` (executable name) | Sources/LungfishCore/CLICommandIdentity.swift line 6 |
 | `ManagedJavaHeapPolicy` (BBTools and Java heap size) | Sources/LungfishCore/Services/ManagedJavaHeapPolicy.swift line 28 |

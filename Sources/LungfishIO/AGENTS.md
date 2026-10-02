@@ -16,18 +16,18 @@ LungfishCore, SystemPackage, AsyncAlgorithms, SQLite3 and system frameworks. Nev
 |---|---|
 | `FormatRegistry` | Sources/LungfishIO/Registry/FormatRegistry.swift line 37 |
 | `FASTQBundle` and `resolvePrimaryFASTQURL` | Sources/LungfishIO/Formats/FASTQ/FASTQBundle.swift lines 12 and 89 |
-| `FASTQReader` | Sources/LungfishIO/Formats/FASTQ/FASTQReader.swift line 161 |
+| `FASTQReader` | Sources/LungfishIO/Formats/FASTQ/FASTQReader.swift line 29 |
 | `AnalysesFolder` (analysis folder lifecycle) | Sources/LungfishIO/Bundles/AnalysesFolder.swift line 17 |
 | `VariantDatabase`, `AnnotationDatabase` | Sources/LungfishIO/Bundles/VariantDatabase.swift line 40, AnnotationDatabase.swift line 44 |
-| `AlignmentDataProvider` | Sources/LungfishIO/Bundles/AlignmentDataProvider.swift line 396 |
+| `AlignmentDataProvider` | Sources/LungfishIO/Bundles/AlignmentDataProvider.swift line 87 |
 | `ProjectTempDirectory` | Sources/LungfishIO/Bundles/ProjectTempDirectory.swift line 65 |
-| Genotype results | Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift line 1858 |
+| Genotype results | Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift line 6 |
 
 ## Contracts this module owns
 
 - An analysis folder from `AnalysesFolder.createAnalysisDirectory` (line 151) stays hidden until `markAnalysisComplete` (line 268). A failed run calls `discardFailedAnalysisDirectory` (line 486).
 - `AnalysesFolder.knownTools` (line 26) and `displayName` (line 82) decide whether the sidebar recognises a tool folder.
-- Streaming readers pull per demand with `AsyncThrowingStream(unfolding:)` (FASTQReader.swift line 208). An unbounded producer task is a memory bomb (memory file known-issues.md).
+- Streaming readers pull per demand with `AsyncThrowingStream(unfolding:)` (FASTQReader.swift line 76). An unbounded producer task is a memory bomb (memory file known-issues.md).
 - Genotype workbook and matrix exports stay byte-identical across any refactor (REVIEW.md R6).
 
 ## Tests

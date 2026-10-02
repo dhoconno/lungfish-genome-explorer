@@ -3,37 +3,6 @@ import Darwin
 import Foundation
 import LungfishCore
 
-public enum ONTGenotypeWorkbookUpdateTransactionPhase: String, Codable, Sendable {
-    case prepared
-    case rollingBack
-    case rollbackFailed
-    case ambiguous
-}
-
-public struct ONTGenotypeWorkbookUpdateFileDescriptor: Codable, Equatable, Sendable {
-    public let path: String
-    public let sizeBytes: Int64
-    public let sha256: String
-
-    public init(path: String, sizeBytes: Int64, sha256: String) {
-        self.path = path
-        self.sizeBytes = sizeBytes
-        self.sha256 = sha256
-    }
-}
-
-public struct ONTGenotypeWorkbookUpdateDirectoryIdentity: Codable, Equatable, Sendable {
-    public let path: String
-    public let device: UInt64
-    public let inode: UInt64
-
-    public init(path: String, device: UInt64, inode: UInt64) {
-        self.path = path
-        self.device = device
-        self.inode = inode
-    }
-}
-
 public struct ONTGenotypeWorkbookUpdateTransaction: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public let transactionID: String
@@ -116,59 +85,6 @@ public struct ONTGenotypeWorkbookUpdateTransaction: Codable, Equatable, Sendable
     }
 }
 
-public enum ONTGenotypeWorkbookUpdateRecoveryError: Error, LocalizedError, Sendable {
-    case unsafeLock(String)
-    case lockHeld(String)
-    case systemFailure(String, Int32)
-    case unsafeMarker(String)
-    case recoveryRequired(String)
-    case invalidTransaction(String)
-    case ambiguousTransaction(String)
-    case currentWorkbookIntegrity(String)
-    case cleanupPendingWarning(
-        quarantinePath: String,
-        retryState: String,
-        warningPath: String,
-        reason: String
-    )
-    case cleanupPendingWarningPersistenceFailure(
-        quarantinePath: String,
-        retryState: String,
-        reason: String,
-        warningFailure: String
-    )
-
-    public var errorDescription: String? {
-        switch self {
-        case .unsafeLock(let path): return "Workbook publication lock is unsafe: \(path)"
-        case .lockHeld(let path): return "Workbook publication lock is already held: \(path)"
-        case .systemFailure(let path, let code): return "Workbook transaction failed at \(path) (errno \(code))."
-        case .unsafeMarker(let path): return "Workbook transaction marker is unsafe: \(path)"
-        case .recoveryRequired(let path):
-            return "Workbook transaction recovery is required before the bundle can be used: \(path)"
-        case .invalidTransaction(let message): return "Workbook transaction marker is invalid: \(message)"
-        case .ambiguousTransaction(let message): return "Workbook transaction recovery is ambiguous: \(message)"
-        case .currentWorkbookIntegrity(let message): return "The current workbook failed integrity validation: \(message)"
-        case .cleanupPendingWarning(
-            let quarantinePath,
-            let retryState,
-            let warningPath,
-            let reason
-        ):
-            return "Workbook cleanup retained \(quarantinePath) in \(retryState) retry state. Warning: \(warningPath). \(reason)"
-        case .cleanupPendingWarningPersistenceFailure(
-            let quarantinePath,
-            let retryState,
-            let reason,
-            let warningFailure
-        ):
-            return "Workbook cleanup retained \(quarantinePath) in \(retryState) retry state. "
-                + "Original cleanup failure: \(reason) Warning persistence also failed: "
-                + warningFailure
-        }
-    }
-}
-
 public typealias ONTGenotypeAtomicRenamePrimitive = @Sendable (
     _ sourcePath: String,
     _ destinationPath: String,
@@ -182,14 +98,6 @@ public typealias ONTGenotypeDirectoryRenamePrimitive = @Sendable (
     _ destinationName: String,
     _ flags: UInt32
 ) -> Int32
-
-public enum ONTGenotypeBundlePublicationLockProbe:
-    String, Equatable, Sendable
-{
-    case missing
-    case unlocked
-    case held
-}
 
 public final class ONTGenotypeBundlePublicationLock: @unchecked Sendable {
     public let lockURL: URL
@@ -341,49 +249,6 @@ public final class ONTGenotypeBundlePublicationLock: @unchecked Sendable {
     }
 
     deinit { release() }
-}
-
-public struct ONTGenotypeWorkbookLegacyReceiptFact:
-    Equatable, Sendable
-{
-    public let transactionID: String
-    public let action: String
-    public let exitStatus: Int
-    public let finalBundlePath: String
-    public let oldCurrentWorkbook:
-        ONTGenotypeWorkbookUpdateFileDescriptor
-    public let newCurrentWorkbook:
-        ONTGenotypeWorkbookUpdateFileDescriptor
-
-    public init(
-        transactionID: String,
-        action: String,
-        exitStatus: Int,
-        finalBundlePath: String,
-        oldCurrentWorkbook:
-            ONTGenotypeWorkbookUpdateFileDescriptor,
-        newCurrentWorkbook:
-            ONTGenotypeWorkbookUpdateFileDescriptor
-    ) {
-        self.transactionID = transactionID
-        self.action = action
-        self.exitStatus = exitStatus
-        self.finalBundlePath = finalBundlePath
-        self.oldCurrentWorkbook = oldCurrentWorkbook
-        self.newCurrentWorkbook = newCurrentWorkbook
-    }
-}
-
-public enum ONTGenotypeWorkbookLegacyAuthorityInspection:
-    Equatable, Sendable
-{
-    case clear(receipts: [ONTGenotypeWorkbookLegacyReceiptFact])
-    case blocked(reason: String)
-
-    public var blockReason: String? {
-        guard case .blocked(let reason) = self else { return nil }
-        return reason
-    }
 }
 
 public enum ONTGenotypeWorkbookUpdateRecovery {

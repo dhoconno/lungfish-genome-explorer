@@ -1,0 +1,23 @@
+import CryptoKit
+import Darwin
+import Foundation
+import LungfishCore
+
+public enum ONTGenotypeIntegrityWarningCode: String, Codable, Equatable, Sendable {
+    case candidateArtifactManifestSchemaUnsupported = "candidate-artifact-manifest-schema-unsupported"
+    case candidateArtifactIncompleteDeclaration = "candidate-artifact-incomplete-declaration"
+    case candidateArtifactPathInvalid = "candidate-artifact-path-invalid"
+    case candidateArtifactMissing = "candidate-artifact-missing"
+    case candidateArtifactNotRegularFile = "candidate-artifact-not-regular-file"
+    case candidateArtifactSizeMismatch = "candidate-artifact-size-mismatch"
+    case candidateArtifactChecksumMismatch = "candidate-artifact-checksum-mismatch"
+    case candidateArtifactTooLarge = "candidate-artifact-too-large"
+    case candidateArtifactMalformedJSON = "candidate-artifact-malformed-json"
+    case candidateArtifactSchemaUnsupported = "candidate-artifact-schema-unsupported"
+    case candidateArtifactDocumentReferenceMismatch = "candidate-artifact-document-reference-mismatch"
+    case candidateArtifactMalformedFASTA = "candidate-artifact-malformed-fasta"
+    case candidateArtifactMissingFASTARecord = "candidate-artifact-missing-fasta-record"
+    case candidateArtifactDuplicateFASTARecord = "candidate-artifact-duplicate-fasta-record"
+    case candidateArtifactExtraFASTARecord = "candidate-artifact-extra-fasta-record"
+    case candidateArtifactSequenceChecksumMismatch = "candidate-artifact-sequence-checksum-mismatch"
+}
