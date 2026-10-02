@@ -12,6 +12,9 @@
 #     audit; scripts/checks/features-yaml-entry-points.py), then py_compiles
 #     every bundled Python resource script under Sources/*/Resources (SIMP-16
 #     in the same audit; scripts/checks/compile-embedded-python.py), then
+#     runs the architecture-program ratchets and checks (file-size,
+#     concurrency-hatches, source-text-assertions, doc-path-references,
+#     duplicate-public-types; docs/plans/2026-10-02-architecture-program.md), then
 #     runs the unit tier of the full-suite gate (scripts/full-suite-gate.sh
 #     --tier unit) before pushing, so the regression gate runs locally on
 #     this fast Apple-Silicon Mac instead of on slow/usage-limited hosted CI.
@@ -120,6 +123,36 @@ if ! python3 "$REPO_ROOT/scripts/checks/compile-embedded-python.py"; then
     exit 1
 fi
 
+echo "pre-push: checking the file-size ratchet (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/ratchets/file-size.sh"; then
+    echo "pre-push: file-size ratchet FAILED (a new Swift file over 800 lines, or a baselined file grew; split the file) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
+echo "pre-push: checking the concurrency-hatches ratchet (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/ratchets/concurrency-hatches.sh"; then
+    echo "pre-push: concurrency-hatches ratchet FAILED (more assumeIsolated, @unchecked Sendable or nonisolated(unsafe); see docs/contracts/CONCURRENCY-PLAYBOOK.md) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
+echo "pre-push: checking the source-text-assertions ratchet (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/ratchets/source-text-assertions.sh"; then
+    echo "pre-push: source-text-assertions ratchet FAILED (test behavior, not source spelling) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
+echo "pre-push: checking doc path references (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/checks/doc-path-references.py"; then
+    echo "pre-push: doc path-reference check FAILED (a doc cites a Swift file that does not exist) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
+echo "pre-push: checking duplicate public type names (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/checks/duplicate-public-types.py"; then
+    echo "pre-push: duplicate-public-types check FAILED (a public type name is declared in two targets) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
 echo "pre-push: running unit-tier gate (use --no-verify to skip)..."
 if "$REPO_ROOT/scripts/full-suite-gate.sh" --tier unit; then
     exit 0
@@ -130,7 +163,7 @@ fi
 HOOK_EOF
 chmod +x "$PRE_PUSH_HOOK"
 echo "Installed pre-push hook at $PRE_PUSH_HOOK"
-echo "It runs the unchecked-operation-start and shared-slider-control ratchets, the features.yaml entry-point check, the embedded-Python compile check, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
+echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches and source-text-assertions ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
 
 cat > "$PRE_COMMIT_HOOK" << 'HOOK_EOF'
 #!/bin/bash
