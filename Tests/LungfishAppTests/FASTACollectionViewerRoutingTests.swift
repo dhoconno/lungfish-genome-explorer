@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class FASTACollectionViewerRoutingTests: XCTestCase {

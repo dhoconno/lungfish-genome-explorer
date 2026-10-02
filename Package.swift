@@ -438,12 +438,12 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppViewTests",
-            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
+            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport", "LungfishKitTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
             path: "Tests/LungfishAppViewTests"
         ),
         .testTarget(
             name: "LungfishAppWorkflowTests",
-            dependencies: ["LungfishApp", "LungfishWorkflow"],
+            dependencies: ["LungfishApp", "LungfishWorkflow", "LungfishKitTestSupport"],
             path: "Tests/LungfishAppWorkflowTests"
         ),
 

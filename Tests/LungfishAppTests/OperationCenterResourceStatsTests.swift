@@ -1,17 +1,20 @@
 import XCTest
 @testable import LungfishApp
 import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class OperationCenterResourceStatsTests: XCTestCase {
     func testCompletedOperationRowsRecordWallTimeAndPeakMemoryWhenAvailable() {
         let center = OperationCenter()
         let startedAt = Date(timeIntervalSince1970: 1_000)
-        let id = center.start(
+        let id = center.begin(
             title: "Kraken2",
             detail: "Running",
-            startedAt: startedAt
-        )
+            operationType: .download,
+            startedAt: startedAt,
+            cliCommand: nil
+        ).rowID
 
         center.updateResourceStats(id: id, peakMemoryBytes: 4_294_967_296)
         center.complete(

@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import LungfishKit
+import LungfishKitTestSupport
 @testable import LungfishApp
 
 @MainActor
@@ -53,7 +54,13 @@ final class PrimerAnalysisExportPublicationTests: XCTestCase {
     try Data("publication transaction fixture".utf8).write(to: staged.appendingPathComponent("sentinel"))
     let center = OperationCenter()
     center.failureReportStore = .temporaryForTesting()
-    let id = center.start(title: "Primer extract", detail: "Prepared", targetBundleURL: output)
+    let id = center.begin(
+        title: "Primer extract",
+        detail: "Prepared",
+        operationType: .download,
+        targetBundleURL: output,
+        cliCommand: nil
+    ).rowID
     center.setCancelCallback(for: id) {}
     return (root, staged, output, center, id)
   }

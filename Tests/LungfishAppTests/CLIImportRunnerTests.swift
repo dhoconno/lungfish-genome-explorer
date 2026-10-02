@@ -8,6 +8,7 @@ import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
 import LungfishKit
+import LungfishKitTestSupport
 
 private final class CLIImportRunnerStringCollector: @unchecked Sendable {
     private let lock = NSLock()
@@ -221,11 +222,12 @@ final class CLIImportRunnerTests: XCTestCase {
         }
 
         let operationID = await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "FASTQ Import: Trim Galore notice test",
                 detail: "Starting",
-                operationType: .ingestion
-            )
+                operationType: .ingestion,
+                cliCommand: nil
+            ).rowID
         }
         addTeardownBlock {
             await MainActor.run {
@@ -504,11 +506,12 @@ final class CLIImportRunnerTests: XCTestCase {
         }
 
         let operationID = await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "FASTQ Import: cancellation test",
                 detail: "Starting",
-                operationType: .ingestion
-            )
+                operationType: .ingestion,
+                cliCommand: nil
+            ).rowID
         }
         addTeardownBlock {
             await MainActor.run {
@@ -572,11 +575,12 @@ final class CLIImportRunnerTests: XCTestCase {
         }
 
         let operationID = await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "FASTQ Import: structured failure test",
                 detail: "Starting",
-                operationType: .ingestion
-            )
+                operationType: .ingestion,
+                cliCommand: nil
+            ).rowID
         }
         addTeardownBlock {
             await MainActor.run {
@@ -646,11 +650,12 @@ final class CLIImportRunnerTests: XCTestCase {
         }
 
         let operationID = await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "FASTQ Import: stdout pipe lifecycle test",
                 detail: "Starting",
-                operationType: .ingestion
-            )
+                operationType: .ingestion,
+                cliCommand: nil
+            ).rowID
         }
         addTeardownBlock {
             await MainActor.run {

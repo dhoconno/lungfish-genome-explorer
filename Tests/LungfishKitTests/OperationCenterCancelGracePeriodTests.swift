@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishKit
+import LungfishKitTestSupport
 
 /// Live GUI testing found a cancelled EsViritu operation stayed in
 /// OperationCenter's active list indefinitely (40+ minutes, still shown as
@@ -48,10 +49,11 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
         let neverSignalled = DispatchSemaphore(value: 0)
         defer { neverSignalled.signal() } // release the parked thread so it can exit
 
-        let id = center.start(
+        let id = center.begin(
             title: "Stuck EsViritu op",
             detail: "Loading first 1,000 FASTQ reads as FASTA...",
             operationType: .classification,
+            cliCommand: nil,
             onCancel: {
                 // Real cancel callbacks (task.cancel(), process-tree
                 // termination) return promptly. This one models a worker
@@ -62,7 +64,7 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
                     _ = neverSignalled.wait(timeout: .now() + 30)
                 }
             }
-        )
+        ).rowID
 
         center.cancel(id: id)
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelling)
@@ -95,6 +97,7 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
             detail: "running",
             operationType: .classification,
             targetBundleURL: bundleURL,
+            cliCommand: nil,
             onCancel: {}
         ) else {
             XCTFail("expected the first operation on an unlocked bundle to start")
@@ -112,7 +115,7 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
         XCTAssertFalse(center.activeItems.contains { $0.id == id })
         XCTAssertFalse(center.canStartOperation(on: bundleURL), "an abandoned worker may still write; its bundle must stay locked")
         guard case .refused = center.begin(
-            title: "Second op", detail: "", operationType: .classification, targetBundleURL: bundleURL
+            title: "Second op", detail: "", operationType: .classification, targetBundleURL: bundleURL, cliCommand: nil
         ) else {
             return XCTFail("begin must refuse a bundle still held by an abandoned worker")
         }
@@ -127,7 +130,7 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
     func testAbandonedWorkerLockSurvivesClearCompleted() async throws {
         let bundleURL = URL(fileURLWithPath: "/tmp/OperationCenterCancelGracePeriodTests-\(UUID().uuidString).lungfishfastq")
         guard case .started(let id) = center.begin(
-            title: "Stuck op", detail: "", operationType: .classification, targetBundleURL: bundleURL, onCancel: {}
+            title: "Stuck op", detail: "", operationType: .classification, targetBundleURL: bundleURL, cliCommand: nil, onCancel: {}
         ) else { return XCTFail("expected start") }
         center.cancel(id: id)
         let deadline = Date().addingTimeInterval(5)
@@ -145,12 +148,13 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
     /// already forced the operation to `.cancelled` -- must not resurrect it
     /// or overwrite the cancelled outcome by completing/failing late.
     func testLateWorkerCompletionAfterForcedCancellationIsANoOp() async throws {
-        let id = center.start(
+        let id = center.begin(
             title: "Slow-to-return op",
             detail: "running",
             operationType: .classification,
+            cliCommand: nil,
             onCancel: { /* signals promptly, but the caller below simulates a slow return */ }
-        )
+        ).rowID
 
         center.cancel(id: id)
 
@@ -185,12 +189,13 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
     /// operation back into `.cancelled`).
     func testWorkerThatReturnsWithinGracePeriodCompletesNormally() async throws {
         center.cancelGracePeriod = 0.3
-        let id = center.start(
+        let id = center.begin(
             title: "Responsive op",
             detail: "running",
             operationType: .classification,
+            cliCommand: nil,
             onCancel: {}
-        )
+        ).rowID
 
         center.cancel(id: id)
         // OperationCenter's pre-existing cancellation-wins rule in

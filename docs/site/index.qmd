@@ -65,7 +65,15 @@ LGE is MIT licensed. Bug reports, failed workflows, and half-formed notes are al
 
 ## Videos
 
-Each video is a few minutes or less and shows LGE itself. Start with the install video, then your first project.
+Start with the overview, then work through the beginner screencasts in order.
+
+### Overview
+
+| Video | Length | What it shows |
+|---|---|---|
+| [What LGE is for](videos.html#01-lge-overview) | 78 s | Real data to start from, compact read storage, one window for reads and variants, nf-core pipelines, and a recorded history that exports as methods text, Nextflow or Snakemake. |
+
+### Beginner screencasts
 
 | Video | Length | What it shows |
 |---|---|---|
@@ -74,7 +82,6 @@ Each video is a few minutes or less and shows LGE itself. Start with the install
 | [Find the sickle cell codon](videos.html#B02-sickle-cell-codon) | 150 s | Open the human beta-globin record, go to one codon by its position, read its amino acid and see the single base change behind sickle cell disease. |
 | [Judge a sequencing run](videos.html#B03-run-quality) | 130 s | Judge a run of Illumina reads from its summary cards and charts, and learn what the quality scores mean and what healthy values look like. |
 | [Reading a pileup](videos.html#B04-reading-a-pileup) | 129 s | Read the coverage curve, zoom in to single reads, and tell a change on both chromosome copies from a change on one. |
-| [What LGE is for](videos.html#01-lge-overview) | 78 s | Real data to start from, compact read storage, one window for reads and variants, nf-core pipelines, and a recorded history that exports as methods text, Nextflow or Snakemake. |
 
 <!-- videos:end -->
 

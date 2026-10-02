@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishIO
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishWorkflow
 
 @MainActor
@@ -44,7 +45,12 @@ final class TaxTriageCompletionStateTests: XCTestCase {
 
     func testErroredTasksFinishTheOperationAsCompletedWithWarnings() throws {
         let center = OperationCenter()
-        let id = center.start(title: "TaxTriage (2 samples)", detail: "Starting", operationType: .classification)
+        let id = center.begin(
+            title: "TaxTriage (2 samples)",
+            detail: "Starting",
+            operationType: .classification,
+            cliCommand: nil
+        ).rowID
 
         let finished = AppDelegate.finishTaxTriageOperation(
             id: id,
@@ -67,7 +73,12 @@ final class TaxTriageCompletionStateTests: XCTestCase {
 
     func testCleanRunFinishesAsPlainCompleted() throws {
         let center = OperationCenter()
-        let id = center.start(title: "TaxTriage (2 samples)", detail: "Starting", operationType: .classification)
+        let id = center.begin(
+            title: "TaxTriage (2 samples)",
+            detail: "Starting",
+            operationType: .classification,
+            cliCommand: nil
+        ).rowID
 
         XCTAssertTrue(AppDelegate.finishTaxTriageOperation(id: id, result: result(ignoredFailures: []), center: center))
 

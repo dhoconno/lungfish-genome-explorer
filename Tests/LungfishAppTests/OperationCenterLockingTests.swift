@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class OperationCenterLockingTests: XCTestCase {
@@ -11,18 +12,20 @@ final class OperationCenterLockingTests: XCTestCase {
         let center = OperationCenter()
         let bundleURL = URL(fileURLWithPath: "/tmp/locked-reference.lungfishref", isDirectory: true)
 
-        let firstID = center.start(
+        let firstID = center.begin(
             title: "Annotation Import A",
             detail: "Importing first track",
             operationType: .bundleBuild,
-            targetBundleURL: bundleURL
-        )
-        let secondID = center.start(
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        ).rowID
+        let secondID = center.begin(
             title: "Annotation Import B",
             detail: "Importing second track",
             operationType: .bundleBuild,
-            targetBundleURL: bundleURL
-        )
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        ).rowID
 
         XCTAssertEqual(center.activeLockHolder(for: bundleURL)?.id, firstID)
         XCTAssertFalse(center.canStartOperation(on: bundleURL))
@@ -51,7 +54,8 @@ final class OperationCenterLockingTests: XCTestCase {
             title: "First Operation",
             detail: "Running",
             operationType: .bundleBuild,
-            targetBundleURL: bundleURL
+            targetBundleURL: bundleURL,
+            cliCommand: nil
         )
         guard case .started(let firstID) = firstResult else {
             return XCTFail("Expected the first begin() to start, since nothing holds the lock yet.")
@@ -61,7 +65,8 @@ final class OperationCenterLockingTests: XCTestCase {
             title: "Second Operation",
             detail: "Should be refused",
             operationType: .bundleBuild,
-            targetBundleURL: bundleURL
+            targetBundleURL: bundleURL,
+            cliCommand: nil
         )
         guard case .refused(let refusal) = secondResult else {
             return XCTFail("Expected the second begin() to be refused while the first operation holds the lock.")
@@ -79,7 +84,8 @@ final class OperationCenterLockingTests: XCTestCase {
             title: "Third Operation",
             detail: "Should start once the lock is released",
             operationType: .bundleBuild,
-            targetBundleURL: bundleURL
+            targetBundleURL: bundleURL,
+            cliCommand: nil
         ) else {
             return XCTFail("Expected begin() to start once the lock holder completed.")
         }
@@ -93,7 +99,8 @@ final class OperationCenterLockingTests: XCTestCase {
             title: "Solo Operation",
             detail: "Running",
             operationType: .bundleBuild,
-            targetBundleURL: bundleURL
+            targetBundleURL: bundleURL,
+            cliCommand: nil
         )
         guard case .started(let id) = result else {
             return XCTFail("Expected begin() to start when nothing else holds the lock.")
@@ -112,7 +119,13 @@ final class OperationCenterLockingTests: XCTestCase {
     func testAnnotationImportCallerNeverAttachesWhenBundleIsLocked() {
         let center = OperationCenter()
         let bundleURL = URL(fileURLWithPath: "/tmp/annotation-import.lungfishref", isDirectory: true)
-        _ = center.begin(title: "Existing Import", detail: "Running", operationType: .bundleBuild, targetBundleURL: bundleURL)
+        _ = center.begin(
+            title: "Existing Import",
+            detail: "Running",
+            operationType: .bundleBuild,
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        )
 
         var attachInvoked = false
         func performAnnotationImport() {
@@ -120,7 +133,8 @@ final class OperationCenterLockingTests: XCTestCase {
                 title: "Annotation Import",
                 detail: "Importing...",
                 operationType: .bundleBuild,
-                targetBundleURL: bundleURL
+                targetBundleURL: bundleURL,
+                cliCommand: nil
             )
             guard case .started = result else { return }
             attachInvoked = true
@@ -136,7 +150,13 @@ final class OperationCenterLockingTests: XCTestCase {
     func testMSAExportCallerNeverLaunchesRunnerWhenBundleIsLocked() {
         let center = OperationCenter()
         let bundleURL = URL(fileURLWithPath: "/tmp/msa-export.lungfishmsa", isDirectory: true)
-        _ = center.begin(title: "Existing MSA Op", detail: "Running", operationType: .multipleSequenceAlignmentAction, targetBundleURL: bundleURL)
+        _ = center.begin(
+            title: "Existing MSA Op",
+            detail: "Running",
+            operationType: .multipleSequenceAlignmentAction,
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        )
 
         var runnerLaunched = false
         func exportMSAAlignment() {
@@ -144,7 +164,8 @@ final class OperationCenterLockingTests: XCTestCase {
                 title: "Export Alignment",
                 detail: "Exporting...",
                 operationType: .multipleSequenceAlignmentAction,
-                targetBundleURL: bundleURL
+                targetBundleURL: bundleURL,
+                cliCommand: nil
             )
             guard case .started = result else { return }
             runnerLaunched = true
@@ -160,7 +181,13 @@ final class OperationCenterLockingTests: XCTestCase {
     func testMSATreeViewerActionsNeverLaunchRunnerWhenBundleIsLocked() {
         let center = OperationCenter()
         let bundleURL = URL(fileURLWithPath: "/tmp/msa-tree-viewer.lungfishmsa", isDirectory: true)
-        _ = center.begin(title: "Existing Tree Op", detail: "Running", operationType: .phylogeneticTreeInference, targetBundleURL: bundleURL)
+        _ = center.begin(
+            title: "Existing Tree Op",
+            detail: "Running",
+            operationType: .phylogeneticTreeInference,
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        )
 
         let operationTypes: [OperationType] = [
             .multipleSequenceAlignmentAction, // add/project annotation
@@ -173,7 +200,8 @@ final class OperationCenterLockingTests: XCTestCase {
                 title: "Viewer Action",
                 detail: "Running...",
                 operationType: operationType,
-                targetBundleURL: bundleURL
+                targetBundleURL: bundleURL,
+                cliCommand: nil
             )
             guard case .started = result else { continue }
             runnerLaunched = true
@@ -181,19 +209,31 @@ final class OperationCenterLockingTests: XCTestCase {
         }
     }
 
-    /// A representative existing correct caller (`performBAMImport`'s pattern,
-    /// and `LocalWorkflowExecutionService.run`'s post-check): confirms the
-    /// established pre-check idiom still refuses to launch its transport, so
-    /// the new `begin` API and the old pre-checked `start` idiom agree.
+    /// A representative pre-checked caller (`performBAMImport`'s pattern):
+    /// confirms that a `canStartOperation` guard ahead of `begin` still
+    /// refuses to launch its transport while the bundle is locked, so the
+    /// guard and the `begin` result agree.
     func testPreCheckedCallerAlsoNeverLaunchesTransportWhenBundleIsLocked() {
         let center = OperationCenter()
         let bundleURL = URL(fileURLWithPath: "/tmp/pre-checked-caller.lungfishref", isDirectory: true)
-        _ = center.begin(title: "Existing BAM Import", detail: "Running", operationType: .bamImport, targetBundleURL: bundleURL)
+        _ = center.begin(
+            title: "Existing BAM Import",
+            detail: "Running",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        )
 
         var transportLaunched = false
         func performBAMImport() {
             guard center.canStartOperation(on: bundleURL) else { return }
-            _ = center.start(title: "BAM Import", detail: "Importing...", operationType: .bamImport, targetBundleURL: bundleURL)
+            _ = center.begin(
+                title: "BAM Import",
+                detail: "Importing...",
+                operationType: .bamImport,
+                targetBundleURL: bundleURL,
+                cliCommand: nil
+            )
             transportLaunched = true
         }
         performBAMImport()
@@ -247,7 +287,14 @@ final class OperationCenterLockingTests: XCTestCase {
             let url = URL(fileURLWithPath: "/tmp/cancellation-race.lungfishref")
             var deliveries = 0
             center.onBundleReady = { _ in deliveries += 1 }
-            let id = center.start(title: "Worker", detail: "Working", targetBundleURL: url, onCancel: {})
+            let id = center.begin(
+                title: "Worker",
+                detail: "Working",
+                operationType: .download,
+                targetBundleURL: url,
+                cliCommand: nil,
+                onCancel: {}
+            ).rowID
             center.cancel(id: id)
             XCTAssertFalse(finish(center, id, url), "Cancellation must suppress success/failure UI")
             let item = try XCTUnwrap(center.items.first { $0.id == id })
@@ -258,7 +305,13 @@ final class OperationCenterLockingTests: XCTestCase {
             XCTAssertNil(item.onCancel)
             XCTAssertEqual(deliveries, 0)
             XCTAssertTrue(center.canStartOperation(on: url))
-            let replacement = center.start(title: "Replacement", detail: "Working", targetBundleURL: url)
+            let replacement = center.begin(
+                title: "Replacement",
+                detail: "Working",
+                operationType: .download,
+                targetBundleURL: url,
+                cliCommand: nil
+            ).rowID
             XCTAssertFalse(finish(center, id, url))
             XCTAssertEqual(center.activeLockHolder(for: url)?.id, replacement)
         }
@@ -266,7 +319,13 @@ final class OperationCenterLockingTests: XCTestCase {
 
     func testTerminalRowCannotReinstallCancellationCallback() throws {
         let center = OperationCenter()
-        let id = center.start(title: "Worker", detail: "Working", onCancel: {})
+        let id = center.begin(
+            title: "Worker",
+            detail: "Working",
+            operationType: .download,
+            cliCommand: nil,
+            onCancel: {}
+        ).rowID
         XCTAssertTrue(center.complete(id: id, detail: "Done"))
         center.setCancelCallback(for: id, callback: {})
         XCTAssertNil(try XCTUnwrap(center.items.first { $0.id == id }).onCancel)
@@ -278,9 +337,16 @@ final class OperationCenterLockingTests: XCTestCase {
         let signalReturned = expectation(description: "signal delivered")
         let workerMayFinish = DispatchSemaphore(value: 0)
         let workerFinished = expectation(description: "worker drained")
-        let id = center.start(title: "Worker", detail: "Working", targetBundleURL: url, onCancel: {
-            signalReturned.fulfill()
-        })
+        let id = center.begin(
+            title: "Worker",
+            detail: "Working",
+            operationType: .download,
+            targetBundleURL: url,
+            cliCommand: nil,
+            onCancel: {
+                signalReturned.fulfill()
+            }
+        ).rowID
         DispatchQueue.global().async {
             workerMayFinish.wait()
             DispatchQueue.main.async {
@@ -303,7 +369,13 @@ final class OperationCenterLockingTests: XCTestCase {
         center.clearCompleted()
         center.clearItem(id: id)
         XCTAssertEqual(center.activeLockHolder(for: url)?.id, id)
-        let blocked = center.start(title: "Blocked", detail: "Working", targetBundleURL: url)
+        let blocked = center.begin(
+            title: "Blocked",
+            detail: "Working",
+            operationType: .download,
+            targetBundleURL: url,
+            cliCommand: nil
+        ).rowID
         XCTAssertEqual(center.items.first { $0.id == blocked }?.state, .failed)
         workerMayFinish.signal()
         await fulfillment(of: [workerFinished], timeout: 2)
@@ -329,9 +401,16 @@ final class OperationCenterLockingTests: XCTestCase {
         process.standardError = stderr
         let center = OperationCenter()
         let target = directory.appendingPathComponent("synthetic.lungfishref")
-        let id = center.start(title: "Harmless helper", detail: "Running", targetBundleURL: target, onCancel: {
-            process.terminate()
-        })
+        let id = center.begin(
+            title: "Harmless helper",
+            detail: "Running",
+            operationType: .download,
+            targetBundleURL: target,
+            cliCommand: nil,
+            onCancel: {
+                process.terminate()
+            }
+        ).rowID
         let cleanupAllowed = DispatchSemaphore(value: 0)
         let drained = expectation(description: "child and stderr drained")
         let finished = expectation(description: "worker cleanup complete")
@@ -382,17 +461,13 @@ final class OperationCenterLockingTests: XCTestCase {
         guard let titleRange = source.range(of: #"title: "\#(title)""#) else {
             return ""
         }
-        // Annotation import call sites now use `begin(...)`, whose refusal the
-        // caller must switch on, rather than the deprecated
-        // `start(...)` that returned a plain UUID even when refused.
-        let candidates = ["OperationCenter.shared.begin(", "OperationCenter.shared.start("]
-        for candidate in candidates {
-            guard let startRange = source[..<titleRange.lowerBound].range(of: candidate, options: .backwards),
-                  let endRange = source[titleRange.upperBound...].range(of: "\n        )") else {
-                continue
-            }
-            return String(source[startRange.lowerBound..<endRange.upperBound])
+        // Annotation import call sites use `begin(...)`, whose refusal the
+        // caller must switch on.
+        guard let startRange = source[..<titleRange.lowerBound]
+                .range(of: "OperationCenter.shared.begin(", options: .backwards),
+              let endRange = source[titleRange.upperBound...].range(of: "\n        )") else {
+            return ""
         }
-        return ""
+        return String(source[startRange.lowerBound..<endRange.upperBound])
     }
 }

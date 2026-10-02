@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import LungfishKit
+import LungfishKitTestSupport
 @testable import LungfishApp
 
 /// Found live with Computer Use: after the user chose
@@ -16,7 +17,12 @@ final class QuitWithRunningOperationsTests: XCTestCase {
 
     func testConfirmingQuitWithRunningOperationRepliesTrue() async throws {
         let delegate = AppDelegate()
-        let operationID = OperationCenter.shared.start(title: "Long running test op", detail: "running")
+        let operationID = OperationCenter.shared.begin(
+            title: "Long running test op",
+            detail: "running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         defer { OperationCenter.shared.fail(id: operationID, detail: "test cleanup", errorMessage: "test cleanup") }
 
         var presented: [String] = []
@@ -39,7 +45,12 @@ final class QuitWithRunningOperationsTests: XCTestCase {
 
     func testDeclinedQuitWithRunningOperationRepliesFalse() async throws {
         let delegate = AppDelegate()
-        let operationID = OperationCenter.shared.start(title: "Another running test op", detail: "running")
+        let operationID = OperationCenter.shared.begin(
+            title: "Another running test op",
+            detail: "running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         defer { OperationCenter.shared.fail(id: operationID, detail: "test cleanup", errorMessage: "test cleanup") }
         delegate.testingQuitWithRunningOperationsAnswer = { _ in false }
 

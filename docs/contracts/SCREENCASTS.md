@@ -16,7 +16,7 @@ This contract covers the short videos about Lungfish Genome Explorer (LGE) in `s
 | `docs/site/videos.qmd`, `docs/site/videos/<slug>.vtt` | The Videos page and its caption tracks | yes, generated |
 | `docs/site/index.qmd`, between `videos:begin` and `videos:end` | The video list at the bottom of the home page, where most visitors land | yes, generated (the rest of the page is hand-written) |
 
-Shared pieces live in `screencasts/_shared/`. These are the brand tokens, the overlay templates, the window recorder, `site.yaml` (page intro and section order) and `video-template.yaml` (a commented spec to copy).
+Shared pieces live in `screencasts/_shared/`. These are the brand tokens, the overlay templates, the window recorder, `site.yaml` (page intros and the order of the tracks videos are grouped by) and `video-template.yaml` (a commented spec to copy).
 
 ## Binding rules
 
@@ -32,7 +32,7 @@ Shared pieces live in `screencasts/_shared/`. These are the brand tokens, the ov
 
 ## Making a new video
 
-1. Pick the video from `screencasts/CATALOGUE.md` or agree a new one with the owner. Copy `screencasts/_shared/video-template.yaml` to `screencasts/<slug>/video.yaml` and fill in purpose, audience, honesty, setup and the `site` entry.
+1. Pick the video from `screencasts/CATALOGUE.md` or agree a new one with the owner. Copy `screencasts/_shared/video-template.yaml` to `screencasts/<slug>/video.yaml` and fill in its track, purpose, audience, honesty, setup and the `site` entry. The track decides which group the video joins on the Videos page and the home page. A new kind of video gets a new track in `screencasts/_shared/site.yaml`.
 2. Write every beat with `shows`, `capture`, `verify`, a caption of 4 to 9 words and, for a narrated video, the narration line. Render with no takes. Missing takes render as labelled placeholders, so timing and narration can be settled first.
 3. Have the narration read by a domain expert and a reader at the audience's level. Ask the expert for the spoken form of every abbreviation and add it to the lexicon.
 4. Install the release to film from, recreate the setup projects, and record each take with `wincap` as `capture` says (README, Making a video). Check every `verify` fact on screen.
@@ -60,7 +60,7 @@ Status is one of open, changed (rendered, not yet published), published with a d
 | Pace, a frozen frame, framing | `in`, `duration`, `zoom`, `crop`, `highlights`, `blur` | no | yes | yes |
 | Voice or delivery overall | `narration` settings in every learner spec, and `VOICES.md` | no | yes, every line | yes |
 | Wrong or outdated app footage | re-film the beat as its `capture` says, update `filmed_with` | yes | yes | yes |
-| Page wording or order | `site.summary`, `site.heading`, `site.section`, `_shared/site.yaml` | no | no | `publish.py --page` |
+| Page wording or order | `site.summary`, `site.heading`, `track`, `_shared/site.yaml` | no | no | `publish.py --page` |
 
 A narrated beat grows to fit its line, and the picture holds its last frame until the line ends. When narration outruns the footage by more than a few seconds, record a longer take or shorten the line rather than leaving a long frozen frame.
 

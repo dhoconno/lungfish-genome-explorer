@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishTestSupport
 
 @MainActor
@@ -21,12 +22,13 @@ final class OperationRoutingTests: XCTestCase {
             deliveredContext = context
         }
 
-        let id = center.start(
+        let id = center.begin(
             title: "Reference",
             detail: "Downloading",
             operationType: .download,
+            cliCommand: nil,
             routeContext: routeContext
-        )
+        ).rowID
         center.complete(id: id, detail: "Done", bundleURLs: [bundleURL])
 
         XCTAssertEqual(deliveredURLs, [bundleURL])
@@ -41,7 +43,12 @@ final class OperationRoutingTests: XCTestCase {
         var deliveredURLs: [URL]?
         center.onBundleReady = { deliveredURLs = $0 }
 
-        let id = center.start(title: "Reference", detail: "Downloading")
+        let id = center.begin(
+            title: "Reference",
+            detail: "Downloading",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.complete(id: id, detail: "Done", bundleURLs: [bundleURL])
 
         XCTAssertEqual(deliveredURLs, [bundleURL])
@@ -66,18 +73,20 @@ final class OperationRoutingTests: XCTestCase {
             deliveredContext = context
         }
 
-        _ = center.start(
+        _ = center.begin(
             title: "First",
             detail: "Running",
             operationType: .download,
+            cliCommand: nil,
             routeContext: firstContext
         )
-        let secondID = center.start(
+        let secondID = center.begin(
             title: "Second",
             detail: "Running",
             operationType: .download,
+            cliCommand: nil,
             routeContext: secondContext
-        )
+        ).rowID
 
         center.complete(id: secondID, detail: "Done", bundleURLs: [bundleURL])
 
@@ -987,7 +996,12 @@ final class OperationRoutingTests: XCTestCase {
         let controller = MainSplitViewController()
         let center = OperationCenter()
         center.failureReportStore = .temporaryForTesting()
-        let opID = center.start(title: "Test Assembly", detail: "Running", operationType: .assembly)
+        let opID = center.begin(
+            title: "Test Assembly",
+            detail: "Running",
+            operationType: .assembly,
+            cliCommand: nil
+        ).rowID
 
         var events: [String] = []
         let waiter = Task { @MainActor in
@@ -1017,7 +1031,12 @@ final class OperationRoutingTests: XCTestCase {
         let center = OperationCenter()
         center.failureReportStore = .temporaryForTesting()
 
-        let completingOpID = center.start(title: "Test Assembly A", detail: "Running", operationType: .assembly)
+        let completingOpID = center.begin(
+            title: "Test Assembly A",
+            detail: "Running",
+            operationType: .assembly,
+            cliCommand: nil
+        ).rowID
         let completionWaiter = Task { @MainActor in
             await controller.awaitOperationTerminal(id: completingOpID, center: center, pollInterval: .milliseconds(10))
         }
@@ -1050,7 +1069,12 @@ final class OperationRoutingTests: XCTestCase {
         let bundleNames = ["SampleA", "SampleB", "SampleC"]
         for (index, name) in bundleNames.enumerated() {
             startedOrder.append(name)
-            let opID = center.start(title: "Assembly: \(name)", detail: "Running", operationType: .assembly)
+            let opID = center.begin(
+                title: "Assembly: \(name)",
+                detail: "Running",
+                operationType: .assembly,
+                cliCommand: nil
+            ).rowID
 
             // Simulate each child's own independently-running pipeline: the
             // middle bundle (index 1) fails; the others complete

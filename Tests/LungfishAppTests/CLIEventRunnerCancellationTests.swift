@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishKit
+import LungfishKitTestSupport
 
 final class CLIEventRunnerCancellationTests: XCTestCase {
     private var cleanupURLs: [URL] = []
@@ -71,7 +72,13 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         for kind in 0..<3 {
             let fakeCLI = try makeSleepingCLI(directoryPrefix: "cancel-before-launch")
             let operationID = await MainActor.run {
-                let id = OperationCenter.shared.start(title: "Pre-cancelled helper", detail: "Pending", onCancel: {})
+                let id = OperationCenter.shared.begin(
+                    title: "Pre-cancelled helper",
+                    detail: "Pending",
+                    operationType: .download,
+                    cliCommand: nil,
+                    onCancel: {}
+                ).rowID
                 OperationCenter.shared.cancel(id: id)
                 return id
             }
@@ -164,11 +171,12 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
 
     private func startOperation(type: OperationType) async -> UUID {
         await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "Cancellation Test",
                 detail: "Launching...",
-                operationType: type
-            )
+                operationType: type,
+                cliCommand: nil
+            ).rowID
         }
     }
 

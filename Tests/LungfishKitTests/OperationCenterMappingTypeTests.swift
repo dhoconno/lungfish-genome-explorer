@@ -4,16 +4,18 @@
 
 import XCTest
 @testable import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class OperationCenterMappingTypeTests: XCTestCase {
     func testMappingItemReportsMappingOperationType() {
         let center = OperationCenter()
-        let id = center.start(
+        let id = center.begin(
             title: "Map Reads (minimap2): sample",
             detail: "Mapping 1 file(s) to reference.fasta",
-            operationType: .mapping
-        )
+            operationType: .mapping,
+            cliCommand: nil
+        ).rowID
 
         let item = center.items.first(where: { $0.id == id })
         XCTAssertEqual(item?.operationType, .mapping)

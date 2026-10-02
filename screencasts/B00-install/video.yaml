@@ -13,7 +13,6 @@ manual: 01-foundations/06-the-lungfish-project
 next: B01-first-project
 
 site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
-  section: Getting started
   summary: >-
     Download LGE from the website, install it, open it for the first time, install the tools it runs and create an empty project.
 

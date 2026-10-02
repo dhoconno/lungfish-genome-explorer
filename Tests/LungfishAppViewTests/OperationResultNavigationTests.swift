@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import XCTest
 import LungfishKit
+import LungfishKitTestSupport
 @testable import LungfishApp
 
 @MainActor
@@ -38,7 +39,9 @@ final class OperationResultNavigationTests: XCTestCase {
             detail: "Done",
             progress: 1,
             state: .completed,
-            bundleURLs: [missing, existing]
+            operationType: .download,
+            bundleURLs: [missing, existing],
+            cliCommand: nil
         )
 
         XCTAssertEqual(OperationResultNavigation.resultURL(for: item), existing.standardizedFileURL)
@@ -59,8 +62,10 @@ final class OperationResultNavigationTests: XCTestCase {
             detail: "Done",
             progress: 1,
             state: .completed,
+            operationType: .download,
             outputURLs: [report],
-            targetBundleURL: target
+            targetBundleURL: target,
+            cliCommand: nil
         )
 
         XCTAssertNil(OperationResultNavigation.resultURL(for: item))
@@ -79,7 +84,9 @@ final class OperationResultNavigationTests: XCTestCase {
             detail: "Done",
             progress: 1,
             state: .completed,
-            outputURLs: [primerAnalysis]
+            operationType: .download,
+            outputURLs: [primerAnalysis],
+            cliCommand: nil
         )
 
         XCTAssertEqual(OperationResultNavigation.resultURL(for: item), primerAnalysis.standardizedFileURL)
@@ -97,7 +104,9 @@ final class OperationResultNavigationTests: XCTestCase {
             detail: "Working",
             progress: 0.5,
             state: .running,
-            bundleURLs: [bundle]
+            operationType: .download,
+            bundleURLs: [bundle],
+            cliCommand: nil
         )
 
         XCTAssertNil(OperationResultNavigation.resultURL(for: item))
@@ -117,7 +126,9 @@ final class OperationResultNavigationTests: XCTestCase {
             detail: "Done",
             progress: 1,
             state: .completed,
+            operationType: .download,
             bundleURLs: [outsideBundle],
+            cliCommand: nil,
             routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil)
         )
 
@@ -132,21 +143,23 @@ final class OperationResultNavigationTests: XCTestCase {
             .appendingPathComponent("primer-design.lungfishprimeranalysis", isDirectory: true)
         try FileManager.default.createDirectory(at: primerAnalysis, withIntermediateDirectories: true)
 
-        let completedID = OperationCenter.shared.start(
+        let completedID = OperationCenter.shared.begin(
             title: "Completed primer design fixture",
             detail: "Finishing",
-            operationType: .workflow
-        )
+            operationType: .workflow,
+            cliCommand: nil
+        ).rowID
         XCTAssertTrue(OperationCenter.shared.complete(
             id: completedID,
             detail: "Done",
             outputURLs: [primerAnalysis]
         ))
-        let runningID = OperationCenter.shared.start(
+        let runningID = OperationCenter.shared.begin(
             title: "Running primer design fixture",
             detail: "Working",
-            operationType: .workflow
-        )
+            operationType: .workflow,
+            cliCommand: nil
+        ).rowID
         defer {
             _ = OperationCenter.shared.complete(id: runningID, detail: "Test cleanup")
             OperationCenter.shared.clearItem(id: runningID)
@@ -186,6 +199,8 @@ final class OperationResultNavigationTests: XCTestCase {
             detail: "Done",
             progress: 1,
             state: .completed,
+            operationType: .download,
+            cliCommand: nil,
             routeContext: OperationRouteContext(
                 projectURL: projectURL,
                 windowStateScope: WindowStateScope()
@@ -199,6 +214,8 @@ final class OperationResultNavigationTests: XCTestCase {
             detail: "Done",
             progress: 1,
             state: .completed,
+            operationType: .download,
+            cliCommand: nil,
             routeContext: OperationRouteContext(
                 projectURL: URL(fileURLWithPath: "/tmp/unrelated-project.lungfish", isDirectory: true),
                 windowStateScope: WindowStateScope()

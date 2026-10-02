@@ -389,7 +389,7 @@ public final class OperationCenter: ObservableObject {
             detail: String,
             progress: Double,
             state: State,
-            operationType: OperationType = .download,
+            operationType: OperationType,
             startedAt: Date = Date(),
             finishedAt: Date? = nil,
             wallTimeSeconds: TimeInterval? = nil,
@@ -398,7 +398,7 @@ public final class OperationCenter: ObservableObject {
             outputURLs: [URL] = [],
             targetBundleURL: URL? = nil,
             onCancel: (@Sendable () -> Void)? = nil,
-            cliCommand: String? = nil,
+            cliCommand: String?,
             workflowRunID: UUID? = nil,
             routeContext: OperationRouteContext? = nil,
             errorMessage: String? = nil,
@@ -577,48 +577,19 @@ public final class OperationCenter: ObservableObject {
 
     // MARK: - Lifecycle
 
-    /// Starts tracking a new operation and returns its ID, even when a bundle
-    /// lock refused it and the inserted row is already `.failed` ("Bundle is
-    /// busy"). Phase 1 of the architecture program moves every caller to
-    /// ``begin(title:detail:operationType:targetBundleURL:additionalLockedBundleURLs:startedAt:cliCommand:workflowRunID:routeContext:onCancel:)``,
-    /// called through ``OperationReporting`` as docs/contracts/ADDING-AN-OPERATION.md
-    /// describes, and then deletes this method.
-    @available(*, deprecated, message: "Use begin(...) when the operation carries a targetBundleURL or additionalLockedBundleURLs, so a bundle-lock refusal cannot be ignored.")
-    @discardableResult
-    public func start(
-        title: String,
-        detail: String,
-        operationType: OperationType = .download,
-        targetBundleURL: URL? = nil,
-        additionalLockedBundleURLs: [URL] = [],
-        startedAt: Date = Date(),
-        cliCommand: String? = nil,
-        workflowRunID: UUID? = nil,
-        routeContext: OperationRouteContext? = nil,
-        onCancel: (@Sendable () -> Void)? = nil
-    ) -> UUID {
-        insertOperation(
-            title: title,
-            detail: detail,
-            operationType: operationType,
-            targetBundleURL: targetBundleURL,
-            additionalLockedBundleURLs: additionalLockedBundleURLs,
-            startedAt: startedAt,
-            cliCommand: cliCommand,
-            workflowRunID: workflowRunID,
-            routeContext: routeContext,
-            onCancel: onCancel
-        ).id
-    }
-
     /// Starts tracking a new operation, refusing a call the caller cannot ignore.
     ///
-    /// Unlike ``start(title:detail:operationType:targetBundleURL:additionalLockedBundleURLs:startedAt:cliCommand:workflowRunID:routeContext:onCancel:)``,
-    /// this makes a bundle-lock conflict a value the caller must switch on. The
-    /// visible "Bundle is busy" failed row is still inserted on refusal (same
-    /// behaviour as `start`) so the Operations panel keeps showing what
-    /// happened; only the return type changes so the refusal cannot be
-    /// dropped on the floor.
+    /// A bundle-lock conflict is a value the caller must switch on. The visible
+    /// "Bundle is busy" failed row is still inserted on refusal, so the
+    /// Operations panel keeps showing what happened, and the refusal carries
+    /// that row's id.
+    ///
+    /// Operation code calls this through ``OperationReporting``, as
+    /// docs/contracts/ADDING-AN-OPERATION.md describes. `operationType` and
+    /// `cliCommand` have no default, so every caller names the row's type and
+    /// the `lungfish-cli` command that reproduces the run (built with
+    /// ``buildCLICommand(subcommand:args:)``), or passes `nil` for a run no
+    /// command reproduces.
     ///
     /// Callers MUST NOT launch a subprocess, transport, or bundle mutation
     /// before checking the result, and MUST NOT do so at all when the result
@@ -631,11 +602,11 @@ public final class OperationCenter: ObservableObject {
     public func begin(
         title: String,
         detail: String,
-        operationType: OperationType = .download,
+        operationType: OperationType,
         targetBundleURL: URL? = nil,
         additionalLockedBundleURLs: [URL] = [],
         startedAt: Date = Date(),
-        cliCommand: String? = nil,
+        cliCommand: String?,
         workflowRunID: UUID? = nil,
         routeContext: OperationRouteContext? = nil,
         onCancel: (@Sendable () -> Void)? = nil
@@ -698,6 +669,7 @@ public final class OperationCenter: ObservableObject {
                     finishedAt: finishedAt,
                     wallTimeSeconds: max(0, finishedAt.timeIntervalSince(startedAt)),
                     targetBundleURL: targetBundleURL,
+                    cliCommand: nil,
                     routeContext: routeContext,
                     errorMessage: "Bundle is busy"
                 ),

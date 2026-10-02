@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 import LungfishCore
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 
@@ -283,8 +284,8 @@ final class WorkflowRunAgainControllerTests: XCTestCase {
         let center = OperationCenter()
         center.failureReportStore = .temporaryForTesting()
         let source = URL(fileURLWithPath: "/tmp/invented-history.lungfishrun")
-        let id = center.start(title: "Local run", detail: "Fixture", operationType: .workflow,
-            targetBundleURL: source, cliCommand: "never parse this shell")
+        let id = center.begin(title: "Local run", detail: "Fixture", operationType: .workflow,
+            targetBundleURL: source, cliCommand: "never parse this shell").rowID
         XCTAssertNil(WorkflowOperationsWindowController.replaySourceBundleURL(for: center.items[0]))
         center.fail(id: id, detail: "Failed fixture", errorMessage: "Fixture", errorDetail: "Fixture")
         XCTAssertEqual(WorkflowOperationsWindowController.replaySourceBundleURL(for: center.items[0]), source)
