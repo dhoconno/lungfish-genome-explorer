@@ -8,6 +8,8 @@ These documents are the written rules for extending Lungfish Genome Explorer (LG
 | `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` | add a new kind of result with its own viewport, Inspector sections and sidebar entry, including the RNA-seq surface |
 | `docs/contracts/analysis-surface-checklist.md` | need the copyable per-surface checklist to paste into a plan |
 | `docs/contracts/CONCURRENCY-PLAYBOOK.md` | move work off the main actor, report progress, or apply a result that might be stale |
+| `docs/contracts/SCREENCASTS.md` | make a new screencast, change one after review, or publish one to the website's Videos page |
+| `docs/contracts/screencast-checklist.md` | need the copyable per-video checklist |
 
 ## Where the contracts come from
 

@@ -1,0 +1,67 @@
+# <slug>: <title>. Copy to screencasts/<slug>/video.yaml and fill in every key.
+# Process: docs/contracts/SCREENCASTS.md. Key reference: screencasts/README.md, "The video spec".
+# Render: python3 screencasts/render.py screencasts/<slug>/video.yaml
+
+slug: B00-example
+title: Example title
+track: beginners                 # beginners, switching, command-line or overview
+purpose: >-
+  What a viewer can do after watching. A remake has to meet this brief.
+audience: Undergraduate biology students and bench scientists new to bioinformatics.
+manual: 01-foundations/06-the-lungfish-project   # manual chapter the video belongs to
+demo: human-mapping-and-variants-results         # demo project the takes use, if any
+
+site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
+  section: Getting started       # one of the sections in screencasts/_shared/site.yaml
+  summary: >-
+    One or two sentences on what the video shows. The length and version are added after it.
+
+filmed_with:
+  app: Lungfish                  # Lungfish (Stable) or Lungfish Preview
+  versions: ["2026.10.1"]
+  date: 2026-10-01
+
+narration:           # or `narration: none` for a silent video
+  engine: elevenlabs
+  model: eleven_v4
+  voice_name: Matilda   # ElevenLabs stock voice, chosen 2026-10-02 (VOICES.md)
+  voice_id: XrExE9yKIg1WjnnlVkGX
+  seed: 4242
+  voice_settings: {stability: 0.6, similarity_boost: 0.75, style: 0, speed: 0.95}
+  lead: 0.5          # silence at the start of each narrated beat, after its zoom lands
+  tail: 0.6          # silence after the last word before the next beat
+  lexicon:           # spoken forms (docs/contracts/SCREENCASTS.md, Pronunciation)
+    LGE: L G E
+
+setup:
+  window_points: [1440, 810]
+  projects:
+    - name: Example.lungfish
+      from: Where the project comes from (a demo project, or the steps that built it).
+  notes:
+    - Window state before the first take.
+
+honesty:
+  - A claim this video must not overstate.
+
+outputs: [wide]
+trim_top: 52
+window_points: [1440, 810]
+
+beats:
+  - {kind: card, id: title, duration: 3.0, icon: true, title: Example title, sub: Lungfish Genome Explorer for
+      beginners, shows: Title card naming the video and its track., transition: fade}
+
+  - kind: take
+    id: first
+    take: takes/first.mov
+    duration: 10.0
+    caption: Four to nine words of takeaway
+    shows: What this beat demonstrates, in words that stay true when the UI changes.
+    capture: How to film it again, attended or with an axdrive file.
+    narration: Names each control by its label and says what happens.
+    verify: [A fact on screen to re-check on a new version.]
+
+  - {kind: card, id: end, duration: 6.0, title: Learn more, lines: [{text: "{filmed_with}", style: version}],
+      shows: End card naming the manual chapter and the version filmed., narration: To learn more, read the manual
+      chapter. More videos are on the Videos page of the website.}

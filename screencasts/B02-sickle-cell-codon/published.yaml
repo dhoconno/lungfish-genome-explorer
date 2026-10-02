@@ -1,0 +1,13 @@
+# Written by screencasts/publish.py. The current public render of this video.
+published: '2026-10-02'
+seconds: 150.5
+filmed_with: Filmed with Lungfish 2026.9.72
+voice: ElevenLabs Matilda
+mp4:
+  path: screencasts/B02-sickle-cell-codon/renders/B02-sickle-cell-codon.mp4
+  bytes: 12507599
+  sha256: a535f87b962986d96ff45c80af0384083f3131fc427e286b236ec20102774372
+poster:
+  path: screencasts/B02-sickle-cell-codon/renders/B02-sickle-cell-codon-poster.png
+  bytes: 79562
+  sha256: 982915503236953c9a6e9c973f1138e7d89675bbaadab0ae5e539b0bce00a974

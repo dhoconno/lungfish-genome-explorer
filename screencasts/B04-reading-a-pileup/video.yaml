@@ -13,15 +13,23 @@ audience: Undergraduate biology students and bench scientists new to bioinformat
 manual: 04-alignments/02-reading-an-alignment
 demo: human-mapping-and-variants-results
 
+site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
+  section: Alignments
+  summary: >-
+    Read the coverage curve, zoom in to single reads, and tell a change on both chromosome copies from a change on one.
+
 filmed_with:
   app: Lungfish
   versions: ["2026.9.72"]
   date: 2026-10-01
 
 narration:
-  engine: say
-  voice: Ava (Premium)
-  words_per_minute: 145
+  engine: elevenlabs
+  model: eleven_v4
+  voice_name: Matilda   # ElevenLabs stock voice, chosen 2026-10-02 (VOICES.md)
+  voice_id: XrExE9yKIg1WjnnlVkGX
+  seed: 4242
+  voice_settings: {stability: 0.6, similarity_boost: 0.75, style: 0, speed: 0.95}
   lead: 0.5
   tail: 0.6
   lexicon:
@@ -29,13 +37,18 @@ narration:
     "Phred": Fred
     "Length Dist.": Length distribution
     "Q / Position": Q by position
-    "HbS": H b S
+    "HbS": H B S
     ".dmg": dot D M G
-    "kb": kilobase
+    "500 kb slice": 500 kilobase slice
     HG002: H G zero zero two
     minimap2: mini map two
     "0/1": zero slash one
     "1/1": one slash one
+    "has A where the reference has G": has an A where the reference has a G
+    "most likely carry A": most likely carry an A
+    "At 2,162, 28 of 51 reads have T instead of A": At position 2,162, 28 of the 51 reads have a T instead of an A
+    "most likely carries T": most likely carries a T
+    "where 0 is the reference allele and 1 the alternate": where zero is the reference allele and one the alternate
     LGE: L G E
 
 setup:

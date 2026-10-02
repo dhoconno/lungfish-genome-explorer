@@ -1,0 +1,13 @@
+# Written by screencasts/publish.py. The current public render of this video.
+published: '2026-10-02'
+seconds: 128.8
+filmed_with: Filmed with Lungfish 2026.9.72
+voice: ElevenLabs Matilda
+mp4:
+  path: screencasts/B04-reading-a-pileup/renders/B04-reading-a-pileup.mp4
+  bytes: 11606864
+  sha256: dc5c3c622fbf9cde32ac450780445b73cb888f1264cb2ba325f8d000122f1e83
+poster:
+  path: screencasts/B04-reading-a-pileup/renders/B04-reading-a-pileup-poster.png
+  bytes: 69457
+  sha256: 5003b3d1c04f9b3c206c8ae84bede4f0e9928f1d1b61b5ce267de86e3ac3db08

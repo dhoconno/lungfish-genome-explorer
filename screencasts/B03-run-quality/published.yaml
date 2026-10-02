@@ -1,0 +1,13 @@
+# Written by screencasts/publish.py. The current public render of this video.
+published: '2026-10-02'
+seconds: 130.1
+filmed_with: Filmed with Lungfish 2026.9.72
+voice: ElevenLabs Matilda
+mp4:
+  path: screencasts/B03-run-quality/renders/B03-run-quality.mp4
+  bytes: 19011980
+  sha256: 5dc5e8af2efcded2747b224132d7850988faf2f1f6261c8d9c62ead402df22d0
+poster:
+  path: screencasts/B03-run-quality/renders/B03-run-quality-poster.png
+  bytes: 77895
+  sha256: a06ca671f8164376b72e42b6cce43f729f12a560871718c1469001feaefe9c45

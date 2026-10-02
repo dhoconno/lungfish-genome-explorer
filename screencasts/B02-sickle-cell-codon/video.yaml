@@ -14,15 +14,23 @@ manual: 02-sequences/01-importing-and-viewing
 demo: genes-and-sequences
 next: B03-run-quality
 
+site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
+  section: Sequences
+  summary: >-
+    Open the human beta-globin record, go to one codon by its position, read its amino acid and see the single base change behind sickle cell disease.
+
 filmed_with:
   app: Lungfish
   versions: ["2026.9.72"]
   date: 2026-10-01
 
 narration:
-  engine: say
-  voice: Ava (Premium)
-  words_per_minute: 145
+  engine: elevenlabs
+  model: eleven_v4
+  voice_name: Matilda   # ElevenLabs stock voice, chosen 2026-10-02 (VOICES.md)
+  voice_id: XrExE9yKIg1WjnnlVkGX
+  seed: 4242
+  voice_settings: {stability: 0.6, similarity_boost: 0.75, style: 0, speed: 0.95}
   lead: 0.5
   tail: 0.6
   lexicon:
@@ -30,10 +38,12 @@ narration:
     "Phred": Fred
     "Length Dist.": Length distribution
     "Q / Position": Q by position
-    "HbS": H b S
+    "HbS": H B S
     ".dmg": dot D M G
-    "kb": kilobase
-    NG_000007.3: N G, seven, point three
+    "500 kb slice": 500 kilobase slice
+    NG_000007.3: N G zero zero zero zero zero seven point three
+    NCBI: N C B I
+    "the middle A of this codon": the middle base, A, of this codon
     GAG: G, A, G
     GTG: G, T, G
     LGE: L G E

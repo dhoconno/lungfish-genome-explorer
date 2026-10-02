@@ -13,15 +13,23 @@ manual: 03-reads/03-quality-control
 demo: human-reads
 next: B04-reading-a-pileup
 
+site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
+  section: Reads
+  summary: >-
+    Judge a run of Illumina reads from its summary cards and charts, and learn what the quality scores mean and what healthy values look like.
+
 filmed_with:
   app: Lungfish
   versions: ["2026.9.72"]
   date: 2026-10-01
 
 narration:
-  engine: say
-  voice: Ava (Premium)
-  words_per_minute: 145
+  engine: elevenlabs
+  model: eleven_v4
+  voice_name: Matilda   # ElevenLabs stock voice, chosen 2026-10-02 (VOICES.md)
+  voice_id: XrExE9yKIg1WjnnlVkGX
+  seed: 4242
+  voice_settings: {stability: 0.6, similarity_boost: 0.75, style: 0, speed: 0.95}
   lead: 0.5
   tail: 0.6
   lexicon:
@@ -29,13 +37,14 @@ narration:
     "Phred": Fred
     "Length Dist.": Length distribution
     "Q / Position": Q by position
-    "HbS": H b S
+    "HbS": H B S
     ".dmg": dot D M G
-    "kb": kilobase
+    "500 kb slice": 500 kilobase slice
     HG002: H G zero zero two
     Q20: Q twenty
     Q30: Q thirty
     GC: G C
+    "2 by 250": two by two fifty
     LGE: L G E
 
 setup:

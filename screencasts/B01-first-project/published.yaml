@@ -1,0 +1,13 @@
+# Written by screencasts/publish.py. The current public render of this video.
+published: '2026-10-02'
+seconds: 95.7
+filmed_with: Filmed with Lungfish 2026.9.72
+voice: ElevenLabs Matilda
+mp4:
+  path: screencasts/B01-first-project/renders/B01-first-project.mp4
+  bytes: 12417303
+  sha256: e59ea8cd38937e71970feeca9c37a25c3bd9a680e61a7a0d98b893956d0e2fc5
+poster:
+  path: screencasts/B01-first-project/renders/B01-first-project-poster.png
+  bytes: 69872
+  sha256: be3f3351b3610d55832be24105b85a63084a2304e24bd161658c2814bd347c92

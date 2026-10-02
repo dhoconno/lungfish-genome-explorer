@@ -14,6 +14,7 @@ This is the entry point for any agent working in the Lungfish Genome Explorer (L
 | [docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md](docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md) | The leaf-module recipe for a new result viewer and every App touch point it needs today |
 | [docs/contracts/analysis-surface-checklist.md](docs/contracts/analysis-surface-checklist.md) | A copyable checklist to tick per surface |
 | [docs/contracts/CONCURRENCY-PLAYBOOK.md](docs/contracts/CONCURRENCY-PLAYBOOK.md) | MainActor dispatch, progress callbacks, generation counters and the ratcheted escape hatches |
+| [docs/contracts/SCREENCASTS.md](docs/contracts/SCREENCASTS.md) | How screencasts are made, revised after feedback, narrated and published to the Videos page |
 | [docs/user-manual/features.yaml](docs/user-manual/features.yaml) | Every user-reachable feature with its menu path and source files |
 | [SKILLS.md](SKILLS.md) | Release commands and large-file storage |
 

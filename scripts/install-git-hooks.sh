@@ -23,6 +23,9 @@
 #     A push of tags alone, on commits already on the remote's branches,
 #     skips all of these checks, since those commits were checked when
 #     their branch was pushed (release.py pushes its release tag this way).
+#     Before the unit tier it also checks that published screencasts agree
+#     with the Videos page (screencasts/publish.py --check;
+#     docs/contracts/SCREENCASTS.md).
 #     The full tier (everything, serial) remains the stable-release gate;
 #     run it explicitly with scripts/full-suite-gate.sh --tier full.
 #   - a pre-commit hook that rejects new or modified files over 500 KB under
@@ -170,6 +173,12 @@ fi
 echo "pre-push: checking duplicate public type names (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/checks/duplicate-public-types.py"; then
     echo "pre-push: duplicate-public-types check FAILED (a public type name is declared in two targets) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
+echo "pre-push: checking that published screencasts agree with the Videos page (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/screencasts/publish.py" --check; then
+    echo "pre-push: screencast publishing check FAILED (see docs/contracts/SCREENCASTS.md, Publishing) — push aborted. Use --no-verify to bypass." >&2
     exit 1
 fi
 

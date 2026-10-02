@@ -14,20 +14,29 @@ audience: Undergraduate biology students and bench scientists new to bioinformat
 manual: 01-foundations/06-the-lungfish-project
 demo: human-mapping-and-variants-results
 
+site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
+  section: Getting started
+  summary: >-
+    Open a demo project of real human sequencing data and find the sidebar, the Inspector, your results and the Operations panel.
+
 filmed_with:
   app: Lungfish
   versions: ["2026.9.72"]
   date: 2026-10-01
 
 narration:
-  engine: say
-  voice: Ava (Premium)
-  words_per_minute: 145
+  engine: elevenlabs
+  model: eleven_v4
+  voice_name: Matilda   # ElevenLabs stock voice, chosen 2026-10-02 (VOICES.md)
+  voice_id: XrExE9yKIg1WjnnlVkGX
+  seed: 4242
+  voice_settings: {stability: 0.6, similarity_boost: 0.75, style: 0, speed: 0.95}
   lead: 0.5          # silence at the start of each narrated beat, after its zoom lands
   tail: 0.6          # silence after the last word before the next beat
   lexicon:           # spoken forms, so every remake says these terms the same way
     HG002: H G zero zero two
     minimap2: mini map two
+    "500 kb slice": 500 kilobase slice
     FASTQ: fast Q
     LGE: L G E
 
