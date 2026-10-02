@@ -5,7 +5,7 @@ import LungfishKit
 
 /// Runs `lungfish-cli align mafft` through `CLISubprocessTransport`, decoding
 /// the shared `CLIEvent` schema instead of the private `msaAlignment*` JSON
-/// shape this runner used to hand-parse (ARC-02, SIMP-04). The only fields a
+/// shape this runner used to hand-parse. The only fields a
 /// caller reads from a successful run are the bundle URL, row count and
 /// aligned length, none of which fit `CLIEvent.complete`'s plain
 /// `outputs`/`message` shape, so `AlignCommand` encodes them into the

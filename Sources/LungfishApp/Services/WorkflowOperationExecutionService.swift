@@ -216,7 +216,7 @@ final class WorkflowOperationExecutionService {
             progress: 0.01,
             detail: "Launching lungfish-cli for 12S reference bundle creation..."
         )
-        // WFL-12: without a cancel callback the Operations panel shows no
+        // Without a cancel callback the Operations panel shows no
         // Cancel button for this row, and a stalled run can only be ended by
         // quitting the app. See runONTGenotyping for the same pattern.
         operationCenter.setCancelCallback(for: operationID) { [self] in
@@ -314,7 +314,7 @@ final class WorkflowOperationExecutionService {
             progress: 0.01,
             detail: "Launching lungfish-cli for 12S amplicon matching..."
         )
-        // WFL-12: without a cancel callback the Operations panel shows no
+        // Without a cancel callback the Operations panel shows no
         // Cancel button for this row, and a stalled run can only be ended by
         // quitting the app. See runONTGenotyping for the same pattern.
         operationCenter.setCancelCallback(for: operationID) { [self] in
@@ -553,7 +553,7 @@ final class WorkflowOperationExecutionService {
             progress: 0.01,
             detail: "Launching lungfish-cli for full-length ONT MHC genotyping..."
         )
-        // WFL-12: without a cancel callback the Operations panel shows no
+        // Without a cancel callback the Operations panel shows no
         // Cancel button for this row, and a stalled run can only be ended by
         // quitting the app. See runONTGenotyping for the same pattern.
         operationCenter.setCancelCallback(for: operationID) { [self] in

@@ -191,7 +191,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Persistence used by this controller for layout reads; set before loading its view.
     var layoutDefaults: UserDefaults = .standard
 
-    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.
     var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
 
@@ -287,7 +287,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Filename for the batch-level unique-reads cache under `<batchDir>`.
     ///
-    /// PERF-04: versioned `v2` because `v1` values were computed from
+    /// Versioned `v2` because `v1` values were computed from
     /// `AlignmentDataProvider.fetchReads(maxReads: 100_000)`, which capped
     /// any contig with more than 100,000 mapped reads at that ceiling. The
     /// `v2` counter streams the whole contig with no cap via
@@ -474,7 +474,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private let summaryBar = TaxTriageSummaryBar()
     private let sampleFilterControl = NSSegmentedControl()
     /// Popup-menu alternative to `sampleFilterControl` for large sample
-    /// counts (UX-18: the segmented control does not scale — its own
+    /// counts (the segmented control does not scale — its own
     /// comment elsewhere concedes this). Shown instead of the segmented
     /// control once the sample count passes `sampleFilterPopUpThreshold`.
     private let sampleFilterPopUp = NSPopUpButton()
@@ -1123,7 +1123,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         needsInitialSplitValidation = false
     }
 
-    // MARK: - Keyboard Shortcuts (UX-03)
+    // MARK: - Keyboard Shortcuts
 
     /// Selects the next sample (⌘]), dispatched through the responder chain
     /// from a real `View` menu item ([MainMenu.swift](../LungfishApp/App/MainMenu.swift)).
@@ -1501,13 +1501,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Rebuilds the sample filter control from the discovered sample IDs.
     ///
     /// Uses the segmented control for small sample counts, and a popup menu
-    /// once the count passes `sampleFilterPopUpThreshold` (UX-18: the
+    /// once the count passes `sampleFilterPopUpThreshold` (the
     /// segmented control does not scale to large sample counts — a run with
     /// dozens of samples produced dozens of tiny, unreadable segments).
     private func rebuildSampleFilterSegments() {
         let ids = sampleIds
         if ids.count <= 1 {
-            // UX-05: the organism search field used to be coupled to the
+            // The organism search field used to be coupled to the
             // sample-scope control and hid itself for single-sample results,
             // the most common case, leaving no way to find an organism.
             // Only the (now-redundant) sample control hides here; the search
@@ -2080,7 +2080,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     guard let contigLength = self.accessionLengths[accession] else { continue }
 
                     do {
-                        // PERF-04: stream the whole contig through the
+                        // Stream the whole contig through the
                         // uncapped counter rather than fetchReads(maxReads:)
                         // + deduplicatedReadCount(from:), which silently
                         // undercounted any contig with more than 100,000
@@ -2233,7 +2233,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                         guard let contigLength = localLengths[accession] else { continue }
 
                         do {
-                            // PERF-04: uncapped streaming count (see the
+                            // Uncapped streaming count (see the
                             // single-sample path above for the full
                             // rationale).
                             let uniqueCount = try await provider.countUniqueReads(
@@ -2961,7 +2961,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             uniqueKeysWithValues: sampleEntries.map { ($0.id, $0.displayName) }
         ).merging(buildSampleLabelsFromCSVMetadata()) { _, csvLabel in csvLabel }
 
-        // UX-03 (reproduced): `sampleFilterControl` is created with a single
+        // `sampleFilterControl` is created with a single
         // "All Samples" segment and was never rebuilt to match the loaded
         // sample count. The ⌘]/⌘[/⌘0 handlers in `performKeyEquivalent`
         // index into this control by `sampleIds.count`, so on any real
@@ -3683,7 +3683,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             sampleFilterControl.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             filterHeight,
 
-            // Sample filter popup (UX-18: scalable alternative to the segmented
+            // Sample filter popup (scalable alternative to the segmented
             // control for large sample counts, occupying the same row)
             sampleFilterPopUp.centerYAnchor.constraint(equalTo: sampleFilterControl.centerYAnchor),
             sampleFilterPopUp.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
@@ -4903,7 +4903,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Returns the sample filter segmented control for testing.
     public var testSampleFilterControl: NSSegmentedControl { sampleFilterControl }
 
-    /// Returns the scalable sample filter popup for testing (UX-18).
+    /// Returns the scalable sample filter popup for testing.
     public var testSampleFilterPopUp: NSPopUpButton { sampleFilterPopUp }
 
     /// Test hook: rebuilds the (currently unreachable in production —

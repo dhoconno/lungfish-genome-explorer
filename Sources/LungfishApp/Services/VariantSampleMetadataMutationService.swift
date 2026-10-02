@@ -104,7 +104,7 @@ struct VariantSampleMetadataMutationService {
         }
 
         let startedAt = Date()
-        // REC-01: route through the same recovery path as variant deletion
+        // Route through the same recovery path as variant deletion
         // (`VariantMutationPublication`) instead of a bespoke backup/restore
         // that used `try?` to swallow restore failures and deleted its only
         // backup copy via `defer` regardless of whether restore succeeded.

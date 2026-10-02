@@ -10,8 +10,8 @@ import LungfishWorkflow
 
 /// Result of a successful `lungfish-cli bam primer-trim` run, decoded from
 /// the shared `CLIEvent` schema instead of the private `runStart`/
-/// `stageProgress`/`runComplete`/… JSON shape this runner used to hand-parse
-/// (ARC-02, SIMP-04). `BAMPrimerTrimSubcommand` folds its rich completion
+/// `stageProgress`/`runComplete`/… JSON shape this runner used to hand-parse.
+/// `BAMPrimerTrimSubcommand` folds its rich completion
 /// fields (`outputAlignmentTrackID`/`Name`, `bamPath`, `baiPath`,
 /// `provenanceSidecarPath`) into `CLIEvent.complete`'s `outputs`
 /// (`[bamPath, baiPath, provenanceSidecarPath]`) and a

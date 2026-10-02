@@ -1735,7 +1735,7 @@ extension SequenceViewerView {
         guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
 
         // Deleting an annotation from a reference bundle is a persistent, irreversible
-        // write to its SQLite annotation database (FEA-03/UX-01), so confirm it the same
+        // write to its SQLite annotation database, so confirm it the same
         // way the annotation drawer and the Inspector do rather than acting immediately.
         let alert = NSAlert()
         alert.messageText = "Delete Annotation?"
@@ -1916,7 +1916,7 @@ extension SequenceViewerView {
         }
     }
 
-    /// Redraws at most once per ~1/60s frame while panning (PERF-09).
+    /// Redraws at most once per ~1/60s frame while panning.
     ///
     /// The previous implementation invalidated and rescheduled a one-shot 1/60s timer on every
     /// scroll event ("coalesce redraw at 60fps" in the comment, but the code was actually a

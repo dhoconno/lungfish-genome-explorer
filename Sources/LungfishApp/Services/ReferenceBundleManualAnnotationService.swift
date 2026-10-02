@@ -116,7 +116,7 @@ public final class ReferenceBundleManualAnnotationService {
     }
 
     /// Persists a rename/retype/note edit to a single annotation row already stored in a
-    /// reference bundle's SQLite annotation database (FEA-03/UX-01). Coordinates and gene
+    /// reference bundle's SQLite annotation database. Coordinates and gene
     /// name are left untouched -- the Inspector and viewer editors only expose name, type,
     /// strand and note.
     public func updateAnnotation(
@@ -168,7 +168,7 @@ public final class ReferenceBundleManualAnnotationService {
     }
 
     /// Persists deletion of one or more annotation rows from a reference bundle's SQLite
-    /// annotation database (FEA-03/UX-01). Mirrors the annotation drawer's persistent
+    /// annotation database. Mirrors the annotation drawer's persistent
     /// delete path (`ViewerViewController+AnnotationDrawer.runAnnotationRowDeletion`), so
     /// the viewer context-menu and Inspector delete entry points behave the same as the
     /// drawer's.

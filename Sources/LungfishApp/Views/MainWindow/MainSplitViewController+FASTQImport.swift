@@ -356,7 +356,7 @@ extension MainSplitViewController {
         // destination to that folder. The CLI always writes to
         // `<project>/Imports/<name>.lungfishfastq`, so passing the Imports
         // folder itself as `projectDirectory` would make it write to
-        // `Imports/Imports/...`. Normalize back to the project root — see FEA-02.
+        // `Imports/Imports/...`. Normalize back to the project root.
         let projectDirectory = rawProjectDirectory.lastPathComponent == "Imports"
             ? rawProjectDirectory.deletingLastPathComponent()
             : rawProjectDirectory
@@ -438,7 +438,7 @@ extension MainSplitViewController {
     /// not `<projectDirectory>/<name>.lungfishfastq` directly — `projectDirectory`
     /// here is the project root, and checking the root never saw the bundle the
     /// CLI actually wrote, so a second same-named import silently replaced the
-    /// first bundle and its derivatives with `--force` (see FEA-02).
+    /// first bundle and its derivatives with `--force`.
     func importFASTQPair(
         pair: FASTQFilePair, index: Int, totalPairs: Int,
         config: FASTQImportConfiguration, projectDirectory: URL,

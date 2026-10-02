@@ -811,7 +811,7 @@ extension AppDelegate {
                         .sidebarController.requestReloadFromFilesystem()
                 }}
             } catch {
-                // WFL-19: show the user-facing localized message, not the raw
+                // Show the user-facing localized message, not the raw
                 // enum/struct description; keep the raw text for diagnostics.
                 let localizedMessage = error.localizedDescription
                 let rawDetail = "\(error)"
@@ -858,7 +858,7 @@ extension AppDelegate {
             return
         }
 
-        // WFL-12: the task must be stored and the OperationCenter row given
+        // The task must be stored and the OperationCenter row given
         // a cancel callback, or the Operations panel shows no Cancel button
         // and a stalled import can only be ended by quitting the app (the
         // task itself already handles CancellationError correctly below —
@@ -905,7 +905,7 @@ extension AppDelegate {
                         routeContext: routeContext
                     )
                 }
-                // WFL-12: without this the Operations panel shows no Cancel
+                // Without this the Operations panel shows no Cancel
                 // button for this row, and a stalled import can only be
                 // ended by quitting the app. `taskBox.task` is set to this
                 // very task right after `Task.detached` returns below, and
@@ -1480,7 +1480,7 @@ extension AppDelegate {
                 .sidebarController.requestReloadFromFilesystem()
             return true
         } catch {
-            // WFL-19: interpolating `error` directly prints the enum case
+            // Interpolating `error` directly prints the enum case
             // name (e.g. "mapperNotInstalled(\"minimap2\")"), not the
             // user-facing text `ManagedMappingPipelineError` already
             // provides via `LocalizedError`.

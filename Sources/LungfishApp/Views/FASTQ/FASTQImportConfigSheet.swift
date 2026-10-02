@@ -298,7 +298,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         view.addSubview(pairingPopup)
 
         // Quality binning popup
-        // SCI-08: clumpify.sh quantize=0,8,13,22,27,32,37 ("illumina4") yields
+        // clumpify.sh quantize=0,8,13,22,27,32,37 ("illumina4") yields
         // 7 distinct quality levels, and quantize=2 ("eightLevel") yields
         // roughly 21 levels over a typical 0-40 Phred range — not 4 or 8.
         // The persisted raw values keep the old names (illumina4/eightLevel)
@@ -645,7 +645,7 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     // MARK: - Platform Defaults
 
-    /// D1 (2026-09-23): quality binning defaults to "None" for every platform.
+    /// Quality binning defaults to "None" for every platform.
     /// Binning is lossy and irreversible once originals are deleted, so it is
     /// opt-in only — the user must explicitly choose a binning level here.
     private func defaultBinningIndex(for platform: LungfishIO.SequencingPlatform) -> Int {

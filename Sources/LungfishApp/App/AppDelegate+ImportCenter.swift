@@ -18,7 +18,7 @@ extension AppDelegate {
     ///
     /// Returns the started operation's id, or `nil` if the import was refused (no bundle
     /// open, or another operation already holds the bundle's write lock). A multi-file
-    /// dispatch (`ImportCenterViewModel.dispatchFileImport`, FEA-05) awaits this id with
+    /// dispatch (`ImportCenterViewModel.dispatchFileImport`) awaits this id with
     /// `MainSplitViewController.pollUntilOperationTerminal(id:)` before starting the next
     /// file, so only the first of several BAMs no longer silently wins the lock race.
     @discardableResult
@@ -42,7 +42,7 @@ extension AppDelegate {
     }
 
     /// Import a VCF file from a known URL (called from Import Center). See
-    /// `importBAMFromURL`'s doc comment (FEA-05).
+    /// `importBAMFromURL`'s doc comment.
     @discardableResult
     func importVCFFromURL(_ url: URL) -> UUID? {
         guard let originController = activeMainWindowController(),
@@ -1067,7 +1067,7 @@ extension AppDelegate {
     }
 
     /// Starts a VCF import as an `OperationCenter` operation and returns its id, or `nil`
-    /// if it was refused. See `performBAMImport`'s doc comment (FEA-05).
+    /// if it was refused. See `performBAMImport`'s doc comment.
     ///
     /// `replaceTrackID` names an existing variant track this import replaces;
     /// the caller has already confirmed that with the user (see
@@ -1109,7 +1109,7 @@ extension AppDelegate {
                       presentingWindow: targetMainWindowController(routeContext: routeContext)?.window)
             return nil
         }
-        // FEA-12: `--vcf-import-helper` launches this same app executable as
+        // `--vcf-import-helper` launches this same app executable as
         // a background worker and is not a `lungfish-cli` flag. Record the
         // runnable equivalent, `lungfish-cli import vcf <path> --output-dir
         // <bundle.lungfishref> --import-profile <profile> [--replace <id>]`,
@@ -2271,7 +2271,7 @@ extension AppDelegate {
     /// Starts a BAM import as an `OperationCenter` operation and returns its id, or `nil`
     /// if it was refused (no bundle open, a write-lock conflict, or the bundle already
     /// busy). Callers that need to wait for this import before starting another on the
-    /// same bundle -- see `ImportCenterViewModel`'s multi-file BAM/VCF dispatch (FEA-05)
+    /// same bundle -- see `ImportCenterViewModel`'s multi-file BAM/VCF dispatch
     /// -- await the returned id with `awaitOperationTerminal(id:)`.
     @discardableResult
     internal func performBAMImport(bamURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) -> UUID? {
@@ -3071,7 +3071,7 @@ extension AppDelegate {
     /// Loads only a reference bundle's annotations for export, without ever
     /// touching its genome.
     ///
-    /// PERF-06: "Export annotations" used to call `loadSequencesForExport`
+    /// "Export annotations" used to call `loadSequencesForExport`
     /// and discard the sequences it returned. For a `.lungfishref`, that path
     /// decompressed the whole genome into a `String`, wrote it to a temp
     /// file, and parsed every sequence with `FASTAReader.readAll()` -- for a
@@ -3097,7 +3097,7 @@ extension AppDelegate {
                               userInfo: [NSLocalizedDescriptionKey: "No genome sequence in bundle \(url.lastPathComponent)"])
             }
             let sourceURL = url.appendingPathComponent(genomePath)
-            // PERF-06: `FASTAReader` already streams a `.gz` source line by
+            // `FASTAReader` already streams a `.gz` source line by
             // line via `GzipInputStream.forEachLine` (see `isCompressed` and
             // `forEachLineSync`), so there is no need to decompress the whole
             // genome into a `String` and write it to a temp file first. For a
@@ -3209,7 +3209,7 @@ extension AppDelegate {
         Task { [weak self, weak window] in
             guard let self else { return }
             do {
-                // PERF-06: this source is always a `.referenceBundle` (the
+                // This source is always a `.referenceBundle` (the
                 // only sidebar kind whose `canExportAnnotations` is true), so
                 // load its annotations directly rather than through
                 // `loadSequencesForExport`, which would also decompress and

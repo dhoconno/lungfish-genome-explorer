@@ -608,7 +608,7 @@ public enum ReadTrackRenderer {
         /// When true, forward reads have blue-tinted backgrounds and reverse reads
         /// have pink-tinted backgrounds. When false, all reads share a neutral background.
         public var showStrandColors: Bool = true
-        /// How packed reads are colored (FEA-08). Only consulted when
+        /// How packed reads are colored. Only consulted when
         /// `showStrandColors` is true; `.strand` reproduces the exact
         /// pre-existing behavior, so this is additive.
         public var colorMode: ReadColorMode = .strand
@@ -930,12 +930,12 @@ public enum ReadTrackRenderer {
         // Pre-compute CGColor cache for (strand, mapqBin) combinations to avoid per-read allocs.
         // mapqAlpha returns 5 distinct values × 2 strands × 2 (fill/stroke) = 20 cached colors.
         // Only used for the `.strand` color mode and the neutral (colors off) case, both of
-        // which are fully determined by (isReverse, mapq); every other FEA-08 color mode
+        // which are fully determined by (isReverse, mapq); every other color mode
         // (insert size, MAPQ heatmap, read group, pair, base quality) varies per read beyond
         // that, so it goes through `ReadTrackRenderer.readColors(for:colorMode:)` uncached below.
         let useStrandColors = settings.showStrandColors
         let colorMode = settings.colorMode
-        // UX-16: fixed light-gray RGB values (0.78/0.62) read as washed-out, low-contrast glyphs
+        // Fixed light-gray RGB values (0.78/0.62) read as washed-out, low-contrast glyphs
         // in Dark Aqua. systemGray/tertiaryLabelColor are dynamic colors that resolve per
         // appearance. Both feed `.copy(alpha:)` below (mapqAlpha overrides alpha entirely), so
         // only hue/lightness matter here, not the alpha passed to withAlphaComponent.
@@ -2093,7 +2093,7 @@ public enum ReadTrackRenderer {
         let barHeight: CGFloat = 16
         let barRect = CGRect(x: rect.minX, y: rect.maxY - barHeight, width: rect.width, height: barHeight)
 
-        // UX-16: a fixed near-white fill (NSColor(white: 0.88, ...)) put light secondaryLabelColor
+        // A fixed near-white fill (NSColor(white: 0.88, ...)) put light secondaryLabelColor
         // text on a light bar in Dark Aqua. quaternarySystemFill/labelColor track dark mode.
         context.setFillColor(NSColor.quaternarySystemFill.cgColor)
         context.fill(barRect)

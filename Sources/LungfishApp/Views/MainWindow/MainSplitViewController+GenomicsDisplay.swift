@@ -449,7 +449,7 @@ extension MainSplitViewController {
         // Update target manifest: add genome + annotations from source, keep
         // existing variants/alignments/tracks/warnings/recordStore. Built with
         // `mergingGenomeAndAnnotations` so every field the source doesn't
-        // explicitly contribute round-trips unchanged (see FEA-01) — signal
+        // explicitly contribute round-trips unchanged — signal
         // tracks, warnings, browserSummary, originBundlePath and recordStore
         // on the target bundle are not dropped by this merge.
         let targetManifest = try BundleManifest.load(from: targetBundleURL)
@@ -1252,7 +1252,7 @@ extension MainSplitViewController {
                 request: request
             )
         } else if case .pbaa = request, let currentProjectURL {
-            // WFL-05: pbAA previously fell into the generic `else` branch
+            // pbAA previously fell into the generic `else` branch
             // below, which left `workingDirectory` at `destinationRoot`
             // (`Analyses/`) and let the planner nest its real output inside
             // a `cli-output-pbaa-<uuid>` staging folder there -- a name the

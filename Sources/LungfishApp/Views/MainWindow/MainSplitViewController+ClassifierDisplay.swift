@@ -330,7 +330,7 @@ extension MainSplitViewController {
             displayPrimerOrderFromSidebar(at: batchURL)
             return
         case .fastaFile:
-            // WFL-05: a Savont batch group has no aggregated viewer of its
+            // A Savont batch group has no aggregated viewer of its
             // own -- its children are independent per-sample FASTA files.
             // Open the first child rather than falling through to
             // "Unrecognized batch prefix" and doing nothing.
@@ -453,7 +453,7 @@ extension MainSplitViewController {
                     }
                     esVirituParams["Threads"] = "\(cfg.threads)"
                     esVirituParams["Quality Filter"] = cfg.qualityFilter ? "Yes" : "No"
-                    // WFL-10: "Min Read Length" intentionally removed from
+                    // "Min Read Length" intentionally removed from
                     // this summary -- EsViritu has no such option, so
                     // `cfg.minReadLength` was never applied and echoing it
                     // here contradicted the actual computation.

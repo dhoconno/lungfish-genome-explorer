@@ -30,7 +30,7 @@ struct VariantQueryBuilderView: View {
     @State private var savePresetName = ""
     /// Set when a loaded preset asked for `.matchAny` and was silently
     /// normalized to `.matchAll` because OR-group execution isn't
-    /// supported yet (FEA-13). Shown as an inline banner rather than only
+    /// supported yet. Shown as an inline banner rather than only
     /// a log line, since normalizing a saved preset can change which rows
     /// a scientific filter returns.
     @State private var presetLogicWasNormalized = false
@@ -77,7 +77,7 @@ struct VariantQueryBuilderView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Title bar
             //
-            // FEA-13: the logic picker was removed. OR-group execution isn't
+            // The logic picker was removed. OR-group execution isn't
             // supported yet, so `QueryLogic.allCases` returns only
             // `.matchAll` — a segmented control with one segment read as
             // broken UI rather than as "this is the only mode". Rules
@@ -242,7 +242,7 @@ struct VariantQueryBuilderView: View {
 
     private func loadPreset(_ preset: QueryPreset) {
         rules = preset.rules
-        // FEA-13: this used to silently rewrite Match Any to Match All
+        // This used to silently rewrite Match Any to Match All
         // (a log line only), which can change which rows a saved preset
         // returns without the user noticing. `normalizedLogic` is a pure,
         // directly-testable function of the preset's stored logic; the
@@ -253,7 +253,7 @@ struct VariantQueryBuilderView: View {
     }
 
     /// OR-group execution is not implemented yet, so any preset requesting
-    /// `.matchAny` is normalized to `.matchAll` on load (FEA-13). Pure and
+    /// `.matchAny` is normalized to `.matchAll` on load. Pure and
     /// static so it can be tested without hosting the SwiftUI view.
     static func normalizedLogic(for storedLogic: QueryLogic) -> QueryLogic {
         storedLogic == .matchAny ? .matchAll : storedLogic

@@ -72,7 +72,7 @@ extension AppDelegate {
             guard response == .OK, let url = panel.url else { return }
             guard let self = self else { return }
 
-            // NEW-03: focus an already-open project instead of creating a
+            // Focus an already-open project instead of creating a
             // second window for it.
             if let existing = self.controller(forProjectURL: url) {
                 NSApp.activate()
@@ -93,7 +93,7 @@ extension AppDelegate {
             return
         }
 
-        // NEW-03: focus an already-open project instead of creating a
+        // Focus an already-open project instead of creating a
         // second window for it.
         if let existing = controller(forProjectURL: url) {
             NSApp.activate()

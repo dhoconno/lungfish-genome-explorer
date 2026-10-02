@@ -139,7 +139,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     typealias Lens = GenotypeResultViewportLens
     typealias GenotypeResultLoader = @Sendable (URL) async throws -> ONTGenotypeResultBundleData
 
-    /// D5 (2026-09-23 best-practices audit, WFL-14): the owner disabled AI
+    /// The owner disabled AI
     /// haplotyping because it was unreliable, with no key check, consent
     /// step or species-aware defaults. The section (and both its buttons)
     /// is removed from the main viewport entirely rather than merely
@@ -478,7 +478,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     ] = [:]
     private var callIndexBySample: [String: CallIndex] = [:]
     private var sampleResultsByName: [String: ONTGenotypeSampleResult] = [:]
-    /// GEN-05 (D13): the one per-source-locus denominator shared with the
+    /// The one per-source-locus denominator shared with the
     /// matrix, the haplotype caller and the Excel filter.
     private var locusDenominator = GenotypeLocusDenominator(calls: [])
     private var diagnosticDisplayGenotypeByIdentifier: [String: String] = [:]
@@ -3259,7 +3259,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         }
         // Haplotype-locus pool, kept only for the evidence summary. Every
         // per-allele percentage below uses the allele's own source-locus
-        // denominator (GEN-05, D13), exactly as the matrix and caller do.
+        // denominator, exactly as the matrix and caller do.
         let locusTotal = locusCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
         let sampleTotal = sampleCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
         let observedSet = Set(locusCall.observedGenotypes)
@@ -5691,7 +5691,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     private func requestAIHaplotyping(mode: GenotypeAIHaplotypingUIMode) {
-        // D5: defense-in-depth. The buttons that call this are not built
+        // Defense-in-depth. The buttons that call this are not built
         // while the section is disabled, but this guard keeps the path
         // unreachable even if something else were to invoke it directly.
         guard Self.aiHaplotypingUIEnabled else { return }
@@ -5935,7 +5935,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             parts.append("overrides: \(overrides.joined(separator: ", "))")
         }
         if evaluator.locusFraction != nil || !overrides.isEmpty {
-            // GEN-05 (D13): name the active denominator next to the threshold.
+            // Name the active denominator next to the threshold.
             parts.append("locus basis: \(GenotypeLocusDenominator.basisLabel)")
         }
         return parts.isEmpty ? "No haplotype filtering thresholds recorded." : parts.joined(separator: " · ")
@@ -6984,7 +6984,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     /// Writes the manual-haplotype-definitions JSON payload and its
     /// provenance sidecar as a single atomic transaction.
     ///
-    /// REC-03: this previously wrote the payload with `Data.write(atomic:)`
+    /// This previously wrote the payload with `Data.write(atomic:)`
     /// and only then wrote the sidecar in a second, separate step, so a crash
     /// between the two left an orphaned payload with no sidecar. It also
     /// recorded `lungfish-cli export-manual-haplotype-definitions`, which is
@@ -7033,7 +7033,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     /// Test-only entry point for `writeManualDefinitionsExport`, bypassing
-    /// the `NSSavePanel` sheet so the write-and-sidecar behaviour (REC-03) is
+    /// the `NSSavePanel` sheet so the write-and-sidecar behaviour is
     /// directly testable.
     func testingWriteManualDefinitionsExport(
         data: Data,

@@ -181,7 +181,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         case unresolved
     }
 
-    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.
     var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
 

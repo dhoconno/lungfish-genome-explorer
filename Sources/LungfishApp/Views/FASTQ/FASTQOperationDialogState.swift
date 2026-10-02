@@ -78,7 +78,7 @@ final class FASTQOperationDialogState {
     var filterByReadLengthMin: Int?
     var filterByReadLengthMax: Int?
 
-    /// WFL-07: the managed database used by "Remove Human Reads", chosen
+    /// The managed database used by "Remove Human Reads", chosen
     /// from `DatabaseRegistry`'s managed ids (not a file the user picks —
     /// `scrub-human` only ever resolves a registry id, so a chosen path was
     /// silently discarded). Defaults to the panhuman Deacon index.
@@ -600,7 +600,7 @@ final class FASTQOperationDialogState {
             )
 
         case .removeHumanReads:
-            // WFL-07: `removeHumanReadsDatabaseID` is the actual chosen
+            // `removeHumanReadsDatabaseID` is the actual chosen
             // database (a registry id), not a derived file-stem guess that
             // discarded whatever the user had picked.
             return .derivative(
@@ -1439,7 +1439,7 @@ final class FASTQOperationDialogState {
             guard auxiliaryInputURL(for: .referenceSequence) != nil else {
                 return "Select a reference sequence to continue."
             }
-            // WFL-19: malformed extra arguments must not silently no-op —
+            // Malformed extra arguments must not silently no-op —
             // surface the parse failure so Run is disabled with a reason
             // instead of doing nothing when clicked.
             do {
@@ -2151,7 +2151,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .primerTrimming:
             return [.fastqDataset, .primerSource]
         case .removeHumanReads:
-            // WFL-07: `.database` is a generic file chooser that only
+            // `.database` is a generic file chooser that only
             // accepts directories/extensionless files/db/k2d/sqlite/json,
             // so the managed Deacon `.idx` index could never be selected
             // through it, and whatever was picked was discarded anyway

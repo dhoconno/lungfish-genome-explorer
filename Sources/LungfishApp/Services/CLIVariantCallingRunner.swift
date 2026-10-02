@@ -9,8 +9,8 @@ import LungfishWorkflow
 
 /// Result of a successful `lungfish-cli variants call` run, decoded from the
 /// shared `CLIEvent` schema instead of the private `runStart`/`stageProgress`/
-/// `runComplete`/… JSON shape this runner used to hand-parse (ARC-02,
-/// SIMP-04). `VariantsCommand` folds its rich completion fields
+/// `runComplete`/… JSON shape this runner used to hand-parse.
+/// `VariantsCommand` folds its rich completion fields
 /// (`variantTrackID`, `vcfPath`, `tbiPath`, `databasePath`) into
 /// `CLIEvent.complete`'s `outputs` (`[databasePath, vcfPath, tbiPath]`) and a
 /// `"trackID=… trackName=…"` message; this type parses them back out.

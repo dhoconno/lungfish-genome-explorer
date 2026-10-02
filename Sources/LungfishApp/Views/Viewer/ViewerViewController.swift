@@ -408,7 +408,7 @@ public class ViewerViewController: NSViewController {
 
     /// Storage for the persisted annotation drawer height. Defaults to
     /// `.standard`; tests must inject a suite-specific instance instead of
-    /// writing the real app's preferences (TST-10 — `UserDefaults.standard`
+    /// writing the real app's preferences (`UserDefaults.standard`
     /// inside `xctest` resolves to the app's own real bundle identity).
     var annotationDrawerDefaults: UserDefaults = .standard
 
@@ -2787,7 +2787,7 @@ public class ViewerViewController: NSViewController {
                 guard !annotation.intervals.isEmpty else { return nil }
                 // BED12 requires blockStarts strictly ascending relative to chromStart,
                 // regardless of the feature's transcription-order interval storage
-                // (SCI-15: SequenceAnnotation preserves parser order, which for an
+                // (SequenceAnnotation preserves parser order, which for an
                 // origin-spanning circular feature is not genomic-ascending).
                 let genomicOrder = annotation.intervals.sorted { $0.start < $1.start }
                 let start = genomicOrder.first?.start ?? 0

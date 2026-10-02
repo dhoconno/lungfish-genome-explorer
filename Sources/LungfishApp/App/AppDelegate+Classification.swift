@@ -835,8 +835,8 @@ extension AppDelegate {
         // Built by the same argv mapping the batch replay path uses
         // (ClassificationCLIInvocationBuilder), so the displayed command is
         // actually runnable: `--db` is the registry name (not a filesystem
-        // path), and preset/paired/profile/output-dir are all included
-        // (ARC-03).
+        // path), and preset/paired/profile/output-dir are all
+        // included.
         let cliCmd = ClassificationCLIInvocationBuilder.build(for: config).displayString
         let opID = OperationCenter.shared.start(
             title: operationTitle,
@@ -909,7 +909,7 @@ extension AppDelegate {
                     result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
                 }
 
-                // WFL-19: this cleanup is also covered by the `defer` set up
+                // This cleanup is also covered by the `defer` set up
                 // when `materializeTempDir` was created. A failure here (e.g.
                 // the directory already gone) must not turn an otherwise
                 // successful classification run into a failure.
@@ -1030,7 +1030,7 @@ extension AppDelegate {
 
     /// Arguments after `lungfish esviritu detect` recorded for a single-sample run.
     ///
-    /// NEW-06: the read format the wizard chose is recorded explicitly so the
+    /// The read format the wizard chose is recorded explicitly so the
     /// copied command runs pairs as pairs and mixed input as single-end.
     nonisolated static func esVirituDetectCLIArguments(for config: EsVirituConfig) -> [String] {
         var args = ["--input"] + config.inputFiles.map(\.path)
@@ -1242,7 +1242,7 @@ extension AppDelegate {
                     command: esCliArgv
                 )
 
-                // WFL-19: covered by the `defer` from creation; do not fail
+                // Covered by the `defer` from creation; do not fail
                 // an otherwise-successful run over a cleanup error.
                 try? FileManager.default.removeItem(at: materializeTempDir)
                 let capturedResult = ioResult
@@ -2314,7 +2314,7 @@ extension AppDelegate {
                     resultDirectory: result.outputDirectory
                 )
 
-                // WFL-19: covered by the `defer` from creation; do not fail
+                // Covered by the `defer` from creation; do not fail
                 // an otherwise-successful run over a cleanup error.
                 try? FileManager.default.removeItem(at: materializeTempDir)
                 let capturedResult = result

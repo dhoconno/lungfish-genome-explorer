@@ -458,7 +458,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     var variantTrackDatabaseURLs: [URL] = []
     /// Maps reference chromosome names to variant DB chromosome names (from contig length matching).
     var variantChromosomeAliasMap: [String: String] = [:]
-    /// Short, user-facing notes (SCI-14) for every ``variantChromosomeAliasMap``
+    /// Short, user-facing notes for every ``variantChromosomeAliasMap``
     /// entry the resolver could only make by contig length, e.g. "Matched VCF
     /// contig NC_045512.2 to MN908947.3 by length". Empty when every VCF
     /// contig was matched by name/alias/version/synonym instead. Surfaced as
@@ -471,7 +471,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Sets (or clears) the tooltip on the Variants tab segment to reflect
     /// whether any variant contig on this bundle was matched to the reference
-    /// by length alone rather than by name (SCI-14).
+    /// by length alone rather than by name.
     func updateVariantsTabLengthMatchTooltip() {
         guard tabControl.segmentCount > DrawerTab.variants.rawValue else { return }
         let tooltip = variantChromosomeLengthMatchNotes.isEmpty
@@ -1873,7 +1873,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     @objc func copyCoordinatesAction(_ sender: NSMenuItem) {
         guard let annotation = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
-        // SCI-13: both variants and annotations are stored 0-based half-open
+        // Both variants and annotations are stored 0-based half-open
         // internally; `GenomicRegion.displayString` is the one place that
         // converts to the 1-based closed convention the app shows and copies
         // everywhere else, so a copied coordinate string always matches what

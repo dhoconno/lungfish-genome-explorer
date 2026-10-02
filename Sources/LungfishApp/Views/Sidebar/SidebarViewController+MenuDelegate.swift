@@ -502,7 +502,7 @@ extension SidebarViewController: NSMenuDelegate {
         // against tracks that existed when the menu was opened. The actual
         // mutation below re-reads the manifest fresh from disk immediately
         // before writing, so a track added or changed in the meantime (by
-        // another operation) is not silently discarded — see FEA-01.
+        // another operation) is not silently discarded.
         let tracks = manifest.variants
         guard !tracks.isEmpty else { return }
         guard canWriteSidebarProjectOutputs(workflowName: "Variant track deletion", targetURL: bundleURL) else {
@@ -597,7 +597,7 @@ extension SidebarViewController: NSMenuDelegate {
             // changed by another operation in the meantime is not lost.
             // `removingAllVariantTracks()` round-trips every other field
             // (alignments, warnings, browserSummary, originBundlePath,
-            // recordStore, metadata) unchanged via BundleManifest.copy — see FEA-01.
+            // recordStore, metadata) unchanged via BundleManifest.copy.
             do {
                 let currentManifest = try BundleManifest.load(from: bundleURL)
                 let updatedManifest = currentManifest.removingAllVariantTracks()

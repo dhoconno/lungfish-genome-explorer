@@ -34,7 +34,7 @@ struct FASTQOperationPlanner: Sendable {
         }
 
         if case .pbaa = request {
-            // WFL-05: `workingDirectory` is now the dedicated, visible
+            // `workingDirectory` is now the dedicated, visible
             // `Analyses/pbaa-<timestamp>/` directory created by the caller
             // (see `runFASTQOperationLaunchRequestValidated`), not the
             // generic `Analyses/` root -- so pbAA's CLI output can be

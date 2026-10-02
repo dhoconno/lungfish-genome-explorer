@@ -6,8 +6,8 @@ import Foundation
 
 /// What the viewport is actually showing versus what the window contains.
 ///
-/// The read track caps displayed depth (`ReadViewportPolicy.defaultMaxDisplayedDepth`,
-/// owner decision D9): regions deeper than the cap are subsampled to about the
+/// The read track caps displayed depth (`ReadViewportPolicy.defaultMaxDisplayedDepth`):
+/// regions deeper than the cap are subsampled to about the
 /// cap and every other region shows every read. This state carries what the
 /// banner needs so a thinned pileup never passes for a complete one.
 struct ReadBudgetState: Equatable {

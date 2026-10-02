@@ -53,7 +53,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     /// Shared column-header sort/filter menu (see `LungfishKit.ColumnHeaderFilterMenu`).
     private lazy var columnHeaderFilterMenuController = ColumnHeaderFilterMenu(host: self)
 
-    /// UX-08 (2026-09-23 best-practices audit): whether read-level actions
+    /// Whether read-level actions
     /// (Extract Reads…, BLAST Matching Reads…) are meaningful for the
     /// classification result currently shown. CZ-ID imports have no
     /// per-read source IDs, so `CzIdResultViewController` already disables

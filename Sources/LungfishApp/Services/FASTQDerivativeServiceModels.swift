@@ -420,7 +420,7 @@ extension FASTQDerivativeRequest {
             return buildLungfishCommand(subcommand: "fastq length-filter", args: args)
 
         case .searchText(let query, let field, let regex):
-            // SIMP-01: this used to show `seqkit grep ...`, a command that
+            // This used to show `seqkit grep ...`, a command that
             // never ran -- the actual executed command is `lungfish fastq
             // search-text` (FASTQOperationCLIInvocationBuilder.fastqArguments).
             var args = [inputPath, "--query", query, "--field", field.rawValue]
@@ -430,7 +430,7 @@ extension FASTQDerivativeRequest {
             return buildLungfishCommand(subcommand: "fastq search-text", args: args)
 
         case .searchMotif(let pattern, let regex):
-            // SIMP-01: this used to show `seqkit grep ...`, a command that
+            // This used to show `seqkit grep ...`, a command that
             // never ran -- the actual executed command is `lungfish fastq
             // search-motif` (FASTQOperationCLIInvocationBuilder.fastqArguments).
             var args = [inputPath, "--pattern", pattern]
@@ -622,13 +622,13 @@ extension FASTQDerivativeRequest {
         case .subsampleCount(let count):
             return ["--count", String(count)]
         case .lengthFilter(let min, let max):
-            // SIMP-01: the executed command (FASTQOperationCLIInvocationBuilder
+            // The executed command (FASTQOperationCLIInvocationBuilder
             // .fastqArguments) spells these `--min`/`--max`; this provenance
             // encoding used to spell them `--min-length`/`--max-length`, which
             // is not valid CLI syntax and would not reproduce the run.
             return optionalFlag("--min", min) + optionalFlag("--max", max)
         case .searchText(let query, let field, let regex):
-            // SIMP-01: the executed command passes bare `--regex` as a flag,
+            // The executed command passes bare `--regex` as a flag,
             // not `--regex true`/`--regex false`.
             var args = ["--query", query, "--field", field.rawValue]
             if regex { args.append("--regex") }
@@ -638,7 +638,7 @@ extension FASTQDerivativeRequest {
             if regex { args.append("--regex") }
             return args
         case .deduplicate(_, let substitutions, let optical, let opticalDistance):
-            // SIMP-01: the executed command spells these `--subs` and bare
+            // The executed command spells these `--subs` and bare
             // `--optical --dupedist <n>` (FASTQOperationCLIInvocationBuilder
             // .fastqArguments); `preset` is not passed to the CLI at all
             // (silently dropped there too), so it is not recorded here either.

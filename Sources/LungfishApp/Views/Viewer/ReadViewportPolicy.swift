@@ -23,7 +23,7 @@ enum ReadViewportPolicy {
     /// Default maximum displayed read depth for one fetch window.
     ///
     /// Regions deeper than this are subsampled to about this depth, per ~1 kb
-    /// bin, and every other region shows every read (owner decision D9). A
+    /// bin, and every other region shows every read. A
     /// fixed read-count budget used to thin the whole window uniformly, which
     /// hollowed a 50x flank to under 4x beside a 5,000x amplicon. Depth,
     /// coverage and consensus come from separate queries and are unaffected.

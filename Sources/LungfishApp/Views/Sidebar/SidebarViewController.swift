@@ -154,7 +154,7 @@ public class SidebarViewController: NSViewController {
     /// is applied.
     private var sidebarScanGeneration: Int = 0
 
-    /// Coalesces the activation-driven backstop rescan (NEW-02).
+    /// Coalesces the activation-driven backstop rescan.
     var backstopRescanThrottle = SidebarBackstopRescanThrottle()
     /// Clock for the backstop throttle. Tests substitute a manual clock.
     var backstopRescanClock: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
@@ -430,7 +430,7 @@ public class SidebarViewController: NSViewController {
             object: nil
         )
 
-        // NEW-02 backstop: rescan when the app or this window is activated, in
+        // Backstop: rescan when the app or this window is activated, in
         // case FSEvents missed an external change while in the background.
         NotificationCenter.default.addObserver(
             self,
@@ -498,9 +498,9 @@ public class SidebarViewController: NSViewController {
     /// walks the responder chain starting at the key window's first
     /// responder, so when a result table's own `BatchTableView` (or another
     /// data view implementing this selector) is first responder, ⌘F reaches
-    /// it there and this sidebar fallback is never consulted (FEA-17: "route
+    /// it there and this sidebar fallback is never consulted (it routes
     /// main-window Edit > Find to the sidebar/project search field when no
-    /// data view claims it"). This is only reached when nothing earlier in
+    /// data view claims it). This is only reached when nothing earlier in
     /// the chain claims the selector — e.g. focus is on the sequence viewer,
     /// an empty project, or a viewport with no table of its own.
     @objc func performFindPanelAction(_ sender: Any?) {
@@ -1420,7 +1420,7 @@ public class SidebarViewController: NSViewController {
         }
     }
 
-    // MARK: - Activation backstop rescan (NEW-02)
+    // MARK: - Activation backstop rescan
 
     @objc private func handleActivationForBackstopRescan(_ notification: Notification) {
         guard let window = view.window else { return }

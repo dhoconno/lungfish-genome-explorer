@@ -129,7 +129,7 @@ public struct GenotypeResultDisplayState: Equatable {
     public var matrixMinimumReads: Int = 0
     public var matrixMinimumPercent: Double = 0
     public var matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus
-    /// "Seen in at least N% of animals" (GEN-06, decision D14): a prevalence
+    /// "Seen in at least N% of animals": a prevalence
     /// filter over the logical sample roster, separate from the per-sample
     /// read fraction `matrixMinimumPercent`. `0` (the default) is off.
     public var matrixMinimumPrevalencePercent: Double = 0

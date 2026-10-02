@@ -109,16 +109,16 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                     outputDirectory: stagingBundleURL,
                     threads: max(1, ProcessInfo.processInfo.activeProcessorCount),
                     // We delete `sourceURL` ourselves below, only after
-                    // verifying the re-ingested output's read count matches
-                    // (WFL-01 item e). The pipeline must not delete it first.
+                    // verifying the re-ingested output's read count matches.
+                    // The pipeline must not delete it first.
                     deleteOriginals: false,
-                    // D1 / WFL-01 / SCI-08: FASTQ operation outputs are never
+                    // FASTQ operation outputs are never
                     // re-binned or re-trimmed on re-import. Quality binning
                     // stays off, and clumping uses `.auto`: BBTools clumpify
                     // (reorder only) when the output fits its memory budget,
                     // otherwise no clumping. `.auto` never substitutes Trim
                     // Galore, so the operation's own output is never re-trimmed
-                    // (WFL-01/D1, see ClumpingTool.resolve), and large outputs
+                    // (see ClumpingTool.resolve), and large outputs
                     // cannot OOM a pinned clumpify run.
                     qualityBinning: .none,
                     skipClumpify: false,
@@ -131,7 +131,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
             // Only delete the pre-ingestion source once the re-ingested
             // output has at least as many reads as the source had. A lower
             // count means the pipeline dropped or filtered reads (e.g. a
-            // length cutoff), and the source must be kept (WFL-01 item e).
+            // length cutoff), and the source must be kept.
             if result.outputFile != sourceURL {
                 let outputStats = try? await computeStatistics(from: result.outputFile)
                 if let outputStats, outputStats.readCount >= stats.readCount {

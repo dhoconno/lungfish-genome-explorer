@@ -9,7 +9,7 @@ import LungfishKit
 /// Builds the "Copy CLI Command" string the Operations panel shows for a VCF
 /// import into an existing reference bundle.
 ///
-/// FEA-12: the import itself runs out of process by re-launching this same
+/// The import itself runs out of process by re-launching this same
 /// app executable with `--vcf-import-helper`, which is not a `lungfish-cli`
 /// flag. `lungfish-cli import vcf <path> --output-dir <bundle.lungfishref>
 /// --import-profile <profile>` is the runnable equivalent: when `--output-dir`

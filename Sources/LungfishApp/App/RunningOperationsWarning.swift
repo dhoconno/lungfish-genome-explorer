@@ -7,7 +7,7 @@ import Combine
 import Foundation
 import LungfishKit
 
-/// Wording shared by the quit and window-close warnings (FEA-06).
+/// Wording shared by the quit and window-close warnings.
 ///
 /// Partial output of a cancelled run stays hidden from the sidebar. The next
 /// time the project opens, the Operations Panel lists it as an Interrupted

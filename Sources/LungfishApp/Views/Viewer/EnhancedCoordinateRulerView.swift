@@ -1044,7 +1044,7 @@ extension ViewerViewController: EnhancedCoordinateRulerDelegate {
     }
 
     public func ruler(_ ruler: EnhancedCoordinateRulerView, didRequestPositionInput input: String) {
-        // Routes through the shared `LocusQueryParser` (SCI-13/FEA-09) so this
+        // Routes through the shared `LocusQueryParser` so this
         // accepts exactly what `updatePositionField()` displays and what Copy
         // Coordinates copies elsewhere in the app — including thousands-
         // separator commas, a bare chromosome name, and `..` ranges.

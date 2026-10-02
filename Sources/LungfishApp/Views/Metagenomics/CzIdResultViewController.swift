@@ -38,7 +38,7 @@ public final class CzIdResultViewController: NSViewController, NSPopoverDelegate
         }
         embedTaxonomyIfNeeded()
         taxonomyViewController.configure(result: result)
-        // UX-08: gate both the action bar and the table's own context menu
+        // Gate both the action bar and the table's own context menu
         // (Extract Reads…, BLAST Matching Reads…) on the same capability
         // flag, since CZ-ID imports have no per-read source IDs for either.
         // Set it before naming the import: changing it refreshes the action

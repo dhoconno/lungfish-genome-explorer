@@ -10,7 +10,7 @@ import LungfishWorkflow
 /// Runs any `lungfish-cli msa` action subcommand (annotate/export/consensus/
 /// extract/mask/trim/distance/…) as a subprocess, decoding the shared
 /// `CLIEvent` schema instead of the private `msaAction*` JSON shape this
-/// runner used to hand-parse (ARC-02, SIMP-04). All call sites only ever
+/// runner used to hand-parse. All call sites only ever
 /// cared whether the run succeeded and, on success, its output path; none
 /// read `warningCount` or `actionID` from the old `CLIMSAActionResult`, so
 /// those fields are no longer round-tripped over the wire.

@@ -131,7 +131,7 @@ struct GenotypeNumericFilterConfiguration: Equatable {
         decrementActionDescription: "Decrease Min percent by 0.5 percent."
     )
 
-    /// "Seen in at least N% of animals" (GEN-06, decision D14): a prevalence
+    /// "Seen in at least N% of animals": a prevalence
     /// filter over the sample roster, separate from Min percent.
     static let matrixMinimumPrevalencePercent = GenotypeNumericFilterConfiguration(
         label: "Seen in ≥ N% of animals",

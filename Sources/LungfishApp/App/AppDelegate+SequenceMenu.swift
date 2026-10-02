@@ -244,7 +244,7 @@ extension AppDelegate {
 
     /// Parses genomic location input and navigates the viewer.
     ///
-    /// Routes through the shared `LocusQueryParser` (SCI-13/FEA-09) so this
+    /// Routes through the shared `LocusQueryParser` so this
     /// accepts exactly what the coordinate ruler displays and copies,
     /// including thousands-separator commas and a bare chromosome name.
     ///
@@ -366,8 +366,8 @@ extension AppDelegate {
 
     /// Computes the 0-based `[start, end)` window shown when the user navigates to a
     /// single position with no explicit end (e.g. "Go to Location" with just "1000", or
-    /// the ruler's locus field). Centers `defaultWindow` (`AppSettings.defaultZoomWindow`,
-    /// FEA-10) on `centeredOn`, clamped to the chromosome so the window never runs off
+    /// the ruler's locus field). Centers `defaultWindow` (`AppSettings.defaultZoomWindow`)
+    /// on `centeredOn`, clamped to the chromosome so the window never runs off
     /// either end. A pure function -- no `AppSettings` or `ViewerViewController` access --
     /// so `AppDelegateSequenceMenuTests` can assert the wiring without a bundle fixture.
     static func singlePositionWindow(

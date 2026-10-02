@@ -348,8 +348,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     /// matrix (the default `cellColorMode`) was allocating thousands of
     /// short-lived NSColor objects per redraw for a handful of distinct
     /// colors. Cache by the resolved (color, alpha) pair, keyed on the
-    /// `AnnotationColor` value itself rather than object identity
-    /// (2026-09-24 best-practices audit, PERF-17 follow-up).
+    /// `AnnotationColor` value itself rather than object
+    /// identity.
     private var cachedMatrixCellColors: [MatrixCellColorKey: NSColor] = [:]
     private struct MatrixCellColorKey: Hashable {
         let color: AnnotationColor
@@ -514,8 +514,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var testingAccessibilityLayoutChangedCount = 0
     private var testingAccessibilityFocusChangedCount = 0
     private var testingDidFallBackAccessibilityFocusToMatrix = false
-    // 2026-09-24 best-practices audit (PERF-17 follow-up): fine-grained
-    // per-phase timing for `tableView(_:viewFor:row:)`, so a benchmark run
+    // Fine-grained per-phase timing for `tableView(_:viewFor:row:)`,
+    // so a benchmark run
     // can attribute the ~500ms visible-cell build cost to view lookup vs.
     // value/tooltip string building vs. style/color resolution rather than
     // guessing. Populated only when `testingCellBuildProfilingEnabled` is
@@ -3366,7 +3366,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         // for a fixed-size table cell whose only job is "inset 4pt, centered vertically", a plain
         // frame plus an autoresizing mask reaches the same layout without ever invoking the
         // solver. `GenotypeMatrixStyledCellView.layout()` keeps the frame correct across column
-        // resizes (2026-09-24 best-practices audit, PERF-17 follow-up).
+        // resizes.
         field.translatesAutoresizingMaskIntoConstraints = true
         field.autoresizingMask = [.width, .height]
         field.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
@@ -5406,7 +5406,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             // NSFontManager.shared.convert directly: that call walks the
             // whole font-manager trait-conversion machinery on every visible
             // cell and was never memoized, unlike every other font lookup
-            // here (2026-09-24 best-practices audit, PERF-17 follow-up).
+            // here.
             let fpFont = forcedItalicFont(for: renderedStyle)
             cell.textField?.font = fpFont
             cell.textField?.textColor = .secondaryLabelColor

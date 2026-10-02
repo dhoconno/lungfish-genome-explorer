@@ -44,7 +44,7 @@ final class IQTreeInferenceDialogState {
 
     /// IQ-TREE's own hard minimum for `-B`/`--bootstrap` (ultrafast
     /// bootstrap). The tool errors out below this count; validating for it
-    /// here (WFL-10) turns a runtime IQ-TREE failure into a readiness
+    /// here turns a runtime IQ-TREE failure into a readiness
     /// message before Run is ever pressed.
     static let minimumUFBootReplicates = 1000
 
