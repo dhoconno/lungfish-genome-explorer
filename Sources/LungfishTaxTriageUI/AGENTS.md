@@ -37,4 +37,4 @@ Target LungfishTaxTriageUITests in Tests/LungfishTaxTriageUITests. Run only it w
 | Private copies of the extraction dialog and BLAST display | `presentUnifiedExtractionDialog` at TaxTriageResultViewController.swift line 4045, `showBlastResults` at line 2818 (R14) |
 | The pipeline builds its own Nextflow environment with no JAVA_HOME | Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift lines 1500 to 1562 (R7) |
 | A "Database build failed" overlay once persisted over another viewport, so every viewport switch clears transient state | Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift line 526 (memory file known-issues.md) |
-| The BLAST database name is a literal in two files here and in the App viewer files until Phase 0 Lane F3 | TaxTriageRowCommands.swift and TaxTriageResultViewController.swift (R2) |
+| Never retype the BLAST database name. Use `BlastDatabaseID.coreNT.rawValue` from LungfishCore | TaxTriageRowCommands.swift and TaxTriageResultViewController.swift (R2) |

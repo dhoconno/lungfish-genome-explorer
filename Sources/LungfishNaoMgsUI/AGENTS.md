@@ -36,5 +36,5 @@ Target LungfishNaoMgsUITests in Tests/LungfishNaoMgsUITests. Run only it with `s
 |---|---|
 | NaoMgsResultViewControllerSmokeTests once opened the real default browser through `NSWorkspace.shared.open` | memory file project_test_suite_review.md |
 | Private copies of the extraction dialog and BLAST display | `presentUnifiedExtractionDialog` at NaoMgsResultViewController.swift line 1953, `showBlastResults` at line 2055 (R14) |
-| The BLAST database name is a literal kept in sync by a comment until Phase 0 Lane F3 replaces it with `BlastDatabaseID` | NaoMgsResultViewController.swift (R2) |
+| Never retype the BLAST database name. Use `BlastDatabaseID.coreNT.rawValue` from LungfishCore | NaoMgsResultViewController.swift (R2) |
 | Inspector routing picks the tab from the `naomgs-` folder prefix | Sources/LungfishApp/App/AppDelegate.swift lines 301 to 305 (R1) |

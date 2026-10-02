@@ -14,7 +14,7 @@
 #     in the same audit; scripts/checks/compile-embedded-python.py), then
 #     runs the architecture-program ratchets and checks (file-size,
 #     concurrency-hatches, source-text-assertions, doc-path-references,
-#     duplicate-public-types; docs/plans/2026-10-02-architecture-program.md), then
+#     module-map-current, features-yaml-sources, duplicate-public-types; docs/plans/2026-10-02-architecture-program.md), then
 #     runs the unit tier of the full-suite gate (scripts/full-suite-gate.sh
 #     --tier unit) before pushing, so the regression gate runs locally on
 #     this fast Apple-Silicon Mac instead of on slow/usage-limited hosted CI.
@@ -147,6 +147,18 @@ if ! python3 "$REPO_ROOT/scripts/checks/doc-path-references.py"; then
     exit 1
 fi
 
+echo "pre-push: checking that MODULES.md is current (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/checks/module-map-current.py"; then
+    echo "pre-push: module-map check FAILED (run python3 scripts/index/generate-module-map.py and commit docs/architecture/MODULES.md) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
+echo "pre-push: checking features.yaml source paths (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/checks/features-yaml-sources.py"; then
+    echo "pre-push: features.yaml source check FAILED (a feature cites a missing file or module) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
 echo "pre-push: checking duplicate public type names (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/checks/duplicate-public-types.py"; then
     echo "pre-push: duplicate-public-types check FAILED (a public type name is declared in two targets) — push aborted. Use --no-verify to bypass." >&2
@@ -163,7 +175,7 @@ fi
 HOOK_EOF
 chmod +x "$PRE_PUSH_HOOK"
 echo "Installed pre-push hook at $PRE_PUSH_HOOK"
-echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches and source-text-assertions ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
+echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches and source-text-assertions ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
 
 cat > "$PRE_COMMIT_HOOK" << 'HOOK_EOF'
 #!/bin/bash
