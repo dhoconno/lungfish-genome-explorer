@@ -56,7 +56,7 @@ extension ViewerViewController {
                         taxonName: request.sourceLabel,
                         taxId: request.taxId ?? 0,
                         sequences: sequences,
-                        database: "core_nt",
+                        database: BlastDatabaseID.coreNT.rawValue,
                         entrezQuery: nil
                     )
 

@@ -1888,7 +1888,7 @@ public class ViewerViewController: NSViewController {
             taxonName: sourceLabel,
             taxId: 0,
             sequences: sequences,
-            database: "core_nt",
+            database: BlastDatabaseID.coreNT.rawValue,
             entrezQuery: nil
         )
         let runner = fastaBlastVerificationRunner

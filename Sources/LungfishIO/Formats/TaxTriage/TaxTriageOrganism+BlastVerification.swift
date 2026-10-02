@@ -33,7 +33,7 @@ extension TaxTriageOrganism {
             taxonName: name,
             taxId: taxId ?? 0,
             sequences: sequences,
-            database: "core_nt",
+            database: BlastDatabaseID.coreNT.rawValue,
             entrezQuery: nil,
             acceptedTaxIds: context.cladeTaxIds,
             acceptedTaxonNames: context.cladeNames

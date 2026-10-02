@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishKit
 import SwiftUI
 
@@ -100,8 +101,7 @@ enum TaxTriageRowCommands {
             rootView: BlastConfigPopoverView(
                 taxonName: taxonName,
                 readsClade: readsClade,
-                // Matches the database ViewerViewController+TaxTriage submits to.
-                database: "core_nt",
+                database: BlastDatabaseID.coreNT.rawValue,
                 onRun: { [weak popover] readCount in
                     popover?.close()
                     onRun(readCount)

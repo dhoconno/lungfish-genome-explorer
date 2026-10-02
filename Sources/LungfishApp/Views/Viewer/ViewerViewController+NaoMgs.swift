@@ -91,7 +91,7 @@ extension ViewerViewController {
                         taxonName: taxonName,
                         taxId: summary.taxId,
                         sequences: subsampled,
-                        database: "core_nt",
+                        database: BlastDatabaseID.coreNT.rawValue,
                         entrezQuery: "txid\(summary.taxId)[Organism:exp]"
                     )
 

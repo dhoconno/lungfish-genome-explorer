@@ -3906,7 +3906,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             rootView: BlastConfigPopoverView(
                 taxonName: taxonName,
                 readsClade: readsClade,
-                database: "core_nt",
+                database: BlastDatabaseID.coreNT.rawValue,
                 onRun: { [weak self, weak popover] readCount in
                     popover?.close()
                     self?.activeBlastConfigPopover = nil

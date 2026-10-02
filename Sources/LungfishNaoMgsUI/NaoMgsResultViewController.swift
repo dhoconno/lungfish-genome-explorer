@@ -2319,8 +2319,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let configView = BlastConfigPopoverView(
             taxonName: row.name.isEmpty ? "Taxid \(row.taxId)" : row.name,
             readsClade: uniqueCount,
-            // Matches the database ViewerViewController+NaoMgs submits to.
-            database: "core_nt"
+            database: BlastDatabaseID.coreNT.rawValue
         ) { [weak self, weak popover] readCount in
             popover?.performClose(nil)
             let selection = BlastMenuSelection(row: row, readCount: readCount)
