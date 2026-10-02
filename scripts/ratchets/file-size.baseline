@@ -11,10 +11,10 @@ Sources/LungfishApp/Services/AI/AIAssistantService.swift 901
 Sources/LungfishApp/Services/AI/AIToolRegistry.swift 951
 Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
 Sources/LungfishApp/Services/FASTQBundleMergeService.swift 861
-Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1747
+Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1689
 Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 803
 Sources/LungfishApp/Services/FASTQIngestionService.swift 1338
-Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 901
+Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 858
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1337
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1245
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
@@ -95,7 +95,7 @@ Sources/LungfishCLI/Commands/BuildDbCommand.swift 2173
 Sources/LungfishCLI/Commands/BundleCommand.swift 1254
 Sources/LungfishCLI/Commands/ClassifyCommand.swift 1712
 Sources/LungfishCLI/Commands/ExtractReadsCommand.swift 1196
-Sources/LungfishCLI/Commands/FastqCommand.swift 4113
+Sources/LungfishCLI/Commands/FastqCommand.swift 3846
 Sources/LungfishCLI/Commands/FetchCommand.swift 2296
 Sources/LungfishCLI/Commands/GATKCommand.swift 1094
 Sources/LungfishCLI/Commands/GenotypeAIHaplotypingSubcommand.swift 1387
@@ -183,7 +183,7 @@ Sources/LungfishWorkflow/Dependencies/DependencyReconciler.swift 975
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionStager.swift 805
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 1338
-Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift 954
+Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift 814
 Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1155
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 937
