@@ -142,8 +142,8 @@ After each major feature:
 - VoiceOver labels on all custom views
 
 ### Operations Panel
-Every data transformation MUST:
-1. Register with `OperationCenter.shared.start()`
+Every data transformation MUST follow `docs/contracts/ADDING-AN-OPERATION.md` (index of all contracts: `docs/contracts/README.md`) and:
+1. Register with `OperationCenter.shared.begin()`, passing `operationType` and `cliCommand`, and launch nothing unless it returns `.started` (the deprecated `start()` must not be used in new code)
 2. Report progress via `OperationCenter.shared.update()`
 3. Report completion via `.complete()` or `.fail()`
 4. Support cancellation via `.setCancelCallback()`
