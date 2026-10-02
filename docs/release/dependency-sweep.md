@@ -3,9 +3,7 @@
 Lungfish pins every third-party tool, pipeline revision, and reference database
 in one manifest: `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`.
 This checklist is the procedure for bumping that manifest to a new
-`dependencySet` and shipping it. See
-`docs/superpowers/specs/2026-08-17-dependency-upgrade-mechanism-design.md`
-for the design this checklist implements.
+`dependencySet` and shipping it.
 
 ## When
 
