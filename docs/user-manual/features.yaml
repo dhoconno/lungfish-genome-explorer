@@ -8,7 +8,19 @@
 #     outputs: [<file format or data type>, ...]
 #     viewport_class: sequence | alignment | variant | assembly | taxonomy | none
 #     sources: [<Sources/ path>, ...]
+#     module: [<Sources/ target directory>, ...]   (optional, checked)
+#       Every Sources target that holds one of this entry's sources, the
+#       target with the most sources first.
+#     cli: [<real lungfish-cli subcommand path>, ...]   (optional)
+#     operation_type: <OperationType case the app starts the operation with>   (optional)
+#     provenance: <provenance record type or sidecar the run writes>   (optional)
+#     tests: [<Tests/ path>, ...]   (optional, checked)
 #     notes: <free text>
+#   Optional fields are filled only where verified in code. The checker
+#   scripts/checks/features-yaml-sources.py requires every sources: and tests:
+#   path to exist and every module: to be a directory under Sources/.
+#   Write the optional list fields as unquoted items so the quote-matching
+#   entry-point check does not mistake them for menu paths.
 
 version: 0
 features:
@@ -26,6 +38,7 @@ features:
       - Sources/LungfishApp/App/VCFImportHelper.swift
       - Sources/LungfishApp/App/VCFAutoIngestor.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift
+    module: [LungfishIO, LungfishApp, LungfishCLI]
     notes: >-
       Accepts plain text VCF and bgzipped VCF with accompanying tabix index.
       Inference picks a compatible reference by chromosome set, applying
@@ -45,6 +58,7 @@ features:
       - Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift
       - Sources/LungfishCore/Models/VariantTrack.swift
       - Sources/LungfishIO/Bundles/VariantDatabase.swift
+    module: [LungfishApp, LungfishCore, LungfishIO]
     notes: >-
       Presents variants as a sortable table with CHROM, POS, ID, REF, ALT,
       QUAL, FILTER, GT, and AF columns. Selecting a row centers the genome
@@ -64,6 +78,7 @@ features:
       - Sources/LungfishApp/Views/DatabaseBrowser/GenBankGenomesSearchPane.swift
       - Sources/LungfishApp/ViewModels/GenomeDownloadViewModel.swift
       - Sources/LungfishApp/Services/DownloadCenter.swift
+    module: [LungfishApp, LungfishCLI]
     notes: >-
       Downloads one or more NCBI records through the CLI or database search UI.
       Saved CLI files write a file-specific Lungfish provenance sidecar with
@@ -84,6 +99,7 @@ features:
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
       - Sources/LungfishApp/Services/DownloadCenter.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     notes: >-
       Downloads SRA reads through ENA or SRA Toolkit fallback paths and records
       the downloader, options, produced FASTQ files, checksums, sizes, and
@@ -101,10 +117,20 @@ features:
       - Sources/LungfishCLI/Commands/MapCommand.swift
       - Sources/LungfishCLI/Commands/BAMAdoptMappingSubcommand.swift
       - Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift
-      - Sources/LungfishApp/Services/MappingViewerBundlePreparer.swift
+      - Sources/LungfishWorkflow/Mapping/MappingViewerBundlePreparer.swift
       - Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift
       - Sources/LungfishWorkflow/Mapping/MappingResult.swift
       - Sources/LungfishWorkflow/Mapping/MappingProvenance.swift
+    module: [LungfishWorkflow, LungfishCLI, LungfishApp]
+    cli:
+      - lungfish-cli map
+      - lungfish-cli bam adopt-mapping
+    operation_type: download
+    provenance: MappingProvenance (mapping-provenance.json in the mapping output directory)
+    tests:
+      - Tests/LungfishWorkflowTests/Mapping/MappingProvenanceTests.swift
+      - Tests/LungfishWorkflowTests/Mapping/ManagedMappingPipelineTests.swift
+      - Tests/LungfishCLITests/MapCommandTests.swift
     notes: >-
       Runs minimap2 or the selected mapper, normalizes the resulting BAM, writes
       a mapping-result sidecar, and can attach the mapping outputs to a
@@ -133,6 +159,16 @@ features:
       - Sources/LungfishWorkflow/Variants/BundleVariantTrackAttachmentService.swift
       - Sources/LungfishWorkflow/Variants/VariantSQLiteImportCoordinator.swift
       - Sources/LungfishCLI/Commands/VariantsCommand.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
+    cli:
+      - lungfish-cli variants call
+    operation_type: variantCalling
+    provenance: variants/<basename>.lungfish-provenance.json in the reference bundle (BundleVariantTrackAttachmentService)
+    tests:
+      - Tests/LungfishWorkflowTests/Variants/ViralVariantCallingPipelineTests.swift
+      - Tests/LungfishWorkflowTests/Variants/BAMVariantCallingPreflightTests.swift
+      - Tests/LungfishWorkflowTests/Variants/BundleVariantTrackAttachmentServiceTests.swift
+      - Tests/LungfishCLITests/VariantsCommandTests.swift
     notes: >-
       Runs LoFreq, iVar, Medaka, or bcftools against a bundle-owned BAM alignment
       track, normalizes the resulting VCF, imports it into the bundle
@@ -168,6 +204,16 @@ features:
       - Sources/LungfishIO/Bundles/PrimerSchemesFolder.swift
       - Sources/LungfishCLI/Commands/BAMCommand.swift
       - Sources/LungfishCLI/Commands/BAMPrimerTrimSubcommand.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishIO, LungfishCLI]
+    cli:
+      - lungfish-cli bam primer-trim
+    operation_type: bamPrimerTrim
+    provenance: BAMPrimerTrimProvenance (JSON sidecar next to the output BAM)
+    tests:
+      - Tests/LungfishWorkflowTests/Primers/BAMPrimerTrimPipelineTests.swift
+      - Tests/LungfishWorkflowTests/Primers/BAMPrimerTrimProvenanceTests.swift
+      - Tests/LungfishCLITests/BAMPrimerTrimSubcommandTests.swift
+      - Tests/LungfishAppTests/PrimerTrim/BAMPrimerTrimDialogStateTests.swift
     notes: >-
       Runs `ivar trim` against a bundle-owned BAM alignment track using a
       .lungfishprimers scheme bundle, sorts and indexes the result, and
@@ -190,7 +236,8 @@ features:
       - Sources/LungfishApp/App/GenBankSynchronousParser.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift
       - Sources/LungfishCLI/Commands/BundleCommand.swift
-      - Sources/LungfishIO/Bundles/BundleManifest.swift
+      - Sources/LungfishCore/Bundles/BundleManifest.swift
+    module: [LungfishApp, LungfishCLI, LungfishCore]
     notes: >-
       Imports a standalone FASTA, GenBank, or 2bit sequence plus optional
       GFF3, GTF, or BED annotations as an indexed .lungfishref bundle with a
@@ -206,6 +253,7 @@ features:
       - Sources/LungfishApp/Views/Viewer/ViewerViewController.swift
       - Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift
       - Sources/LungfishApp/App/ViewerGraphicsExportPanelController.swift
+    module: [LungfishApp]
     notes: >-
       Renders a scrollable base-level sequence track with annotation lanes,
       random access through .fai indices, and per-feature navigation. Supports
@@ -221,6 +269,7 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/AnalyzeCommand.swift
       - Sources/LungfishCLI/Commands/CompositionCommand.swift
+    module: [LungfishCLI]
     notes: >-
       Computes length, GC, and per-record statistics, validates file format,
       and reports detailed nucleotide or amino acid composition.
@@ -236,6 +285,7 @@ features:
       - Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift
       - Sources/LungfishApp/Views/TranslationTool
       - Sources/LungfishCLI/Commands/TranslateCommand.swift
+    module: [LungfishApp, LungfishCLI]
     notes: >-
       Translates a DNA or RNA sequence or selection to protein using a chosen
       genetic code and reading frame.
@@ -253,6 +303,7 @@ features:
       - Sources/LungfishApp/Views/Sequence/SequenceORFOperationDialog.swift
       - Sources/LungfishCLI/Commands/SequenceCommand.swift
       - Sources/LungfishWorkflow/SequenceAnnotation
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     notes: >-
       Adds manual annotations from a selection or auto-detects open reading
       frames and best-match CDS features, writing an annotation track into the
@@ -268,6 +319,7 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/BundleCommand.swift
       - Sources/LungfishCLI/Commands/ExtractCommand.swift
+    module: [LungfishCLI]
     notes: >-
       Extracts annotated feature sequences (genes, CDS, ORFs) from a reference
       bundle into a new .lungfishref bundle or FASTA.
@@ -283,6 +335,7 @@ features:
       - Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift
       - Sources/LungfishApp/Views/Sidebar/UniversalSearchAdvancedPopoverController.swift
       - Sources/LungfishCLI/Commands/UniversalSearchCommand.swift
+    module: [LungfishApp, LungfishCLI]
     notes: >-
       Searches across datasets, annotations, and analyses in a project with an
       advanced filter popover for scoping by type and attribute.
@@ -300,6 +353,7 @@ features:
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
       - Sources/LungfishCLI/Commands/ImportFastqCommand.swift
       - Sources/LungfishCLI/Commands/FastqMaterializeSubcommand.swift
+    module: [LungfishCLI, LungfishApp]
     notes: >-
       Batch-imports paired-end or single-end FASTQ at any size with virtual
       previews that keep the UI responsive while operations run on the full
@@ -315,6 +369,7 @@ features:
       - Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift
       - Sources/LungfishApp/Services/FASTQStatisticsService.swift
       - Sources/LungfishKit/FASTQDisplayNameResolver.swift
+    module: [LungfishApp, LungfishKit]
     notes: >-
       Presents read counts, quality summaries, and sample metadata for a FASTQ
       dataset and launches the FASTQ operation dialogs. This dashboard is not
@@ -331,6 +386,7 @@ features:
       - Sources/LungfishCLI/Commands/FastqQCSummarySubcommand.swift
       - Sources/LungfishCLI/Commands/OpsCommand.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
+    module: [LungfishCLI, LungfishApp]
     notes: >-
       Computes a JSON QC summary and optional clumpify, compress, and index
       steps for FASTQ inputs.
@@ -348,6 +404,7 @@ features:
       - Sources/LungfishApp/Services/FASTQOperationPlanner.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
       - Sources/LungfishCLI/Commands/FastqSequenceFilterSubcommand.swift
+    module: [LungfishApp, LungfishCLI]
     notes: >-
       Trims adapters and low-quality bases with fastp, trims fixed base counts,
       filters by read length, and subsamples by proportion or count.
@@ -368,6 +425,7 @@ features:
       - Sources/LungfishCLI/Commands/FastqRiboDetectorSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
       - Sources/LungfishIO/Formats/FASTQ/FASTQEntropyFilter.swift
+    module: [LungfishCLI, LungfishIO]
     notes: >-
       Removes human reads, ribosomal RNA with Deacon and BBMap ribokmers,
       contaminant reads with bbduk, and low-complexity reads (homopolymers and
@@ -385,6 +443,7 @@ features:
     sources:
       - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
+    module: [LungfishApp, LungfishCLI]
     notes: >-
       Reverse-complements, merges overlapping pairs with bbmerge, corrects
       errors with tadpole, deduplicates with clumpify, and repairs, interleaves,
@@ -402,6 +461,7 @@ features:
       - Sources/LungfishCLI/Commands/FastqSearchMotifSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqSearchTextSubcommand.swift
       - Sources/LungfishCLI/Commands/ExtractReadsCommand.swift
+    module: [LungfishCLI]
     notes: >-
       Searches reads by motif or text, selects reads by sequence presence, and
       extracts reads by identifier into a fresh FASTQ dataset.
@@ -414,9 +474,9 @@ features:
     outputs: [fastq, demux-manifest]
     viewport_class: none
     sources:
-      - Sources/LungfishApp/Views/Metagenomics/SampleGroupSheet.swift
       - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
+    module: [LungfishWorkflow, LungfishCLI]
     notes: >-
       Demultiplexes reads by internal barcode kit with multi-step support,
       singleton handling, platform-aware adapters, and a barcode scout preview.
@@ -433,6 +493,7 @@ features:
       - Sources/LungfishCLI/Commands/OrientCommand.swift
       - Sources/LungfishCLI/Commands/FastqOrientSubcommand.swift
       - Sources/LungfishWorkflow/Orient
+    module: [LungfishCLI, LungfishWorkflow]
     notes: >-
       Reorients reads to a reference so that forward and reverse reads share a
       consistent strand before mapping or classification.
@@ -445,6 +506,7 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishCLI/Commands/ConvertCommand.swift
+    module: [LungfishCLI]
     notes: >-
       Converts BAM to FASTQ for re-mapping or sharing and interconverts related
       read formats.
@@ -459,6 +521,7 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishCLI/Commands/FetchCommand.swift
+    module: [LungfishCLI]
     notes: >-
       Searches the European Nucleotide Archive and fetches sequences in FASTA
       or reads with FASTQ download URLs, recording a provenance sidecar.
@@ -475,6 +538,7 @@ features:
       - Sources/LungfishApp/Views/DatabaseBrowser/GenBankGenomesSearchPane.swift
       - Sources/LungfishApp/ViewModels/GenBankBundleDownloadViewModel.swift
       - Sources/LungfishCLI/Commands/FetchCommand.swift
+    module: [LungfishApp, LungfishCLI]
     notes: >-
       Downloads a genome assembly with annotations from NCBI and builds an
       indexed .lungfishref bundle ready for the sequence viewport.
@@ -489,6 +553,7 @@ features:
       - Sources/LungfishCore/Services/Pathoplexus/PathoplexusService.swift
       - Sources/LungfishCore/Services/Pathoplexus/PathoplexusModels.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseSearchDialog.swift
+    module: [LungfishCore, LungfishApp]
     notes: >-
       Searches the Pathoplexus pathogen reference catalogue and imports selected
       records as reference bundles.
@@ -503,6 +568,7 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/DbCommand.swift
       - Sources/LungfishCore/Services/DatabaseService.swift
+    module: [LungfishCLI, LungfishCore]
     notes: >-
       Lists available and installed classification databases, shows version and
       update status, downloads from the catalog, and removes databases.
@@ -518,8 +584,9 @@ features:
     viewport_class: alignment
     sources:
       - Sources/LungfishApp/App/BAMImportHelper.swift
-      - Sources/LungfishApp/Services/BAMImportService.swift
+      - Sources/LungfishWorkflow/Mapping/BAMImportService.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
     notes: >-
       Imports a sorted, indexed BAM or CRAM alignment via HTSlib and attaches
       it as an alignment track for the pileup viewport.
@@ -534,7 +601,8 @@ features:
       - Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift
       - Sources/LungfishApp/Views/Viewer/ClassifierAlignmentEvidenceViewportController.swift
       - Sources/LungfishAlignmentUI/AlignmentResultViewController.swift
-      - Sources/LungfishApp/Services/MappingViewerBundlePreparer.swift
+      - Sources/LungfishWorkflow/Mapping/MappingViewerBundlePreparer.swift
+    module: [LungfishApp, LungfishAlignmentUI, LungfishWorkflow]
     notes: >-
       Pile-up viewer for sorted, indexed BAM and CRAM with a coverage track,
       base mismatches when a validated reference is available, soft-clip
@@ -555,6 +623,7 @@ features:
       - Sources/LungfishWorkflow/Alignment/AlignmentDuplicateService.swift
       - Sources/LungfishCLI/Commands/MarkdupCommand.swift
       - Sources/LungfishCLI/Commands/BAMCommand.swift
+    module: [LungfishCLI, LungfishWorkflow]
     notes: >-
       Marks PCR duplicates with samtools markdup. In a bundle the marking is
       non-destructive: originals stay as "<name> [unmarked]" and marked
@@ -577,6 +646,7 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/ExtractReadsCommand.swift
       - Sources/LungfishCLI/Commands/ExtractCommand.swift
+    module: [LungfishCLI]
     notes: >-
       Extracts reads by region or chromosome from an alignment back into FASTQ
       or a subset BAM for downstream work.
@@ -588,8 +658,9 @@ features:
     outputs: [bam, vcf.gz, consensus-fasta]
     viewport_class: variant
     sources:
-      - Sources/LungfishApp/Views/Metagenomics/ViralReconWizardSheet.swift
+      - Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift
       - Sources/LungfishWorkflow/ViralRecon
+    module: [LungfishApp, LungfishWorkflow]
     notes: >-
       Guided amplicon pipeline that maps reads, trims primers, calls variants,
       and builds a viral consensus in one wizard.
@@ -606,6 +677,7 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/FreyjaCommand.swift
       - Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift
+    module: [LungfishCLI, LungfishApp]
     notes: >-
       Constructs and runs a Freyja demix command plan from variant and depth
       tables to estimate lineage abundances in a mixed wastewater sample.
@@ -621,6 +693,7 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/GATKCommand.swift
       - Sources/LungfishCLI/Commands/VariantsCommand.swift
+    module: [LungfishCLI]
     notes: >-
       Constructs GATK4 command plans for germline calling: HaplotypeCaller,
       joint genotyping, VariantFiltration, SelectVariants, BQSR, and metrics
@@ -635,8 +708,9 @@ features:
     outputs: [vcf, filtered-variant-set]
     viewport_class: variant
     sources:
-      - Sources/LungfishApp/Views/Metagenomics/VariantQueryBuilderSheet.swift
+      - Sources/LungfishApp/Views/Viewer/VariantQueryBuilderSheet.swift
       - Sources/LungfishCLI/Commands/VariantsCommand.swift
+    module: [LungfishApp, LungfishCLI]
     notes: >-
       Applies per-sample smart filters to a bundle variant database and extracts
       one sample's calls from a multi-sample store.
@@ -651,7 +725,8 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/ImportCommand.swift
       - Sources/LungfishCLI/Commands/MetadataCommand.swift
-      - Sources/LungfishApp/Views/Metagenomics/FolderMetadataEditorSheet.swift
+      - Sources/LungfishApp/Views/Sidebar/FolderMetadataEditorSheet.swift
+    module: [LungfishCLI, LungfishApp]
     notes: >-
       Imports a CSV or TSV metadata table into variant tracks or FASTQ folders
       and can export folder metadata as NCBI BioSample submission TSV.
@@ -669,6 +744,14 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
       - Sources/LungfishCLI/Commands/ClassifyCommand.swift
+    module: [LungfishApp, LungfishCLI]
+    cli:
+      - lungfish-cli conda classify
+    operation_type: classification
+    provenance: ProvenanceRecorder run saved by ClassificationPipeline
+    tests:
+      - Tests/LungfishWorkflowTests/Metagenomics/ClassificationPipelineTests.swift
+      - Tests/LungfishCLITests/ClassificationCLIInvocationRoundTripTests.swift
     notes: >-
       Runs Kraken2 taxonomic classification with Bracken abundance estimation on
       FASTQ or FASTA inputs and opens the results in the taxonomy browser.
@@ -684,6 +767,15 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/EsVirituWizardSheet.swift
       - Sources/LungfishEsVirituUI/EsVirituResultViewController.swift
       - Sources/LungfishCLI/Commands/EsVirituCommand.swift
+    module: [LungfishApp, LungfishEsVirituUI, LungfishCLI]
+    cli:
+      - lungfish-cli esviritu detect
+    operation_type: classification
+    provenance: ProvenanceRecorder run saved by EsVirituPipeline
+    tests:
+      - Tests/LungfishWorkflowTests/Metagenomics/EsVirituPipelineTests.swift
+      - Tests/LungfishCLITests/EsVirituReadFormatCLITests.swift
+      - Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift
     notes: >-
       Runs EsViritu viral metagenomics detection and presents per-sample viral
       assemblies with coverage sparklines and segment completeness.
@@ -699,6 +791,14 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift
       - Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift
       - Sources/LungfishCLI/Commands/TaxTriageCommand.swift
+    module: [LungfishApp, LungfishTaxTriageUI, LungfishCLI]
+    cli:
+      - lungfish-cli taxtriage run
+    operation_type: classification
+    provenance: ProvenanceRecorder run saved by TaxTriagePipeline and TaxTriageSerialBatchRunner
+    tests:
+      - Tests/LungfishWorkflowTests/TaxTriagePipelineTests.swift
+      - Tests/LungfishCLITests/TaxTriageRunOptionsTests.swift
     notes: >-
       Runs multi-level TaxTriage clinical triage and shows a confidence view,
       batch overview, and strain comparison across samples.
@@ -714,6 +814,7 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/NaoMgsImportSheet.swift
       - Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift
       - Sources/LungfishCLI/Commands/NaoMgsCommand.swift
+    module: [LungfishApp, LungfishNaoMgsUI, LungfishCLI]
     notes: >-
       Imports NAO-MGS metagenomic surveillance results into a SQLite-backed
       viewport with charts and provenance for fast random-access queries.
@@ -730,6 +831,7 @@ features:
       - Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift
       - Sources/LungfishCLI/Commands/FastqTwelveSMatchSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqTwelveSExportSubcommands.swift
+    module: [LungfishCLI, LungfishWorkflow, LungfishTwelveSUI]
     notes: >-
       Matches merged 12S amplicon reads exactly to a deduplicated reference
       FASTA, resolves cross-species ambiguity, and reviews unresolved sequence
@@ -746,6 +848,7 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/NvdImportSheet.swift
       - Sources/LungfishNvdUI/NvdResultViewController.swift
       - Sources/LungfishCLI/Commands/NvdCommand.swift
+    module: [LungfishApp, LungfishNvdUI, LungfishCLI]
     notes: >-
       Imports Novel Virus Discovery Nextflow output as a first-class taxonomy
       dataset with reads, BLAST hits, and reports cross-linked in an outline
@@ -763,6 +866,7 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/CzIdResultViewController.swift
       - Sources/LungfishCLI/Commands/CzIdCommand.swift
       - Sources/LungfishCLI/Commands/ImportCzIdSubcommand.swift
+    module: [LungfishApp, LungfishCLI]
     notes: >-
       Imports a hosted CZ-ID taxon report TSV into a Lungfish result directory
       and opens it as a taxonomy dataset.
@@ -778,6 +882,7 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/TaxonomySunburstView.swift
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyBreadcrumbBar.swift
       - Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift
+    module: [LungfishApp]
     notes: >-
       Shared taxonomy viewport with a sortable hit table, sunburst chart,
       breadcrumb navigation, and detail pane for Kraken2, EsViritu, TaxTriage,
@@ -794,6 +899,7 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController+Blast.swift
       - Sources/LungfishKit/BlastResultsDrawerContainerView.swift
       - Sources/LungfishCLI/Commands/BlastCommand.swift
+    module: [LungfishApp, LungfishKit, LungfishCLI]
     notes: >-
       Verifies a classified sequence or taxon against NCBI BLAST and shows the
       hits in a results drawer.
@@ -809,6 +915,7 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift
       - Sources/LungfishApp/Views/Metagenomics/ClassifierExtractionDialog.swift
       - Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline.swift
+    module: [LungfishApp, LungfishWorkflow]
     notes: >-
       Extracts reads assigned to any taxon back into a fresh FASTQ dataset for
       downstream mapping or assembly.
@@ -827,6 +934,7 @@ features:
       - Sources/LungfishApp/Views/Assembly/AssemblyConfigurationViewController.swift
       - Sources/LungfishCLI/Commands/AssembleCommand.swift
       - Sources/LungfishWorkflow/Assembly
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     notes: >-
       Assembles reads with SPAdes, MEGAHIT, SKESA, Flye, or hifiasm in
       short-read, long-read, or haplotype-aware modes with a guided wizard.
@@ -841,6 +949,7 @@ features:
       - Sources/LungfishAssemblyUI/AssemblyResultViewController.swift
       - Sources/LungfishAssemblyUI/AssemblyContigTableView.swift
       - Sources/LungfishAssemblyUI/AssemblySummaryStrip.swift
+    module: [LungfishAssemblyUI]
     notes: >-
       Combines a contig table, Nx plot, summary statistics, and the standard
       sequence viewer for any selected contig.
@@ -855,6 +964,7 @@ features:
     sources:
       - Sources/LungfishAssemblyUI/AssemblyContigMaterializationAction.swift
       - Sources/LungfishCLI/Commands/ExtractContigsCommand.swift
+    module: [LungfishAssemblyUI, LungfishCLI]
     notes: >-
       Extracts contigs by length, coverage, or selection for re-mapping or
       annotation.
@@ -874,6 +984,7 @@ features:
       - Sources/LungfishWorkflow/ONTGenotyping/AmpliconGenotypingMode.swift
       - Sources/LungfishCLI/Commands/FastqGenotypingSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqONTGenotypingSubcommand.swift
+    module: [LungfishWorkflow, LungfishCLI]
     notes: >-
       Runs platform-aware exact and indel amplicon genotyping against an MHC
       allele library for ONT barcode-demux, ONT sample bundles, or Illumina
@@ -892,6 +1003,7 @@ features:
       - Sources/LungfishWorkflow/PBAA/PBAAClusteringPipeline.swift
       - Sources/LungfishCLI/Commands/FastqFullLengthONTMHCGenotypingSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqPBAAClusterSubcommand.swift
+    module: [LungfishWorkflow, LungfishCLI]
     notes: >-
       Clusters full-length ONT MHC amplicons with Savont or pbAA and genotypes
       the cluster consensus sequences against an MHC allele library.
@@ -907,6 +1019,7 @@ features:
       - Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingRunner.swift
       - Sources/LungfishGenotypeUI/GenotypeResultViewController.swift
       - Sources/LungfishCLI/Commands/GenotypeAIHaplotypingSubcommand.swift
+    module: [LungfishWorkflow, LungfishGenotypeUI, LungfishCLI]
     notes: >-
       Uses an AI provider to discover or refine haplotype definitions from
       genotype evidence and publishes a validated workbook revision.
@@ -924,6 +1037,7 @@ features:
       - Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift
       - Sources/LungfishGenotypeUI/GenotypeHaplotypeTapeView.swift
       - Sources/LungfishGenotypeUI/GenotypeCohortSummaryPanelView.swift
+    module: [LungfishGenotypeUI]
     notes: >-
       Presents a genotype comparison matrix, haplotype tape, cohort summary, and
       per-sample call evidence with manual haplotyping and annotation overrides.
@@ -944,6 +1058,7 @@ features:
       - Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift
       - Sources/LungfishCLI/Commands/GenotypeExportXlsxSubcommand.swift
       - Sources/LungfishCLI/Commands/GenotypeExportLabKeySubcommand.swift
+    module: [LungfishCLI, LungfishGenotypeUI]
     notes: >-
       Exports the analyst-reviewed genotype bundle as XLSX, CSV, or TSV, a
       samples-across pivot workbook, or LabKey-ready CSV files.
@@ -959,6 +1074,7 @@ features:
       - Sources/LungfishGenotypeUI/GenotypeHaplotypeDefinitionEditor.swift
       - Sources/LungfishGenotypeUI/GenotypeHaplotypeDefinitionMatrixView.swift
       - Sources/LungfishCLI/Commands/HaplotypeDefinitionsCommand.swift
+    module: [LungfishGenotypeUI, LungfishCLI]
     notes: >-
       Defines and edits named haplotypes from aligned marker columns and applies
       them to genotype calls.
@@ -976,6 +1092,14 @@ features:
       - Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift
       - Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift
       - Sources/LungfishCLI/Commands/AlignCommand.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
+    cli:
+      - lungfish-cli align mafft
+    operation_type: multipleSequenceAlignmentGeneration
+    provenance: MultipleSequenceAlignmentBundle.importAlignment options (workflow multiple-sequence-alignment-mafft)
+    tests:
+      - Tests/LungfishWorkflowTests/MSA/MAFFTAlignmentPipelineTests.swift
+      - Tests/LungfishCLITests/AlignCommandTests.swift
     notes: >-
       Aligns FASTA sequences with MAFFT and creates a native .lungfishmsa
       alignment bundle.
@@ -990,6 +1114,12 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/MSACommand.swift
       - Sources/LungfishCLI/Commands/ImportMSATreeSubcommands.swift
+    module: [LungfishCLI]
+    cli:
+      - lungfish-cli msa consensus
+      - lungfish-cli msa distance
+    tests:
+      - Tests/LungfishCLITests/MSACommandTests.swift
     notes: >-
       Adds column annotations, builds consensus sequences, extracts rows and
       columns, creates masked or trimmed derivatives, and computes identity or
@@ -1013,6 +1143,14 @@ features:
       - Sources/LungfishWorkflow/MSA/DiscriminatingSitesExclusionAligner.swift
       - Sources/LungfishWorkflow/MSA/DiscriminatingSitesReportFormatter.swift
       - Sources/LungfishCLI/Commands/MSADiscriminatingSitesSubcommand.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
+    cli:
+      - lungfish-cli msa discriminating-sites
+    operation_type: multipleSequenceAlignmentAction
+    tests:
+      - Tests/LungfishAppTests/MSADiscriminatingSitesInspectorTests.swift
+      - Tests/LungfishCLITests/MSADiscriminatingSitesCommandTests.swift
+      - Tests/LungfishWorkflowTests/MSA/DiscriminatingSitesAnalysisTests.swift
     notes: >-
       Finds alignment columns where every target row differs from every
       exclusion sequence, with gaps and IUPAC codes counted as no-call.
@@ -1038,6 +1176,7 @@ features:
       - Sources/LungfishCLI/Commands/TreeCommand.swift
       - Sources/LungfishCLI/Commands/MSACommand.swift
       - Sources/LungfishCLI/Commands/ImportMSATreeSubcommands.swift
+    module: [LungfishCLI]
     notes: >-
       Infers a maximum-likelihood tree from a .lungfishmsa bundle with IQ-TREE
       or imports an existing Newick tree as a .lungfishtree bundle.
@@ -1051,6 +1190,7 @@ features:
     sources:
       - Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift
       - Sources/LungfishPhylogeneticsUI/PhylogeneticTreeSelectionState.swift
+    module: [LungfishPhylogeneticsUI]
     notes: >-
       Renders a native .lungfishtree bundle with a canvas, node table, layout and
       color modes, search, and a node detail pane. This viewport is not one of
@@ -1065,6 +1205,7 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishCLI/Commands/TreeCommand.swift
+    module: [LungfishCLI]
     notes: >-
       Roots a tree on the branch above a chosen node (outgroup rooting, as
       the viewport's Root on Selected Branch does), extracts a selected clade
@@ -1086,6 +1227,7 @@ features:
       - Sources/LungfishWorkflow/WorkflowDefinition.swift
       - Sources/LungfishWorkflow/nf-core/NFCoreSupportedWorkflowCatalog.swift
       - Sources/LungfishCLI/Commands/WorkflowCommand.swift
+    module: [LungfishWorkflow, LungfishCLI]
     notes: >-
       Runs Nextflow pipelines with auto-generated parameter forms from
       nextflow_schema.json and launches from the nf-core catalogue.
@@ -1102,6 +1244,7 @@ features:
       - Sources/LungfishWorkflow/WorkflowRunner.swift
       - Sources/LungfishWorkflow/WorkflowDefinition.swift
       - Sources/LungfishCLI/Commands/WorkflowCommand.swift
+    module: [LungfishWorkflow, LungfishCLI]
     notes: >-
       Runs Snakemake workflows from inside the app with outputs auto-imported as
       project datasets.
@@ -1117,6 +1260,7 @@ features:
       - Sources/LungfishApp/App/MainMenu.swift
       - Sources/LungfishApp/App/AppDelegate+ImportExport.swift
       - Sources/LungfishWorkflow/ApplicationExports
+    module: [LungfishApp, LungfishWorkflow]
     notes: >-
       Exports the current operation history or builder graph as a runnable
       Nextflow pipeline or Snakemake workflow.
@@ -1136,6 +1280,7 @@ features:
       - Sources/LungfishApp/App/MainMenu.swift
       - Sources/LungfishCLI/Commands/ProvenanceCommand.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     notes: >-
       Exports a methods section, full provenance JSON, or citation bibliography
       from a bundle and verifies signed provenance sidecars.
@@ -1151,6 +1296,7 @@ features:
       - Sources/LungfishApp/App/ProjectOpenCoordinator.swift
       - Sources/LungfishApp/App/ProjectLockWarningPresentation.swift
       - Sources/LungfishCLI/Commands/ProjectCommand.swift
+    module: [LungfishApp, LungfishCLI]
     notes: >-
       Opens project folders, creates and removes project-local lock records, and
       migrates bundles for shared multi-user projects.
@@ -1172,6 +1318,7 @@ features:
       - Sources/LungfishApp/Views/DemoProjects/DemoProjectsView.swift
       - Sources/LungfishApp/Views/DemoProjects/DemoProjectsViewModel.swift
       - Sources/LungfishCLI/Commands/DemoCommand.swift
+    module: [LungfishWorkflow, LungfishApp, LungfishCLI]
     notes: >-
       Lists eight demo projects from the bundled manifest, downloads one from
       the public demo-projects GitHub release, checks its byte count and
@@ -1190,6 +1337,7 @@ features:
       - Sources/LungfishCLI/Commands/ProvisionToolsCommand.swift
       - Sources/LungfishCLI/Commands/CondaCommand.swift
       - Sources/LungfishKit/CLIBinaryLocator.swift
+    module: [LungfishCLI, LungfishKit]
     notes: >-
       Bootstraps micromamba and installs bioconda tool packs into managed conda
       environments, with offline export and import.
@@ -1205,6 +1353,7 @@ features:
       - Sources/LungfishApp/Views/PluginManager/PluginManagerWindowController.swift
       - Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift
       - Sources/LungfishCLI/Commands/CondaCommand.swift
+    module: [LungfishApp, LungfishCLI]
     notes: >-
       Discovers, installs, and manages the lifecycle of Python, Rust, Swift, and
       CLI plugins that add operations, viewers, data sources, or workflows.
@@ -1219,6 +1368,7 @@ features:
       - Sources/LungfishApp/Views/Inspector/InspectorView.swift
       - Sources/LungfishApp/Views/Inspector/InspectorViewModel.swift
       - Sources/LungfishApp/Services/AI/AIAssistantService.swift
+    module: [LungfishApp]
     notes: >-
       Chat panel that answers questions about the active dataset, suggests
       workflows, and helps interpret results using a bring-your-own-key provider.
@@ -1234,6 +1384,7 @@ features:
       - Sources/LungfishWorkflow/Containers/Container.swift
       - Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift
       - Sources/LungfishCLI/Commands/DebugCommand.swift
+    module: [LungfishWorkflow, LungfishCLI]
     notes: >-
       The Nextflow pipelines (Viral Recon, TaxTriage) run their containers
       through Docker Desktop with -profile docker. debug container probes the
@@ -1257,6 +1408,7 @@ features:
       - Sources/LungfishWorkflow/PrimerDesign/Primer3DesignInput.swift
       - Sources/LungfishWorkflow/PrimerDesign/Primer3FixedOligoValidation.swift
       - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
     notes: >-
       Independent Primer3 designs per FASTA record or MSA row, with an assay
       type of PCR, qPCR with a hydrolysis probe, or qPCR with an intercalating
@@ -1277,6 +1429,7 @@ features:
       - Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift
       - Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3CoverageContract.swift
       - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    module: [LungfishWorkflow, LungfishApp, LungfishCLI]
     notes: >-
       Tiled, overlapping amplicons in two alternating pools, run through
       LGE's PrimalScheme 3 build. Chapter: 10-primer-design/03.
@@ -1294,6 +1447,7 @@ features:
       - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeAdapterRunner.swift
       - Sources/LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift
       - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    module: [LungfishWorkflow, LungfishApp, LungfishCLI]
     notes: >-
       Variant-aware tiled design through the versioned LGE adapter. An
       optional BLAST screen is built from chosen sequences
@@ -1312,6 +1466,7 @@ features:
       - Sources/LungfishWorkflow/PrimerDesign/VarVAMPCoverageAdvisories.swift
       - Sources/LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift
       - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    module: [LungfishWorkflow, LungfishApp, LungfishCLI]
     notes: >-
       Degenerate primers from a consensus of the alignment, in single, tiled,
       or qPCR mode. The qPCR result selects the lowest-penalty assay.
@@ -1330,6 +1485,7 @@ features:
       - Sources/LungfishApp/Views/Inspector/Sections/PrimerAnalysisDisplaySection.swift
       - Sources/LungfishWorkflow/PrimerDesign/PrimerAnalysisNativeInspectionService.swift
       - Sources/LungfishCLI/Commands/PrimerAnalysisCommand.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
     notes: >-
       Overview, Results, and binding inspection against the input alignment,
       with the Inspector's display and export controls. inspect verifies the
@@ -1349,6 +1505,7 @@ features:
       - Sources/LungfishWorkflow/PrimerAnalysis/PrimerOrderExportService.swift
       - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeOrderSheet.swift
       - Sources/LungfishCLI/Commands/PrimerAnalysisCommand.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
     notes: >-
       Writes order workbooks, a CSV, and order.json for the selected or all
       reported assays. Chapter: 10-primer-design/05.
@@ -1365,6 +1522,7 @@ features:
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+PrimerAnalysis.swift
       - Sources/LungfishWorkflow/Primers/PrimerSchemeFromAnalysisService.swift
       - Sources/LungfishCLI/Commands/PrimerCommand.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
     notes: >-
       Saves a PrimalScheme, Olivar, or tiled varVAMP design to Primer
       Schemes/<name>.lungfishprimers with its design reference under
