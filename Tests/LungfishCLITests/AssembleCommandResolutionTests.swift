@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import Foundation
 import XCTest
 @testable import LungfishCLI
@@ -181,6 +182,22 @@ final class AssembleCommandResolutionTests: XCTestCase {
 
         let twoBundles = try await resolve([shapes.single, shapes.full.appendingPathComponent("full.fastq")])
         XCTAssertEqual(twoBundles.originalInputURLs, [shapes.single.standardizedFileURL, shapes.full.standardizedFileURL])
+    }
+
+    func testReadLayoutIsRefusedForABundleThatHoldsAMatePair() async throws {
+        let output = root.appendingPathComponent("refused-assembly", isDirectory: true)
+        let command = try AssembleCommand.parse([
+            shapes.paired.path,
+            "--assembler", "spades",
+            "--read-type", "illumina-short-reads",
+            "--read-layout", "interleaved",
+            "--output", output.path,
+        ])
+
+        await XCTAssertThrowsErrorAsync(try await command.run()) { error in
+            XCTAssertEqual((error as? ExitCode)?.rawValue, CLIExitCode.inputError.rawValue)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "refused before anything is written")
     }
 
     func testAnUnreadableInputIsRefusedBeforeAnythingIsWritten() async throws {
