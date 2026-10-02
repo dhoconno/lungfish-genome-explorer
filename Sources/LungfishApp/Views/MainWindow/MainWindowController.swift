@@ -251,20 +251,13 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
     // MARK: - Content Mode → Toolbar Adaptation
 
     @objc private func handleContentModeChanged(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let rawMode = notification.userInfo?[NotificationUserInfoKey.contentMode] as? String,
               let mode = ViewportContentMode(rawValue: rawMode) else { return }
         guard mode != currentContentMode else { return }
 
         currentContentMode = mode
         updateToolbarForContentMode(mode)
-    }
-
-    private func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
-        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
-            return true
-        }
-        return notificationScope == projectSession.windowStateScope
     }
 
     /// Updates toolbar item visibility based on the viewport content mode.
@@ -323,7 +316,7 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
     // MARK: - Bundle Loaded → Index Building
 
     @objc private func handleBundleLoaded(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let userInfo = notification.userInfo,
               let chromosomes = userInfo[NotificationUserInfoKey.chromosomes] as? [ChromosomeInfo] else { return }
 

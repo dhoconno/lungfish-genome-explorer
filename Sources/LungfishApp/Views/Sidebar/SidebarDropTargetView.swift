@@ -62,12 +62,10 @@ class SidebarDropTargetView: NSView {
             return false
         }
 
-        // Post a single notification with all dropped URLs
-        NotificationCenter.default.post(
-            name: .sidebarFileDropped,
-            object: self.sidebarController,
-            userInfo: ["urls": urls, "destination": NSNull()]
-        )
+        // Post a single notification with all dropped URLs, scoped to the
+        // sidebar's window. Without a sidebar there is no window to import into.
+        guard let sidebarController else { return false }
+        sidebarController.postFileDrop(urls, destination: NSNull())
 
         return true
     }

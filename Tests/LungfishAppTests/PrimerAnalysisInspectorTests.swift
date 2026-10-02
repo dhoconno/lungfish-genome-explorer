@@ -3,6 +3,7 @@ import Darwin
 import SwiftUI
 import XCTest
 import LungfishIO
+import LungfishKit
 import LungfishCore
 import LungfishWorkflow
 @testable import LungfishApp
@@ -61,12 +62,14 @@ final class PrimerAnalysisInspectorTests: XCTestCase {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let inspector = InspectorViewController()
+        let scope = WindowStateScope()
+        inspector.testingWindowStateScope = scope
         inspector.beginPrimerAnalysisDocument(at: fixture.bundleURL)
         inspector.updatePrimerAnalysisDocument(try PrimerAnalysisViewerSnapshot.load(from: fixture.bundleURL))
         inspector.viewModel.selectedTab = .files
 
         inspector.handleShowInspectorRequested(Notification(name: .showInspectorRequested,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "document"]))
+            userInfo: [NotificationUserInfoKey.inspectorTab: "document", NotificationUserInfoKey.windowStateScope: scope]))
 
         XCTAssertEqual(inspector.viewModel.selectedTab, .bundle)
         XCTAssertEqual(inspector.viewModel.primerAnalysisDocument?.bundleURL, fixture.bundleURL.standardizedFileURL)

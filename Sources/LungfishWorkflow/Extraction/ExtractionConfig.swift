@@ -160,8 +160,15 @@ public struct BAMRegionExtractionConfig: Sendable {
 
     /// Exact explicit-index samtools invocation. Options precede `-X`'s
     /// positional BAM/index pair so samtools does not interpret them as regions.
-    public func explicitViewArguments(outputBAM: URL) -> [String] {
+    ///
+    /// With `mergingOverlappingRegions`, `-M` makes samtools read the union of
+    /// the regions, so a read that overlaps two of them is written once.
+    /// Without it samtools writes such a read once per region it overlaps.
+    /// Whole reference names never overlap, so callers pass it only for
+    /// coordinate regions and the argv for names stays as it was.
+    public func explicitViewArguments(outputBAM: URL, mergingOverlappingRegions: Bool = false) -> [String] {
         var arguments = ["view", "-b"]
+        if mergingOverlappingRegions { arguments.append("-M") }
         if let decodingReferenceURL, bamURL.pathExtension.lowercased() == "cram" {
             arguments += ["-T", decodingReferenceURL.path]
         }
@@ -567,6 +574,12 @@ public struct RegionMatchResult: Sendable {
     /// All reference sequence names present in the BAM header.
     public let bamReferenceNames: [String]
 
+    /// The matched regions written in samtools region notation on a BAM
+    /// reference (`chr1:11-25`, `chr1:500-` or a braced `{name}:range`),
+    /// passed to samtools as given so it selects the reads that overlap them.
+    /// Empty when every match is a whole reference name.
+    public let coordinateRegions: [String]
+
     /// Creates a region match result.
     ///
     /// - Parameters:
@@ -574,16 +587,19 @@ public struct RegionMatchResult: Sendable {
     ///   - unmatchedRegions: Unresolved region strings.
     ///   - strategy: The match strategy used.
     ///   - bamReferenceNames: All reference names in the BAM header.
+    ///   - coordinateRegions: The matched regions in samtools region notation.
     public init(
         matchedRegions: [String],
         unmatchedRegions: [String],
         strategy: MatchStrategy,
-        bamReferenceNames: [String]
+        bamReferenceNames: [String],
+        coordinateRegions: [String] = []
     ) {
         self.matchedRegions = matchedRegions
         self.unmatchedRegions = unmatchedRegions
         self.strategy = strategy
         self.bamReferenceNames = bamReferenceNames
+        self.coordinateRegions = coordinateRegions
     }
 
     /// Whether all requested regions were matched.

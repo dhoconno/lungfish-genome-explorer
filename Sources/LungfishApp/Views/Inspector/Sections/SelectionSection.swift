@@ -69,6 +69,9 @@ public final class SelectionSectionViewModel {
     /// The currently selected genotype result sample or call, if any.
     var genotypeResultSelection: GenotypeResultSelectionState?
 
+    /// Asks the genotype viewport of this window to open a sample's calls.
+    var onEditGenotypeCallsRequested: ((String) -> Void)?
+
     /// Transient viewport color used for genotype result review highlights.
     var genotypeHighlightColor: Color = .blue
 
@@ -992,11 +995,7 @@ public struct SelectionSection: View {
             if let animalId = selection.animalId, !animalId.isEmpty {
                 Divider()
                 Button {
-                    NotificationCenter.default.post(
-                        name: .genotypeResultRequestSampleDetailSheet,
-                        object: nil,
-                        userInfo: ["sample": animalId]
-                    )
+                    viewModel.onEditGenotypeCallsRequested?(animalId)
                 } label: {
                     Label("Edit calls…", systemImage: "pencil.and.list.clipboard")
                 }

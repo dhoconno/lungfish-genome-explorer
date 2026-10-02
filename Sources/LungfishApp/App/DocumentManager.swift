@@ -259,10 +259,10 @@ public final class DocumentManager {
         if let owner = mirroredSession {
             let project = try owner.openProject(at: url)
             mirrorProjectSession(owner)
-            NotificationCenter.default.post(name: Self.projectOpenedNotification, object: self, userInfo: [
+            NotificationCenter.default.post(name: Self.projectOpenedNotification, object: self, userInfo: owner.windowScopedUserInfo([
                 "project": project, "openWarningState": owner.openWarningState,
                 "sessionID": owner.id
-            ])
+            ]))
             return project
         }
         documentStateGeneration &+= 1

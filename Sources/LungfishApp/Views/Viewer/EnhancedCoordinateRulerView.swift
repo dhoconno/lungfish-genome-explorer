@@ -1130,10 +1130,10 @@ extension ViewerViewController: TrackHeaderViewDelegate {
         NotificationCenter.default.post(
             name: .annotationVisibilityChanged,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 NotificationUserInfoKey.activeSequenceIndex: index,
                 NotificationUserInfoKey.annotationVisible: state.stackedSequences[index].showAnnotations
-            ]
+            ])
         )
     }
 }

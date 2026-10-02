@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 import LungfishCore
+import LungfishKit
 
 @MainActor
 final class MainWindowBundleIndexTests: XCTestCase {
@@ -26,6 +27,8 @@ final class MainWindowBundleIndexTests: XCTestCase {
         // building the index; mirror that here so the fixture matches production.
         embeddedViewer.currentBundleURL = bundleURL
 
+        // A viewer of this window posts with the window's scope; the window
+        // controller drops a bundle load from any other window.
         NotificationCenter.default.post(
             name: .bundleDidLoad,
             object: embeddedViewer,
@@ -34,6 +37,7 @@ final class MainWindowBundleIndexTests: XCTestCase {
                 NotificationUserInfoKey.chromosomes: manifest.genome?.chromosomes ?? [],
                 NotificationUserInfoKey.manifest: manifest,
                 NotificationUserInfoKey.referenceBundle: bundle,
+                NotificationUserInfoKey.windowStateScope: windowController.windowStateScope,
             ]
         )
 

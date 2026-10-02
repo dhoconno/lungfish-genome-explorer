@@ -9,7 +9,9 @@
 // `lungfish-cli fetch` command for the source. `fetch sra download` and `fetch
 // genome` take one accession, so a single record must parse with the values
 // the run uses, and a batch of several records keeps the flat accession list
-// that the CLI rejects, which the tests pin as a CLI parity gap. `fetch ncbi`
+// that the CLI rejects, which the tests pin as a CLI parity gap. A genome
+// assembly names the project's Downloads folder, where the run puts the
+// bundle (R3). `fetch ncbi`
 // saves one GenBank file where the run builds a bundle for each record, so the
 // NCBI nucleotide, NCBI virus and Pathoplexus rows are pinned as parity gaps
 // too. A command added later fails a pin and prompts a parse test in its place.
@@ -103,13 +105,17 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         )
 
         // The row used to record `fetch genome --accession <accessions> -o .`,
-        // which the CLI never parsed. `fetch genome` takes the accession as an
-        // argument and names its folder with `--output-dir`.
-        XCTAssertEqual(item.cliCommand, "lungfish-cli fetch genome GCF_003047895.1 --output-dir .")
+        // which the CLI never parsed, and then `--output-dir .`, the shell's
+        // current folder. The run copies the bundle it builds into the
+        // project's Downloads folder, which the command now names.
+        XCTAssertEqual(
+            item.cliCommand,
+            "lungfish-cli fetch genome GCF_003047895.1 --output-dir '/tmp/lane 1a2g/Project.lungfish/Downloads'"
+        )
         XCTAssertFalse(item.cliCommand?.contains("--accession") ?? true)
         let command = try RecordedCLICommand.parse(item.cliCommand, as: GenomeSubcommand.self)
         XCTAssertEqual(command.accession, "GCF_003047895.1")
-        XCTAssertEqual(command.outputDir, ".")
+        XCTAssertEqual(command.outputDir, "/tmp/lane 1a2g/Project.lungfish/Downloads")
         XCTAssertNil(command.name)
         XCTAssertFalse(command.fastaOnly)
         XCTAssertFalse(command.noBundle)
@@ -130,9 +136,24 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         // replace this pin with a parse test.
         XCTAssertEqual(
             item.cliCommand,
-            "lungfish-cli fetch genome GCF_003047895.1 GCF_000001405.40 --output-dir ."
+            "lungfish-cli fetch genome GCF_003047895.1 GCF_000001405.40"
+                + " --output-dir '/tmp/lane 1a2g/Project.lungfish/Downloads'"
         )
         XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+    }
+
+    func testGenomeAssemblyWithNoProjectKeepsTheCurrentFolder() throws {
+        // With no project in the route context the run picks the Downloads
+        // folder of the window the download lands in, which the row cannot
+        // know before the run, so the command keeps the current folder.
+        let command = DatabaseBrowserViewModel.batchDownloadCLICommand(
+            source: .ncbi,
+            searchType: .genome,
+            accessions: ["GCF_003047895.1"],
+            projectURL: nil
+        )
+        XCTAssertEqual(command, "lungfish-cli fetch genome GCF_003047895.1 --output-dir .")
+        XCTAssertEqual(try RecordedCLICommand.parse(command, as: GenomeSubcommand.self).outputDir, ".")
     }
 
     // MARK: - NCBI nucleotide and virus records, and Pathoplexus

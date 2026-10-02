@@ -548,7 +548,7 @@ public actor ReadExtractionService {
                 outputBaseName: config.outputBaseName,
                 deduplicateReads: config.deduplicateReads
             )
-            let viewArgs = explicitConfig.explicitViewArguments(outputBAM: tempBAM)
+            let viewArgs = explicitConfig.explicitViewArguments(outputBAM: tempBAM, mergingOverlappingRegions: !matchResult.coordinateRegions.isEmpty)
 
             let viewResult = try await toolRunner.run(
                 .samtools,

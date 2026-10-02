@@ -7,11 +7,11 @@
 // real center never refuses them, and a recording reporter that holds a lock
 // stands in for the refusal. The two reference downloads have no lungfish-cli
 // equivalent, so their tests pin the missing command. The FASTQ derivative
-// row and the FASTQ operations dialog row record real `lungfish-cli fastq`
-// commands, which the tests parse with the real CLI parser and compare with
-// the request's values. A request kind whose recorded command is not a
-// lungfish-cli command, or parses but does not reproduce the run, is pinned as
-// a CLI parity gap with today's string.
+// row and the FASTQ operations dialog row record the `lungfish-cli fastq`
+// command FASTQOperationCLIInvocationBuilder builds for the same request
+// (R3), which the tests parse with the real CLI parser and compare with the
+// request's values. A request with a setting no lungfish-cli option
+// expresses records no command at either site, a pinned CLI parity gap.
 
 import ArgumentParser
 import XCTest
@@ -183,90 +183,119 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         }
     }
 
-    func testDerivativeKindsRecordedAsNativeToolCommandsArePinnedAsParityGaps() throws {
-        // CLI parity gap. These kinds record the native tool invocation, not a
-        // lungfish-cli command. `FASTQOperationCLIInvocationBuilder` does encode
-        // each of them as a `fastq` subcommand (sequence-filter, reverse-complement,
-        // translate, orient, scrub-human), and the dialog launch records those.
-        // FASTQDerivativeRequest.cliCommand is also the provenance toolCommand
-        // (FASTQOperationOutputImporter), so changing it changes provenance
-        // content and belongs to the CLI parity lane.
-        let gaps: [(String, FASTQDerivativeRequest, String)] = [
-            (
-                "sequence presence filter",
-                .sequencePresenceFilter(
-                    sequence: "ACGT", fastaPath: nil, searchEnd: .fivePrime, minOverlap: 16,
-                    errorRate: 0.15, keepMatched: true, searchReverseComplement: false
-                ),
-                "cutadapt --discard-untrimmed "
-            ),
-            ("reverse complement", .reverseComplement, "seqkit seq --reverse --complement "),
-            ("translate", .translate(frameOffset: 1), "seqkit translate --frame 2 "),
-            (
-                "orient",
-                .orient(
-                    referenceURL: URL(fileURLWithPath: "/tmp/lane 1a2h/ref.fasta"),
-                    wordLength: 12, dbMask: "dust", saveUnoriented: false, extraArguments: []
-                ),
-                "vsearch --orient "
-            ),
-            ("human read scrub", .humanReadScrub(databaseID: "deacon-panhuman", removeReads: true), "deacon filter "),
-        ]
-        for (name, request, prefix) in gaps {
-            let item = try recordedDerivativeRow(request)
-            let command = try XCTUnwrap(item.cliCommand, name)
-            XCTAssertTrue(command.hasPrefix(prefix), "\(name) recorded: \(command)")
-            XCTAssertThrowsError(try RecordedCLICommand.parse(command), name)
+    func testFASTQDerivativeRowRecordsTheInvocationTheDialogRowRecordsForTheSameRequest() throws {
+        // One builder (R3). The dataset viewport row used to build its own
+        // string, which recorded seqkit, cutadapt, vsearch and deacon commands
+        // for five kinds and left values out of three more.
+        let requests = GenomicsDisplayDerivativeCases.bothSitesRecord().map(\.request)
+            + Self.requestsNoCLIOptionExpresses.map(\.1)
+        for request in requests {
+            let derivativeRow = try recordedDerivativeRow(request)
+            let dialogRow = try recordedLaunchRow(.derivative(
+                request: request, inputURLs: [inputBundle], outputMode: .perInput
+            ))
+            XCTAssertEqual(derivativeRow.cliCommand, dialogRow.cliCommand, request.operationLabel)
         }
     }
 
-    func testDerivativeKindsWhoseCommandParsesButDivergesFromTheRunArePinnedAsParityGaps() throws {
-        // CLI parity gap. Each command below parses, but it leaves out something
-        // the run uses, so pasting it into a terminal may not reproduce the run.
-        // The builder lives in FASTQDerivativeRequest.cliCommand, which is also
-        // recorded as provenance, so it is left alone here. When the builder
-        // records the missing flag, replace the pin with a parse test of the value.
-
-        // The run trims with cutadapt in linked mode, and the command would run bbduk.
-        let primers = FASTQPrimerTrimConfiguration(
-            source: .reference, mode: .linked, referenceFasta: "/tmp/lane 1a2h/primers.fasta", tool: .cutadapt
-        )
-        let primerItem = try recordedDerivativeRow(.primerRemoval(configuration: primers))
-        let primerCommand = try RecordedCLICommand.parse(primerItem.cliCommand, as: FastqPrimerRemovalSubcommand.self)
-        XCTAssertEqual(primerCommand.reference, "/tmp/lane 1a2h/primers.fasta")
-        XCTAssertEqual(primerCommand.engine, .bbduk, "the run is cutadapt-linked, and the command carries no --engine")
-
-        // The run allows 3 and 4 bases from the read ends, and the command carries neither flag.
-        let demultiplexItem = try recordedDerivativeRow(.demultiplex(
-            kitID: "custom-kit", customCSVPath: "/tmp/lane 1a2h/kit.csv", location: "fiveprime", symmetryMode: nil,
-            maxDistanceFrom5Prime: 3, maxDistanceFrom3Prime: 4, errorRate: 0.1, engine: .cutadapt,
-            trimBarcodes: false, sampleAssignments: nil, kitOverride: nil
-        ))
-        let demultiplexCommand = try RecordedCLICommand.parse(
-            demultiplexItem.cliCommand, as: FastqDemultiplexSubcommand.self
-        )
-        XCTAssertEqual(demultiplexCommand.kit, "/tmp/lane 1a2h/kit.csv")
-        XCTAssertEqual(demultiplexCommand.maxDistanceFrom5Prime, 0, "the run uses 3")
-        XCTAssertEqual(demultiplexCommand.maxDistanceFrom3Prime, 0, "the run uses 4")
-
-        // The run reads its adapters from a FASTA file in the bundle, and the command names no adapter.
-        let adapterItem = try recordedDerivativeRow(.adapterTrim(
-            mode: .fastaFile, sequence: nil, sequenceR2: nil, fastaFilename: "adapters.fasta"
-        ))
-        let adapterCommand = try RecordedCLICommand.parse(adapterItem.cliCommand, as: FastqAdapterTrimSubcommand.self)
-        XCTAssertNil(adapterCommand.adapterSequence, "the run trims with an adapter FASTA")
-
-        // Every other kind with a --pairing option records the pairing the bundle
-        // recorded. The length filter does not, so the command leaves the pairing
-        // to the CLI's own detection.
+    func testFASTQDerivativeRowCarriesTheInputBundlesPairingForTheLengthFilter() throws {
+        // The length filter row used to record no `--pairing`, unlike every
+        // other kind with the option, so the CLI fell back to its own detection.
         let directory = try TestTempDirectory.make(prefix: "genomics-display-operation")
         defer { TestTempDirectory.cleanup(directory) }
         let bundle = try InterleavedFASTQFixture.writeBundle(
             named: "hg002", in: directory, pairCount: 2, naming: .identical, pairingMode: .interleaved
         )
-        let lengthItem = try recordedDerivativeRow(.lengthFilter(min: 50, max: 300), inputURL: bundle.bundleURL)
-        let lengthCommand = try RecordedCLICommand.parse(lengthItem.cliCommand, as: FastqLengthFilterSubcommand.self)
-        XCTAssertEqual(lengthCommand.pairing.pairing, .auto, "the run passes the bundle's interleaved pairing")
+
+        let item = try recordedDerivativeRow(.lengthFilter(min: 50, max: 300), inputURL: bundle.bundleURL)
+
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: FastqLengthFilterSubcommand.self)
+        XCTAssertEqual(command.input, bundle.bundleURL.path)
+        XCTAssertEqual(command.minLength, 50)
+        XCTAssertEqual(command.maxLength, 300)
+        XCTAssertEqual(command.pairing.pairing, .interleaved, "the run passes the bundle's interleaved pairing")
+    }
+
+    /// Requests that carry a setting no lungfish-cli option expresses. The
+    /// invocation builder refuses them, so neither FASTQ row records a
+    /// command, and the dialog run fails with the builder's error. The
+    /// dataset viewport runs them in process.
+    static let requestsNoCLIOptionExpresses: [(String, FASTQDerivativeRequest)] = [
+        (
+            "adapter trim from an adapter FASTA",
+            .adapterTrim(mode: .fastaFile, sequence: nil, sequenceR2: nil, fastaFilename: "adapters.fasta")
+        ),
+        (
+            "adapter trim with a read 2 adapter",
+            .adapterTrim(mode: .specified, sequence: "ACGTACGT", sequenceR2: "TTGGCCAA", fastaFilename: nil)
+        ),
+        (
+            "fastp trim with an adapter FASTA",
+            .fastpTrim(threshold: 20, windowSize: 4, mode: .cutRight, adapterMode: .fastaFile, adapterSequence: nil)
+        ),
+        (
+            "orient keeping unoriented reads",
+            .orient(
+                referenceURL: URL(fileURLWithPath: "/tmp/lane 1a2h/ref.fasta"),
+                wordLength: 12, dbMask: "dust", saveUnoriented: true, extraArguments: []
+            )
+        ),
+        (
+            "demultiplex with a symmetry mode",
+            .demultiplex(
+                kitID: "custom-kit", customCSVPath: nil, location: "bothends", symmetryMode: .symmetric,
+                maxDistanceFrom5Prime: 0, maxDistanceFrom3Prime: 0, errorRate: 0.15, engine: .cutadapt,
+                trimBarcodes: true, sampleAssignments: nil, kitOverride: nil
+            )
+        ),
+        (
+            "demultiplex with sample assignments",
+            .demultiplex(
+                kitID: "custom-kit", customCSVPath: nil, location: "bothends", symmetryMode: nil,
+                maxDistanceFrom5Prime: 0, maxDistanceFrom3Prime: 0, errorRate: 0.15, engine: .cutadapt,
+                trimBarcodes: true,
+                sampleAssignments: [FASTQSampleBarcodeAssignment(sampleID: "S1", forwardBarcodeID: "bc01")],
+                kitOverride: nil
+            )
+        ),
+        (
+            "demultiplex with a kit override",
+            .demultiplex(
+                kitID: "custom-kit", customCSVPath: nil, location: "bothends", symmetryMode: nil,
+                maxDistanceFrom5Prime: 0, maxDistanceFrom3Prime: 0, errorRate: 0.15, engine: .cutadapt,
+                trimBarcodes: true, sampleAssignments: nil,
+                kitOverride: BarcodeKitDefinition(id: "custom-kit", displayName: "Custom kit", barcodes: [])
+            )
+        ),
+        (
+            "literal primers with cutadapt",
+            .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
+                source: .literal, forwardSequence: "ACGTACGTAC", tool: .cutadapt
+            ))
+        ),
+        (
+            "bbduk primers keeping untrimmed reads",
+            .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
+                source: .literal, forwardSequence: "ACGTACGTAC", keepUntrimmed: true, tool: .bbduk
+            ))
+        ),
+    ]
+
+    func testFASTQDerivativeRequestsNoCLIOptionExpressesRecordNoCommandAsParityGaps() throws {
+        // CLI parity gap. `fastq adapter-trim` and `fastq trim` take no adapter
+        // FASTA or read 2 adapter, `fastq orient` cannot keep unoriented reads,
+        // `fastq demultiplex` has no symmetry mode, sample assignment or kit
+        // override option, and `fastq primer-remove` encodes only reference
+        // cutadapt-linked trimming and literal or reference bbduk trimming
+        // with the default read-mode flags. The adapter FASTA row used to
+        // record an `adapter-trim` command that auto-detected adapters. When
+        // the CLI gains an option, the builder encodes it and this pin becomes
+        // a parse test.
+        for (name, request) in Self.requestsNoCLIOptionExpresses {
+            let item = try recordedDerivativeRow(request)
+            XCTAssertNil(item.cliCommand, name)
+            XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand), name)
+        }
     }
 
     /// `runFASTQOperation` ends its begin call with `requireStarted()`, so a
@@ -369,9 +398,7 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
     }
 
     func testFASTQLaunchRequestDerivativeCommandsParseWithTheRequestsValues() throws {
-        let cases = GenomicsDisplayDerivativeCases.bothSitesRecord()
-            + GenomicsDisplayDerivativeCases.onlyTheDialogRecords()
-        for testCase in cases {
+        for testCase in GenomicsDisplayDerivativeCases.bothSitesRecord() {
             let item = try recordedLaunchRow(.derivative(
                 request: testCase.request, inputURLs: [inputBundle], outputMode: .perInput
             ))
@@ -396,38 +423,7 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         // error because the execution service builds the same invocation. The
         // dataset viewport runs the same settings in process. When the builder
         // encodes one, the row records the command and its pin becomes a parse test.
-        let unencodable: [(String, FASTQDerivativeRequest)] = [
-            (
-                "adapter FASTA",
-                .adapterTrim(mode: .fastaFile, sequence: nil, sequenceR2: nil, fastaFilename: "adapters.fasta")
-            ),
-            (
-                "fastp with adapter FASTA",
-                .fastpTrim(threshold: 20, windowSize: 4, mode: .cutRight, adapterMode: .fastaFile, adapterSequence: nil)
-            ),
-            (
-                "orient keeping unoriented reads",
-                .orient(
-                    referenceURL: URL(fileURLWithPath: "/tmp/lane 1a2h/ref.fasta"),
-                    wordLength: 12, dbMask: "dust", saveUnoriented: true, extraArguments: []
-                )
-            ),
-            (
-                "demultiplex with a symmetry mode",
-                .demultiplex(
-                    kitID: "custom-kit", customCSVPath: nil, location: "bothends", symmetryMode: .symmetric,
-                    maxDistanceFrom5Prime: 0, maxDistanceFrom3Prime: 0, errorRate: 0.15, engine: .cutadapt,
-                    trimBarcodes: true, sampleAssignments: nil, kitOverride: nil
-                )
-            ),
-            (
-                "literal primers with cutadapt",
-                .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
-                    source: .literal, forwardSequence: "ACGTACGTAC", tool: .cutadapt
-                ))
-            ),
-        ]
-        for (name, request) in unencodable {
+        for (name, request) in Self.requestsNoCLIOptionExpresses {
             let item = try recordedLaunchRow(.derivative(
                 request: request, inputURLs: [inputBundle], outputMode: .perInput
             ))

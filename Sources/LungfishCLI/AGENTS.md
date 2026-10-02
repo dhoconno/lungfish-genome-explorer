@@ -41,7 +41,7 @@ Target LungfishCLITests in Tests/LungfishCLITests. Run only it with `swift test 
 
 | Trap | Evidence |
 |---|---|
-| EsViritu CLI writes no SQLite, manifest or batch provenance while the GUI does | Commands/EsVirituCommand.swift compared with Sources/LungfishApp/App/AppDelegate+Classification.swift lines 1042 to 1290 (R3) |
+| EsViritu CLI writes no SQLite, manifest or batch provenance while the GUI does | Commands/EsVirituCommand.swift compared with Sources/LungfishApp/App/AppDelegate+Classification.swift lines 911 to 1159 (R3) |
 | Only 9 of 103 command files emit `CLIEvent`, and at least 15 private NDJSON schemas exist | Commands/BAMCommand.swift and others (R16) |
 | Global mutable runner overrides | Commands/WorkflowCommand.swift lines 85 to 89, Commands/CondaCommand.swift lines 50 to 52 (R10) |
 | The app spawns the CLI with Finder's bare PATH, so an unresolved tool exits 127 | memory file project_cli_subprocess_bare_path.md |

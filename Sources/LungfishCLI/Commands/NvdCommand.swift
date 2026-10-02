@@ -116,7 +116,7 @@ struct NvdCommand: AsyncParsableCommand {
                     outputDirectory: outputDirectory,
                     preferredName: name,
                     allowUniqueSuffix: false,
-                    samtoolsPath: nil,
+                    samtoolsPath: MetagenomicsImportService.managedSamtoolsPath(),
                     provenanceCommand: provenanceCommand,
                     provenanceWorkflowName: "lungfish nvd import",
                     provenanceToolName: "lungfish nvd import",

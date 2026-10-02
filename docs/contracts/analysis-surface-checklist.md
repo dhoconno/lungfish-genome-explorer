@@ -44,6 +44,7 @@ Copy this file into the plan for a new surface in Lungfish Genome Explorer (LGE)
 - [ ] Inspector sections and row commands live in the leaf, and every row action has a keyboard and VoiceOver route.
 - [ ] Results arriving from background work go through the patterns in `docs/contracts/CONCURRENCY-PLAYBOOK.md`, with a generation counter on every fetch that can be superseded.
 - [ ] No new `MainActor.assumeIsolated` outside pattern 1, no new `@unchecked Sendable` without a lock, and no new `nonisolated(unsafe)`.
+- [ ] A new notification name is classified in `ScopedEventFilter.classifications`, a window event is posted with its window's scope, and a window observer calls `ScopedEventFilter.accept`.
 
 ## App touch points until Phase 3
 

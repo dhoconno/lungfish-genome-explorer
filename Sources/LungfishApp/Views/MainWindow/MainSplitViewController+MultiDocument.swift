@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 import os.log
 
@@ -574,7 +575,7 @@ extension MainSplitViewController {
 
     @objc func handleSidebarFileDropped(_ notification: Notification) {
         mainSplitLogger.info("handleSidebarFileDropped: Notification received!")
-        guard shouldAcceptScopedNotification(notification) else {
+        guard ScopedEventFilter.accept(notification, for: windowStateScope) else {
             mainSplitLogger.debug("handleSidebarFileDropped: Ignoring drop notification from another project window scope")
             return
         }

@@ -610,7 +610,7 @@ extension AppDelegate {
         NotificationCenter.default.post(
             name: .showInspectorRequested,
             object: self,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "ai"]
+            userInfo: [NotificationUserInfoKey.inspectorTab: "ai", NotificationUserInfoKey.windowStateScope: splitViewController.windowStateScope]
         )
     }
 

@@ -156,6 +156,14 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
     /// Additional EsViritu arguments appended verbatim after Lungfish-managed options.
     public var extraArguments: [String]
 
+    /// The inputs as the caller named them, one entry per file in
+    /// ``inputFiles`` (a bundle repeats once for each file it resolved to),
+    /// when ``inputFiles`` were resolved from `.lungfishfastq` bundles. Nil
+    /// when the files ran as given. ``EsVirituPipeline`` records this lineage
+    /// in provenance. It is not encoded with the configuration, so a result
+    /// sidecar reads the same either way.
+    public var originalInputFiles: [URL]?
+
     // MARK: - Initialization
 
     /// Creates an EsViritu configuration with explicit parameters.

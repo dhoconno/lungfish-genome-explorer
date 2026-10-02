@@ -346,9 +346,9 @@ extension VariantsCommand {
     struct PhaseSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "phase",
-            abstract: "Construct a phase-aware GATK HaplotypeCaller plus WhatsHap command plan"
+            abstract: "Construct a phase-aware GATK HaplotypeCaller plus WhatsHap command plan",
+            discussion: "The GATK PairHMM thread count comes from --threads. The default is 1."
         )
-
         @Flag(name: .customLong("execute"), help: "Run GATK and WhatsHap through managed tool packs.")
         var execute: Bool = false
 
@@ -370,8 +370,8 @@ extension VariantsCommand {
         @Option(name: .customLong("sample"), help: "Optional sample name passed to WhatsHap")
         var sampleName: String?
 
-        @Option(name: .customLong("threads"), help: "GATK PairHMM threads")
-        var threads: Int = 1
+        @OptionGroup var globalOptions: GlobalOptions
+        var threads: Int { globalOptions.threads ?? 1 }
 
         @Option(name: .customLong("extra-gatk-args"), parsing: .unconditional, help: "Additional GATK HaplotypeCaller arguments")
         var extraGATKArgs: String = ""

@@ -713,12 +713,13 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     @objc private func handleSampleDetailSheetRequest(_ notification: Notification) {
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard let sample = notification.userInfo?["sample"] as? String else { return }
         presentSampleDetailSheet(forAnimal: sample)
     }
 
     @objc private func handleHaplotypeDefinitionsRequest(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard !isGenotypeOnlyResult else {
             showLens(.summary)
             onDisplayStateChanged?(displayState)
@@ -729,7 +730,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     @objc private func handleExcelExportRequest(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         onExcelExportRequested?()
     }
 
@@ -760,7 +761,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     @objc private func handleSmartCohortApplied(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard hasHaplotypingResult else {
             activeSmartCohort = nil
             quickFilterBar.setSavedCohortName(nil)
@@ -783,7 +784,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     @objc private func handleSmartCohortSaveRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard hasHaplotypingResult else { return }
         do {
             try saveCurrentFilterAsSmartCohort()
@@ -793,7 +794,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     @objc private func handleSmartCohortDeleteRequested(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
+        guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard hasHaplotypingResult else { return }
         guard let data = notification.userInfo?["cohort"] as? Data,
               let cohort = try? JSONDecoder().decode(GenotypeCohortSmartFilter.self, from: data),
@@ -885,12 +886,10 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         refreshVisibleFilterDependentViews()
     }
 
-    private func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
-        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
-            return true
-        }
-        guard let windowStateScope else { return true }
-        return notificationScope == windowStateScope
+    /// The scope this controller filters window events by. It is the scope
+    /// the App hands it, or else the scope of the project window that shows it.
+    private var windowEventScope: WindowStateScope? {
+        windowStateScope ?? ScopedEventFilter.hostingWindowScope(of: viewIfLoaded)
     }
 
     /// Push the current Smart Cohort + shared quick-search constraints into the

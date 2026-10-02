@@ -2233,7 +2233,7 @@ extension ImportCommand {
                     inputURL: inputURL,
                     outputDirectory: outputDirectory,
                     preferredName: name,
-                    samtoolsPath: nil,
+                    samtoolsPath: MetagenomicsImportService.managedSamtoolsPath(),
                     provenanceCommand: provenanceCommand
                 ) { progress, message in
                     if !globalOptions.quiet, progress < 1.0 {

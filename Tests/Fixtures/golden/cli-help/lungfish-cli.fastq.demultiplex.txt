@@ -4,7 +4,8 @@ Splits multiplexed FASTA or FASTQ reads into per-barcode output files using
 embedded cutadapt. Supports single- and dual-indexed Illumina kits,
 Fluidigm Access Array indexes, custom barcode definition files, and
 terminally anchored barcode location (5', 3', or both ends) for
-cutadapt demultiplexing.
+cutadapt demultiplexing. Cutadapt runs 4 threads unless --threads sets another
+count.
 
 Useful for internal Illumina barcodes within ONT reads, re-demultiplexing,
 or demultiplexing with custom barcode sets.
@@ -81,7 +82,17 @@ OPTIONS:
   --no-trim               Cutadapt only: keep barcode sequences in output reads
                           (exact-bare always preserves reads)
   --discard-unassigned    Discard reads that do not match any barcode
-  --threads <threads>     Cutadapt thread count (default: 4) (default: 4)
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
   --replace               Delete an existing, non-empty output directory before
                           writing. Without it the command refuses to overwrite
                           earlier results and names the directory.

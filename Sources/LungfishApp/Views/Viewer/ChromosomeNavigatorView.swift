@@ -358,13 +358,18 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     }
 
     private func showInInspector(_ chromosome: ChromosomeInfo) {
+        // The navigator is never handed a scope, so it posts with the scope of
+        // the project window that shows it.
         NotificationCenter.default.post(
             name: .chromosomeInspectorRequested,
             object: self,
-            userInfo: [
-                NotificationUserInfoKey.chromosome: chromosome,
-                NotificationUserInfoKey.switchInspectorTab: true,
-            ]
+            userInfo: ScopedEventFilter.scopedUserInfo(
+                [
+                    NotificationUserInfoKey.chromosome: chromosome,
+                    NotificationUserInfoKey.switchInspectorTab: true,
+                ],
+                scope: ScopedEventFilter.hostingWindowScope(of: self)
+            )
         )
         logger.info("ChromosomeNavigatorView: Show in Inspector requested for '\(chromosome.name, privacy: .public)'")
     }

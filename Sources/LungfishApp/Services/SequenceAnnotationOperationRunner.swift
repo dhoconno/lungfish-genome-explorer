@@ -67,22 +67,28 @@ struct SequenceAnnotationOperationRequest: Sendable, Equatable {
 }
 
 enum SequenceAnnotationOperationRunner {
+    /// The `lungfish-cli` arguments the run executes and the Operations panel
+    /// records. A value that can start with "-" is joined to its option as
+    /// `--option=value`, because ArgumentParser reads a separate "-1,-2,-3"
+    /// or "-orfs" as an option name and the parse fails. That covers the frame
+    /// list (a reverse-only selection starts with "-") and the text values
+    /// that come from the bundle or the dialog.
     static func commandArguments(for request: SequenceAnnotationOperationRequest) -> [String] {
         var arguments = [
             "sequence",
             request.operation.cliSubcommand,
             request.bundleURL.path,
-            "--sequence", request.sequenceName,
+            "--sequence=\(request.sequenceName)",
             "--start", String(request.start),
             "--end", String(request.end),
-            "--frames", request.frames.joined(separator: ","),
+            "--frames=\(request.frames.joined(separator: ","))",
             "--table", String(request.codonTableID),
         ]
 
         if let trackID = request.trackID, !trackID.isEmpty {
-            arguments += ["--track-id", trackID]
+            arguments.append("--track-id=\(trackID)")
         }
-        arguments += ["--track-name", request.trackName]
+        arguments.append("--track-name=\(request.trackName)")
 
         if request.operation == .orf {
             if let minimumORFLength = request.minimumORFLength {

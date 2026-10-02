@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishCore
+import LungfishKit
 
 @MainActor
 final class MappingInspectorProvenanceTests: XCTestCase {
@@ -61,13 +62,18 @@ final class MappingInspectorProvenanceTests: XCTestCase {
         ]
         let (resultURL, viewerURL) = try makeMappingResult(variants: tracks)
         let inspector = InspectorViewController()
+        let scope = WindowStateScope()
+        inspector.testingWindowStateScope = scope
         inspector.updateProvenanceTarget(url: resultURL, sidebarType: .analysisResult, displayName: "minimap2")
         inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL)
 
         inspector.handleContentModeChanged(Notification(
             name: .viewportContentModeDidChange,
             object: nil,
-            userInfo: [NotificationUserInfoKey.contentMode: ViewportContentMode.mapping.rawValue]
+            userInfo: [
+                NotificationUserInfoKey.contentMode: ViewportContentMode.mapping.rawValue,
+                NotificationUserInfoKey.windowStateScope: scope,
+            ]
         ))
 
         let model = inspector.viewModel.provenanceSectionViewModel

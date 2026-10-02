@@ -308,6 +308,7 @@ features:
     viewport_class: sequence
     sources:
       - Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift
+      - Sources/LungfishApp/App/AppDelegate+AnnotationEditOperationBegin.swift
       - Sources/LungfishApp/App/AppDelegate+SequenceMenuOperationBegin.swift
       - Sources/LungfishApp/Views/Sequence/SequenceORFOperationDialog.swift
       - Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawerOperationBegin.swift

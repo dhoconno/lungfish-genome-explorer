@@ -40,7 +40,8 @@ extension DatabaseBrowserViewModel {
             cliCommand: batchDownloadCLICommand(
                 source: source,
                 searchType: searchType,
-                accessions: accessions
+                accessions: accessions,
+                projectURL: routeContext?.projectURL
             ),
             routeContext: routeContext
         )
@@ -53,20 +54,28 @@ extension DatabaseBrowserViewModel {
         return result
     }
 
-    /// The `lungfish-cli fetch` command a batch download row records. The output
-    /// is the current directory, because the run writes to a temporary folder
-    /// and imports from there.
+    /// The `lungfish-cli fetch` command a batch download row records.
     ///
     /// - SRA runs record `fetch sra download <accession> --output-dir .`. It
-    ///   reproduces the download step for one run. The run also imports the
-    ///   FASTQ files into the project with the settings the user confirmed in
-    ///   the import sheet, and no part of the row records that step.
-    /// - NCBI genome assemblies record `fetch genome <accession> --output-dir .`.
-    ///   It builds the same kind of `.lungfishref` bundle from the assembly's
-    ///   FASTA and GFF3. The row used to record `fetch genome --accession
-    ///   <accessions> -o .`, which the CLI never parsed, because `fetch genome`
-    ///   takes the accession as an argument and names its folder with
-    ///   `--output-dir`.
+    ///   reproduces the download step for one run. The run downloads to a
+    ///   temporary folder and imports the FASTQ files into the project with the
+    ///   settings the user confirmed in the import sheet, and no part of the
+    ///   row records that step.
+    /// - NCBI genome assemblies record `fetch genome <accession> --output-dir
+    ///   <project>/Downloads`. It builds the same kind of `.lungfishref` bundle
+    ///   from the assembly's FASTA and GFF3. The run builds the bundle in a
+    ///   temporary folder, and the completed download is copied into the
+    ///   project's Downloads folder (`handleMultipleDownloadsSync`), so that is
+    ///   the folder the command names (R3). The row used to name the current
+    ///   directory (`.`), so a pasted command wrote the bundle wherever the
+    ///   shell stood, and before that `fetch genome --accession <accessions>
+    ///   -o .`, which the CLI never parsed. With no project in the route
+    ///   context the run picks the folder from the window it lands in, which
+    ///   this function cannot know, so the row keeps `.` then. The run also
+    ///   names the bundle `<organism> - <assembly name>` from the assembly
+    ///   summary it fetches, where `fetch genome` names it
+    ///   `<organism>_<accession>` unless `--name` is given, so the two bundles
+    ///   differ in name.
     /// - Every other source keeps the `fetch ncbi <accessions> --save-to .` the
     ///   row recorded before. That covers NCBI nucleotide and virus records and
     ///   Pathoplexus records.
@@ -84,7 +93,8 @@ extension DatabaseBrowserViewModel {
     static func batchDownloadCLICommand(
         source: DatabaseSource,
         searchType: NCBISearchType,
-        accessions: [String]
+        accessions: [String],
+        projectURL: URL?
     ) -> String {
         if source == .ena {
             return OperationCenter.buildCLICommand(
@@ -93,9 +103,10 @@ extension DatabaseBrowserViewModel {
             )
         }
         if source == .ncbi && searchType == .genome {
+            let downloads = projectURL?.appendingPathComponent("Downloads", isDirectory: true).path ?? "."
             return OperationCenter.buildCLICommand(
                 subcommand: "fetch genome",
-                args: accessions + ["--output-dir", "."]
+                args: accessions + ["--output-dir", downloads]
             )
         }
         return OperationCenter.buildCLICommand(

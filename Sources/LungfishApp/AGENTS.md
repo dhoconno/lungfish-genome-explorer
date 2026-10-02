@@ -14,7 +14,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit and the nine leaf UI mod
 
 | Family | Main file | Size |
 |---|---|---|
-| AppDelegate | Sources/LungfishApp/App/AppDelegate.swift and 16 `AppDelegate+*.swift` extensions | 14,654 lines |
+| AppDelegate | Sources/LungfishApp/App/AppDelegate.swift and 17 `AppDelegate+*.swift` extensions | 14,631 lines |
 | MainSplitViewController | Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift and 11 extensions | 8,656 lines |
 | ViewerViewController | Sources/LungfishApp/Views/Viewer/ViewerViewController.swift and 25 extensions | 11,995 lines |
 | MainWindowController | Sources/LungfishApp/Views/MainWindow/MainWindowController.swift | 1,149 lines |
@@ -27,7 +27,7 @@ Each leaf is wired by one `ViewerViewController+<Feature>.swift` file in Views/V
 
 1. The Tools menu item calls `launchFASTQOperationToolFromMenu` (App/AppDelegate+ToolsMenu.swift line 85) and the sidebar Run button calls `launchKraken2Classification` (App/AppDelegate+Classification.swift line 188). Both open the FASTQ operations dialog with tool `.kraken2` through `showFASTQOperationsDialog` (AppDelegate+ToolsMenu.swift line 107).
 2. On submit the dialog hands `pendingClassificationConfigs` to `runClassification(configs:...)` in the same ToolsMenu file.
-3. `runClassification(config:...)` (AppDelegate+Classification.swift line 777) creates the `kraken2` analysis folder and registers the operation through `beginClassificationOperation` (AppDelegate+ClassificationOperationBegin.swift), which calls `begin` with the command from `ClassificationCLIInvocationBuilder` and runs its launch closure only when the row started. The closure materializes virtual inputs through `resolveInputFiles` (line 764), then runs `ClassificationPipeline` in process.
+3. `runClassification(config:...)` (AppDelegate+Classification.swift line 646) creates the `kraken2` analysis folder and registers the operation through `beginClassificationOperation` (AppDelegate+ClassificationOperationBegin.swift), which calls `begin` with the command from `ClassificationCLIInvocationBuilder` and runs its launch closure only when the row started. The closure materializes virtual inputs through `resolveInputFiles` (line 633), then runs `ClassificationPipeline` in process.
 4. Batches go through `runClassificationBatch` (line 1285). EsViritu and TaxTriage follow the same file (`runEsViritu`, `runTaxTriage`).
 
 The pipeline side is in Sources/LungfishWorkflow/AGENTS.md and the CLI side in Sources/LungfishCLI/AGENTS.md.
@@ -50,9 +50,8 @@ Targets LungfishAppTests (573 files), LungfishAppViewTests and LungfishAppWorkfl
 | 13 optional child viewports and hand-written hide lists that drift | Views/Viewer/ViewerViewController.swift lines 207 to 253, ViewerViewController+TwelveS.swift lines 8 to 32 omit `hidePrimerAnalysisView` (R1) |
 | Inspector tab chosen by folder-name prefix | App/AppDelegate.swift lines 301 to 305 (R1) |
 | A new analysis tool needs `AnalysesFolder.knownTools`, `displayName`, `SidebarProjectScanner.analysisIcon` and `analysisItemType` plus a route case, or its node never opens | Views/Sidebar/SidebarProjectScanner.swift lines 914 and 939, Views/MainWindow/AnalysisResultDisplayRoute.swift line 4 (memory file project_viral_recon_results_integration.md) |
-| EsViritu GUI and CLI write different result trees | App/AppDelegate+Classification.swift lines 1042 to 1290 against Sources/LungfishCLI/Commands/EsVirituCommand.swift (R3) |
+| EsViritu GUI and CLI write different result trees | App/AppDelegate+Classification.swift lines 911 to 1159 against Sources/LungfishCLI/Commands/EsVirituCommand.swift (R3) |
 | View controllers run tools in process | Views/Viewer/FASTQDatasetViewController.swift lines 1378, 1535 and 1643 (R3) |
-| Scoped notifications fail open in seven copied filters | Views/MainWindow/MainSplitViewController.swift line 817 and six others (R9) |
 | FASTQ-family and Workflow Operations runners start their own `Process` instead of using `CLISubprocessTransport`. Do not copy this into a new runner | `LungfishCLIProcessRunner` in Services/FASTQOperationExecutionService.swift line 800, `ProcessViralReconWorkflowProcessRunner` in Services/ViralReconWorkflowExecutionService.swift line 772 (R7, Phase 2) |
 | A test that routes a file to Quick Look starts real Quick Look in the test process unless it installs a preview renderer double | `embeddedFilePreviewRenderer` in Views/Viewer/ViewerViewController.swift and `RecordingFilePreviewRenderer` in Tests/LungfishAppTests (R10) |
 

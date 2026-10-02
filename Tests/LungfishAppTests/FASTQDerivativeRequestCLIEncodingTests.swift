@@ -19,9 +19,9 @@ import XCTest
 final class FASTQDerivativeRequestCLIEncodingTests: XCTestCase {
     // MARK: - cliCommand (display)
 
-    func testSearchTextDisplayCommandUsesRealLungfishSubcommandNotSeqkit() {
+    func testSearchTextDisplayCommandUsesRealLungfishSubcommandNotSeqkit() throws {
         let request = FASTQDerivativeRequest.searchText(query: "virus", field: .description, regex: false)
-        let command = request.cliCommand(inputPath: "/tmp/in.fastq", outputPath: "/tmp/out.fastq")
+        let command = try XCTUnwrap(request.cliCommand(inputPath: "/tmp/in.fastq", outputPath: "/tmp/out.fastq"))
 
         XCTAssertTrue(command.contains("fastq search-text"))
         XCTAssertTrue(command.contains("--query virus"))
@@ -29,9 +29,9 @@ final class FASTQDerivativeRequestCLIEncodingTests: XCTestCase {
         XCTAssertFalse(command.contains("seqkit"))
     }
 
-    func testSearchMotifDisplayCommandUsesRealLungfishSubcommandNotSeqkit() {
+    func testSearchMotifDisplayCommandUsesRealLungfishSubcommandNotSeqkit() throws {
         let request = FASTQDerivativeRequest.searchMotif(pattern: "ACGT", regex: true)
-        let command = request.cliCommand(inputPath: "/tmp/in.fastq", outputPath: "/tmp/out.fastq")
+        let command = try XCTUnwrap(request.cliCommand(inputPath: "/tmp/in.fastq", outputPath: "/tmp/out.fastq"))
 
         XCTAssertTrue(command.contains("fastq search-motif"))
         XCTAssertTrue(command.contains("--pattern ACGT"))

@@ -1653,12 +1653,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         routeContext: OperationRouteContext?
     ) async {
         let opID: UUID
-        switch OperationCenter.shared.begin(
-            title: "Update Annotation",
-            detail: "Updating \(annotation.name)...",
-            operationType: .bundleBuild,
-            targetBundleURL: bundleURL, cliCommand: nil,
-            routeContext: routeContext
+        switch Self.beginAnnotationUpdateOperation(
+            annotation: annotation, location: location, bundleURL: bundleURL, routeContext: routeContext
         ) {
         case .started(let id):
             opID = id
@@ -1707,12 +1703,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         routeContext: OperationRouteContext?
     ) async {
         let opID: UUID
-        switch OperationCenter.shared.begin(
-            title: "Delete Annotation",
-            detail: "Deleting annotation...",
-            operationType: .bundleBuild,
-            targetBundleURL: bundleURL, cliCommand: nil,
-            routeContext: routeContext
+        switch Self.beginAnnotationDeletionOperation(
+            location: location, bundleURL: bundleURL, routeContext: routeContext
         ) {
         case .started(let id):
             opID = id

@@ -30,6 +30,16 @@ Inspector sections are views in the leaf that the Inspector hosts. The sidebar e
 
 Add a feature entry to `docs/user-manual/features.yaml` that names every source file, the CLI command and the entry points.
 
+### 6. Notifications and window scope
+
+A new surface avoids new `Notification.Name` declarations, because Phase 3c replaces them with typed events. When one is unavoidable, follow these rules from finding R9. Several project windows can be open at once, and an event that reaches the wrong window changes that window's Inspector, selection or display.
+
+1. Classify the name in `ScopedEventFilter.classifications` in `Sources/LungfishKit/ScopedEventFilter.swift`. A window event changes the state of one project window, such as a selection, an Inspector request or a viewer display setting. An application event concerns the whole app, such as a saved preference, a managed resource change or an operation finishing. `ScopedEventClassificationTests` in `Tests/LungfishKitTests` fails until the name is classified.
+2. Post a window event with the window's scope. Build the payload with `ScopedEventFilter.scopedUserInfo` and the scope the App handed the poster. A view that a container embeds without a scope uses `ScopedEventFilter.hostingWindowScope` to find the scope of the window that shows it. A window event posted without a scope reaches no window.
+3. Observe a window event by calling `ScopedEventFilter.accept` with the observer's own scope, and return early when it refuses. An application event needs no check.
+4. A poster that runs outside any window, such as a service or an operation completion, finds its window through the operation's `OperationRouteContext`. When no window can be named, the event is an application event, and its observers match on the content it carries, such as a bundle URL or a request ID.
+5. Test the poster by triggering the real post and checking the scope in the payload, as `WindowEventPosterScopeTests` does. Test the observer with two windows, as `TwoWindowScopedEventTests` does.
+
 ## Touch points that exist today
 
 Until Phase 3 lands the `ResultViewport` protocol and the surface registry in LungfishKit, a new surface edits the files below. A missed row does not fail the build. It shows up as a stale viewport, a gearshape icon, a generic Inspector tab or a hidden result. The phase column names the program task that retires each row.
@@ -51,7 +61,7 @@ Until Phase 3 lands the `ResultViewport` protocol and the surface registry in Lu
 | Sidebar scan | `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift` | arms in `buildAnalysisNode`, `analysisIcon(for:)`, `analysisItemType(for:)`, and for batches `classifierBatchBadge(for:)` and `classifierBatchSubtitle(for:)`, or a `directoryExtension` arm for a bundle | Phase 2c and Phase 3b |
 | Analyses list icon | `Sources/LungfishApp/Views/Inspector/Sections/AnalysesSection.swift` | an `iconName(for:)` arm | Phase 2c |
 | Tool availability | `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, `Sources/LungfishWorkflow/Conda/PluginPack.swift`, `Sources/LungfishWorkflow/Native/NativeToolRunner.swift` | the lock entry, the plugin pack package list, and a `NativeTool` case if the tool runs natively | Phase 2c, descriptor decoded from the lock |
-| Notifications | `Sources/LungfishCore/Models/Notifications.swift` | avoid new names. If one is unavoidable, post it with a window scope | Phase 1f scope filter and Phase 3c typed events |
+| Notifications | `Sources/LungfishCore/Models/Notifications.swift` and `Sources/LungfishKit/ScopedEventFilter.swift` | avoid new names. If one is unavoidable, classify it and scope it as step 6 of the recipe says | Phase 3c typed events |
 | Module wiring | `Package.swift` | the leaf, its product, its test target, and the LungfishApp dependency | stays |
 
 An agent that cannot find where a branch goes should search for an existing surface's identifier (for example `twelveSAmpliconResultBundle` or `esvirituResult`) across `Sources/LungfishApp` and add the new surface beside every hit.

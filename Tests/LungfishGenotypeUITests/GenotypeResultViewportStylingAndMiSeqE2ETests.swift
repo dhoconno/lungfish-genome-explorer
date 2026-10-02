@@ -2250,6 +2250,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     {
         let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
+        let scope = WindowStateScope()
+        controller.windowStateScope = scope
         controller.configure(result: makeResult(
             samples: [],
             calls: [],
@@ -2268,7 +2270,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         controller.applyDisplayState(.init(summaryViewMode: .matrix))
         NotificationCenter.default.post(
             name: .genotypeResultOpenHaplotypeDefinitions,
-            object: nil
+            object: nil,
+            userInfo: [NotificationUserInfoKey.windowStateScope: scope]
         )
 
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")

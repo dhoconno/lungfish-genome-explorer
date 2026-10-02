@@ -4,9 +4,10 @@ Assigns ONT reads to samples with the same exact Fluidigm barcode matching
 used by amplicon genotyping, extracts the CS1-CS2 amplicon insert, then
 writes one physical .lungfishfastq bundle per sample containing unique
 insert exemplars. Payloads are gzip-compressed and duplicate support is
-encoded in FASTQ headers as size=N.
+encoded in FASTQ headers as size=N. The thread count (--threads) is recorded in
+provenance, is reserved for parallel materialization, and defaults to 1.
 
-USAGE: lungfish-cli fastq ont-fluidigm-samples <input> --barcodes <barcodes> --output <output> [--threads <threads>] [--primer-mismatches <primer-mismatches>] [--minimum-insert-length <minimum-insert-length>] [--canonicalize-reverse-complements] [--no-canonicalize-reverse-complements] [--force]
+USAGE: lungfish-cli fastq ont-fluidigm-samples [<options>] <input> --barcodes <barcodes> --output <output>
 
 ARGUMENTS:
   <input>                 Input FASTQ file, directory, or .lungfishfastq bundle
@@ -15,9 +16,17 @@ OPTIONS:
   --barcodes <barcodes>   CSV/TSV file with sample and Fluidigm barcode
                           sequence columns
   -o, --output <output>   Output directory for per-sample .lungfishfastq bundles
-  --threads <threads>     Worker count reserved for future parallel
-                          materialization; currently recorded for provenance
-                          (default: 1)
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
   --primer-mismatches <primer-mismatches>
                           Maximum mismatches allowed when detecting CS1/CS2
                           primer boundaries (default: 2) (default: 2)

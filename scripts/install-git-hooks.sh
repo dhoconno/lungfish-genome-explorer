@@ -16,7 +16,7 @@
 #     module-map-current, features-yaml-sources, duplicate-public-types; docs/plans/2026-10-02-architecture-program.md), then
 #     checks that no plan, spec, issue or verification note under docs/ looks finished or
 #     stale (scripts/checks/working-memory-staleness.py, finding R5), then
-#     checks that no comment in Sources, Tests or scripts cites an audit finding tag,
+#     checks that no comment in Sources, Tests, scripts, agents, .github or .codex cites an audit finding tag,
 #     which would point at a deleted report (scripts/checks/audit-tags.py, finding R5), then
 #     runs the unit tier of the full-suite gate (scripts/full-suite-gate.sh
 #     --tier unit) before pushing, so the regression gate runs locally on
@@ -161,7 +161,7 @@ fi
 
 echo "pre-push: checking for audit finding tags in comments (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/checks/audit-tags.py"; then
-    echo "pre-push: audit-tags check FAILED (a source, test or script comment cites an audit finding tag; rewrite it as a self-contained sentence) — push aborted. Use --no-verify to bypass." >&2
+    echo "pre-push: audit-tags check FAILED (a comment in Sources, Tests, scripts, agents, .github or .codex cites an audit finding tag; rewrite it as a self-contained sentence) — push aborted. Use --no-verify to bypass." >&2
     exit 1
 fi
 
