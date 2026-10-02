@@ -4539,9 +4539,16 @@ private func captureStandardError(_ operation: () async throws -> Void) async re
     }
 }
 
-private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing {
+/// Sendable because `AssembleCommand.resolveExecutionInputs` hands the
+/// materializer to the shared resolver's `@Sendable` closure.
+private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing, @unchecked Sendable {
     let materializedURL: URL
-    private(set) var bundleURLs: [URL] = []
+    private let lock = NSLock()
+    private var recordedBundleURLs: [URL] = []
+
+    var bundleURLs: [URL] {
+        lock.withLock { recordedBundleURLs }
+    }
 
     init(materializedURL: URL) {
         self.materializedURL = materializedURL
@@ -4552,7 +4559,7 @@ private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing {
         tempDirectory: URL,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
-        bundleURLs.append(bundleURL.standardizedFileURL)
+        lock.withLock { recordedBundleURLs.append(bundleURL.standardizedFileURL) }
         return materializedURL
     }
 }

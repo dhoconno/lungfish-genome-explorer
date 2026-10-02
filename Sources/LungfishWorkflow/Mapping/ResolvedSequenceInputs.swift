@@ -13,14 +13,13 @@ import LungfishIO
 /// bundle contributes every FASTQ file it holds, through
 /// ``FASTQSourceResolver``, and a virtual bundle (subset, trim,
 /// demultiplexed or oriented reads) is materialized into
-/// `materializationDirectory` first. `lungfish-cli map` and `lungfish-cli
-/// conda classify` resolve their inputs the same way, so a bundle maps or
-/// classifies the same reads through the app and through the recorded CLI
-/// command. `assemble` and the `fastq demultiplex` format probe still resolve
-/// one primary file per input (through
-/// ``CLISequenceInputMaterialization/resolveExecutionInputs(for:tempDirectory:materializer:operationName:progress:)``
-/// or `SequenceInputResolver`), so the two are not interchangeable for a
-/// bundle that holds several files.
+/// `materializationDirectory` first. `lungfish-cli map`, `lungfish-cli conda
+/// classify` and `lungfish-cli assemble` resolve their inputs the same way,
+/// so a bundle maps, classifies or assembles the same reads through the app
+/// and through the recorded CLI command. The `fastq demultiplex` format probe
+/// still resolves one primary file per input through
+/// ``CLISequenceInputMaterialization/resolveExecutionInputs(for:tempDirectory:materializer:operationName:progress:)``,
+/// so the two are not interchangeable for a bundle that holds several files.
 ///
 /// A mapper reads one unpaired file at a time (BBMap takes one `in=`, and
 /// bwa-mem2 treats a second positional file as the mate file), so with
