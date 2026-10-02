@@ -14,7 +14,6 @@ manual: 04-alignments/02-reading-an-alignment
 demo: human-mapping-and-variants-results
 
 site:                # the entry on docs/site/videos.qmd, written by screencasts/publish.py
-  section: Alignments
   summary: >-
     Read the coverage curve, zoom in to single reads, and tell a change on both chromosome copies from a change on one.
 
