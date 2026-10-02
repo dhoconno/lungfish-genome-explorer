@@ -436,6 +436,18 @@ extension AppDelegate {
         activeMainWindowController(sender: sender)?.mainSplitViewController?.toggleSidebar()
     }
 
+    @objc func toggleAnnotationDrawer(_ sender: Any?) {
+        activeMainWindowController(sender: sender)?.toggleAnnotationDrawer(sender)
+    }
+
+    @objc func makeDrawerTaller(_ sender: Any?) {
+        activeMainWindowController(sender: sender)?.makeDrawerTaller(sender)
+    }
+
+    @objc func makeDrawerShorter(_ sender: Any?) {
+        activeMainWindowController(sender: sender)?.makeDrawerShorter(sender)
+    }
+
     @objc func toggleInspector(_ sender: Any?) {
         let senderType = sender.map { String(describing: type(of: $0)) } ?? "nil"
         debugLog("toggleInspector[AppDelegate]: sender=\(senderType)")

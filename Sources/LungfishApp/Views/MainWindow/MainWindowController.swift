@@ -491,6 +491,20 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
         drawerToolbarButton?.state = isOpen ? .on : .off
     }
 
+    @objc public func makeDrawerTaller(_ sender: Any?) {
+        resizeAnnotationDrawer(by: DrawerDividerView.keyboardStep)
+    }
+
+    @objc public func makeDrawerShorter(_ sender: Any?) {
+        resizeAnnotationDrawer(by: -DrawerDividerView.keyboardStep)
+    }
+
+    private func resizeAnnotationDrawer(by delta: CGFloat) {
+        guard let vc = mainSplitViewController.viewerController, vc.offersResizableAnnotationDrawer else { return }
+        vc.adjustAnnotationDrawerHeight(by: delta)
+        drawerToolbarButton?.state = vc.isAnnotationDrawerOpen ? .on : .off
+    }
+
     /// Opens the Operations Panel via AppDelegate's action handler.
     @objc public func showOperationsPanel(_ sender: Any?) {
         // Send directly to the AppDelegate to avoid infinite recursion —
@@ -555,6 +569,24 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
     /// enabled with no display open and do nothing.
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
+        if action == #selector(toggleAnnotationDrawer(_:)) {
+            let vc = mainSplitViewController?.viewerController
+            let isOpen: Bool
+            if let taxTriageVC = vc?.taxTriageViewController {
+                isOpen = taxTriageVC.isBlastDrawerOpen
+            } else if let taxVC = vc?.taxonomyViewController {
+                isOpen = taxVC.isTaxaCollectionsDrawerOpen
+            } else if vc?.isDisplayingFASTQDataset == true {
+                isOpen = vc?.isFASTQMetadataDrawerOpen ?? false
+            } else {
+                isOpen = vc?.isAnnotationDrawerOpen ?? false
+            }
+            menuItem.title = isOpen ? "Hide Drawer" : "Show Drawer"
+            return vc != nil
+        }
+        if action == #selector(makeDrawerTaller(_:)) || action == #selector(makeDrawerShorter(_:)) {
+            return mainSplitViewController?.viewerController?.offersResizableAnnotationDrawer == true
+        }
         if ViewerZoomAvailability.zoomSelectors.contains(action) {
             return ViewerZoomAvailability.canZoom(
                 viewerController: mainSplitViewController?.activeFullSequenceViewerController

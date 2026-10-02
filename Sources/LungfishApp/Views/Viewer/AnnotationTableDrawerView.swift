@@ -102,7 +102,48 @@ final class DrawerDividerView: NSView {
         setAccessibilityRole(.splitter)
         setAccessibilityLabel("Annotation table drawer resize handle")
         setAccessibilityIdentifier("annotation-table-drawer-divider")
-        setAccessibilityHelp("Drag vertically to resize the annotation table drawer.")
+        setAccessibilityHelp("Drag vertically, or press the Up and Down Arrow keys, to resize the annotation table drawer.")
+    }
+
+    /// Height change for one keyboard or VoiceOver step.
+    static let keyboardStep: CGFloat = 40
+
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
+
+    /// Up Arrow makes the drawer taller and Down Arrow shorter, one step at a time.
+    override func keyDown(with event: NSEvent) {
+        switch event.specialKey {
+        case .upArrow?: resize(by: Self.keyboardStep)
+        case .downArrow?: resize(by: -Self.keyboardStep)
+        default: super.keyDown(with: event)
+        }
+    }
+
+    override func accessibilityPerformIncrement() -> Bool {
+        resize(by: Self.keyboardStep)
+        return true
+    }
+
+    override func accessibilityPerformDecrement() -> Bool {
+        resize(by: -Self.keyboardStep)
+        return true
+    }
+
+    override func accessibilityValue() -> Any? {
+        guard let drawer = superview as? AnnotationTableDrawerView else { return nil }
+        return "\(Int(drawer.frame.height.rounded())) points tall"
+    }
+
+    override func drawFocusRingMask() { NSBezierPath.fill(bounds) }
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    /// Resizes through the same path a mouse drag takes, then saves the height.
+    func resize(by delta: CGFloat) {
+        guard let drawer = superview as? AnnotationTableDrawerView else { return }
+        drawer.delegate?.annotationDrawerDidDragDivider(drawer, deltaY: delta)
+        drawer.delegate?.annotationDrawerDidFinishDraggingDivider(drawer)
+        NSAccessibility.post(element: self, notification: .valueChanged)
     }
 
     override func resetCursorRects() {

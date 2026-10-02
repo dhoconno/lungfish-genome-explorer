@@ -104,11 +104,14 @@ The panels that frame the main viewport, plus the zoom commands. These need a pr
 | Restore Side Panes | Ctrl-Cmd-Opt-F | LGE's own |
 | Provenance Inspector | Cmd-Opt-V | LGE's own |
 | AI Assistant | Cmd-Opt-A | LGE's own |
+| Show Drawer | Ctrl-Cmd-B | LGE's own |
 | Enter Full Screen | Ctrl-Cmd-F | Standard macOS |
 
 **Focus Viewer** hides both the sidebar and the Inspector so the viewport fills the window, and **Restore Side Panes** brings both back. **Document Inspector** has no shortcut, because macOS keeps Cmd-Opt-D for showing and hiding the Dock. **AI Assistant** reveals the Inspector's Assistant tab. **Provenance Inspector** reveals the Inspector's Provenance tab, which lists every tool run that produced the selected result. In that tab each run and each step is a button. Press Space or Return on one to open or close it, Right Arrow to open it, and Left Arrow to close it.
 
-The Sidebar and Inspector rows change their own titles as you use them. When the panel is showing, the menu reads **Hide Sidebar** or **Hide Inspector** instead, and the same shortcut does the hiding. The shortcut never changes.
+**Show Drawer** opens the table drawer along the bottom of the viewport, and **Make Drawer Taller** and **Make Drawer Shorter**, which have no shortcut, change its height one step at a time. With the drawer's top edge selected, the Up and Down Arrow keys do the same.
+
+The Sidebar, Inspector and Drawer rows change their own titles as you use them. When the panel is showing, the menu reads **Hide Sidebar**, **Hide Inspector** or **Hide Drawer** instead, and the same shortcut does the hiding. The shortcut never changes.
 
 The four zoom commands act on the viewport. All four are greyed out whenever nothing zoomable is on screen, meaning no sequence display and no multiple sequence alignment, such as while a read bundle or a classifier result is selected. In the taxonomy sunburst, **Zoom to Fit** returns to the full chart, as [Inside a classifier result window](#inside-a-classifier-result-window) describes.
 

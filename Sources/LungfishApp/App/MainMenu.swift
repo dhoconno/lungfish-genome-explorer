@@ -513,6 +513,27 @@ public final class MainMenu {
 
         viewMenu.addItem(.separator())
 
+        // The table drawer under the viewer. Its title follows its state, and
+        // Taller/Shorter give a keyboard route besides dragging the divider.
+        let drawerItem = viewMenu.addItem(
+            withTitle: "Show Drawer",
+            action: #selector(ViewMenuActions.toggleAnnotationDrawer(_:)),
+            keyEquivalent: "b"
+        )
+        drawerItem.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(
+            withTitle: "Make Drawer Taller",
+            action: #selector(ViewMenuActions.makeDrawerTaller(_:)),
+            keyEquivalent: ""
+        )
+        viewMenu.addItem(
+            withTitle: "Make Drawer Shorter",
+            action: #selector(ViewMenuActions.makeDrawerShorter(_:)),
+            keyEquivalent: ""
+        )
+
+        viewMenu.addItem(.separator())
+
         // AI Assistant. Cmd-Opt-A, beside the other inspector chords;
         // Cmd-Shift-A stays with the sidebar's Select Siblings (owner
         // decision, 2026-09-30).
@@ -1457,6 +1478,9 @@ enum ProvenanceExportMenuModel {
     func showAIAssistant(_ sender: Any?)
     func showDocumentInspector(_ sender: Any?)
     func showProvenanceInspector(_ sender: Any?)
+    func toggleAnnotationDrawer(_ sender: Any?)
+    func makeDrawerTaller(_ sender: Any?)
+    func makeDrawerShorter(_ sender: Any?)
 }
 
 /// Sequence menu action handlers.

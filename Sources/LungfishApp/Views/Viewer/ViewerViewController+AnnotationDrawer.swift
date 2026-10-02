@@ -13,11 +13,22 @@ import os.log
 private let annotDrawerLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerAnnotationDrawer")
 
 /// Height of the annotation drawer when open.
-private let annotationDrawerHeight: CGFloat = 250
+private let annotationDrawerHeight: CGFloat = AnnotationDrawerSizing.defaultHeight
 
 enum AnnotationDrawerSizing {
     static let dividerHeight: CGFloat = 8
     static let minimumHostHeight: CGFloat = 8
+    /// Opens the Variants tab with its filter rows and about six table rows.
+    static let defaultHeight: CGFloat = 300
+    /// A saved height below this showed the toolbar and filters but no rows,
+    /// so it is replaced by the default when the drawer is set up.
+    static let minimumRestoredHeight: CGFloat = 200
+
+    /// The height to open with, from the saved value (0 when none was saved).
+    static func restoredHeight(persisted: Double) -> CGFloat {
+        let height = CGFloat(persisted)
+        return height >= minimumRestoredHeight ? height : defaultHeight
+    }
 
     static func clampedHeight(proposed: CGFloat, availableContentHeight: CGFloat) -> CGFloat {
         MetagenomicsPaneSizing.clampedDrawerExtent(
@@ -156,8 +167,9 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         // The drawer sits between the viewer content area and the status bar.
         // We constrain its bottom to be just above the status bar, and use
         // a height constraint. The bottom offset starts at drawerHeight (hidden below view).
-        let persistedHeight = annotationDrawerDefaults.double(forKey: "annotationDrawerHeight")
-        let drawerHeight = persistedHeight > 0 ? CGFloat(persistedHeight) : annotationDrawerHeight
+        let drawerHeight = AnnotationDrawerSizing.restoredHeight(
+            persisted: annotationDrawerDefaults.double(forKey: "annotationDrawerHeight")
+        )
         let bottomConstraint = drawer.bottomAnchor.constraint(equalTo: statusBar.topAnchor, constant: drawerHeight)
         let heightConstraint = drawer.heightAnchor.constraint(equalToConstant: drawerHeight)
         // A stale persisted height must never impose a minimum on an enclosing
@@ -725,6 +737,25 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
 
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, codingFeatureFor result: AnnotationSearchIndex.SearchResult) -> String? {
         viewerView.codingFeatureText(chromosome: result.chromosome, position: result.start, referenceLength: result.ref?.count ?? 1)
+    }
+
+    /// Whether the annotation table drawer applies to what is shown: not the
+    /// classifier, FASTQ or native-bundle viewports, which have their own drawers.
+    var offersResizableAnnotationDrawer: Bool {
+        !isDisplayingFASTQDataset && taxonomyViewController == nil
+            && taxTriageViewController == nil && !isNativeBundleViewportInstalled
+    }
+
+    /// Makes the drawer taller or shorter by one keyboard step, opening it first
+    /// when it is closed. Backs View > Make Drawer Taller and Make Drawer Shorter.
+    public func adjustAnnotationDrawerHeight(by delta: CGFloat) {
+        if annotationDrawerView == nil { configureAnnotationDrawer() }
+        guard let drawer = annotationDrawerView else { return }
+        if !isAnnotationDrawerOpen {
+            toggleAnnotationDrawer()
+            return
+        }
+        drawer.dragHandle.resize(by: delta)
     }
 
     public func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat) {

@@ -47,7 +47,8 @@ final class AnnotationDrawerSizingTests: XCTestCase {
 
         XCTAssertTrue(divider.isAccessibilityElement())
         XCTAssertEqual(divider.accessibilityRole(), .splitter)
-        XCTAssertEqual(divider.accessibilityHelp(), "Drag vertically to resize the annotation table drawer.")
+        XCTAssertEqual(divider.accessibilityHelp(), "Drag vertically, or press the Up and Down Arrow keys, to resize the annotation table drawer.")
+        XCTAssertTrue(divider.acceptsFirstResponder, "the divider takes keyboard focus so the arrow keys can resize the drawer")
     }
 
     func testViewerLayoutReclampsDrawerWhenEnclosingPaneShrinks() {
@@ -128,5 +129,56 @@ final class AnnotationDrawerSizingTests: XCTestCase {
         XCTAssertTrue(viewer.isAnnotationDrawerOpen)
         XCTAssertEqual(bottomConstraint.constant, 0)
         XCTAssertLessThan(try XCTUnwrap(viewer.annotationDrawerHeightConstraint).constant, 10_000)
+    }
+
+    // MARK: - Default height and keyboard resizing (2026-10-01)
+
+    func testTooShortOrMissingSavedHeightOpensAtTheDefault() {
+        XCTAssertEqual(AnnotationDrawerSizing.restoredHeight(persisted: 0), AnnotationDrawerSizing.defaultHeight)
+        XCTAssertEqual(AnnotationDrawerSizing.restoredHeight(persisted: 100), AnnotationDrawerSizing.defaultHeight,
+                       "a 100-point drawer showed the Variants filters but no rows")
+        XCTAssertEqual(AnnotationDrawerSizing.restoredHeight(persisted: 420), 420)
+    }
+
+    private func viewerInWindow(defaults: UserDefaults) -> ViewerViewController {
+        let viewer = ViewerViewController()
+        viewer.annotationDrawerDefaults = defaults
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 900), styleMask: [], backing: .buffered, defer: false)
+        window.contentViewController = viewer
+        window.setContentSize(NSSize(width: 1000, height: 900))
+        window.contentView?.layoutSubtreeIfNeeded()
+        return viewer
+    }
+
+    func testKeyboardAndVoiceOverStepsResizeAndSaveTheDrawer() throws {
+        let suiteName = "lungfish-test-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
+        let viewer = viewerInWindow(defaults: defaults)
+
+        viewer.adjustAnnotationDrawerHeight(by: DrawerDividerView.keyboardStep)
+        XCTAssertTrue(viewer.isAnnotationDrawerOpen, "the first step opens a closed drawer")
+        let opened = try XCTUnwrap(viewer.annotationDrawerHeightConstraint?.constant)
+        XCTAssertEqual(opened, AnnotationDrawerSizing.defaultHeight)
+
+        let handle = try XCTUnwrap(viewer.annotationDrawerView?.dragHandle)
+        XCTAssertTrue(handle.accessibilityPerformIncrement())
+        XCTAssertEqual(viewer.annotationDrawerHeightConstraint?.constant, opened + DrawerDividerView.keyboardStep)
+        XCTAssertEqual(defaults.double(forKey: "annotationDrawerHeight"), Double(opened + DrawerDividerView.keyboardStep))
+
+        XCTAssertTrue(handle.accessibilityPerformDecrement())
+        viewer.adjustAnnotationDrawerHeight(by: -DrawerDividerView.keyboardStep)
+        XCTAssertEqual(viewer.annotationDrawerHeightConstraint?.constant, opened - DrawerDividerView.keyboardStep)
+        XCTAssertEqual(defaults.double(forKey: "annotationDrawerHeight"), Double(opened - DrawerDividerView.keyboardStep))
+    }
+
+    func testViewMenuOffersDrawerCommandsWithoutShortcutCollisions() throws {
+        _ = NSApplication.shared
+        let view = try XCTUnwrap(MainMenu.createMainMenu().items.first { $0.title == "View" }?.submenu)
+        let toggle = try XCTUnwrap(view.items.first { $0.action == #selector(ViewMenuActions.toggleAnnotationDrawer(_:)) })
+        XCTAssertEqual(toggle.keyEquivalent, "b")
+        XCTAssertEqual(toggle.keyEquivalentModifierMask, [.command, .control])
+        XCTAssertNotNil(view.items.first { $0.title == "Make Drawer Taller" })
+        XCTAssertNotNil(view.items.first { $0.title == "Make Drawer Shorter" })
     }
 }
