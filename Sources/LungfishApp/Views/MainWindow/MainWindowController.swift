@@ -874,17 +874,6 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
 
 }
 
-// MARK: - Window Scope
-
-/// A view this window shows finds the window's scope through
-/// `ScopedEventFilter.hostingWindowScope(of:)`, so a view that a container
-/// embeds without handing it a scope still posts and filters as this window.
-extension MainWindowController: WindowStateScopeOwner {
-    public var windowStateScope: WindowStateScope {
-        projectSession.windowStateScope
-    }
-}
-
 // MARK: - NSWindowDelegate
 
 extension MainWindowController: NSWindowDelegate {
