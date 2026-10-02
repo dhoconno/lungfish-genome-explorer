@@ -110,27 +110,55 @@ public enum AssemblyRunner {
 
         logger.info("Starting managed assembly: tool=\(request.tool.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
-        let opID = OperationCenter.shared.start(
-            title: "\(request.tool.displayName) Assembly: \(projectName)",
+        beginAssemblyOperation(
+            request: request,
+            outputDirectory: executionRequest.outputDirectory,
+            routeContext: routeContext
+        ) { opID in
+            let task = Task.detached {
+                await runManagedAssemblyOperation(
+                    request: executionRequest,
+                    baseOutputDirectory: baseOutputDirectory,
+                    projectName: projectName,
+                    operationID: opID
+                )
+            }
+
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
+    }
+
+    /// Registers the assembly row and, only when it starts, calls `launch` with the
+    /// operation ID. The row locks no bundle.
+    ///
+    /// `request` is the normalized request and `outputDirectory` is the folder the
+    /// managed pipeline writes to, `<output>/<project name>`. The row records the
+    /// `lungfish-cli assemble` command that `cliCommandPreview` builds from them
+    /// through `FASTQOperationCLIInvocationBuilder`, the same builder the FASTQ
+    /// operations dialog uses. It falls back to a bare `assemble` command when the
+    /// builder throws.
+    @discardableResult
+    static func beginAssemblyOperation(
+        request: AssemblyRunRequest,
+        outputDirectory: URL,
+        routeContext: OperationRouteContext?,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: "\(request.tool.displayName) Assembly: \(request.projectName)",
             detail: "Initializing...",
             operationType: .assembly,
-            cliCommand: cliCommandPreview(
-                request: request,
-                outputDirectory: executionRequest.outputDirectory
-            ),
+            cliCommand: cliCommandPreview(request: request, outputDirectory: outputDirectory),
             routeContext: routeContext
         )
-
-        let task = Task.detached {
-            await runManagedAssemblyOperation(
-                request: executionRequest,
-                baseOutputDirectory: baseOutputDirectory,
-                projectName: projectName,
-                operationID: opID
-            )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
         }
-
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        return result
     }
 
     nonisolated static func cliCommandPreview(config: SPAdesAssemblyConfig) -> String {
