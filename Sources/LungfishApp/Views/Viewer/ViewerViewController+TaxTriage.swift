@@ -78,137 +78,129 @@ extension ViewerViewController {
             }
 
             let selectedReadCount = min(50, max(1, readCount))
-            let taxonName = organism.name
-            let blastCliCmd = OperationCenter.buildCLICommand(
-                subcommand: "blast verify",
-                args: ["--organism", taxonName]
-            )
-            let opID = OperationCenter.shared.start(
-                title: "BLAST \(taxonName)",
-                detail: "Preparing BLAST verification…",
-                operationType: .blastVerification,
-                cliCommand: blastCliCmd
-            )
+            ViewerViewController.beginTaxTriageBlastVerificationOperation(
+                taxonName: organism.name
+            ) { opID in
+                let blastController = controller
+                let task = Task.detached {
+                    do {
+                        let blastService = BlastService.shared
+                        let readService = ReadExtractionService()
 
-            let blastController = controller
-            let task = Task.detached {
-                do {
-                    let blastService = BlastService.shared
-                    let readService = ReadExtractionService()
+                        let tempDir = try ProjectTempDirectory.create(
+                            prefix: "taxtriage-blast-",
+                            in: ProjectTempDirectory.findProjectRoot(resultURL)
+                        )
+                        defer { try? FileManager.default.removeItem(at: tempDir) }
 
-                    let tempDir = try ProjectTempDirectory.create(
-                        prefix: "taxtriage-blast-",
-                        in: ProjectTempDirectory.findProjectRoot(resultURL)
-                    )
-                    defer { try? FileManager.default.removeItem(at: tempDir) }
+                        let extractionConfig = BAMRegionExtractionConfig(
+                            bamURL: bamURL,
+                            regions: orgAccessions,
+                            fallbackToAll: false,
+                            outputDirectory: tempDir,
+                            outputBaseName: "blast_extract",
+                            deduplicateReads: true
+                        )
 
-                    let extractionConfig = BAMRegionExtractionConfig(
-                        bamURL: bamURL,
-                        regions: orgAccessions,
-                        fallbackToAll: false,
-                        outputDirectory: tempDir,
-                        outputBaseName: "blast_extract",
-                        deduplicateReads: true
-                    )
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.update(
-                                id: opID,
-                                progress: 0.1,
-                                detail: "Extracting reads for selected accessions…"
-                            ) else { return }
-                            blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: 0.1,
+                                    detail: "Extracting reads for selected accessions…"
+                                ) else { return }
+                                blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                            }
                         }
-                    }
 
-                    let extractionResult = try await readService.extractByBAMRegion(config: extractionConfig)
-                    guard let extractedFASTQ = extractionResult.fastqURLs.first else {
-                        throw BlastServiceError.noSequences
-                    }
-
-                    let reader = FASTQReader(validateSequence: false)
-                    var allReads: [(id: String, sequence: String)] = []
-                    allReads.reserveCapacity(min(5_000, extractionResult.readCount))
-                    for try await record in reader.records(from: extractedFASTQ) {
-                        let seq = record.sequence.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !seq.isEmpty else { continue }
-                        allReads.append((id: record.identifier, sequence: seq))
-                        if allReads.count >= 5_000 { break }
-                    }
-
-                    guard !allReads.isEmpty else {
-                        throw BlastServiceError.noSequences
-                    }
-
-                    let longestCount = min(5, selectedReadCount / 4)
-                    let strategy = SubsampleStrategy.mixed(
-                        longest: longestCount,
-                        random: selectedReadCount - longestCount
-                    )
-                    let subsampled = blastService.subsampleReads(from: allReads, strategy: strategy)
-                    guard !subsampled.isEmpty else {
-                        throw BlastServiceError.noSequences
-                    }
-
-                    let request = organism.blastVerificationRequest(sequences: subsampled)
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.update(
-                                id: opID,
-                                progress: 0.2,
-                                detail: "Submitting \(request.sequences.count) reads to NCBI BLAST…"
-                            ) else { return }
-                            blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                        let extractionResult = try await readService.extractByBAMRegion(config: extractionConfig)
+                        guard let extractedFASTQ = extractionResult.fastqURLs.first else {
+                            throw BlastServiceError.noSequences
                         }
-                    }
 
-                    let blastResult = try await blastService.verify(
-                        request: request,
-                        progress: { fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    guard OperationCenter.shared.update(
-                                        id: opID,
-                                        progress: fraction,
-                                        detail: message
-                                    ) else { return }
-                                    let lower = message.lowercased()
-                                    if lower.contains("waiting") {
-                                        blastController?.showBlastLoading(phase: .waiting, requestId: nil)
-                                    } else if lower.contains("parsing") {
-                                        blastController?.showBlastLoading(phase: .parsing, requestId: nil)
-                                    } else {
-                                        blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                        let reader = FASTQReader(validateSequence: false)
+                        var allReads: [(id: String, sequence: String)] = []
+                        allReads.reserveCapacity(min(5_000, extractionResult.readCount))
+                        for try await record in reader.records(from: extractedFASTQ) {
+                            let seq = record.sequence.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !seq.isEmpty else { continue }
+                            allReads.append((id: record.identifier, sequence: seq))
+                            if allReads.count >= 5_000 { break }
+                        }
+
+                        guard !allReads.isEmpty else {
+                            throw BlastServiceError.noSequences
+                        }
+
+                        let longestCount = min(5, selectedReadCount / 4)
+                        let strategy = SubsampleStrategy.mixed(
+                            longest: longestCount,
+                            random: selectedReadCount - longestCount
+                        )
+                        let subsampled = blastService.subsampleReads(from: allReads, strategy: strategy)
+                        guard !subsampled.isEmpty else {
+                            throw BlastServiceError.noSequences
+                        }
+
+                        let request = organism.blastVerificationRequest(sequences: subsampled)
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: 0.2,
+                                    detail: "Submitting \(request.sequences.count) reads to NCBI BLAST…"
+                                ) else { return }
+                                blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                            }
+                        }
+
+                        let blastResult = try await blastService.verify(
+                            request: request,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        guard OperationCenter.shared.update(
+                                            id: opID,
+                                            progress: fraction,
+                                            detail: message
+                                        ) else { return }
+                                        let lower = message.lowercased()
+                                        if lower.contains("waiting") {
+                                            blastController?.showBlastLoading(phase: .waiting, requestId: nil)
+                                        } else if lower.contains("parsing") {
+                                            blastController?.showBlastLoading(phase: .parsing, requestId: nil)
+                                        } else {
+                                            blastController?.showBlastLoading(phase: .submitting, requestId: nil)
+                                        }
                                     }
                                 }
                             }
-                        }
-                    )
+                        )
 
-                    try FileManager.default.removeItem(at: tempDir)
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
-                            ) else { return }
-                            blastController?.showBlastResults(blastResult)
+                        try FileManager.default.removeItem(at: tempDir)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.complete(
+                                    id: opID,
+                                    detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
+                                ) else { return }
+                                blastController?.showBlastResults(blastResult)
+                            }
                         }
-                    }
-                } catch {
-                    let errorDesc = error.localizedDescription
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
-                            blastController?.showBlastFailure(errorDesc)
+                    } catch {
+                        let errorDesc = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
+                                blastController?.showBlastFailure(errorDesc)
+                            }
                         }
                     }
                 }
-            }
 
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            }
         }
         controller.onExtractReadsRequested = { [weak controller] tool, resultPath, selectors, suggestedName in
             guard let controller else { return }
@@ -233,6 +225,41 @@ extension ViewerViewController {
         geneTabBarView.isHidden = true
 
         taxTriageLogger.info("displayTaxTriageFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
+    }
+
+    /// Registers the BLAST verification row for a TaxTriage organism and, only
+    /// when it starts, calls `launch` with the operation ID. The run extracts
+    /// reads from the sample's BAM and locks no bundle.
+    ///
+    /// CLI parity gap. No `lungfish-cli` command BLASTs the reads of a
+    /// TaxTriage organism. The closest is `lungfish-cli blast verify`, which
+    /// covers a Kraken2 classification only and needs `--kreport`,
+    /// `--kraken-output`, `--source` and `--taxid`. The row keeps recording
+    /// `blast verify --organism <name>` until a CLI command covers TaxTriage
+    /// verification. The CLI rejects that command, because it needs the
+    /// options above and has no `--organism` option.
+    @discardableResult
+    static func beginTaxTriageBlastVerificationOperation(
+        taxonName: String,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: "BLAST \(taxonName)",
+            detail: "Preparing BLAST verification…",
+            operationType: .blastVerification,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "blast verify",
+                args: ["--organism", taxonName]
+            )
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
     }
 
     /// Removes the TaxTriage result browser and restores normal viewer components.
