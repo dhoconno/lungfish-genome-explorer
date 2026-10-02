@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
@@ -99,12 +100,13 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
 
     func testStartOutcomeBlocksWhenAnotherBundleMutationIsRunning() {
         let bundleURL = URL(fileURLWithPath: "/tmp/locked-fixture.lungfishref", isDirectory: true)
-        let operationID = OperationCenter.shared.start(
+        let operationID = OperationCenter.shared.begin(
             title: "Variant Calling",
             detail: "Running",
             operationType: .variantCalling,
-            targetBundleURL: bundleURL
-        )
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        ).rowID
         defer {
             _ = OperationCenter.shared.fail(id: operationID, detail: "Cancelled for test cleanup")
         }

@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishKit
 @testable import LungfishWorkflow
 import LungfishTestSupport
+import LungfishKitTestSupport
 
 /// Test-only counter box for asserting on values mutated inside `Validator`
 /// closures. `Validator` is `@Sendable async`, but the coordinator always

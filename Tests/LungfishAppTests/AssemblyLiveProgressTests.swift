@@ -36,7 +36,12 @@ final class AssemblyLiveProgressTests: XCTestCase {
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         let center = OperationCenter()
-        let id = center.begin(title: "Assembly", detail: "Preparing").startedID!
+        let id = center.begin(
+            title: "Assembly",
+            detail: "Preparing",
+            operationType: .download,
+            cliCommand: nil
+        ).startedID!
         _ = try await LungfishCLIProcessRunner(cliURLProvider: { executable }).run(
             invocation: FASTQCLIInvocation(subcommand: "assemble", arguments: []),
             outputDirectory: directory,

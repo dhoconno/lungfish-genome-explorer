@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishKitTestSupport
 
 final class CLIMSAAlignmentRunnerTests: XCTestCase {
     private var cleanupURLs: [URL] = []
@@ -111,11 +112,12 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
 
         let opID = await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "MAFFT Alignment",
                 detail: "Launching...",
-                operationType: .multipleSequenceAlignmentGeneration
-            )
+                operationType: .multipleSequenceAlignmentGeneration,
+                cliCommand: nil
+            ).rowID
         }
 
         let result = try await CLIMSAAlignmentRunner(cliURLOverride: fakeCLI)
@@ -158,11 +160,12 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
 
         let opID = await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "MAFFT Alignment",
                 detail: "Launching...",
-                operationType: .multipleSequenceAlignmentGeneration
-            )
+                operationType: .multipleSequenceAlignmentGeneration,
+                cliCommand: nil
+            ).rowID
         }
         let runner = CLIMSAAlignmentRunner(cliURLOverride: fakeCLI)
         let runTask = Task {

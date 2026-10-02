@@ -55,6 +55,7 @@ extension MainSplitViewController {
                     title: "Copy \(url.lastPathComponent)",
                     detail: "Copying into \(projectURL.deletingPathExtension().lastPathComponent)...",
                     operationType: .ingestion,
+                    cliCommand: nil,
                     routeContext: routeContext
                 )
                 guard case .started(let opID) = startResult else {

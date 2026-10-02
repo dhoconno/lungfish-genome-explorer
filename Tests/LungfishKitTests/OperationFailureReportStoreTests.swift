@@ -5,6 +5,7 @@
 import XCTest
 import LungfishCore
 @testable import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class OperationFailureReportStoreTests: XCTestCase {
@@ -61,7 +62,9 @@ final class OperationFailureReportStoreTests: XCTestCase {
             title: "Download",
             detail: "Server returned HTTP 503",
             progress: 1,
-            state: .failed
+            state: .failed,
+            operationType: .download,
+            cliCommand: nil
         )
 
         let report = OperationFailureReportStore.buildFailureReport(for: item)
@@ -78,7 +81,9 @@ final class OperationFailureReportStoreTests: XCTestCase {
             detail: "Failed",
             progress: 1,
             state: .failed,
+            operationType: .download,
             startedAt: Date(timeIntervalSince1970: 1_756_000_000),
+            cliCommand: nil,
             errorMessage: "nextflow exited with code 1"
         )
         item.logEntries = [OperationLogEntry(level: .error, message: "boom")]
@@ -108,7 +113,9 @@ final class OperationFailureReportStoreTests: XCTestCase {
             title: "Download",
             detail: "Done",
             progress: 1,
-            state: .completed
+            state: .completed,
+            operationType: .download,
+            cliCommand: nil
         )
 
         XCTAssertNil(store.writeReport(for: completed))
@@ -129,6 +136,8 @@ final class OperationFailureReportStoreTests: XCTestCase {
             detail: "Failed",
             progress: 1,
             state: .failed,
+            operationType: .download,
+            cliCommand: nil,
             errorMessage: "spades crashed"
         )
 
@@ -147,7 +156,9 @@ final class OperationFailureReportStoreTests: XCTestCase {
                 detail: "Failed",
                 progress: 1,
                 state: .failed,
+                operationType: .download,
                 startedAt: Date(timeIntervalSince1970: 1_756_000_000 + Double(offset * 60)),
+                cliCommand: nil,
                 errorMessage: "failure \(offset)"
             )
             XCTAssertNotNil(store.writeReport(for: item))
@@ -177,7 +188,9 @@ final class OperationFailureReportStoreTests: XCTestCase {
                 detail: "Failed",
                 progress: 1,
                 state: .failed,
+                operationType: .download,
                 startedAt: Date(timeIntervalSince1970: 1_756_000_000 + Double(offset * 60)),
+                cliCommand: nil,
                 errorMessage: "failure"
             )
             _ = store.writeReport(for: item)
@@ -219,7 +232,12 @@ final class OperationFailureReportStoreTests: XCTestCase {
         let center = OperationCenter()
         center.failureReportStore = OperationFailureReportStore(directory: directory)
 
-        let id = center.start(title: "Variant Calling", detail: "Running", operationType: .variantCalling)
+        let id = center.begin(
+            title: "Variant Calling",
+            detail: "Running",
+            operationType: .variantCalling,
+            cliCommand: nil
+        ).rowID
         center.log(id: id, level: .info, message: "invoking bcftools")
         center.fail(
             id: id,
@@ -247,8 +265,20 @@ final class OperationFailureReportStoreTests: XCTestCase {
         center.failureReportStore = OperationFailureReportStore(directory: directory)
         let bundleURL = URL(fileURLWithPath: "/tmp/busy-\(UUID().uuidString).lungfishref", isDirectory: true)
 
-        _ = center.start(title: "Import A", detail: "Running", targetBundleURL: bundleURL)
-        let blockedID = center.start(title: "Import B", detail: "Running", targetBundleURL: bundleURL)
+        _ = center.begin(
+            title: "Import A",
+            detail: "Running",
+            operationType: .download,
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        )
+        let blockedID = center.begin(
+            title: "Import B",
+            detail: "Running",
+            operationType: .download,
+            targetBundleURL: bundleURL,
+            cliCommand: nil
+        ).rowID
 
         let blocked = try XCTUnwrap(center.items.first { $0.id == blockedID })
         XCTAssertEqual(blocked.state, .failed)
@@ -260,7 +290,7 @@ final class OperationFailureReportStoreTests: XCTestCase {
         let center = OperationCenter()
         center.failureReportStore = OperationFailureReportStore(directory: directory)
 
-        let id = center.start(title: "Export", detail: "Running", operationType: .export)
+        let id = center.begin(title: "Export", detail: "Running", operationType: .export, cliCommand: nil).rowID
         center.complete(id: id, detail: "Done")
 
         XCTAssertNil(center.items.first { $0.id == id }?.failureReportURL)

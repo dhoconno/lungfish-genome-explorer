@@ -7,6 +7,7 @@ import LungfishCore
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class SidebarIncompleteAnalysisTests: XCTestCase {
@@ -35,7 +36,12 @@ final class SidebarIncompleteAnalysisTests: XCTestCase {
         let batch = try AnalysesFolder.createAnalysisDirectory(tool: "taxtriage", in: projectURL, isBatch: true)
         let sample = try AnalysesFolder.batchSampleDirectory(named: "S1", in: batch)
         try "report".write(to: sample.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
-        let id = center.start(title: "TaxTriage (1 sample)", detail: "Running")
+        let id = center.begin(
+            title: "TaxTriage (1 sample)",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.trackAnalysisOutput(batch, for: id)
 
         XCTAssertEqual(analysisTitles(), [], "a running analysis is not in the sidebar")
@@ -47,7 +53,12 @@ final class SidebarIncompleteAnalysisTests: XCTestCase {
     func testCompletedWithWarningsAnalysisAppears() throws {
         let center = OperationCenter()
         let dir = try AnalysesFolder.createAnalysisDirectory(tool: "viralrecon", in: projectURL)
-        let id = center.start(title: "Viral Recon", detail: "Running")
+        let id = center.begin(
+            title: "Viral Recon",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.trackAnalysisOutput(dir, for: id)
         center.completeWithWarning(id: id, detail: "1 sample skipped")
         XCTAssertEqual(analysisTitles(), [dir.lastPathComponent])
@@ -133,7 +144,12 @@ final class SidebarIncompleteAnalysisTests: XCTestCase {
         )
 
         let live = try AnalysesFolder.createAnalysisDirectory(tool: "taxtriage", in: projectURL, isBatch: true)
-        let liveID = center.start(title: "TaxTriage", detail: "Running")
+        let liveID = center.begin(
+            title: "TaxTriage",
+            detail: "Running",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         center.trackAnalysisOutput(live, for: liveID)
 
         // Owned by this process but no longer tracked by any operation: the

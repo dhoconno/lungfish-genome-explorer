@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import LungfishKit
+import LungfishKitTestSupport
 @testable import LungfishWorkflow
 @testable import LungfishApp
 
@@ -93,9 +94,11 @@ final class LocalWorkflowReplayServiceTests: XCTestCase {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let center = OperationCenter()
-        let owner = center.start(title: "Existing writer", detail: "Local fixture",
+        let owner = center.begin(title: "Existing writer", detail: "Local fixture",
+            operationType: .download,
             targetBundleURL: fixture.root.appendingPathComponent("other.lungfishrun"),
-            additionalLockedBundleURLs: [fixture.request.outputDirectory])
+            additionalLockedBundleURLs: [fixture.request.outputDirectory],
+            cliCommand: nil).rowID
         let runner = FakeReplayCLI(request: fixture.request, identity: fixture.identity)
         let runtime = fixture.runtime
         let service = LocalWorkflowExecutionService(operationCenter: center, processRunner: runner,

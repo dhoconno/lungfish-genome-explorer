@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishKit
+import LungfishKitTestSupport
 
 /// `OperationCenter.Item.logEntries` used to grow without a cap
 /// through `log`/`updateWithLog`, and 132 production call sites append to it,
@@ -24,7 +25,7 @@ final class OperationCenterLogCapTests: XCTestCase {
     }
 
     func testTenThousandLogCallsLeaveAtMostTheRetentionCap() {
-        let id = center.start(title: "Long Op", detail: "starting")
+        let id = center.begin(title: "Long Op", detail: "starting", operationType: .download, cliCommand: nil).rowID
 
         for index in 0..<10_000 {
             center.log(id: id, level: .info, message: "step \(index)")
@@ -43,7 +44,12 @@ final class OperationCenterLogCapTests: XCTestCase {
     }
 
     func testHasWarningsStaysCorrectAfterEntriesAreElided() {
-        let id = center.start(title: "Long Op With Warning", detail: "starting")
+        let id = center.begin(
+            title: "Long Op With Warning",
+            detail: "starting",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         // One warning near the very start of the log, buried well before the
         // point where elision would otherwise discard it if the cap dropped
@@ -59,7 +65,12 @@ final class OperationCenterLogCapTests: XCTestCase {
     }
 
     func testCompletedWarningOutcomeSurvivesElidedMiddleWarning() {
-        let id = center.start(title: "Warning Op", detail: "starting")
+        let id = center.begin(
+            title: "Warning Op",
+            detail: "starting",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
         for index in 0..<150 {
             center.log(id: id, level: .info, message: "before \(index)")
         }
@@ -78,7 +89,12 @@ final class OperationCenterLogCapTests: XCTestCase {
     }
 
     func testHasWarningsSeesRecentWarningsAfterElision() {
-        let id = center.start(title: "Long Op With Late Warning", detail: "starting")
+        let id = center.begin(
+            title: "Long Op With Late Warning",
+            detail: "starting",
+            operationType: .download,
+            cliCommand: nil
+        ).rowID
 
         for index in 0..<10_000 {
             center.log(id: id, level: .info, message: "step \(index)")
@@ -90,7 +106,7 @@ final class OperationCenterLogCapTests: XCTestCase {
     }
 
     func testLogCountBelowCapIsNeverElided() {
-        let id = center.start(title: "Short Op", detail: "starting")
+        let id = center.begin(title: "Short Op", detail: "starting", operationType: .download, cliCommand: nil).rowID
 
         for index in 0..<50 {
             center.log(id: id, level: .info, message: "step \(index)")

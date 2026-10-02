@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishKit
+import LungfishKitTestSupport
 
 final class CLIMSAActionRunnerTests: XCTestCase {
     private var cleanupURLs: [URL] = []
@@ -28,11 +29,12 @@ final class CLIMSAActionRunnerTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
 
         let opID = await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "Export Alignment",
                 detail: "Launching...",
-                operationType: .multipleSequenceAlignmentAction
-            )
+                operationType: .multipleSequenceAlignmentAction,
+                cliCommand: nil
+            ).rowID
         }
 
         let result = try await CLIMSAActionRunner(cliURLOverride: fakeCLI)
@@ -71,11 +73,12 @@ final class CLIMSAActionRunnerTests: XCTestCase {
         }
 
         let opID = await MainActor.run {
-            OperationCenter.shared.start(
+            OperationCenter.shared.begin(
                 title: "Create MSA Selection Bundle",
                 detail: "Launching...",
-                operationType: .multipleSequenceAlignmentAction
-            )
+                operationType: .multipleSequenceAlignmentAction,
+                cliCommand: nil
+            ).rowID
         }
 
         let result = try await CLIMSAActionRunner(cliURLOverride: fakeCLI)

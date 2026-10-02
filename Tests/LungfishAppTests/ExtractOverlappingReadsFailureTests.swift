@@ -16,6 +16,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishKit
 @testable import LungfishWorkflow
+import LungfishKitTestSupport
 
 @MainActor
 final class ExtractOverlappingReadsFailureTests: XCTestCase {
