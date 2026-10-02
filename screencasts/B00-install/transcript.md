@@ -2,13 +2,13 @@
 
 Filmed with Lungfish 2026.9.72. The narration is a synthetic voice.
 
-Go to the Lungfish Genome Explorer website and click the current stable release. If Safari asks, allow the download. It runs on Apple Silicon Macs with macOS 26.
+Go to the Lungfish Genome Explorer website and click the current Stable release. If Safari asks, allow the download. It needs a Mac with Apple Silicon running macOS 26 or later.
 
-Open the downloaded file. In the window that appears, drag Lungfish onto the Applications folder.
+Double-click the downloaded disk image, the file ending in .dmg. In the window that appears, drag Lungfish onto the Applications folder.
 
-Open Lungfish from your Applications folder. If macOS asks whether to open an app from the internet, click Open.
+Open the app named Lungfish from your Applications folder. If macOS asks whether to open an app downloaded from the internet, click Open.
 
-The Welcome window opens. Under Third-Party Tools, click Install. LGE downloads the programs it runs for you. It takes a while, and you only do it once.
+The Welcome window opens. Under Third-Party Tools, click Install. LGE downloads the analysis programs it runs, such as read aligners and variant callers. This takes several minutes, and you do it only once.
 
 Click Create Project, type a name, and click Save.
 

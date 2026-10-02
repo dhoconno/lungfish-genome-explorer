@@ -1,46 +1,46 @@
 WEBVTT
 
-00:00:03.200 --> 00:00:09.446
-Go to the Lungfish Genome Explorer website and click the current stable release.
+00:00:03.200 --> 00:00:09.130
+Go to the Lungfish Genome Explorer website and click the current Stable release.
 
-00:00:09.446 --> 00:00:12.179
+00:00:09.130 --> 00:00:11.724
 If Safari asks, allow the download.
 
-00:00:12.179 --> 00:00:15.614
-It runs on Apple Silicon Macs with macOS 26.
+00:00:11.724 --> 00:00:16.172
+It needs a Mac with Apple Silicon running macOS 26 or later.
 
-00:00:16.710 --> 00:00:18.438
-Open the downloaded file.
+00:00:17.270 --> 00:00:21.389
+Double-click the downloaded disk image, the file ending in .dmg.
 
-00:00:18.438 --> 00:00:23.344
+00:00:21.389 --> 00:00:25.959
 In the window that appears, drag Lungfish onto the Applications folder.
 
-00:00:24.710 --> 00:00:27.643
-Open Lungfish from your Applications folder.
+00:00:27.060 --> 00:00:30.983
+Open the app named Lungfish from your Applications folder.
 
-00:00:27.643 --> 00:00:32.110
-If macOS asks whether to open an app from the internet, click Open.
+00:00:30.983 --> 00:00:36.260
+If macOS asks whether to open an app downloaded from the internet, click Open.
 
-00:00:33.210 --> 00:00:35.055
+00:00:37.360 --> 00:00:39.162
 The Welcome window opens.
 
-00:00:35.055 --> 00:00:37.934
+00:00:39.162 --> 00:00:41.973
 Under Third-Party Tools, click Install.
 
-00:00:37.934 --> 00:00:41.107
-LGE downloads the programs it runs for you.
+00:00:41.973 --> 00:00:48.243
+LGE downloads the analysis programs it runs, such as read aligners and variant callers.
 
-00:00:41.107 --> 00:00:44.207
-It takes a while, and you only do it once.
+00:00:48.243 --> 00:00:51.991
+This takes several minutes, and you do it only once.
 
-00:00:45.310 --> 00:00:48.699
+00:00:53.090 --> 00:00:56.479
 Click Create Project, type a name, and click Save.
 
-00:00:54.510 --> 00:00:56.930
+00:01:02.290 --> 00:01:04.710
 A project is one folder on your Mac.
 
-00:00:56.930 --> 00:01:00.157
+00:01:04.710 --> 00:01:07.937
 It holds your data and your results as you work.
 
-00:01:01.260 --> 00:01:07.429
+00:01:09.040 --> 00:01:15.209
 Next, watch Your first project on the Videos page of the Lungfish Genome Explorer website.

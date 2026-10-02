@@ -25,6 +25,13 @@ narration:
   lead: 0.5
   tail: 0.6
   lexicon:
+    "HBB": H B B
+    "Phred": Fred
+    "Length Dist.": Length distribution
+    "Q / Position": Q by position
+    "HbS": H b S
+    ".dmg": dot D M G
+    "kb": kilobase
     HG002: H G zero zero two
     Q20: Q twenty
     Q30: Q thirty
@@ -54,7 +61,6 @@ beats:
   - kind: take
     id: orient
     take: ../_shared/takes/demo-orient.mov
-    in: 0.5
     duration: 10.0
     caption: Start from the Human Reads demo
     kicker: Help · Demo Projects
@@ -68,20 +74,24 @@ beats:
     shows: Help > Demo Projects with the Human Reads row outlined.
     capture: 'Shared take of Help > Demo Projects on Stable (screencasts/_shared/takes/demo-orient.mov): the top of
       the list for 9 s, then scrolled to Human Mapping and Variants (with results). Nothing is downloaded. The Save
-      to path and an update notice from the owner''s own copy are blurred.'
+      to path and an update notice from the owner''s own copy are blurred. Only the first 8.8 s are used here (before
+      the list scrolls), holding the last frame while the narration finishes.'
     narration: This video uses the Human Reads demo project. Choose Help, then Demo Projects, and click Download and
       Open beside Human Reads. The video Your first project shows each step.
+    segments:
+    - [0.5, 8.8]
 
   - kind: take
     id: cards
     take: takes/qc.mov
     duration: 10.0
-    caption: The cards sum up every read
+    caption: Nine cards summarize all 91,148 reads
     kicker: Imports · HG002 reads
     shows: Selecting the HG002 reads shows nine summary cards across the top of the viewer.
     capture: Click HG002.chr20.10.0-10.5Mb under Imports and hold on the cards.
-    narration: Click the HG002 reads under Imports. HG002 is a well studied human sample. The cards across the top
-      sum up all the reads in this file, how many there are, how long they are, and how good their bases are.
+    narration: Click the HG002 reads under Imports. HG002 is a Genome in a Bottle reference sample, one of the most
+      thoroughly sequenced human genomes. The cards across the top summarize all the reads in this file, how many
+      reads and bases there are, how long the reads are, and their base quality.
     in: 0.5
     zoom:
       at: 3.5
@@ -95,12 +105,12 @@ beats:
     id: qscore
     take: takes/qc.mov
     duration: 10.0
-    caption: Q scores estimate each base's error
+    caption: A Q score is a base call's error chance
     kicker: Q20 · Q30
     shows: The Q20 and Q30 cards, outlined.
     capture: Same take, held on the cards.
-    narration: Each base gets a quality score, the sequencer's own estimate of error, written Q. Q20 means one wrong
-      base in a hundred. Q30 means one in a thousand.
+    narration: Each base call gets a base quality score, also called a Phred score and written Q. It is the sequencer's
+      estimate of the chance that the call is wrong. Q20 means a 1 in 100 chance. Q30 means a 1 in 1,000 chance.
     in: 11.0
     zoom:
       at: 0.0
@@ -116,12 +126,12 @@ beats:
     id: q30
     take: takes/qc.mov
     duration: 9.0
-    caption: Q30 shows how many bases you can trust
+    caption: 91 percent of base calls reach Q30
     kicker: Q30 · 91.3%
     shows: The Q30 card, outlined.
     capture: Same take, held on the cards.
-    narration: Here 91 percent of bases reach Q30. For Illumina, the most common short read sequencer, a rule of thumb
-      calls above 80 percent healthy.
+    narration: Here 91 percent of base calls are Q30 or higher. For Illumina's long 250-base reads, the manufacturer's
+      target is about 75 percent, so this run is well above it.
     in: 21.0
     zoom:
       at: 0.0
@@ -136,14 +146,15 @@ beats:
     id: position
     take: takes/qc.mov
     duration: 13.0
-    caption: Quality falls toward the end of each read
+    caption: Base quality drops late in each read, as expected
     kicker: Q / Position
     shows: A click on the Q / Position chart opens it full size, with quality dropping toward base 250 but staying
       above Q20.
     capture: Click the Q / Position chart. The popover is a separate window, so record with wincap --app-region. Click
       outside it to close.
-    narration: Click the Q / Position chart to open it. Quality falls toward the end of each read, which is normal
-      for this kind of sequencing. Here it stays above Q20. Click outside the chart to close it.
+    narration: Click the Q / Position chart to open it. It plots base quality from the first base of each read to
+      the last. Quality drops toward the end because, cycle by cycle, the copies of each fragment fall out of step
+      and the signal blurs. Here the average stays above Q30 until base 243. Click outside the chart to close it.
     in: 34.5
     zoom:
       at: 3.5
@@ -154,12 +165,13 @@ beats:
     id: length
     take: takes/qc.mov
     duration: 10.0
-    caption: Check read length and GC content
+    caption: Reads are 250 bases, GC is 39 percent
     kicker: Length Dist. · GC
     shows: The Length Dist. chart spikes at 250 bases and the GC card reads 39.4 percent.
     capture: Reuses the cards section of takes/qc.mov from before the chart opens.
-    narration: Length Dist. peaks at 250 bases, the length the run was set to make. GC content, the share of bases
-      that are G or C, is 39 percent, close to the human average of about 41.
+    narration: Length Dist. peaks at 250 bases, because the run read 250 bases from each end of every fragment, called
+      2 by 250 paired-end sequencing. GC content, the share of bases that are G or C, is 39 percent. The human genome
+      averages about 41 percent, and a 500 kb slice can differ.
     in: 12.0
     zoom:
       at: 0.0
@@ -177,7 +189,7 @@ beats:
     icon: true
     title: Next, reading a pileup
     shows: End card naming the next video and where to watch it, with the version line.
-    narration: Next, see these reads lined up against the human genome, on the Videos page of the website.
+    narration: Next, see these reads aligned to a slice of human chromosome 20, on the Videos page of the website.
     lines:
     - {text: Watch it on the Videos page}
     - {text: dhoconno.github.io/lungfish-genome-explorer/videos.html, style: url}

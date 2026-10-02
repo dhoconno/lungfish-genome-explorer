@@ -24,6 +24,13 @@ narration:
   lead: 0.5
   tail: 0.6
   lexicon:
+    "HBB": H B B
+    "Phred": Fred
+    "Length Dist.": Length distribution
+    "Q / Position": Q by position
+    "HbS": H b S
+    ".dmg": dot D M G
+    "kb": kilobase
     LGE: L G E
 
 setup:
@@ -57,13 +64,13 @@ beats:
     id: download
     take: takes/download.mov
     duration: 12.0
-    caption: Download the stable release
+    caption: Download the Stable release for Apple Silicon
     kicker: dhoconno.github.io/lungfish-genome-explorer
     shows: The LGE website's download card, and the link to the current stable release.
     capture: Attended. Open the site in a new Safari window sized 1440x810 and record it. The owner clicks the stable
       release link and allows the download. The crop leaves out the toolbar and bookmarks.
-    narration: Go to the Lungfish Genome Explorer website and click the current stable release. If Safari asks, allow
-      the download. It runs on Apple Silicon Macs with macOS 26.
+    narration: Go to the Lungfish Genome Explorer website and click the current Stable release. If Safari asks, allow
+      the download. It needs a Mac with Apple Silicon running macOS 26 or later.
     segments:
     - [0.5, 8.5]
     - [13.5, 17.5]
@@ -82,7 +89,8 @@ beats:
     shows: The opened disk image window with the Lungfish app and an Applications folder, and the drag between them.
     capture: Double-click the downloaded DMG. Record its window with wincap --app-region and drag Lungfish onto the
       Applications alias (an on-screen drag, the background drag does not copy).
-    narration: Open the downloaded file. In the window that appears, drag Lungfish onto the Applications folder.
+    narration: Double-click the downloaded disk image, the file ending in .dmg. In the window that appears, drag Lungfish
+      onto the Applications folder.
     in: 4.0
     crop: [0.0, 0.08, 0.4, 0.42]
 
@@ -96,8 +104,8 @@ beats:
     capture: Open /Applications in a Finder window with Lungfish selected, record it, and double-click Lungfish. Crop
       to the bottom row and blur every other app, since the folder shows other products by name. The macOS prompt
       is a separate process and was not captured.
-    narration: Open Lungfish from your Applications folder. If macOS asks whether to open an app from the internet,
-      click Open.
+    narration: Open the app named Lungfish from your Applications folder. If macOS asks whether to open an app downloaded
+      from the internet, click Open.
     in: 0.5
     crop: [0.17, 0.81, 0.27, 0.19]
     blur:
@@ -106,13 +114,13 @@ beats:
     highlights:
     - at: 1.5
       region: [0.31, 0.06, 0.23, 0.88]
-  - {kind: take, id: tools, take: takes/tools.mov, duration: 11.4, caption: 'Install the tools it runs, once', kicker: Welcome
-      · Third-Party Tools · Install, shows: 'The Welcome window''s Third-Party Tools card, Install, and the card when
-      setup has finished.', capture: 'Record the Welcome window, click Install on the Third-Party Tools card, and
-      record the finished card again when setup is done (about 8 minutes here). takes/tools.mov splices tools-start.mov
-      (0.5 to 8.5 s) and the first seconds of project.mov.', narration: 'The Welcome window opens. Under Third-Party
-      Tools, click Install. LGE downloads the programs it runs for you. It takes a while, and you only do it once.',
-    in: 0.0}
+  - {kind: take, id: tools, take: takes/tools.mov, duration: 11.4, caption: 'Install the analysis tools once, at first
+      launch', kicker: Welcome · Third-Party Tools · Install, shows: 'The Welcome window''s Third-Party Tools card,
+      Install, and the card when setup has finished.', capture: 'Record the Welcome window, click Install on the Third-Party
+      Tools card, and record the finished card again when setup is done (about 8 minutes here). takes/tools.mov splices
+      tools-start.mov (0.5 to 8.5 s) and the first seconds of project.mov.', narration: 'The Welcome window opens.
+      Under Third-Party Tools, click Install. LGE downloads the analysis programs it runs, such as read aligners and
+      variant callers. This takes several minutes, and you do it only once.', in: 0.0}
 
   - kind: take
     id: project
@@ -133,7 +141,7 @@ beats:
     id: empty
     take: takes/empty.mov
     duration: 6.0
-    caption: A project is one folder on your Mac
+    caption: One project folder holds your data and results
     kicker: My First Project
     shows: The new project window, empty until data is added.
     capture: Resize the new project window to 1440x810 and record it for a few seconds.

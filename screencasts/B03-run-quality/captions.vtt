@@ -9,50 +9,59 @@ Choose Help, then Demo Projects, and click Download and Open beside Human Reads.
 00:00:11.847 --> 00:00:14.959
 The video Your first project shows each step.
 
-00:00:16.060 --> 00:00:19.029
+00:00:16.060 --> 00:00:18.843
 Click the HG002 reads under Imports.
 
-00:00:19.029 --> 00:00:22.081
-HG002 is a well studied human sample.
+00:00:18.843 --> 00:00:26.496
+HG002 is a Genome in a Bottle reference sample, one of the most thoroughly sequenced human genomes.
 
-00:00:22.081 --> 00:00:32.640
-The cards across the top sum up all the reads in this file, how many there are, how long they are, and how good their bases are.
+00:00:26.496 --> 00:00:37.783
+The cards across the top summarize all the reads in this file, how many reads and bases there are, how long the reads are, and their base quality.
 
-00:00:33.740 --> 00:00:39.684
-Each base gets a quality score, the sequencer's own estimate of error, written Q.
+00:00:38.880 --> 00:00:45.170
+Each base call gets a base quality score, also called a Phred score and written Q.
 
-00:00:39.684 --> 00:00:42.473
-Q20 means one wrong base in a hundred.
+00:00:45.170 --> 00:00:50.385
+It is the sequencer's estimate of the chance that the call is wrong.
 
-00:00:42.473 --> 00:00:44.528
-Q30 means one in a thousand.
+00:00:50.385 --> 00:00:52.533
+Q20 means a 1 in 100 chance.
 
-00:00:45.630 --> 00:00:48.208
-Here 91 percent of bases reach Q30.
+00:00:52.533 --> 00:00:54.834
+Q30 means a 1 in 1,000 chance.
 
-00:00:48.208 --> 00:00:55.499
-For Illumina, the most common short read sequencer, a rule of thumb calls above 80 percent healthy.
+00:00:55.930 --> 00:00:59.747
+Here 91 percent of base calls are Q30 or higher.
 
-00:00:56.600 --> 00:00:59.329
+00:00:59.747 --> 00:01:08.655
+For Illumina's long 250-base reads, the manufacturer's target is about 75 percent, so this run is well above it.
+
+00:01:09.750 --> 00:01:12.630
 Click the Q / Position chart to open it.
 
-00:00:59.329 --> 00:01:05.266
-Quality falls toward the end of each read, which is normal for this kind of sequencing.
+00:01:12.630 --> 00:01:17.455
+It plots base quality from the first base of each read to the last.
 
-00:01:05.266 --> 00:01:06.904
-Here it stays above Q20.
+00:01:17.455 --> 00:01:26.096
+Quality drops toward the end because, cycle by cycle, the copies of each fragment fall out of step and the signal blurs.
 
-00:01:06.904 --> 00:01:09.360
+00:01:26.096 --> 00:01:29.552
+Here the average stays above Q30 until base 243.
+
+00:01:29.552 --> 00:01:32.144
 Click outside the chart to close it.
 
-00:01:10.460 --> 00:01:11.430
+00:01:33.240 --> 00:01:34.303
 Length Dist.
 
-00:01:11.430 --> 00:01:15.877
-peaks at 250 bases, the length the run was set to make.
+00:01:34.303 --> 00:01:45.109
+peaks at 250 bases, because the run read 250 bases from each end of every fragment, called 2 by 250 paired-end sequencing.
 
-00:01:15.877 --> 00:01:24.124
-GC content, the share of bases that are G or C, is 39 percent, close to the human average of about 41.
+00:01:45.109 --> 00:01:50.601
+GC content, the share of bases that are G or C, is 39 percent.
 
-00:01:25.220 --> 00:01:31.285
-Next, see these reads lined up against the human genome, on the Videos page of the website.
+00:01:50.601 --> 00:01:57.156
+The human genome averages about 41 percent, and a 500 kb slice can differ.
+
+00:01:58.260 --> 00:02:05.160
+Next, see these reads aligned to a slice of human chromosome 20, on the Videos page of the website.

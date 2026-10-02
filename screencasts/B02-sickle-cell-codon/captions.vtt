@@ -1,58 +1,64 @@
 WEBVTT
 
-00:00:03.200 --> 00:00:07.385
+00:00:03.200 --> 00:00:07.262
 This video uses the Genes and Sequences demo project.
 
-00:00:07.385 --> 00:00:12.992
+00:00:07.262 --> 00:00:12.703
 Choose Help, then Demo Projects, and click Download and Open beside it.
 
-00:00:12.992 --> 00:00:18.441
-It holds NG_000007.3, the human beta globin record from NCBI GenBank.
+00:00:12.703 --> 00:00:19.371
+It holds NG_000007.3, the NCBI reference record for the human beta-globin gene cluster.
 
-00:00:18.441 --> 00:00:21.995
+00:00:19.371 --> 00:00:22.819
 The video Your first project shows each step.
 
-00:00:23.100 --> 00:00:27.245
-Click NG_000007.3 under Reference Sequences, then Focus.
+00:00:23.920 --> 00:00:30.544
+Click NG_000007.3 under Reference Sequences, then click Focus to show it in the viewer.
 
-00:00:27.245 --> 00:00:34.942
-It holds the beta globin gene, which makes part of hemoglobin, the protein that carries oxygen in blood.
+00:00:30.544 --> 00:00:39.757
+It holds HBB, the gene for beta-globin, one of the protein chains of hemoglobin, which carries oxygen in red blood cells.
 
-00:00:34.942 --> 00:00:38.124
-Genes show as colored bars called features.
+00:00:39.757 --> 00:00:45.620
+Annotated features, such as genes and coding sequences, show as colored bars.
 
-00:00:39.220 --> 00:00:44.903
-A codon is three bases that code for one amino acid, a building block of protein.
+00:00:46.720 --> 00:00:54.066
+A codon is three bases in a gene's coding sequence that specify one amino acid.
 
-00:00:44.903 --> 00:00:53.252
-Choose Sequence, then Go to Location, type the position of the codon that changes in sickle cell disease, and click Go.
+00:00:54.066 --> 00:01:05.968
+Choose Sequence, then Go to Location, type the record name and the codon's first and last bases, 70,613 to 70,615, and click Go.
 
-00:00:53.252 --> 00:00:55.848
+00:01:05.968 --> 00:01:09.409
 The viewer zooms to three bases, GAG.
 
-00:00:56.950 --> 00:01:02.626
-The red row below the bases shows the amino acid each codon codes for.
+00:01:10.510 --> 00:01:18.492
+The Translation row below the bases shows the amino acid each codon specifies, as a one-letter code.
 
-00:01:02.626 --> 00:01:05.788
-GAG codes for glutamic acid, written E.
+00:01:18.492 --> 00:01:23.440
+GAG specifies glutamate, also called glutamic acid, written E.
 
-00:01:06.890 --> 00:01:09.906
-In sickle cell disease the middle A is a T.
+00:01:24.540 --> 00:01:29.560
+In sickle hemoglobin, HbS, the middle A of this codon is a T.
 
-00:01:09.906 --> 00:01:13.693
-The codon becomes GTG, which codes for valine instead.
+00:01:29.560 --> 00:01:36.885
+GTG specifies valine, so amino acid 6 of beta-globin becomes valine instead of glutamate.
 
-00:01:13.693 --> 00:01:19.654
-The changed hemoglobin sticks together and bends red blood cells into a sickle shape.
+00:01:36.885 --> 00:01:44.128
+When oxygen is low, HbS forms long fibers that bend red blood cells into a sickle shape.
 
-00:01:20.750 --> 00:01:28.748
-To mark the codon, drag across the three bases, choose Sequence, then Add Annotation, type a name, and click Add.
+00:01:44.128 --> 00:01:48.078
+Sickle cell disease needs HbS from both parents.
 
-00:01:31.250 --> 00:01:33.982
+00:01:49.180 --> 00:01:53.480
+An annotation is your own labeled mark on a stretch of sequence.
+
+00:01:53.480 --> 00:01:59.796
+Drag across the three bases, choose Sequence, then Add Annotation, type a name, and click Add.
+
+00:02:00.900 --> 00:02:03.588
 LGE saves your annotation in the project.
 
-00:01:33.982 --> 00:01:38.648
-Go back to the codon and it appears on its own track, under the bases.
+00:02:03.588 --> 00:02:10.341
+Go back to the codon and it shows on the Manual Annotations track, a row of the viewer under the bases.
 
-00:01:40.750 --> 00:01:45.700
-Next, learn to judge a sequencing run, on the Videos page of the website.
+00:02:11.440 --> 00:02:17.051
+Next, learn to check the quality of a sequencing run, on the Videos page of the website.

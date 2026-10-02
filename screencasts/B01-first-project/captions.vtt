@@ -1,52 +1,61 @@
 WEBVTT
 
-00:00:03.200 --> 00:00:05.431
+00:00:03.200 --> 00:00:05.351
 Choose Help, then Demo Projects.
 
-00:00:05.431 --> 00:00:07.663
-Each one holds real public data.
+00:00:05.351 --> 00:00:10.797
+Demo projects are ready-made practice projects built from public sequencing data.
 
-00:00:07.663 --> 00:00:12.892
+00:00:10.797 --> 00:00:15.840
 Find Human Mapping and Variants, with results, and click Download and Open.
 
-00:00:12.892 --> 00:00:15.124
+00:00:15.840 --> 00:00:17.991
 You need an internet connection.
 
-00:00:16.220 --> 00:00:18.786
+00:00:19.090 --> 00:00:21.559
 A project is one folder on your Mac.
 
-00:00:18.786 --> 00:00:21.994
-The sidebar on the left shows what is inside.
+00:00:21.559 --> 00:00:24.576
+The sidebar on the left shows what it holds.
 
-00:00:21.994 --> 00:00:26.627
-Imports holds the reads, short pieces of DNA read by a sequencer.
+00:00:24.576 --> 00:00:26.222
+Imports holds the reads.
 
-00:00:28.220 --> 00:00:30.059
+00:00:26.222 --> 00:00:31.982
+A read is the sequence of bases that a sequencer reports for one short DNA fragment.
+
+00:00:33.080 --> 00:00:35.066
 Click HG002 under Imports.
 
-00:00:30.059 --> 00:00:33.667
-These are reads from one anonymous human volunteer.
+00:00:35.066 --> 00:00:42.932
+HG002 is a Genome in a Bottle reference sample, from a donor who agreed to share their genome publicly.
 
-00:00:33.667 --> 00:00:39.538
-The Inspector on the right shows how many reads there are and their quality scores.
+00:00:42.932 --> 00:00:50.111
+The Inspector on the right shows how many reads there are and a summary of their base quality.
 
-00:00:41.220 --> 00:00:45.196
+00:00:51.210 --> 00:00:55.387
 Results go under Analyses, and these were made in advance.
 
-00:00:45.196 --> 00:00:47.732
-Open the minimap2 result and zoom in.
+00:00:55.387 --> 00:00:57.187
+Open the minimap2 result.
 
-00:00:47.732 --> 00:00:53.078
-Each read sits where it matches the reference, a slice of human chromosome 20.
+00:00:57.187 --> 00:00:59.132
+minimap2 is a read aligner.
 
-00:00:58.620 --> 00:01:00.817
+00:00:59.132 --> 00:01:05.469
+It finds where each read best fits the reference, a 500 kb slice of human chromosome 20.
+
+00:01:05.469 --> 00:01:09.430
+Zoom in to see each read drawn at its aligned position.
+
+00:01:10.530 --> 00:01:12.706
 Click Operations in the toolbar.
 
-00:01:00.817 --> 00:01:07.409
-The Operations Panel lists every task the app runs, like this download, and whether it finished.
+00:01:12.706 --> 00:01:20.457
+The Operations Panel lists each long task LGE runs, like this download, with its progress and whether it finished.
 
-00:01:08.620 --> 00:01:13.294
+00:01:21.560 --> 00:01:26.234
 To learn more about projects, read the manual chapter The Lungfish Project.
 
-00:01:13.294 --> 00:01:16.410
+00:01:26.234 --> 00:01:29.350
 More videos are on the Videos page of the website.

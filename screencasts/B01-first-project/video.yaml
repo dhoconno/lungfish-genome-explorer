@@ -56,7 +56,7 @@ beats:
     id: demo
     take: takes-stable/demo.mov
     duration: 13.0
-    caption: Start from a demo project with real data
+    caption: Start from a demo project of public data
     kicker: Help · Demo Projects
     shows: Help > Demo Projects lists projects of real public data. Human Mapping and Variants (with results) is selected
       and Download & Open clicked.
@@ -64,8 +64,8 @@ beats:
       on the front window), record that window with wincap --app-region, scroll to Human Mapping and Variants (with
       results) and press its Download & Open button. The crop leaves out the Save to row, which shows the owner's
       home folder.
-    narration: Choose Help, then Demo Projects. Each one holds real public data. Find Human Mapping and Variants,
-      with results, and click Download and Open. You need an internet connection.
+    narration: Choose Help, then Demo Projects. Demo projects are ready-made practice projects built from public sequencing
+      data. Find Human Mapping and Variants, with results, and click Download and Open. You need an internet connection.
     verify: [The project title and button label match the panel.]
     crop: [0.237, 0.27, 0.526, 0.6]
     highlights:
@@ -80,13 +80,13 @@ beats:
     id: sidebar
     take: takes-stable/project.mov
     duration: 12.0
-    caption: The sidebar lists everything in the project
+    caption: The sidebar lists the project's folders and data
     kicker: Sidebar · Imports · Reference Sequences · Analyses
     shows: The opened project's sidebar with its Imports, Reference Sequences and Analyses folders.
     capture: 'Record the opened project window (resized to 1440x810) with nothing selected. drive/project-steps.md
       lists the clicks: hold 14 s, click HG002 under Imports, hold, click the minimap2 result.'
-    narration: A project is one folder on your Mac. The sidebar on the left shows what is inside. Imports holds the
-      reads, short pieces of DNA read by a sequencer.
+    narration: A project is one folder on your Mac. The sidebar on the left shows what it holds. Imports holds the
+      reads. A read is the sequence of bases that a sequencer reports for one short DNA fragment.
     verify: [The sidebar group names match the narration.]
     in: 2.0
     zoom:
@@ -101,13 +101,14 @@ beats:
     id: inspector
     take: takes-stable/project.mov
     duration: 13.0
-    caption: Select an item to see its details
+    caption: The Inspector describes whatever you select
     kicker: HG002 reads · Inspector
     shows: Selecting the HG002 reads opens the read summary in the viewer, and the Inspector on the right describes
       the selected bundle.
     capture: Same take as the sidebar beat, from the click on HG002 under Imports.
-    narration: Click HG002 under Imports. These are reads from one anonymous human volunteer. The Inspector on the
-      right shows how many reads there are and their quality scores.
+    narration: Click HG002 under Imports. HG002 is a Genome in a Bottle reference sample, from a donor who agreed
+      to share their genome publicly. The Inspector on the right shows how many reads there are and a summary of their
+      base quality.
     in: 14.5
     zoom:
       at: 5.0
@@ -123,14 +124,15 @@ beats:
     id: results
     take: takes-stable/results.mov
     duration: 17.4
-    caption: Results appear under Analyses
+    caption: Finished analysis results are listed under Analyses
     kicker: Analyses · minimap2
     shows: The minimap2 result under Analyses opens the reads aligned to the chromosome 20 reference slice.
     capture: Start with HG002 selected. Record the project window, click the minimap2 result, then its contig row,
       then run drive/results-focus.json with axdrive (Focus, then position chr20_10.0-10.5Mb:2094-2394) so single
       reads are drawn. Stable 2026.9.72 shows full paths under Run Inputs, so they are blurred.
-    narration: Results go under Analyses, and these were made in advance. Open the minimap2 result and zoom in. Each
-      read sits where it matches the reference, a slice of human chromosome 20.
+    narration: Results go under Analyses, and these were made in advance. Open the minimap2 result. minimap2 is a
+      read aligner. It finds where each read best fits the reference, a 500 kb slice of human chromosome 20. Zoom
+      in to see each read drawn at its aligned position.
     zoom:
       at: 12.0
       dur: 0.9
@@ -148,14 +150,14 @@ beats:
     id: operations
     take: takes-stable/operations.mov
     duration: 10.0
-    caption: The Operations Panel lists every task
+    caption: The Operations Panel shows each task and its status
     kicker: Operations
     shows: The Operations panel lists the demo download that just finished, with its status.
     capture: Record the project window with wincap --app-region and press the Operations toolbar button. On a fresh
       Stable run the panel lists only the demo download. Its second and third lines show the install path, so they
       are blurred.
-    narration: Click Operations in the toolbar. The Operations Panel lists every task the app runs, like this download,
-      and whether it finished.
+    narration: Click Operations in the toolbar. The Operations Panel lists each long task LGE runs, like this download,
+      with its progress and whether it finished.
     in: 1.5
     crop: [0.293, 0.137, 0.623, 0.84]
     blur:

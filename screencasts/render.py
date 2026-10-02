@@ -102,18 +102,75 @@ def spoken_text(text: str, lexicon: dict[str, str]) -> str:
     return " ".join(text.split())
 
 
+def api_key(name: str) -> str:
+    """An API key from the environment or ~/.env, read only into this process."""
+    import os
+    if os.environ.get(name):
+        return os.environ[name]
+    env = Path.home() / ".env"
+    if env.exists():
+        for line in env.read_text().splitlines():
+            m = re.match(rf"^(?:export\s+)?{name}=(.*)$", line.strip())
+            if m:
+                return m.group(1).strip().strip('"').strip("'")
+    sys.exit(f"{name} is not set (environment or ~/.env)")
+
+
+def synthesize_cloud(engine: str, spoken: str, settings: dict, out: Path):
+    """Calls ElevenLabs or OpenAI text to speech and writes WAV audio to `out`."""
+    import json as _json
+    import urllib.request
+    if engine == "elevenlabs":
+        url = (f"https://api.elevenlabs.io/v1/text-to-speech/{settings['voice_id']}"
+               f"?output_format={settings.get('output_format', 'wav_24000')}")
+        body = {"text": spoken, "model_id": settings.get("model", "eleven_v4"), "seed": int(settings.get("seed", 4242)),
+                "voice_settings": settings.get("voice_settings", {"stability": 0.6, "similarity_boost": 0.75, "style": 0, "speed": 0.95})}
+        if settings.get("pronunciation_dictionaries"):
+            body["pronunciation_dictionary_locators"] = settings["pronunciation_dictionaries"]
+        headers = {"xi-api-key": api_key("ELEVENLABS_API_KEY"), "Content-Type": "application/json"}
+    elif engine == "openai":
+        url = "https://api.openai.com/v1/audio/speech"
+        body = {"model": settings.get("model", "gpt-4o-mini-tts"), "voice": settings["voice"], "input": spoken,
+                "response_format": "wav"}
+        if settings.get("instructions"):
+            body["instructions"] = settings["instructions"]
+        headers = {"Authorization": f"Bearer {api_key('OPENAI_API_KEY')}", "Content-Type": "application/json"}
+    else:
+        sys.exit(f"unknown narration engine '{engine}'")
+    request = urllib.request.Request(url, data=_json.dumps(body).encode(), headers=headers, method="POST")
+    with urllib.request.urlopen(request, timeout=120) as response:
+        out.write_bytes(response.read())
+
+
+def narration_identity(settings: dict) -> str:
+    """Everything that changes the audio, so a cached line is reused only when it would sound the same."""
+    keys = ["engine", "voice", "voice_id", "model", "words_per_minute", "seed", "voice_settings",
+            "instructions", "pronunciation_dictionaries", "output_format"]
+    return json.dumps({k: settings.get(k) for k in keys}, sort_keys=True)
+
+
 def synthesize(text: str, settings: dict, cache: Path) -> tuple[Path, float]:
-    """WAV for one narration line, cached by voice, rate and spoken text."""
+    """WAV for one narration line, cached by its spoken text and every voice setting.
+
+    Engines: `say` (macOS voices, drafts only: Apple's license limits system voices to
+    personal, non-commercial use), `elevenlabs` (ELEVENLABS_API_KEY) and `openai`
+    (OPENAI_API_KEY). Keys come from the environment or ~/.env and are never printed.
+    """
     spoken = spoken_text(text, settings.get("lexicon") or {})
-    voice, wpm = settings["voice"], int(settings.get("words_per_minute", 145))
-    key = hashlib.sha256(f"{voice}|{wpm}|{spoken}".encode()).hexdigest()[:20]
+    engine = settings.get("engine", "say")
+    key = hashlib.sha256(f"{narration_identity(settings)}|{spoken}".encode()).hexdigest()[:20]
     wav = cache / f"{key}.wav"
     if not wav.exists():
         cache.mkdir(parents=True, exist_ok=True)
-        aiff = cache / f"{key}.aiff"
-        subprocess.run(["say", "-v", voice, "-r", str(wpm), "-o", str(aiff), spoken], check=True)
-        ffmpeg(["-i", str(aiff), "-ar", "48000", "-ac", "1", str(wav)])
-        aiff.unlink()
+        raw = cache / f"{key}.raw"
+        if engine == "say":
+            raw = cache / f"{key}.aiff"
+            subprocess.run(["say", "-v", settings["voice"], "-r", str(int(settings.get("words_per_minute", 145))),
+                            "-o", str(raw), spoken], check=True)
+        else:
+            synthesize_cloud(engine, spoken, settings, raw)
+        ffmpeg(["-i", str(raw), "-ar", "48000", "-ac", "1", str(wav)])
+        raw.unlink()
     seconds = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                     "-of", "csv=p=0", str(wav)], capture_output=True, text=True).stdout)
     return wav, seconds
@@ -549,9 +606,9 @@ def main():
     spoken: dict[str, tuple[Path, float]] = {}
     if narration:
         if args.draft_voice:
-            narration = {**narration, "voice": args.draft_voice}
+            narration = {**narration, "engine": "say", "voice": args.draft_voice}
             print(f"draft narration with {args.draft_voice}, not the spec's voice")
-        if narration["voice"] not in installed_voices():
+        if narration.get("engine", "say") == "say" and narration["voice"] not in installed_voices():
             sys.exit(f"voice '{narration['voice']}' is not installed. Download it in System Settings > Accessibility > "
                      "Read & Speak > System voice > Manage Voices, or render a draft with --draft-voice.")
         lead, tail = float(narration.get("lead", 0.5)), float(narration.get("tail", 0.6))

@@ -9,53 +9,59 @@ Choose Help, then Demo Projects, and click Download and Open beside it.
 00:00:13.477 --> 00:00:16.422
 The video Your first project shows each step.
 
-00:00:17.520 --> 00:00:22.010
-A pileup is reads stacked on the reference sequence they matched.
+00:00:17.520 --> 00:00:22.497
+A pileup shows aligned reads stacked at their positions on the reference.
 
-00:00:22.010 --> 00:00:29.607
-Open the minimap2 result under Analyses, the program that lined the reads up, select its row, and click Focus.
+00:00:22.497 --> 00:00:25.293
+Under Analyses, open the minimap2 result.
 
-00:00:29.607 --> 00:00:35.133
-The curve shows coverage, also called depth, the number of reads over each base.
+00:00:25.293 --> 00:00:28.770
+minimap2 is the read aligner that placed each read.
 
-00:00:35.133 --> 00:00:37.343
-Here it averages about 45 reads.
+00:00:28.770 --> 00:00:30.883
+Select its row and click Focus.
 
-00:00:38.440 --> 00:00:43.471
-Type a 300 base range into the position field above the viewer and press Return.
+00:00:30.883 --> 00:00:35.452
+The curve shows read depth, the number of reads covering each base.
 
-00:00:43.471 --> 00:00:44.917
+00:00:35.452 --> 00:00:37.633
+Here the mean depth is about 45.
+
+00:00:38.730 --> 00:00:45.021
+Type positions 2,050 to 2,350 into the position field above the viewer and press Return.
+
+00:00:45.021 --> 00:00:46.666
 Each read is now a bar.
 
-00:00:44.917 --> 00:00:47.810
-Where it matches the reference it stays plain.
+00:00:46.666 --> 00:00:52.528
+Bases that match the reference are drawn plain, and bases that differ are colored.
 
-00:00:47.810 --> 00:00:49.822
-A different base shows in color.
+00:00:52.528 --> 00:00:56.603
+A colored base in one read is usually a sequencing error.
 
-00:00:50.920 --> 00:00:53.945
-You carry two copies of each chromosome.
+00:00:56.603 --> 00:01:00.392
+A column where many reads differ is a likely variant.
 
-00:00:53.945 --> 00:01:00.449
-At position 2,078 every read has A where the reference has G, so both copies carry it.
+00:01:01.490 --> 00:01:10.252
+Most human chromosomes come in two copies, one from each parent, and the version of a base on each copy is an allele.
 
-00:01:00.449 --> 00:01:02.416
-This is called homozygous.
+00:01:10.252 --> 00:01:18.640
+At position 2,078 of this slice, every read has A where the reference has G, so both copies most likely carry A.
 
-00:01:03.520 --> 00:01:07.342
-At 2,162 about half the reads have T instead of A.
+00:01:18.640 --> 00:01:21.786
+This is homozygous alternate, written 1/1.
 
-00:01:07.342 --> 00:01:09.253
-Only one copy carries it.
+00:01:22.890 --> 00:01:31.499
+At 2,162, 28 of 51 reads have T instead of A, so one copy most likely carries T and the other the reference A.
 
-00:01:09.253 --> 00:01:11.393
-This is called heterozygous.
+00:01:31.499 --> 00:01:38.309
+This is heterozygous, written 0/1, where 0 is the reference allele and 1 the alternate.
 
-00:01:11.393 --> 00:01:17.967
-The Variants tab under the viewer lists the calls a program made at these same places.
+00:01:38.309 --> 00:01:46.683
+The Variants tab below the viewer lists the variants a variant-calling program found, with their genotypes.
 
-00:01:19.070 --> 00:01:22.857
+00:01:47.780 --> 00:01:51.567
 To learn more, read the manual chapter Reading an Alignment.
 
-00:01:22.857 --> 00:01:26.012
+00:01:51.567 --> 00:01:54.722
 More videos are on the Videos page of the website.

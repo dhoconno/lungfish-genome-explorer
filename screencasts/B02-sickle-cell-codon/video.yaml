@@ -26,6 +26,13 @@ narration:
   lead: 0.5
   tail: 0.6
   lexicon:
+    "HBB": H B B
+    "Phred": Fred
+    "Length Dist.": Length distribution
+    "Q / Position": Q by position
+    "HbS": H b S
+    ".dmg": dot D M G
+    "kb": kilobase
     NG_000007.3: N G, seven, point three
     GAG: G, A, G
     GTG: G, T, G
@@ -54,7 +61,6 @@ beats:
   - kind: take
     id: orient
     take: ../_shared/takes/demo-orient.mov
-    in: 0.5
     duration: 10.0
     caption: Start from the Genes and Sequences demo
     kicker: Help · Demo Projects
@@ -68,33 +74,37 @@ beats:
     shows: Help > Demo Projects with the Genes and Sequences row outlined.
     capture: 'Shared take of Help > Demo Projects on Stable (screencasts/_shared/takes/demo-orient.mov): the top of
       the list for 9 s, then scrolled to Human Mapping and Variants (with results). Nothing is downloaded. The Save
-      to path and an update notice from the owner''s own copy are blurred.'
+      to path and an update notice from the owner''s own copy are blurred. Only the first 8.8 s are used here (before
+      the list scrolls), holding the last frame while the narration finishes.'
     narration: This video uses the Genes and Sequences demo project. Choose Help, then Demo Projects, and click Download
-      and Open beside it. It holds NG_000007.3, the human beta globin record from NCBI GenBank. The video Your first
-      project shows each step.
-  - {kind: take, id: open, take: takes/open.mov, duration: 15.0, caption: Open a human gene record, kicker: Reference
-      Sequences · NG_000007.3, shows: Selecting NG_000007.3 and pressing Focus shows the human beta globin region
-      with its genes drawn as features., capture: 'Click NG_000007.3 under Reference Sequences, then Focus. Hold on
-      the whole record.', narration: 'Click NG_000007.3 under Reference Sequences, then Focus. It holds the beta globin
-      gene, which makes part of hemoglobin, the protein that carries oxygen in blood. Genes show as colored bars called
-      features.', in: 1.0}
-  - {kind: take, id: goto, take: takes/goto.mov, duration: 12.0, caption: Go straight to a position, kicker: Sequence
+      and Open beside it. It holds NG_000007.3, the NCBI reference record for the human beta-globin gene cluster.
+      The video Your first project shows each step.
+    segments:
+    - [0.5, 8.8]
+  - {kind: take, id: open, take: takes/open.mov, duration: 15.0, caption: Open the human beta-globin gene cluster,
+    kicker: Reference Sequences · NG_000007.3, shows: Selecting NG_000007.3 and pressing Focus shows the human beta
+      globin region with its genes drawn as features., capture: 'Click NG_000007.3 under Reference Sequences, then
+      Focus. Hold on the whole record.', narration: 'Click NG_000007.3 under Reference Sequences, then click Focus
+      to show it in the viewer. It holds HBB, the gene for beta-globin, one of the protein chains of hemoglobin, which
+      carries oxygen in red blood cells. Annotated features, such as genes and coding sequences, show as colored bars.',
+    in: 1.0}
+  - {kind: take, id: goto, take: takes/goto.mov, duration: 12.0, caption: Go to Location jumps to the codon, kicker: Sequence
       · Go to Location, shows: 'Sequence > Go to Location with NG_000007:70613-70615 frames three bases reading GAG.',
     capture: 'Choose Sequence > Go to Location (Cmd-L), type NG_000007:70613-70615 and click Go.', narration: 'A codon
-      is three bases that code for one amino acid, a building block of protein. Choose Sequence, then Go to Location,
-      type the position of the codon that changes in sickle cell disease, and click Go. The viewer zooms to three
-      bases, GAG.', in: 1.5}
+      is three bases in a gene''s coding sequence that specify one amino acid. Choose Sequence, then Go to Location,
+      type the record name and the codon''s first and last bases, 70,613 to 70,615, and click Go. The viewer zooms
+      to three bases, GAG.', in: 1.5}
 
   - kind: take
     id: protein
     take: takes/goto.mov
     duration: 9.0
-    caption: GAG codes for glutamic acid
+    caption: GAG specifies glutamate, written E
     kicker: Translation · E
     shows: The gene's red Translation row shows E under the codon GAG.
     capture: The end of the goto take, held, with the Translation row outlined.
-    narration: The red row below the bases shows the amino acid each codon codes for. GAG codes for glutamic acid,
-      written E.
+    narration: The Translation row below the bases shows the amino acid each codon specifies, as a one-letter code.
+      GAG specifies glutamate, also called glutamic acid, written E.
     in: 14.0
     highlights:
     - at: 1.3
@@ -110,12 +120,13 @@ beats:
     id: sickle
     take: takes/goto.mov
     duration: 10.0
-    caption: One changed base causes sickle cell disease
-    kicker: GAG to GTG · glutamic acid to valine
+    caption: GAG to GTG swaps glutamate for valine
+    kicker: Sickle hemoglobin · HbS
     shows: The same codon held while the narration explains the sickle cell change.
     capture: The end of the goto take, held, with the middle base outlined.
-    narration: In sickle cell disease the middle A is a T. The codon becomes GTG, which codes for valine instead.
-      The changed hemoglobin sticks together and bends red blood cells into a sickle shape.
+    narration: In sickle hemoglobin, HbS, the middle A of this codon is a T. GTG specifies valine, so amino acid 6
+      of beta-globin becomes valine instead of glutamate. When oxygen is low, HbS forms long fibers that bend red
+      blood cells into a sickle shape. Sickle cell disease needs HbS from both parents.
     in: 20.0
     highlights:
     - at: 0.8
@@ -124,11 +135,12 @@ beats:
       at: 0.0
       dur: 0.3
       region: *id001
-  - {kind: take, id: annotate, take: takes/annotate.mov, duration: 10.5, caption: Mark it with your own annotation,
-    kicker: Sequence · Add Annotation, shows: 'Dragging across the three bases and Sequence > Add Annotation with
-      a name, then Add.', capture: 'Drag across the three bases, choose Sequence > Add Annotation, type Sickle cell
-      codon, click Add. LGE then reloads the record at full width.', narration: 'To mark the codon, drag across the
-      three bases, choose Sequence, then Add Annotation, type a name, and click Add.', in: 0.5}
+  - {kind: take, id: annotate, take: takes/annotate.mov, duration: 10.5, caption: 'Select the bases, then choose Add
+      Annotation', kicker: Sequence · Add Annotation, shows: 'Dragging across the three bases and Sequence > Add Annotation
+      with a name, then Add.', capture: 'Drag across the three bases, choose Sequence > Add Annotation, type Sickle
+      cell codon, click Add. LGE then reloads the record at full width.', narration: 'An annotation is your own labeled
+      mark on a stretch of sequence. Drag across the three bases, choose Sequence, then Add Annotation, type a name,
+      and click Add.', in: 0.5}
 
   - kind: take
     id: saved
@@ -142,8 +154,8 @@ beats:
     shows: Back at the codon, a Manual Annotations track shows Sickle cell codon under GAG, with the protein row reading
       T P E E K.
     capture: Click Focus, Go to Location NG_000007:70604-70624, Go.
-    narration: LGE saves your annotation in the project. Go back to the codon and it appears on its own track, under
-      the bases.
+    narration: LGE saves your annotation in the project. Go back to the codon and it shows on the Manual Annotations
+      track, a row of the viewer under the bases.
     highlights:
     - at: 2.6
       region: [0.48, 0.34, 0.085, 0.04]
@@ -156,9 +168,9 @@ beats:
     id: end
     duration: 6.0
     icon: true
-    title: Next, judge a sequencing run
+    title: Next, check a sequencing run
     shows: End card naming the next video and where to watch it, with the version line.
-    narration: Next, learn to judge a sequencing run, on the Videos page of the website.
+    narration: Next, learn to check the quality of a sequencing run, on the Videos page of the website.
     lines:
     - {text: Watch it on the Videos page}
     - {text: dhoconno.github.io/lungfish-genome-explorer/videos.html, style: url}

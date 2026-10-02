@@ -25,6 +25,13 @@ narration:
   lead: 0.5
   tail: 0.6
   lexicon:
+    "HBB": H B B
+    "Phred": Fred
+    "Length Dist.": Length distribution
+    "Q / Position": Q by position
+    "HbS": H b S
+    ".dmg": dot D M G
+    "kb": kilobase
     HG002: H G zero zero two
     minimap2: mini map two
     "0/1": zero slash one
@@ -55,7 +62,7 @@ beats:
     take: ../_shared/takes/demo-orient.mov
     in: 11.0
     duration: 10.0
-    caption: Start from the mapping demo with results
+    caption: Start from Human Mapping and Variants, with results
     kicker: Help · Demo Projects
     crop: [0.335, 0.215, 0.53, 0.72]
     blur:
@@ -75,15 +82,15 @@ beats:
     id: coverage
     take: takes/coverage.mov
     duration: 19.0
-    caption: Coverage counts the reads over each base
+    caption: Depth counts the reads covering each base
     kicker: Analyses · minimap2 · Focus
     shows: Opening the minimap2 result and Focus shows the coverage curve over the whole 500 kb slice, and a hover
       reads the depth at one point.
     capture: Click the minimap2 result under Analyses, select the chr20 row, click Focus. The overview shows the coverage
       curve with its max and mean depth.
-    narration: A pileup is reads stacked on the reference sequence they matched. Open the minimap2 result under Analyses,
-      the program that lined the reads up, select its row, and click Focus. The curve shows coverage, also called
-      depth, the number of reads over each base. Here it averages about 45 reads.
+    narration: A pileup shows aligned reads stacked at their positions on the reference. Under Analyses, open the
+      minimap2 result. minimap2 is the read aligner that placed each read. Select its row and click Focus. The curve
+      shows read depth, the number of reads covering each base. Here the mean depth is about 45.
     segments:
     - [0.5, 4.5]
     - [14.5, 29.5]
@@ -94,23 +101,26 @@ beats:
     highlights:
     - at: 10.2
       region: [0.39, 0.262, 0.375, 0.078]
-  - {kind: take, id: reads, take: takes/reads.mov, duration: 12.0, caption: Each bar is one read, kicker: 'Position
-      field · 2,050 to 2,350', shows: 'Typing a 300 base range in the position field draws each read as a bar, with
-      matching bases plain and different bases in colour.', capture: 'Set the position field to chr20_10.0-10.5Mb:2050-2350
-      and confirm (drive/reads.json with axdrive; typing and Return in the background does not navigate).', narration: Type
-      a 300 base range into the position field above the viewer and press Return. Each read is now a bar. Where it
-      matches the reference it stays plain. A different base shows in color., in: 0.5}
+  - {kind: take, id: reads, take: takes/reads.mov, duration: 12.0, caption: 'Each bar is one read, differences in
+      color', kicker: 'Position field · 2,050 to 2,350', shows: 'Typing a 300 base range in the position field draws
+      each read as a bar, with matching bases plain and different bases in colour.', capture: 'Set the position field
+      to chr20_10.0-10.5Mb:2050-2350 and confirm (drive/reads.json with axdrive; typing and Return in the background
+      does not navigate).', narration: 'Type positions 2,050 to 2,350 into the position field above the viewer and
+      press Return. Each read is now a bar. Bases that match the reference are drawn plain, and bases that differ
+      are colored. A colored base in one read is usually a sequencing error. A column where many reads differ is a
+      likely variant.', in: 0.5}
 
   - kind: take
     id: both
     take: takes/reads.mov
     duration: 10.0
-    caption: Every read differs, so both copies do
-    kicker: Position 2,078 · homozygous
+    caption: All reads show A, so both alleles do
+    kicker: Position 2,078 · homozygous alternate · 1/1
     shows: The column at 2,078 where every read has A instead of G, outlined.
     capture: Same take, held, with the 2,078 column outlined.
-    narration: You carry two copies of each chromosome. At position 2,078 every read has A where the reference has
-      G, so both copies carry it. This is called homozygous.
+    narration: Most human chromosomes come in two copies, one from each parent, and the version of a base on each
+      copy is an allele. At position 2,078 of this slice, every read has A where the reference has G, so both copies
+      most likely carry A. This is homozygous alternate, written 1/1.
     in: 10.0
     zoom:
       at: 0.0
@@ -124,12 +134,13 @@ beats:
     id: one
     take: takes/reads.mov
     duration: 9.0
-    caption: Half the reads differ, so one copy does
-    kicker: Position 2,162 · heterozygous
+    caption: About half show T, so one allele does
+    kicker: Position 2,162 · heterozygous · 0/1
     shows: The column at 2,162 where about half the reads have T instead of A, outlined.
     capture: Same take, held, with the 2,162 column outlined.
-    narration: At 2,162 about half the reads have T instead of A. Only one copy carries it. This is called heterozygous.
-      The Variants tab under the viewer lists the calls a program made at these same places.
+    narration: At 2,162, 28 of 51 reads have T instead of A, so one copy most likely carries T and the other the reference
+      A. This is heterozygous, written 0/1, where 0 is the reference allele and 1 the alternate. The Variants tab
+      below the viewer lists the variants a variant-calling program found, with their genotypes.
     in: 18.0
     zoom:
       at: 0.0
