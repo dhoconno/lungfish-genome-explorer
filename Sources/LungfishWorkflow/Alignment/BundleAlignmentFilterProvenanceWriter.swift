@@ -184,56 +184,13 @@ enum BundleAlignmentFilterProvenanceWriter {
         outputTrackName: String,
         filterRequest: AlignmentFilterRequest
     ) -> [String] {
-        var argv = [
-            CLICommandIdentity.executableName,
-            "bam",
-            "filter",
-        ]
-        if let mappingResultURL = target.mappingResultURL {
-            argv += ["--mapping-result", mappingResultURL.path]
-        } else {
-            argv += ["--bundle", target.bundleURL.path]
-        }
-        argv += [
-            "--alignment-track",
-            sourceTrackID,
-        ]
-        if includeOutputTrackID {
-            argv += [
-                "--output-track-id",
-                outputTrackID,
-            ]
-        }
-        argv += [
-            "--output-track-name",
-            outputTrackName,
-        ]
-        if filterRequest.mappedOnly {
-            argv.append("--mapped-only")
-        }
-        if filterRequest.primaryOnly {
-            argv.append("--primary-only")
-        }
-        if let minimumMAPQ = filterRequest.minimumMAPQ {
-            argv += ["--min-mapq", String(minimumMAPQ)]
-        }
-        switch filterRequest.duplicateMode {
-        case .exclude:
-            argv.append("--exclude-marked-duplicates")
-        case .remove:
-            argv.append("--remove-duplicates")
-        case nil:
-            break
-        }
-        switch filterRequest.identityFilter {
-        case .exactMatch:
-            argv.append("--exact-match")
-        case .minimumPercentIdentity(let threshold):
-            argv += ["--min-percent-identity", AlignmentFilterIdentityFilter.formattedThreshold(threshold)]
-        case nil:
-            break
-        }
-        return argv
+        BundleAlignmentFilterService.cliArgv(
+            target: target.mappingResultURL.map(AlignmentFilterTarget.mappingResult) ?? .bundle(target.bundleURL),
+            sourceTrackID: sourceTrackID,
+            outputTrackID: includeOutputTrackID ? outputTrackID : nil,
+            outputTrackName: outputTrackName,
+            filterRequest: filterRequest
+        )
     }
 
     private static func explicitOptions(
@@ -310,5 +267,73 @@ enum BundleAlignmentFilterProvenanceWriter {
             resolved["referenceFastaPath"] = .file(URL(fileURLWithPath: referenceFastaPath))
         }
         return resolved
+    }
+}
+
+extension BundleAlignmentFilterService {
+    /// The `lungfish-cli bam filter` argv, starting with the executable name,
+    /// that reproduces a filter run on `target` (finding R3). The run's
+    /// provenance records it, and the Inspector's Operations row records it as
+    /// the command, so the two cannot drift. A nil `outputTrackID` passes no
+    /// `--output-track-id`, and the CLI generates one as the run does.
+    /// `filterRequest.region` has no CLI option and is not encoded.
+    public static func cliArgv(
+        target: AlignmentFilterTarget,
+        sourceTrackID: String,
+        outputTrackID: String?,
+        outputTrackName: String,
+        filterRequest: AlignmentFilterRequest
+    ) -> [String] {
+        var argv = [
+            CLICommandIdentity.executableName,
+            "bam",
+            "filter",
+        ]
+        switch target {
+        case .mappingResult(let mappingResultURL):
+            argv += ["--mapping-result", mappingResultURL.path]
+        case .bundle(let bundleURL):
+            argv += ["--bundle", bundleURL.path]
+        }
+        argv += [
+            "--alignment-track",
+            sourceTrackID,
+        ]
+        if let outputTrackID {
+            argv += [
+                "--output-track-id",
+                outputTrackID,
+            ]
+        }
+        argv += [
+            "--output-track-name",
+            outputTrackName,
+        ]
+        if filterRequest.mappedOnly {
+            argv.append("--mapped-only")
+        }
+        if filterRequest.primaryOnly {
+            argv.append("--primary-only")
+        }
+        if let minimumMAPQ = filterRequest.minimumMAPQ {
+            argv += ["--min-mapq", String(minimumMAPQ)]
+        }
+        switch filterRequest.duplicateMode {
+        case .exclude:
+            argv.append("--exclude-marked-duplicates")
+        case .remove:
+            argv.append("--remove-duplicates")
+        case nil:
+            break
+        }
+        switch filterRequest.identityFilter {
+        case .exactMatch:
+            argv.append("--exact-match")
+        case .minimumPercentIdentity(let threshold):
+            argv += ["--min-percent-identity", AlignmentFilterIdentityFilter.formattedThreshold(threshold)]
+        case nil:
+            break
+        }
+        return argv
     }
 }

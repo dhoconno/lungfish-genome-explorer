@@ -374,33 +374,12 @@ enum MappedReadsAnnotationProvenanceWriter {
         outputTrackName: String,
         outputTrackID: String? = nil
     ) -> [String] {
-        var argv = [
-            CLICommandIdentity.executableName,
-            "bam",
-            "annotate",
-            "--bundle",
-            bundleURL.path,
-            "--alignment-track",
-            request.sourceTrackID,
-            "--output-track-name",
-            outputTrackName,
-        ]
-        if let outputTrackID = trimmedOutputTrackID(outputTrackID ?? request.outputTrackID) {
-            argv += ["--output-track-id", outputTrackID]
-        }
-        if request.primaryOnly {
-            argv.append("--primary-only")
-        }
-        if request.includeSequence {
-            argv.append("--include-sequence")
-        }
-        if request.includeQualities {
-            argv.append("--include-qualities")
-        }
-        if request.replaceExisting {
-            argv.append("--replace")
-        }
-        return argv
+        MappedReadsAnnotationService.cliArgv(
+            request: request,
+            bundleURL: bundleURL,
+            outputTrackName: outputTrackName,
+            outputTrackID: outputTrackID
+        )
     }
 
     private static func bestMappedReadsArgv(
@@ -631,9 +610,54 @@ enum MappedReadsAnnotationProvenanceWriter {
         return resolved
     }
 
-    private static func trimmedOutputTrackID(_ value: String?) -> String? {
+    fileprivate static func trimmedOutputTrackID(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+extension MappedReadsAnnotationService {
+    /// The `lungfish-cli bam annotate` argv, starting with the executable
+    /// name, that reproduces a run of `request` (finding R3). The run's
+    /// provenance records it, and the Inspector's Operations row records it as
+    /// the command, so the two cannot drift. `outputTrackID`, when given,
+    /// replaces the request's. A blank track ID passes no `--output-track-id`,
+    /// and the CLI generates one as the run does.
+    public static func cliArgv(
+        request: MappedReadsAnnotationRequest,
+        bundleURL: URL,
+        outputTrackName: String,
+        outputTrackID: String? = nil
+    ) -> [String] {
+        var argv = [
+            CLICommandIdentity.executableName,
+            "bam",
+            "annotate",
+            "--bundle",
+            bundleURL.path,
+            "--alignment-track",
+            request.sourceTrackID,
+            "--output-track-name",
+            outputTrackName,
+        ]
+        if let outputTrackID = MappedReadsAnnotationProvenanceWriter.trimmedOutputTrackID(
+            outputTrackID ?? request.outputTrackID
+        ) {
+            argv += ["--output-track-id", outputTrackID]
+        }
+        if request.primaryOnly {
+            argv.append("--primary-only")
+        }
+        if request.includeSequence {
+            argv.append("--include-sequence")
+        }
+        if request.includeQualities {
+            argv.append("--include-qualities")
+        }
+        if request.replaceExisting {
+            argv.append("--replace")
+        }
+        return argv
     }
 }
