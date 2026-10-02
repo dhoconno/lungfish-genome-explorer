@@ -14,15 +14,16 @@
 #     in the same audit; scripts/checks/compile-embedded-python.py), then
 #     runs the architecture-program ratchets and checks (file-size,
 #     concurrency-hatches, source-text-assertions, doc-path-references,
-#     module-map-current, features-yaml-sources, duplicate-public-types; docs/plans/2026-10-02-architecture-program.md),
-#     then checks that published screencasts agree with the Videos page
-#     (screencasts/publish.py --check; docs/contracts/SCREENCASTS.md), then
+#     module-map-current, features-yaml-sources, duplicate-public-types; docs/plans/2026-10-02-architecture-program.md), then
 #     runs the unit tier of the full-suite gate (scripts/full-suite-gate.sh
 #     --tier unit) before pushing, so the regression gate runs locally on
 #     this fast Apple-Silicon Mac instead of on slow/usage-limited hosted CI.
 #     A push of tags alone, on commits already on the remote's branches,
 #     skips all of these checks, since those commits were checked when
 #     their branch was pushed (release.py pushes its release tag this way).
+#     Before the unit tier it also checks that published screencasts agree
+#     with the Videos page (screencasts/publish.py --check;
+#     docs/contracts/SCREENCASTS.md).
 #     The full tier (everything, serial) remains the stable-release gate;
 #     run it explicitly with scripts/full-suite-gate.sh --tier full.
 #   - a pre-commit hook that rejects new or modified files over 500 KB under
