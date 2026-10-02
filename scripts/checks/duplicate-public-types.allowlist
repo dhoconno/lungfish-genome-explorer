@@ -5,4 +5,4 @@ EsVirituResult  # LungfishIO (ViralDetection.swift) vs LungfishWorkflow (EsVirit
 ExtractionError  # LungfishCore (SequenceExtractor) vs LungfishWorkflow (ExtractionConfig), found when the check was added
 ExtractionResult  # LungfishCore (SequenceExtractor) vs LungfishWorkflow (ExtractionConfig), found when the check was added
 NaoMgsAccessionSummary  # LungfishIO (NaoMgsDatabase) vs LungfishNaoMgsUI (NaoMgsDataConverter), found when the check was added
-VCFVariant  # LungfishCore (VariantTrack) vs LungfishIO (VCFReader), found when the check was added
+VCFVariant  # LungfishCore (VCFVariant.swift) vs LungfishIO (VCFReader), found when the check was added
