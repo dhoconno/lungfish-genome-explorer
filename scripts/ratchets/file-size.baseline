@@ -2,7 +2,7 @@
 Sources/LungfishApp/App/AppDelegate+Classification.swift 2803
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3455
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1041
-Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 818
+Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
 Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1740
 Sources/LungfishApp/App/AppDelegate.swift 2742
 Sources/LungfishApp/App/MainMenu.swift 1670
@@ -31,7 +31,7 @@ Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2420
 Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
 Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 1025
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 887
-Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1074
+Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1072
 Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 1032
 Sources/LungfishApp/Views/Inspector/InspectorViewController+TrimDuplicateWorkflows.swift 903
 Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1446
@@ -82,7 +82,7 @@ Sources/LungfishApp/Views/Viewer/SequenceViewerView+MultiSequence.swift 1066
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1235
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 958
 Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2846
-Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 920
+Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 913
 Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 875
 Sources/LungfishApp/Views/Viewer/ViewerViewController+Mapping.swift 966
 Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4447
@@ -238,7 +238,7 @@ Sources/LungfishWorkflow/SequenceAnnotation/SequenceAnnotationTrackWorkflow.swif
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupExecutor.swift 2675
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupReceiptWriter.swift 1680
 Sources/LungfishWorkflow/Storage/ProjectStorageScanner.swift 1567
-Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift 1901
+Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift 1891
 Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow.swift 1186
 Sources/LungfishWorkflow/Variants/GATKPipelineExecutor.swift 1009
 Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift 1860
