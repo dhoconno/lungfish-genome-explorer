@@ -35,21 +35,39 @@ public final class FASTQCLIMaterializer: Sendable {
 
     /// Materializes a `.lungfishfastq` bundle (physical or virtual) into a single FASTQ file.
     ///
+    /// This is the one-file resolution of a bundle every single-input tool
+    /// shares: a single-file bundle is its file in place, a bundle that holds
+    /// several files (an ONT import or a merged bundle, listed in
+    /// `source-files.json`) is every file joined in manifest order, a
+    /// `fullPaired` bundle is R1 and R2 interleaved, a `fullMixed` bundle is
+    /// its files joined, and a virtual derivative is its recipe applied to
+    /// every file of its root (`FASTQBundle.rootSequenceURLs`).
+    ///
     /// - Parameters:
     ///   - bundleURL: The bundle to materialize.
     ///   - tempDirectory: Directory for intermediate/output files.
     ///   - progress: Optional progress message callback.
-    /// - Returns: URL of the materialized FASTQ (inside `tempDirectory` for virtual bundles,
-    ///   or a physical file URL for root bundles).
+    /// - Returns: URL of the materialized FASTQ (inside `tempDirectory` for virtual
+    ///   and multi-file bundles, or a physical file URL for single-file root bundles).
     public func materialize(
         bundleURL: URL,
         tempDirectory: URL,
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws -> URL {
-        // Physical bundles: return their primary sequence directly (no copy needed)
-        if !FASTQBundle.isDerivedBundle(bundleURL),
-           let physicalURL = FASTQBundle.resolvePrimarySequenceURL(for: bundleURL) {
-            return physicalURL
+        if !FASTQBundle.isDerivedBundle(bundleURL) {
+            // A physical bundle that holds several files is every file it
+            // holds, joined in `source-files.json` order with the sidecar
+            // that records the join, as the FASTQ operations dialog,
+            // `fastq materialize` and `assemble` read it. It used to be the
+            // first file alone (R3, lane 1x).
+            if let concatenation = try ResolvedSequenceInputs.concatenateMultiFileBundle(bundleURL, into: tempDirectory) {
+                progress?("Joined \(concatenation.memberURLs.count) files of \(bundleURL.lastPathComponent)")
+                return concatenation.outputURL
+            }
+            // Single-file bundles: return their primary sequence directly (no copy needed)
+            if let physicalURL = FASTQBundle.resolvePrimarySequenceURL(for: bundleURL) {
+                return physicalURL
+            }
         }
 
         guard let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) else {
@@ -172,14 +190,9 @@ public final class FASTQCLIMaterializer: Sendable {
             throw FASTQCLIMaterializerError.rootBundleMissing(manifest.rootBundleRelativePath)
         }
 
-        let rootFASTQURL = try rootPayloadMemberURL(
-            manifest.rootFASTQFilename,
-            in: rootBundleURL,
-            field: "rootFASTQFilename"
-        )
-        guard FileManager.default.fileExists(atPath: rootFASTQURL.path) else {
-            throw FASTQCLIMaterializerError.rootFASTQMissing
-        }
+        // Every file of the root the recipe applies to: the members of a
+        // multi-file root in manifest order, else the one recorded file.
+        let rootFASTQURLs = try rootSequenceURLs(manifest.rootFASTQFilename, in: rootBundleURL)
 
         switch manifest.payload {
         case .full, .fullFASTA, .fullPaired, .fullMixed:
@@ -195,7 +208,7 @@ public final class FASTQCLIMaterializer: Sendable {
             let orientURL = bundleOrientMapURL(bundleURL)
             if manifest.sequenceFormat == .fasta {
                 try await materializeFASTASubset(
-                    rootFASTAURL: rootFASTQURL,
+                    rootFASTAURLs: rootFASTQURLs,
                     readIDListURL: readIDListURL,
                     trimPositionsURL: trimURL,
                     orientMapURL: orientURL,
@@ -203,7 +216,7 @@ public final class FASTQCLIMaterializer: Sendable {
                 )
             } else {
                 try await materializeFASTQSubset(
-                    rootFASTQURL: rootFASTQURL,
+                    rootFASTQURLs: rootFASTQURLs,
                     readIDListURL: readIDListURL,
                     trimPositionsURL: trimURL,
                     orientMapURL: orientURL,
@@ -225,13 +238,13 @@ public final class FASTQCLIMaterializer: Sendable {
             let positions = try FASTQTrimPositionFile.load(from: trimURL)
             if manifest.sequenceFormat == .fasta {
                 try await extractTrimmedFASTAReads(
-                    fromRootFASTA: rootFASTQURL,
+                    fromRootFASTAs: rootFASTQURLs,
                     positions: positions,
                     outputFASTA: outputURL
                 )
             } else {
                 try await extractTrimmedReads(
-                    fromRootFASTQ: rootFASTQURL,
+                    fromRootFASTQs: rootFASTQURLs,
                     positions: positions,
                     outputFASTQ: outputURL
                 )
@@ -255,7 +268,7 @@ public final class FASTQCLIMaterializer: Sendable {
             )
             if manifest.sequenceFormat == .fasta {
                 try await materializeFASTASubset(
-                    rootFASTAURL: rootFASTQURL,
+                    rootFASTAURLs: rootFASTQURLs,
                     readIDListURL: readIDListURL,
                     trimPositionsURL: trimURL,
                     orientMapURL: orientURL,
@@ -263,7 +276,7 @@ public final class FASTQCLIMaterializer: Sendable {
                 )
             } else {
                 try await materializeFASTQSubset(
-                    rootFASTQURL: rootFASTQURL,
+                    rootFASTQURLs: rootFASTQURLs,
                     readIDListURL: readIDListURL,
                     trimPositionsURL: trimURL,
                     orientMapURL: orientURL,
@@ -280,14 +293,14 @@ public final class FASTQCLIMaterializer: Sendable {
             let orientSets = try FASTQOrientMapFile.loadOrientationSets(from: mapURL)
             if manifest.sequenceFormat == .fasta {
                 try await materializeOrientedFASTAReads(
-                    fromRootFASTA: rootFASTQURL,
+                    fromRootFASTAs: rootFASTQURLs,
                     allReadIDs: orientSets.allReadIDs,
                     rcReadIDs: orientSets.rcReadIDs,
                     outputFASTA: outputURL
                 )
             } else {
                 try await materializeOrientedReads(
-                    fromRootFASTQ: rootFASTQURL,
+                    fromRootFASTQs: rootFASTQURLs,
                     allReadIDs: orientSets.allReadIDs,
                     rcReadIDs: orientSets.rcReadIDs,
                     outputFASTQ: outputURL
@@ -361,7 +374,7 @@ public final class FASTQCLIMaterializer: Sendable {
     // MARK: - Subset Materialization
 
     private func materializeFASTQSubset(
-        rootFASTQURL: URL,
+        rootFASTQURLs: [URL],
         readIDListURL: URL,
         trimPositionsURL: URL?,
         orientMapURL: URL?,
@@ -389,14 +402,14 @@ public final class FASTQCLIMaterializer: Sendable {
             let selectedIDs = try loadSelectedReadIDSet(from: readIDListURL)
             let filtered = positions.filter { self.selectedReadIDsMatch($0.key, in: selectedIDs) }
             try await extractTrimmedReads(
-                fromRootFASTQ: rootFASTQURL,
+                fromRootFASTQs: rootFASTQURLs,
                 positions: filtered,
                 outputFASTQ: extractTarget
             )
         } else {
             // Extract subset by read ID list using seqkit grep
             try await extractReadsByIDList(
-                rootFASTQURL: rootFASTQURL,
+                rootFASTQURLs: rootFASTQURLs,
                 readIDListURL: readIDListURL,
                 outputFASTQ: extractTarget
             )
@@ -416,7 +429,7 @@ public final class FASTQCLIMaterializer: Sendable {
                 } else {
                     let positions = try FASTQTrimPositionFile.load(from: trimURL)
                     try await extractTrimmedReads(
-                        fromRootFASTQ: extractTarget,
+                        fromRootFASTQs: [extractTarget],
                         positions: positions,
                         outputFASTQ: tempTrimmed
                     )
@@ -429,7 +442,7 @@ public final class FASTQCLIMaterializer: Sendable {
         if let orientMapURL, fm.fileExists(atPath: orientMapURL.path) {
             let orientSets = try FASTQOrientMapFile.loadOrientationSets(from: orientMapURL)
             try await materializeOrientedReads(
-                fromRootFASTQ: extractTarget,
+                fromRootFASTQs: [extractTarget],
                 allReadIDs: orientSets.allReadIDs,
                 rcReadIDs: orientSets.rcReadIDs,
                 outputFASTQ: outputURL
@@ -438,7 +451,7 @@ public final class FASTQCLIMaterializer: Sendable {
     }
 
     private func materializeFASTASubset(
-        rootFASTAURL: URL,
+        rootFASTAURLs: [URL],
         readIDListURL: URL,
         trimPositionsURL: URL?,
         orientMapURL: URL?,
@@ -465,14 +478,14 @@ public final class FASTQCLIMaterializer: Sendable {
             let selectedIDs = try loadSelectedReadIDSet(from: readIDListURL)
             let filtered = positions.filter { self.selectedReadIDsMatch($0.key, in: selectedIDs) }
             try await extractTrimmedFASTAReads(
-                fromRootFASTA: rootFASTAURL,
+                fromRootFASTAs: rootFASTAURLs,
                 positions: filtered,
                 outputFASTA: extractTarget
             )
         } else {
             // Use seqkit for FASTA subset extraction too
             try await extractReadsByIDList(
-                rootFASTQURL: rootFASTAURL,
+                rootFASTQURLs: rootFASTAURLs,
                 readIDListURL: readIDListURL,
                 outputFASTQ: extractTarget
             )
@@ -481,7 +494,7 @@ public final class FASTQCLIMaterializer: Sendable {
         if let orientMapURL, fm.fileExists(atPath: orientMapURL.path) {
             let orientSets = try FASTQOrientMapFile.loadOrientationSets(from: orientMapURL)
             try await materializeOrientedFASTAReads(
-                fromRootFASTA: extractTarget,
+                fromRootFASTAs: [extractTarget],
                 allReadIDs: orientSets.allReadIDs,
                 rcReadIDs: orientSets.rcReadIDs,
                 outputFASTA: outputURL
@@ -491,19 +504,14 @@ public final class FASTQCLIMaterializer: Sendable {
 
     // MARK: - seqkit grep extraction
 
+    /// `seqkit grep -f` over every root file in order, so the selected
+    /// records come out in root order whichever file holds them.
     private func extractReadsByIDList(
-        rootFASTQURL: URL,
+        rootFASTQURLs: [URL],
         readIDListURL: URL,
         outputFASTQ: URL
     ) async throws {
-        // Resolve multi-file bundles
-        var inputPaths = [rootFASTQURL.path]
-        let parentBundle = rootFASTQURL.deletingLastPathComponent()
-        if FASTQBundle.isBundleURL(parentBundle),
-           let allURLs = FASTQBundle.resolveAllFASTQURLs(for: parentBundle),
-           allURLs.count > 1 {
-            inputPaths = allURLs.map(\.path)
-        }
+        let inputPaths = rootFASTQURLs.map(\.path)
 
         var args = ["grep", "-f", readIDListURL.path]
         args.append(contentsOf: inputPaths)
@@ -518,8 +526,12 @@ public final class FASTQCLIMaterializer: Sendable {
 
     // MARK: - Trim extraction (pure Swift I/O)
 
+    /// Streams the root files in order as one record stream. A positional
+    /// key (`id#ordinal`) counts occurrences of a base ID across the whole
+    /// stream, so a table made over the first file alone still names the
+    /// same records when the later files are read after it.
     private func extractTrimmedReads(
-        fromRootFASTQ rootFASTQ: URL,
+        fromRootFASTQs rootFASTQs: [URL],
         positions: [String: (start: Int, end: Int)],
         outputFASTQ: URL
     ) async throws {
@@ -535,27 +547,31 @@ public final class FASTQCLIMaterializer: Sendable {
 
         if usesPositionalKeys {
             var occurrencePerBaseID: [String: Int] = [:]
-            for try await record in reader.records(from: rootFASTQ) {
-                let baseID = normalizedIdentifier(record.identifier)
-                let ordinal = occurrencePerBaseID[baseID] ?? 0
-                occurrencePerBaseID[baseID] = ordinal + 1
-                let key = "\(baseID)#\(ordinal)"
-                guard let pos = positions[key] else { continue }
-                let trimmed = record.trimmed(from: pos.start, to: pos.end)
-                if trimmed.length > 0 { try writer.write(trimmed) }
+            for rootFASTQ in rootFASTQs {
+                for try await record in reader.records(from: rootFASTQ) {
+                    let baseID = normalizedIdentifier(record.identifier)
+                    let ordinal = occurrencePerBaseID[baseID] ?? 0
+                    occurrencePerBaseID[baseID] = ordinal + 1
+                    let key = "\(baseID)#\(ordinal)"
+                    guard let pos = positions[key] else { continue }
+                    let trimmed = record.trimmed(from: pos.start, to: pos.end)
+                    if trimmed.length > 0 { try writer.write(trimmed) }
+                }
             }
         } else {
-            for try await record in reader.records(from: rootFASTQ) {
-                let key = normalizedIdentifier(record.identifier)
-                guard let pos = positions[key] else { continue }
-                let trimmed = record.trimmed(from: pos.start, to: pos.end)
-                if trimmed.length > 0 { try writer.write(trimmed) }
+            for rootFASTQ in rootFASTQs {
+                for try await record in reader.records(from: rootFASTQ) {
+                    let key = normalizedIdentifier(record.identifier)
+                    guard let pos = positions[key] else { continue }
+                    let trimmed = record.trimmed(from: pos.start, to: pos.end)
+                    if trimmed.length > 0 { try writer.write(trimmed) }
+                }
             }
         }
     }
 
     private func extractTrimmedFASTAReads(
-        fromRootFASTA rootFASTA: URL,
+        fromRootFASTAs rootFASTAs: [URL],
         positions: [String: (start: Int, end: Int)],
         outputFASTA: URL
     ) async throws {
@@ -564,36 +580,41 @@ public final class FASTQCLIMaterializer: Sendable {
         }
 
         let usesPositionalKeys = positions.keys.contains(where: { $0.contains("#") })
-        let reader = try FASTAReader(url: rootFASTA)
         FileManager.default.createFile(atPath: outputFASTA.path, contents: nil)
         let handle = try FileHandle(forWritingTo: outputFASTA)
         defer { try? handle.close() }
 
         if usesPositionalKeys {
             var occurrencePerBaseID: [String: Int] = [:]
-            for try await seq in reader.sequences() {
-                let baseID = normalizedIdentifier(seq.name)
-                let ordinal = occurrencePerBaseID[baseID] ?? 0
-                occurrencePerBaseID[baseID] = ordinal + 1
-                let key = "\(baseID)#\(ordinal)"
-                guard let pos = positions[key] else { continue }
-                let full = seq.asString()
-                let start = min(pos.start, full.count)
-                let end = min(pos.end, full.count)
-                guard end > start else { continue }
-                let trimmedSeq = String(full.dropFirst(start).prefix(end - start))
-                writeFASTARecord(name: seq.name, sequence: trimmedSeq, to: handle)
+            for rootFASTA in rootFASTAs {
+                let reader = try FASTAReader(url: rootFASTA)
+                for try await seq in reader.sequences() {
+                    let baseID = normalizedIdentifier(seq.name)
+                    let ordinal = occurrencePerBaseID[baseID] ?? 0
+                    occurrencePerBaseID[baseID] = ordinal + 1
+                    let key = "\(baseID)#\(ordinal)"
+                    guard let pos = positions[key] else { continue }
+                    let full = seq.asString()
+                    let start = min(pos.start, full.count)
+                    let end = min(pos.end, full.count)
+                    guard end > start else { continue }
+                    let trimmedSeq = String(full.dropFirst(start).prefix(end - start))
+                    writeFASTARecord(name: seq.name, sequence: trimmedSeq, to: handle)
+                }
             }
         } else {
-            for try await seq in reader.sequences() {
-                let key = normalizedIdentifier(seq.name)
-                guard let pos = positions[key] else { continue }
-                let full = seq.asString()
-                let start = min(pos.start, full.count)
-                let end = min(pos.end, full.count)
-                guard end > start else { continue }
-                let trimmedSeq = String(full.dropFirst(start).prefix(end - start))
-                writeFASTARecord(name: seq.name, sequence: trimmedSeq, to: handle)
+            for rootFASTA in rootFASTAs {
+                let reader = try FASTAReader(url: rootFASTA)
+                for try await seq in reader.sequences() {
+                    let key = normalizedIdentifier(seq.name)
+                    guard let pos = positions[key] else { continue }
+                    let full = seq.asString()
+                    let start = min(pos.start, full.count)
+                    let end = min(pos.end, full.count)
+                    guard end > start else { continue }
+                    let trimmedSeq = String(full.dropFirst(start).prefix(end - start))
+                    writeFASTARecord(name: seq.name, sequence: trimmedSeq, to: handle)
+                }
             }
         }
     }
@@ -601,7 +622,7 @@ public final class FASTQCLIMaterializer: Sendable {
     // MARK: - Orient materialization
 
     private func materializeOrientedReads(
-        fromRootFASTQ rootFASTQ: URL,
+        fromRootFASTQs rootFASTQs: [URL],
         allReadIDs: Set<String>,
         rcReadIDs: Set<String>,
         outputFASTQ: URL
@@ -611,35 +632,39 @@ public final class FASTQCLIMaterializer: Sendable {
         try writer.open()
         defer { try? writer.close() }
 
-        for try await record in reader.records(from: rootFASTQ) {
-            let id = normalizedIdentifier(record.identifier)
-            if rcReadIDs.contains(id) {
-                try writer.write(record.reverseComplement())
-            } else if allReadIDs.contains(id) {
-                try writer.write(record)
+        for rootFASTQ in rootFASTQs {
+            for try await record in reader.records(from: rootFASTQ) {
+                let id = normalizedIdentifier(record.identifier)
+                if rcReadIDs.contains(id) {
+                    try writer.write(record.reverseComplement())
+                } else if allReadIDs.contains(id) {
+                    try writer.write(record)
+                }
             }
         }
     }
 
     private func materializeOrientedFASTAReads(
-        fromRootFASTA rootFASTA: URL,
+        fromRootFASTAs rootFASTAs: [URL],
         allReadIDs: Set<String>,
         rcReadIDs: Set<String>,
         outputFASTA: URL
     ) async throws {
-        let reader = try FASTAReader(url: rootFASTA)
         FileManager.default.createFile(atPath: outputFASTA.path, contents: nil)
         let handle = try FileHandle(forWritingTo: outputFASTA)
         defer { try? handle.close() }
 
-        for try await seq in reader.sequences() {
-            let id = normalizedIdentifier(seq.name)
-            if rcReadIDs.contains(id) {
-                if let rc = seq.reverseComplement() {
-                    writeFASTARecord(name: seq.name, sequence: rc.asString(), to: handle)
+        for rootFASTA in rootFASTAs {
+            let reader = try FASTAReader(url: rootFASTA)
+            for try await seq in reader.sequences() {
+                let id = normalizedIdentifier(seq.name)
+                if rcReadIDs.contains(id) {
+                    if let rc = seq.reverseComplement() {
+                        writeFASTARecord(name: seq.name, sequence: rc.asString(), to: handle)
+                    }
+                } else if allReadIDs.contains(id) {
+                    writeFASTARecord(name: seq.name, sequence: seq.asString(), to: handle)
                 }
-            } else if allReadIDs.contains(id) {
-                writeFASTARecord(name: seq.name, sequence: seq.asString(), to: handle)
             }
         }
     }
@@ -747,17 +772,23 @@ public final class FASTQCLIMaterializer: Sendable {
         return try payloadMemberURL(relativePath, in: bundleURL, field: field)
     }
 
-    private func rootPayloadMemberURL(_ relativePath: String, in bundleURL: URL, field: String) throws -> URL {
+    /// The root files a derivative's recipe applies to, each of which exists:
+    /// every member of a multi-file root in manifest order, else the one
+    /// recorded file (`FASTQBundle.rootSequenceURLs`).
+    private func rootSequenceURLs(_ rootFASTQFilename: String, in rootBundleURL: URL) throws -> [URL] {
+        let urls: [URL]
         do {
-            return try FASTQBundle.validatedBundleMemberURL(
-                for: relativePath,
-                in: bundleURL,
-                field: field,
-                allowExistingSymlinkEscape: true
-            )
+            urls = try FASTQBundle.rootSequenceURLs(rootFASTQFilename: rootFASTQFilename, in: rootBundleURL)
+        } catch let error as FASTQBundlePathError {
+            if case .missingMember = error { throw error }
+            throw FASTQCLIMaterializerError.rootFASTQMissing
         } catch {
             throw FASTQCLIMaterializerError.rootFASTQMissing
         }
+        guard !urls.isEmpty, urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else {
+            throw FASTQCLIMaterializerError.rootFASTQMissing
+        }
+        return urls
     }
 
     private func bundleTrimPositionsURL(_ bundleURL: URL) -> URL? {
