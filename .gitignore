@@ -3,6 +3,8 @@
 *
 !*/
 !.gitignore
+!AGENTS.md
+!CLAUDE.md
 !.github/**
 !.readthedocs.yaml
 !.vscode/launch.json
