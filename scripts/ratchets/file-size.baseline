@@ -1,9 +1,9 @@
 # file-size baseline: Swift files over 800 lines (path, length). Lengths may only fall.
-Sources/LungfishApp/App/AppDelegate+Classification.swift 2803
+Sources/LungfishApp/App/AppDelegate+Classification.swift 2780
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3390
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
-Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1740
+Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1739
 Sources/LungfishApp/App/AppDelegate.swift 2742
 Sources/LungfishApp/App/MainMenu.swift 1670
 Sources/LungfishApp/App/VCFImportHelper.swift 1147
@@ -198,7 +198,7 @@ Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 937
 Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 3058
 Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 1487
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 1019
-Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1322
+Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1316
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 915
 Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 1867
 Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2737
