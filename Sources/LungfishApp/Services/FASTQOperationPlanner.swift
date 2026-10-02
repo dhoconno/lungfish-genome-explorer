@@ -350,37 +350,25 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
                   !resolvedAssemblyRequest.pairedEnd &&
                   originalAssemblyRequest.inputURLs.count > 1 &&
                   originalAssemblyRequest.inputURLs.count == resolvedAssemblyRequest.inputURLs.count:
-            // `pairedEnd` gates this split (unchanged from the original
-            // implementation) because by the time a request reaches this
-            // planner, `inputURLs` may equally be N independent single-end
-            // files (safe to split, one CLI run per file) OR the two files
-            // of one genuine paired-end sample already resolved to raw R1/R2
-            // paths (MUST stay together as one `--paired` run -- see
-            // `testExecuteKeepsPairedAssemblyAsSinglePerInputPlan`). The
-            // planner cannot tell those two shapes apart from file count
-            // alone, so `pairedEnd` -- set correctly upstream -- remains the
-            // authoritative signal here.
-            //
-            // The MB-2 multi-bundle fix does NOT touch this predicate: real
-            // per-bundle splitting for a wizard-driven N>1 BUNDLE selection
-            // happens earlier and separately, in `FASTQOperationLaunchRequest
-            // .independentAssembleLaunchRequests` (driven by the user's
-            // explicit `.perBundle` picker choice, with each child's
-            // `pairedEnd` derived from that ONE bundle's own real content via
-            // `AppDelegate.resolvedAssemblyPairedEnd(for:)`) -- by the time
-            // any request reaches this planner, that fan-out has already
-            // reduced it to a single bundle's worth of input, so this branch
-            // is effectively dead for the GUI dialog flow and exists only for
-            // direct/API callers of `FASTQOperationExecutionService` with a
-            // pre-resolved multi-file, non-paired input list.
-            return zip(originalAssemblyRequest.inputURLs, resolvedAssemblyRequest.inputURLs).map { originalInputURL, resolvedInputURL in
+            // One run per sample (R3). Each loose file and each bundle is its
+            // own run, and the files of one bundle stay one run, because
+            // `lungfish-cli assemble` reads any file of a bundle as the whole
+            // bundle: one run per file assembled that bundle once per file.
+            // `pairedEnd` keeps two R1/R2 files in one run, and the wizard's
+            // per-bundle batch splits its bundles earlier, in
+            // `FASTQOperationLaunchRequest.independentAssembleLaunchRequests`.
+            return AssemblyInputSamples.groups(originalAssemblyRequest.inputURLs).map { positions in
                 (
                     .assemble(
-                        request: originalAssemblyRequest.replacingInputURLs(with: [originalInputURL]),
+                        request: originalAssemblyRequest.replacingInputURLs(
+                            with: positions.map { originalAssemblyRequest.inputURLs[$0] }
+                        ),
                         outputMode: outputMode
                     ),
                     .assemble(
-                        request: resolvedAssemblyRequest.replacingInputURLs(with: [resolvedInputURL]),
+                        request: resolvedAssemblyRequest.replacingInputURLs(
+                            with: positions.map { resolvedAssemblyRequest.inputURLs[$0] }
+                        ),
                         outputMode: resolvedOutputMode
                     )
                 )
