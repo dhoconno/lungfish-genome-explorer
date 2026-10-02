@@ -1020,22 +1020,6 @@ extension AppDelegate {
 
     internal func seedOperationsPanelFailureForUITest() {
         OperationCenter.shared.clearCompleted()
-        let operationID = OperationCenter.shared.start(
-            title: "UI test failed operation",
-            detail: "Preparing deterministic failure",
-            operationType: .classification,
-            cliCommand: "\(CLICommandIdentity.executableName) conda classify --reads '~/ui-test/R1.fastq.gz'"
-        )
-        OperationCenter.shared.log(
-            id: operationID,
-            level: .info,
-            message: "UI test seeded operation"
-        )
-        _ = OperationCenter.shared.fail(
-            id: operationID,
-            detail: "Deterministic failure used by XCUI",
-            errorMessage: "UI test failure",
-            errorDetail: "This fixture exercises the Operations panel GitHub issue action."
-        )
+        Self.seedOperationsPanelFailure()
     }
 }
