@@ -15,10 +15,10 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1996 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 115 | 59943 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
-| LungfishCore | library | Sources/LungfishCore | 113 | 36324 | 278 | none |
+| LungfishCore | library | Sources/LungfishCore | 127 | 36407 | 278 | none |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | 5588 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 57 | 51148 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 232 | 98852 | 622 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 372 | 99553 | 622 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 79 | 18142 | 142 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 5 | 4039 | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | 3331 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -399,7 +399,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishCore
-- Swift files. 113, lines 36324
+- Swift files. 127, lines 36407
 - Depends on. none
 - External products. Algorithms (swift-algorithms), Collections (swift-collections)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow
@@ -415,12 +415,12 @@ None.
 | Editing | 2 | 557 |
 | Extraction | 1 | 470 |
 | Genotype | 3 | 328 |
-| Models | 33 | 8503 |
-| Services | 35 | 13160 |
+| Models | 44 | 8565 |
+| Services | 38 | 13181 |
 | Services/AI | 6 | 1919 |
 | Services/Blast | 9 | 3740 |
 | Services/ENA | 2 | 748 |
-| Services/NCBI | 9 | 4014 |
+| Services/NCBI | 12 | 4035 |
 | Services/Pathoplexus | 2 | 941 |
 | Services/SRA | 1 | 79 |
 | Storage | 12 | 5169 |
@@ -459,7 +459,7 @@ None.
 - `AnnotationType` enum, `Sources/LungfishCore/Models/SequenceAnnotation.swift:255`
 - `AnthropicProvider` actor, `Sources/LungfishCore/Services/AI/AnthropicProvider.swift:14`
 - `APFSCloneSupport` enum, `Sources/LungfishCore/Storage/APFSCloneSupport.swift:14`
-- `AppSettings` class, `Sources/LungfishCore/Models/AppSettings.swift:147`
+- `AppSettings` class, `Sources/LungfishCore/Models/AppSettings.swift:29`
 - `BlastDatabaseID` enum, `Sources/LungfishCore/Models/BlastDatabaseID.swift:10`
 - `BlastHit` struct, `Sources/LungfishCore/Services/Blast/BlastResult.swift:518`
 - `BlastHitRelation` enum, `Sources/LungfishCore/Services/Blast/BlastTaxonMatching.swift:10`
@@ -509,8 +509,8 @@ None.
 - `CLICommandIdentity` enum, `Sources/LungfishCore/CLICommandIdentity.swift:6`
 - `CodonTable` struct, `Sources/LungfishCore/Translation/CodonTable.swift:8`
 - `CollectionTier` enum, `Sources/LungfishCore/Models/TaxaCollection.swift:46`
-- `ContentTextSizePreference` enum, `Sources/LungfishCore/Models/AppSettings.swift:42`
-- `ContigInfo` struct, `Sources/LungfishCore/Models/VariantTrack.swift:633`
+- `ContentTextSizePreference` enum, `Sources/LungfishCore/Models/ContentTextSizePreference.swift:13`
+- `ContigInfo` struct, `Sources/LungfishCore/Models/ContigInfo.swift:10`
 - `DatabaseRecord` struct, `Sources/LungfishCore/Services/DatabaseService.swift:224`
 - `DatabaseService` protocol, `Sources/LungfishCore/Services/DatabaseService.swift:19`
 - `DatabaseServiceError` enum, `Sources/LungfishCore/Services/DatabaseService.swift:319`
@@ -535,7 +535,7 @@ None.
 - `ExtractionRequest` struct, `Sources/LungfishCore/Extraction/SequenceExtractor.swift:10`
 - `ExtractionResult` struct, `Sources/LungfishCore/Extraction/SequenceExtractor.swift:75`
 - `FASTARecord` struct, `Sources/LungfishCore/Services/Pathoplexus/PathoplexusService.swift:554`
-- `FieldDefinition` struct, `Sources/LungfishCore/Models/VariantTrack.swift:655`
+- `FieldDefinition` struct, `Sources/LungfishCore/Models/FieldDefinition.swift:10`
 - `FileBlastSubmissionLedger` actor, `Sources/LungfishCore/Services/Blast/BlastSubmissionLedger.swift:107`
 - `FileDigest` enum, `Sources/LungfishCore/FileDigest.swift:18`
 - `FilterOp` enum, `Sources/LungfishCore/Models/SampleDisplayState.swift:270`
@@ -577,7 +577,7 @@ None.
 - `ManagedStorageDedupeOptions` struct, `Sources/LungfishCore/Storage/ManagedStorageDeduplicator.swift:9`
 - `ManagedStorageDedupeReport` struct, `Sources/LungfishCore/Storage/ManagedStorageDeduplicator.swift:28`
 - `ManagedStorageDeduplicator` struct, `Sources/LungfishCore/Storage/ManagedStorageDeduplicator.swift:137`
-- `ManagedStorageDisplayState` enum, `Sources/LungfishCore/Models/AppSettings.swift:122`
+- `ManagedStorageDisplayState` enum, `Sources/LungfishCore/Models/ManagedStorageDisplayState.swift:9`
 - `ManagedStorageLocation` struct, `Sources/LungfishCore/Storage/ManagedStorageLocation.swift:3`
 - `MetadataColumnScanResult` struct, `Sources/LungfishCore/Models/SampleMetadataStore.swift:17`
 - `MetadataEdit` struct, `Sources/LungfishCore/Models/SampleMetadataStore.swift:8`
@@ -638,7 +638,7 @@ None.
 - `SampleMetadataSourceSummary` struct, `Sources/LungfishCore/Models/SampleMetadataResolver.swift:74`
 - `SampleMetadataStore` class, `Sources/LungfishCore/Models/SampleMetadataStore.swift:47`
 - `SampleMetadataTable` struct, `Sources/LungfishCore/Models/SampleMetadataResolver.swift:157`
-- `ScrollDirectionPreference` enum, `Sources/LungfishCore/Models/AppSettings.swift:23`
+- `ScrollDirectionPreference` enum, `Sources/LungfishCore/Models/ScrollDirectionPreference.swift:9`
 - `SearchQuery` struct, `Sources/LungfishCore/Services/DatabaseService.swift:53`
 - `SearchResultRecord` struct, `Sources/LungfishCore/Services/DatabaseService.swift:138`
 - `SearchResults` struct, `Sources/LungfishCore/Services/DatabaseService.swift:103`
@@ -653,7 +653,7 @@ None.
 - `SequenceExtractor` enum, `Sources/LungfishCore/Extraction/SequenceExtractor.swift:153`
 - `SequenceLengthStatistics` enum, `Sources/LungfishCore/Models/SequenceLengthStatistics.swift:4`
 - `SequenceSummary` struct, `Sources/LungfishCore/Storage/ProjectStore.swift:1438`
-- `SettingsSection` enum, `Sources/LungfishCore/Models/AppSettings.swift:13`
+- `SettingsSection` enum, `Sources/LungfishCore/Models/SettingsSection.swift:11`
 - `SignalInput` struct, `Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift:218`
 - `SignalTrackInfo` struct, `Sources/LungfishCore/Bundles/BundleTracks.swift:500`
 - `SignalTrackType` enum, `Sources/LungfishCore/Bundles/BundleTracks.swift:709`
@@ -661,9 +661,9 @@ None.
 - `SourceInfo` struct, `Sources/LungfishCore/Bundles/BundleTracks.swift:97`
 - `SRAAccessionParser` enum, `Sources/LungfishCore/Services/SRA/SRAAccessionParser.swift:17`
 - `SRAAccessionType` enum, `Sources/LungfishCore/Services/SRA/SRAAccessionParser.swift:8`
-- `SRAError` enum, `Sources/LungfishCore/Services/NCBI/SRAService.swift:1063`
-- `SRARunInfo` struct, `Sources/LungfishCore/Services/NCBI/SRAService.swift:988`
-- `SRASearchResults` struct, `Sources/LungfishCore/Services/NCBI/SRAService.swift:968`
+- `SRAError` enum, `Sources/LungfishCore/Services/NCBI/SRAError.swift:12`
+- `SRARunInfo` struct, `Sources/LungfishCore/Services/NCBI/SRARunInfo.swift:12`
+- `SRASearchResults` struct, `Sources/LungfishCore/Services/NCBI/SRASearchResults.swift:12`
 - `SRAService` actor, `Sources/LungfishCore/Services/NCBI/SRAService.swift:30`
 - `StoredAnnotation` struct, `Sources/LungfishCore/Storage/ProjectStore.swift:1471`
 - `StoredSequence` struct, `Sources/LungfishCore/Storage/ProjectStore.swift:1425`
@@ -680,21 +680,21 @@ None.
 - `TranslationResult` struct, `Sources/LungfishCore/Translation/TranslationResult.swift:8`
 - `UniqueReadStartCounter` struct, `Sources/LungfishCore/Models/UniqueReadStartCounter.swift:22`
 - `URLSessionHTTPClient` struct, `Sources/LungfishCore/Services/DatabaseService.swift:386`
-- `VariantColorScheme` enum, `Sources/LungfishCore/Models/VariantTrack.swift:565`
+- `VariantColorScheme` enum, `Sources/LungfishCore/Models/VariantColorScheme.swift:10`
 - `VariantColorTheme` struct, `Sources/LungfishCore/Models/VariantColorTheme.swift:30`
 - `VariantConversionError` enum, `Sources/LungfishCore/Bundles/Converters/VariantConverter.swift:372`
 - `VariantConverter` class, `Sources/LungfishCore/Bundles/Converters/VariantConverter.swift:36`
 - `VariantImpact` enum, `Sources/LungfishCore/Models/SampleDisplayState.swift:321`
 - `VariantInput` struct, `Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift:183`
 - `VariantSite` struct, `Sources/LungfishCore/Models/SampleDisplayState.swift:360`
-- `VariantTrack` struct, `Sources/LungfishCore/Models/VariantTrack.swift:335`
-- `VariantTrackDisplaySettings` struct, `Sources/LungfishCore/Models/VariantTrack.swift:519`
+- `VariantTrack` struct, `Sources/LungfishCore/Models/VariantTrack.swift:34`
+- `VariantTrackDisplaySettings` struct, `Sources/LungfishCore/Models/VariantTrackDisplaySettings.swift:10`
 - `VariantTrackInfo` struct, `Sources/LungfishCore/Bundles/BundleTracks.swift:410`
 - `VariantTrackType` enum, `Sources/LungfishCore/Bundles/BundleTracks.swift:484`
-- `VariantType` enum, `Sources/LungfishCore/Models/VariantTrack.swift:252`
-- `VCFMetadata` struct, `Sources/LungfishCore/Models/VariantTrack.swift:582`
+- `VariantType` enum, `Sources/LungfishCore/Models/VariantType.swift:10`
+- `VCFMetadata` struct, `Sources/LungfishCore/Models/VCFMetadata.swift:10`
 - `VCFValidationIssue` enum, `Sources/LungfishCore/Bundles/Converters/VariantConverter.swift:332`
-- `VCFVariant` struct, `Sources/LungfishCore/Models/VariantTrack.swift:40`
+- `VCFVariant` struct, `Sources/LungfishCore/Models/VCFVariant.swift:40`
 - `Version` struct, `Sources/LungfishCore/Versioning/Version.swift:23`
 - `VersionError` enum, `Sources/LungfishCore/Versioning/VersionHistory.swift:292`
 - `VersionHistory` class, `Sources/LungfishCore/Versioning/VersionHistory.swift:29`
@@ -801,7 +801,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishIO
-- Swift files. 232, lines 98852
+- Swift files. 372, lines 99553
 - Depends on. LungfishCore
 - External products. AsyncAlgorithms (swift-async-algorithms), SystemPackage (swift-system)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow
@@ -812,46 +812,46 @@ None.
 | Subdirectory | Swift files | Lines |
 |---|---|---|
 | Assembly | 1 | 222 |
-| Bundles | 105 | 49346 |
+| Bundles | 202 | 49797 |
 | Compression | 1 | 716 |
-| Formats | 98 | 38552 |
+| Formats | 136 | 38792 |
 | Formats/BED | 1 | 464 |
 | Formats/Common | 4 | 511 |
 | Formats/EsViritu | 6 | 2204 |
 | Formats/FASTA | 1 | 734 |
-| Formats/FASTQ | 47 | 17175 |
-| Formats/GFF | 2 | 1483 |
+| Formats/FASTQ | 67 | 17299 |
+| Formats/GFF | 7 | 1513 |
 | Formats/GenBank | 1 | 1469 |
 | Formats/Kraken | 9 | 3685 |
-| Formats/NaoMgs | 8 | 3924 |
+| Formats/NaoMgs | 12 | 3948 |
 | Formats/Nvd | 4 | 1759 |
 | Formats/SAM | 2 | 697 |
 | Formats/Seqkit | 1 | 297 |
-| Formats/TaxTriage | 8 | 2350 |
-| Formats/VCF | 2 | 1078 |
+| Formats/TaxTriage | 12 | 2382 |
+| Formats/VCF | 7 | 1108 |
 | Index | 1 | 422 |
 | Metadata | 1 | 124 |
 | Registry | 8 | 2546 |
 | Search | 5 | 3020 |
 | Services | 4 | 1225 |
-| Storage | 5 | 2575 |
+| Storage | 10 | 2585 |
 
 ### Public types
 
 - `AdapterQCResult` struct, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapters.swift:186`
-- `AlignmentConsensusExecutionRecord` struct, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:193`
-- `AlignmentConsensusFileDescriptor` struct, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:167`
-- `AlignmentConsensusFilters` struct, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:80`
-- `AlignmentConsensusMode` enum, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:74`
-- `AlignmentConsensusNormalizer` enum, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:256`
-- `AlignmentConsensusReadGroupFile` struct, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:180`
-- `AlignmentConsensusRequest` struct, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:103`
-- `AlignmentConsensusResult` struct, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:145`
-- `AlignmentDataProvider` class, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:396`
-- `AlignmentFetchError` enum, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:1726`
+- `AlignmentConsensusExecutionRecord` struct, `Sources/LungfishIO/Bundles/AlignmentConsensusExecutionRecord.swift:12`
+- `AlignmentConsensusFileDescriptor` struct, `Sources/LungfishIO/Bundles/AlignmentConsensusFileDescriptor.swift:12`
+- `AlignmentConsensusFilters` struct, `Sources/LungfishIO/Bundles/AlignmentConsensusFilters.swift:12`
+- `AlignmentConsensusMode` enum, `Sources/LungfishIO/Bundles/AlignmentConsensusMode.swift:12`
+- `AlignmentConsensusNormalizer` enum, `Sources/LungfishIO/Bundles/AlignmentConsensusNormalizer.swift:12`
+- `AlignmentConsensusReadGroupFile` struct, `Sources/LungfishIO/Bundles/AlignmentConsensusReadGroupFile.swift:12`
+- `AlignmentConsensusRequest` struct, `Sources/LungfishIO/Bundles/AlignmentConsensusRequest.swift:12`
+- `AlignmentConsensusResult` struct, `Sources/LungfishIO/Bundles/AlignmentConsensusResult.swift:12`
+- `AlignmentDataProvider` class, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:87`
+- `AlignmentFetchError` enum, `Sources/LungfishIO/Bundles/AlignmentFetchError.swift:14`
 - `AlignmentMetadataDatabase` class, `Sources/LungfishIO/Bundles/AlignmentMetadataDatabase.swift:37`
-- `AlignmentMetadataError` enum, `Sources/LungfishIO/Bundles/AlignmentMetadataDatabase.swift:1008`
-- `AlignmentReadSketch` struct, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:308`
+- `AlignmentMetadataError` enum, `Sources/LungfishIO/Bundles/AlignmentMetadataError.swift:13`
+- `AlignmentReadSketch` struct, `Sources/LungfishIO/Bundles/AlignmentReadSketch.swift:12`
 - `AnalysesFolder` enum, `Sources/LungfishIO/Bundles/AnalysesFolder.swift:17`
 - `AnalysesMigration` enum, `Sources/LungfishIO/Bundles/AnalysesMigration.swift:11`
 - `AnalysisManifest` struct, `Sources/LungfishIO/Bundles/AnalysisManifest.swift:95`
@@ -867,14 +867,14 @@ None.
 - `AssemblyStatisticsCalculator` enum, `Sources/LungfishIO/Assembly/AssemblyStatistics.swift:57`
 - `AssemblyStatisticsError` enum, `Sources/LungfishIO/Assembly/AssemblyStatistics.swift:210`
 - `BarcodeDetection` struct, `Sources/LungfishIO/Formats/FASTQ/BarcodeScoutResult.swift:83`
-- `BarcodeEntry` struct, `Sources/LungfishIO/Formats/FASTQ/IlluminaBarcodeKits.swift:127`
+- `BarcodeEntry` struct, `Sources/LungfishIO/Formats/FASTQ/BarcodeEntry.swift:12`
 - `BarcodeKit` struct, `Sources/LungfishIO/Formats/FASTQ/DemultiplexManifest.swift:204`
-- `BarcodeKitDefinition` struct, `Sources/LungfishIO/Formats/FASTQ/IlluminaBarcodeKits.swift:22`
-- `BarcodeKitLoadError` enum, `Sources/LungfishIO/Formats/FASTQ/IlluminaBarcodeKits.swift:160`
-- `BarcodeKitRegistry` enum, `Sources/LungfishIO/Formats/FASTQ/IlluminaBarcodeKits.swift:251`
+- `BarcodeKitDefinition` struct, `Sources/LungfishIO/Formats/FASTQ/BarcodeKitDefinition.swift:8`
+- `BarcodeKitLoadError` enum, `Sources/LungfishIO/Formats/FASTQ/BarcodeKitLoadError.swift:7`
+- `BarcodeKitRegistry` enum, `Sources/LungfishIO/Formats/FASTQ/IlluminaBarcodeKits.swift:10`
 - `BarcodeKitType` enum, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapterContext.swift:55`
-- `BarcodeLocation` enum, `Sources/LungfishIO/Formats/FASTQ/IlluminaBarcodeKits.swift:183`
-- `BarcodePairingMode` enum, `Sources/LungfishIO/Formats/FASTQ/IlluminaBarcodeKits.swift:10`
+- `BarcodeLocation` enum, `Sources/LungfishIO/Formats/FASTQ/BarcodeLocation.swift:10`
+- `BarcodePairingMode` enum, `Sources/LungfishIO/Formats/FASTQ/BarcodePairingMode.swift:10`
 - `BarcodeResult` struct, `Sources/LungfishIO/Formats/FASTQ/DemultiplexManifest.swift:298`
 - `BarcodeScoutResult` struct, `Sources/LungfishIO/Formats/FASTQ/BarcodeScoutResult.swift:12`
 - `BarcodeSummary` struct, `Sources/LungfishIO/Formats/FASTQ/BatchManifest.swift:161`
@@ -896,13 +896,13 @@ None.
 - `BrackenParserError` enum, `Sources/LungfishIO/Formats/Kraken/BrackenParser.swift:15`
 - `BrackenRow` struct, `Sources/LungfishIO/Formats/Kraken/BrackenParser.swift:47`
 - `BundleAttachmentManager` struct, `Sources/LungfishIO/Formats/FASTQ/BundleAttachmentManager.swift:19`
-- `BundleVariant` struct, `Sources/LungfishIO/Bundles/ReferenceBundle.swift:838`
+- `BundleVariant` struct, `Sources/LungfishIO/Bundles/BundleVariant.swift:12`
 - `CompressionType` enum, `Sources/LungfishIO/Registry/FormatDescriptor.swift:268`
 - `DataLossWarning` struct, `Sources/LungfishIO/Registry/FormatExporter.swift:122`
 - `DemultiplexManifest` struct, `Sources/LungfishIO/Formats/FASTQ/DemultiplexManifest.swift:27`
 - `DemultiplexParameters` struct, `Sources/LungfishIO/Formats/FASTQ/DemultiplexManifest.swift:249`
-- `DepthCappedReadSketch` struct, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:325`
-- `DepthPoint` struct, `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift:58`
+- `DepthCappedReadSketch` struct, `Sources/LungfishIO/Bundles/DepthCappedReadSketch.swift:12`
+- `DepthPoint` struct, `Sources/LungfishIO/Bundles/DepthPoint.swift:14`
 - `DetectionDisposition` enum, `Sources/LungfishIO/Formats/FASTQ/BarcodeScoutResult.swift:134`
 - `DurableAtomicFileStore` struct, `Sources/LungfishIO/Storage/DurableAtomicFileStore.swift:6`
 - `EsVirituCoverageParser` enum, `Sources/LungfishIO/Formats/EsViritu/EsVirituCoverageParser.swift:64`
@@ -927,7 +927,7 @@ None.
 - `FASTQAdapterLocation` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:31`
 - `FASTQAdapterMode` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:203`
 - `FASTQAdapterSearchEnd` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:70`
-- `FASTQAssemblyReadType` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:17`
+- `FASTQAssemblyReadType` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQAssemblyReadType.swift:15`
 - `FASTQBatchManifest` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQBatchManifest.swift:28`
 - `FASTQBundle` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQBundle.swift:12`
 - `FASTQBundleCSVMetadata` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQBundleCSVMetadata.swift:48`
@@ -943,7 +943,7 @@ None.
 - `FASTQDerivativePayload` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivativePayload.swift:9`
 - `FASTQDerivedBundleManifest` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivedBundleManifest.swift:108`
 - `FASTQEntropyFilterDefaults` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQEntropyFilter.swift:13`
-- `FASTQError` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQReader.swift:876`
+- `FASTQError` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQError.swift:11`
 - `FASTQFolderMetadata` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQFolderMetadata.swift:24`
 - `FASTQInputLayout` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQInputLayout.swift:20`
 - `FASTQInputLayoutResolution` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQInputLayout.swift:123`
@@ -951,7 +951,7 @@ None.
 - `FASTQInterleaveDirection` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:175`
 - `FASTQKtrimDirection` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:62`
 - `FASTQMergeStrictness` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:183`
-- `FASTQMetadataStore` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:173`
+- `FASTQMetadataStore` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:28`
 - `FASTQOrientMapFile` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivativeFileIO.swift:11`
 - `FASTQPairingMetadataHints` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift:26`
 - `FASTQPBAAArtifactCompatibility` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQPBAAArtifactStore.swift:366`
@@ -973,12 +973,12 @@ None.
 - `FASTQPrimerTrimMode` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:77`
 - `FASTQQualityFractions` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQQualityFractions.swift:16`
 - `FASTQQualityTrimMode` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:191`
-- `FASTQReader` class, `Sources/LungfishIO/Formats/FASTQ/FASTQReader.swift:161`
+- `FASTQReader` class, `Sources/LungfishIO/Formats/FASTQ/FASTQReader.swift:29`
 - `FASTQReadLayout` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift:10`
 - `FASTQReadLayoutClassification` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift:72`
 - `FASTQReadLayoutClassifier` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift:115`
 - `FASTQReadLayoutHandling` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQInputLayout.swift:57`
-- `FASTQRecord` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReader.swift:27`
+- `FASTQRecord` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQRecord.swift:25`
 - `FASTQRiboDetectorEnsure` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:227`
 - `FASTQRiboDetectorRetention` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:213`
 - `FASTQSampleBarcodeAssignment` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQDemultiplexMetadata.swift:8`
@@ -986,15 +986,15 @@ None.
 - `FASTQSampleMetadata` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQSampleMetadata.swift:126`
 - `FASTQSearchField` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:9`
 - `FASTQSourceFileManifest` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQSourceFiles.swift:24`
-- `FASTQStatistics` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReader.swift:927`
+- `FASTQStatistics` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQStatistics.swift:11`
 - `FASTQStatisticsCollector` class, `Sources/LungfishIO/Formats/FASTQ/FASTQStatisticsCollector.swift:160`
 - `FASTQTrimPositionFile` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivativeFileIO.swift:165`
 - `FASTQTrimRecord` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivativeFileIO.swift:130`
 - `FASTQWriter` class, `Sources/LungfishIO/Formats/FASTQ/FASTQWriter.swift:28`
 - `FASTQWriterError` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQWriter.swift:262`
-- `FileSystemObjectIdentity` struct, `Sources/LungfishIO/Storage/OwnedWorkDirectoryMarker.swift:4`
+- `FileSystemObjectIdentity` struct, `Sources/LungfishIO/Storage/FileSystemObjectIdentity.swift:4`
 - `FileTypeUtility` enum, `Sources/LungfishIO/Registry/FileTypeUtility.swift:21`
-- `FlagstatSummary` struct, `Sources/LungfishIO/Bundles/AlignmentMetadataDatabase.swift:678`
+- `FlagstatSummary` struct, `Sources/LungfishIO/Bundles/FlagstatSummary.swift:15`
 - `FormatDescriptor` struct, `Sources/LungfishIO/Registry/FormatDescriptor.swift:30`
 - `FormatExporter` protocol, `Sources/LungfishIO/Registry/FormatExporter.swift:41`
 - `FormatIdentifier` struct, `Sources/LungfishIO/Registry/FormatIdentifier.swift:28`
@@ -1014,10 +1014,10 @@ None.
 - `GenotypeAlleleHaplotypeEvidenceIndex` struct, `Sources/LungfishIO/Bundles/GenotypeAlleleHaplotypeEvidenceIndex.swift:6`
 - `GenotypeAnnotationPublicationEntryKind` enum, `Sources/LungfishIO/Bundles/GenotypeAnnotationPublicationFileAccess.swift:16`
 - `GenotypeAnnotationPublicationFileAccess` enum, `Sources/LungfishIO/Bundles/GenotypeAnnotationPublicationFileAccess.swift:22`
-- `GenotypeAnnotationSidecar` struct, `Sources/LungfishIO/Bundles/GenotypeAnnotationSidecar.swift:117`
-- `GenotypeAnnotationSidecarPublicationError` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:3958`
-- `GenotypeAnnotationSidecarRevision` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:3937`
-- `GenotypeAnnotationSidecarSnapshot` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:3942`
+- `GenotypeAnnotationSidecar` struct, `Sources/LungfishIO/Bundles/GenotypeAnnotationSidecar.swift:4`
+- `GenotypeAnnotationSidecarPublicationError` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:2090`
+- `GenotypeAnnotationSidecarRevision` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:2085`
+- `GenotypeAnnotationSidecarSnapshot` struct, `Sources/LungfishIO/Bundles/GenotypeAnnotationSidecarSnapshot.swift:6`
 - `GenotypeBlockClassifier` enum, `Sources/LungfishIO/Bundles/GenotypeBlockClassifier.swift:11`
 - `GenotypeBlockKind` enum, `Sources/LungfishIO/Bundles/GenotypeBlockClassifier.swift:4`
 - `GenotypeCall` enum, `Sources/LungfishIO/Bundles/VariantDatabaseModels.swift:199`
@@ -1069,9 +1069,9 @@ None.
 - `GenotypeReferenceNumericPrefixOrder` enum, `Sources/LungfishIO/Bundles/GenotypeReferenceNumericPrefixOrder.swift:4`
 - `GenotypeResultWorkflowDeclaration` struct, `Sources/LungfishIO/Bundles/GenotypeResultWorkflowDeclaration.swift:73`
 - `GenotypeResultWorkflowDeclarationValue` enum, `Sources/LungfishIO/Bundles/GenotypeResultWorkflowDeclaration.swift:3`
-- `GenotypeResultWorkflowKind` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:210`
+- `GenotypeResultWorkflowKind` enum, `Sources/LungfishIO/Bundles/GenotypeResultWorkflowKind.swift:6`
 - `GenotypeResultWorkflowKindField` struct, `Sources/LungfishIO/Bundles/GenotypeResultWorkflowDeclaration.swift:87`
-- `GenotypeResultWorkflowMode` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:215`
+- `GenotypeResultWorkflowMode` enum, `Sources/LungfishIO/Bundles/GenotypeResultWorkflowMode.swift:6`
 - `GenotypeResultWorkflowModeField` struct, `Sources/LungfishIO/Bundles/GenotypeResultWorkflowDeclaration.swift:152`
 - `GenotypeReviewableRowCatalog` struct, `Sources/LungfishIO/Bundles/GenotypeReviewableRowCatalog.swift:3`
 - `GenotypeReviewableRowResolver` struct, `Sources/LungfishIO/Bundles/GenotypeReviewableRowResolver.swift:3`
@@ -1081,14 +1081,14 @@ None.
 - `GenotypeViewProjectionRow` struct, `Sources/LungfishIO/Bundles/GenotypeViewProjection.swift:138`
 - `GenotypeViewProjectionSourceRevision` struct, `Sources/LungfishIO/Bundles/GenotypeViewProjection.swift:90`
 - `GenotypeWorkbookPresentation` enum, `Sources/LungfishIO/Bundles/GenotypeWorkbookPresentation.swift:3`
-- `GFF3Error` enum, `Sources/LungfishIO/Formats/GFF/GFF3Reader.swift:380`
-- `GFF3Feature` struct, `Sources/LungfishIO/Formats/GFF/GFF3Reader.swift:12`
+- `GFF3Error` enum, `Sources/LungfishIO/Formats/GFF/GFF3Error.swift:11`
+- `GFF3Feature` struct, `Sources/LungfishIO/Formats/GFF/GFF3Feature.swift:9`
 - `GFF3FormatExporter` class, `Sources/LungfishIO/Registry/BuiltInFormats.swift:251`
 - `GFF3FormatImporter` class, `Sources/LungfishIO/Registry/BuiltInFormats.swift:179`
-- `GFF3Reader` class, `Sources/LungfishIO/Formats/GFF/GFF3Reader.swift:143`
-- `GFF3Statistics` struct, `Sources/LungfishIO/Formats/GFF/GFF3Reader.swift:421`
-- `GFF3Writer` class, `Sources/LungfishIO/Formats/GFF/GFF3Reader.swift:480`
-- `GFF3WriterError` enum, `Sources/LungfishIO/Formats/GFF/GFF3Reader.swift:875`
+- `GFF3Reader` class, `Sources/LungfishIO/Formats/GFF/GFF3Reader.swift:31`
+- `GFF3Statistics` struct, `Sources/LungfishIO/Formats/GFF/GFF3Statistics.swift:11`
+- `GFF3Writer` class, `Sources/LungfishIO/Formats/GFF/GFF3Writer.swift:36`
+- `GFF3WriterError` enum, `Sources/LungfishIO/Formats/GFF/GFF3WriterError.swift:11`
 - `GTFError` enum, `Sources/LungfishIO/Formats/GFF/GTFReader.swift:511`
 - `GTFFeature` struct, `Sources/LungfishIO/Formats/GFF/GTFReader.swift:21`
 - `GTFFormatImporter` class, `Sources/LungfishIO/Registry/BuiltInFormats.swift:217`
@@ -1104,15 +1104,15 @@ None.
 - `HaplotypeDefinitionScope` enum, `Sources/LungfishIO/Bundles/HaplotypeDefinitionLibrary.swift:3`
 - `HaplotypeDefinitionStore` struct, `Sources/LungfishIO/Bundles/HaplotypeDefinitionStore.swift:17`
 - `HaplotypeDefinitionStoreError` enum, `Sources/LungfishIO/Bundles/HaplotypeDefinitionStore.swift:460`
-- `IdxstatsRow` struct, `Sources/LungfishIO/Bundles/AlignmentMetadataDatabase.swift:651`
-- `IlluminaAdapterContext` enum, `Sources/LungfishIO/Formats/FASTQ/IlluminaBarcodeKits.swift:225`
+- `IdxstatsRow` struct, `Sources/LungfishIO/Bundles/IdxstatsRow.swift:11`
+- `IlluminaAdapterContext` enum, `Sources/LungfishIO/Formats/FASTQ/IlluminaAdapterContext.swift:15`
 - `IlluminaNexteraAdapterContext` struct, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapterContext.swift:241`
 - `IlluminaTruSeqAdapterContext` struct, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapterContext.swift:215`
 - `ImportError` enum, `Sources/LungfishIO/Registry/FormatImporter.swift:285`
 - `ImportMetadata` struct, `Sources/LungfishIO/Registry/FormatImporter.swift:240`
 - `ImportResult` struct, `Sources/LungfishIO/Registry/FormatImporter.swift:123`
 - `IndexedFASTAReader` class, `Sources/LungfishIO/Index/FASTAIndex.swift:159`
-- `IngestionMetadata` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:397`
+- `IngestionMetadata` struct, `Sources/LungfishIO/Formats/FASTQ/IngestionMetadata.swift:12`
 - `Kraken2ClassificationRow` struct, `Sources/LungfishIO/Formats/Kraken/Kraken2Database.swift:41`
 - `Kraken2Database` class, `Sources/LungfishIO/Formats/Kraken/Kraken2Database.swift:129`
 - `Kraken2DatabaseError` enum, `Sources/LungfishIO/Formats/Kraken/Kraken2Database.swift:22`
@@ -1145,15 +1145,15 @@ None.
 - `MHCAmpliconReferenceBundleMetrics` struct, `Sources/LungfishIO/Bundles/MHCAmpliconReferenceBundle.swift:6`
 - `MHCAmpliconReferenceBundleSourceFile` typealias, `Sources/LungfishIO/Bundles/MHCAmpliconReferenceBundle.swift:4`
 - `MHCReferenceBundleWarning` struct, `Sources/LungfishIO/Bundles/MHCAmpliconReferenceBundle.swift:16`
-- `MHCReferenceClassEvidence` enum, `Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift:14`
-- `MHCReferenceCompletenessAssessment` struct, `Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift:39`
-- `MHCReferenceCompletenessReason` enum, `Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift:25`
-- `MHCReferenceCompletenessStatus` enum, `Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift:19`
+- `MHCReferenceClassEvidence` enum, `Sources/LungfishIO/Bundles/MHCReferenceClassEvidence.swift:9`
+- `MHCReferenceCompletenessAssessment` struct, `Sources/LungfishIO/Bundles/MHCReferenceCompletenessAssessment.swift:9`
+- `MHCReferenceCompletenessReason` enum, `Sources/LungfishIO/Bundles/MHCReferenceCompletenessReason.swift:9`
+- `MHCReferenceCompletenessStatus` enum, `Sources/LungfishIO/Bundles/MHCReferenceCompletenessStatus.swift:9`
 - `MHCReferenceGenotypeDisplay` enum, `Sources/LungfishIO/Bundles/MHCReferenceGenotypeDisplay.swift:5`
-- `MHCReferenceMoleculeClass` enum, `Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift:9`
-- `MHCReferenceRecord` struct, `Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift:90`
-- `MHCReferenceRecordCatalog` struct, `Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift:205`
-- `MHCReferenceRecordCatalogError` enum, `Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift:142`
+- `MHCReferenceMoleculeClass` enum, `Sources/LungfishIO/Bundles/MHCReferenceMoleculeClass.swift:9`
+- `MHCReferenceRecord` struct, `Sources/LungfishIO/Bundles/MHCReferenceRecord.swift:9`
+- `MHCReferenceRecordCatalog` struct, `Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift:16`
+- `MHCReferenceRecordCatalogError` enum, `Sources/LungfishIO/Bundles/MHCReferenceRecordCatalogError.swift:9`
 - `MoleculeType` enum, `Sources/LungfishIO/Formats/GenBank/GenBankReader.swift:1177`
 - `MSAAlignedRecord` struct, `Sources/LungfishIO/Bundles/MultipleSequenceAlignmentDistanceMatrix.swift:27`
 - `MSADistanceMatrix` struct, `Sources/LungfishIO/Bundles/MultipleSequenceAlignmentDistanceMatrix.swift:87`
@@ -1169,15 +1169,15 @@ None.
 - `NaoMgsBamMaterializer` enum, `Sources/LungfishIO/Services/NaoMgsBamMaterializer.swift:70`
 - `NaoMgsDatabase` class, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsDatabase.swift:147`
 - `NaoMgsDatabaseError` enum, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsDatabase.swift:22`
-- `NaoMgsError` enum, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsResultParser.swift:15`
+- `NaoMgsError` enum, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsError.swift:11`
 - `NaoMgsManifest` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsManifest.swift:24`
 - `NaoMgsReferenceLengthSource` enum, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsDatabase.swift:95`
-- `NaoMgsResult` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsResultParser.swift:277`
-- `NaoMgsResultParser` class, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsResultParser.swift:340`
+- `NaoMgsResult` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsResult.swift:14`
+- `NaoMgsResultParser` class, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsResultParser.swift:38`
 - `NaoMgsStageDatabaseInput` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsDatabase.swift:119`
-- `NaoMgsTaxonSummary` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsResultParser.swift:180`
+- `NaoMgsTaxonSummary` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsTaxonSummary.swift:11`
 - `NaoMgsTaxonSummaryRow` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsDatabase.swift:41`
-- `NaoMgsVirusHit` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsResultParser.swift:54`
+- `NaoMgsVirusHit` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsVirusHit.swift:15`
 - `NaoMgsVirusHitsFile` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsManifest.swift:101`
 - `NCBIBioSampleExporter` enum, `Sources/LungfishIO/Formats/FASTQ/NCBIBioSampleExporter.swift:22`
 - `NoFollowFileSystem` enum, `Sources/LungfishIO/Storage/DurableAtomicFileStore.swift:499`
@@ -1196,77 +1196,77 @@ None.
 - `ONTDirectoryImporter` class, `Sources/LungfishIO/Formats/FASTQ/ONTDirectoryImporter.swift:35`
 - `ONTDirectoryLayout` struct, `Sources/LungfishIO/Formats/FASTQ/ONTDirectoryImportModels.swift:8`
 - `ONTGenotypeAlignmentArtifactManifest` struct, `Sources/LungfishIO/Bundles/ONTGenotypeScientificArtifacts.swift:3`
-- `ONTGenotypeAnchorSource` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:924`
-- `ONTGenotypeAnchorSummary` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:938`
-- `ONTGenotypeAtomicRenamePrimitive` typealias, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:172`
-- `ONTGenotypeBundlePublicationLock` class, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:194`
-- `ONTGenotypeBundlePublicationLockProbe` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:186`
-- `ONTGenotypeCall` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:594`
-- `ONTGenotypeCoOccurrence` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:879`
-- `ONTGenotypeDirectoryRenamePrimitive` typealias, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:178`
-- `ONTGenotypeHaplotypeAnalysisMethod` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:92`
-- `ONTGenotypeHaplotypeAnalysisReviewState` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:98`
-- `ONTGenotypeHaplotypeAnalysisRevision` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:106`
-- `ONTGenotypeIntegrityWarning` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:1213`
-- `ONTGenotypeIntegrityWarningCode` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:1194`
-- `ONTGenotypeLocusSummary` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:849`
+- `ONTGenotypeAnchorSource` enum, `Sources/LungfishIO/Bundles/ONTGenotypeAnchorSource.swift:6`
+- `ONTGenotypeAnchorSummary` struct, `Sources/LungfishIO/Bundles/ONTGenotypeAnchorSummary.swift:6`
+- `ONTGenotypeAtomicRenamePrimitive` typealias, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:88`
+- `ONTGenotypeBundlePublicationLock` class, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:102`
+- `ONTGenotypeBundlePublicationLockProbe` enum, `Sources/LungfishIO/Bundles/ONTGenotypeBundlePublicationLockProbe.swift:6`
+- `ONTGenotypeCall` struct, `Sources/LungfishIO/Bundles/ONTGenotypeCall.swift:6`
+- `ONTGenotypeCoOccurrence` struct, `Sources/LungfishIO/Bundles/ONTGenotypeCoOccurrence.swift:6`
+- `ONTGenotypeDirectoryRenamePrimitive` typealias, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:94`
+- `ONTGenotypeHaplotypeAnalysisMethod` enum, `Sources/LungfishIO/Bundles/ONTGenotypeHaplotypeAnalysisMethod.swift:6`
+- `ONTGenotypeHaplotypeAnalysisReviewState` enum, `Sources/LungfishIO/Bundles/ONTGenotypeHaplotypeAnalysisReviewState.swift:6`
+- `ONTGenotypeHaplotypeAnalysisRevision` struct, `Sources/LungfishIO/Bundles/ONTGenotypeHaplotypeAnalysisRevision.swift:6`
+- `ONTGenotypeIntegrityWarning` struct, `Sources/LungfishIO/Bundles/ONTGenotypeIntegrityWarning.swift:6`
+- `ONTGenotypeIntegrityWarningCode` enum, `Sources/LungfishIO/Bundles/ONTGenotypeIntegrityWarningCode.swift:6`
+- `ONTGenotypeLocusSummary` struct, `Sources/LungfishIO/Bundles/ONTGenotypeLocusSummary.swift:6`
 - `ONTGenotypeProvisionalExon2ArtifactManifest` struct, `Sources/LungfishIO/Bundles/ONTGenotypeScientificArtifacts.swift:21`
 - `ONTGenotypeProvisionalExon2ArtifactURLs` struct, `Sources/LungfishIO/Bundles/ONTGenotypeScientificArtifacts.swift:139`
 - `ONTGenotypeProvisionalExon2Document` struct, `Sources/LungfishIO/Bundles/ONTGenotypeScientificArtifacts.swift:43`
 - `ONTGenotypeProvisionalExon2Record` struct, `Sources/LungfishIO/Bundles/ONTGenotypeScientificArtifacts.swift:63`
 - `ONTGenotypeProvisionalExon2SampleSupport` struct, `Sources/LungfishIO/Bundles/ONTGenotypeScientificArtifacts.swift:97`
 - `ONTGenotypeProvisionalExon2Sequence` struct, `Sources/LungfishIO/Bundles/ONTGenotypeScientificArtifacts.swift:115`
-- `ONTGenotypeQCStatus` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:577`
-- `ONTGenotypeReferenceMetadata` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:46`
-- `ONTGenotypeReferenceRecordStoreError` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:62`
-- `ONTGenotypeReferenceRecordStoreInfo` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:6`
-- `ONTGenotypeResultArtifacts` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:1122`
-- `ONTGenotypeResultBundle` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:1858`
-- `ONTGenotypeResultBundleData` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:1285`
-- `ONTGenotypeResultBundleManifest` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:220`
-- `ONTGenotypeRunStats` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:1032`
-- `ONTGenotypeSampleResult` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:984`
-- `ONTGenotypeSampleSupport` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:767`
+- `ONTGenotypeQCStatus` enum, `Sources/LungfishIO/Bundles/ONTGenotypeQCStatus.swift:6`
+- `ONTGenotypeReferenceMetadata` struct, `Sources/LungfishIO/Bundles/ONTGenotypeReferenceMetadata.swift:6`
+- `ONTGenotypeReferenceRecordStoreError` enum, `Sources/LungfishIO/Bundles/ONTGenotypeReferenceRecordStoreError.swift:6`
+- `ONTGenotypeReferenceRecordStoreInfo` struct, `Sources/LungfishIO/Bundles/ONTGenotypeReferenceRecordStoreInfo.swift:6`
+- `ONTGenotypeResultArtifacts` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultArtifacts.swift:6`
+- `ONTGenotypeResultBundle` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:6`
+- `ONTGenotypeResultBundleData` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundleData.swift:6`
+- `ONTGenotypeResultBundleManifest` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundleManifest.swift:6`
+- `ONTGenotypeRunStats` struct, `Sources/LungfishIO/Bundles/ONTGenotypeRunStats.swift:6`
+- `ONTGenotypeSampleResult` struct, `Sources/LungfishIO/Bundles/ONTGenotypeSampleResult.swift:6`
+- `ONTGenotypeSampleSupport` struct, `Sources/LungfishIO/Bundles/ONTGenotypeSampleSupport.swift:6`
 - `ONTGenotypeScientificArtifactError` enum, `Sources/LungfishIO/Bundles/ONTGenotypeScientificArtifacts.swift:154`
-- `ONTGenotypeSharedCall` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:800`
-- `ONTGenotypeSupportDenominator` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:786`
-- `ONTGenotypeWorkbookCleanupDecision` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookCleanupState.swift:463`
-- `ONTGenotypeWorkbookCleanupState` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookCleanupState.swift:470`
-- `ONTGenotypeWorkbookLegacyAuthorityInspection` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:377`
-- `ONTGenotypeWorkbookLegacyReceiptFact` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:346`
-- `ONTGenotypeWorkbookRevision` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:167`
-- `ONTGenotypeWorkbookRevisionRole` enum, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:84`
-- `ONTGenotypeWorkbookUpdateDirectoryIdentity` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:25`
-- `ONTGenotypeWorkbookUpdateFileDescriptor` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:13`
-- `ONTGenotypeWorkbookUpdateRecovery` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:389`
-- `ONTGenotypeWorkbookUpdateRecoveryError` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:119`
-- `ONTGenotypeWorkbookUpdateTransaction` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:37`
-- `ONTGenotypeWorkbookUpdateTransactionPhase` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:6`
+- `ONTGenotypeSharedCall` struct, `Sources/LungfishIO/Bundles/ONTGenotypeSharedCall.swift:6`
+- `ONTGenotypeSupportDenominator` enum, `Sources/LungfishIO/Bundles/ONTGenotypeSupportDenominator.swift:6`
+- `ONTGenotypeWorkbookCleanupDecision` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookCleanupDecision.swift:5`
+- `ONTGenotypeWorkbookCleanupState` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookCleanupState.swift:5`
+- `ONTGenotypeWorkbookLegacyAuthorityInspection` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookLegacyAuthorityInspection.swift:6`
+- `ONTGenotypeWorkbookLegacyReceiptFact` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookLegacyReceiptFact.swift:6`
+- `ONTGenotypeWorkbookRevision` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookRevision.swift:6`
+- `ONTGenotypeWorkbookRevisionRole` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookRevisionRole.swift:6`
+- `ONTGenotypeWorkbookUpdateDirectoryIdentity` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateDirectoryIdentity.swift:6`
+- `ONTGenotypeWorkbookUpdateFileDescriptor` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateFileDescriptor.swift:6`
+- `ONTGenotypeWorkbookUpdateRecovery` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:254`
+- `ONTGenotypeWorkbookUpdateRecoveryError` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateRecoveryError.swift:6`
+- `ONTGenotypeWorkbookUpdateTransaction` struct, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:6`
+- `ONTGenotypeWorkbookUpdateTransactionPhase` enum, `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransactionPhase.swift:6`
 - `ONTImportConfig` struct, `Sources/LungfishIO/Formats/FASTQ/ONTDirectoryImportModels.swift:62`
 - `ONTImportError` enum, `Sources/LungfishIO/Formats/FASTQ/ONTDirectoryImportModels.swift:160`
 - `ONTImportResult` struct, `Sources/LungfishIO/Formats/FASTQ/ONTDirectoryImportModels.swift:119`
 - `ONTImportStorageMode` enum, `Sources/LungfishIO/Formats/FASTQ/ONTDirectoryImportModels.swift:50`
-- `ONTMHCAlignmentArtifactURLs` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:1259`
-- `ONTMHCArtifactReference` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:3`
-- `ONTMHCBAMArtifactPair` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:21`
-- `ONTMHCCandidateAllelesDocument` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:1965`
-- `ONTMHCCandidateArtifactManifest` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:36`
-- `ONTMHCCandidateClassification` enum, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:124`
-- `ONTMHCCandidateDisplaySettings` struct, `Sources/LungfishIO/Bundles/GenotypeAnnotationSidecar.swift:11`
-- `ONTMHCCandidateGenBankArtifactURLs` struct, `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:1225`
-- `ONTMHCCandidateModelError` enum, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:262`
-- `ONTMHCCandidateObservation` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:642`
-- `ONTMHCCandidateRecord` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:919`
-- `ONTMHCCandidateSourceIdentityDocument` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:236`
-- `ONTMHCCandidateSourceIdentityRecord` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:150`
-- `ONTMHCCandidateSupportClass` enum, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:134`
-- `ONTMHCCandidateThresholds` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:285`
-- `ONTMHCCandidateTintCategory` enum, `Sources/LungfishIO/Bundles/GenotypeAnnotationSidecar.swift:4`
-- `ONTMHCCDNAExtensionInterpretation` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:853`
-- `ONTMHCEvidenceLocator` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:370`
-- `ONTMHCGenotypingTargetHitSummary` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:404`
-- `ONTMHCIncompleteCandidateInterpretation` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:1657`
-- `ONTMHCReciprocalQueryHitSummary` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:506`
+- `ONTMHCAlignmentArtifactURLs` struct, `Sources/LungfishIO/Bundles/ONTMHCAlignmentArtifactURLs.swift:6`
+- `ONTMHCArtifactReference` struct, `Sources/LungfishIO/Bundles/ONTMHCArtifactReference.swift:3`
+- `ONTMHCBAMArtifactPair` struct, `Sources/LungfishIO/Bundles/ONTMHCBAMArtifactPair.swift:3`
+- `ONTMHCCandidateAllelesDocument` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAllelesDocument.swift:3`
+- `ONTMHCCandidateArtifactManifest` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateArtifactManifest.swift:3`
+- `ONTMHCCandidateClassification` enum, `Sources/LungfishIO/Bundles/ONTMHCCandidateClassification.swift:3`
+- `ONTMHCCandidateDisplaySettings` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateDisplaySettings.swift:4`
+- `ONTMHCCandidateGenBankArtifactURLs` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateGenBankArtifactURLs.swift:6`
+- `ONTMHCCandidateModelError` enum, `Sources/LungfishIO/Bundles/ONTMHCCandidateModelError.swift:3`
+- `ONTMHCCandidateObservation` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:241`
+- `ONTMHCCandidateRecord` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:452`
+- `ONTMHCCandidateSourceIdentityDocument` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateSourceIdentityDocument.swift:3`
+- `ONTMHCCandidateSourceIdentityRecord` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateSourceIdentityRecord.swift:3`
+- `ONTMHCCandidateSupportClass` enum, `Sources/LungfishIO/Bundles/ONTMHCCandidateSupportClass.swift:3`
+- `ONTMHCCandidateThresholds` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateThresholds.swift:3`
+- `ONTMHCCandidateTintCategory` enum, `Sources/LungfishIO/Bundles/ONTMHCCandidateTintCategory.swift:4`
+- `ONTMHCCDNAExtensionInterpretation` struct, `Sources/LungfishIO/Bundles/ONTMHCCDNAExtensionInterpretation.swift:3`
+- `ONTMHCEvidenceLocator` struct, `Sources/LungfishIO/Bundles/ONTMHCEvidenceLocator.swift:3`
+- `ONTMHCGenotypingTargetHitSummary` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:3`
+- `ONTMHCIncompleteCandidateInterpretation` struct, `Sources/LungfishIO/Bundles/ONTMHCIncompleteCandidateInterpretation.swift:7`
+- `ONTMHCReciprocalQueryHitSummary` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:105`
 - `ONTMHCReferenceVisualizationArtifact` struct, `Sources/LungfishIO/Bundles/ONTMHCReferenceVisualizations.swift:204`
 - `ONTMHCReferenceVisualizationArtifacts` struct, `Sources/LungfishIO/Bundles/ONTMHCReferenceVisualizations.swift:4`
 - `ONTMHCReferenceVisualizationError` enum, `Sources/LungfishIO/Bundles/ONTMHCReferenceVisualizations.swift:157`
@@ -1274,9 +1274,9 @@ None.
 - `ONTMHCReferenceVisualizationRecord` struct, `Sources/LungfishIO/Bundles/ONTMHCReferenceVisualizations.swift:99`
 - `ONTMHCReferenceVisualizationRole` enum, `Sources/LungfishIO/Bundles/ONTMHCReferenceVisualizations.swift:34`
 - `ONTMHCReferenceVisualizationRoleAssignment` struct, `Sources/LungfishIO/Bundles/ONTMHCReferenceVisualizations.swift:41`
-- `ONTMHCUnnameableClustersDocument` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:2007`
-- `ONTMHCUnnameableReason` enum, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:139`
-- `ONTMHCUnnameableRecord` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:1720`
+- `ONTMHCUnnameableClustersDocument` struct, `Sources/LungfishIO/Bundles/ONTMHCUnnameableClustersDocument.swift:3`
+- `ONTMHCUnnameableReason` enum, `Sources/LungfishIO/Bundles/ONTMHCUnnameableReason.swift:3`
+- `ONTMHCUnnameableRecord` struct, `Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift:1186`
 - `ONTNativeAdapterContext` struct, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapterContext.swift:85`
 - `ONTRapidAdapterContext` struct, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapterContext.swift:117`
 - `ONTReadHeaderParser` enum, `Sources/LungfishIO/Formats/FASTQ/ONTReadHeaderParser.swift:26`
@@ -1285,29 +1285,29 @@ None.
 - `OperationInput` struct, `Sources/LungfishIO/Formats/FASTQ/OperationChain.swift:38`
 - `OperationOutput` struct, `Sources/LungfishIO/Formats/FASTQ/OperationChain.swift:10`
 - `OrganismNameNormalizer` enum, `Sources/LungfishIO/Formats/TaxTriage/OrganismNameNormalizer.swift:16`
-- `OwnedProcessIdentity` struct, `Sources/LungfishIO/Storage/OwnedWorkDirectoryMarker.swift:72`
+- `OwnedProcessIdentity` struct, `Sources/LungfishIO/Storage/OwnedProcessIdentity.swift:4`
 - `OwnedRunLock` class, `Sources/LungfishIO/Storage/OwnedRunLock.swift:29`
 - `OwnedRunLockError` enum, `Sources/LungfishIO/Storage/OwnedRunLock.swift:10`
 - `OwnedRunLockProbe` enum, `Sources/LungfishIO/Storage/OwnedRunLock.swift:4`
-- `OwnedWorkDirectoryCreationRequest` struct, `Sources/LungfishIO/Storage/OwnedWorkDirectoryMarker.swift:236`
-- `OwnedWorkDirectoryMarker` struct, `Sources/LungfishIO/Storage/OwnedWorkDirectoryMarker.swift:179`
-- `OwnedWorkDirectoryMarkerError` enum, `Sources/LungfishIO/Storage/OwnedWorkDirectoryMarker.swift:273`
-- `OwnedWorkDirectoryMarkerStore` enum, `Sources/LungfishIO/Storage/OwnedWorkDirectoryMarker.swift:324`
+- `OwnedWorkDirectoryCreationRequest` struct, `Sources/LungfishIO/Storage/OwnedWorkDirectoryCreationRequest.swift:4`
+- `OwnedWorkDirectoryMarker` struct, `Sources/LungfishIO/Storage/OwnedWorkDirectoryMarker.swift:4`
+- `OwnedWorkDirectoryMarkerError` enum, `Sources/LungfishIO/Storage/OwnedWorkDirectoryMarkerError.swift:4`
+- `OwnedWorkDirectoryMarkerStore` enum, `Sources/LungfishIO/Storage/OwnedWorkDirectoryMarkerStore.swift:4`
 - `PacBioAdapterContext` struct, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapterContext.swift:144`
 - `PacBioM13AdapterContext` struct, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapterContext.swift:179`
 - `PayloadChecksum` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivedBundleManifest.swift:54`
-- `PersistedFASTQMetadata` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:53`
+- `PersistedFASTQMetadata` struct, `Sources/LungfishIO/Formats/FASTQ/PersistedFASTQMetadata.swift:17`
 - `PhylogeneticTreeBundle` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:6`
-- `PhylogeneticTreeBundleError` enum, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:267`
-- `PhylogeneticTreeBundleImporter` enum, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:397`
+- `PhylogeneticTreeBundleError` enum, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundleError.swift:6`
+- `PhylogeneticTreeBundleImporter` enum, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:267`
 - `PhylogeneticTreeBundleTransformProvenance` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:231`
-- `PhylogeneticTreeImportOptions` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:372`
-- `PhylogeneticTreeManifest` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:309`
-- `PhylogeneticTreeNormalizedNode` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:337`
-- `PhylogeneticTreeNormalizedTree` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:330`
-- `PhylogeneticTreeProvenance` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:607`
-- `PhylogeneticTreeSubtreeExport` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:302`
-- `PhylogeneticTreeSupport` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift:367`
+- `PhylogeneticTreeImportOptions` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeImportOptions.swift:6`
+- `PhylogeneticTreeManifest` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeManifest.swift:6`
+- `PhylogeneticTreeNormalizedNode` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeNormalizedNode.swift:6`
+- `PhylogeneticTreeNormalizedTree` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeNormalizedTree.swift:6`
+- `PhylogeneticTreeProvenance` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeProvenance.swift:6`
+- `PhylogeneticTreeSubtreeExport` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeSubtreeExport.swift:6`
+- `PhylogeneticTreeSupport` struct, `Sources/LungfishIO/Bundles/PhylogeneticTreeSupport.swift:6`
 - `PhysicalPathContainment` enum, `Sources/LungfishIO/Storage/PhysicalPathContainment.swift:15`
 - `PlatformAdapterContext` protocol, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapterContext.swift:27`
 - `PlatformAdapters` enum, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapters.swift:13`
@@ -1339,19 +1339,19 @@ None.
 - `QualityEncoding` enum, `Sources/LungfishIO/Formats/FASTQ/QualityScore.swift:19`
 - `QualityScore` struct, `Sources/LungfishIO/Formats/FASTQ/QualityScore.swift:113`
 - `ReadAnnotationFile` enum, `Sources/LungfishIO/Formats/FASTQ/ReadAnnotationFile.swift:18`
-- `ReadClassification` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:253`
+- `ReadClassification` struct, `Sources/LungfishIO/Formats/FASTQ/ReadClassification.swift:19`
 - `ReadDepthCapPlan` struct, `Sources/LungfishIO/Bundles/ReadDepthCapPlan.swift:26`
 - `ReadDirection` enum, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapterContext.swift:14`
-- `ReadManifest` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:359`
-- `ReadPair` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReader.swift:99`
-- `RecipeAppliedInfo` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:763`
-- `RecipeLogicalComponent` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:492`
+- `ReadManifest` struct, `Sources/LungfishIO/Formats/FASTQ/ReadManifest.swift:15`
+- `ReadPair` struct, `Sources/LungfishIO/Formats/FASTQ/ReadPair.swift:11`
+- `RecipeAppliedInfo` struct, `Sources/LungfishIO/Formats/FASTQ/RecipeAppliedInfo.swift:12`
+- `RecipeLogicalComponent` struct, `Sources/LungfishIO/Formats/FASTQ/RecipeLogicalComponent.swift:14`
 - `RecipePlaceholder` struct, `Sources/LungfishIO/Formats/FASTQ/ProcessingRecipe.swift:130`
-- `RecipeStepOutputFile` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:503`
-- `RecipeStepResult` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:516`
-- `ReferenceBundle` class, `Sources/LungfishIO/Bundles/ReferenceBundle.swift:72`
+- `RecipeStepOutputFile` struct, `Sources/LungfishIO/Formats/FASTQ/RecipeStepOutputFile.swift:10`
+- `RecipeStepResult` struct, `Sources/LungfishIO/Formats/FASTQ/RecipeStepResult.swift:10`
+- `ReferenceBundle` class, `Sources/LungfishIO/Bundles/ReferenceBundle.swift:46`
 - `ReferenceBundleEnvelope` enum, `Sources/LungfishIO/Bundles/ReferenceBundleEnvelope.swift:35`
-- `ReferenceBundleError` enum, `Sources/LungfishIO/Bundles/ReferenceBundle.swift:888`
+- `ReferenceBundleError` enum, `Sources/LungfishIO/Bundles/ReferenceBundleError.swift:12`
 - `ReferenceBundleEscapeRoots` enum, `Sources/LungfishIO/Bundles/ReferenceBundleEscapeRoots.swift:23`
 - `ReferenceBundleManifesting` protocol, `Sources/LungfishIO/Bundles/ReferenceBundleEnvelope.swift:8`
 - `ReferenceBundleSourceFile` struct, `Sources/LungfishIO/Bundles/ReferenceBundleEnvelope.swift:22`
@@ -1366,8 +1366,8 @@ None.
 - `SampleProvenance` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivedBundleManifest.swift:12`
 - `SampleRole` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQSampleMetadata.swift:12`
 - `SamtoolsLocator` enum, `Sources/LungfishIO/Services/SamtoolsLocator.swift:9`
-- `SamtoolsOutputParseError` enum, `Sources/LungfishIO/Bundles/AlignmentMetadataDatabase.swift:627`
-- `SeqkitStatsMetadata` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift:122`
+- `SamtoolsOutputParseError` enum, `Sources/LungfishIO/Bundles/SamtoolsOutputParseError.swift:11`
+- `SeqkitStatsMetadata` struct, `Sources/LungfishIO/Formats/FASTQ/SeqkitStatsMetadata.swift:10`
 - `SeqkitStatsParseError` enum, `Sources/LungfishIO/Formats/Seqkit/SeqkitStatsParser.swift:15`
 - `SeqkitStatsParser` enum, `Sources/LungfishIO/Formats/Seqkit/SeqkitStatsParser.swift:158`
 - `SeqkitStatsRow` struct, `Sources/LungfishIO/Formats/Seqkit/SeqkitStatsParser.swift:53`
@@ -1390,9 +1390,9 @@ None.
 - `TaxonomyNameResolver` class, `Sources/LungfishIO/Formats/NaoMgs/TaxonomyNameResolver.swift:28`
 - `TaxonomyResolverError` enum, `Sources/LungfishIO/Formats/NaoMgs/TaxonomyNameResolver.swift:147`
 - `TaxonTree` struct, `Sources/LungfishIO/Formats/Kraken/TaxonNode.swift:230`
-- `TaxTriageAccessionEntry` struct, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabase.swift:172`
-- `TaxTriageDatabase` class, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabase.swift:196`
-- `TaxTriageDatabaseError` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabase.swift:22`
+- `TaxTriageAccessionEntry` struct, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageAccessionEntry.swift:13`
+- `TaxTriageDatabase` class, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabase.swift:29`
+- `TaxTriageDatabaseError` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabaseError.swift:13`
 - `TaxTriageMetric` struct, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageMetricsParser.swift:281`
 - `TaxTriageMetricsParser` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageMetricsParser.swift:32`
 - `TaxTriageMetricsParserError` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageMetricsParser.swift:373`
@@ -1400,11 +1400,11 @@ None.
 - `TaxTriageOrganismReport` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageOrganismReport.swift:27`
 - `TaxTriageOutputArtifactPolicy` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageOutputArtifactPolicy.swift:7`
 - `TaxTriageReportParser` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageReportParser.swift:34`
-- `TaxTriageRowsPage` struct, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabase.swift:159`
+- `TaxTriageRowsPage` struct, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageRowsPage.swift:10`
 - `TaxTriageSampleEntry` struct, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageSamplesheet.swift:179`
 - `TaxTriageSamplesheet` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageSamplesheet.swift:30`
 - `TaxTriageSamplesheetError` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageSamplesheet.swift:221`
-- `TaxTriageTaxonomyRow` struct, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabase.swift:41`
+- `TaxTriageTaxonomyRow` struct, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageTaxonomyRow.swift:13`
 - `TempScopePolicy` enum, `Sources/LungfishIO/Bundles/ProjectTempDirectory.swift:14`
 - `Topology` enum, `Sources/LungfishIO/Formats/GenBank/GenBankReader.swift:1223`
 - `TwelveSAlternateMatch` struct, `Sources/LungfishIO/Bundles/TwelveSAmpliconResultModels.swift:176`
@@ -1445,15 +1445,15 @@ None.
 - `VariantSmartFilter` struct, `Sources/LungfishIO/Bundles/VariantSmartFilter.swift:130`
 - `VariantSmartFilterError` enum, `Sources/LungfishIO/Bundles/VariantSmartFilter.swift:7`
 - `VariantSmartPredicate` enum, `Sources/LungfishIO/Bundles/VariantSmartFilter.swift:72`
-- `VCFError` enum, `Sources/LungfishIO/Formats/VCF/VCFReader.swift:812`
-- `VCFFieldDefinition` struct, `Sources/LungfishIO/Formats/VCF/VCFReader.swift:291`
-- `VCFGenotype` struct, `Sources/LungfishIO/Formats/VCF/VCFReader.swift:189`
-- `VCFHeader` struct, `Sources/LungfishIO/Formats/VCF/VCFReader.swift:248`
+- `VCFError` enum, `Sources/LungfishIO/Formats/VCF/VCFError.swift:11`
+- `VCFFieldDefinition` struct, `Sources/LungfishIO/Formats/VCF/VCFFieldDefinition.swift:9`
+- `VCFGenotype` struct, `Sources/LungfishIO/Formats/VCF/VCFGenotype.swift:11`
+- `VCFHeader` struct, `Sources/LungfishIO/Formats/VCF/VCFHeader.swift:11`
 - `VCFImportProfile` enum, `Sources/LungfishIO/Bundles/VariantDatabaseModels.swift:235`
 - `VCFImportSemantics` enum, `Sources/LungfishIO/Bundles/VariantDatabaseModels.swift:247`
-- `VCFReader` class, `Sources/LungfishIO/Formats/VCF/VCFReader.swift:319`
+- `VCFReader` class, `Sources/LungfishIO/Formats/VCF/VCFReader.swift:200`
 - `VCFReferenceInference` enum, `Sources/LungfishIO/Formats/VCF/VCFReferenceInference.swift:28`
-- `VCFSummary` struct, `Sources/LungfishIO/Formats/VCF/VCFReader.swift:698`
+- `VCFSummary` struct, `Sources/LungfishIO/Formats/VCF/VCFSummary.swift:14`
 - `VCFVariant` struct, `Sources/LungfishIO/Formats/VCF/VCFReader.swift:12`
 - `ViralAssembly` struct, `Sources/LungfishIO/Formats/EsViritu/ViralDetection.swift:186`
 - `ViralCoverageWindow` struct, `Sources/LungfishIO/Formats/EsViritu/ViralDetection.swift:388`
