@@ -248,15 +248,23 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
             ]
         )
 
-        // Give any (incorrectly) spawned Task a chance to run before asserting nothing
-        // happened -- there is no positive condition to wait for, so a short fixed delay
-        // is the only option; the assertions below are what actually catch a regression.
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // A genuine edit begins its row in the first slice of a main-actor Task that the
+        // handler creates during the post. A main-actor turn queued after the post runs
+        // after that slice, so once it has run, any row the edit started is visible.
+        await Task { @MainActor in }.value
 
+        // Only rows on this test's bundle count. A suite that ran earlier in the same
+        // process can leave its own rows running, which made a check that the whole
+        // OperationCenter had no active item fail by test order (lane 1k-3, 2026-10-02).
+        let bundlePath = bundleURL.standardizedFileURL.path
+        let rowsOnBundle = OperationCenter.shared.items.filter {
+            $0.targetBundleURL?.standardizedFileURL.path == bundlePath
+        }
         XCTAssertTrue(
-            OperationCenter.shared.activeItems.isEmpty,
-            "Selecting/redisplaying an unchanged annotation must not start an OperationCenter item"
+            rowsOnBundle.isEmpty,
+            "Selecting/redisplaying an unchanged annotation must not start an OperationCenter item: \(describe(rowsOnBundle))"
         )
+        XCTAssertTrue(OperationCenter.shared.canStartOperation(on: bundleURL))
         let mtimeAfter = try FileManager.default.attributesOfItem(atPath: dbURL.path)[.modificationDate] as? Date
         XCTAssertEqual(mtimeBefore, mtimeAfter, "genome.db must not be rewritten for a no-op update")
 
