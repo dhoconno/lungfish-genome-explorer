@@ -44,14 +44,13 @@ The table follows the calls in order. Every file was read for this trace. Line n
 
 ### Where today's path falls short of the rules
 
-Variant calling is the recommended example because its layering is right. It still has four gaps, and a new operation must not copy them.
+Variant calling is the recommended example because its layering is right. It still has three gaps, and a new operation must not copy them.
 
 | Gap | Rule it breaks | Copy this instead |
 |---|---|---|
 | It calls the deprecated `OperationCenter.shared.start` with a bundle target and relies on a separate `canStartOperation` pre-check. `scripts/ratchets/unchecked-operation-start.sh` counts such sites. | Rule 1 | `runIQTreeInferenceViaCLI` in `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift` calls `begin` and switches on `.started` before creating `CLITreeRunner` |
 | Its `onEvent` closure and `applyVariantCallingEvent` repeat the event-to-panel mapping by hand. | Rule 8 | `OperationCenterCLIBridge.onEvent(operationID:)` in `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift`, used by `Sources/LungfishApp/Services/CLITreeRunner.swift` |
 | It writes the legacy `WorkflowRun` sidecar shape, not a `ProvenanceEnvelope`. | Rule 6 | `CLIProvenanceSupport.recordSingleStepRun` in `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift`, which builds with `ProvenanceRunBuilder` and writes with `ProvenanceWriter` |
-| The `variants.call` entry in `docs/user-manual/features.yaml` names `InspectorViewController.swift`, but the launcher lives in the `+VariantWorkflow` extension. | Rule 10 | list the file that holds the launcher |
 
 ## Rules
 
