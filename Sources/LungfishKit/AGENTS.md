@@ -14,11 +14,11 @@ LungfishCore, LungfishIO, LungfishWorkflow, AppKit, SwiftUI and Combine. Never L
 
 | Step | Type | Path |
 |---|---|---|
-| Register the operation and take bundle locks | `OperationCenter.begin` | Sources/LungfishKit/OperationCenter.swift line 641 |
+| Register the operation and take bundle locks | `OperationCenter.begin` | Sources/LungfishKit/OperationCenter.swift line 642 |
 | Spawn `lungfish-cli` and decode its event stream | `CLISubprocessTransport.run` | Sources/LungfishKit/CLISubprocessTransport.swift line 94 |
 | Map each `CLIEvent` onto the operation row | `OperationCenterCLIBridge` | Sources/LungfishApp/Services/OperationCenterCLIBridge.swift line 20 |
 | Find the CLI binary | `CLIBinaryLocator` | Sources/LungfishKit/CLIBinaryLocator.swift line 17 |
-| Track and reveal the analysis folder | `OperationCenter.trackAnalysisOutput` | OperationCenter.swift line 1170 |
+| Track and reveal the analysis folder | `OperationCenter.trackAnalysisOutput` | OperationCenter.swift line 1171 |
 
 `begin` returns `.started` or `.refused`, so a bundle-lock conflict cannot be ignored. Pass `operationType` and `cliCommand` every time. The bridge currently lives in LungfishApp, so leaves reach the path only through App glue until the Phase 3 launcher lands. Pipeline steps call both `update` and `log`, or the expanded row loses its history (memory file reference_runtime_patterns.md).
 
@@ -34,7 +34,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, AppKit, SwiftUI and Combine. Never L
 
 ## Contracts this module owns
 
-- Bundle locks serialize operations on one bundle (`canStartOperation`, `activeLockHolder`, OperationCenter.swift lines 510 and 515).
+- Bundle locks serialize operations on one bundle (`canStartOperation`, `activeLockHolder`, OperationCenter.swift lines 511 and 516).
 - Every operation records a non-nil CLI command (REVIEW.md invariants).
 - Kit types are `public` and free of App types.
 
@@ -46,9 +46,9 @@ Target LungfishKitTests in Tests/LungfishKitTests (OperationCenter suites, row a
 
 | Trap | Evidence |
 |---|---|
-| `start` is deprecated but still has 58 callers, and new code copies it | `@available` at OperationCenter.swift line 596 (R4) |
-| `operationType` defaults to `.download` and `cliCommand` to nil | OperationCenter.swift lines 389, 398, 601, 605, 644 and 648 (R4) |
-| Bundle import after completion runs through a closure AppDelegate sets once | `onBundleReady`, OperationCenter.swift lines 433 to 435 (R4) |
+| `start` is deprecated but still has 58 callers, and new code copies it | `@available` at OperationCenter.swift line 597 (R4) |
+| `operationType` defaults to `.download` and `cliCommand` to nil | OperationCenter.swift lines 390, 399, 602, 606, 645 and 649 (R4) |
+| Bundle import after completion runs through a closure AppDelegate sets once | `onBundleReady`, OperationCenter.swift lines 434 to 436 (R4) |
 | The file named ResultViewportController.swift holds no viewport protocol, only export and BLAST request types | Sources/LungfishKit/ResultViewportController.swift lines 15 and 40 (R1) |
 | Production code branches on whether tests are running | Sources/LungfishKit/TestHarnessDetection.swift line 11 (R10) |
 | Process() is created directly | CLISubprocessTransport.swift, LungfishCLIRunner.swift and CLIBinaryLocator.swift (R7) |

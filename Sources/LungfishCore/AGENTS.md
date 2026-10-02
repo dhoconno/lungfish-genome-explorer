@@ -44,4 +44,4 @@ Target LungfishCoreTests in Tests/LungfishCoreTests. Run only it with `swift tes
 | `String(format:)` with `%s` on a Swift String crashes, use `%@` or interpolation | memory file reference_runtime_patterns.md |
 | Adding a stored property to a public struct can leave a stale test object that crashes in `outlined init with copy`, so delete .build/arm64-apple-macosx/debug.yaml and rebuild | memory file project_test_baseline.md |
 
-The "core_nt" BLAST database name becomes a `BlastDatabaseID` constant in this module during Phase 0 (plan Lane F3).
+The NCBI BLAST database name lives in `BlastDatabaseID` (Models/BlastDatabaseID.swift). Use `BlastDatabaseID.coreNT.rawValue` and never retype the string.
