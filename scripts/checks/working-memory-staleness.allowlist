@@ -1,0 +1,13 @@
+# Working-memory docs that stay although a rule flags them now or will once they age.
+# Each entry is one line shaped as <path>  # reason. A path ending in / exempts a whole directory.
+# Remove an entry when its file is deleted. The check warns about entries that match nothing.
+docs/issues/2026-05-09-docs-039-gatk-first-class-integration.md  # backlog of record, partly shipped (GATK CLI yes, reference packs and cohorts no), owner triage pending
+docs/issues/2026-05-09-followups-from-evaluation-sweep.md  # backlog of record, 16 issues still open
+docs/issues/2026-05-09-technical-gaps-from-documentation.md  # backlog of record, 40 issues, to be split into GitHub issues
+docs/plans/2026-09-12-primalscheme-selected-set-review.md  # docs/features/pcr-primer-design.md links it, delete once that link goes
+docs/plans/study-questions/  # deferred by the owner on 2026-09-27, the approved design and pilot pages must survive
+docs/superpowers/plans/2026-09-15-allele-aware-primal-scheme.md  # allele-aware PrimalScheme program, 19 plan steps still open
+docs/superpowers/plans/2026-09-16-selective-discovery-history.md  # native-fork work for the allele-aware program, no commit in this repo
+docs/superpowers/plans/2026-09-30-app-wide-keyboard-ax-pass.md  # holds the only copy of the HIG and accessibility rules (section 6), move them to a contract then delete
+docs/superpowers/specs/2026-09-16-selective-discovery-history.md  # companion spec of the selective-discovery-history plan
+docs/verification/2026-07-25-alignment-assembly-content-typography-inventory.md  # AssemblyResultViewControllerTests reads this file
