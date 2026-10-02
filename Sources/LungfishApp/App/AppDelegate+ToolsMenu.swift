@@ -212,11 +212,6 @@ extension AppDelegate {
                     return
                 }
 
-                if let config = state.pendingMinimap2Config {
-                    self.runMinimap2Mapping(config: config, routeContext: routeContext)
-                    return
-                }
-
                 if let request = state.pendingLaunchRequest,
                    state.pendingClassificationConfigs.isEmpty,
                    state.pendingEsVirituConfigs.isEmpty,
@@ -720,118 +715,6 @@ extension AppDelegate {
 
     @objc func launchOrientReads(_ sender: Any?) {
         showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .orientReads)
-    }
-
-    private func runMinimap2Mapping(
-        config: Minimap2Config,
-        routeContext explicitRouteContext: OperationRouteContext? = nil
-    ) {
-        // Redirect output to project-level Analyses/ folder when a project is open.
-        var config = config
-        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
-        guard canWriteProjectOutputs(
-            projectURL: routeContext?.projectURL,
-            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
-            workflowName: "Read mapping"
-        ) else { return }
-        var ownedAnalysisDirectory: URL?
-        if let projectURL = routeContext?.projectURL {
-            if let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: "minimap2", in: projectURL) {
-                config.outputDirectory = analysisDir
-                ownedAnalysisDirectory = analysisDir
-            }
-        }
-        let failedRunDirectory = ownedAnalysisDirectory
-
-        let opID = OperationCenter.shared.start(
-            title: "Map Reads (minimap2)",
-            detail: "Mapping \(config.inputFiles.count) file(s) to \(config.referenceURL.lastPathComponent)",
-            routeContext: routeContext
-        )
-        if let ownedAnalysisDirectory { OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory, for: opID) }
-
-        let task = Task.detached { [weak self] in
-            do {
-                // Materialize virtual FASTQs before running the pipeline.
-                let materializeTempDir = try ProjectTempDirectory.createFromContext(
-                    prefix: "minimap2-", contextURL: config.inputFiles.first ?? config.referenceURL)
-                defer { try? FileManager.default.removeItem(at: materializeTempDir) }
-
-                let resolvedFiles = try await self?.resolveInputFiles(
-                    config.inputFiles,
-                    tempDirectory: materializeTempDir,
-                    progress: { message in
-                        DispatchQueue.main.async { MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
-                            OperationCenter.shared.log(id: opID, level: .info, message: message)
-                        }}
-                    }
-                ) ?? config.inputFiles
-
-                var resolvedConfig = config
-                resolvedConfig.provenanceInputFiles = config.provenanceInputFiles
-                    ?? Self.durableSequenceInputsForProvenance(config.inputFiles)
-                resolvedConfig.provenanceInputFileRecords = config.provenanceInputFileRecords
-                    ?? Self.durableSequenceInputRecordsForProvenance(config.inputFiles)
-                resolvedConfig.inputFiles = resolvedFiles
-
-                let pipeline = Minimap2Pipeline()
-                let result = try await pipeline.run(config: resolvedConfig) { fraction, message in
-                    DispatchQueue.main.async { MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                        OperationCenter.shared.log(id: opID, level: .info, message: message)
-                    }}
-                }
-                let capturedConfig = config
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    guard OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped",
-                        bundleURLs: [result.bamURL]
-                    ) else { return }
-
-                    // Record analysis in source bundle manifest
-                    if let bundleURL = Self.findSourceBundle(for: capturedConfig.inputFiles) {
-                        let entry = AnalysisManifestEntry(
-                            tool: "minimap2",
-                            analysisDirectoryName: Self.analysisManifestDirectoryName(
-                                for: capturedConfig.outputDirectory,
-                                projectURL: routeContext?.projectURL
-                            ),
-                            displayName: "Minimap2 Alignment",
-                            parameters: capturedConfig.summaryParameters(),
-                            summary: "\(result.mappedReads)/\(result.totalReads) reads mapped",
-                            status: .completed
-                        )
-                        do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
-                    }
-
-                    // Reload the originating window's sidebar.
-                    self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
-                        .sidebarController.requestReloadFromFilesystem()
-                }}
-            } catch {
-                // Show the user-facing localized message, not the raw
-                // enum/struct description; keep the raw text for diagnostics.
-                let localizedMessage = error.localizedDescription
-                let rawDetail = "\(error)"
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    // No half result: the folder created for this run goes.
-                    if let failedRunDirectory {
-                        AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
-                    }
-                    _ = OperationCenter.shared.fail(
-                        id: opID,
-                        detail: localizedMessage,
-                        errorMessage: localizedMessage,
-                        errorDetail: rawDetail
-                    )
-                    self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
-                        .sidebarController.requestReloadFromFilesystem()
-                }}
-            }
-        }
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     func importCzIdResultFromURL(_ url: URL, routeContext explicitRouteContext: OperationRouteContext? = nil, onDispatch: (@MainActor @Sendable (ImportDispatchOutcome) -> Void)? = nil) {
