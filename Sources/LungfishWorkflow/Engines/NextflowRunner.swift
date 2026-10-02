@@ -51,9 +51,7 @@ public actor NextflowRunner: WorkflowRunner {
     /// Base workflow runner for common functionality.
     private let baseRunner: BaseWorkflowRunner
     private let homeDirectoryProvider: @Sendable () -> URL
-
-    /// Path to the Nextflow executable.
-    private var executablePath: URL?
+    private let appIdentity: LungfishAppIdentity
 
     /// Cached version string.
     private var cachedVersion: String?
@@ -65,18 +63,23 @@ public actor NextflowRunner: WorkflowRunner {
 
     /// Creates a new Nextflow runner.
     ///
-    /// - Parameter processManager: Optional process manager (defaults to shared)
+    /// - Parameters:
+    ///   - processManager: Optional process manager (defaults to shared)
+    ///   - homeDirectoryProvider: Home whose managed tool root holds Nextflow
+    ///   - appIdentity: Channel whose tool root and `NXF_HOME` the launch uses
     public init(
         processManager: ProcessManager = .shared,
         homeDirectoryProvider: @escaping @Sendable () -> URL = {
             FileManager.default.homeDirectoryForCurrentUser
-        }
+        },
+        appIdentity: LungfishAppIdentity = .current
     ) {
         self.baseRunner = BaseWorkflowRunner(
             category: "NextflowRunner",
             processManager: processManager
         )
         self.homeDirectoryProvider = homeDirectoryProvider
+        self.appIdentity = appIdentity
     }
 
     // MARK: - WorkflowRunner Protocol
@@ -84,13 +87,12 @@ public actor NextflowRunner: WorkflowRunner {
     public func isAvailable() async -> Bool {
         Self.logger.debug("Checking Nextflow availability")
 
-        if let path = resolveExecutablePath() {
-            executablePath = path
-            Self.logger.info("Nextflow found at \(path.path)")
+        if let launch = managedLaunch() {
+            Self.logger.info("Nextflow found at \(launch.executableURL.path)")
             return true
         }
 
-        Self.logger.info("Nextflow not found in PATH")
+        Self.logger.info("Nextflow not found in Lungfish's managed tool root")
         return false
     }
 
@@ -101,19 +103,18 @@ public actor NextflowRunner: WorkflowRunner {
 
         Self.logger.debug("Getting Nextflow version")
 
-        guard let execPath = resolveExecutablePath() else {
+        guard let launch = managedLaunch() else {
             return nil
         }
 
         let workDir = FileManager.default.temporaryDirectory
 
         do {
-            let environment = managedExecutionEnvironment(for: execPath)
             let (_, stdout, stderr) = try await baseRunner.processManager.runAndWait(
-                executable: execPath,
-                arguments: ["-version"],
+                executable: launch.executableURL,
+                arguments: launch.arguments(["-version"]),
                 workingDirectory: workDir,
-                environment: environment
+                environment: launch.environment
             )
 
             let output = [stdout, stderr]
@@ -138,14 +139,14 @@ public actor NextflowRunner: WorkflowRunner {
     ) async throws -> WorkflowResult {
         Self.logger.info("Starting Nextflow execution for workflow: \(workflow.name)")
 
-        // Ensure Nextflow is available
-        guard let execPath = executablePath ?? resolveExecutablePath() else {
+        // Ensure Nextflow is available. The launch is the shared one, plus
+        // Lungfish's conda cache settings when the workflow uses conda.
+        guard let launch = await nextflowLaunch(useConda: parameters.useConda) else {
             throw WorkflowError.engineNotFound(
                 engine: "nextflow",
                 searchedPaths: getSearchPaths()
             )
         }
-        executablePath = execPath
 
         // Validate workflow file exists
         guard FileManager.default.fileExists(atPath: workflow.path.path) else {
@@ -231,32 +232,16 @@ public actor NextflowRunner: WorkflowRunner {
 
         Self.logger.info("Executing: nextflow \(arguments.joined(separator: " "))")
 
-        // Prepare environment
-        var environment = managedExecutionEnvironment(for: execPath)
-        environment["NXF_ANSI_LOG"] = "false"  // Disable ANSI colors
-
-        // Add conda environment variables if using conda profile
-        if parameters.useConda {
-            let condaConfig = await CondaManager.shared.nextflowCondaConfig()
-            for (key, value) in condaConfig {
-                environment[key] = value
-            }
-            // Ensure micromamba is on PATH
-            let condaRoot = CondaManager.shared.rootPrefix
-            let existingPath = environment["PATH"] ?? "/usr/bin:/bin"
-            environment["PATH"] = "\(condaRoot.appendingPathComponent("bin").path):\(existingPath)"
-        }
-
         let startTime = Date()
 
         // Spawn the process
         let handle: ProcessHandle
         do {
             handle = try await baseRunner.processManager.spawn(
-                executable: execPath,
-                arguments: arguments,
+                executable: launch.executableURL,
+                arguments: launch.arguments(arguments),
                 workingDirectory: scratchRoot,
-                environment: environment
+                environment: launch.environment
             )
         } catch {
             try await stateMachine.markFailed(error: error)
@@ -469,25 +454,35 @@ public actor NextflowRunner: WorkflowRunner {
         return pathEnv.components(separatedBy: ":")
     }
 
-    private func resolveExecutablePath() -> URL? {
-        preferredExecutablePath()
-    }
-
-    private func preferredExecutablePath() -> URL? {
-        let home = homeDirectoryProvider()
-        let url = CoreToolLocator.executableURL(
-            environment: engineType.executableName,
+    /// The managed Nextflow launch from ``WorkflowEngineLaunch``, or nil when
+    /// this tool root has none. A Nextflow found on PATH is never launched.
+    private func managedLaunch(
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> WorkflowEngineLaunch? {
+        try? WorkflowEngineLaunch.resolveManaged(
             executableName: engineType.executableName,
-            homeDirectory: home
+            homeDirectory: homeDirectoryProvider(),
+            appIdentity: appIdentity,
+            baseEnvironment: baseEnvironment
         )
-        return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
     }
 
-    private func managedExecutionEnvironment(for executablePath: URL) -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        let existingPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-        environment["PATH"] = "\(executablePath.deletingLastPathComponent().path):\(existingPath)"
-        return environment
+    /// The launch `run` uses: the shared managed launch, plus Lungfish's conda
+    /// cache settings when the workflow runs with the conda profile. The
+    /// managed conda root's bin, where micromamba lives, is already on the
+    /// shared launch's PATH.
+    func nextflowLaunch(
+        useConda: Bool,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) async -> WorkflowEngineLaunch? {
+        guard let launch = managedLaunch(baseEnvironment: baseEnvironment) else {
+            return nil
+        }
+        guard useConda else {
+            return launch
+        }
+        let condaSettings = await CondaManager.shared.nextflowCondaConfig()
+        return launch.overridingEnvironment(set: condaSettings)
     }
 }
 

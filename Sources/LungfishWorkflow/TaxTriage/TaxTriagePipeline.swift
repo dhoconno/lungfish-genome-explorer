@@ -203,7 +203,7 @@ public actor TaxTriagePipeline {
     /// Checks whether all prerequisites for running TaxTriage are met.
     ///
     /// Verifies:
-    /// - Nextflow is installed and in PATH
+    /// - Lungfish's managed Nextflow is installed. A Nextflow on PATH does not count.
     /// - The Docker daemon answers, because the pipeline launches with
     ///   `-profile docker`. Apple Containerization is deliberately not
     ///   consulted: it can be ready and still not run a single pipeline
@@ -211,19 +211,19 @@ public actor TaxTriagePipeline {
     ///
     /// - Returns: A ``PrerequisiteStatus`` describing the state of each requirement.
     public func checkPrerequisites() async -> PrerequisiteStatus {
-        let nextflowPath = managedNextflowExecutableURL()
-        let nextflowAvailable = nextflowPath != nil
+        let launch = managedNextflowLaunch()
 
-        // Detect version if available
+        // Detect version if available. The probe launches Nextflow directly,
+        // so it needs the shared launch's JAVA_HOME on a Mac without a JDK.
         var nextflowVersion: String?
-        if let nextflowPath {
+        if let launch {
             await condaManager.repairManagedLaunchers(environment: "nextflow")
             let tempDir = FileManager.default.temporaryDirectory
             if let result = try? await processManager.runAndWait(
-                executable: nextflowPath,
-                arguments: ["-version"],
+                executable: launch.executableURL,
+                arguments: launch.arguments(["-version"]),
                 workingDirectory: tempDir,
-                environment: managedNextflowExecutionEnvironment(for: nextflowPath)
+                environment: launch.environment
             ), result.exitCode == 0 {
                 nextflowVersion = parseNextflowVersion(from: result.stdout + "\n" + result.stderr)
             }
@@ -232,7 +232,7 @@ public actor TaxTriagePipeline {
         let runtimeStatus = await PipelineContainerRuntimeStatus.check(probe: containerRuntimeProbe)
 
         return PrerequisiteStatus(
-            nextflowInstalled: nextflowAvailable,
+            nextflowInstalled: launch != nil,
             nextflowVersion: nextflowVersion,
             containerRuntimeAvailable: runtimeStatus.available,
             containerRuntimeName: runtimeStatus.available ? PipelineContainerRuntimeStatus.runtimeName : nil,
@@ -1497,67 +1497,57 @@ public actor TaxTriagePipeline {
         return nil
     }
 
-    func buildLaunchEnvironment(useNextflowConda: Bool) async -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        environment["NXF_ANSI_LOG"] = "false"
-        let condaRoot = condaManager.rootPrefix
-        environment["MAMBA_ROOT_PREFIX"] = condaRoot.path
-
-        if useNextflowConda {
-            let condaConfig = await condaManager.nextflowCondaConfig()
-            for (key, value) in condaConfig {
-                environment[key] = value
-            }
-        } else {
-            // Docker/podman/singularity profiles must not inherit managed conda
-            // settings, or Nextflow will override the pipeline's own profile logic.
-            environment.removeValue(forKey: "NXF_CONDA_ENABLED")
-            environment.removeValue(forKey: "NXF_CONDA_CACHEDIR")
+    /// The environment the TaxTriage launch runs with.
+    ///
+    /// It is the shared Nextflow launch environment from ``WorkflowEngineLaunch``
+    /// (the managed Nextflow's bin, conda and Docker paths, its bundled JDK as
+    /// `JAVA_HOME`, `NXF_HOME`), plus the settings TaxTriage states itself.
+    ///
+    /// - micromamba starts Nextflow (`micromamba run -n <env> nextflow`) and
+    ///   finds `<env>` under `MAMBA_ROOT_PREFIX`, so the root is the launcher's own.
+    /// - The conda profile turns on Nextflow's conda support with Lungfish's
+    ///   cache. Every other profile, docker by default, drops those two
+    ///   variables from the environment it hands to `ProcessManager`.
+    ///
+    /// The environment is built before the prerequisite check, so it comes from
+    /// `resolve`, which works without the managed Nextflow. Nothing is
+    /// launched with it unless ``managedNextflowLaunch()`` finds that copy.
+    func buildLaunchEnvironment(
+        useNextflowConda: Bool,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) async -> [String: String] {
+        let sharedLaunch = WorkflowEngineLaunch.resolve(
+            executableName: "nextflow",
+            homeDirectory: homeDirectoryProvider(),
+            appIdentity: appIdentity,
+            baseEnvironment: baseEnvironment
+        )
+        let launcherRoot = ["MAMBA_ROOT_PREFIX": condaManager.rootPrefix.path]
+        guard useNextflowConda else {
+            return sharedLaunch.overridingEnvironment(
+                set: launcherRoot,
+                unset: ["NXF_CONDA_ENABLED", "NXF_CONDA_CACHEDIR"]
+            ).environment
         }
-
-        // Ensure Docker CLI paths are available even in restricted launch envs.
-        let dockerPaths = [
-            condaRoot.appendingPathComponent("bin").path,
-            "/usr/local/bin",
-        ]
-        let existingPaths = (environment["PATH"] ?? "")
-            .split(separator: ":")
-            .map(String.init)
-        var mergedPaths = existingPaths
-        for path in dockerPaths.reversed() where !mergedPaths.contains(path) {
-            mergedPaths.insert(path, at: 0)
-        }
-        environment["PATH"] = mergedPaths.joined(separator: ":")
-
-        // Keep Nextflow cache in a stable, user-space location.
-        let nxfHome = appIdentity.nextflowHomeURL(homeDirectory: homeDirectoryProvider())
-        environment["NXF_HOME"] = nxfHome.path
-        return environment
+        let condaSettings = await condaManager.nextflowCondaConfig()
+        return sharedLaunch.overridingEnvironment(
+            set: launcherRoot.merging(condaSettings) { _, condaSetting in condaSetting }
+        ).environment
     }
 
-    private func managedNextflowExecutableURL() -> URL? {
-        let url = CoreToolLocator.executableURL(
-            environment: "nextflow",
+    /// The managed Nextflow launch, or nil when this tool root has none.
+    ///
+    /// A Nextflow found on PATH is a different, unpinned release and is never used.
+    private func managedNextflowLaunch() -> WorkflowEngineLaunch? {
+        try? WorkflowEngineLaunch.resolveManaged(
             executableName: "nextflow",
             homeDirectory: homeDirectoryProvider(),
             appIdentity: appIdentity
         )
-        return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
     }
 
-    private func managedNextflowExecutionEnvironment(for executablePath: URL) -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        let home = homeDirectoryProvider()
-        let condaBin = CoreToolLocator.condaRoot(homeDirectory: home, appIdentity: appIdentity)
-            .appendingPathComponent("bin", isDirectory: true)
-        let existingPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-        environment["PATH"] = [
-            executablePath.deletingLastPathComponent().path,
-            condaBin.path,
-            existingPath,
-        ].joined(separator: ":")
-        environment["HOME"] = home.path
-        return environment
+    private func managedNextflowExecutableURL() -> URL? {
+        managedNextflowLaunch()?.executableURL
     }
 
     private func writeNextflowRuntimeConfig(

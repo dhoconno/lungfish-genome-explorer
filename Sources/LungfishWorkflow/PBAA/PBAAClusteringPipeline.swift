@@ -457,9 +457,10 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
     }
 
     public func run(request: PBAAClusteringRunRequest, workflowDirectory: URL) async throws -> PBAANextflowRunResult {
-        guard let nextflowExecutableURL = try await nextflowExecutableURL() else {
+        guard let launch = nextflowLaunch() else {
             throw PBAAClusteringError.nextflowUnavailable
         }
+        await condaManager.repairManagedLaunchers(environment: "nextflow")
 
         let launchDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-pbaa-nextflow-\(UUID().uuidString)", isDirectory: true)
@@ -473,10 +474,10 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
         )
         let processArguments = Array(arguments.dropFirst())
         let result = try await runProcess(
-            executableURL: nextflowExecutableURL,
-            arguments: processArguments,
+            executableURL: launch.executableURL,
+            arguments: launch.arguments(processArguments),
             workingDirectory: launchDirectory,
-            environment: nextflowExecutionEnvironment(for: nextflowExecutableURL)
+            environment: launch.environment
         )
         let copiedLogURL = try? copyNextflowLog(from: launchDirectory, to: workflowDirectory)
         let stderr = Self.stderrWithLogDiagnostics(
@@ -489,7 +490,7 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
             stdout: result.stdout,
             stderr: stderr,
             rawOutputDirectory: request.rawPBAAOutputDirectory,
-            argv: [nextflowExecutableURL.path] + processArguments
+            argv: [launch.executableURL.path] + processArguments
         )
     }
 
@@ -535,58 +536,21 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
         return lines.suffix(maxLines).joined(separator: "\n")
     }
 
-    private func nextflowExecutableURL() async throws -> URL? {
-        let managed = CoreToolLocator.executableURL(
-            environment: "nextflow",
+    /// The launch every pbAA Nextflow run uses, from ``WorkflowEngineLaunch``
+    /// for this runner's tool root and app identity. It is nil when the tool
+    /// root has no managed Nextflow, because a Nextflow found on PATH is a
+    /// different, unpinned release and is never launched.
+    func nextflowLaunch(
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        isExecutable: (String) -> Bool = FileManager.default.isExecutableFile(atPath:)
+    ) -> WorkflowEngineLaunch? {
+        try? WorkflowEngineLaunch.resolveManaged(
             executableName: "nextflow",
             homeDirectory: homeDirectoryProvider(),
-            appIdentity: appIdentity
+            appIdentity: appIdentity,
+            baseEnvironment: baseEnvironment,
+            isExecutable: isExecutable
         )
-        if FileManager.default.isExecutableFile(atPath: managed.path) {
-            await condaManager.repairManagedLaunchers(environment: "nextflow")
-            return managed
-        }
-
-        let result = try await runProcess(
-            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-            arguments: ["which", "nextflow"],
-            workingDirectory: nil,
-            environment: ProcessInfo.processInfo.environment
-        )
-        guard result.exitCode == 0,
-              let path = result.stdout
-                .split(whereSeparator: \.isNewline)
-                .first
-                .map(String.init),
-              FileManager.default.isExecutableFile(atPath: path) else {
-            return nil
-        }
-        return URL(fileURLWithPath: path)
-    }
-
-    func nextflowExecutionEnvironment(for executableURL: URL) -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        let home = homeDirectoryProvider()
-        let condaRoot = CoreToolLocator.condaRoot(homeDirectory: home, appIdentity: appIdentity)
-        let condaBin = condaRoot.appendingPathComponent("bin", isDirectory: true)
-        let existingPaths = (environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
-            .split(separator: ":")
-            .map(String.init)
-        var mergedPaths: [String] = []
-        let toolPaths = [
-            executableURL.deletingLastPathComponent().path,
-            condaBin.path,
-            "/usr/local/bin",
-        ]
-        for path in toolPaths + existingPaths
-            where !mergedPaths.contains(path) {
-            mergedPaths.append(path)
-        }
-        environment["PATH"] = mergedPaths.joined(separator: ":")
-        environment["HOME"] = home.path
-        environment["MAMBA_ROOT_PREFIX"] = condaRoot.path
-        environment["NXF_HOME"] = appIdentity.nextflowHomeURL(homeDirectory: home).path
-        return environment
     }
 
     private func runProcess(

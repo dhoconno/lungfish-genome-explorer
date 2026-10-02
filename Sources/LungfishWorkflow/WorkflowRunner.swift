@@ -415,20 +415,44 @@ public actor BaseWorkflowRunner {
 
     /// Gets the version of an installed engine.
     ///
+    /// The Nextflow probe starts from ``WorkflowEngineLaunch``, like every
+    /// other Nextflow launch, so it gets the managed engine's bundled JDK as
+    /// `JAVA_HOME` on a Mac without a system JDK.
+    ///
     /// - Parameter engine: The engine type
     /// - Returns: The version string, or nil if not available
     public func getEngineVersion(_ engine: WorkflowEngineType) async -> String? {
-        guard let executablePath = findEngine(engine) else {
-            return nil
+        let executable: URL
+        let arguments: [String]
+        let environment: [String: String]?
+        if engine == .nextflow {
+            guard let launch = try? WorkflowEngineLaunch.resolveManaged(
+                executableName: engine.executableName,
+                homeDirectory: homeDirectoryProvider(),
+                appIdentity: appIdentity
+            ) else {
+                return nil
+            }
+            executable = launch.executableURL
+            arguments = launch.arguments(["-version"])
+            environment = launch.environment
+        } else {
+            guard let executablePath = findEngine(engine) else {
+                return nil
+            }
+            executable = executablePath
+            arguments = ["-version"]
+            environment = nil
         }
 
         let tempDir = FileManager.default.temporaryDirectory
 
         do {
             let (exitCode, stdout, _) = try await processManager.runAndWait(
-                executable: executablePath,
-                arguments: ["-version"],
-                workingDirectory: tempDir
+                executable: executable,
+                arguments: arguments,
+                workingDirectory: tempDir,
+                environment: environment
             )
 
             if exitCode == 0 {
