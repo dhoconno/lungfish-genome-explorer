@@ -3,7 +3,7 @@ OVERVIEW: Search FASTQ reads by ID or description field
 USAGE: lungfish-cli fastq search-text <input> --output <output> [--force] [--compress] --query <query> [--field <field>] [--regex] [--pairing <pairing>]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file path
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   -o, --output <output>   Output file path (required)

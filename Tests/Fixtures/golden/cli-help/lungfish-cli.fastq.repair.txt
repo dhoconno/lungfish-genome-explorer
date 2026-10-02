@@ -3,7 +3,7 @@ OVERVIEW: Repair desynchronized paired-end reads using repair.sh
 USAGE: lungfish-cli fastq repair <input> --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input interleaved FASTQ file
+  <input>                 Input interleaved FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   -o, --output <output>   Output file path (required)

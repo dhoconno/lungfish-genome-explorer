@@ -3,7 +3,7 @@ OVERVIEW: Search FASTQ reads by sequence motif
 USAGE: lungfish-cli fastq search-motif <input> --output <output> [--force] [--compress] --pattern <pattern> [--regex] [--pairing <pairing>]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file path
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   -o, --output <output>   Output file path (required)

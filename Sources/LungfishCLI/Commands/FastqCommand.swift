@@ -88,7 +88,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
         abstract: "Trim adapters and low-quality bases in one fastp pass"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("threshold"), help: "Quality threshold (default: 20)")
@@ -339,7 +339,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         abstract: "Subsample reads by proportion or count"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("proportion"), help: "Fraction of reads to keep (0-1)")
@@ -514,7 +514,7 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
         abstract: "Filter reads by length"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("min"), help: "Minimum read length")
@@ -629,7 +629,7 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         abstract: "Trim low-quality bases using fastp"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("threshold"), help: "Quality threshold (default: 20)")
@@ -836,7 +836,7 @@ struct FastqReverseComplementSubcommand: AsyncParsableCommand {
         abstract: "Reverse-complement FASTQ reads and reverse their quality scores"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions
@@ -899,7 +899,7 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
         abstract: "Translate FASTQ reads to protein FASTA"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("frame"), help: "Reading frame: 1-3 forward, 4-6 reverse (default: 1)")
@@ -1022,7 +1022,7 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
         abstract: "Remove adapter sequences using fastp"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("adapter"), help: "Adapter sequence (omit for auto-detect)")
@@ -1123,7 +1123,7 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
         abstract: "Trim fixed number of bases from read ends"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("front"), help: "Bases to trim from 5' end (default: 0)")
@@ -1240,7 +1240,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
         abstract: "Remove contaminant reads using bbduk"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("mode"), help: "Filter mode: phix, custom (default: phix)")
@@ -1420,7 +1420,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
             """
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("entropy"), help: "Entropy threshold, 0.3-0.9 (default: 0.6)")
@@ -1616,7 +1616,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         abstract: "Remove primer sequences from FASTQ reads"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("literal"), help: "Primer sequence (IUPAC nucleotides)")
@@ -1885,7 +1885,7 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
         abstract: "Correct sequencing errors using tadpole"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("kmer"), help: "K-mer size for correction (default: 50, max: 62)")
@@ -1968,7 +1968,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         abstract: "Merge overlapping paired-end reads using bbmerge"
     )
 
-    @Argument(help: "Input interleaved FASTQ file")
+    @Argument(help: "Input interleaved FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("min-overlap"), help: "Minimum overlap (default: 12)")
@@ -2193,7 +2193,7 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
         abstract: "Repair desynchronized paired-end reads using repair.sh"
     )
 
-    @Argument(help: "Input interleaved FASTQ file")
+    @Argument(help: "Input interleaved FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions
@@ -2292,7 +2292,7 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
             """
     )
 
-    @Argument(help: "Input interleaved FASTQ file")
+    @Argument(help: "Input interleaved FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("out1"), help: "Output R1 file (required)")
@@ -2544,7 +2544,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
         abstract: "Remove duplicate reads using clumpify.sh (BBTools)"
     )
 
-    @Argument(help: "Input FASTQ file")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("subs"), help: "Substitution tolerance (0=exact, 2=default)")

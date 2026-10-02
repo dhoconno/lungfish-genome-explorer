@@ -13,7 +13,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
         abstract: "Filter reads by sequence presence (adapter/barcode matching)"
     )
 
-    @Argument(help: "Input FASTQ file path")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions

@@ -3,7 +3,8 @@ OVERVIEW: Detect and remove ribosomal RNA sequences with RiboDetector CPU mode
 USAGE: lungfish-cli fastq ribodetector [<options>] <inputs> ... --output <output>
 
 ARGUMENTS:
-  <inputs>                Input FASTA/FASTQ file, or paired R1/R2 FASTQ files
+  <inputs>                Input FASTA/FASTQ file or .lungfishfastq bundle, or
+                          paired R1/R2 FASTQ files
 
 OPTIONS:
   --retain <retain>       Read classes to retain: norrna, rrna, or both

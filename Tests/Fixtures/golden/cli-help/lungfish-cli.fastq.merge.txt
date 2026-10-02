@@ -3,7 +3,7 @@ OVERVIEW: Merge overlapping paired-end reads using bbmerge
 USAGE: lungfish-cli fastq merge <input> [--min-overlap <min-overlap>] [--strict] [--count-duplicates] --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input interleaved FASTQ file
+  <input>                 Input interleaved FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --min-overlap <min-overlap>

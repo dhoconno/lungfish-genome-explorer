@@ -32,7 +32,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         abstract: "Remove human reads from FASTQ"
     )
 
-    @Argument(help: "Input FASTQ file path")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions

@@ -13,7 +13,7 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
         abstract: "Search FASTQ reads by ID or description field"
     )
 
-    @Argument(help: "Input FASTQ file path")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions

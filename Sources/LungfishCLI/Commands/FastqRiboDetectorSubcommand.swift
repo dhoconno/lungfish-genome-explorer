@@ -61,7 +61,7 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
 
     nonisolated(unsafe) static var toolRunner: RiboDetectorToolRunning = CondaRiboDetectorToolRunner()
 
-    @Argument(help: "Input FASTA/FASTQ file, or paired R1/R2 FASTQ files")
+    @Argument(help: "Input FASTA/FASTQ file or .lungfishfastq bundle, or paired R1/R2 FASTQ files")
     var inputs: [String]
 
     @Option(name: .customLong("retain"), help: "Read classes to retain: norrna, rrna, or both")

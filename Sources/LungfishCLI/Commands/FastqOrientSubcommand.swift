@@ -14,7 +14,7 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
         abstract: "Orient reads against a reference sequence"
     )
 
-    @Argument(help: "Input FASTA or FASTQ file path (output preserves the input format)")
+    @Argument(help: "Input FASTA or FASTQ file or .lungfishfastq bundle (output preserves the input format)")
     var input: String
 
     @OptionGroup var output: OutputOptions

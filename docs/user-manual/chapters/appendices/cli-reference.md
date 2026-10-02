@@ -1085,7 +1085,7 @@ lungfish-cli fastq subsample <input> [--proportion <proportion>] [--count <count
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--proportion <proportion>` | Fraction of reads to keep (0-1). |
 | `--count <count>` | Number of reads to keep. On interleaved input whole pairs are kept, so the count is rounded down to an even number, and at least one pair is kept. |
 | `--seed <seed>` | Random seed for reproducible subsampling. Omit for a randomly generated seed, which is still recorded in provenance so the run can be replayed exactly. |
@@ -1103,7 +1103,7 @@ Give `--min`, `--max`, or both. `--min` larger than `--max` is an error. On an i
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--min <min>` | Minimum read length. |
 | `--max <max>` | Maximum read length. |
 | `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
@@ -1120,7 +1120,7 @@ Each of the four trimmers takes one file. On an interleaved file, which holds bo
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--threshold <threshold>` | Quality threshold. The default is `20`. |
 | `--window <window>` | Sliding window size. The default is `4`. |
 | `--mode <mode>` | Quality trim mode, one of `cut-right`, `cut-front`, `cut-tail`, or `cut-both`. The default is `cut-right`. |
@@ -1139,7 +1139,7 @@ lungfish-cli fastq quality-trim <input> [--threshold <threshold>] [--window <win
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--threshold <threshold>` | Quality threshold. The default is `20`. |
 | `--window <window>` | Sliding window size. The default is `4`. |
 | `--mode <mode>` | Trim mode, one of `cut-right`, `cut-front`, `cut-tail`, or `cut-both`. The default is `cut-right`. |
@@ -1156,7 +1156,7 @@ lungfish-cli fastq adapter-trim <input> [--adapter <adapter>] [--pairing <pairin
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--adapter <adapter>` | Adapter sequence (omit for auto-detect). |
 | `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
@@ -1170,7 +1170,7 @@ lungfish-cli fastq fixed-trim <input> [--front <front>] [--tail <tail>] [--pairi
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--front <front>` | Bases to trim from 5' end. The default is `0`. |
 | `--tail <tail>` | Bases to trim from 3' end. The default is `0`. |
 | `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
@@ -1187,7 +1187,7 @@ lungfish-cli fastq primer-remove <input> [--literal <literal>] [--ref <ref>] [--
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--literal <literal>` | Primer sequence (IUPAC nucleotides). |
 | `--ref <ref>` | Primer reference FASTA file. |
 | `--kmer <kmer>` | K-mer size. The default is `23`. |
@@ -1209,7 +1209,7 @@ The `phix` mode uses the PhiX reference that ships with BBTools.
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--mode <mode>` | Filter mode, one of `phix` or `custom`. The default is `phix`. |
 | `--ref <ref>` | Reference FASTA for custom mode. |
 | `--kmer <kmer>` | K-mer size. The default is `31`. |
@@ -1228,7 +1228,7 @@ The global `-t, --threads` sets the bbduk thread count, and the default here is 
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--entropy <entropy>` | Entropy threshold, 0.3-0.9. The default is `0.6`. |
 | `--window <window>` | Entropy sliding window in bases. The default is `50`. |
 | `--kmer <kmer>` | K-mer length for entropy estimation. The default is `5`. |
@@ -1247,7 +1247,7 @@ lungfish-cli fastq scrub-human <input> --output <output> [--force] [--compress] 
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file path. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--database-id <database-id>` | Human read removal database identifier. |
 | `--remove-reads` | Deprecated compatibility flag. Ignored because Deacon always removes matched reads. |
 | `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
@@ -1264,7 +1264,7 @@ It takes one FASTA or FASTQ file, or an R1 and R2 pair. `--output` is a folder, 
 
 | Argument or flag | What it does |
 |---|---|
-| `<inputs>` | Input FASTA/FASTQ file, or paired R1/R2 FASTQ files. |
+| `<inputs>` | Input FASTA/FASTQ file or `.lungfishfastq` bundle, or paired R1/R2 FASTQ files. |
 | `--retain <retain>` | Read classes to retain, one of `norrna`, `rrna`, or `both`. The default is `norrna`. |
 | `--database-id <database-id>` | Managed Deacon database ID. The default is `deacon-ribokmers`. |
 | `--absolute-threshold <absolute-threshold>` | Minimum absolute minimizer hits for an rRNA match. The default is `1`. |
@@ -1283,7 +1283,7 @@ It takes one FASTA or FASTQ file, or an R1 and R2 pair. An interleaved paired fi
 
 | Argument or flag | What it does |
 |---|---|
-| `<inputs>` | Input FASTA/FASTQ file, or paired R1/R2 FASTQ files. |
+| `<inputs>` | Input FASTA/FASTQ file or `.lungfishfastq` bundle, or paired R1/R2 FASTQ files. |
 | `--retain <retain>` | Read classes to retain, one of `norrna`, `rrna`, or `both`. The default is `norrna`. |
 | `--ensure <ensure>` | RiboDetector's assurance mode, one of `rrna`, `norrna`, `both`, or `none`. The default is `rrna`. |
 | `--read-length <read-length>` | Mean read length. It is inferred from the input when omitted. |
@@ -1302,7 +1302,7 @@ It runs bbduk with a k-mer length equal to `--min-overlap` and an edit distance 
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file path. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--sequence <sequence>` | Literal sequence to match against reads. |
 | `--fasta-path <fasta-path>` | Path to FASTA file containing sequences to match. |
 | `--search-end <search-end>` | Which end to search, one of `left`, `right`, or `both`. The default is `both`. |
@@ -1324,7 +1324,7 @@ lungfish-cli fastq error-correct <input> [--kmer <kmer>] --output <output> [--fo
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--kmer <kmer>` | K-mer size for correction, at most 62. The default is `50`. |
 
 ### `fastq deduplicate`
@@ -1347,7 +1347,7 @@ lungfish-cli fastq deduplicate <input> [--subs <subs>] [--optical] [--dupedist <
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--subs <subs>` | How many substitutions two reads may differ by and still count as duplicates. The default is `0`, exact duplicates only. |
 | `--optical` | Optical duplicate mode (patterned flowcells). |
 | `--dupedist <dupedist>` | Pixel distance for optical duplicates. The default is `40`. |
@@ -1365,7 +1365,7 @@ The input must be interleaved. `--count-duplicates`, which the window always pas
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input interleaved FASTQ file. |
+| `<input>` | Input interleaved FASTQ file or `.lungfishfastq` bundle. |
 | `--min-overlap <min-overlap>` | Minimum overlap. The default is `12`. |
 | `--strict` | Use strict merge mode. |
 | `--count-duplicates` | Collapse identical output sequences after merge and encode support as size=N. |
@@ -1382,7 +1382,7 @@ It writes complete pairs first, then singletons, in one file.
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input interleaved FASTQ file. |
+| `<input>` | Input interleaved FASTQ file or `.lungfishfastq` bundle. |
 
 ### `fastq interleave`
 
@@ -1409,7 +1409,7 @@ It takes `--out1` and `--out2` in place of `--output`, and has no `--force`. A f
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input interleaved FASTQ file. |
+| `<input>` | Input interleaved FASTQ file or `.lungfishfastq` bundle. |
 | `--out1 <out1>` | Output R1 file (required). |
 | `--out2 <out2>` | Output R2 file (required). |
 | `--unpaired <unpaired>` | Output file for reads without an adjacent mate. Required when the input mixes merged reads with pairs. |
@@ -1424,7 +1424,7 @@ lungfish-cli fastq reverse-complement <input> --output <output> [--force] [--com
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 
 ### `fastq translate`
 
@@ -1438,7 +1438,7 @@ Frames 4 to 6 are the reverse-complement frames and print as `_frame-1`, `_frame
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--frame <frame>` | Reading frame, 1 to 3 on the forward strand and 4 to 6 on the reverse. The default is `1`. |
 | `--table <table>` | Genetic code table ID. The default is `1`. |
 
@@ -1452,7 +1452,7 @@ lungfish-cli fastq search-text <input> --output <output> [--force] [--compress] 
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file path. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--query <query>` | Search query string. |
 | `--field <field>` | Field to search, one of `id` or `description`. The default is `id`. |
 | `--regex` | Treat query as a regular expression. |
@@ -1468,7 +1468,7 @@ lungfish-cli fastq search-motif <input> --output <output> [--force] [--compress]
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file path. |
+| `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
 | `--pattern <pattern>` | Sequence motif pattern to search for. |
 | `--regex` | Treat pattern as a regular expression. |
 | `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
@@ -1485,7 +1485,7 @@ It has no option to keep the reads vsearch cannot place. The top-level `orient` 
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input FASTQ file path. |
+| `<input>` | Input FASTA or FASTQ file or `.lungfishfastq` bundle (output preserves the input format). |
 | `--reference <reference>` | Reference FASTA file path. |
 | `--word-length <word-length>` | Word length for orientation matching. The default is `12`. |
 | `--db-mask <db-mask>` | Database masking method. The default is `dust`. |

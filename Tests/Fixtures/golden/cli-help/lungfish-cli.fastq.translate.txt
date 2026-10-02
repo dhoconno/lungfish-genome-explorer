@@ -3,7 +3,7 @@ OVERVIEW: Translate FASTQ reads to protein FASTA
 USAGE: lungfish-cli fastq translate <input> [--frame <frame>] [--table <table>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --frame <frame>         Reading frame: 1-3 forward, 4-6 reverse (default: 1)

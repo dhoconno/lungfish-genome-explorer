@@ -13,7 +13,7 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
         abstract: "Search FASTQ reads by sequence motif"
     )
 
-    @Argument(help: "Input FASTQ file path")
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @OptionGroup var output: OutputOptions

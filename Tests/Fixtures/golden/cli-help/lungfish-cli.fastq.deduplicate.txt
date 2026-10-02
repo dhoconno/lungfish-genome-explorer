@@ -3,7 +3,7 @@ OVERVIEW: Remove duplicate reads using clumpify.sh (BBTools)
 USAGE: lungfish-cli fastq deduplicate <input> [--subs <subs>] [--optical] [--dupedist <dupedist>] [--pairing <pairing>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
-  <input>                 Input FASTQ file
+  <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
   --subs <subs>           Substitution tolerance (0=exact, 2=default) (default:
