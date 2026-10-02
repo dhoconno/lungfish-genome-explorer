@@ -114,24 +114,35 @@ final class FASTQOperationCompletionOutputsTests: XCTestCase {
             "Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift",
             "Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift",
         ]
+        // A launch registers its row with a `start` call that names
+        // `.fastqOperation`, or with a begin helper that registers one. The
+        // helpers live in MainSplitViewController+GenomicsDisplayOperationBegin.swift,
+        // so the launch-site file names the helper call instead.
+        let launchMarkers = [
+            "operationType: .fastqOperation",
+            "Self.beginFASTQDerivativeOperation(",
+            "Self.beginFASTQLaunchRequestOperation(",
+        ]
         var launchCount = 0
         for file in files {
             let source = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
-            var cursor = source.startIndex
-            while let launch = source.range(of: "operationType: .fastqOperation", range: cursor..<source.endIndex) {
-                launchCount += 1
-                let rest = launch.upperBound..<source.endIndex
-                let bare = source.range(of: "OperationCenter.shared.complete(", range: rest)
-                let helper = source.range(of: "FASTQOperationCompletion.complete(", range: rest)
-                let line = source[..<launch.lowerBound].reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
-                XCTAssertNotNil(helper, "\(file):\(line) never completes its FASTQ operation")
-                if let bare, let helper {
-                    XCTAssertLessThan(
-                        helper.lowerBound, bare.lowerBound,
-                        "\(file):\(line) completes a FASTQ operation without recording its outputs"
-                    )
+            for marker in launchMarkers {
+                var cursor = source.startIndex
+                while let launch = source.range(of: marker, range: cursor..<source.endIndex) {
+                    launchCount += 1
+                    let rest = launch.upperBound..<source.endIndex
+                    let bare = source.range(of: "OperationCenter.shared.complete(", range: rest)
+                    let helper = source.range(of: "FASTQOperationCompletion.complete(", range: rest)
+                    let line = source[..<launch.lowerBound].reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+                    XCTAssertNotNil(helper, "\(file):\(line) never completes its FASTQ operation")
+                    if let bare, let helper {
+                        XCTAssertLessThan(
+                            helper.lowerBound, bare.lowerBound,
+                            "\(file):\(line) completes a FASTQ operation without recording its outputs"
+                        )
+                    }
+                    cursor = launch.upperBound
                 }
-                cursor = launch.upperBound
             }
         }
         XCTAssertGreaterThanOrEqual(launchCount, 4)

@@ -293,78 +293,77 @@ extension MainSplitViewController {
         guard canWriteProjectOutputs(workflowName: "Reference download") else { return }
         let assemblyName = inferredRef.assembly ?? ncbiAccessions.first ?? "Reference"
 
-        let downloadID = DownloadCenter.shared.start(
-            title: "\(assemblyName) Reference",
-            detail: "Searching NCBI\u{2026}",
+        Self.beginNakedBundleReferenceDownloadOperation(
+            assemblyName: assemblyName,
             routeContext: operationRouteContext
-        )
+        ) { downloadID in
+            Task.detached { [weak self] in
+                do {
+                    let tempDir = try ProjectTempDirectory.createFromContext(
+                        prefix: "ref-", contextURL: bundleURL)
+                    defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        Task.detached { [weak self] in
-            do {
-                let tempDir = try ProjectTempDirectory.createFromContext(
-                    prefix: "ref-", contextURL: bundleURL)
-                defer { try? FileManager.default.removeItem(at: tempDir) }
-
-                // Strategy 1: Try NCBI Assembly search
-                let tempBundleURL = try await Self.tryAssemblyDownload(
-                    inferredRef: inferredRef,
-                    outputDirectory: tempDir,
-                    downloadID: downloadID
-                )
-
-                if let sourceBundleURL = tempBundleURL {
-                    // Assembly download succeeded — merge into naked bundle
-                    try Self.mergeGenomeIntoBundle(
-                        sourceBundleURL: sourceBundleURL,
-                        targetBundleURL: bundleURL
+                    // Strategy 1: Try NCBI Assembly search
+                    let tempBundleURL = try await Self.tryAssemblyDownload(
+                        inferredRef: inferredRef,
+                        outputDirectory: tempDir,
+                        downloadID: downloadID
                     )
-                } else if let firstAccession = ncbiAccessions.first {
-                    // Strategy 2: Fall back to GenBank nucleotide fetch
-                    mainSplitPerformOnMainRunLoop {
-                        _ = DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Fetching \(firstAccession) from GenBank\u{2026}")
+
+                    if let sourceBundleURL = tempBundleURL {
+                        // Assembly download succeeded — merge into naked bundle
+                        try Self.mergeGenomeIntoBundle(
+                            sourceBundleURL: sourceBundleURL,
+                            targetBundleURL: bundleURL
+                        )
+                    } else if let firstAccession = ncbiAccessions.first {
+                        // Strategy 2: Fall back to GenBank nucleotide fetch
+                        mainSplitPerformOnMainRunLoop {
+                            _ = DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Fetching \(firstAccession) from GenBank\u{2026}")
+                        }
+
+                        let genBankVM = GenBankBundleDownloadViewModel()
+                        let genBankBundleURL = try await genBankVM.downloadAndBuild(
+                            accession: firstAccession,
+                            outputDirectory: tempDir
+                        ) { progress, message in
+                            let scaledProgress = 0.15 + progress * 0.8
+                            mainSplitPerformOnMainRunLoop {
+                                _ = DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
+                            }
+                        }
+
+                        try Self.mergeGenomeIntoBundle(
+                            sourceBundleURL: genBankBundleURL,
+                            targetBundleURL: bundleURL
+                        )
+                    } else {
+                        mainSplitPerformOnMainRunLoop {
+                            _ = DownloadCenter.shared.fail(id: downloadID, detail: "No reference found for '\(assemblyName)'")
+                        }
+                        return
                     }
 
-                    let genBankVM = GenBankBundleDownloadViewModel()
-                    let genBankBundleURL = try await genBankVM.downloadAndBuild(
-                        accession: firstAccession,
-                        outputDirectory: tempDir
-                    ) { progress, message in
-                        let scaledProgress = 0.15 + progress * 0.8
-                        mainSplitPerformOnMainRunLoop {
-                            _ = DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
+                    mainSplitPerformOnMainRunLoop {
+                        _ = DownloadCenter.shared.complete(id: downloadID, detail: "Reference genome added to bundle")
+                    }
+
+                    mainSplitLogger.info("downloadReferenceForNakedBundle: Genome merged into \(bundleURL.lastPathComponent, privacy: .public)")
+
+                    // Reload the bundle in the viewer after the downloaded reference is merged.
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            self?.displayReferenceBundleViewportFromSidebar(at: bundleURL)
                         }
                     }
 
-                    try Self.mergeGenomeIntoBundle(
-                        sourceBundleURL: genBankBundleURL,
-                        targetBundleURL: bundleURL
-                    )
-                } else {
+                } catch {
+                    let errorMessage = "\(error)"
                     mainSplitPerformOnMainRunLoop {
-                        _ = DownloadCenter.shared.fail(id: downloadID, detail: "No reference found for '\(assemblyName)'")
+                        _ = DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
                     }
-                    return
+                    mainSplitLogger.error("downloadReferenceForNakedBundle: Failed - \(errorMessage)")
                 }
-
-                mainSplitPerformOnMainRunLoop {
-                    _ = DownloadCenter.shared.complete(id: downloadID, detail: "Reference genome added to bundle")
-                }
-
-                mainSplitLogger.info("downloadReferenceForNakedBundle: Genome merged into \(bundleURL.lastPathComponent, privacy: .public)")
-
-                // Reload the bundle in the viewer after the downloaded reference is merged.
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        self?.displayReferenceBundleViewportFromSidebar(at: bundleURL)
-                    }
-                }
-
-            } catch {
-                let errorMessage = "\(error)"
-                mainSplitPerformOnMainRunLoop {
-                    _ = DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
-                }
-                mainSplitLogger.error("downloadReferenceForNakedBundle: Failed - \(errorMessage)")
             }
         }
     }
@@ -498,77 +497,76 @@ extension MainSplitViewController {
             searchTerm = "\(inferredRef.organism ?? assembly)[Organism] AND \(assembly)[Assembly Name]"
         }
 
-        let downloadID = DownloadCenter.shared.start(
-            title: "\(assembly) Reference",
-            detail: "Searching NCBI...",
+        Self.beginVCFReferenceDownloadOperation(
+            assembly: assembly,
             routeContext: operationRouteContext
-        )
+        ) { downloadID in
+            Task.detached {
+                do {
+                    let ncbi = NCBIService()
 
-        Task.detached {
-            do {
-                let ncbi = NCBIService()
-
-                // Search for the assembly
-                mainSplitPerformOnMainRunLoop {
-                    _ = DownloadCenter.shared.update(id: downloadID, progress: 0.05, detail: "Searching NCBI for \(assembly)...")
-                }
-
-                let ids = try await ncbi.esearch(database: .assembly, term: searchTerm, retmax: 5)
-                guard !ids.isEmpty else {
+                    // Search for the assembly
                     mainSplitPerformOnMainRunLoop {
-                        _ = DownloadCenter.shared.fail(id: downloadID, detail: "No assembly found for '\(assembly)'")
+                        _ = DownloadCenter.shared.update(id: downloadID, progress: 0.05, detail: "Searching NCBI for \(assembly)...")
                     }
-                    return
-                }
 
-                // Get assembly summary
-                mainSplitPerformOnMainRunLoop {
-                    _ = DownloadCenter.shared.update(id: downloadID, progress: 0.1, detail: "Getting assembly info...")
-                }
+                    let ids = try await ncbi.esearch(database: .assembly, term: searchTerm, retmax: 5)
+                    guard !ids.isEmpty else {
+                        mainSplitPerformOnMainRunLoop {
+                            _ = DownloadCenter.shared.fail(id: downloadID, detail: "No assembly found for '\(assembly)'")
+                        }
+                        return
+                    }
 
-                let summaries = try await ncbi.assemblyEsummary(ids: ids)
-                guard let assemblySummary = summaries.first else {
+                    // Get assembly summary
                     mainSplitPerformOnMainRunLoop {
-                        _ = DownloadCenter.shared.fail(id: downloadID, detail: "No assembly details found")
+                        _ = DownloadCenter.shared.update(id: downloadID, progress: 0.1, detail: "Getting assembly info...")
                     }
-                    return
-                }
 
-                // Download and build bundle
-                mainSplitPerformOnMainRunLoop {
-                    _ = DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Downloading genome files...")
-                }
+                    let summaries = try await ncbi.assemblyEsummary(ids: ids)
+                    guard let assemblySummary = summaries.first else {
+                        mainSplitPerformOnMainRunLoop {
+                            _ = DownloadCenter.shared.fail(id: downloadID, detail: "No assembly details found")
+                        }
+                        return
+                    }
 
-                guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-                    throw DocumentLoadError.fileNotFound(URL(fileURLWithPath: NSHomeDirectory()))
-                }
-                let genomesDir = documentsDir
-                    .appendingPathComponent("Genomes", isDirectory: true)
-                try? FileManager.default.createDirectory(at: genomesDir, withIntermediateDirectories: true)
-
-                let viewModel = GenomeDownloadViewModel()
-                let bundleURL = try await viewModel.downloadAndBuild(
-                    assembly: assemblySummary,
-                    outputDirectory: genomesDir
-                ) { progress, message in
-                    // Map 0.15-0.95 range for download+build phase
-                    let scaledProgress = 0.15 + progress * 0.8
+                    // Download and build bundle
                     mainSplitPerformOnMainRunLoop {
-                        _ = DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
+                        _ = DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Downloading genome files...")
                     }
-                }
 
-                mainSplitPerformOnMainRunLoop {
-                    _ = DownloadCenter.shared.complete(id: downloadID, detail: "Bundle ready", bundleURLs: [bundleURL])
-                }
+                    guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                        throw DocumentLoadError.fileNotFound(URL(fileURLWithPath: NSHomeDirectory()))
+                    }
+                    let genomesDir = documentsDir
+                        .appendingPathComponent("Genomes", isDirectory: true)
+                    try? FileManager.default.createDirectory(at: genomesDir, withIntermediateDirectories: true)
 
-                mainSplitLogger.info("downloadReferenceForVCF: Bundle built at \(bundleURL.path, privacy: .public)")
-            } catch {
-                let errorMessage = "\(error)"
-                mainSplitPerformOnMainRunLoop {
-                    _ = DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
+                    let viewModel = GenomeDownloadViewModel()
+                    let bundleURL = try await viewModel.downloadAndBuild(
+                        assembly: assemblySummary,
+                        outputDirectory: genomesDir
+                    ) { progress, message in
+                        // Map 0.15-0.95 range for download+build phase
+                        let scaledProgress = 0.15 + progress * 0.8
+                        mainSplitPerformOnMainRunLoop {
+                            _ = DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
+                        }
+                    }
+
+                    mainSplitPerformOnMainRunLoop {
+                        _ = DownloadCenter.shared.complete(id: downloadID, detail: "Bundle ready", bundleURLs: [bundleURL])
+                    }
+
+                    mainSplitLogger.info("downloadReferenceForVCF: Bundle built at \(bundleURL.path, privacy: .public)")
+                } catch {
+                    let errorMessage = "\(error)"
+                    mainSplitPerformOnMainRunLoop {
+                        _ = DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
+                    }
+                    mainSplitLogger.error("downloadReferenceForVCF: Failed - \(errorMessage)")
                 }
-                mainSplitLogger.error("downloadReferenceForVCF: Failed - \(errorMessage)")
             }
         }
     }
@@ -770,26 +768,15 @@ extension MainSplitViewController {
         let inputURLs = selectedFASTQOperationSources(fallback: sourceURL)
         let sourceBundleURLs = try inputURLs.map(resolveFASTQOperationSourceBundle(from:))
 
-        // Resolve the FASTQ path for CLI command display.
-        // For bundles, use the bundle path as the representative input.
-        let displayInputPath = sourceBundleURLs.first?.path ?? sourceURL.path
-        let displayOutputPath = "<derived>"
-        let cliCmd = request.cliCommand(
-            inputPath: displayInputPath,
-            outputPath: displayOutputPath,
-            pairingMode: FASTQPairingModeResolver.bundlePairingMode(for: sourceBundleURLs.first ?? sourceURL)
-        )
-
-        // Register with OperationCenter for visibility in the Operations panel
-        let opTitle = "FASTQ: \(request.operationLabel)"
+        // Register with OperationCenter for visibility in the Operations panel.
+        // The row shows the lungfish-cli command for the first input bundle, and
+        // a refused begin throws before the derivative runs.
         let startTime = Date()
-        let opID: UUID = OperationCenter.shared.start(
-            title: opTitle,
-            detail: "Preparing...",
-            operationType: .fastqOperation,
-            cliCommand: cliCmd,
+        let opID = try Self.beginFASTQDerivativeOperation(
+            request: request,
+            inputURL: sourceBundleURLs.first ?? sourceURL,
             routeContext: operationRouteContext
-        )
+        ).requireStarted()
         OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationLabel)")
         if sourceBundleURLs.count > 1 {
             OperationCenter.shared.log(
@@ -1282,152 +1269,146 @@ extension MainSplitViewController {
         let executionService = FASTQOperationExecutionService(
             directImporter: BundleFASTQOperationImporter(destinationDirectory: destinationRoot)
         )
-        let cliCommand: String? = try? {
-            let invocation = try executionService.buildInvocation(for: request)
-            return OperationCenter.buildCLICommand(
-                subcommand: invocation.subcommand,
-                args: invocation.arguments
-            )
-        }()
-
         let inputDisplayName = request.independentOperationInputDisplayName
         let attributedDisplayTitle = inputDisplayName.map {
             "\(request.operationDisplayTitle) — \($0)"
         } ?? request.operationDisplayTitle
-        let opTitle = "FASTQ: \(attributedDisplayTitle)"
         let startTime = Date()
-        let opID: UUID = OperationCenter.shared.start(
-            title: opTitle,
-            detail: "Preparing...",
-            operationType: .fastqOperation,
-            cliCommand: cliCommand,
+        // This launch declares no bundle lock, so `begin` cannot refuse it today.
+        // A refusal would launch nothing and return nil. If a lock is added here,
+        // the refused branch must also discard `ownedAnalysisDirectory`.
+        let began = Self.beginFASTQLaunchRequestOperation(
+            title: "FASTQ: \(attributedDisplayTitle)",
+            request: request,
+            executionService: executionService,
             routeContext: operationRouteContext
-        )
-        OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(attributedDisplayTitle)")
-        // An analysis directory (or the batch root around a batch child's
-        // output) appears in the sidebar only once this operation completes.
-        OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory ?? workingDirectory, for: opID)
+        ) { opID in
+            OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(attributedDisplayTitle)")
+            // An analysis directory (or the batch root around a batch child's
+            // output) appears in the sidebar only once this operation completes.
+            OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory ?? workingDirectory, for: opID)
 
-        viewerController.updateFASTQOperationStatus("Running FASTQ/FASTA operation...")
+            viewerController.updateFASTQOperationStatus("Running FASTQ/FASTA operation...")
 
-        let task = Task.detached(priority: .userInitiated) { [weak self] in
-            do {
-                let result: FASTQOperationExecutionResult
-                if AppUITestConfiguration.current.isEnabled,
-                   AppUITestConfiguration.current.backendMode == .deterministic,
-                   case .assemble(let assemblyRequest, let outputMode) = request {
-                    let uiTestRequest = assemblyRequest.replacingOutputDirectory(with: workingDirectory)
-                    try AppUITestAssemblyBackend.writeResult(for: uiTestRequest)
-                    result = FASTQOperationExecutionResult(
-                        resolvedRequest: .assemble(request: uiTestRequest, outputMode: outputMode),
-                        executedInvocations: [],
-                        importedURLs: [workingDirectory],
-                        groupedContainerURL: outputMode == .groupedResult ? workingDirectory : nil
-                    )
-                } else {
-                    result = try await executionService.execute(
-                        request: request,
-                        workingDirectory: workingDirectory,
-                        logHandler: { level, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    OperationCenter.shared.log(id: opID, level: level, message: message)
-                                }
-                            }
-                        },
-                        progress: { [weak self] fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    self?.viewerController.updateFASTQOperationStatus(message)
-                                    _ = OperationCenter.shared.updateWithLog(
-                                        id: opID,
-                                        progress: fraction,
-                                        detail: message
-                                    )
-                                }
-                            }
-                        }
-                    )
-                }
-                let elapsed = Date().timeIntervalSince(startTime)
-                let completionTarget = result.groupedContainerURL ?? result.importedURLs.last
-
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .info,
-                            message: "Completed in \(String(format: "%.1f", elapsed))s"
+            let task = Task.detached(priority: .userInitiated) { [weak self] in
+                do {
+                    let result: FASTQOperationExecutionResult
+                    if AppUITestConfiguration.current.isEnabled,
+                       AppUITestConfiguration.current.backendMode == .deterministic,
+                       case .assemble(let assemblyRequest, let outputMode) = request {
+                        let uiTestRequest = assemblyRequest.replacingOutputDirectory(with: workingDirectory)
+                        try AppUITestAssemblyBackend.writeResult(for: uiTestRequest)
+                        result = FASTQOperationExecutionResult(
+                            resolvedRequest: .assemble(request: uiTestRequest, outputMode: outputMode),
+                            executedInvocations: [],
+                            importedURLs: [workingDirectory],
+                            groupedContainerURL: outputMode == .groupedResult ? workingDirectory : nil
                         )
-                        let completionDetail = "Done in \(String(format: "%.1f", elapsed))s"
-                        guard FASTQOperationCompletion.complete(
-                            id: opID,
-                            detail: completionDetail,
-                            result: result
-                        ) else { return }
-                        guard let self else { return }
-                        if let completionTarget {
-                            self.recordUITestEvent(
-                                "fastq.operation.completed target=\(completionTarget.lastPathComponent)"
-                            )
-                            self.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
-                                guard let self else { return }
-                                switch result.resolvedRequest {
-                                case .assemble:
-                                    self.displayAssemblyAnalysisFromSidebar(at: completionTarget)
-                                case .map:
-                                    self.displayMappingAnalysisFromSidebar(at: completionTarget)
-                                default:
-                                    break
+                    } else {
+                        result = try await executionService.execute(
+                            request: request,
+                            workingDirectory: workingDirectory,
+                            logHandler: { level, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.log(id: opID, level: level, message: message)
+                                    }
                                 }
+                            },
+                            progress: { [weak self] fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        self?.viewerController.updateFASTQOperationStatus(message)
+                                        _ = OperationCenter.shared.updateWithLog(
+                                            id: opID,
+                                            progress: fraction,
+                                            detail: message
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                    }
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let completionTarget = result.groupedContainerURL ?? result.importedURLs.last
+
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "Completed in \(String(format: "%.1f", elapsed))s"
+                            )
+                            let completionDetail = "Done in \(String(format: "%.1f", elapsed))s"
+                            guard FASTQOperationCompletion.complete(
+                                id: opID,
+                                detail: completionDetail,
+                                result: result
+                            ) else { return }
+                            guard let self else { return }
+                            if let completionTarget {
+                                self.recordUITestEvent(
+                                    "fastq.operation.completed target=\(completionTarget.lastPathComponent)"
+                                )
+                                self.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
+                                    guard let self else { return }
+                                    switch result.resolvedRequest {
+                                    case .assemble:
+                                        self.displayAssemblyAnalysisFromSidebar(at: completionTarget)
+                                    case .map:
+                                        self.displayMappingAnalysisFromSidebar(at: completionTarget)
+                                    default:
+                                        break
+                                    }
+                                    self.requestInspectorDocumentModeAfterDownload()
+                                }
+                            } else {
+                                self.sidebarController.requestReloadFromFilesystem()
                                 self.requestInspectorDocumentModeAfterDownload()
                             }
-                        } else {
-                            self.sidebarController.requestReloadFromFilesystem()
-                            self.requestInspectorDocumentModeAfterDownload()
                         }
                     }
-                }
-            } catch is CancellationError {
-                let elapsed = Date().timeIntervalSince(startTime)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .info,
-                            message: "Cancelled after \(String(format: "%.1f", elapsed))s"
-                        )
-                        if let failedRunDirectory {
-                            AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
+                } catch is CancellationError {
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "Cancelled after \(String(format: "%.1f", elapsed))s"
+                            )
+                            if let failedRunDirectory {
+                                AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
+                            }
+                            _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled by user")
                         }
-                        _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled by user")
                     }
-                }
-            } catch {
-                let elapsed = Date().timeIntervalSince(startTime)
-                let errorDesc = error.localizedDescription
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        if let failedRunDirectory {
-                            AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
+                } catch {
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let errorDesc = error.localizedDescription
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            if let failedRunDirectory {
+                                AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
+                            }
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .error,
+                                message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
+                            )
+                            _ = OperationCenter.shared.fail(
+                                id: opID,
+                                detail: "Failed after \(String(format: "%.1f", elapsed))s",
+                                errorMessage: errorDesc,
+                                errorDetail: "\(error)"
+                            )
                         }
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .error,
-                            message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
-                        )
-                        _ = OperationCenter.shared.fail(
-                            id: opID,
-                            detail: "Failed after \(String(format: "%.1f", elapsed))s",
-                            errorMessage: errorDesc,
-                            errorDetail: "\(error)"
-                        )
                     }
                 }
             }
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-        return opID
+        return began.startedID
     }
 
     /// Polls `center.items` until the item with `id` reaches a terminal
