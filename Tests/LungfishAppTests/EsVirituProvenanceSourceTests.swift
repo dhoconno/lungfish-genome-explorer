@@ -26,7 +26,7 @@ final class EsVirituProvenanceSourceTests: XCTestCase {
 
         XCTAssertTrue(source.contains("capturedResult.detections.isEmpty"))
         XCTAssertTrue(source.contains(#""No viral hits detected""#))
-        XCTAssertTrue(source.contains("OperationCenter.shared.complete(\n                            id: opID,\n                            detail: completionDetail"))
+        XCTAssertTrue(source.contains("OperationCenter.shared.complete(\n                                id: opID,\n                                detail: completionDetail"))
     }
 
     func testBatchEsVirituProgressWritesOperationLogEntries() throws {
