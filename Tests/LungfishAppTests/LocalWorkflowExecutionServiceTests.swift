@@ -22,6 +22,7 @@ final class LocalWorkflowExecutionServiceTests: XCTestCase {
             params: ["sample": "S1"]
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let service = LocalWorkflowExecutionService(operationCenter: operationCenter)
 
         let result = try await service.prepare(request, bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true))
@@ -76,6 +77,7 @@ final class LocalWorkflowExecutionServiceTests: XCTestCase {
             params: ["sample": "S1"]
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubLocalWorkflowCLIProcessRunner(result: .init(
             exitCode: 0,
             standardOutput: "prepared bundle\nworkflow complete\n",
@@ -122,6 +124,7 @@ final class LocalWorkflowExecutionServiceTests: XCTestCase {
             params: ["sample": "S1"]
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubLocalWorkflowCLIProcessRunner(
             result: .init(exitCode: 0, standardOutput: "workflow complete\n", standardError: ""),
             provenanceMode: .legacyWorkflowRun

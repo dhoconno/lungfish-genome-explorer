@@ -5,6 +5,11 @@ import LungfishKit
 
 @MainActor
 final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
     func testLaunchContextUsesMappingResultTargetAndReloadsMappingViewerWhenStartedFromMappingMode() throws {
         let bundleURL = URL(fileURLWithPath: "/tmp/fixture.lungfishref", isDirectory: true)
         let mappingResultURL = URL(fileURLWithPath: "/tmp/mapping-run", isDirectory: true)

@@ -30,6 +30,7 @@ final class DownloadCenterTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         center = DownloadCenter()
+        center.failureReportStore = .temporaryForTesting()
         cancellables = []
     }
 

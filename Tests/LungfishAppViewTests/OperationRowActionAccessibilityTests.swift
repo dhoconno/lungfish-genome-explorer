@@ -20,6 +20,7 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
         super.setUp()
         pasteboard = NSPasteboard.withUniqueName()
         _ = NSApplication.shared
+        OperationCenter.useTemporaryFailureReportsForTesting()
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
     }

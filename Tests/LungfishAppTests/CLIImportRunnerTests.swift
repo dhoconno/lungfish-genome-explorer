@@ -51,6 +51,11 @@ private final class CLIImportRunnerCompletionFlag: @unchecked Sendable {
 }
 
 final class CLIImportRunnerTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        await OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
 
     // MARK: - Event Parsing Tests
 

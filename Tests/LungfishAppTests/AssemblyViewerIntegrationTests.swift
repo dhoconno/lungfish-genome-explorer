@@ -5,6 +5,11 @@ import LungfishKit
 
 @MainActor
 final class AssemblyViewerIntegrationTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
     func testBlastCallbackReceivesRealFastaPayload() async throws {
         let vc = AssemblyResultViewController()
         _ = vc.view

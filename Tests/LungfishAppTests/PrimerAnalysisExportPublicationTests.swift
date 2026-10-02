@@ -52,6 +52,7 @@ final class PrimerAnalysisExportPublicationTests: XCTestCase {
     try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
     try Data("publication transaction fixture".utf8).write(to: staged.appendingPathComponent("sentinel"))
     let center = OperationCenter()
+    center.failureReportStore = .temporaryForTesting()
     let id = center.start(title: "Primer extract", detail: "Prepared", targetBundleURL: output)
     center.setCancelCallback(for: id) {}
     return (root, staged, output, center, id)

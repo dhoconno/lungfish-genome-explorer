@@ -28,6 +28,7 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
     override func setUp() {
         super.setUp()
         center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         // Tests use a short grace period so this suite stays fast; production
         // uses OperationCenter's own default.
         center.cancelGracePeriod = 0.1

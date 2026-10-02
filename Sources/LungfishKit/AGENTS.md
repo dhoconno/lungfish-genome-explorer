@@ -50,5 +50,5 @@ Target LungfishKitTests in Tests/LungfishKitTests (OperationCenter suites, row a
 | `operationType` defaults to `.download` and `cliCommand` to nil | OperationCenter.swift lines 390, 399, 602, 606, 645 and 649 (R4) |
 | Bundle import after completion runs through a closure AppDelegate sets once | `onBundleReady`, OperationCenter.swift lines 434 to 436 (R4) |
 | The file named ResultViewportController.swift holds no viewport protocol, only export and BLAST request types | Sources/LungfishKit/ResultViewportController.swift lines 15 and 40 (R1) |
-| Production code branches on whether tests are running | Sources/LungfishKit/TestHarnessDetection.swift line 11 (R10) |
+| A test that fails an operation writes a report into the user's real logs unless it gives the center a store rooted in a temporary directory | `OperationCenter.failureReportStore` and `OperationFailureReportStore(directory:)` in Sources/LungfishKit/OperationFailureReportStore.swift (R10) |
 | Process() is created directly | CLISubprocessTransport.swift, LungfishCLIRunner.swift and CLIBinaryLocator.swift (R7) |

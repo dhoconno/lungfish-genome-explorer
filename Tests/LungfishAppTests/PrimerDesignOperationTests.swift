@@ -9,6 +9,7 @@ import LungfishTestSupport
 final class PrimerDesignOperationTests: XCTestCase {
   func testRegistersBeforeExecutionAndPreservesOriginAndResult() async throws {
     let center = OperationCenter()
+    center.failureReportStore = .temporaryForTesting()
     let project = URL(fileURLWithPath: "/tmp/primer-origin")
     let output = project.appendingPathComponent("Analyses/Test.lungfishprimeranalysis")
     let route = OperationRouteContext(projectURL: project, windowStateScopeID: UUID())
@@ -30,6 +31,7 @@ final class PrimerDesignOperationTests: XCTestCase {
 
   func testProgressIsVisibleBeforeWorkerCompletes() async throws {
     let center = OperationCenter()
+    center.failureReportStore = .temporaryForTesting()
     let gate = AsyncStream<Void>.makeStream()
     let output = URL(fileURLWithPath: "/tmp/progress.lungfishprimeranalysis")
     let handle = PrimerDesignOperation.start(center: center, title: "PrimalScheme",
@@ -49,6 +51,7 @@ final class PrimerDesignOperationTests: XCTestCase {
 
   func testNativeLogsAndExecutedCommandAreVisibleBeforeWorkerCompletes() async throws {
     let center = OperationCenter()
+    center.failureReportStore = .temporaryForTesting()
     let gate = AsyncStream<Void>.makeStream()
     let output = URL(fileURLWithPath: "/tmp/streaming.lungfishprimeranalysis")
     let handle = PrimerDesignOperation.start(center: center, title: "Native workflow",
@@ -71,6 +74,7 @@ final class PrimerDesignOperationTests: XCTestCase {
 
   func testFailureIsVisible() async {
     let center = OperationCenter()
+    center.failureReportStore = .temporaryForTesting()
     let handle = PrimerDesignOperation.start(center: center, title: "PrimalScheme",
       destination: URL(fileURLWithPath: "/tmp/failed.lungfishprimeranalysis"), routeContext: nil,
       operation: { _ in throw NSError(domain: "design", code: 1, userInfo: [NSLocalizedDescriptionKey: "Design failed"]) },
@@ -82,6 +86,7 @@ final class PrimerDesignOperationTests: XCTestCase {
 
   func testCancellationDrainsWorkerAndSuppressesResult() async {
     let center = OperationCenter()
+    center.failureReportStore = .temporaryForTesting()
     let handle = PrimerDesignOperation.start(center: center, title: "PrimalScheme",
       destination: URL(fileURLWithPath: "/tmp/cancelled.lungfishprimeranalysis"), routeContext: nil,
       operation: { _ in
@@ -96,6 +101,7 @@ final class PrimerDesignOperationTests: XCTestCase {
   }
   func testCancellationWinsEvenWhenWorkerReturnsOutput() async {
     let center = OperationCenter()
+    center.failureReportStore = .temporaryForTesting()
     let output = URL(fileURLWithPath: "/tmp/race.lungfishprimeranalysis")
     let handle = PrimerDesignOperation.start(center: center, title: "Primer3",
       destination: output, routeContext: nil,
@@ -111,6 +117,7 @@ final class PrimerDesignOperationTests: XCTestCase {
 
   func testBusyDestinationPreventsExecution() async {
     let center = OperationCenter()
+    center.failureReportStore = .temporaryForTesting()
     let output = URL(fileURLWithPath: "/tmp/busy.lungfishprimeranalysis")
     _ = center.start(title: "Existing writer", detail: "Running", targetBundleURL: output)
     let handle = PrimerDesignOperation.start(center: center, title: "Primer3",

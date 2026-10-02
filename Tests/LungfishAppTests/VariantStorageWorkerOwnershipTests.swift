@@ -12,6 +12,7 @@ final class VariantStorageWorkerOwnershipTests: XCTestCase {
         let drawer = AnnotationTableDrawerView(frame: .zero)
         drawer.searchIndex = AnnotationSearchIndex()
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("worker-\(UUID()).lungfishref")
         let started = expectation(description: "worker entered")
         let finish = DispatchSemaphore(value: 0)
@@ -55,6 +56,7 @@ final class VariantStorageWorkerOwnershipTests: XCTestCase {
         let drawer = AnnotationTableDrawerView(frame: .zero)
         drawer.searchIndex = AnnotationSearchIndex()
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         var published: VariantDeletionMutationResult?
         let task = try XCTUnwrap(drawer.runVariantStorageMutation(title: "Delete invented variants", bundleURL: bundle,
             center: center, work: {
@@ -76,6 +78,7 @@ final class VariantStorageWorkerOwnershipTests: XCTestCase {
         let drawer = AnnotationTableDrawerView(frame: .zero)
         drawer.searchIndex = AnnotationSearchIndex()
         let center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
         let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("failure-\(UUID()).lungfishref")
         var published = false
         let task = try XCTUnwrap(drawer.runVariantStorageMutation(title: "Failed update", bundleURL: bundle,

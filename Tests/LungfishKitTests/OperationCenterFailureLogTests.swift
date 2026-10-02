@@ -15,6 +15,7 @@ final class OperationCenterFailureLogTests: XCTestCase {
     override func setUp() {
         super.setUp()
         center = OperationCenter()
+        center.failureReportStore = .temporaryForTesting()
     }
 
     override func tearDown() {

@@ -1,9 +1,15 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+import LungfishKit
 
 @MainActor
 final class FASTACollectionViewerRoutingTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
     func testSuccessfulBlastIsPresentedInCollectionDrawer() async throws {
         let viewer = ViewerViewController()
         _ = viewer.view

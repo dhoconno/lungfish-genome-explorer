@@ -30,6 +30,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             readType: .ont
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner()
         let viewerBundlePreparer = StubWorkflowOperationViewerBundlePreparer()
         let bamImporter = StubWorkflowOperationBAMImporter()
@@ -98,6 +99,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             readType: .illumina
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner(
             writesGenotypeScientificArtifacts: true
         )
@@ -161,6 +163,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             readType: .illumina
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner(
             writesGenotypeScientificArtifacts: true,
             corruptsGenotypeScientificArtifact: true
@@ -211,6 +214,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             aiSpecialistPresetID: MCMHaplotypingPreset.mcmMHCmiseq.id
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner()
         let aiHaplotyper = StubWorkflowOperationAIHaplotyper()
         let resultRefresher = StubWorkflowOperationResultRefresher()
@@ -269,6 +273,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             maximumLength: 4000
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner()
         let resultRefresher = StubWorkflowOperationResultRefresher()
         let service = WorkflowOperationExecutionService(
@@ -335,8 +340,10 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             outputName: "nb13-full-length"
         )
         let runner = StubWorkflowOperationCLIProcessRunner()
+        let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let service = WorkflowOperationExecutionService(
-            operationCenter: OperationCenter(),
+            operationCenter: operationCenter,
             processRunner: runner,
             viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
             bamImporter: StubWorkflowOperationBAMImporter(),
@@ -433,6 +440,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             readType: .illumina
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner()
         let service = WorkflowOperationExecutionService(
             operationCenter: operationCenter,
@@ -467,6 +475,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let temp = try temporaryDirectory()
         let request = try makeONTGenotypingRequest(temp: temp)
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner(
             exitCode: 5,
             stderr: """
@@ -574,6 +583,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             to: request.outputDirectory.appendingPathComponent("manifest.json")
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner()
         let resultRefresher = StubWorkflowOperationResultRefresher()
         let service = WorkflowOperationExecutionService(
@@ -617,6 +627,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             readType: .ont
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner(
             exitCode: 1,
             stderr: "Error: Demultiplex manifest does not exist: /tmp/project/demux-manifest.json"
@@ -667,6 +678,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             forceOverwrite: true
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner(stderr: """
         [  2%] Validating 12S amplicon matching inputs.
         [ 12%] Loading 12S reference records.
@@ -746,8 +758,10 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         )
         let runner = StubWorkflowOperationCLIProcessRunner(provenanceToolName: "lungfish")
         let resultRefresher = StubWorkflowOperationResultRefresher()
+        let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let service = WorkflowOperationExecutionService(
-            operationCenter: OperationCenter(),
+            operationCenter: operationCenter,
             processRunner: runner,
             viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
             bamImporter: StubWorkflowOperationBAMImporter(),
@@ -780,6 +794,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             forceOverwrite: true
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner(stderr: """
         [  2%] Validating 12S reference bundle inputs.
         [ 35%] Building 12S target metadata.
@@ -844,6 +859,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             outputName: "hilo-12s"
         )
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner(writesTwelveSProvenance: false)
         let service = WorkflowOperationExecutionService(
             operationCenter: operationCenter,
@@ -975,6 +991,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         // A fresh bundle path: the app creates it, already carrying the record.
         try FileManager.default.removeItem(at: request.outputDirectory)
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner()
         var incompleteWhileRunning: Bool?
         var recordedCommand: String?
@@ -996,6 +1013,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let temp = try temporaryDirectory()
         let request = try makeONTGenotypingRequest(temp: temp)
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner(exitCode: 5, stderr: "boom")
         let service = makeGenotypingService(runner: runner, operationCenter: operationCenter)
 
@@ -1011,6 +1029,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let temp = try temporaryDirectory()
         let request = try makeONTGenotypingRequest(temp: temp)
         let operationCenter = OperationCenter()
+        operationCenter.failureReportStore = .temporaryForTesting()
         let runner = StubWorkflowOperationCLIProcessRunner()
         runner.onRun = {
             if let id = operationCenter.items.first?.id { operationCenter.cancel(id: id) }
