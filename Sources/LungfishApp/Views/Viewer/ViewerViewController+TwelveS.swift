@@ -87,7 +87,7 @@ extension ViewerViewController {
                         taxonName: "12S unresolved sequences",
                         taxId: 0,
                         sequences: sequences,
-                        database: "core_nt",
+                        database: BlastDatabaseID.coreNT.rawValue,
                         entrezQuery: nil
                     )
                     let result = try await BlastService.shared.verify(

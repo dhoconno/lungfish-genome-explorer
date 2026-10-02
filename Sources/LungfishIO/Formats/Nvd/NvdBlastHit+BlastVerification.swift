@@ -47,7 +47,7 @@ extension NvdBlastHit {
             taxonName: taxonName,
             taxId: Int(adjustedTaxid) ?? 0,
             sequences: [(id: qseqid, sequence: sequence)],
-            database: "core_nt",
+            database: BlastDatabaseID.coreNT.rawValue,
             entrezQuery: nil,
             acceptedTaxIds: context.cladeTaxIds,
             acceptedTaxonNames: context.cladeNames

@@ -28,6 +28,7 @@ public enum OperationType: String, Sendable {
     case viralRecon = "Viral Recon"
     case applicationExportImport = "Application Export"
     case condaPluginPack = "Plugin Pack"
+    case mapping = "Mapping"
     case multipleSequenceAlignmentImport = "MSA Import"
     case multipleSequenceAlignmentGeneration = "MSA Generation"
     case multipleSequenceAlignmentAction = "MSA Action"

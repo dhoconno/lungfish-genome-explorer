@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import SwiftUI
 import LungfishKit
@@ -1123,8 +1124,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             rootView: BlastConfigPopoverView(
                 taxonName: detection.name,
                 readsClade: availableUniqueReads,
-                // Matches the database ViewerViewController+EsViritu submits to.
-                database: "core_nt"
+                database: BlastDatabaseID.coreNT.rawValue
             ) { [weak self, weak popover] readCount in
                 popover?.close()
                 self?.onBlastRequested?(detection, readCount, accessions)
