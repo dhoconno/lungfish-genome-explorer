@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishKit
+import LungfishKitTestSupport
 
 final class CLINativeBundleImportRunnerTests: XCTestCase {
     private var temporaryURLs: [URL] = []
