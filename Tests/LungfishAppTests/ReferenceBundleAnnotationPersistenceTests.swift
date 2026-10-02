@@ -18,6 +18,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
@@ -75,7 +76,9 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
             ]
         )
 
-        try await waitForAnnotationRowCount(bundleURL: bundleURL, trackID: "imported", expected: 0)
+        let deletes = await waitForAnnotationEdits(titled: "Delete Annotation", on: bundleURL)
+        XCTAssertEqual(deletes.map(\.state), [.completed], describe(deletes))
+        XCTAssertEqual(try annotationRowCount(bundleURL: bundleURL, trackID: "imported"), 0)
         withExtendedLifetime(delegate) {}
     }
 
@@ -102,7 +105,9 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
             ]
         )
 
-        try await waitForAnnotationRowCount(bundleURL: bundleURL, trackID: "imported", expected: 0)
+        let deletes = await waitForAnnotationEdits(titled: "Delete Annotation", on: bundleURL)
+        XCTAssertEqual(deletes.map(\.state), [.completed], describe(deletes))
+        XCTAssertEqual(try annotationRowCount(bundleURL: bundleURL, trackID: "imported"), 0)
 
         // The fixture's "imported" track has exactly one row, so deleting it also removes
         // the now-empty track and its database file
@@ -139,7 +144,9 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
             ]
         )
 
-        try await waitForAnnotationRowCount(bundleURL: bundleURL, trackID: "imported", expected: 0)
+        let deletes = await waitForAnnotationEdits(titled: "Delete Annotation", on: bundleURL)
+        XCTAssertEqual(deletes.map(\.state), [.completed], describe(deletes))
+        XCTAssertEqual(try annotationRowCount(bundleURL: bundleURL, trackID: "imported"), 0)
         withExtendedLifetime(delegate) {}
     }
 
@@ -166,13 +173,11 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
             ]
         )
 
-        let dbURL = bundleURL.appendingPathComponent("annotations/imported.db")
-        try await waitFor {
-            let rows = try AnnotationDatabase(url: dbURL).queryForTable(limit: 10)
-            return rows.first?.name == "renamed-gene" && rows.first?.type == "CDS"
-        }
+        let updates = await waitForAnnotationEdits(titled: "Update Annotation", on: bundleURL)
+        XCTAssertEqual(updates.map(\.state), [.completed], describe(updates))
 
         // Reopen from disk to prove this isn't just an in-memory cache update.
+        let dbURL = bundleURL.appendingPathComponent("annotations/imported.db")
         let reopened = try AnnotationDatabase(url: dbURL).queryForTable(limit: 10)
         XCTAssertEqual(reopened.first?.name, "renamed-gene")
         XCTAssertEqual(reopened.first?.type, "CDS")
@@ -299,20 +304,16 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
         // the bundle lock before the second Task's `begin()` call ever runs, so the second
         // update is refused ("Bundle Busy") rather than racing the first to disk. Only the
         // first rename is therefore expected to land.
+        //
+        // The wait returns only once no operation on the bundle is still running, for
+        // either the winning update or the one refused as "Bundle Busy".
+        let updates = await waitForAnnotationEdits(titled: "Update Annotation", on: bundleURL)
         let dbURL = bundleURL.appendingPathComponent("annotations/imported.db")
-        try await waitFor {
-            // The workflow briefly recreates/rewrites this file mid-mutation, so an open
-            // failure here means "poll again shortly", not "the test has failed" --
-            // `waitFor` will still time out and fail if the file never settles.
-            guard let rows = try? AnnotationDatabase(url: dbURL).queryForTable(limit: 10) else { return false }
-            return rows.first?.name == "first-rename"
-        }
-
-        // No operation left running/holding the lock, for either the winning update or
-        // the one refused as "Bundle Busy".
-        try await waitFor {
-            OperationCenter.shared.activeItems.allSatisfy { $0.targetBundleURL?.standardizedFileURL != bundleURL.standardizedFileURL }
-        }
+        XCTAssertEqual(
+            try AnnotationDatabase(url: dbURL).queryForTable(limit: 10).first?.name,
+            "first-rename",
+            describe(updates)
+        )
         XCTAssertTrue(OperationCenter.shared.canStartOperation(on: bundleURL))
 
         // A delete right afterward must succeed rather than being refused as "Bundle Busy",
@@ -327,7 +328,9 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
                 NotificationUserInfoKey.windowStateScope: windowController.projectSession.windowStateScope,
             ]
         )
-        try await waitForAnnotationRowCount(bundleURL: bundleURL, trackID: "imported", expected: 0)
+        let deletes = await waitForAnnotationEdits(titled: "Delete Annotation", on: bundleURL)
+        XCTAssertEqual(deletes.map(\.state), [.completed], describe(deletes))
+        XCTAssertEqual(try annotationRowCount(bundleURL: bundleURL, trackID: "imported"), 0)
 
         withExtendedLifetime(delegate) {}
     }
@@ -445,41 +448,54 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
         return annotation
     }
 
-    private func waitForAnnotationRowCount(bundleURL: URL, trackID: String, expected: Int) async throws {
-        try await waitFor {
-            let dbURL = bundleURL.appendingPathComponent("annotations/\(trackID).db")
-            guard FileManager.default.fileExists(atPath: dbURL.path) else { return expected == 0 }
-            // Deleting a track's last row removes its database file, which can happen
-            // between the existence check above and this open; an atomic restore also
-            // swaps the file in place. Either way the open can fail transiently, so
-            // re-check on the next poll instead of failing the test.
-            do {
-                return try AnnotationDatabase(url: dbURL).queryForTable(limit: 10).count == expected
-            } catch {
-                if !FileManager.default.fileExists(atPath: dbURL.path) { return expected == 0 }
-                return false
-            }
-        }
+    /// Rows left in a track's annotation database. Deleting a track's last row removes
+    /// the track and its database file, which counts as zero rows.
+    private func annotationRowCount(bundleURL: URL, trackID: String) throws -> Int {
+        let dbURL = bundleURL.appendingPathComponent("annotations/\(trackID).db")
+        guard FileManager.default.fileExists(atPath: dbURL.path) else { return 0 }
+        return try AnnotationDatabase(url: dbURL).queryForTable(limit: 10).count
     }
 
-    /// The AppDelegate handlers dispatch the actual persistence through an unstructured
-    /// `Task { @MainActor in ... }` (so the notification-posting call site never blocks on
-    /// the CLI-backed workflow's file I/O). Poll briefly for the on-disk effect instead of
-    /// assuming synchronous completion.
-    private func waitFor(
-        // A CLI subprocess spawn plus real file I/O under the full parallel
-        // unit tier's 13,000+ concurrent xctest processes can starve this
-        // unstructured Task of scheduling time well past a short budget;
-        // 5s was observed to time out under that load even though
-        // the mutation completes correctly once it runs.
-        timeout: TimeInterval = 20,
-        _ predicate: () throws -> Bool
-    ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if try predicate() { return }
-            try await Task.sleep(nanoseconds: 20_000_000)
+    /// Waits until an annotation edit on `bundleURL` has finished and returns every
+    /// finished operation with `title` on that bundle.
+    ///
+    /// The AppDelegate handlers persist an edit from an unstructured main-actor `Task`.
+    /// It begins an `OperationCenter` operation on the bundle and completes or fails it
+    /// only after the workflow has written the bundle and the viewer has reloaded it,
+    /// so once no operation on the bundle is running the on-disk state is final. That
+    /// task has to wait for the main thread, which stays busy for seconds the first
+    /// time a process displays a bundle. The viewer's layout trips a
+    /// conflicting-constraints runtime issue, and XCTest records it on the main thread
+    /// after symbolicating its call stack against the whole test bundle. That took
+    /// about 6 s on an idle machine and more than 20 s under the parallel unit gate
+    /// (a unit-gate run on 2026-10-02). The old poll allowed 20 s and checked its
+    /// deadline before its condition, so it gave up without a last look. The ceiling
+    /// here is reached only when an edit never finishes.
+    private func waitForAnnotationEdits(
+        titled title: String,
+        on bundleURL: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async -> [OperationCenter.Item] {
+        let bundlePath = bundleURL.standardizedFileURL.path
+        func isOnBundle(_ item: OperationCenter.Item) -> Bool {
+            item.targetBundleURL?.standardizedFileURL.path == bundlePath
         }
-        XCTFail("Timed out waiting for the annotation mutation to persist")
+        func finished() -> [OperationCenter.Item] {
+            OperationCenter.shared.items.filter { isOnBundle($0) && $0.title == title && !$0.state.isActive }
+        }
+        let settled = await waitUntil(timeout: .seconds(120)) {
+            !finished().isEmpty && !OperationCenter.shared.items.contains { isOnBundle($0) && $0.state.isActive }
+        }
+        if !settled {
+            XCTFail("No \"\(title)\" operation on \(bundleURL.lastPathComponent) finished", file: file, line: line)
+        }
+        return finished()
+    }
+
+    private func describe(_ operations: [OperationCenter.Item]) -> String {
+        operations
+            .map { "\($0.title) \($0.state.rawValue): \($0.detail) \($0.errorMessage ?? "")" }
+            .joined(separator: " | ")
     }
 }
