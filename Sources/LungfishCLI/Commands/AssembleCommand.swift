@@ -218,9 +218,9 @@ struct AssembleCommand: AsyncParsableCommand {
         let resolvedReadType: AssemblyReadType
         let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true)
         do {
-            resolvedInputs = try await Self.resolveExecutionInputs(
-                for: inputURLs,
-                tempDirectory: materializationDirectory,
+            resolvedInputs = try await ResolvedSequenceInputs.resolveForAssembly(
+                inputURLs: inputURLs,
+                materializationDirectory: materializationDirectory,
                 materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
                 progress: { message in
                     if !globalOptions.quiet {
@@ -241,9 +241,9 @@ struct AssembleCommand: AsyncParsableCommand {
             }
         } catch let exit as ExitCode {
             throw exit
-        } catch let error as AssembleInputResolutionError {
+        } catch CLISequenceInputMaterializationError.unreadableSequenceInput(let path) {
             try? FileManager.default.removeItem(at: materializationDirectory)
-            print(formatter.error(error.localizedDescription))
+            print(formatter.error(AssembleInputResolutionError.unreadableBundlePayload(path).localizedDescription))
             throw CLIExitCode.formatError.exitCode
         } catch {
             try? FileManager.default.removeItem(at: materializationDirectory)
@@ -271,7 +271,7 @@ struct AssembleCommand: AsyncParsableCommand {
         // Resolved on the materialized input with the ORIGINAL bundle's
         // metadata as hints, the same way `map` does it, so a paired import
         // stored as one interleaved file is assembled as pairs.
-        let layoutResolution = Self.resolveInputLayout(
+        let layoutResolution = AssemblyRunRequest.resolveInputLayout(
             tool: tool,
             readType: resolvedReadType,
             pairedEnd: effectivePairedEnd,
@@ -645,13 +645,13 @@ struct AssembleCommand: AsyncParsableCommand {
 
         switch tool {
         case .flye:
-            guard !pairedEnd, inputURLs.count == 1 else {
+            guard !pairedEnd, AssemblyInputSamples.sampleURLs(inputURLs).count == 1 else {
                 throw ManagedAssemblyPipelineError.unsupportedInputTopology(
                     "Flye expects a single ONT sequence input in v1."
                 )
             }
         case .hifiasm:
-            guard !pairedEnd, inputURLs.count == 1 else {
+            guard !pairedEnd, AssemblyInputSamples.sampleURLs(inputURLs).count == 1 else {
                 throw ManagedAssemblyPipelineError.unsupportedInputTopology(
                     "Hifiasm expects a single ONT or PacBio HiFi/CCS sequence input in v1."
                 )
@@ -699,7 +699,7 @@ struct AssembleCommand: AsyncParsableCommand {
     }
 
     /// One primary file per input, for inputs that need no materialization (a
-    /// test seam). `run` reads every file of a bundle (`resolveExecutionInputs`).
+    /// test seam). `run` reads every file (`ResolvedSequenceInputs.resolveForAssembly`).
     static func resolveExecutionInputURLs(for inputURLs: [URL]) throws -> [URL] {
         try inputURLs.map { inputURL in
             if AssemblyInputMaterialization.requiresMaterialization(inputURL) {

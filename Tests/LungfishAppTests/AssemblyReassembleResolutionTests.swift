@@ -131,45 +131,57 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
         }
     }
 
-    /// `AssemblyRunRequest.resolveInputLayout`, which the app runs, answers
-    /// as `AssembleCommand.resolveInputLayout` does for every shape,
-    /// assembler and stated layout.
-    func testTheSharedLayoutRuleAnswersAsTheCLIDoes() async throws {
+    /// `lungfish-cli assemble` and the in-process run resolve the layout of
+    /// one file with one function, `AssemblyRunRequest.resolveInputLayout`,
+    /// since lane 1q-2 deleted the CLI's own copy. Over the six bundle shapes,
+    /// every assembler, read type and stated layout, it gives the 75 answers
+    /// that copy gave. Only a short-read assembler reading Illumina reads from
+    /// one file, not one of a mate pair, resolves a layout, and a stated
+    /// layout wins over the one the bundle's reads show.
+    func testTheSharedLayoutRuleAnswersAsTheCLIsOwnCopyDid() async throws {
+        let unstated: [(bundle: URL, answer: (layout: FASTQInputLayout, source: FASTQInputLayoutResolution.Source)?)] = [
+            (shapes.single, (.singleEnd, .contentScan)),
+            (shapes.multiFile, (.singleEnd, .pooledFiles)),
+            (shapes.oriented, (.singleEnd, .contentScan)),
+            (shapes.paired, nil),
+            (shapes.mixed, (.singleEnd, .pooledFiles)),
+            (shapes.interleaved, (.strictlyInterleaved, .contentScan)),
+        ]
         let layouts: [FASTQInputLayout?] = [nil] + FASTQInputLayout.allCases.map { $0 }
-        for bundle in [shapes.single, shapes.multiFile, shapes.oriented, shapes.paired, shapes.mixed, shapes.interleaved] {
-            let resolved = try await AssembleCommand.resolveExecutionInputs(
-                for: [bundle],
-                tempDirectory: root.appendingPathComponent("layout-\(UUID().uuidString)", isDirectory: true),
+        var resolvedCount = 0
+        for shape in unstated {
+            let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+                inputURLs: [shape.bundle],
+                materializationDirectory: root.appendingPathComponent("layout-\(UUID().uuidString)", isDirectory: true),
                 materializer: FASTQCLIMaterializer(runner: .shared)
             )
             for tool in AssemblyTool.allCases {
                 for readType in AssemblyReadType.allCases {
                     for explicit in layouts {
-                        XCTAssertEqual(
-                            AssemblyRunRequest.resolveInputLayout(
-                                tool: tool,
-                                readType: readType,
-                                pairedEnd: resolved.resolvedAsMatePair,
-                                explicit: explicit,
-                                originalInputURLs: resolved.originalInputURLs,
-                                executionInputURLs: resolved.executionInputURLs,
-                                pooled: resolved.pooledLayoutResolution
-                            ),
-                            AssembleCommand.resolveInputLayout(
-                                tool: tool,
-                                readType: readType,
-                                pairedEnd: resolved.resolvedAsMatePair,
-                                explicit: explicit,
-                                originalInputURLs: resolved.originalInputURLs,
-                                executionInputURLs: resolved.executionInputURLs,
-                                pooled: resolved.pooledLayoutResolution
-                            ),
-                            "\(bundle.lastPathComponent) \(tool.rawValue) \(readType) \(String(describing: explicit))"
+                        let answer = AssemblyRunRequest.resolveInputLayout(
+                            tool: tool,
+                            readType: readType,
+                            pairedEnd: resolved.resolvedAsMatePair,
+                            explicit: explicit,
+                            originalInputURLs: resolved.originalInputURLs,
+                            executionInputURLs: resolved.executionInputURLs,
+                            pooled: resolved.pooledLayoutResolution
                         )
+                        let label = "\(shape.bundle.lastPathComponent) \(tool.rawValue) \(readType) \(String(describing: explicit))"
+                        guard [AssemblyTool.spades, .megahit, .skesa].contains(tool),
+                              readType == .illuminaShortReads,
+                              let unstatedAnswer = shape.answer else {
+                            XCTAssertNil(answer, label)
+                            continue
+                        }
+                        resolvedCount += 1
+                        XCTAssertEqual(answer?.layout, explicit ?? unstatedAnswer.layout, label)
+                        XCTAssertEqual(answer?.source, explicit == nil ? unstatedAnswer.source : .explicit, label)
                     }
                 }
             }
         }
+        XCTAssertEqual(resolvedCount, 75, "the cases that resolve a layout, of 450")
     }
 
     // MARK: - Helpers
@@ -233,13 +245,13 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
         let readType = try XCTUnwrap(parsed.readType.flatMap(AssemblyReadType.init(cliArgument:)))
         let inputs = parsed.fastqFiles.map { URL(fileURLWithPath: $0) }
         try AssembleCommand.validatePreMaterializationTopology(tool: tool, inputURLs: inputs, pairedEnd: parsed.pairedEnd)
-        let resolved = try await AssembleCommand.resolveExecutionInputs(
-            for: inputs,
-            tempDirectory: root.appendingPathComponent("cli-\(UUID().uuidString)/.lungfish-assembly-inputs", isDirectory: true),
+        let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+            inputURLs: inputs,
+            materializationDirectory: root.appendingPathComponent("cli-\(UUID().uuidString)/.lungfish-assembly-inputs", isDirectory: true),
             materializer: FASTQCLIMaterializer(runner: .shared)
         )
         let pairedEnd = parsed.pairedEnd || resolved.resolvedAsMatePair
-        let layout = AssembleCommand.resolveInputLayout(
+        let layout = AssemblyRunRequest.resolveInputLayout(
             tool: tool,
             readType: readType,
             pairedEnd: pairedEnd,

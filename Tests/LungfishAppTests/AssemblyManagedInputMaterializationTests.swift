@@ -540,9 +540,9 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         XCTAssertFalse(secondRequest.pairedEnd)
 
         for (bundle, name) in [(bundleA, "SampleA"), (bundleB, "SampleB")] {
-            let resolved = try await AssembleCommand.resolveExecutionInputs(
-                for: [bundle],
-                tempDirectory: tempDir.appendingPathComponent("cli-\(name)", isDirectory: true),
+            let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+                inputURLs: [bundle],
+                materializationDirectory: tempDir.appendingPathComponent("cli-\(name)", isDirectory: true),
                 materializer: FASTQCLIMaterializer(runner: .shared)
             )
             XCTAssertTrue(resolved.resolvedAsMatePair, "\(name)'s own R1 and R2 files are one pair")

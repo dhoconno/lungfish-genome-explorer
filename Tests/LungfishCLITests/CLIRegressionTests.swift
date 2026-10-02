@@ -3127,11 +3127,11 @@ final class AssembleCommandRegressionTests: XCTestCase {
         try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
 
         let materializer = RecordingAssemblyMaterializer(materializedURL: materializedURL)
-        let resolved = try await AssembleCommand.resolveExecutionInputURLs(
-            for: [derivedBundleURL],
-            tempDirectory: tempDir,
+        let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+            inputURLs: [derivedBundleURL],
+            materializationDirectory: tempDir,
             materializer: materializer
-        )
+        ).executionInputURLs
 
         XCTAssertEqual(resolved.map(\.standardizedFileURL), [materializedURL.standardizedFileURL])
         XCTAssertEqual(materializer.bundleURLs, [derivedBundleURL.standardizedFileURL])
@@ -4473,9 +4473,9 @@ private func captureStandardError(_ operation: () async throws -> Void) async re
     }
 }
 
-/// Sendable because `AssembleCommand.resolveExecutionInputs` hands the
-/// materializer to the shared resolver's `@Sendable` closure.
-private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing, @unchecked Sendable {
+/// Sendable because `ResolvedSequenceInputs.resolveForAssembly`, which
+/// `assemble` calls, hands the materializer to a `@Sendable` closure.
+private final class RecordingAssemblyMaterializer: CLISequenceInputMaterializing, @unchecked Sendable {
     let materializedURL: URL
     private let lock = NSLock()
     private var recordedBundleURLs: [URL] = []
