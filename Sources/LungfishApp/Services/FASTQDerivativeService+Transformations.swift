@@ -13,6 +13,12 @@ extension FASTQDerivativeService {
 
     // MARK: - Transformations
 
+    /// Runs `request` on `sourceFASTQ` and returns the operation the
+    /// derivative's manifest records. The operation carries no `toolCommand`,
+    /// because the final output is not known here. `createDerivative` sets it
+    /// with ``derivativeToolCommand(for:sourceBundleURL:finalOutputURL:randomSeed:)``
+    /// once the payload is written. The native tools that run here reach the
+    /// provenance envelope's steps through `provenanceCollector`.
     func runTransformation(
         request: FASTQDerivativeRequest,
         sourceFASTQ: URL,
@@ -147,8 +153,7 @@ extension FASTQDerivativeService {
                 kind: .lengthFilter,
                 minLength: minLength,
                 maxLength: maxLength,
-                toolUsed: plan.tool.rawValue,
-                toolCommand: plan.toolCommand
+                toolUsed: plan.tool.rawValue
             )
 
         case .searchText(let query, let field, let regex):
@@ -243,12 +248,11 @@ extension FASTQDerivativeService {
                 deduplicateSubstitutions: substitutions,
                 deduplicateOptical: optical,
                 deduplicateOpticalDistance: optical ? opticalDistance : nil,
-                toolUsed: "clumpify",
-                toolCommand: "clumpify.sh dedupe=t subs=\(substitutions)\(optical ? " optical=t dupedist=\(opticalDistance)" : "")"
+                toolUsed: "clumpify"
             )
 
         case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, let adapterSequence):
-            let result = try await runFastpCombinedTrim(
+            try await runFastpCombinedTrim(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 threshold: threshold,
@@ -266,12 +270,11 @@ extension FASTQDerivativeService {
                 qualityTrimMode: mode,
                 adapterMode: adapterMode,
                 adapterSequence: adapterSequence,
-                toolUsed: "fastp",
-                toolCommand: result.toolCommand
+                toolUsed: "fastp"
             )
 
         case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
-            let result = try await runFastpQualityTrim(
+            try await runFastpQualityTrim(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 threshold: threshold,
@@ -286,12 +289,11 @@ extension FASTQDerivativeService {
                 qualityThreshold: threshold,
                 windowSize: windowSize,
                 qualityTrimMode: mode,
-                toolUsed: "fastp",
-                toolCommand: result.toolCommand
+                toolUsed: "fastp"
             )
 
         case .adapterTrim(let adapterMode, let sequence, let sequenceR2, let fastaFilename):
-            let result = try await runFastpAdapterTrim(
+            try await runFastpAdapterTrim(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 mode: adapterMode,
@@ -308,12 +310,11 @@ extension FASTQDerivativeService {
                 adapterSequence: sequence,
                 adapterSequenceR2: sequenceR2,
                 adapterFastaFilename: fastaFilename,
-                toolUsed: "fastp",
-                toolCommand: result.toolCommand
+                toolUsed: "fastp"
             )
 
         case .fixedTrim(let from5Prime, let from3Prime):
-            let result = try await runFastpFixedTrim(
+            try await runFastpFixedTrim(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 from5Prime: from5Prime,
@@ -325,12 +326,11 @@ extension FASTQDerivativeService {
                 kind: .fixedTrim,
                 trimFrom5Prime: from5Prime,
                 trimFrom3Prime: from3Prime,
-                toolUsed: "fastp",
-                toolCommand: result.toolCommand
+                toolUsed: "fastp"
             )
 
         case .contaminantFilter(let mode, let referenceFasta, let kmerSize, let hammingDistance):
-            let result = try await runBBDukContaminantFilter(
+            try await runBBDukContaminantFilter(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 mode: mode,
@@ -347,8 +347,7 @@ extension FASTQDerivativeService {
                 contaminantReferenceFasta: referenceFasta,
                 contaminantKmerSize: kmerSize,
                 contaminantHammingDistance: hammingDistance,
-                toolUsed: "bbduk",
-                toolCommand: result.toolCommand
+                toolUsed: "bbduk"
             )
 
         case .lowComplexityFilter(let entropy, let window, let kmer):
@@ -371,8 +370,7 @@ extension FASTQDerivativeService {
                 entropyThreshold: entropy,
                 entropyWindow: window,
                 entropyKmer: kmer,
-                toolUsed: "bbduk",
-                toolCommand: result.toolCommand
+                toolUsed: "bbduk"
             )
 
         case .pairedEndMerge, .pairedEndRepair:
@@ -381,10 +379,9 @@ extension FASTQDerivativeService {
             )
 
         case .primerRemoval(let configuration):
-            let result: BBToolResult
             switch configuration.tool {
             case .cutadapt:
-                result = try await runCutadaptPrimerTrim(
+                try await runCutadaptPrimerTrim(
                     sourceFASTQ: sourceFASTQ,
                     outputFASTQ: outputFASTQ,
                     configuration: configuration,
@@ -393,7 +390,7 @@ extension FASTQDerivativeService {
                     provenanceCollector: provenanceCollector
                 )
             case .bbduk:
-                result = try await runBBDukPrimerTrim(
+                try await runBBDukPrimerTrim(
                     sourceFASTQ: sourceFASTQ,
                     outputFASTQ: outputFASTQ,
                     configuration: configuration,
@@ -424,12 +421,11 @@ extension FASTQDerivativeService {
                 primerPairFilter: configuration.pairFilter,
                 primerTool: configuration.tool,
                 primerKtrimDirection: configuration.tool == .bbduk ? configuration.ktrimDirection : nil,
-                toolUsed: configuration.tool == .bbduk ? "bbduk" : "cutadapt",
-                toolCommand: result.toolCommand
+                toolUsed: configuration.tool == .bbduk ? "bbduk" : "cutadapt"
             )
 
         case .sequencePresenceFilter(let sequence, let fastaPath, let searchEnd, let minOverlap, let errorRate, let keepMatched, let searchRC):
-            let result = try await runCutadaptAdapterPresenceFilter(
+            try await runCutadaptAdapterPresenceFilter(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 sequence: sequence,
@@ -452,12 +448,11 @@ extension FASTQDerivativeService {
                 adapterFilterErrorRate: errorRate,
                 adapterFilterKeepMatched: keepMatched,
                 adapterFilterSearchReverseComplement: searchRC,
-                toolUsed: "cutadapt",
-                toolCommand: result.toolCommand
+                toolUsed: "cutadapt"
             )
 
         case .errorCorrection(let kmerSize):
-            let result = try await runTadpole(
+            try await runTadpole(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 kmerSize: kmerSize,
@@ -467,12 +462,11 @@ extension FASTQDerivativeService {
             return FASTQDerivativeOperation(
                 kind: .errorCorrection,
                 errorCorrectionKmerSize: kmerSize,
-                toolUsed: "tadpole",
-                toolCommand: result.toolCommand
+                toolUsed: "tadpole"
             )
 
         case .interleaveReformat(let direction):
-            let result = try await runReformat(
+            try await runReformat(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 direction: direction,
@@ -482,8 +476,7 @@ extension FASTQDerivativeService {
             return FASTQDerivativeOperation(
                 kind: .interleaveReformat,
                 interleaveDirection: direction,
-                toolUsed: "reformat",
-                toolCommand: result.toolCommand
+                toolUsed: "reformat"
             )
 
         case .reverseComplement:
@@ -493,8 +486,7 @@ extension FASTQDerivativeService {
             )
             return FASTQDerivativeOperation(
                 kind: .reverseComplement,
-                toolUsed: "lungfish",
-                toolCommand: "lungfish fastq reverse-complement \(sourceFASTQ.path) -o \(outputFASTQ.path)"
+                toolUsed: "lungfish"
             )
 
         case .translate(let frameOffset):
@@ -505,8 +497,7 @@ extension FASTQDerivativeService {
             )
             return FASTQDerivativeOperation(
                 kind: .translate,
-                toolUsed: "lungfish",
-                toolCommand: "lungfish fasta translate \(sourceFASTQ.path) --frame \(frameOffset + 1) -o \(outputFASTQ.path)"
+                toolUsed: "lungfish"
             )
 
         case .demultiplex:
@@ -540,6 +531,79 @@ extension FASTQDerivativeService {
                 "Deacon rRNA filtering is handled by FASTQOperationExecutionService."
             )
         }
+    }
+
+    // MARK: - The command a derivative records (findings R3 and R8)
+
+    /// The `toolCommand` a derivative made in process records in its manifest,
+    /// the command the Inspector shows with Copy. It is the `lungfish-cli
+    /// fastq` command `FASTQDerivativeRequest.cliCommand` builds for
+    /// `request`, the command the FASTQ operations dialog runs and the dataset
+    /// viewport's Operations row records, with `sourceBundleURL` as the input,
+    /// the pairing the row reads from that bundle, and `finalOutputURL` where
+    /// the row shows `<derived>`. A subsample also passes the seed the run
+    /// drew, so the command draws the same reads. The command is nil when no
+    /// `lungfish-cli` option expresses the request, a CLI parity gap that
+    /// MainSplitGenomicsDisplayOperationTests pins.
+    ///
+    /// The manifest used to record the native tool commands on scratch paths
+    /// the run deletes, `lungfish fastq reverse-complement` with the legacy
+    /// executable name, `lungfish fasta translate`, which is no command, or no
+    /// command at all. The native tools, their versions and their argv stay in
+    /// the provenance envelope's steps.
+    static func derivativeToolCommand(
+        for request: FASTQDerivativeRequest,
+        sourceBundleURL: URL,
+        finalOutputURL: URL,
+        randomSeed: UInt64? = nil
+    ) -> String? {
+        guard let command = request.cliCommand(
+            inputPath: sourceBundleURL.path,
+            outputPath: finalOutputURL.path,
+            pairingMode: FASTQPairingModeResolver.bundlePairingMode(for: sourceBundleURL)
+        ) else {
+            return nil
+        }
+        switch request {
+        case .subsampleProportion, .subsampleCount:
+            return randomSeed.map { command + " --seed \($0)" } ?? command
+        default:
+            return command
+        }
+    }
+
+    /// The output a derivative's command names. It is the payload file when
+    /// the derivative holds one file the command writes, `reads.fastq` or
+    /// `reads.fasta`, and the derivative bundle otherwise, because a subset,
+    /// trim, paired, mixed or orient-map payload holds no single file the
+    /// command writes.
+    static func derivativeFinalOutputURL(in outputBundleURL: URL, payload: FASTQDerivativePayload) -> URL {
+        switch payload {
+        case .full(let fastqFilename):
+            return outputBundleURL.appendingPathComponent(fastqFilename)
+        case .fullFASTA(let fastaFilename):
+            return outputBundleURL.appendingPathComponent(fastaFilename)
+        default:
+            return outputBundleURL
+        }
+    }
+
+    /// The orient command ``derivativeToolCommand(for:sourceBundleURL:finalOutputURL:randomSeed:)``
+    /// builds for the settings `createOrientDerivative` ran vsearch with. It
+    /// is nil when the run saves unoriented reads, which no `fastq orient`
+    /// option expresses.
+    static func derivativeToolCommand(forOrient config: OrientConfig, sourceBundleURL: URL, finalOutputURL: URL) -> String? {
+        derivativeToolCommand(
+            for: .orient(
+                referenceURL: config.referenceURL,
+                wordLength: config.wordLength,
+                dbMask: config.dbMask,
+                saveUnoriented: config.saveUnoriented,
+                extraArguments: config.extraArguments
+            ),
+            sourceBundleURL: sourceBundleURL,
+            finalOutputURL: finalOutputURL
+        )
     }
 
     func writeReverseComplementedFASTQ(

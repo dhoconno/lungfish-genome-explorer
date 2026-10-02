@@ -218,7 +218,7 @@ extension FASTQDerivativeService {
         if !extraArguments.isEmpty {
             orientCommandParts += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
         }
-        let orientCommand = orientCommandParts.map(shellEscape).joined(separator: " ")
+        let orientToolCommand = Self.derivativeToolCommand(forOrient: config, sourceBundleURL: sourceBundleURL, finalOutputURL: bundleURL)
 
         let operation = FASTQDerivativeOperation(
             kind: .orient,
@@ -229,7 +229,7 @@ extension FASTQDerivativeService {
             orientRCCount: rcCount,
             orientUnmatchedCount: result.unmatchedCount,
             toolUsed: "Lungfish App",
-            toolCommand: orientCommand
+            toolCommand: orientToolCommand
         )
 
         var lineage = baseLineage
@@ -263,7 +263,7 @@ extension FASTQDerivativeService {
                 orientSaveUnoriented: true,
                 orientUnmatchedCount: result.unmatchedCount,
                 toolUsed: "Lungfish App",
-                toolCommand: orientCommand
+                toolCommand: orientToolCommand
             )
 
             var unorientedLineage = baseLineage
@@ -1607,7 +1607,7 @@ extension FASTQDerivativeService {
                 )
             }
             progress?("Merging overlapping pairs...")
-            let (result, cls) = try await runBBMerge(
+            let cls = try await runBBMerge(
                 sourceFASTQ: sourceFASTQ,
                 outputBundleURL: outputBundle,
                 strictness: strictness,
@@ -1621,7 +1621,7 @@ extension FASTQDerivativeService {
                 mergeMinOverlap: minOverlap,
                 mergeCountDuplicates: true,
                 toolUsed: "bbmerge",
-                toolCommand: result.toolCommand
+                toolCommand: Self.derivativeToolCommand(for: request, sourceBundleURL: sourceBundleURL, finalOutputURL: outputBundle)
             )
 
         case .pairedEndRepair:
@@ -1635,7 +1635,7 @@ extension FASTQDerivativeService {
                 )
             }
             progress?("Repairing paired-end reads...")
-            let (result, cls) = try await runBBRepair(
+            let cls = try await runBBRepair(
                 sourceFASTQ: sourceFASTQ,
                 outputBundleURL: outputBundle,
                 provenanceCollector: nativeProvenanceCollector
@@ -1644,7 +1644,7 @@ extension FASTQDerivativeService {
             operation = FASTQDerivativeOperation(
                 kind: .pairedEndRepair,
                 toolUsed: "repair",
-                toolCommand: result.toolCommand
+                toolCommand: Self.derivativeToolCommand(for: request, sourceBundleURL: sourceBundleURL, finalOutputURL: outputBundle)
             )
 
         default:

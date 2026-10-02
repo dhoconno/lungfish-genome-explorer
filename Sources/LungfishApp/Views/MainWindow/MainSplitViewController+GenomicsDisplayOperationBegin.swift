@@ -104,10 +104,11 @@ extension MainSplitViewController {
     /// bundle recorded. That is the `lungfish-cli` invocation
     /// `FASTQOperationCLIInvocationBuilder` builds, the one the FASTQ
     /// operations dialog runs for the same request, so this row and the dialog
-    /// row record the same command. FASTQOperationOutputImporter records the
-    /// same invocation as derivative provenance. A request with a setting no
-    /// `lungfish-cli` option expresses records no command, a CLI parity gap
-    /// that MainSplitGenomicsDisplayOperationTests pins.
+    /// row record the same command. FASTQOperationOutputImporter and, with the
+    /// final output, FASTQDerivativeService record the same invocation in the
+    /// derivative's manifest. A request with a setting no `lungfish-cli`
+    /// option expresses records no command, a CLI parity gap that
+    /// MainSplitGenomicsDisplayOperationTests pins.
     static func beginFASTQDerivativeOperation(
         request: FASTQDerivativeRequest,
         inputURL: URL,

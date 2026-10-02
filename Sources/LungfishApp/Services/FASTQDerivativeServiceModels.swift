@@ -362,8 +362,8 @@ extension FASTQDerivativeRequest {
     /// `FASTQOperationCLIInvocationBuilder` builds it, the builder whose
     /// invocation the FASTQ operations dialog executes, so the command is the
     /// one that runs (findings R3 and R8). The dataset viewport's Operations
-    /// row and the derivative provenance (`toolCommand`) that
-    /// `FASTQOperationOutputImporter` writes both record it. This used to be a
+    /// row and the derivative manifests' `toolCommand` that FASTQDerivativeService
+    /// and `FASTQOperationOutputImporter` write all record it. This used to be a
     /// second encoding that recorded native tool commands, such as `seqkit seq
     /// --reverse --complement` for a reverse complement that ran as
     /// `lungfish-cli fastq reverse-complement`, and that left out values the

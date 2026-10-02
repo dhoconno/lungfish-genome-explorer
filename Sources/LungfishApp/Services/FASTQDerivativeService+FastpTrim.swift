@@ -13,10 +13,6 @@ extension FASTQDerivativeService {
 
     // MARK: - Fastp Trim Operations
 
-    struct FastpResult {
-        let toolCommand: String
-    }
-
     /// The fastp operation a derivative request asks for, or nil when the
     /// request is not a fastp trim. The window renders it through
     /// ``FastpTrimOptions`` exactly as `lungfish-cli fastq trim` and its
@@ -86,7 +82,7 @@ extension FASTQDerivativeService {
         extraArguments: [String] = [],
         pairsByName: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> FastpResult {
+    ) async throws {
         try await runFastpTrim(
             .quality(threshold: threshold, window: windowSize, mode: mode),
             extraArguments: extraArguments,
@@ -107,7 +103,7 @@ extension FASTQDerivativeService {
         adapterSequence: String?,
         pairsByName: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> FastpResult {
+    ) async throws {
         try await runFastpTrim(
             .combined(
                 threshold: threshold,
@@ -133,7 +129,7 @@ extension FASTQDerivativeService {
         sourceBundleURL: URL,
         pairsByName: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> FastpResult {
+    ) async throws {
         try await runFastpTrim(
             try Self.adapterTrimOperation(
                 mode: mode,
@@ -156,7 +152,7 @@ extension FASTQDerivativeService {
         from3Prime: Int,
         pairsByName: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> FastpResult {
+    ) async throws {
         try await runFastpTrim(
             .fixed(front: from5Prime, tail: from3Prime),
             sourceFASTQ: sourceFASTQ,
@@ -185,14 +181,13 @@ extension FASTQDerivativeService {
         outputFASTQ: URL,
         pairsByName: Bool,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector?
-    ) async throws -> FastpResult {
+    ) async throws {
         let plan = try await Task.detached(priority: .utility) {
             try FastpReadLayoutPlan.resolve(inputURL: sourceFASTQ, pairAware: pairsByName)
         }.value
         let options = FastpTrimOptions.options(for: operation, extraArguments: extraArguments)
-        let outcome: FastpPairedRunOutcome
         do {
-            outcome = try await FastpPairedRunner.run(
+            _ = try await FastpPairedRunner.run(
                 inputURL: sourceFASTQ,
                 outputPath: outputFASTQ.path,
                 plan: plan,
@@ -208,7 +203,6 @@ extension FASTQDerivativeService {
         } catch let error as FastpPairedRunError {
             throw FASTQDerivativeError.invalidOperation(error.message)
         }
-        return FastpResult(toolCommand: "fastp \(outcome.nativeArguments.joined(separator: " "))")
     }
 
     /// Re-interleaves split R1/R2 fastp output back into a single interleaved file

@@ -143,33 +143,42 @@ final class ScientificFASTQProvenancePolicyTests: XCTestCase {
         XCTAssertFalse(containsTempPathLeak(optionsText), "Rehydrated options must not leak staging paths")
 
         let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: orientBundleURL))
+        // CLI parity gap (R3, R8). The manifest's command is the lungfish-cli
+        // command the dataset viewport row records, and no `fastq orient`
+        // option saves the unoriented reads, so this run records none. The
+        // manifest used to record the app's own orient argv, which the
+        // envelope still records with the durable source bundle and the
+        // unoriented payload.
+        XCTAssertNil(manifest.operation.toolCommand)
+        XCTAssertNil(manifest.lineage.last?.toolCommand)
         let manifestCommands = ([manifest.operation] + manifest.lineage)
             .compactMap { (operation: FASTQDerivativeOperation) in operation.toolCommand }
-        XCTAssertFalse(manifestCommands.isEmpty)
         XCTAssertFalse(
             manifestCommands.contains { containsTempPathLeak($0) },
             "Final orient manifest command strings must not retain temp materialized or staging paths"
         )
+        let envelopeCommand = envelope.argv.joined(separator: " ")
+        XCTAssertEqual(envelope.argv.first, "lungfish-app-workflow:fastq-orient-derivative")
         XCTAssertTrue(
-            manifest.operation.toolCommand?.contains(sourceBundleURL.path) == true,
-            "Final orient manifest command should identify the durable source bundle"
+            envelope.argv.contains(sourceBundleURL.path),
+            "Final orient command should identify the durable source bundle"
         )
         XCTAssertFalse(
-            manifest.operation.toolCommand?.contains("lungfish-orient-") == true,
-            "Final orient manifest command must not retain staging paths when saving unoriented reads"
+            envelopeCommand.contains("lungfish-orient-"),
+            "Final orient command must not retain staging paths when saving unoriented reads"
         )
-        XCTAssertFalse(manifest.operation.toolCommand?.contains("--fastqout") == true)
-        XCTAssertFalse(manifest.operation.toolCommand?.contains("--notmatched") == true)
+        XCTAssertFalse(envelope.argv.contains("--fastqout"))
+        XCTAssertFalse(envelope.argv.contains("--notmatched"))
+        let unorientedIndex = try XCTUnwrap(
+            envelope.argv.firstIndex(of: "--save-unoriented"),
+            "GUI orient command should describe the app-owned unoriented output"
+        )
         XCTAssertTrue(
-            manifest.operation.toolCommand?.contains("--save-unoriented") == true,
-            "GUI orient manifest command should describe the app-owned unoriented output"
+            envelope.argv[envelope.argv.index(after: unorientedIndex)].hasSuffix("unoriented.fastq"),
+            "GUI orient command should point at the durable sibling payload"
         )
-        XCTAssertTrue(manifest.operation.toolCommand?.contains("--extra-args") == true)
-        XCTAssertTrue(manifest.operation.toolCommand?.contains("--id") == true)
-        XCTAssertTrue(
-            manifest.operation.toolCommand?.contains("unoriented.fastq") == true,
-            "GUI orient manifest command should point at the durable sibling payload"
-        )
+        XCTAssertTrue(envelope.argv.contains("--extra-args"))
+        XCTAssertTrue(envelopeCommand.contains("--id"))
 
         let derivativesURL = sourceBundleURL.appendingPathComponent("derivatives", isDirectory: true)
         let unorientedBundleURL = try XCTUnwrap(
