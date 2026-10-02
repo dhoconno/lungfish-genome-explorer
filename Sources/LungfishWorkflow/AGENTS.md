@@ -61,5 +61,6 @@ Target LungfishWorkflowTests in Tests/LungfishWorkflowTests, with subfolders tha
 | Two public enums named SequencingPlatform | Recipes/SequencingPlatform.swift line 42 and LungfishIO/Formats/FASTQ/SequencingPlatform.swift line 12 (R15) |
 | A new `NativeTool` case without a `nativeToolPolicies` entry makes every run of it throw `missingProvenancePolicy` | Provenance/ScientificProvenancePolicy.swift line 208, Native/NativeToolRunner.swift line 1145 |
 | Install paths with spaces break samtools and ivar pipes, so conda lives under ~/.lungfish/conda | memory file project_conda_plugins.md |
+| nf-core/viralrecon 3.0.0 accepts `--gff` only as `.gff` or `.gff.gz`, so a reference bundle's `genome/genes.gff3` fails parameter validation 20 s into a run. `lungfish-cli workflow run nf-core/viralrecon`, and no other workflow, copies the annotation to `inputs/reference/genes.gff` in the run bundle with its bytes unchanged and records `stagedAnnotation` in provenance. `additional_annotation` has the same rule and is not staged | ViralRecon/ViralReconAnnotationStaging.swift, `NFCoreLaunchStaging.stageAnnotation` in Sources/LungfishCLI/Commands/NFCoreLaunchStaging.swift |
 
 Do not change pipeline, runner, provenance or materializer logic without reference outputs captured first (plan, "What must NOT be changed tonight").

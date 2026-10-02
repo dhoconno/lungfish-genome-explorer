@@ -1,4 +1,4 @@
-// NFCoreLaunchStaging.swift - Stage nf-core inputs onto whitespace-free paths
+// NFCoreLaunchStaging.swift - Stage nf-core inputs onto whitespace-free paths, and viralrecon's annotation under a .gff name
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -149,6 +149,31 @@ enum NFCoreLaunchStaging {
         )
     }
 
+    /// Copies a GFF3 annotation into the run bundle under the `.gff` name
+    /// viralrecon's `gff` pattern (`^\S+\.gff(\.gz)?$`) accepts, with its bytes
+    /// unchanged, through the shared `ViralReconAnnotationStaging`.
+    ///
+    /// A reference bundle carries its annotation as `genome/genes.gff3`, and
+    /// the app launches viralrecon through `workflow run`, so the app and a
+    /// direct CLI call get the same staging. The returned copy is what the
+    /// engine is given. The request keeps the caller's path. A missing
+    /// annotation is refused as a missing input file before anything runs.
+    ///
+    /// Only nf-core/viralrecon's `gff` is renamed. Another pipeline's `gff`
+    /// parameter can expect another name, so it reaches the engine as given.
+    static func stageAnnotation(for request: NFCoreRunRequest, runBundleURL: URL) throws -> ViralReconStagedAnnotation? {
+        // The workflow identity the launch path keys viralrecon's resource
+        // limits and forced skips on (NFCoreResourceLimits, NFCoreRunRequest).
+        guard request.workflow.name == "viralrecon" else { return nil }
+        do {
+            return try ViralReconAnnotationStaging.stage(params: request.params, inRunBundle: runBundleURL)
+        } catch ViralReconAnnotationStaging.StagingError.annotationNotFound(let url) {
+            throw CLIError.inputFileNotFound(path: url.path)
+        } catch {
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
+        }
+    }
+
     private static func containsWhitespace(_ url: URL) -> Bool {
         url.standardizedFileURL.path.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
     }
@@ -182,5 +207,23 @@ enum NFCoreLaunchStaging {
             CharacterSet.whitespacesAndNewlines.contains(scalar) ? "_" : Character(scalar)
         }
         return String(replaced)
+    }
+}
+
+extension NFCoreRunRequest {
+    /// The same run with other engine inputs or parameters.
+    func replacing(inputURLs: [URL]? = nil, params: [String: String]? = nil) -> NFCoreRunRequest {
+        NFCoreRunRequest(
+            workflow: workflow,
+            version: version,
+            executor: executor,
+            inputURLs: inputURLs ?? self.inputURLs,
+            outputDirectory: outputDirectory,
+            expectedOutputURLs: expectedOutputURLs,
+            params: params ?? self.params,
+            resume: resume,
+            workDirectory: workDirectory,
+            presentationMode: presentationMode
+        )
     }
 }
