@@ -158,9 +158,15 @@ enum NFCoreLaunchStaging {
     /// direct CLI call get the same staging. The returned copy is what the
     /// engine is given. The request keeps the caller's path. A missing
     /// annotation is refused as a missing input file before anything runs.
-    static func stageAnnotation(params: [String: String], runBundleURL: URL) throws -> ViralReconStagedAnnotation? {
+    ///
+    /// Only nf-core/viralrecon's `gff` is renamed. Another pipeline's `gff`
+    /// parameter can expect another name, so it reaches the engine as given.
+    static func stageAnnotation(for request: NFCoreRunRequest, runBundleURL: URL) throws -> ViralReconStagedAnnotation? {
+        // The workflow identity the launch path keys viralrecon's resource
+        // limits and forced skips on (NFCoreResourceLimits, NFCoreRunRequest).
+        guard request.workflow.name == "viralrecon" else { return nil }
         do {
-            return try ViralReconAnnotationStaging.stage(params: params, inRunBundle: runBundleURL)
+            return try ViralReconAnnotationStaging.stage(params: request.params, inRunBundle: runBundleURL)
         } catch ViralReconAnnotationStaging.StagingError.annotationNotFound(let url) {
             throw CLIError.inputFileNotFound(path: url.path)
         } catch {

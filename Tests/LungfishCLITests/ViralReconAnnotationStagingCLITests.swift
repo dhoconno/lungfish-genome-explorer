@@ -193,6 +193,57 @@ final class ViralReconAnnotationStagingCLITests: XCTestCase {
         XCTAssertNil(try stagingRecord(in: runBundle))
     }
 
+    // MARK: - Only viralrecon's gff is renamed
+
+    /// `workflow run` accepts only nf-core/viralrecon today, so another
+    /// pipeline cannot reach the launch through `RunSubcommand`. The launch
+    /// staging step is checked directly with the same parameters under both
+    /// workflow identities.
+    func testAnotherWorkflowsGFFPassesThroughUnchangedAndUnstaged() throws {
+        let gff3 = try writeGFF3(to: root.appendingPathComponent("annotations/genes.gff3"))
+        let runBundle = root.appendingPathComponent("other.lungfishrun", isDirectory: true)
+        let other = NFCoreSupportedWorkflow(
+            name: "rnaseq",
+            displayName: "RNA-seq",
+            description: "Another nf-core pipeline with a gff parameter",
+            pinnedVersion: "3.14.0",
+            whenToUse: "",
+            notFor: "",
+            requiredInputs: "",
+            expectedOutputs: "",
+            exampleUseCase: "",
+            runButtonTitle: "Run",
+            acceptedInputSuffixes: [".csv"],
+            difficulty: .moderate,
+            resultSurfaces: [.reports]
+        )
+        func request(for workflow: NFCoreSupportedWorkflow) throws -> NFCoreRunRequest {
+            NFCoreRunRequest(
+                workflow: workflow,
+                version: workflow.pinnedVersion,
+                executor: .docker,
+                inputURLs: [try samplesheet()],
+                outputDirectory: root.appendingPathComponent("results", isDirectory: true),
+                params: ["gff": gff3.path]
+            )
+        }
+
+        let otherRequest = try request(for: other)
+        XCTAssertNil(try NFCoreLaunchStaging.stageAnnotation(for: otherRequest, runBundleURL: runBundle))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: runBundle.appendingPathComponent("inputs/reference").path),
+            "nothing is staged for another workflow"
+        )
+        let launched = otherRequest.replacing(params: ViralReconAnnotationStaging.launchParams(otherRequest.params, using: nil))
+        let gffIndex = try XCTUnwrap(launched.nextflowArguments.firstIndex(of: "--gff"))
+        XCTAssertEqual(launched.nextflowArguments[gffIndex + 1], gff3.path, "another workflow's gff reaches Nextflow as given")
+
+        // The same parameters under viralrecon are staged, so the workflow identity decides.
+        let viralrecon = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "nf-core/viralrecon"))
+        let staged = try XCTUnwrap(try NFCoreLaunchStaging.stageAnnotation(for: try request(for: viralrecon), runBundleURL: runBundle))
+        XCTAssertEqual(staged.stagedURL.lastPathComponent, "genes.gff")
+    }
+
     // MARK: - A prepared bundle already holds the copy it will launch with
 
     func testPrepareOnlyStagesAndRecordsTheAnnotation() async throws {

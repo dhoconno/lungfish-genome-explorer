@@ -533,7 +533,7 @@ struct RunSubcommand: AsyncParsableCommand {
         // only Docker reaches a working run, so refuse conda/local before a
         // run bundle is written rather than letting Nextflow fail later.
         try Self.requireSupportedExecutor(request)
-        let stagedAnnotation = try NFCoreLaunchStaging.stageAnnotation(params: params, runBundleURL: runBundleURL)
+        let stagedAnnotation = try NFCoreLaunchStaging.stageAnnotation(for: request, runBundleURL: runBundleURL)
         if let stagedAnnotation, !globalOptions.quiet { print(formatter.info(stagedAnnotation.summary)) }
         let bundleCreatedAt = Date()
         try NFCoreRunBundleStore.write(
