@@ -2,17 +2,18 @@
 """doc-path-references.py - Verify that Swift file references in agent-facing docs resolve.
 
 The architecture program (review finding R5) relies on AGENTS.md files, the
-architecture docs, the contracts and the process prompts naming real files.
+architecture docs, the contracts and the agent role prompts naming real files.
 Documentation that cites a file that was renamed or deleted sends the next agent
-to the wrong place. This check scans these docs for `*.swift` references:
+to the wrong place. This check scans these docs for `*.swift` references and
+fails when one does not resolve:
 
-  enforced:       AGENTS.md (root), Sources/*/AGENTS.md, Tests/AGENTS.md,
-                  docs/architecture/**/*.md, docs/contracts/**/*.md,
-                  agents/process/**/*.md
-  report only:    agents/specialists/**/*.md (listed, never fails; its rewrite is
-                  Phase 1, which then moves it to enforced)
+  AGENTS.md (root), Sources/*/AGENTS.md, Tests/AGENTS.md,
+  docs/architecture/**/*.md, docs/contracts/**/*.md,
+  agents/process/**/*.md, agents/specialists/**/*.md
 
 Resolution rules for a reference token ending in `.swift`:
+  - URLs (`scheme://...`) are removed from a line before it is scanned, so a link
+    such as https://docs.swift.org/... is never read as a file name.
   - Tokens containing `<`, `>`, `*`, `{`, `}` or `..` are placeholders and skipped.
   - A path starting with `Sources/` or `Tests/` must exist relative to the repo root.
   - Any other path with a slash resolves relative to the repo root, relative to the
@@ -28,7 +29,7 @@ Usage:
     scripts/checks/doc-path-references.py
     scripts/checks/doc-path-references.py --root DIR --allowlist FILE
 
-Exit codes: 0 = every enforced reference resolves, 1 = at least one does not.
+Exit codes: 0 = every reference resolves, 1 = at least one does not.
 """
 from __future__ import annotations
 
@@ -43,6 +44,8 @@ DEFAULT_ALLOWLIST = Path(__file__).resolve().with_suffix(".allowlist")
 SKIP_DIRS = {".build", ".git", ".claude", "worktrees", "node_modules", ".swiftpm"}
 TOKEN = re.compile(r"[A-Za-z0-9_+./<>*{}@~-]+\.swift\b")
 PLACEHOLDER = re.compile(r"[<>*{}]|\.\.")
+URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://\S+")
+DOC_TREES = ("docs/architecture", "docs/contracts", "agents/process", "agents/specialists")
 
 
 def index_swift_files(root: Path):
@@ -70,20 +73,16 @@ def read_allowlist(path: Path) -> set[str]:
     return entries
 
 
-def enforced_docs(root: Path) -> list[Path]:
+def checked_docs(root: Path) -> list[Path]:
     docs: list[Path] = []
     if (root / "AGENTS.md").is_file():
         docs.append(root / "AGENTS.md")
     docs += sorted((root / "Sources").glob("*/AGENTS.md"))
     if (root / "Tests" / "AGENTS.md").is_file():
         docs.append(root / "Tests" / "AGENTS.md")
-    for sub in ("docs/architecture", "docs/contracts", "agents/process"):
+    for sub in DOC_TREES:
         docs += sorted((root / sub).rglob("*.md"))
     return docs
-
-
-def report_only_docs(root: Path) -> list[Path]:
-    return sorted((root / "agents" / "specialists").rglob("*.md"))
 
 
 def module_dir(doc: Path, root: Path) -> Path | None:
@@ -115,7 +114,7 @@ def check(docs: list[Path], root: Path, names, paths, allow: set[str]):
         rel = doc.relative_to(root).as_posix()
         text = doc.read_text(encoding="utf-8", errors="replace")
         for lineno, line in enumerate(text.splitlines(), 1):
-            for m in TOKEN.finditer(line):
+            for m in TOKEN.finditer(URL.sub(" ", line)):
                 token = m.group(0).strip(".")
                 if PLACEHOLDER.search(token) or token in allow:
                     continue
@@ -134,16 +133,10 @@ def main(argv=None) -> int:
     names, paths = index_swift_files(root)
     allow = read_allowlist(args.allowlist)
 
-    soft = check(report_only_docs(root), root, names, paths, allow)
-    if soft:
-        print(f"doc-path-references: {len(soft)} unresolved reference(s) in agents/specialists (reported, not enforced):")
-        for rel, lineno, token in soft:
-            print(f"  {rel}:{lineno}: {token}")
-
-    hard = check(enforced_docs(root), root, names, paths, allow)
-    if hard:
-        print(f"doc-path-references: {len(hard)} reference(s) do not resolve to a Swift file:", file=sys.stderr)
-        for rel, lineno, token in hard:
+    problems = check(checked_docs(root), root, names, paths, allow)
+    if problems:
+        print(f"doc-path-references: {len(problems)} reference(s) do not resolve to a Swift file:", file=sys.stderr)
+        for rel, lineno, token in problems:
             print(f"  {rel}:{lineno}: {token}", file=sys.stderr)
         print(
             "Fix the doc, or for an intentionally hypothetical file add it with a reason to "
@@ -152,7 +145,7 @@ def main(argv=None) -> int:
         )
         return 1
 
-    print("doc-path-references: every Swift file reference in the enforced docs resolves.")
+    print("doc-path-references: every Swift file reference in the checked docs resolves.")
     return 0
 
 

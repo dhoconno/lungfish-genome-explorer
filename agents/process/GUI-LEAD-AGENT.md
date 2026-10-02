@@ -1,189 +1,106 @@
-# GUI Lead Agent — Visual Quality & Behavioral Correctness Specification
+# GUI Lead Agent
 
 ## Overview
 
-The GUI Lead Agent owns all user-facing quality for the Lungfish Genome Explorer. It manages five sub-teams that evaluate not just how things look, but how they behave when real users interact with them. The GUI Lead simulates the perspectives of working biologists and bioinformaticians to catch UX issues that code review alone cannot find.
+The GUI Lead Agent owns user-facing quality for Lungfish Genome Explorer (LGE). It manages five sub-teams that judge how the app looks and how it behaves when real people use it. The GUI Lead simulates working biologists and bioinformaticians to catch problems that code review cannot find.
 
-## Sub-Teams
+GUI work is verified in the running app. Agents launch a debug app bundle as `Sources/Lungfish/AGENTS.md` describes, drive it with Computer Use, take screenshots and click through the workflow. Reading Swift source is not GUI testing. Confirm which channel (Debug, Preview or Stable) a fix targets, and launch a debug build by its path so the right process is under test.
 
-### 1. Visual Verification Team
-Evaluates rendering quality, layout correctness, and Apple HIG compliance.
+## Sub-teams
 
-**What they check:**
-- **Overdraw**: Are views drawing on top of each other unnecessarily? Are transparent layers stacking?
-- **Clipping**: Is text or content being cut off at container boundaries? Do long labels truncate gracefully?
-- **Alignment**: Do elements align to the grid? Are baselines consistent across rows?
-- **Spacing**: Consistent padding and margins per HIG guidelines
-- **Dark Mode**: Every view tested in both light and dark appearance
-- **Resize behavior**: Windows, split views, and panels resize without layout breaks
-- **Scroll behavior**: Smooth scrolling, no jitter, correct content insets
-- **SF Symbols**: Correct weight, size, and color for all icons
-- **Typography**: System fonts, correct text styles, proper truncation
-- **Empty states**: What does the view look like with no data?
-- **Dialog compliance**: Every tool dialog must match the template in DEVELOPMENT-LEAD-AGENT.md "Dialog Design Standards". Check: tool icon + name in header, dataset name (not "preview.fastq"), compact sizing (480-520px wide, never 680+), "Run" button title, no redundant headers, instant display (no blocking on I/O).
-- **Button consistency**: ALL operation buttons must say "Run". Never "Compute", "Go", "Start", "Classify…", etc.
-- **Parameter bar**: Controls must not clip or overdraw. Multi-control operations (like Orient) must use multi-row layout.
-- **Sidebar filtering**: Internal files (.json, .lungfish-meta.json, metadata.csv) must not appear in the file browser.
+### 1. Visual verification team
 
-**Output**: A visual findings document with screenshots/descriptions of each issue, severity, and the specific view/constraint to fix.
+This team checks rendering, layout and compliance with the Human Interface Guidelines.
 
-### 2. Behavioral Testing Team
-Runs actual operations through the GUI and validates that correct results are produced.
+| Check | What good looks like |
+|---|---|
+| Overdraw and clipping | No view paints over a sibling, and long labels truncate cleanly. Views that fill their dirty rectangle clip to their bounds |
+| Alignment and spacing | Elements sit on a consistent grid with consistent baselines and padding |
+| Appearance | Every view works in light and dark appearance and under Increase Contrast |
+| Resize and scroll | Windows, split views and panels resize without layout breaks, and scrolling is smooth with correct insets |
+| Symbols and type | SF Symbols at the right weight and scale, system text styles and clean truncation |
+| Empty and error states | A view with no data or a failed load says what happened and what to do next |
+| Dialogs | Every tool dialog meets the dialog standards in `agents/process/DEVELOPMENT-LEAD-AGENT.md`. The primary button says "Run", never "Compute", "Go" or "Start" |
+| Tables | Result lists use single-line rows with secondary text inline. The EsViritu batch list is the spacing reference |
+| Sidebar | Internal files such as JSON sidecars and metadata tables never appear in the project browser |
 
-**What they check:**
-- **Operation execution**: Click the button, run the tool, verify the output
-- **Output format**: Is the result displayed in the expected format? Correct columns, correct units?
-- **Output correctness**: Do the numbers/sequences/classifications match expected values for known test data?
-- **Progress reporting**: Does the Operations Panel show meaningful progress? Does the progress bar advance?
-- **Cancellation**: Can the operation be cancelled? Does cancellation clean up properly?
-- **Error display**: When the tool fails, does the user see an actionable error message?
-- **Tooltips**: Do all tools and operations have explanatory tooltips?
-- **Status messages**: Do status bar / panel messages accurately reflect the operation state?
-- **Result persistence**: After the operation completes, is the result still accessible? Does it survive window changes?
-- **Repeated execution**: Can the same operation be run twice without stale state?
+The output is a visual findings document with screenshots, a severity and the view or constraint to fix for each finding.
 
-**Output**: A behavioral test report listing each operation tested, input data, expected output, actual output, and pass/fail.
+### 2. Behavioral testing team
 
-### 3. Biologist Persona Team
-Simulates a bench scientist who is competent with computers but not a programmer.
+This team runs real operations through the GUI and checks the results.
 
-**Persona characteristics:**
-- Uses the app to view genomes, check annotations, and run basic analyses
-- Expects operations to be discoverable without reading documentation
-- Thinks in terms of genes, not coordinates; species, not accession numbers
-- Wants to export results to share with collaborators
-- Gets confused by jargon like "demultiplex" without context
+| Check | What good looks like |
+|---|---|
+| Execution and output | The operation runs, and the result has the expected columns, units and values for known test data |
+| Progress | The Operations panel shows a meaningful name and advancing progress, and the expanded row keeps its log |
+| Cancellation | Cancel stops the work, cleans up and leaves the project consistent |
+| Errors | A failure shows an actionable message, and the row's failure report holds the command, stderr and log |
+| Persistence and reruns | The result survives window changes, and running the same operation twice leaves no stale state |
+| Windows | With two project windows open, an action in one never changes the other's Inspector or viewport |
 
-**What they evaluate:**
-- **Discoverability**: Can the persona find the feature without being told where it is?
-- **Naming**: Do menu items and buttons use language a biologist understands?
-- **Workflow completeness**: Can the persona complete their goal without switching to Terminal?
-- **Error recovery**: When something goes wrong, can the persona understand what happened and try again?
-- **Context**: Are there tooltips, help text, or inline explanations for domain-specific operations?
-- **Data import**: Can they open their files (FASTA, VCF, BAM) without specifying formats manually?
-- **Export**: Can they get results out in a format they can share (CSV, PDF, image)?
+The output is a behavioral test report that lists each operation, its input, the expected and actual output, and pass or fail.
 
-**Output**: A persona walkthrough report describing the workflow attempted, friction points, confusion moments, and suggestions.
+### 3. Biologist persona team
 
-### 4. Bioinformatician Persona Team
-Simulates a power user who is comfortable with command-line tools and expects professional-grade software.
+This team simulates a bench scientist who is comfortable with computers but is not a programmer. The persona views genomes, checks annotations, runs basic analyses, thinks in genes and species rather than coordinates and accessions, and shares results with collaborators. The team asks whether the persona can find the feature without being told, understands the menu and button names, can reach the goal without Terminal, can recover from an error, can open their own files without naming a format, and can export something to share.
 
-**Persona characteristics:**
-- Uses the app alongside Terminal, IGV, and Galaxy
-- Expects keyboard shortcuts for common operations
-- Wants to see raw data alongside visualizations
-- Needs to verify tool parameters and reproduce results
-- Compares output against known-good results from command-line tools
+The output is a walkthrough report with the workflow attempted, the points of friction and suggestions.
 
-**What they evaluate:**
-- **Parameter exposure**: Can they see and modify all tool parameters, not just defaults?
-- **Reproducibility**: Can they see exactly what command was run and repeat it via CLI?
-- **Performance**: Does the app handle large datasets (multi-GB VCFs, whole genomes) without hanging?
-- **Provenance**: Is the provenance record complete and accurate, and does it survive GUI wrapping/import so the final bundle references the stored payload?
-- **Keyboard efficiency**: Can common workflows be done without touching the mouse?
-- **Integration**: Can they copy coordinates, accession numbers, or sequences to clipboard easily?
-- **Batch operations**: Can they process multiple files at once?
-- **Comparison with CLI**: Does the GUI operation produce identical output to the CLI equivalent?
+### 4. Bioinformatician persona team
 
-**Output**: A power-user evaluation report with benchmarks, parameter audit, and CLI comparison results.
+This team simulates a power user who works beside Terminal, IGV and Galaxy and compares results with command-line tools. The team asks whether every parameter is visible, whether the exact command is shown and reproduces the result through `lungfish-cli`, whether multi-gigabyte inputs stay responsive, whether provenance is complete and points at the stored payload, whether common workflows work without the mouse, whether coordinates, accessions and sequences copy cleanly, and whether batch runs work.
 
-### 5. Accessibility & Usability Team
-Evaluates the app for users with disabilities and for general ease-of-use.
+The output is a power-user report with benchmarks, a parameter audit and a CLI comparison.
 
-**What they check:**
-- **VoiceOver**: Every interactive element has an accessibility label and role
-- **Keyboard navigation**: Full tab-order through all controls, no keyboard traps
-- **Color contrast**: WCAG AA contrast ratios for all text and interactive elements
-- **Motion**: Reduced motion preference respected for animations
-- **Focus indicators**: Visible focus rings on all interactive elements
-- **Large text**: Dynamic Type support where applicable
-- **Screen magnification**: Views remain usable at high zoom levels
-- **Consistent patterns**: Similar operations use similar interaction patterns throughout the app
-- **Undo/Redo**: Destructive operations support undo where feasible
+### 5. Accessibility & Usability team
 
-**Output**: An accessibility audit listing each finding with WCAG reference, severity, and remediation guidance.
+This team checks the app for people who use assistive technology and for general ease of use.
 
----
+| Check | What good looks like |
+|---|---|
+| VoiceOver | Every interactive element has a label and a role, and custom canvases expose meaningful elements |
+| Keyboard | Full Keyboard Access reaches every control with no traps. Every context-menu command has a menu-bar twin and an accessibility custom action, and table row actions sit on cell views |
+| Perception | Nothing depends on hover or color alone, contrast meets WCAG AA, and Reduce Motion is honored |
+| Consistency | Similar operations use similar patterns, and destructive operations can be undone where feasible |
 
-## Phase Gates
+Before merge, run an Accessibility Inspector audit and an independent accessibility review. The output is an audit with the WCAG reference, severity and remediation for each finding.
 
-Every GUI implementation phase passes through these gates in order:
+## Phase gates
+
+Every GUI phase passes these gates in order:
 
 ```
-UI Implemented
-  │
-  ▼
-Visual Verification (findings document)
-  │  └── Critical visual bugs → fix before proceeding
-  ▼
-Behavioral Testing (test report)
-  │  └── Any output incorrectness → fix before proceeding
-  ▼
-Persona Walkthrough (biologist OR bioinformatician, based on feature)
-  │  └── Discoverability failures → fix before proceeding
-  ▼
-Accessibility Audit (findings per WCAG)
-  │  └── VoiceOver or keyboard failures → fix before proceeding
-  ▼
-GUI Lead Sign-Off → Commit
+UI implemented
+  ↓
+Visual verification (critical visual defects fixed)
+  ↓
+Behavioral testing (any wrong output fixed)
+  ↓
+Persona walkthrough (discoverability failures fixed)
+  ↓
+Accessibility audit (VoiceOver and keyboard failures fixed)
+  ↓
+GUI Lead sign-off, then commit
 ```
 
----
+## Behavioral test protocol
 
-## Behavioral Test Protocol for Operations
+For any operation, the behavioral team follows these steps:
 
-When testing any operation (FASTQ quality check, BLAST search, demultiplexing, etc.), the Behavioral Testing Team follows this protocol:
+1. Prepare known input with expected output from the domain specialist, including columns, units and value ranges.
+2. Run it through the GUI, checking the tooltip, the parameters and the "Run" button.
+3. Watch the Operations panel for a meaningful name, advancing progress and a reasonable run time.
+4. Compare the displayed result with the expected values, and confirm that errors appear exactly when they should.
+5. Run the recorded CLI command on the same input and confirm that its output matches the GUI output.
 
-### 1. Setup
-- Prepare known test data with expected output (provided by genomics experts)
-- Note the expected output format, column names, value ranges
+Then repeat with empty input, very large input, malformed input, a cancel partway through, and two runs in a row.
 
-### 2. Execute via GUI
-- Navigate to the operation
-- Verify tooltip explains what the tool does
-- Configure parameters (if applicable)
-- Click run
+## Working with the Development Lead
 
-### 3. Monitor
-- Verify Operations Panel shows the operation with a meaningful name
-- Verify progress updates appear (not stuck at "Starting...")
-- Time the operation and note if it's unreasonably slow
-
-### 4. Validate Output
-- Compare displayed results against expected values
-- Check data format: correct columns, units, precision
-- Verify no error messages appeared when they shouldn't have
-- Verify error messages appear when they should (e.g., invalid input)
-
-### 5. Execute via CLI
-- Run the equivalent CLI command with the same test data
-- Compare CLI output against GUI output — they MUST match
-
-### 6. Edge Cases
-- Empty input
-- Very large input
-- Invalid/malformed input
-- Cancel mid-operation
-- Run the same operation twice in a row
-
----
-
-## Communication with Development Lead
-
-### Requesting API Changes
-When the GUI team discovers that the data layer doesn't provide what the view needs:
-1. Document the gap: "View X needs data in format Y, but the API returns format Z"
-2. Propose the interface change
-3. File with Project Lead for cross-team coordination
-
-### Reporting Behavioral Failures
-When a tool produces incorrect output through the GUI:
-1. Document: input data, expected output, actual output
-2. Verify whether CLI produces the same incorrect output (code bug) or correct output (GUI integration bug)
-3. File with appropriate lead
-
-### Reporting Visual Issues Caused by Data
-When the visual issue is caused by unexpected data (e.g., very long annotation names):
-1. Document the data that triggers the issue
-2. Propose both a data-layer fix (truncation) and a view-layer fix (ellipsis)
-3. Coordinate with Dev Lead on which layer owns the fix
+| Situation | What to do |
+|---|---|
+| The data layer does not provide what a view needs | Document the gap, propose the interface change and raise it with the Project Lead |
+| A tool gives wrong output through the GUI | Record the input, expected output and actual output, then run the CLI command. Wrong CLI output is a code defect, and correct CLI output points at the GUI integration |
+| Unexpected data causes a visual defect | Record the data and propose both a data-layer and a view-layer fix, so the leads can choose the owner |
+| A GUI operation fails | Start from the row's failure report, never from a command rebuilt by hand |
