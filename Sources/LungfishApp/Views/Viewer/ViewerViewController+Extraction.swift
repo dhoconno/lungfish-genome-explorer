@@ -450,91 +450,122 @@ extension SequenceViewerView {
 
         extractionLogger.info("createExtractionBundle: outputDir=\(outputDir.path), bundleName=\(bundleName), annotationTracks=\(sourceAnnotationTracks.count), variantTracks=\(sourceVariantTracks.count), sourceChromosomes=\(sourceBundleChromosomes.count)")
 
-        // Register with DownloadCenter on the main actor, then run bundle building in
-        // a detached task. On completion we hop back to the main actor for import/refresh.
-        let itemId = DownloadCenter.shared.start(
-            title: "Extracting \(result.sourceName)",
-            detail: "Preparing...",
-            operationType: .bundleBuild,
+        // Register the row on the main actor, then run bundle building in a
+        // detached task. On completion we hop back to the main actor for import/refresh.
+        Self.beginExtractionBundleOperation(
+            sourceName: result.sourceName,
             routeContext: OperationRouteContext(
                 projectURL: projectURL,
                 windowStateScope: windowStateScope
             )
-        )
+        ) { itemId in
+            let capturedResult = result
+            let capturedOutputDir = outputDir
+            let capturedSourceBundleURL = currentReferenceBundle?.url
+            let capturedSourceBundleName = sourceBundleName
+            let capturedSourceBundleChromosomes = sourceBundleChromosomes
+            let capturedBundleName = bundleName
+            let capturedSourceAnnotationTracks = sourceAnnotationTracks
+            let capturedSourceVariantTracks = sourceVariantTracks
+            let capturedSampleFilter = sampleFilter
+            let capturedConcatenateExons = concatenateExons
 
-        let capturedResult = result
-        let capturedOutputDir = outputDir
-        let capturedSourceBundleURL = currentReferenceBundle?.url
-        let capturedSourceBundleName = sourceBundleName
-        let capturedSourceBundleChromosomes = sourceBundleChromosomes
-        let capturedBundleName = bundleName
-        let capturedSourceAnnotationTracks = sourceAnnotationTracks
-        let capturedSourceVariantTracks = sourceVariantTracks
-        let capturedSampleFilter = sampleFilter
-        let capturedConcatenateExons = concatenateExons
+            Task.detached(priority: .userInitiated) {
+                do {
+                    try FileManager.default.createDirectory(
+                        at: capturedOutputDir, withIntermediateDirectories: true
+                    )
 
-        Task.detached(priority: .userInitiated) {
-            do {
-                try FileManager.default.createDirectory(
-                    at: capturedOutputDir, withIntermediateDirectories: true
-                )
-
-                let pipeline = SequenceExtractionPipeline()
-                let bundleURL = try await pipeline.buildBundle(
-                    from: capturedResult,
-                    outputDirectory: capturedOutputDir,
-                    sourceBundleURL: capturedSourceBundleURL,
-                    sourceBundleName: capturedSourceBundleName,
-                    desiredBundleName: capturedBundleName,
-                    sourceBundleChromosomes: capturedSourceBundleChromosomes,
-                    sourceAnnotationTracks: capturedSourceAnnotationTracks,
-                    sourceVariantTracks: capturedSourceVariantTracks,
-                    sampleFilter: capturedSampleFilter,
-                    isConcatenated: capturedConcatenateExons,
-                    progressHandler: { progress, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = DownloadCenter.shared.update(
-                                    id: itemId,
-                                    progress: progress,
-                                    detail: message
-                                )
+                    let pipeline = SequenceExtractionPipeline()
+                    let bundleURL = try await pipeline.buildBundle(
+                        from: capturedResult,
+                        outputDirectory: capturedOutputDir,
+                        sourceBundleURL: capturedSourceBundleURL,
+                        sourceBundleName: capturedSourceBundleName,
+                        desiredBundleName: capturedBundleName,
+                        sourceBundleChromosomes: capturedSourceBundleChromosomes,
+                        sourceAnnotationTracks: capturedSourceAnnotationTracks,
+                        sourceVariantTracks: capturedSourceVariantTracks,
+                        sampleFilter: capturedSampleFilter,
+                        isConcatenated: capturedConcatenateExons,
+                        progressHandler: { progress, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    _ = DownloadCenter.shared.update(
+                                        id: itemId,
+                                        progress: progress,
+                                        detail: message
+                                    )
+                                }
                             }
                         }
-                    }
-                )
+                    )
 
-                let finalBundleURL = bundleURL
-                scheduleExtractionOnMainRunLoop {
-                    MainActor.assumeIsolated {
-                        extractionLogger.info("createExtractionBundle: SUCCESS -> \(finalBundleURL.path)")
+                    let finalBundleURL = bundleURL
+                    scheduleExtractionOnMainRunLoop {
+                        MainActor.assumeIsolated {
+                            extractionLogger.info("createExtractionBundle: SUCCESS -> \(finalBundleURL.path)")
 
-                        // Mark as complete for UI cards.
-                        _ = DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready", bundleURLs: [finalBundleURL])
+                            // Mark as complete for UI cards.
+                            _ = DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready", bundleURLs: [finalBundleURL])
+                        }
                     }
-                }
-            } catch {
-                let errorDesc = error.localizedDescription
-                let errorStr = "\(error)"
-                scheduleExtractionOnMainRunLoop {
-                    MainActor.assumeIsolated {
-                        extractionLogger.error("Bundle creation failed: \(errorStr)")
-                        _ = DownloadCenter.shared.fail(
-                            id: itemId,
-                            detail: "Failed: \(errorDesc)"
-                        )
-                        let alert = NSAlert()
-                        alert.messageText = "Bundle Creation Failed"
-                        alert.informativeText = errorDesc
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-                            alert.beginSheetModal(for: window)
+                } catch {
+                    let errorDesc = error.localizedDescription
+                    let errorStr = "\(error)"
+                    scheduleExtractionOnMainRunLoop {
+                        MainActor.assumeIsolated {
+                            extractionLogger.error("Bundle creation failed: \(errorStr)")
+                            _ = DownloadCenter.shared.fail(
+                                id: itemId,
+                                detail: "Failed: \(errorDesc)"
+                            )
+                            let alert = NSAlert()
+                            alert.messageText = "Bundle Creation Failed"
+                            alert.informativeText = errorDesc
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                                alert.beginSheetModal(for: window)
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// Registers the row for building a bundle from an extracted sequence and,
+    /// only when it starts, calls `launch` with the operation ID. The row locks
+    /// no bundle and records no command.
+    ///
+    /// CLI parity gap. The closest command is `extract sequence`, which writes
+    /// the extracted FASTA to a file or to standard output. The run builds a
+    /// `.lungfishref` bundle from the extraction result, with the source
+    /// bundle's annotation and variant tracks and an optional sample filter.
+    /// No lungfish-cli command does that, so the row keeps recording no
+    /// command until one exists.
+    @discardableResult
+    static func beginExtractionBundleOperation(
+        sourceName: String,
+        routeContext: OperationRouteContext?,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let result = reporter.begin(
+            title: "Extracting \(sourceName)",
+            detail: "Preparing...",
+            operationType: .bundleBuild,
+            cliCommand: nil,
+            routeContext: routeContext
+        )
+        switch result {
+        case .started(let operationID):
+            launch(operationID)
+        case .refused:
+            break // The panel already shows the refused row. Nothing was launched.
+        }
+        return result
     }
 
     /// Computes the set of visible sample names from the current variant tracks

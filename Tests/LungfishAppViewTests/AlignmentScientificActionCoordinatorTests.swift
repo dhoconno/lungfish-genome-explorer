@@ -19,13 +19,13 @@ private final class TestMutableBox<Value>: @unchecked Sendable {
 }
 
 @MainActor final class AlignmentScientificActionCoordinatorTests: XCTestCase {
-    func testOperationReporterRetainsCapturedWindowAndProjectRoute() {
+    func testOperationReporterRetainsCapturedWindowAndProjectRoute() throws {
         let center = OperationCenter()
         center.failureReportStore = .temporaryForTesting()
         let scope = WindowStateScope()
         let origin = OperationRouteContext(projectURL: URL(fileURLWithPath: "/tmp/origin.lungfish"), windowStateScope: scope)
         let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: origin, center: center)
-        let id = reporter.start("Invented read extraction", "Captured source")
+        let id = try reporter.begin("Invented read extraction", "Captured source").requireStarted()
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.routeContext, origin)
         reporter.finish(id, .failure("Invented test failure"))
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.routeContext, origin)
@@ -296,19 +296,19 @@ private final class TestMutableBox<Value>: @unchecked Sendable {
             }
         )
         let reporter = AlignmentScientificActionReporter(
-            start: { _, _ in UUID() },
+            begin: { _, _ in .started(UUID()) },
             installCancellation: { _, _ in },
             log: { _, message in logs.append(message) },
             finish: { _, terminal in terminals.append(terminal) }
         )
 
-        let task = coordinator.launchRegion(
+        let task = try XCTUnwrap(coordinator.launchRegion(
             context: try context(),
             region: .init(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9),
             destination: .bundle(URL(fileURLWithPath: "/out/final.lungfishfastq")),
             outputBaseName: "x",
             reporter: reporter
-        )
+        ))
         _ = await task.result
 
         XCTAssertFalse(didPublish)
@@ -467,13 +467,13 @@ private final class TestMutableBox<Value>: @unchecked Sendable {
             }
         )
         let reporter = AlignmentScientificActionReporter(
-            start: { _, _ in UUID() },
+            begin: { _, _ in .started(UUID()) },
             installCancellation: { _, callback in cancellation = callback },
             log: { _, message in logs.append(message) },
             finish: { _, terminal in terminals.append(terminal) }
         )
 
-        let task = coordinator.launchRegion(context: try context(), region: .init(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9), destination: .bundle(URL(fileURLWithPath: "/out/final.lungfishfastq")), outputBaseName: "x", reporter: reporter)
+        let task = try XCTUnwrap(coordinator.launchRegion(context: try context(), region: .init(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9), destination: .bundle(URL(fileURLWithPath: "/out/final.lungfishfastq")), outputBaseName: "x", reporter: reporter))
         _ = await task.result
 
         XCTAssertNotNil(cancellation)
@@ -488,9 +488,9 @@ private final class TestMutableBox<Value>: @unchecked Sendable {
     func testLaunchReportsOneFailure() async throws {
         var terminals: [AlignmentScientificActionReporter.Terminal] = []
         let coordinator = AlignmentScientificActionCoordinator(validator: { _ in throw AlignmentScientificActionError.contextUnavailable })
-        let reporter = AlignmentScientificActionReporter(start: { _, _ in UUID() }, installCancellation: { _, _ in }, log: { _, _ in }, finish: { _, terminal in terminals.append(terminal) })
+        let reporter = AlignmentScientificActionReporter(begin: { _, _ in .started(UUID()) }, installCancellation: { _, _ in }, log: { _, _ in }, finish: { _, terminal in terminals.append(terminal) })
 
-        let task = coordinator.launchRegion(context: try context(), region: .init(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9), destination: .bundle(URL(fileURLWithPath: "/out/final.lungfishfastq")), outputBaseName: "x", reporter: reporter)
+        let task = try XCTUnwrap(coordinator.launchRegion(context: try context(), region: .init(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9), destination: .bundle(URL(fileURLWithPath: "/out/final.lungfishfastq")), outputBaseName: "x", reporter: reporter))
         _ = await task.result
 
         XCTAssertEqual(terminals, [.failure(AlignmentScientificActionError.contextUnavailable.localizedDescription)])
@@ -506,9 +506,9 @@ private final class TestMutableBox<Value>: @unchecked Sendable {
                 throw CancellationError()
             }
         )
-        let reporter = AlignmentScientificActionReporter(start: { _, _ in UUID() }, installCancellation: { _, callback in cancellation = callback }, log: { _, _ in }, finish: { _, terminal in terminals.append(terminal) })
+        let reporter = AlignmentScientificActionReporter(begin: { _, _ in .started(UUID()) }, installCancellation: { _, callback in cancellation = callback }, log: { _, _ in }, finish: { _, terminal in terminals.append(terminal) })
 
-        let task = coordinator.launchRegion(context: try context(), region: .init(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9), destination: .bundle(URL(fileURLWithPath: "/out/final.lungfishfastq")), outputBaseName: "x", reporter: reporter)
+        let task = try XCTUnwrap(coordinator.launchRegion(context: try context(), region: .init(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9), destination: .bundle(URL(fileURLWithPath: "/out/final.lungfishfastq")), outputBaseName: "x", reporter: reporter))
         cancellation?()
         _ = await task.result
 
