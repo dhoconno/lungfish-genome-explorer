@@ -2296,9 +2296,11 @@ lungfish-cli esviritu detect [<options>] --sample <sample>
 
 `--read-format` sets how the input is read. `auto` inspects the first 100,000 records of a single file. A file where every read is followed by its mate runs as `interleaved`, and pairs mixed with merged or orphan reads, a bundle recorded as merged, and single-end files run as `unpaired`. Two files run as `unpaired` unless you add `--paired`, and `--paired` cannot be combined with any `--read-format` other than `auto` or `paired`. `--format json` or `--format tsv` prints the run summary in that form.
 
+`--input` also takes a `.lungfishfastq` bundle, as the EsViritu window runs it. Every file the bundle holds becomes its own EsViritu input, so a paired bundle with `--read-format paired` runs its R1 and R2 as a pair. A virtual bundle is first written out as a FASTQ file in `.lungfish-esviritu-inputs` inside the output folder, and the run's provenance names the bundle behind that file and the `lungfish-cli fastq materialize` command that rebuilds it. The command the Operations panel records for an EsViritu run names the database, output folder, thread count, quality filter, and extra arguments as well, so pasting it repeats the run.
+
 | Argument or flag | What it does |
 |---|---|
-| `-i, --input <input>` | Input FASTQ file(s). Provide two files for paired-end. |
+| `-i, --input <input>` | Input FASTQ file(s) or `.lungfishfastq` bundle(s). Provide two files for paired-end. |
 | `-s, --sample <sample>` | Sample name for output file prefixes. |
 | `--db <db>` | Path to EsViritu database directory. The default is `auto-detect`. |
 | `-o, --output <output>` | Output directory. The default is the current folder. |

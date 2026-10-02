@@ -109,28 +109,34 @@ extension AppDelegate {
 
     /// Arguments after `lungfish esviritu detect` recorded for a single-sample run.
     ///
-    /// The read format the wizard chose is recorded explicitly so the
-    /// copied command runs pairs as pairs and mixed input as single-end.
+    /// The command names every setting the run uses, so a pasted command runs
+    /// the same detection (R3). The inputs are recorded as the wizard chose
+    /// them, and `esviritu detect` resolves a `.lungfishfastq` bundle as the
+    /// run does. The read format the wizard chose is recorded explicitly so
+    /// the copied command runs pairs as pairs and mixed input as single-end.
+    /// The database, output folder, thread count, quality filter and extra
+    /// arguments follow, so the CLI never falls back to defaults of its own.
     nonisolated static func esVirituDetectCLIArguments(for config: EsVirituConfig) -> [String] {
         var args = ["--input"] + config.inputFiles.map(\.path)
         args += ["--sample", config.sampleName]
         args += ["--read-format", config.readFormat.rawValue]
+        args += ["--db", config.databasePath.path]
+        args += ["--output", config.outputDirectory.path]
+        args += ["--threads", String(config.threads)]
+        if !config.qualityFilter {
+            args.append("--no-qc")
+        }
+        if !config.extraArguments.isEmpty {
+            args += ["--extra-args", AdvancedCommandLineOptions.join(config.extraArguments)]
+        }
         return args
     }
 
     /// Registers the single-sample EsViritu row and calls `launch` with the
     /// operation ID only when the row started. The row locks no bundle.
     ///
-    /// CLI parity gap. The row records `lungfish-cli esviritu detect --input
-    /// <inputs> --sample <name> --read-format <format>`, as
-    /// `esVirituDetectCLIArguments(for:)` builds it. The run usually names a
-    /// `.lungfishfastq` bundle, which is a directory, and `esviritu detect`
-    /// refuses a directory (`EsVirituConfig.validate` throws
-    /// `inputPathIsDirectory`) because only the app materializes a virtual
-    /// bundle before it runs EsViritu. The command also leaves out the
-    /// database, output folder, quality filter, thread count and extra
-    /// arguments the run uses, so the CLI falls back to its own defaults for
-    /// each. The closest working command is `esviritu detect` on a FASTQ file.
+    /// The row records the `lungfish-cli esviritu detect` command that
+    /// `esVirituDetectCLIArguments(for:)` builds from the run's configuration.
     @discardableResult
     static func beginEsVirituOperation(
         config: EsVirituConfig,

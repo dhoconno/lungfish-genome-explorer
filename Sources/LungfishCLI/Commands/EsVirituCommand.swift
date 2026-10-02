@@ -69,7 +69,7 @@ extension EsVirituCommand {
         @Option(
             name: [.customLong("input"), .customShort("i")],
             parsing: .upToNextOption,
-            help: "Input FASTQ file(s). Provide two files for paired-end."
+            help: "Input FASTQ file(s) or .lungfishfastq bundle(s). Provide two files for paired-end."
         )
         var inputFiles: [String] = []
 
@@ -167,6 +167,40 @@ extension EsVirituCommand {
             }
         }
 
+        /// The folder in the output directory that holds the files a virtual
+        /// bundle is materialized into.
+        static let materializationDirectoryName = ".lungfish-esviritu-inputs"
+
+        /// Resolves the inputs as the app's EsViritu launch does. Every file a
+        /// `.lungfishfastq` bundle holds is its own EsViritu input, a virtual
+        /// bundle is materialized into `materializationDirectory`, and an input
+        /// with no readable sequence file is refused before anything is written.
+        static func resolveExecutionInputs(
+            for inputURLs: [URL],
+            materializationDirectory: URL,
+            materializer: any CLISequenceInputMaterializing & Sendable,
+            progress: (@Sendable (String) -> Void)? = nil
+        ) async throws -> ResolvedSequenceInputs {
+            try await ResolvedSequenceInputs.resolvePreflighted(
+                inputURLs: inputURLs,
+                operationName: "EsViritu detection",
+                materializationDirectory: materializationDirectory,
+                materializer: materializer,
+                progress: progress
+            )
+        }
+
+        /// Why `fileCount` input files do not fit `format`, or nil when they do.
+        static func inputCountError(format: EsVirituReadFormat, fileCount: Int) -> String? {
+            if format == .paired && fileCount != 2 {
+                return "Paired-end mode requires exactly 2 input files, got \(fileCount)"
+            }
+            if format == .interleaved && fileCount != 1 {
+                return "Interleaved mode requires exactly 1 input file, got \(fileCount)"
+            }
+            return nil
+        }
+
         static func parse(_ arguments: [String]) throws -> Self {
             let trimmed = arguments.first == configuration.commandName
                 ? Array(arguments.dropFirst())
@@ -178,6 +212,18 @@ extension EsVirituCommand {
         }
 
         func run() async throws {
+            try await execute(
+                pipeline: .shared,
+                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared)
+            )
+        }
+
+        /// The body of ``run()`` with the pipeline and the materializer passed
+        /// in, so a test can run a stand-in EsViritu.
+        func execute(
+            pipeline: EsVirituPipeline,
+            materializer: any CLISequenceInputMaterializing & Sendable
+        ) async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
             // Resolve input files.
@@ -199,13 +245,11 @@ extension EsVirituCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            // Validate paired-end input count.
-            if resolvedReadFormat.format == .paired && inputURLs.count != 2 {
-                print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)"))
-                throw CLIExitCode.inputError.exitCode
-            }
-            if resolvedReadFormat.format == .interleaved && inputURLs.count != 1 {
-                print(formatter.error("Interleaved mode requires exactly 1 input file, got \(inputURLs.count)"))
+            // Validate the input count. A .lungfishfastq bundle is counted
+            // once it resolves to the files it holds, below.
+            let namesABundle = inputURLs.contains { SequenceInputResolver.enclosingFASTQBundleURL(for: $0) != nil }
+            if !namesABundle, let message = Self.inputCountError(format: resolvedReadFormat.format, fileCount: inputURLs.count) {
+                print(formatter.error(message))
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -257,11 +301,40 @@ extension EsVirituCommand {
                 }
             }
 
+            // A .lungfishfastq bundle resolves to every file it holds, each
+            // its own EsViritu input, and a virtual bundle is materialized
+            // into the output directory first, as the app's EsViritu launch
+            // resolves it (R3).
+            let resolvedInputs: ResolvedSequenceInputs
+            do {
+                resolvedInputs = try await Self.resolveExecutionInputs(
+                    for: inputURLs,
+                    materializationDirectory: outputDirectory.appendingPathComponent(
+                        Self.materializationDirectoryName,
+                        isDirectory: true
+                    ),
+                    materializer: materializer,
+                    progress: { message in
+                        if !globalOptions.quiet {
+                            print(formatter.info(message))
+                        }
+                    }
+                )
+            } catch {
+                print(formatter.error(error.localizedDescription))
+                throw CLIExitCode.inputError.exitCode
+            }
+            let executionInputURLs = resolvedInputs.executionInputURLs
+            if let message = Self.inputCountError(format: resolvedReadFormat.format, fileCount: executionInputURLs.count) {
+                print(formatter.error(message))
+                throw CLIExitCode.inputError.exitCode
+            }
+
             let effectiveThreads = globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount
 
             // Build config.
-            let config = EsVirituConfig(
-                inputFiles: inputURLs,
+            var config = EsVirituConfig(
+                inputFiles: executionInputURLs,
                 isPairedEnd: resolvedReadFormat.format == .paired,
                 sampleName: sampleName,
                 outputDirectory: outputDirectory,
@@ -277,6 +350,9 @@ extension EsVirituCommand {
                 readFormat: resolvedReadFormat.format,
                 inputLayout: resolvedReadFormat.layout
             )
+            // Provenance names the bundle behind each file. Files run as
+            // given record nothing more.
+            config.recordInputLineage(resolvedInputs)
 
             // Print configuration.
             print(formatter.header("EsViritu Viral Detection"))
@@ -293,14 +369,12 @@ extension EsVirituCommand {
             print("")
 
             // Same read-length gate as the EsViritu dialog: warn, never block.
-            if let advisory = EsVirituReadLengthAdvisory.evaluate(inputURLs: inputURLs) {
+            if let advisory = EsVirituReadLengthAdvisory.evaluate(inputURLs: executionInputURLs) {
                 print(formatter.warning(advisory.wizardMessage))
                 print("")
             }
 
             // Run pipeline.
-            let pipeline = EsVirituPipeline.shared
-
             let result: LungfishWorkflow.EsVirituResult
             do {
                 result = try await pipeline.detect(config: config) { fraction, message in

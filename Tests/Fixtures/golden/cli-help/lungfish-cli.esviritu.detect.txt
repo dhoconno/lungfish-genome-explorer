@@ -3,7 +3,8 @@ OVERVIEW: Run EsViritu viral detection on FASTQ files
 USAGE: lungfish-cli esviritu detect [<options>] --sample <sample>
 
 OPTIONS:
-  -i, --input <input>     Input FASTQ file(s). Provide two files for paired-end.
+  -i, --input <input>     Input FASTQ file(s) or .lungfishfastq bundle(s).
+                          Provide two files for paired-end.
   -s, --sample <sample>   Sample name for output file prefixes
   --db <db>               Path to EsViritu database directory (default:
                           auto-detect)

@@ -105,7 +105,8 @@ final class EsVirituReadFormatWizardTests: XCTestCase {
             readFormat: .interleaved
         )
         let args = AppDelegate.esVirituDetectCLIArguments(for: guiConfig)
-        XCTAssertEqual(Array(args.suffix(2)), ["--read-format", "interleaved"])
+        let readFormat = try XCTUnwrap(args.firstIndex(of: "--read-format"))
+        XCTAssertEqual(args[readFormat + 1], "interleaved")
 
         let command = try EsVirituCommand.DetectSubcommand.parse(["detect"] + args)
         let cliConfig = try command.makeConfigForTesting(
