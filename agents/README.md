@@ -12,10 +12,9 @@ Tool-specific folders such as `.codex/agents/` and `.claude/agents/` may contain
 | `definitions/claude/` | Claude manual-writing and documentation agent definitions. |
 | `process/` | Lead-agent workflows, review protocols, and operating contracts. |
 | `specialists/` | Expert role definitions used for focused review and architecture consultation. |
-| `archive/` | Inactive agent experiments or retired prompts retained for context. |
 
 ## Dispatch Rules
 
 - Use the smallest agent set that can answer the question or review the work.
 - Keep scientific-data provenance salient for imports, exports, transformations, classifiers, extraction, workflow outputs, and bundle generation.
-- Record durable review outputs in active issue/product-spec locations when they drive current work. Delete finished plans, specs, and reviews under `docs/` in the commit that completes the work they describe; git history preserves them, and nothing under `docs/` is archived (see `docs/README.md`).
+- Record durable review outputs in active issue/product-spec locations when they drive current work. Delete finished plans, specs, and reviews under `docs/` in the commit that completes the work they describe. Git history preserves them, and nothing under `docs/` is archived (see `docs/README.md`).

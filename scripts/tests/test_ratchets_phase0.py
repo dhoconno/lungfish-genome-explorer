@@ -210,12 +210,49 @@ def test_doc_refs_allowlist_suppresses(tmp_path):
     assert run(script).returncode == 0
 
 
-def test_doc_refs_specialists_reported_not_enforced(tmp_path):
+def test_doc_refs_specialists_enforced(tmp_path):
     files = dict(DOC_FILES, **{"agents/specialists/01.md": "Old `Removed.swift`.\n"})
     script = make_repo(tmp_path, DOC_REFS, files)
     result = run(script)
-    assert result.returncode == 0
-    assert "agents/specialists/01.md:1: Removed.swift" in result.stdout
+    assert result.returncode == 1
+    assert "agents/specialists/01.md:1: Removed.swift" in result.stderr
+
+
+def test_doc_refs_specialists_resolving_paths_pass(tmp_path):
+    files = dict(
+        DOC_FILES,
+        **{"agents/specialists/01.md": "See `Sources/LungfishApp/App/AppDelegate.swift` and `Thing.swift`.\n"},
+    )
+    script = make_repo(tmp_path, DOC_REFS, files)
+    result = run(script)
+    assert result.returncode == 0, result.stderr
+
+
+def test_doc_refs_every_agent_prompt_tree_is_enforced(tmp_path):
+    for rel in ("agents/process/LEAD.md", "agents/specialists/nested/02.md"):
+        repo = tmp_path / rel.replace("/", "_")
+        script = make_repo(repo, DOC_REFS, dict(DOC_FILES, **{rel: "Cites `Missing.swift`.\n"}))
+        result = run(script)
+        assert result.returncode == 1, rel
+        assert f"{rel}:1: Missing.swift" in result.stderr
+
+
+def test_doc_refs_urls_are_not_file_references(tmp_path):
+    line = (
+        "Read https://docs.swift.org/swift-book/ and "
+        "[a file](https://github.com/apple/swift/blob/main/Foo.swift).\n"
+    )
+    files = dict(DOC_FILES, **{"agents/specialists/01.md": line})
+    script = make_repo(tmp_path, DOC_REFS, files)
+    result = run(script)
+    assert result.returncode == 0, result.stderr
+    (tmp_path / "agents/specialists/01.md").write_text(
+        "Read https://docs.swift.org/swift-book/ and `Gone.swift`.\n"
+    )
+    result = run(script)
+    assert result.returncode == 1
+    assert "agents/specialists/01.md:1: Gone.swift" in result.stderr
+    assert "docs.swift" not in result.stderr
 
 
 # ------------------------------------------------------ duplicate-public-types

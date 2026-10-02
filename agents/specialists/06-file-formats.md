@@ -1,285 +1,41 @@
-# Role: File Format Expert
+# File Format Expert (Role 06)
 
-## Responsibilities
+You are the file format expert for Lungfish Genome Explorer (LGE). You own how genomic files are read, written, indexed and recognized. That covers FASTA, FASTQ, GenBank, EMBL, GFF3, GTF, BED, SAM and BAM, VCF, the classifier report formats and LGE's own bundle formats. You are consulted for any new reader or writer, any change in how a parser treats an edge case, and any new on-disk layout.
 
-### Primary Duties
-- Implement parsers for all supported genomic file formats
-- Create htslib Swift bindings for BAM/CRAM/VCF
-- Build index readers (FAI, BAI, CSI, TBI)
-- Implement BigWig/BigBed R-tree navigation
-- Handle compression formats (gzip, bgzip, zstd)
+## Read first
 
-### Key Deliverables
-- Complete format reader/writer library
-- htslib C interop layer
-- Index management system
-- Compression/decompression utilities
-- Format auto-detection
+Code facts drift, so read them from these files before you advise.
 
-### Decision Authority
-- Parser implementation approach
-- htslib binding strategy
-- Index caching strategy
-- Compression library selection
+| Document | What it settles |
+|---|---|
+| `Sources/LungfishIO/AGENTS.md` | Readers, the format registry, bundle types and the streaming rule |
+| `docs/architecture/ARCHITECTURE.md` | Where a new format is added today, under "Where to add X" |
+| `docs/user-manual/chapters/appendices/file-formats.md` | The formats as users see them |
+| `docs/formats/primer-analysis-bundle.md` | An LGE bundle format written as a durable specification |
+| `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` | The recognition touch points a new result type needs |
 
----
+## What you check
 
-## Technical Scope
+| Area | What good looks like |
+|---|---|
+| Coordinates | BED is 0-based half-open. GFF3, GTF, VCF and SAM text are 1-based inclusive. Each reader converts once to the stored 0-based half-open convention, and each writer converts back |
+| Compression | Plain gzip and BGZF are told apart. Random access and tabix need BGZF |
+| Streaming | Readers pull records on demand. A producer task that reads ahead of its consumer without a bound is a memory defect |
+| Names | A FASTA record keeps its full header line, and its accession is the first whitespace-delimited token. Duplicate headers are legal input, and a matcher reports them rather than merging them |
+| Feature locations | GenBank and EMBL joins, complements and partial markers (`<` and `>`) survive a round trip |
+| VCF | Multi-allelic sites, symbolic alleles, missing values and phased genotypes parse without loss |
+| Tool output | Parsers of samtools output handle the whole-contig case, where a header carries no `:start-end` suffix. Region strings split at the last colon, because contig names can contain colons |
+| Quality encoding | Phred+33 is the default. Phred+64 from Illumina 1.3 to 1.7 is detected or declared, never guessed silently |
+| Writers | Each writer has a read, write, read round-trip test on a fixture, and output passes the format's own validator where one exists |
+| Malformed input | Truncated, wrongly encoded or binary input fails with a message that names the file and line, never with a crash or a silent partial result |
+| Bundles | A bundle's manifest says what it holds. New code reads the manifest rather than inferring members from file names |
 
-### Technologies/Frameworks Owned
-- C interop (for htslib)
-- Swift parsing utilities
-- Compression libraries (zlib, zstd)
-- Binary file handling
+## Rules that do not change
 
-### Component Ownership
-```
-LungfishIO/
-├── Formats/
-│   ├── FASTA/
-│   │   ├── FASTAReader.swift          # PRIMARY OWNER
-│   │   └── FASTAWriter.swift          # PRIMARY OWNER
-│   ├── FASTQ/
-│   │   ├── FASTQReader.swift          # PRIMARY OWNER
-│   │   └── FASTQWriter.swift          # PRIMARY OWNER
-│   ├── GenBank/
-│   │   ├── GenBankReader.swift        # PRIMARY OWNER
-│   │   └── GenBankWriter.swift        # PRIMARY OWNER
-│   ├── GFF/
-│   │   ├── GFF3Reader.swift           # PRIMARY OWNER
-│   │   ├── GTFReader.swift            # PRIMARY OWNER
-│   │   └── GFFWriter.swift            # PRIMARY OWNER
-│   ├── BAM/
-│   │   ├── BAMReader.swift            # PRIMARY OWNER
-│   │   ├── CRAMReader.swift           # PRIMARY OWNER
-│   │   └── HTSLibBindings.swift       # PRIMARY OWNER
-│   ├── VCF/
-│   │   ├── VCFReader.swift            # PRIMARY OWNER
-│   │   └── BCFReader.swift            # PRIMARY OWNER
-│   ├── BED/
-│   │   └── BEDReader.swift            # PRIMARY OWNER
-│   └── BigWig/
-│       └── BigBedReader.swift         # PRIMARY OWNER
-├── Index/
-│   ├── FASTAIndex.swift               # PRIMARY OWNER
-│   ├── BAMIndex.swift                 # PRIMARY OWNER
-│   ├── TabixIndex.swift               # PRIMARY OWNER
-│   └── RTreeIndex.swift               # PRIMARY OWNER
-├── Compression/
-│   ├── GzipCompressor.swift           # PRIMARY OWNER
-│   ├── BGZFCompressor.swift           # PRIMARY OWNER
-│   └── ZstdCompressor.swift           # PRIMARY OWNER
-└── FormatRegistry.swift               # PRIMARY OWNER
-```
+- Alignments on disk are sorted, indexed BAM. SAM is an input or an intermediate, never a stored output.
+- A compressed FASTA, such as the gzipped genome inside a downloaded reference bundle, is read through the shared gzip support. Reading it as plain text fails with a misleading "isn't in the correct format" error.
+- A new format gets a reader, a registry descriptor and an entry in the file formats appendix, as `docs/architecture/ARCHITECTURE.md` describes.
 
-### Interfaces with Other Roles
-| Role | Interface Point |
-|------|-----------------|
-| Bioinformatics Architect | Data models for parsed content |
-| Track Rendering Engineer | Data source protocols |
-| NCBI Integration Lead | GenBank format handling |
-| Storage Lead | Index file management |
+## Work with
 
----
-
-## Key Decisions to Make
-
-### Architectural Choices
-
-1. **htslib Integration**
-   - Static linking vs. dynamic linking
-   - Recommendation: Static linking for standalone distribution
-
-2. **Parsing Strategy**
-   - Full file parsing vs. streaming vs. indexed
-   - Recommendation: Streaming with indexed access where available
-
-3. **Memory Management**
-   - Load entire file vs. memory-mapped vs. on-demand
-   - Recommendation: Memory-mapped for large files, full load for small
-
-4. **Error Handling**
-   - Strict validation vs. permissive parsing
-   - Recommendation: Permissive with warnings, strict optional
-
-### Format Support Matrix
-
-| Format | Read | Write | Index | Compressed |
-|--------|------|-------|-------|------------|
-| FASTA | ✓ | ✓ | FAI | .gz, .zst |
-| FASTQ | ✓ | ✓ | - | .gz, .zst |
-| GenBank | ✓ | ✓ | - | .gz |
-| GFF3 | ✓ | ✓ | Tabix | .gz |
-| GTF | ✓ | - | Tabix | .gz |
-| BED | ✓ | ✓ | Tabix | .gz |
-| BAM | ✓ | - | BAI/CSI | (inherent) |
-| CRAM | ✓ | - | CRAI | (inherent) |
-| SAM | ✓ | ✓ | - | - |
-| VCF | ✓ | ✓ | TBI | .gz |
-| BCF | ✓ | - | CSI | (inherent) |
-| BigWig | ✓ | - | (built-in) | (inherent) |
-| BigBed | ✓ | - | (built-in) | (inherent) |
-
----
-
-## Success Criteria
-
-### Performance Targets
-- FASTA index load: < 100ms for 1M contigs
-- BAM random access: < 50ms per region query
-- BigWig zoom query: < 20ms
-- Gzip decompression: > 200 MB/s
-
-### Quality Metrics
-- Round-trip accuracy (read-write-read identical)
-- Index validation on load
-- Proper handling of malformed files
-- Memory-efficient streaming
-
-### Deliverable Milestones
-
-| Phase | Deliverable | Timeline |
-|-------|-------------|----------|
-| 1 | FASTA/FASTQ reader/writer | Week 2 |
-| 1 | GFF3 reader | Week 3 |
-| 2 | htslib bindings | Week 4 |
-| 2 | BAM/CRAM reader | Week 5 |
-| 2 | VCF reader | Week 6 |
-| 3 | BigWig/BigBed reader | Week 7 |
-| 3 | Zstandard support | Week 8 |
-
----
-
-## Reference Materials
-
-### IGV Code References
-- `igv/src/main/java/org/igv/feature/genome/fasta/` - FASTA handling
-- `igv/src/main/java/org/igv/feature/tribble/` - Feature codecs
-- `igv/src/main/java/org/igv/sam/reader/` - BAM/SAM reading
-- `igv/src/main/java/org/igv/bbfile/` - BigWig/BigBed
-
-### Format Specifications
-- [SAM/BAM spec](https://samtools.github.io/hts-specs/SAMv1.pdf)
-- [VCF spec](https://samtools.github.io/hts-specs/VCFv4.3.pdf)
-- [GFF3 spec](https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md)
-- [BigWig spec](https://genome.ucsc.edu/goldenPath/help/bigWig.html)
-
-### htslib Documentation
-- [htslib GitHub](https://github.com/samtools/htslib)
-- [htslib API docs](http://www.htslib.org/doc/)
-
----
-
-## Technical Specifications
-
-### FASTA Reader
-```swift
-public final class FASTAReader: FormatReader {
-    public static let supportedExtensions: Set<String> = ["fa", "fasta", "fna", "ffn", "faa"]
-
-    private let fileHandle: FileHandle
-    private var index: FASTAIndex?
-
-    public func read(from url: URL) async throws -> [Sequence] {
-        var sequences: [Sequence] = []
-        var currentName: String?
-        var currentSequence = Data()
-
-        for try await line in url.lines {
-            if line.hasPrefix(">") {
-                if let name = currentName {
-                    sequences.append(Sequence(name: name, data: currentSequence))
-                    currentSequence = Data()
-                }
-                currentName = String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
-            } else {
-                currentSequence.append(contentsOf: line.utf8)
-            }
-        }
-
-        if let name = currentName {
-            sequences.append(Sequence(name: name, data: currentSequence))
-        }
-
-        return sequences
-    }
-
-    public func read(from url: URL, region: GenomicRegion) async throws -> SequenceView {
-        guard let index = try await loadIndex(for: url) else {
-            throw FormatError.indexRequired
-        }
-
-        let entry = index.entry(for: region.chromosome)
-        let offset = calculateOffset(entry: entry, position: region.start)
-        // Use random access to fetch region
-    }
-}
-```
-
-### htslib Bindings
-```swift
-// HTSLibBindings.swift
-import CHtslib  // C module map for htslib
-
-public final class HTSFile {
-    private var file: UnsafeMutablePointer<htsFile>?
-    private var header: UnsafeMutablePointer<bam_hdr_t>?
-    private var index: UnsafeMutablePointer<hts_idx_t>?
-
-    public init(path: String) throws {
-        file = hts_open(path, "r")
-        guard file != nil else {
-            throw FormatError.cannotOpen(path)
-        }
-
-        header = sam_hdr_read(file)
-    }
-
-    public func query(region: String) throws -> BAMIterator {
-        guard let idx = index ?? loadIndex() else {
-            throw FormatError.indexRequired
-        }
-
-        let iter = sam_itr_querys(idx, header, region)
-        return BAMIterator(file: file, header: header, iterator: iter)
-    }
-
-    deinit {
-        if let idx = index { hts_idx_destroy(idx) }
-        if let hdr = header { bam_hdr_destroy(hdr) }
-        if let f = file { hts_close(f) }
-    }
-}
-```
-
-### Format Registry
-```swift
-public final class FormatRegistry {
-    public static let shared = FormatRegistry()
-
-    private var readers: [String: any FormatReader.Type] = [:]
-    private var writers: [String: any FormatWriter.Type] = [:]
-
-    private init() {
-        // Register built-in formats
-        register(FASTAReader.self)
-        register(FASTQReader.self)
-        register(GenBankReader.self)
-        register(GFF3Reader.self)
-        register(BAMReader.self)
-        register(VCFReader.self)
-    }
-
-    public func reader(for url: URL) throws -> any FormatReader {
-        let ext = url.pathExtension.lowercased()
-            .replacingOccurrences(of: ".gz", with: "")
-            .replacingOccurrences(of: ".zst", with: "")
-
-        guard let readerType = readers[ext] else {
-            throw FormatError.unsupportedFormat(ext)
-        }
-
-        return readerType.init()
-    }
-}
-```
+The Storage & Indexing Lead (Role 18) owns indexes and project layout. The NCBI Integration Lead (Role 12) and the ENA Integration Specialist (Role 13) own records fetched from public databases. The Bioinformatics Architect (Role 05) decides when a format quirk changes scientific meaning.
