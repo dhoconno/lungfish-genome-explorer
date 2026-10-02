@@ -1,4 +1,5 @@
 import LungfishKit
+import LungfishKitTestSupport
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore

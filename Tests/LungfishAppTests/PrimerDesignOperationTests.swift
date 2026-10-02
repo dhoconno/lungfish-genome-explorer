@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 import LungfishTestSupport

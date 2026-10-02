@@ -4,6 +4,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishKitTestSupport
 
 /// Thread-safe capture box for observations made from inside the merge's `@Sendable`
 /// probe closure, which fires on whatever thread the merge body is running on.

@@ -443,7 +443,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppWorkflowTests",
-            dependencies: ["LungfishApp", "LungfishWorkflow"],
+            dependencies: ["LungfishApp", "LungfishWorkflow", "LungfishKitTestSupport"],
             path: "Tests/LungfishAppWorkflowTests"
         ),
 

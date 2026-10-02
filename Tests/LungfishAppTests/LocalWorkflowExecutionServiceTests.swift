@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class LocalWorkflowExecutionServiceTests: XCTestCase {
