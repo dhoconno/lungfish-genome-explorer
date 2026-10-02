@@ -1,4 +1,4 @@
-// SequencingPlatformTests.swift
+// IngestionPlatformTests.swift
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

@@ -2012,7 +2012,7 @@ None.
 - `CLISequenceInputMaterializing` protocol, `Sources/LungfishWorkflow/Extraction/CLISequenceInputMaterialization.swift:10`
 - `ClumpingTool` enum, `Sources/LungfishWorkflow/Ingestion/ClumpingTool.swift:8`
 - `ClumpingToolResolution` struct, `Sources/LungfishWorkflow/Ingestion/ClumpingTool.swift:96`
-- `CompressionLevel` enum, `Sources/LungfishWorkflow/Recipes/SequencingPlatform.swift:11`
+- `CompressionLevel` enum, `Sources/LungfishWorkflow/Recipes/IngestionPlatform.swift:11`
 - `CondaEnvironment` struct, `Sources/LungfishWorkflow/Conda/CondaManager.swift:112`
 - `CondaEnvironmentMutationLock` class, `Sources/LungfishWorkflow/Conda/CondaRootMutationLock.swift:186`
 - `CondaEnvironmentMutationTransaction` class, `Sources/LungfishWorkflow/Conda/CondaRootMutationLock.swift:244`
@@ -2327,7 +2327,7 @@ None.
 - `ImagePullProgress` struct, `Sources/LungfishWorkflow/Containers/ContainerImage.swift:323`
 - `ImagePurpose` enum, `Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift:302`
 - `ImportLogEvent` enum, `Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift:46`
-- `IngestionPlatform` enum, `Sources/LungfishWorkflow/Recipes/SequencingPlatform.swift:52`
+- `IngestionPlatform` enum, `Sources/LungfishWorkflow/Recipes/IngestionPlatform.swift:52`
 - `InputFileRecord` struct, `Sources/LungfishWorkflow/Assembly/AssemblyProvenance.swift:273`
 - `IVarCodonMerger` enum, `Sources/LungfishWorkflow/Variants/IVarCodonMerger.swift:8`
 - `IVarTSVRow` struct, `Sources/LungfishWorkflow/Variants/IVarTSVRow.swift:5`
