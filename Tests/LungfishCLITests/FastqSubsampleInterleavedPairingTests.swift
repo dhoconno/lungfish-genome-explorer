@@ -1,4 +1,4 @@
-// FastqSubsampleInterleavedPairingTests.swift - SCI-16: pair-aware subsampling
+// FastqSubsampleInterleavedPairingTests.swift - Pair-aware subsampling
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -7,7 +7,7 @@
 // are stored on disk as a single interleaved FASTQ (mates on adjacent
 // records). `seqkit sample`/`sample2` samples records independently, which
 // can orphan a mate. This test proves that an interleaved input keeps mates
-// together after subsampling (SCI-16).
+// together after subsampling.
 
 import Foundation
 import LungfishIO

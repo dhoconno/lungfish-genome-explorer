@@ -4,7 +4,7 @@ import LungfishIO
 import LungfishWorkflow
 @testable import LungfishGenotypeUI
 
-/// REC-03: the manual-haplotype-definitions export used to write its JSON
+/// The manual-haplotype-definitions export used to write its JSON
 /// payload with `Data.write(options: .atomic)` and only then write a
 /// provenance sidecar in a separate step, so a crash in between left an
 /// orphaned payload with no sidecar. It also recorded

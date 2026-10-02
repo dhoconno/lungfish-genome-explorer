@@ -1,4 +1,4 @@
-// VariantChromosomeLengthMatchNoticeTests.swift - SCI-14 user-visible length-match note
+// VariantChromosomeLengthMatchNoticeTests.swift - User-visible length-match note
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -9,7 +9,7 @@ import os.log
 @testable import LungfishCore
 @testable import LungfishIO
 
-/// SCI-14: when `ChromosomeAliasResolver` matches a VCF contig to a reference
+/// When `ChromosomeAliasResolver` matches a VCF contig to a reference
 /// contig purely by length (no name/alias/version/synonym match), that fact
 /// must be surfaced to the user in the GUI, not only logged. These tests
 /// verify:

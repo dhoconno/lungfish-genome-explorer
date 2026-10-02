@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// FEA-08: ReadTrackRenderer implements every ReadSortMode and ReadColorMode,
+// ReadTrackRenderer implements every ReadSortMode and ReadColorMode,
 // but every production call site hard-coded .position/.strand — there was no
 // UI control or settings plumbing that reached the others. This proves the
 // Inspector's read-style settings notification path (applyReadDisplaySettings,

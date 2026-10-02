@@ -2,7 +2,7 @@ import XCTest
 @testable import LungfishIO
 import LungfishTestSupport
 
-/// GEN-05 (decision D13): one read denominator per source locus, shared by
+/// One read denominator per source locus, shared by
 /// the matrix, the evidence pane, the haplotype caller and the Excel filter.
 final class GenotypeLocusDenominatorTests: XCTestCase {
     /// Audit worked example: one animal with A1 3,000 reads, AG 2,000, E 1,500
@@ -63,7 +63,7 @@ final class GenotypeLocusDenominatorTests: XCTestCase {
         )
     }
 
-    /// Before GEN-05 the caller divided each G allele by the pooled MHC-A
+    /// Before this fix the caller divided each G allele by the pooled MHC-A
     /// haplotype group (6,650 reads, 1.1%) and dropped both at a 5% locus
     /// threshold while the matrix showed them at 50%. The caller now uses the
     /// source-locus denominator: exactly 50%, pinned from both sides.

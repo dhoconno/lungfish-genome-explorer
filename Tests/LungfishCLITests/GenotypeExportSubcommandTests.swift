@@ -363,7 +363,7 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertEqual(inspection["filteredSamples"] as? [String], ["S1"])
         XCTAssertEqual(inspection["filteredLabel"] as? String, "Concise A1")
         XCTAssertEqual(inspection["filteredValue"] as? Int, call.passedUniqueReads)
-        // Decision D8: verbatim note in the comment; evidence in its own column.
+        // Verbatim note in the comment; evidence in its own column.
         XCTAssertEqual(inspection["filteredComment"] as? String, "captured note")
         XCTAssertEqual(inspection["filteredEvidenceHeader"] as? String, "Evidence (display / raw support)")
     }

@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// FEA-17: Edit > Find (Cmd-F) was dead in the main window whenever no data
-// view claimed `performFindPanelAction:`. P7 gave result tables (BatchTableView)
+// Edit > Find (Cmd-F) was dead in the main window whenever no data
+// view claimed `performFindPanelAction:`. Result tables (BatchTableView) have
 // their own handling; this covers the remaining fallback — routing to the
 // sidebar/project search field when nothing else in the responder chain
 // claims the selector (e.g. an empty project, or focus on the sequence

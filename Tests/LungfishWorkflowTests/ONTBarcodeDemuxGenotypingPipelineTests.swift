@@ -774,7 +774,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(snapshot.calls.first { $0.sampleID == "DW472" && $0.locus == "MHC-DQ" }?.h1.pipeline, "M1DQ")
         let files = try FileManager.default.subpathsOfDirectory(atPath: outputDirectory.path)
         XCTAssertFalse(files.contains { $0.hasSuffix(".current-haplotype-analysis.json") || $0.hasSuffix("/current.xlsx") })
-        // GEN-12 / D5 (2026-09-23 best-practices audit): AI haplotyping is
+        // AI haplotyping is
         // disabled, so the run no longer copies the AI specialist prompt
         // into artifacts/ai-haplotyping/prompts or records a provenance
         // step for it.
@@ -3047,7 +3047,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(samples.map(\.readCount).reduce(0, +), 3)  // no overwrite: 2 + 1
     }
 
-    // MARK: - GEN-07: fragment-denominated sample totals
+    // MARK: - Fragment-denominated sample totals
 
     /// Without a merge, `totalFragmentCount` must equal `readCount` (the
     /// input was already single-end/pre-merged, one record per fragment).
@@ -3063,7 +3063,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(sample.totalFragmentCount, 500)
     }
 
-    /// GEN-07's worked example: 1,000 interleaved pairs (readCount = 2,000
+    /// Worked example: 1,000 interleaved pairs (readCount = 2,000
     /// mates), 900 merged and 100 unmerged mates (50 unmerged fragments).
     /// The fragment total must be 900 + 50 = 950, not 2,000 -- the defect
     /// halved retention percentages because `readCount` (pre-merge mates)
@@ -3372,7 +3372,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 return {"HD": {"VN": "1.6"}}
 
         class Read:
-            # GEN-01 (2026-09-23 best-practices audit): barcode assignment
+            # Barcode assignment
             # now anchors on CS1/rc(CS2) rather than searching the whole
             # read, so the fixture sequence must carry that layout
             # (CS1 + insert + rc(CS2) + barcode) instead of a bare
@@ -3480,7 +3480,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 return {"HD": {"VN": "1.6"}}
 
         class Read:
-            # GEN-01 (2026-09-23 best-practices audit): barcode assignment
+            # Barcode assignment
             # now anchors on CS1/rc(CS2) rather than searching the whole
             # read, so the fixture sequence must carry that layout
             # (CS1 + insert + rc(CS2) + barcode) instead of a bare
@@ -3574,7 +3574,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(csv.contains("DW472,14_M1_DQA1_bleed,9,9"), csv)
     }
 
-    /// GEN-01 (2026-09-23 best-practices audit): the reviewer's reproduction
+    /// The reviewer's reproduction
     /// at the Python filter level. Twenty reads of a DRB1 allele (whose
     /// insert embeds the FLD0026 barcode as a substring, mirroring the real
     /// MCM DRB alleles the audit found) and twenty reads of an unrelated
@@ -3696,7 +3696,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(csv.contains("FLD0026"), "no reads may be attributed to FLD0026: its barcode only ever appears embedded in the insert, never anchored -- \(csv)")
     }
 
-    /// GEN-09 (2026-09-23 best-practices audit): a barcode sheet with two
+    /// A barcode sheet with two
     /// samples sharing an effective barcode sequence must be rejected
     /// before the filter runs, mirroring the Swift materializers'
     /// `ONTFluidigmBarcodeCollisionValidation`.
@@ -4704,7 +4704,7 @@ print(json.dumps(payload))
         // to this same fake minimap2/samtools during the window those variables
         // were set, inheriting them -- observed as orphaned `exec yes ...`
         // processes pinned at ~90% CPU for 90+ minutes after the owning test
-        // finished (TST-10). Baking these into the generated script text at
+        // finished. Baking these into the generated script text at
         // creation time instead makes each test's fake tools behave only for
         // that test's own private `root`, with no process-wide state.
         minimap2LogPath: String? = nil,

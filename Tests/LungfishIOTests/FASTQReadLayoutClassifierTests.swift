@@ -1,4 +1,4 @@
-// FASTQReadLayoutClassifierTests.swift - Interleaved / mixed / single-end FASTQ detection (NEW-06)
+// FASTQReadLayoutClassifierTests.swift - Interleaved / mixed / single-end FASTQ detection
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

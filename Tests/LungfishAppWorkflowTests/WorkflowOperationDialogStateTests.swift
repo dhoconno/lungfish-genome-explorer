@@ -187,7 +187,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.haplotypeDefinitionSetID, definition.id)
         XCTAssertEqual(request.haplotypeAssayID, definition.assayID)
         XCTAssertEqual(request.haplotypeSpeciesCode, definition.speciesCode)
-        // WFL-13: this fixture's bare `.lungfishfastq` bundle carries no
+        // This fixture's bare `.lungfishfastq` bundle carries no
         // assembly-read-type metadata, so `.auto` resolves to
         // `.ontSampleBundles` (see `effectiveGenotypingMode`) -- the request
         // must not be tagged with the MiSeq-specific workflow kind. The
@@ -1242,7 +1242,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertNil(request.presetID)
         XCTAssertNil(request.aiSpecialistPresetID)
         XCTAssertTrue(request.argv.contains("--genotype-only"))
-        // WFL-13: no read-type override was set and this fixture's bundle
+        // No read-type override was set and this fixture's bundle
         // has no assembly-read-type metadata, so this resolves to ONT
         // sample-bundle mode and must not carry the MiSeq-specific kind.
         XCTAssertEqual(request.mode, .ontSampleBundles)
@@ -1295,7 +1295,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             "MHC-DQ": 0.10,
             "MHC-DP": 0.10,
         ])
-        // WFL-13: no read-type override was set and this fixture's bundle
+        // No read-type override was set and this fixture's bundle
         // has no assembly-read-type metadata, so this resolves to ONT
         // sample-bundle mode and must not carry the MiSeq-specific kind.
         XCTAssertEqual(request.mode, .ontSampleBundles)
@@ -1517,7 +1517,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.readType, .ont)
     }
 
-    /// WFL-13: an ONT-resolved amplicon genotyping request must not be
+    /// An ONT-resolved amplicon genotyping request must not be
     /// tagged with the MiSeq-specific `resultWorkflowKind` -- the pipeline
     /// derives the correct kind at run time from `request.mode`, and the
     /// dialog must not override that with a hard-coded MiSeq value
@@ -1559,7 +1559,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
     }
 
-    /// WFL-13 regression coverage: an explicitly Illumina-resolved request
+    /// Regression coverage: an explicitly Illumina-resolved request
     /// still carries `mode: .illuminaPaired`, which is what
     /// `ONTBarcodeDemuxGenotypingPipeline.resolvedResultWorkflowKind` keys
     /// off to assign `.miSeqAmpliconMHCGenotype` at run time -- so genuinely

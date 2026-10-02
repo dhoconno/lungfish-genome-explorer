@@ -5,7 +5,7 @@
 import XCTest
 @testable import LungfishWorkflow
 
-/// NEW-08: a classifier operation (EsViritu, Kraken2, ...) cancelled while
+/// A classifier operation (EsViritu, Kraken2, ...) cancelled while
 /// `detectToolVersion` has a version probe in flight stayed in
 /// `OperationCenter`'s active list forever, even though the probe's process
 /// tree was correctly terminated. `detectToolVersion` used to catch every

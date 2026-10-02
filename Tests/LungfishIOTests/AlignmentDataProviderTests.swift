@@ -328,7 +328,7 @@ final class AlignmentDataProviderTests: XCTestCase {
         }
     }
 
-    // MARK: - PERF-04: streaming unique-read counting has no cap
+    // MARK: - Streaming unique-read counting has no cap
 
     func testCountUniqueReadsValidatesRegion() async {
         let provider = AlignmentDataProvider(
@@ -351,7 +351,7 @@ final class AlignmentDataProviderTests: XCTestCase {
     }
 
     func testCountUniqueReadsExceedsTheHundredThousandFetchReadsCap() async throws {
-        // PERF-04: fetchReads(maxReads: 100_000) (the prior implementation
+        // fetchReads(maxReads: 100_000) (the prior implementation
         // TaxTriage and EsViritu used for "Unique Reads") can never report
         // more than 100,000. This streaming counter must report the true
         // count on a contig with more distinct positions than that, without

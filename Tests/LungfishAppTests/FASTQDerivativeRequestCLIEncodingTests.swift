@@ -5,7 +5,7 @@
 import XCTest
 @testable import LungfishApp
 
-/// SIMP-01: `FASTQDerivativeRequest` used to encode a request into three
+/// `FASTQDerivativeRequest` used to encode a request into three
 /// independent command lines that had already drifted from each other --
 /// most visibly, `cliCommand` showed a `seqkit grep` invocation for
 /// search-text/search-motif that never ran (the actual executed command is

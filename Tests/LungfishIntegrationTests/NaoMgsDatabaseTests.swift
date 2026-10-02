@@ -421,7 +421,7 @@ struct NaoMgsDatabaseTests {
         #expect(acc3.coveredBasePairs == 450, "3 non-overlapping reads of 150bp = 450bp covered")
     }
 
-    // MARK: - SCI-09: coverage-fraction reference-length provenance
+    // MARK: - Coverage-fraction reference-length provenance
 
     @Test
     func accessionSummariesDefaultToAlignmentExtentSourceWhenReferencesAreNotFetched() throws {
@@ -444,7 +444,7 @@ struct NaoMgsDatabaseTests {
     @Test
     func accessionSummariesUseFastaSourceAndTrueFractionAfterReferenceFetch() throws {
         // A 30kb reference with reads covering only the first 3000bp (the
-        // worked example in SCI-09) must report ~10% coverage against the
+        // worked example) must report ~10% coverage against the
         // real length, not 100% against the alignment extent.
         var hits: [NaoMgsVirusHit] = []
         for i in 0..<3 {

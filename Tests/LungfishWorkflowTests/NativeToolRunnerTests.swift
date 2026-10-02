@@ -443,24 +443,24 @@ final class NativeToolRunnerTests: XCTestCase {
         }
     }
 
-    // MARK: - PERF-02: the actor must not block for a child's whole lifetime
+    // MARK: - The actor must not block for a child's whole lifetime
 
     /// A slow `runWithFileOutput` call (simulating a long `pigz` compression
     /// or variant-calling pipeline) must not pin `NativeToolRunner`'s actor
     /// executor: a concurrent, fast `run` call on the *same* actor instance
     /// (as every caller shares via `.shared`) must complete well before the
-    /// slow call does. Before the PERF-02 fix, both `runWithFileOutput` and
+    /// slow call does. Before the fix, both `runWithFileOutput` and
     /// `runPipeline`/`runPipelineWithFileOutput` ran `process.waitUntilExit()`
     /// synchronously inside the actor-isolated continuation body, so the fast
     /// call queued behind the slow one for its entire runtime.
     func testSlowFileOutputRunDoesNotBlockConcurrentFastRunOnSameActor() async throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("NativeToolRunner PERF-02 \(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("NativeToolRunner \(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let runner = try makeSlowPigzManagedNativeToolRunner(root: root)
 
         let outputDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("NativeToolRunner PERF-02 Output \(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("NativeToolRunner Output \(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: outputDir) }
         let outputURL = outputDir.appendingPathComponent("slow.out")

@@ -2,12 +2,12 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// UX-05: the organism search field used to hide itself whenever a result had
+// The organism search field used to hide itself whenever a result had
 // only one sample (`rebuildSampleFilterSegments` coupled its visibility to
 // the now-redundant sample segmented control), leaving the single most common
 // case — a single-sample TaxTriage run — with no way to search organisms.
 //
-// UX-18: the audit's comparison matrix records TaxTriage's sample scope UI as
+// The audit's comparison matrix records TaxTriage's sample scope UI as
 // "segmented control, one segment per sample", which "doesn't scale to large
 // sample counts". Reproducing this finding surfaced that it no longer holds
 // as stated: `configureFromDatabase` — the sole production entry point
@@ -43,7 +43,7 @@ final class TaxTriageSampleScopeTests: XCTestCase {
         XCTAssertTrue(vc.testSampleFilterControl.isHidden, "the segmented control is redundant with one sample and should hide")
         XCTAssertFalse(
             vc.testingOrganismSearchField.isHidden,
-            "UX-05: a single-sample result must still expose organism search"
+            "a single-sample result must still expose organism search"
         )
     }
 

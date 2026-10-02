@@ -1,8 +1,8 @@
 import XCTest
 @testable import LungfishWorkflow
 
-/// Round-trip coverage for the shared `CLIEvent` wire schema (ARC-02,
-/// SIMP-04). Before this type existed, each `lungfish-cli` subcommand
+/// Round-trip coverage for the shared `CLIEvent` wire schema.
+/// Before this type existed, each `lungfish-cli` subcommand
 /// declared a private per-command `Event` struct and the GUI parsed events
 /// with `dict["message"] as? String`, so nothing checked that the two sides
 /// agreed on field names. These tests are the contract check: every case

@@ -292,7 +292,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Ready to configure output.")
     }
 
-    /// Regression test for WFL-19: launchRequestForSelectedTool()'s orient
+    /// Regression test: launchRequestForSelectedTool()'s orient
     /// branch does `guard let extraArguments = try? AdvancedCommandLineOptions
     /// .parse(orientExtraArguments) else { return nil }`, but readiness
     /// previously only checked the reference sequence. With malformed extra
@@ -724,7 +724,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
-    // WFL-07 (2026-09-23 best-practices audit): "Remove Human Reads" used to
+    // "Remove Human Reads" used to
     // require the user to pick a file through `.database` (a chooser that
     // only accepted directories/extensionless files/db/k2d/sqlite/json, so
     // the managed Deacon `.idx` index could not even be selected), then

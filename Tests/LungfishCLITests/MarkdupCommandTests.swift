@@ -33,7 +33,7 @@ final class MarkdupCommandTests: XCTestCase {
     // Resolves the samtools stub through CoreToolLocator (the same resolver
     // production code uses) so the fixture tracks whichever namespace the
     // test process's app identity actually resolves to, instead of
-    // hard-coding `.lungfish/conda/...`. See TST-04.
+    // hard-coding `.lungfish/conda/...`.
     private func makeManagedSamtoolsHome() throws -> (home: URL, samtoolsPath: URL) {
         let fixture = try ManagedSamtoolsHome.makeStub(namePrefix: "MarkdupManagedHome")
         return (fixture.homeURL, fixture.samtoolsPath)

@@ -12,7 +12,7 @@ import LungfishTestSupport
 // Artifacts lens, outline/review queue, and selected-sample workbench
 @MainActor
 final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewportTestCase {
-    // D5 / WFL-14 (2026-09-23 best-practices audit): the owner disabled AI
+    // The owner disabled AI
     // haplotyping because it was unreliable, with no key check, consent
     // step, or species-aware defaults. The "AI Haplotyping" section
     // (both the "AI Discovery" and "AI Refinement" buttons) must not

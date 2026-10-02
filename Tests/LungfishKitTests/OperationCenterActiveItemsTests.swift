@@ -1,11 +1,11 @@
-// OperationCenterActiveItemsTests.swift - FEA-06 quit/close warning query helpers
+// OperationCenterActiveItemsTests.swift - Quit/close warning query helpers
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import XCTest
 @testable import LungfishKit
 
-/// Tests for the query helpers FEA-06 added so `applicationShouldTerminate`
+/// Tests for the query helpers added so `applicationShouldTerminate`
 /// and `windowShouldClose` can check for running operations before quitting
 /// or closing a project window. `AppDelegate`/`MainWindowController`
 /// themselves are AppKit lifecycle types with no seam for direct unit

@@ -374,7 +374,7 @@ final class ClassificationConfigTests: XCTestCase {
         XCTAssertTrue(args.contains("--quick"))
     }
 
-    /// SCI-19: `--fasta-input` is not a real Kraken2 option (it is a Kraken 1
+    /// `--fasta-input` is not a real Kraken2 option (it is a Kraken 1
     /// flag; Kraken2 auto-detects FASTA vs FASTQ and its GetOptions parser
     /// silently ignores unknown options after printing a warning). LGE must
     /// never emit it, for FASTA input or otherwise.

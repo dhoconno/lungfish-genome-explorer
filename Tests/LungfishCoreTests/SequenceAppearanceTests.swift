@@ -8,7 +8,7 @@ import XCTest
 final class SequenceAppearanceTests: XCTestCase {
     // SequenceAppearance.save/load/resetToDefaults default to the app's real
     // preferences domain, which for non-fork builds is UserDefaults.standard --
-    // the app's own real bundle identity inside xctest (TST-10). Never read or
+    // the app's own real bundle identity inside xctest. Never read or
     // write that domain from a test; use a suite-specific instance instead,
     // torn down via removePersistentDomain rather than left mutated.
     private var suiteName = ""

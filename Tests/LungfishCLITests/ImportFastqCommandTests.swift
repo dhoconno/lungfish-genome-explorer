@@ -131,7 +131,7 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertNil(command.threads)
     }
 
-    /// D1 (2026-09-23): quality binning defaults to "none" everywhere; it is
+    /// Quality binning defaults to "none" everywhere; it is
     /// lossy and irreversible once originals are removed, so it is opt-in only.
     func testParseDefaultQualityBinning() throws {
         let command = try ImportCommand.FastqSubcommand.parse([
@@ -167,7 +167,7 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertTrue(command.force)
     }
 
-    /// FEA-02: `--name` overrides the output bundle name for a single-sample import.
+    /// `--name` overrides the output bundle name for a single-sample import.
     func testParseNameOption() throws {
         let command = try ImportCommand.FastqSubcommand.parse([
             "/data/sample_R1.fastq.gz",
@@ -299,7 +299,7 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertTrue(command.dryRun)
     }
 
-    // SCI-08 remainder: the raw values "illumina4"/"eightLevel" are kept for
+    // The raw values "illumina4"/"eightLevel" are kept for
     // backward-compatible provenance/CLI parsing, but the user-visible help
     // must describe the real level counts, not the misleading names.
     // clumpify.sh quantize=0,8,13,22,27,32,37 ("illumina4") yields 7 levels;
@@ -533,7 +533,7 @@ final class ImportFastqCommandTests: XCTestCase {
         }
     }
 
-    /// FEA-02 regression: `--name` is rejected outright when more than one
+    /// Regression: `--name` is rejected outright when more than one
     /// sample is detected, before any tool subprocess is invoked, so it can
     /// never silently rename the wrong sample in a multi-sample import.
     func testNameOptionRejectedWithMultipleDetectedSamples() async throws {

@@ -58,7 +58,7 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         XCTAssertEqual(sparse.sparseFilteredValues, ["S2", "M4A", "5"])
 
         let empty = try render(snapshot: fixture(), mutation: "empty-filtered")
-        // Decision D8: the Filtered sheet always ends with its evidence column.
+        // The Filtered sheet always ends with its evidence column.
         XCTAssertEqual(empty.filteredShape, [1, 4])
         XCTAssertEqual(empty.filteredHeaderValues, ["Stable ID", "Locus", "Allele", "Evidence (display / raw support)"])
     }

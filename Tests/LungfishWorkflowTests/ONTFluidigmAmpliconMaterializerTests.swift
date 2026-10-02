@@ -303,7 +303,7 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
         XCTAssertEqual(result.outputBundleURLs, [])
     }
 
-    /// GEN-01 (2026-09-23 best-practices audit): the reviewer's reproduction.
+    /// The reviewer's reproduction.
     /// A read carrying the FLD0001 sample's true amplicon and barcode also
     /// happens to contain the FLD0026 barcode sequence embedded inside its
     /// insert (this occurs for real with several MCM DRB alleles). Before
@@ -359,7 +359,7 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
         XCTAssertFalse(result.outputBundleURLs.contains { $0.lastPathComponent == "FLD0026.lungfishfastq" })
     }
 
-    /// GEN-01: when the anchored window contains a 1-mismatch version of the
+    /// When the anchored window contains a 1-mismatch version of the
     /// read's true barcode, plus an unrelated sample's exact barcode
     /// elsewhere in the read (outside the window), the read must be
     /// unassigned -- never assigned to the k-mer match found outside the

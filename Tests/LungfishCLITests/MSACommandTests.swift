@@ -863,7 +863,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
-    /// WFL-02/REC-02 regression: `--force` must never delete the existing
+    /// Regression: `--force` must never delete the existing
     /// output up front. It should build the new bundle at a fresh sibling
     /// path and only swap it into place once the build succeeds, and a
     /// refusal (no --force) must leave the existing output byte-for-byte

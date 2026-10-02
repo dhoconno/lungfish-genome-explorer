@@ -506,7 +506,7 @@ final class GenBankReaderComprehensiveTests: XCTestCase {
         XCTAssertEqual(gene.qualifier(rawLocationQualifierKey), rawLocation)
     }
 
-    // MARK: - SCI-10: codon_start and transl_table honored
+    // MARK: - codon_start and transl_table honored
 
     /// A CDS with `/codon_start=2` (phase 1) must translate skipping the
     /// first base, matching NCBI's own `/translation` qualifier for a
@@ -596,7 +596,7 @@ final class GenBankReaderComprehensiveTests: XCTestCase {
         XCTAssertEqual(result?.protein, "**W", "AGA/AGG are stop and TGA is Trp under vertebrate mitochondrial code")
     }
 
-    // MARK: - SCI-15: origin-spanning features on circular genomes
+    // MARK: - Origin-spanning features on circular genomes
 
     /// A CDS that wraps a circular plasmid's origin (`join(16..20,1..5)`) must
     /// translate using the join's own segment order (transcription order),

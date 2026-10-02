@@ -1,4 +1,4 @@
-// LocusQueryParserTests.swift - Tests for the shared locus grammar (SCI-13/FEA-09)
+// LocusQueryParserTests.swift - Tests for the shared locus grammar
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

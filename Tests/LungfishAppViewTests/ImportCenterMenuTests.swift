@@ -52,7 +52,7 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(projectItem.action, #selector(AppDelegate.openRecentProjectFromMenu(_:)))
     }
 
-    // NEW-03: adding the "same" project twice via URLs that are not `==`
+    // Adding the "same" project twice via URLs that are not `==`
     // under raw URL equality (one without a trailing slash, one built with
     // `isDirectory: true`) must not produce two Open Recent entries.
     func testAddRecentProjectDeduplicatesEquivalentURLsRegardlessOfConstruction() throws {

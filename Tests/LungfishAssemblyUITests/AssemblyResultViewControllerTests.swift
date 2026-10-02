@@ -548,9 +548,9 @@ final class AssemblyResultViewControllerTests: XCTestCase {
         XCTAssertEqual(pasteboard.lastString, "8 bp")
     }
 
-    /// UX-17: the old Cmd-click "quick copy" gesture on a table cell's text
+    /// The old Cmd-click "quick copy" gesture on a table cell's text
     /// field competed with, and could shadow, standard Cmd-click
-    /// multi-select. It has been removed in favor of `copy:` (UX-04), so a
+    /// multi-select. It has been removed in favor of `copy:`, so a
     /// Cmd-click on a row now behaves like any other `NSTableView` and
     /// simply extends the selection.
     func testCommandClickExtendsSelectionInsteadOfCopyingScalarValue() async throws {

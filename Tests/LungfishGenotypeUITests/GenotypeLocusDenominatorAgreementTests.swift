@@ -3,7 +3,7 @@ import XCTest
 import LungfishIO
 import LungfishTestSupport
 
-/// GEN-05 (D13) and GEN-06 (D14) acceptance: the matrix, the haplotype
+/// Acceptance: the matrix, the haplotype
 /// evidence pane and the haplotype caller give the same percentage for the
 /// same allele, and "Min percent" is a per-sample read fraction for known and
 /// candidate rows alike, with prevalence as its own control.
@@ -113,7 +113,7 @@ final class GenotypeLocusDenominatorAgreementTests: GenotypeResultViewportTestCa
         }
     }
 
-    // MARK: GEN-06 (D14)
+    // MARK: Per-sample Min percent and prevalence control
 
     /// 30 animals. A01 carries a private novel allele at 60% of its MHC-A1
     /// reads; A02 and A03 share a candidate at 0.2% each (a chimera or

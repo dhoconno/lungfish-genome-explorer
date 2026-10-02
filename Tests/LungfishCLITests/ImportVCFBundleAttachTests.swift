@@ -5,7 +5,7 @@ import ArgumentParser
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
-/// FEA-12: `lungfish-cli import vcf <vcf> --output-dir <bundle.lungfishref>`
+/// `lungfish-cli import vcf <vcf> --output-dir <bundle.lungfishref>`
 /// attaches the variants to the bundle's variant database through
 /// `VCFBundleVariantImport`, the core the GUI Import Center helper path uses.
 final class ImportVCFBundleAttachTests: XCTestCase {

@@ -3,7 +3,7 @@ import LungfishIO
 import XCTest
 
 final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
-    /// GEN-02 (D11): the lint names exactly the shipped MCM haplotypes whose
+    /// The lint names exactly the shipped MCM haplotypes whose
     /// required diagnostic alleles are identical (DP M4/M7 and M5/M6), and
     /// the shipped set still validates (warnings are non-fatal).
     func testDefinitionWarningsFlagIdenticalRequiredSetsInShippedMCMDefinition() throws {

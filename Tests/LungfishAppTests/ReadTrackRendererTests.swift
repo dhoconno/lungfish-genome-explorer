@@ -2019,7 +2019,7 @@ final class ReadTrackRendererTests: XCTestCase {
         XCTAssertFalse(ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: true, hasMDTags: true))
     }
 
-    // MARK: - UX-16: overflow bar contrast in Dark Aqua
+    // MARK: - Overflow bar contrast in Dark Aqua
 
     /// The "+N reads not shown" overflow bar used to fill with a fixed near-white
     /// (`NSColor(white: 0.88, alpha: 0.9)`) and draw `secondaryLabelColor` text on it. In Dark

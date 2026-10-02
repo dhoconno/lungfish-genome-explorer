@@ -217,7 +217,7 @@ def verify_filtered_current_view(oracle, native, snapshot, workbook):
     header=2+2*len(matrix['loci']) if snapshot['hasHaplotypeContent'] and matrix['loci'] else 1
     # Presentation columns sit between the hidden stable ID and the samples:
     # the legacy layout is Locus + Allele, an explicit layout is whatever the
-    # native matrix showed. Decision D8 adds one trailing evidence column.
+    # native matrix showed. The sheet adds one trailing evidence column.
     presentation=matrix.get('columns') or [{'kind':'locus'},{'kind':'legacy-display'}]
     first_sample=2+len(presentation)
     evidence_column=first_sample+len(native_samples)
@@ -236,7 +236,7 @@ def verify_filtered_current_view(oracle, native, snapshot, workbook):
         return [(side.style if side else None,rgb(side.color.rgb) if side and side.color and side.color.type=='rgb' else None)
                 for side in [cell.border.left,cell.border.right,cell.border.top,cell.border.bottom]]
     def expected_evidence(native_row,key):
-        # Independent restatement of the D8 evidence column: every sample with
+        # Independent restatement of the evidence column: every sample with
         # a displayed or known raw value, as 'Sample: display / raw'.
         parts=[]
         for sample,native_cell in zip(native_samples,native_row['cells']):
@@ -270,7 +270,7 @@ def verify_filtered_current_view(oracle, native, snapshot, workbook):
             assert cell.value==display and (display is None or type(cell.value) is int), (
                 'XLSX Filtered literal evidence',key,native_cell['sampleID'],display,cell.value,type(cell.value).__name__)
             assert cell.data_type!='f', ('XLSX Filtered formula',key,native_cell['sampleID'])
-            # D8: the cell comment is the user's note verbatim, nothing more.
+            # The cell comment is the user's note verbatim, nothing more.
             annotation=cell.comment.text if cell.comment else None
             assert annotation==native_cell.get('comment'), (
                 'XLSX Filtered annotation',key,native_cell['sampleID'],annotation)

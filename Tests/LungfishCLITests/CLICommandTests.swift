@@ -1319,7 +1319,7 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertNil(cmd.proportion)
     }
 
-    /// WFL-10: subsample had no seed option at all, so results were not
+    /// Subsample had no seed option at all, so results were not
     /// reproducible from provenance. Verifies `--seed` parses through.
     func testSubsampleParsesSeed() throws {
         let cmd = try FastqSubsampleSubcommand.parse([

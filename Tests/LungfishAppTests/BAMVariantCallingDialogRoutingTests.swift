@@ -243,7 +243,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
 
     @MainActor
     func testDialogStateSeedsBcftoolsPloidyFromBundleOrganism() throws {
-        // The fixture bundle's organism is "Virus", so the SCI-04 haploid
+        // The fixture bundle's organism is "Virus", so the haploid
         // default holds; a human bundle must come up diploid.
         let viral = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
         let human = BAMVariantCallingDialogState(bundle: try makeBundleFixture(organism: "Homo sapiens"))
@@ -320,7 +320,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     }
 
     func testCatalogIncludesClair3ButHidesPhasedGATKWhatsHapLane() {
-        // D4 (2026-09-23 best-practices audit, WFL-03): the phased lane
+        // The phased lane
         // always reported "Ready" and then dead-ended with a contradictory
         // "Not Ready" alert, because nothing reads `pendingPhasedVariantPlan`.
         // It is hidden behind a catalog flag until it is wired to a real
@@ -332,7 +332,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         XCTAssertEqual(clair3?.title, "Clair3")
         XCTAssertEqual(clair3?.subtitle, "ONT-focused neural-network variant calling with Clair3.")
         XCTAssertEqual(clair3?.availability, .available)
-        XCTAssertNil(phased, "GATK + WhatsHap Phased must not appear in the caller catalog (D4)")
+        XCTAssertNil(phased, "GATK + WhatsHap Phased must not appear in the caller catalog")
     }
 
     @MainActor
@@ -675,7 +675,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     }
 
     func testCatalogGatesPhasedLaneOnBothGATKAndPhasingPacks() async throws {
-        // D4: the phased lane is hidden from the catalog entirely, so it no
+        // The phased lane is hidden from the catalog entirely, so it no
         // longer appears in `sidebarItems()` regardless of pack status.
         let catalog = BAMVariantCallingCatalog(
             statusProvider: StubVariantCallingPackStatusProvider(states: [

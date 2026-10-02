@@ -345,10 +345,10 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(plan.commandLine.contains("--ploidy 1"))
     }
 
-    // MARK: - SCI-04: bcftools haploid calling and amplicon depth cap
+    // MARK: - bcftools haploid calling and amplicon depth cap
 
     func testBcftoolsCommandLineIsHaploidWithUncappedAmpliconDepth() async throws {
-        // SCI-04: bcftools previously ran with implicit diploid genotyping
+        // bcftools previously ran with implicit diploid genotyping
         // and the tool's default 250-read max-depth, which is far below
         // typical amplicon coverage. The mpileup stage must request AD/DP
         // tags and an effectively unlimited depth, and the call stage must
@@ -367,7 +367,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
     // MARK: - bcftools ploidy follows the reference organism
 
     func testBcftoolsCommandLineIsDiploidForHumanReferenceBundle() async throws {
-        // Regression: SCI-04 made `--ploidy 1` unconditional, which on the
+        // Regression: the haploid-calling fix made `--ploidy 1` unconditional, which on the
         // manual's HG002 chromosome 20 example dropped 623 heterozygous
         // sites and wrote every genotype as `1`. A human bundle must call
         // diploid by default.
@@ -457,10 +457,10 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertNil(json["ploidyBasis"])
     }
 
-    // MARK: - SCI-03: minimum AF and depth thresholds applied for non-iVar callers
+    // MARK: - Minimum AF and depth thresholds applied for non-iVar callers
 
     func testLoFreqBelowThresholdVariantIsFilteredAndProvenanceRecordsAppliedThreshold() async throws {
-        // SCI-03: min-AF and min-depth were silently ignored for LoFreq,
+        // Min-AF and min-depth were silently ignored for LoFreq,
         // bcftools, Medaka and Clair3, while provenance claimed they were
         // applied. A 4% variant with the dialog's default 0.05 threshold
         // must be filtered out, and the applied threshold recorded.

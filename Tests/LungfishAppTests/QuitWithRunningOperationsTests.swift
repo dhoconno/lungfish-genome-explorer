@@ -3,7 +3,7 @@ import AppKit
 import LungfishKit
 @testable import LungfishApp
 
-/// NEW-09 (found live with Computer Use): after the user chose
+/// Found live with Computer Use: after the user chose
 /// "Cancel Operations and Quit", the re-run of the termination gates returned
 /// `.terminateNow` but the result was discarded, so AppKit (already told
 /// `.terminateLater`) never received a reply and the app never quit.

@@ -2,8 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Part of the 2026-09-23 best-practices audit (concurrency-performance.md, WP8 / PERF-09,
-// PERF-10). This harness renders SequenceViewerView offscreen into an NSBitmapImageRep at
+// This harness renders SequenceViewerView offscreen into an NSBitmapImageRep at
 // 1600x900@2x and reports median draw(_:) time over >=20 passes, for a full redraw and for a
 // narrow dirtyRect (a loading-badge-sized rect). It only runs when LUNGFISH_PERF_BENCH=1 is
 // set in the environment, so it never slows down the default test run.

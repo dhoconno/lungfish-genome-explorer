@@ -1,4 +1,4 @@
-// EsVirituReadFormatCLITests.swift - `esviritu detect --read-format` parsing and auto-detection (NEW-06)
+// EsVirituReadFormatCLITests.swift - `esviritu detect --read-format` parsing and auto-detection
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

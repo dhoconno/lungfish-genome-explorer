@@ -2,7 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
 
-/// FEA-12: the Operations panel's "Copy CLI Command" for a BAM import used to
+/// The Operations panel's "Copy CLI Command" for a BAM import used to
 /// show `lungfish-cli --bam-import-helper ...`, an internal re-launch flag
 /// the CLI's ArgumentParser cannot parse at all. This asserts the replacement
 /// command is real: it parses through `LungfishCLI`'s root parser and lands

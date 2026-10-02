@@ -140,7 +140,7 @@ final class ONTFluidigmSampleMaterializerTests: XCTestCase {
         let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
         let outputDirectory = root.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
 
-        // GEN-01 (2026-09-23 best-practices audit): barcode assignment now
+        // Barcode assignment now
         // anchors on CS1/rc(CS2) rather than searching the whole read, so
         // the fixture must carry that layout.
         let cs1 = "ACACTGACGACATGGTTCTACA"
@@ -221,7 +221,7 @@ final class ONTFluidigmSampleMaterializerTests: XCTestCase {
         }
     }
 
-    /// GEN-01 (2026-09-23 best-practices audit): before this fix,
+    /// Before this fix,
     /// `ONTFluidigmSampleMaterializer`'s `BarcodeMatcher` had NO CS1/CS2
     /// awareness at all -- it scanned the whole read for any sample's
     /// barcode as a free k-mer and took the leftmost match. A read whose
@@ -271,7 +271,7 @@ final class ONTFluidigmSampleMaterializerTests: XCTestCase {
         XCTAssertFalse(result.outputBundleURLs.contains { $0.lastPathComponent == "FLD0026.lungfishfastq" })
     }
 
-    /// GEN-01: a corrupted (1-mismatch) anchored barcode must leave the read
+    /// A corrupted (1-mismatch) anchored barcode must leave the read
     /// unassigned even when an unrelated sample's exact barcode appears
     /// elsewhere in the read, outside the anchor window.
     func testLeavesReadUnassignedWhenAnchoredBarcodeIsMismatchedRatherThanUsingDistantExactMatch() async throws {

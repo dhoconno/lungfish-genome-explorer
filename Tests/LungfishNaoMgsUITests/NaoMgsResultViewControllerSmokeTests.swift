@@ -12,7 +12,7 @@ import LungfishWorkflow
 @testable import LungfishCore
 
 final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
-    // MARK: - UX-05: free-text search (NAO-MGS previously had none)
+    // MARK: - Free-text search (NAO-MGS previously had none)
 
     @MainActor func testSearchFieldFiltersDisplayedRowsByTaxonNameOrSample() throws {
         let controller = NaoMgsResultViewController()

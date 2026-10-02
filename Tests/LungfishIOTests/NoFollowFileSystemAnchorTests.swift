@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 @testable import LungfishIO
 
-/// Anchoring of `NoFollowFileSystem.openDirectoryHierarchy` (NEW-11).
+/// Anchoring of `NoFollowFileSystem.openDirectoryHierarchy`.
 ///
 /// The live failure (an `openat` of `~/Desktop` blocking without the folder
 /// TCC grant) cannot be reproduced in a test process. These tests pin the

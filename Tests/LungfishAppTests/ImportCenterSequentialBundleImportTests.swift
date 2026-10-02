@@ -1,4 +1,4 @@
-// ImportCenterSequentialBundleImportTests.swift - FEA-05 regression coverage
+// ImportCenterSequentialBundleImportTests.swift - Regression coverage
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -39,7 +39,7 @@ final class ImportCenterSequentialBundleImportTests: XCTestCase {
         let urls = (1...3).map { URL(fileURLWithPath: "/tmp/sample\($0).sorted.bam") }
         // Tracks how many imports were concurrently "in flight" (started but not yet
         // completed) at any point, so the test can assert the queue never lets two run
-        // at once -- which is exactly the FEA-05 bug: three simultaneous `.start()` calls
+        // at once -- which is exactly the bug: three simultaneous `.start()` calls
         // sharing one bundle lock.
         var inFlight = 0
         var maxConcurrentInFlight = 0
@@ -49,7 +49,7 @@ final class ImportCenterSequentialBundleImportTests: XCTestCase {
         viewModel.queueSequentialBundleImports(urls: urls, action: .bam, center: center) { url in
             // A real caller would refuse to start a second import here because
             // `canStartOperation` is false while a prior one is still running (this is
-            // exactly the FEA-05 bug); asserting `inFlight == 0` at start time is the
+            // exactly the bug); asserting `inFlight == 0` at start time is the
             // direct behavioural check that the queue never even attempts that.
             XCTAssertEqual(inFlight, 0, "a new import must not start while a prior one is still in flight")
             inFlight += 1

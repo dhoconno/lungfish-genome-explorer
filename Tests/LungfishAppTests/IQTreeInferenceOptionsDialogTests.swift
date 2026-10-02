@@ -133,7 +133,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
     }
 
 
-    // Reported 2026-09-23 (best-practices audit, WFL-10e): the dialog's own
+    // Reported 2026-09-23: the dialog's own
     // default for `seed` was the fixed value 1 even though its label says
     // "leave blank for random". The default must be nil so a run left
     // untouched actually gets IQ-TREE's own random seed, not a fixed one.
@@ -158,7 +158,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         XCTAssertNil(options.seed, "An unmodified dialog must produce options with no fixed seed")
     }
 
-    /// WFL-10: IQ-TREE's ultrafast bootstrap has a hard minimum of 1000
+    /// IQ-TREE's ultrafast bootstrap has a hard minimum of 1000
     /// replicates; below that, the tool itself errors out. The dialog's
     /// readiness check must catch this before Run is ever pressed, instead
     /// of only checking for a positive count.
@@ -206,7 +206,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         state.model = "GTR+G"
         state.sequenceType = .dna
         state.bootstrapEnabled = true
-        // WFL-10: IQ-TREE's ultrafast bootstrap has a hard minimum of 1000
+        // IQ-TREE's ultrafast bootstrap has a hard minimum of 1000
         // replicates; a lower count must fail the dialog's own readiness
         // check rather than reach IQ-TREE and fail there instead.
         state.bootstrapReplicates = 1500

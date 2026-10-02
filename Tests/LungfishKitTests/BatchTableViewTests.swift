@@ -445,7 +445,7 @@ final class BatchTableViewTests: XCTestCase {
         XCTAssertEqual(table.displayedRows.map(\.name), ["alpha", "alphabet"])
     }
 
-    // MARK: - ColumnHeaderFilterMenu (UX-05: shared column-header menu)
+    // MARK: - ColumnHeaderFilterMenu (shared column-header menu)
 
     func testDidClickColumnHeaderSortsAscendingThenDescendingThroughSharedMenu() throws {
         let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
@@ -841,7 +841,7 @@ final class BatchTableViewTests: XCTestCase {
         XCTAssertTrue(scoreColumn.isHidden)
     }
 
-    // MARK: - UX-04 / UX-17: responder contract
+    // MARK: - Responder contract
 
     func testCopySelectedRowsWritesHeaderPlusSelectedRowsAsTSV() throws {
         let pasteboard = RecordingPasteboard()
@@ -914,7 +914,7 @@ final class BatchTableViewTests: XCTestCase {
         XCTAssertTrue(table.validateMenuItem(selectAllItem))
     }
 
-    // MARK: - UX-14: no-matches overlay
+    // MARK: - No-matches overlay
 
     func testNoMatchesOverlayAppearsWhenFilterExcludesAllRowsAndClearRestoresThem() throws {
         let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
@@ -940,7 +940,7 @@ final class BatchTableViewTests: XCTestCase {
     }
 
     func testCommandClickNoLongerCopiesAndInsteadExtendsSelection() throws {
-        // UX-17: Cmd-click on a row's cell must behave as standard multi-select,
+        // Cmd-click on a row's cell must behave as standard multi-select,
         // not as a quick-copy gesture that competes with it.
         let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         table.configure(rows: [

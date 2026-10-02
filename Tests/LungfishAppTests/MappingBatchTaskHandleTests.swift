@@ -1,4 +1,4 @@
-// MappingBatchTaskHandleTests.swift - Deterministic cancel/assign ordering coverage (C2 fix round 2, NEW-1)
+// MappingBatchTaskHandleTests.swift - Deterministic cancel/assign ordering coverage
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

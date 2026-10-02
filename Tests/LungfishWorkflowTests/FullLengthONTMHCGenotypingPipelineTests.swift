@@ -4958,7 +4958,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             allele.contains("_extension") || allele.contains("_ext") || allele.contains("_0nt_nov")
         })
 
-        // GEN-10 (D15): the zero-SNP indel hit stays a known call, but the
+        // The zero-SNP indel hit stays a known call, but the
         // report row carries the indel count and a review flag.
         let reportRows = FullLengthONTMHCClusterReportBuilder.reportRows(
             genotypeRows: summary.rows,
@@ -4970,7 +4970,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(reportRows.map(\.ambiguousWith), [nil])
     }
 
-    /// GEN-10 (D15): a genomic cluster equal to a known allele except for a
+    /// A genomic cluster equal to a known allele except for a
     /// 9 bp deletion is still called as that allele (the owner keeps indels
     /// tolerant because stochastic ONT indels would otherwise cause false
     /// negatives), but the call now records indelBases = 9 and is flagged
@@ -5023,7 +5023,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(reportRows.map(\.reviewFlag), ["indel", ""])
     }
 
-    /// GEN-04 (D12), full-length path: identical references tie for a
+    /// Full-length path: identical references tie for a
     /// cluster's best known hit. Every tied call keeps the full cluster
     /// reads (no arbitrary split, the path keeps every secondary) and
     /// carries the same ambiguity group; the sample denominator counts the

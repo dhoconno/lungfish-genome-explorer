@@ -1,8 +1,8 @@
-// SequenceViewerVariantTrackScanOffMainTests.swift - PERF-07 threading regression
+// SequenceViewerVariantTrackScanOffMainTests.swift - Threading regression
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// 2026-09-23 best-practices audit (concurrency-performance.md, PERF-07). Result/bundle selection
+// Result/bundle selection
 // used to open every variant database and call sampleCount()/allChromosomes() synchronously on
 // the main actor inside SequenceViewerView.setReferenceBundle. That work now runs on
 // `variantAliasWarmupQueue` (off-main) and commits back to the view only if the bundle is still

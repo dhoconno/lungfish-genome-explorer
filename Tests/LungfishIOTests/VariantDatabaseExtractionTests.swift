@@ -354,7 +354,7 @@ final class VariantDatabaseExtractionTests: XCTestCase {
         XCTAssertEqual(count2, 3, "Second extraction should overwrite first")
     }
 
-    // MARK: - SCI-07: Reverse-complement extraction transforms variants
+    // MARK: - Reverse-complement extraction transforms variants
 
     /// SNP at 0-based position 10 (VCF POS 11) within a region [0, 20).
     /// Region length 20. Mirrored position = 20 - 11 = 9. REF/ALT reverse-complemented.
@@ -474,7 +474,7 @@ final class VariantDatabaseExtractionTests: XCTestCase {
         XCTAssertEqual(count, 1, "The symbolic <DEL> ALT cannot be reverse-complemented and should be dropped")
     }
 
-    // MARK: - SCI-21: Straddling records excluded
+    // MARK: - Straddling records excluded
 
     /// A deletion spans [95,105) (0-based); the extraction region starts at 100,
     /// so the record straddles the region's left boundary and must be excluded

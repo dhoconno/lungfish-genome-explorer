@@ -3,7 +3,7 @@ import LungfishIO
 @testable import LungfishApp
 @testable import LungfishCLI
 
-/// FEA-12: the Operations panel's "Copy CLI Command" for a VCF import into a
+/// The Operations panel's "Copy CLI Command" for a VCF import into a
 /// reference bundle must be a real `lungfish-cli` command. This asserts the
 /// recorded string parses through `LungfishCLI`'s root parser and lands on
 /// `ImportCommand.VCFSubcommand` with the path, bundle and import profile the

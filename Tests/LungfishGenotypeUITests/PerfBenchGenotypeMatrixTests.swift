@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// 2026-09-23 best-practices audit (concurrency-performance.md, WP8). GenotypeComparisonMatrixView
+// GenotypeComparisonMatrixView
 // is backed by NSTableView, so AppKit already virtualizes which rows/cells are drawn or built —
 // unlike SequenceViewerView/MSA, there is no custom draw(_:) that repaints the whole data set
-// per frame. The audit's ask ("remove draw-time sorting/formatting/text measurement... draw
+// per frame. The original ask ("remove draw-time sorting/formatting/text measurement... draw
 // only visible cells") maps to `tableView(_:viewFor:row:)`, which AppKit calls once per visible
 // cell on every scroll frame; `cellValue(for:row:)` inside it does per-cell tooltip string
 // building (`matrixTooltip`, `cachedRowCommentTooltips`) and dictionary lookups. This harness
@@ -75,7 +75,7 @@ final class PerfBenchGenotypeMatrixTests: XCTestCase {
 
     /// Attributes the cell-build cost to view lookup/creation vs. value+tooltip string building
     /// vs. style/color/font resolution, using the `#if DEBUG` per-phase counters added to
-    /// `GenotypeComparisonMatrixView` (2026-09-24 best-practices audit, PERF-17 follow-up). This
+    /// `GenotypeComparisonMatrixView`. This
     /// is what actually tells us where to keep optimizing, as opposed to
     /// `testCellBuildCostBenchmark`, which only reports the total.
     func testCellBuildCostAttributionByPhase() throws {

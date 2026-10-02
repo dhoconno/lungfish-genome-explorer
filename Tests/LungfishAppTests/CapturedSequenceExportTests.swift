@@ -63,7 +63,7 @@ final class CapturedSequenceExportTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: displayURL.path))
     }
 
-    // MARK: - PERF-06: annotation export must never load the genome
+    // MARK: - Annotation export must never load the genome
 
     /// "Export annotations" from a `.lungfishref` bundle used to call
     /// `loadSequencesForExport`, which decompressed and parsed the whole
@@ -74,7 +74,7 @@ final class CapturedSequenceExportTests: XCTestCase {
     /// throw instead of returning the fixture's annotations.
     func testLoadAnnotationsForExportNeverOpensTheGenome() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("PERF06-AnnotationExport-\(UUID())", isDirectory: true)
+            .appendingPathComponent("AnnotationExport-\(UUID())", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -96,8 +96,8 @@ final class CapturedSequenceExportTests: XCTestCase {
         // exist. Nothing but a regression that re-adds a genome read could
         // ever observe this path; `loadAnnotationsForExport` must not.
         let manifest = BundleManifest(
-            name: "PERF-06 Fixture",
-            identifier: "org.lungfish.perf06-fixture",
+            name: "Annotation Export Fixture",
+            identifier: "org.lungfish.annotation-export-fixture",
             source: SourceInfo(organism: "Test organism", assembly: "fixture"),
             genome: GenomeInfo(
                 path: "genome/does-not-exist.fa.gz",

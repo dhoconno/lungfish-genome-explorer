@@ -1304,7 +1304,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
     }
 
-    // WFL-05: pbAA results used to land in a sidebar-hidden `cli-output-pbaa-*`
+    // pbAA results used to land in a sidebar-hidden `cli-output-pbaa-*`
     // staging subfolder. The caller now creates a dedicated, visible
     // `Analyses/pbaa-<timestamp>/` directory up front and passes it in as
     // `workingDirectory`, and the planner writes CLI output directly into it
@@ -2780,7 +2780,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(config.inputFiles, [stagedFASTQ])
         XCTAssertNotEqual(config.outputDirectory, destinationBundle)
         XCTAssertFalse(config.skipClumpify)
-        // WFL-01 / D1: FASTQ operation outputs are never re-binned or
+        // FASTQ operation outputs are never re-binned or
         // re-trimmed on re-import, and the importer only deletes the
         // pre-ingestion source itself (never the pipeline) after verifying
         // the re-ingested output's read count — so the pipeline must not
@@ -2789,7 +2789,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(config.qualityBinning, .none)
         XCTAssertEqual(config.clumpingTool, .auto)
         // `.auto` may skip clumping for large outputs but must never resolve to
-        // Trim Galore, which would re-trim the operation's own output (WFL-01).
+        // Trim Galore, which would re-trim the operation's own output.
         XCTAssertNotEqual(
             ClumpingTool.auto.resolve(estimatedInputBytes: Int64.max / 4, physicalMemoryBytes: 8 << 30).resolved,
             .trimGalore
@@ -4870,7 +4870,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             sourceInputURL: fixture.sourceBundleURL
         )
 
-        // WFL-01 item e: the importer now also computes statistics for the
+        // The importer now also computes statistics for the
         // re-ingested OUTPUT file, to verify its read count meets or exceeds
         // the source's before deleting the source. Both calls must go
         // through the injected calculator, not a hard-coded implementation.

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// 2026-09-24 best-practices audit follow-up (PerfBenchGenotypeMatrixTests / PERF-17 continuation).
+// Follow-up to PerfBenchGenotypeMatrixTests.
 // Fine-grained profiling of `tableView(_:viewFor:row:)` found that `backgroundColor(for:row:
 // renderedStyle:)` / `borderColor(for:row:renderedStyle:)` / `applyCellStyle` were calling
 // `NSColor(calibratedRed:green:blue:alpha:)` and `.withAlphaComponent(_:)` fresh on every visible

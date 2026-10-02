@@ -452,7 +452,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(sequenceViewerSource.contains("viewController?.contentMode == .genomics, !isHidden"))
         // Dataset-level Reverse Complement and Translate launch through the
         // generic Tools menu tool launcher; the per-tool AppDelegate handlers
-        // were orphaned and removed (audit P5-A, WFL-21).
+        // were orphaned and removed.
         XCTAssertTrue(mainMenuSource.contains("#selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:))"))
         XCTAssertTrue(sequenceViewerSource.contains("presentFASTAOperationDialog("))
     }

@@ -1,4 +1,4 @@
-// EsVirituReadFormatWizardTests.swift - Wizard read plans and GUI/CLI parity for EsViritu read format (NEW-06)
+// EsVirituReadFormatWizardTests.swift - Wizard read plans and GUI/CLI parity for EsViritu read format
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

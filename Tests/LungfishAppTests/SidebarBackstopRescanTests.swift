@@ -1,4 +1,4 @@
-// SidebarBackstopRescanTests.swift - NEW-02 activation backstop rescan
+// SidebarBackstopRescanTests.swift - Activation backstop rescan
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -38,7 +38,7 @@ final class SidebarBackstopRescanTests: XCTestCase {
         window.contentViewController = sidebar
         sidebar.backstopRescanClock = { clock.now }
         sidebar.openProject(at: projectURL)
-        // Simulate FSEvents missing every change (NEW-02).
+        // Simulate FSEvents missing every change.
         sidebar.detachFilesystemWatcherForTesting()
         addTeardownBlock { @MainActor in
             sidebar.closeProject()

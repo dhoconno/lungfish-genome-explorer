@@ -386,7 +386,7 @@ final class ExactBarcodeDemuxTests: XCTestCase {
         XCTAssertEqual(result.assignedReads, 1, "Internal barcodes should be found")
     }
 
-    // MARK: - GEN-11: Deterministic, conflict-aware multi-sample assignment
+    // MARK: - Deterministic, conflict-aware multi-sample assignment
 
     /// A read whose sequence satisfies TWO samples' barcode pairs (a chimera,
     /// or an asymmetric design sharing one barcode) must be left unassigned
@@ -424,7 +424,7 @@ final class ExactBarcodeDemuxTests: XCTestCase {
 
     /// The same ambiguous-read fixture must produce identical results across
     /// repeated runs (simulating repeated process launches with different
-    /// hash seeds) — this is the direct regression test for GEN-11's
+    /// hash seeds) — this is the direct regression test for the
     /// nondeterminism.
     func testAmbiguousAssignmentIsDeterministicAcrossRepeatedRuns() async throws {
         let bc1008 = "ACAGTCGAGCGCTGCGT"

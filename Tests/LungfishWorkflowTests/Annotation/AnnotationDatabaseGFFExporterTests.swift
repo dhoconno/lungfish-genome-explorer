@@ -67,7 +67,7 @@ struct AnnotationDatabaseGFFExporterTests {
         #expect(contents.contains("MN908947.3\t.\tCDS\t28274\t29533\t.\t+\t0\t"))
     }
 
-    @Test("SCI-01: multi-segment ORF1ab CDS (NCBI RefSeq shared ID) exports two CDS lines with correct per-segment phase")
+    @Test("multi-segment ORF1ab CDS (NCBI RefSeq shared ID) exports two CDS lines with correct per-segment phase")
     func exportsMultiSegmentORF1abCDSAsTwoLines() async throws {
         // MT192765.1's ORF1ab: a -1 ribosomal frameshift CDS built from two
         // GFF3 CDS lines sharing one `ID`, mirroring NCBI RefSeq annotation
@@ -111,7 +111,7 @@ struct AnnotationDatabaseGFFExporterTests {
         }
     }
 
-    @Test("SCI-01: minus-strand spliced CDS gets phase from transcription-order cumulative length")
+    @Test("minus-strand spliced CDS gets phase from transcription-order cumulative length")
     func exportsMinusStrandSplicedCDSWithCorrectPhase() async throws {
         // Two exons on the minus strand. Transcription order is descending
         // genomic order, so the genomically-later segment (100..140, length

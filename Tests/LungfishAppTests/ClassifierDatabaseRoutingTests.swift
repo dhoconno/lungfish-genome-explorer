@@ -173,7 +173,7 @@ final class ClassifierDatabaseRoutingTests: XCTestCase {
         XCTAssertEqual(route?.resultURL.path, batchDir.path)
     }
 
-    // MARK: - WFL-06: renamed directories must route via analysis-metadata.json
+    // MARK: - Renamed directories must route via analysis-metadata.json
 
     func testRoute_renamedTaxTriageDirectoryRoutesByMetadata() throws {
         let dir = try makeTempDir()
