@@ -25,7 +25,7 @@ Sources/LungfishApp/ViewModels/SequenceExtractionPipeline.swift 833
 Sources/LungfishApp/Views/AI/AIAssistantPanel.swift 1011
 Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift 1120
 Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserPane.swift 827
-Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 3662
+Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 3644
 Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift 1079
 Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2392
 Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
@@ -57,7 +57,7 @@ Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift 1602
 Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift 1975
 Sources/LungfishApp/Views/Operations/OperationsPanelController.swift 1265
 Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1283
-Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1167
+Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1161
 Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialogState.swift 1049
 Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift 2154
 Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift 1102
@@ -70,7 +70,7 @@ Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+TableView.swift 1089
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift 5763
 Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift 1185
 Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift 1293
-Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 3006
+Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 3000
 Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift 2260
 Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4350
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1828
