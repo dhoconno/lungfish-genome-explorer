@@ -13,7 +13,7 @@ Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
 Sources/LungfishApp/Services/FASTQBundleMergeService.swift 861
 Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1747
 Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 1014
-Sources/LungfishApp/Services/FASTQIngestionService.swift 1608
+Sources/LungfishApp/Services/FASTQIngestionService.swift 1577
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 906
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1337
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1266
@@ -42,7 +42,7 @@ Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1587
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 806
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1362
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1053
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1235
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1217
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1646
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 847
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1149
