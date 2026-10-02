@@ -1,5 +1,5 @@
 # file-size baseline: Swift files over 800 lines (path, length). Lengths may only fall.
-Sources/LungfishApp/App/AppDelegate+Classification.swift 2703
+Sources/LungfishApp/App/AppDelegate+Classification.swift 2572
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3390
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
@@ -13,7 +13,7 @@ Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
 Sources/LungfishApp/Services/FASTQBundleMergeService.swift 861
 Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1747
 Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 1014
-Sources/LungfishApp/Services/FASTQIngestionService.swift 1577
+Sources/LungfishApp/Services/FASTQIngestionService.swift 1538
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 906
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1337
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1266
@@ -43,7 +43,7 @@ Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 806
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1362
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1053
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1217
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1646
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1535
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 847
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1149
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1031
@@ -188,7 +188,7 @@ Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift 1738
 Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1708
 Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 3673
 Sources/LungfishWorkflow/Dependencies/DependencyReconciler.swift 975
-Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 926
+Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionStager.swift 805
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 1338
 Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift 954
