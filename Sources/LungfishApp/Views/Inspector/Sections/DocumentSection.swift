@@ -719,14 +719,20 @@ public struct DocumentSection: View {
                     NotificationCenter.default.post(
                         name: .genotypeResultViewModeChanged,
                         object: nil,
-                        userInfo: ["mode": newMode.rawValue]
+                        userInfo: ScopedEventFilter.scopedUserInfo(
+                            ["mode": newMode.rawValue],
+                            scope: genotypeResultDocument.windowStateScope
+                        )
                     )
                 },
                 onShowsAncillaryLociChange: { newValue in
                     NotificationCenter.default.post(
                         name: .genotypeResultShowsAncillaryLociChanged,
                         object: nil,
-                        userInfo: ["showsAncillaryLoci": newValue]
+                        userInfo: ScopedEventFilter.scopedUserInfo(
+                            ["showsAncillaryLoci": newValue],
+                            scope: genotypeResultDocument.windowStateScope
+                        )
                     )
                 },
                 onIncludedLociChange: { loci in

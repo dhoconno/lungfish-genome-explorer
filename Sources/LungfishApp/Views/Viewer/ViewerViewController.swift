@@ -285,6 +285,15 @@ public class ViewerViewController: NSViewController {
         }
     }
 
+    /// The scope this viewer posts window events with and filters them by.
+    ///
+    /// A viewer that a container embeds, such as the one inside a reference
+    /// bundle viewport, is never handed a scope, so it uses the scope of the
+    /// project window that shows it.
+    var windowEventScope: WindowStateScope? {
+        windowStateScope ?? ScopedEventFilter.hostingWindowScope(of: viewIfLoaded)
+    }
+
     /// Callback used by container viewports to forward explicit sequence-region selections.
     var onSequenceRegionSelectionChanged: ((SequenceRegionSelectionState?) -> Void)?
 
@@ -819,10 +828,7 @@ public class ViewerViewController: NSViewController {
     }
 
     func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
-        guard let windowStateScope else { return userInfo }
-        var scopedUserInfo = userInfo ?? [:]
-        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
-        return scopedUserInfo
+        ScopedEventFilter.scopedUserInfo(userInfo, scope: windowEventScope)
     }
 
     func canWriteProjectOutputs(projectURL: URL?, workflowName: String) -> Bool {

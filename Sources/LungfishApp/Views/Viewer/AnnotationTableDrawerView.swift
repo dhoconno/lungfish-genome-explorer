@@ -1490,11 +1490,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         NotificationCenter.default.removeObserver(self)
     }
 
+    /// The scope this drawer posts window events with and filters them by.
+    /// A drawer that a container embeds without a scope, such as the one in
+    /// the alignment viewport, uses the scope of the window that shows it.
+    var windowEventScope: WindowStateScope? {
+        windowStateScope ?? ScopedEventFilter.hostingWindowScope(of: self)
+    }
+
     func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
-        guard let windowStateScope else { return userInfo }
-        var scopedUserInfo = userInfo ?? [:]
-        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
-        return scopedUserInfo
+        ScopedEventFilter.scopedUserInfo(userInfo, scope: windowEventScope)
     }
 
     func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {

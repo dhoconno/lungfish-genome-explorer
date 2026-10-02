@@ -6,6 +6,7 @@ import Foundation
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import os.log
 
 // MARK: - Logging
@@ -261,7 +262,8 @@ public final class DocumentManager {
             mirrorProjectSession(owner)
             NotificationCenter.default.post(name: Self.projectOpenedNotification, object: self, userInfo: [
                 "project": project, "openWarningState": owner.openWarningState,
-                "sessionID": owner.id
+                "sessionID": owner.id,
+                NotificationUserInfoKey.windowStateScope: owner.windowStateScope
             ])
             return project
         }

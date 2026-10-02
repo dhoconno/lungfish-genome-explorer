@@ -119,6 +119,10 @@ public class InspectorViewController: NSViewController {
     var windowStateScope: WindowStateScope? {
         didSet {
             viewModel.windowStateScope = windowStateScope
+            // Sections that post window events themselves attach this scope.
+            viewModel.annotationSectionViewModel.windowStateScope = windowStateScope
+            viewModel.sampleSectionViewModel.windowStateScope = windowStateScope
+            viewModel.selectionSectionViewModel.windowStateScope = windowStateScope
         }
     }
     var activeContentSelectionIdentity: ContentSelectionIdentity?

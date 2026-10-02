@@ -936,10 +936,17 @@ public class SidebarViewController: NSViewController {
     }
 
     func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
-        guard let windowStateScope else { return userInfo }
-        var scopedUserInfo = userInfo
-        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
-        return scopedUserInfo
+        ScopedEventFilter.scopedUserInfo(userInfo, scope: windowStateScope) ?? userInfo
+    }
+
+    /// Hands files dropped on this sidebar to this window's import path. The
+    /// window scope keeps every other project window from importing them too.
+    func postFileDrop(_ urls: [URL], destination: Any) {
+        NotificationCenter.default.post(
+            name: .sidebarFileDropped,
+            object: self,
+            userInfo: windowScopedUserInfo(["urls": urls, "destination": destination])
+        )
     }
 
     func rehydrateScientificProvenance(from sourceURL: URL, to destinationURL: URL) {

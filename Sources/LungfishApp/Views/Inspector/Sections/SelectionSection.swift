@@ -69,6 +69,10 @@ public final class SelectionSectionViewModel {
     /// The currently selected genotype result sample or call, if any.
     var genotypeResultSelection: GenotypeResultSelectionState?
 
+    /// The Inspector's window scope, attached to the window events this
+    /// section posts. The Inspector sets it.
+    var windowStateScope: WindowStateScope?
+
     /// Transient viewport color used for genotype result review highlights.
     var genotypeHighlightColor: Color = .blue
 
@@ -995,7 +999,10 @@ public struct SelectionSection: View {
                     NotificationCenter.default.post(
                         name: .genotypeResultRequestSampleDetailSheet,
                         object: nil,
-                        userInfo: ["sample": animalId]
+                        userInfo: ScopedEventFilter.scopedUserInfo(
+                            ["sample": animalId],
+                            scope: viewModel.windowStateScope
+                        )
                     )
                 } label: {
                     Label("Edit calls…", systemImage: "pencil.and.list.clipboard")

@@ -607,10 +607,14 @@ extension AppDelegate {
         splitViewController.inspectorController.setAIAssistantService(service)
         splitViewController.setInspectorVisible(true, animated: false, source: "AppDelegate.showAIAssistant")
 
+        // Only the window that received the assistant switches to the AI tab.
         NotificationCenter.default.post(
             name: .showInspectorRequested,
             object: self,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "ai"]
+            userInfo: [
+                NotificationUserInfoKey.inspectorTab: "ai",
+                NotificationUserInfoKey.windowStateScope: splitViewController.projectSession.windowStateScope
+            ]
         )
     }
 

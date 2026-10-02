@@ -1591,11 +1591,14 @@ public class SequenceViewerView: NSView {
         ].joined(separator: "|")
     }
 
+    /// Attaches this viewer's window scope. A viewer inside an embedded
+    /// controller has no assigned scope and uses the scope of the project
+    /// window that shows it.
     func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
-        guard let windowStateScope else { return userInfo }
-        var scopedUserInfo = userInfo ?? [:]
-        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
-        return scopedUserInfo
+        ScopedEventFilter.scopedUserInfo(
+            userInfo,
+            scope: windowStateScope ?? ScopedEventFilter.hostingWindowScope(of: self)
+        )
     }
 
     func alignmentFetchIdentity(

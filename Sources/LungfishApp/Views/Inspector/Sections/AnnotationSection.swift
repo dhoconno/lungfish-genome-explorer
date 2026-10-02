@@ -82,6 +82,10 @@ public final class AnnotationSectionViewModel {
     /// Callback used by the owning Inspector controller to publish a scoped payload.
     public var onVariantFilterChanged: (() -> Void)?
 
+    /// The Inspector's window scope, attached when this section posts on its
+    /// own because no callback is attached. The Inspector sets it.
+    var windowStateScope: WindowStateScope?
+
     public init() {}
 
     /// Notifies listeners that annotation display settings changed.
@@ -98,11 +102,14 @@ public final class AnnotationSectionViewModel {
         NotificationCenter.default.post(
             name: .annotationSettingsChanged,
             object: self,
-            userInfo: [
-                "showAnnotations": showAnnotations,
-                "annotationHeight": annotationHeight,
-                "annotationSpacing": annotationSpacing
-            ]
+            userInfo: ScopedEventFilter.scopedUserInfo(
+                [
+                    "showAnnotations": showAnnotations,
+                    "annotationHeight": annotationHeight,
+                    "annotationSpacing": annotationSpacing
+                ],
+                scope: windowStateScope
+            )
         )
     }
 
@@ -120,10 +127,13 @@ public final class AnnotationSectionViewModel {
         NotificationCenter.default.post(
             name: .annotationFilterChanged,
             object: self,
-            userInfo: [
-                "visibleTypes": visibleTypes,
-                "filterText": filterText
-            ]
+            userInfo: ScopedEventFilter.scopedUserInfo(
+                [
+                    "visibleTypes": visibleTypes,
+                    "filterText": filterText
+                ],
+                scope: windowStateScope
+            )
         )
     }
 
@@ -181,12 +191,15 @@ public final class AnnotationSectionViewModel {
         NotificationCenter.default.post(
             name: .variantFilterChanged,
             object: self,
-            userInfo: [
-                NotificationUserInfoKey.showVariants: showVariants,
-                NotificationUserInfoKey.visibleVariantTypes: visibleVariantTypes,
-                NotificationUserInfoKey.variantFilterText: variantFilterText,
-                NotificationUserInfoKey.hiddenVariantTrackIDs: hiddenVariantTrackIDs
-            ]
+            userInfo: ScopedEventFilter.scopedUserInfo(
+                [
+                    NotificationUserInfoKey.showVariants: showVariants,
+                    NotificationUserInfoKey.visibleVariantTypes: visibleVariantTypes,
+                    NotificationUserInfoKey.variantFilterText: variantFilterText,
+                    NotificationUserInfoKey.hiddenVariantTrackIDs: hiddenVariantTrackIDs
+                ],
+                scope: windowStateScope
+            )
         )
     }
 
