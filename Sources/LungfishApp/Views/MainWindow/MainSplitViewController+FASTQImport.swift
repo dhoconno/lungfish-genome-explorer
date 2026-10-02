@@ -900,121 +900,112 @@ extension MainSplitViewController {
         let executionService = FASTQOperationExecutionService(
             directImporter: BundleFASTQOperationImporter(destinationDirectory: destinationRoot)
         )
-        let cliCommand: String? = try? {
-            let outputTarget = FASTQOperationPlanner()
-                .makeExecutionPlans(
-                    originalRequest: request,
-                    resolvedRequest: request,
-                    baseOutputDirectory: workingDirectory
-                )
-                .first?
-                .outputTarget
-                .path ?? workingDirectory.path
-            let invocation = try FASTQOperationCLIInvocationBuilder()
-                .buildInvocation(for: request, outputTargetPath: outputTarget)
-            return OperationCenter.buildCLICommand(
-                subcommand: invocation.subcommand,
-                args: invocation.arguments
-            )
-        }()
-        let opTitle = "FASTQ: \(request.operationDisplayTitle)"
         let startTime = Date()
-        let opID = OperationCenter.shared.start(
-            title: opTitle,
-            detail: "Preparing...",
-            operationType: .fastqOperation,
-            cliCommand: cliCommand,
+        // This launch declares no bundle lock, so `begin` cannot refuse it today. A refusal
+        // launches nothing and reports the drop as failed, so the import tracker does not wait.
+        let began = Self.beginONTImportRecipeOperation(
+            request: request,
+            workingDirectory: workingDirectory,
             routeContext: operationRouteContext
-        )
-        OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
-        viewerController.showProgress("Splitting ONT reads by Fluidigm sample barcodes...")
+        ) { opID in
+            OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
+            viewerController.showProgress("Splitting ONT reads by Fluidigm sample barcodes...")
 
-        let task = Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
-            do {
-                try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
-                let result = try await executionService.execute(
-                    request: request,
-                    workingDirectory: workingDirectory,
-                    logHandler: { level, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(id: opID, level: level, message: message)
+            let task = Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
+                do {
+                    try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
+                    let result = try await executionService.execute(
+                        request: request,
+                        workingDirectory: workingDirectory,
+                        logHandler: { level, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    OperationCenter.shared.log(id: opID, level: level, message: message)
+                                }
+                            }
+                        },
+                        progress: { fraction, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    viewerController?.showProgress(message)
+                                    _ = OperationCenter.shared.updateWithLog(
+                                        id: opID,
+                                        progress: fraction,
+                                        detail: message
+                                    )
+                                }
                             }
                         }
-                    },
-                    progress: { fraction, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                viewerController?.showProgress(message)
-                                _ = OperationCenter.shared.updateWithLog(
-                                    id: opID,
-                                    progress: fraction,
-                                    detail: message
-                                )
+                    )
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let completionTarget = result.groupedContainerURL ?? result.importedURLs.first ?? workingDirectory
+
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController?.hideProgress()
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "Completed in \(String(format: "%.1f", elapsed))s"
+                            )
+                            guard FASTQOperationCompletion.complete(
+                                id: opID,
+                                detail: "Done in \(String(format: "%.1f", elapsed))s",
+                                result: result
+                            ) else {
+                                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
+                                return
+                            }
+                            self?.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
+                                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                                self?.requestInspectorDocumentModeAfterDownload()
                             }
                         }
                     }
-                )
-                let elapsed = Date().timeIntervalSince(startTime)
-                let completionTarget = result.groupedContainerURL ?? result.importedURLs.first ?? workingDirectory
+                } catch {
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let errorDesc = error.localizedDescription
+                    mainSplitLogger.error("performONTFluidigmSampleSplit: \(errorDesc, privacy: .public)")
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController?.hideProgress()
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .error,
+                                message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
+                            )
+                            let accepted = OperationCenter.shared.fail(
+                                id: opID,
+                                detail: "Failed after \(String(format: "%.1f", elapsed))s",
+                                errorMessage: errorDesc,
+                                errorDetail: "\(error)"
+                            )
+                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc)
 
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .info,
-                            message: "Completed in \(String(format: "%.1f", elapsed))s"
-                        )
-                        guard FASTQOperationCompletion.complete(
-                            id: opID,
-                            detail: "Done in \(String(format: "%.1f", elapsed))s",
-                            result: result
-                        ) else {
-                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
-                            return
-                        }
-                        self?.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
-                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
-                            self?.requestInspectorDocumentModeAfterDownload()
-                        }
-                    }
-                }
-            } catch {
-                let elapsed = Date().timeIntervalSince(startTime)
-                let errorDesc = error.localizedDescription
-                mainSplitLogger.error("performONTFluidigmSampleSplit: \(errorDesc, privacy: .public)")
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .error,
-                            message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
-                        )
-                        let accepted = OperationCenter.shared.fail(
-                            id: opID,
-                            detail: "Failed after \(String(format: "%.1f", elapsed))s",
-                            errorMessage: errorDesc,
-                            errorDetail: "\(error)"
-                        )
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc)
-
-                        guard accepted else { return }
-                        let alert = NSAlert()
-                        alert.messageText = "ONT Sample Split Failed"
-                        alert.informativeText = "\(error)"
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        alert.applyLungfishBranding()
-                        if let window = self?.view.window ?? NSApp.keyWindow {
-                            alert.beginSheetModal(for: window) { _ in }
+                            guard accepted else { return }
+                            let alert = NSAlert()
+                            alert.messageText = "ONT Sample Split Failed"
+                            alert.informativeText = "\(error)"
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            alert.applyLungfishBranding()
+                            if let window = self?.view.window ?? NSApp.keyWindow {
+                                alert.beginSheetModal(for: window) { _ in }
+                            }
                         }
                     }
                 }
             }
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        if case .refused(let refusal) = began {
+            postSidebarFileDropCompleted(
+                requestID: requestID,
+                sourceURL: sourceURL,
+                success: false,
+                error: refusal.message
+            )
+        }
     }
 
     func performONTPacBioBarcodeDemux(
@@ -1042,121 +1033,112 @@ extension MainSplitViewController {
         let executionService = FASTQOperationExecutionService(
             directImporter: BundleFASTQOperationImporter(destinationDirectory: destinationRoot)
         )
-        let cliCommand: String? = try? {
-            let outputTarget = FASTQOperationPlanner()
-                .makeExecutionPlans(
-                    originalRequest: request,
-                    resolvedRequest: request,
-                    baseOutputDirectory: workingDirectory
-                )
-                .first?
-                .outputTarget
-                .path ?? workingDirectory.path
-            let invocation = try FASTQOperationCLIInvocationBuilder()
-                .buildInvocation(for: request, outputTargetPath: outputTarget)
-            return OperationCenter.buildCLICommand(
-                subcommand: invocation.subcommand,
-                args: invocation.arguments
-            )
-        }()
-        let opTitle = "FASTQ: \(request.operationDisplayTitle)"
         let startTime = Date()
-        let opID = OperationCenter.shared.start(
-            title: opTitle,
-            detail: "Preparing...",
-            operationType: .fastqOperation,
-            cliCommand: cliCommand,
+        // This launch declares no bundle lock, so `begin` cannot refuse it today. A refusal
+        // launches nothing and reports the drop as failed, so the import tracker does not wait.
+        let began = Self.beginONTImportRecipeOperation(
+            request: request,
+            workingDirectory: workingDirectory,
             routeContext: operationRouteContext
-        )
-        OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
-        viewerController.showProgress("Demultiplexing ONT chunks with PacBio barcode pairs...")
+        ) { opID in
+            OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
+            viewerController.showProgress("Demultiplexing ONT chunks with PacBio barcode pairs...")
 
-        let task = Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
-            do {
-                try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
-                let result = try await executionService.execute(
-                    request: request,
-                    workingDirectory: workingDirectory,
-                    logHandler: { level, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.log(id: opID, level: level, message: message)
+            let task = Task.detached(priority: .userInitiated) { [weak self, weak viewerController] in
+                do {
+                    try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
+                    let result = try await executionService.execute(
+                        request: request,
+                        workingDirectory: workingDirectory,
+                        logHandler: { level, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    OperationCenter.shared.log(id: opID, level: level, message: message)
+                                }
+                            }
+                        },
+                        progress: { fraction, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    viewerController?.showProgress(message)
+                                    _ = OperationCenter.shared.updateWithLog(
+                                        id: opID,
+                                        progress: fraction,
+                                        detail: message
+                                    )
+                                }
                             }
                         }
-                    },
-                    progress: { fraction, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                viewerController?.showProgress(message)
-                                _ = OperationCenter.shared.updateWithLog(
-                                    id: opID,
-                                    progress: fraction,
-                                    detail: message
-                                )
+                    )
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let completionTarget = result.groupedContainerURL ?? result.importedURLs.first ?? workingDirectory
+
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController?.hideProgress()
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "Completed in \(String(format: "%.1f", elapsed))s"
+                            )
+                            guard FASTQOperationCompletion.complete(
+                                id: opID,
+                                detail: "Done in \(String(format: "%.1f", elapsed))s",
+                                result: result
+                            ) else {
+                                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
+                                return
+                            }
+                            self?.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
+                                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                                self?.requestInspectorDocumentModeAfterDownload()
                             }
                         }
                     }
-                )
-                let elapsed = Date().timeIntervalSince(startTime)
-                let completionTarget = result.groupedContainerURL ?? result.importedURLs.first ?? workingDirectory
+                } catch {
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let errorDesc = error.localizedDescription
+                    mainSplitLogger.error("performONTPacBioBarcodeDemux: \(errorDesc, privacy: .public)")
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            viewerController?.hideProgress()
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .error,
+                                message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
+                            )
+                            let accepted = OperationCenter.shared.fail(
+                                id: opID,
+                                detail: "Failed after \(String(format: "%.1f", elapsed))s",
+                                errorMessage: errorDesc,
+                                errorDetail: "\(error)"
+                            )
+                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc)
 
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .info,
-                            message: "Completed in \(String(format: "%.1f", elapsed))s"
-                        )
-                        guard FASTQOperationCompletion.complete(
-                            id: opID,
-                            detail: "Done in \(String(format: "%.1f", elapsed))s",
-                            result: result
-                        ) else {
-                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
-                            return
-                        }
-                        self?.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
-                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
-                            self?.requestInspectorDocumentModeAfterDownload()
-                        }
-                    }
-                }
-            } catch {
-                let elapsed = Date().timeIntervalSince(startTime)
-                let errorDesc = error.localizedDescription
-                mainSplitLogger.error("performONTPacBioBarcodeDemux: \(errorDesc, privacy: .public)")
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .error,
-                            message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
-                        )
-                        let accepted = OperationCenter.shared.fail(
-                            id: opID,
-                            detail: "Failed after \(String(format: "%.1f", elapsed))s",
-                            errorMessage: errorDesc,
-                            errorDetail: "\(error)"
-                        )
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc)
-
-                        guard accepted else { return }
-                        let alert = NSAlert()
-                        alert.messageText = "ONT PacBio Barcode Demultiplex Failed"
-                        alert.informativeText = "\(error)"
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        alert.applyLungfishBranding()
-                        if let window = self?.view.window ?? NSApp.keyWindow {
-                            alert.beginSheetModal(for: window) { _ in }
+                            guard accepted else { return }
+                            let alert = NSAlert()
+                            alert.messageText = "ONT PacBio Barcode Demultiplex Failed"
+                            alert.informativeText = "\(error)"
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            alert.applyLungfishBranding()
+                            if let window = self?.view.window ?? NSApp.keyWindow {
+                                alert.beginSheetModal(for: window) { _ in }
+                            }
                         }
                     }
                 }
             }
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        if case .refused(let refusal) = began {
+            postSidebarFileDropCompleted(
+                requestID: requestID,
+                sourceURL: sourceURL,
+                success: false,
+                error: refusal.message
+            )
+        }
     }
 
     /// Performs the actual ONT directory import after the user has chosen whether to include unclassified reads.
