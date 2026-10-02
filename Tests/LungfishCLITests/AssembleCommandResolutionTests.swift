@@ -55,7 +55,7 @@ final class AssembleCommandResolutionTests: XCTestCase {
         XCTAssertEqual(resolved.executionInputURLs.count, 1)
         XCTAssertEqual(try BundleShapeFixtures.readNames(in: concatenated), ["m1", "m2", "m3", "m4", "m5"])
         XCTAssertFalse(resolved.resolvedAsMatePair)
-        let layout = try XCTUnwrap(AssembleCommand.resolveInputLayout(
+        let layout = try XCTUnwrap(AssemblyRunRequest.resolveInputLayout(
             tool: .skesa,
             readType: .illuminaShortReads,
             pairedEnd: false,
@@ -184,6 +184,51 @@ final class AssembleCommandResolutionTests: XCTestCase {
         XCTAssertEqual(twoBundles.originalInputURLs, [shapes.single.standardizedFileURL, shapes.full.standardizedFileURL])
     }
 
+    /// Flye and hifiasm take one sample. The chunk files of one multi-file
+    /// bundle are that bundle, which `assemble` reads as one joined file, so
+    /// they take them as they take the bundle. Two loose files, two bundles,
+    /// or a chunk with a loose file are two samples and stay refused (R3,
+    /// lane 1q-2).
+    func testLongReadAssemblersTakeTheFilesOfOneBundleAsOneSample() async throws {
+        let loose = try ["loose_a", "loose_b"].map { name -> URL in
+            let url = root.appendingPathComponent("\(name).fastq")
+            try BundleShapeFixtures.fastq([name]).write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        for tool in [AssemblyTool.flye, .hifiasm] {
+            XCTAssertNoThrow(
+                try AssembleCommand.validatePreMaterializationTopology(
+                    tool: tool,
+                    inputURLs: shapes.multiFileChunks,
+                    pairedEnd: false
+                ),
+                "\(tool.rawValue): the chunk files of one bundle"
+            )
+            for samples in [loose, [shapes.single, shapes.multiFile], [shapes.multiFileChunks[0], loose[0]]] {
+                XCTAssertThrowsError(
+                    try AssembleCommand.validatePreMaterializationTopology(tool: tool, inputURLs: samples, pairedEnd: false),
+                    "\(tool.rawValue): \(samples.map(\.lastPathComponent))"
+                )
+            }
+            XCTAssertThrowsError(
+                try AssembleCommand.validatePreMaterializationTopology(
+                    tool: tool,
+                    inputURLs: shapes.pairedFiles,
+                    pairedEnd: true
+                ),
+                "\(tool.rawValue) never pairs"
+            )
+        }
+
+        let resolved = try await resolve(shapes.multiFileChunks)
+        XCTAssertEqual(resolved.originalInputURLs, [shapes.multiFile.standardizedFileURL])
+        let joined = try XCTUnwrap(resolved.executionInputURLs.first)
+        XCTAssertEqual(resolved.executionInputURLs.count, 1)
+        XCTAssertEqual(try BundleShapeFixtures.readNames(in: joined), ["m1", "m2", "m3", "m4", "m5"])
+        let flye = try ManagedAssemblyPipeline.buildCommand(for: request(.flye, resolved: resolved)).arguments
+        XCTAssertTrue(flye.contains(joined.path), "Flye reads the joined chunks: \(flye)")
+    }
+
     func testReadLayoutIsRefusedForABundleThatHoldsAMatePair() async throws {
         let output = root.appendingPathComponent("refused-assembly", isDirectory: true)
         let command = try AssembleCommand.parse([
@@ -200,23 +245,24 @@ final class AssembleCommandResolutionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "refused before anything is written")
     }
 
+    /// The shared resolver refuses an input with no readable payload before
+    /// it writes anything, and `assemble` exits with its format error.
     func testAnUnreadableInputIsRefusedBeforeAnythingIsWritten() async throws {
         let emptyBundle = shapes.single.deletingLastPathComponent().appendingPathComponent("empty.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: emptyBundle, withIntermediateDirectories: true)
-        let inputsDirectory = root.appendingPathComponent("out/.lungfish-assembly-inputs", isDirectory: true)
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let command = try AssembleCommand.parse([
+            shapes.oriented.path,
+            emptyBundle.path,
+            "--assembler", "spades",
+            "--read-type", "illumina-short-reads",
+            "--output", output.path,
+        ])
 
-        await XCTAssertThrowsErrorAsync(
-            try await AssembleCommand.resolveExecutionInputs(
-                for: [shapes.oriented, emptyBundle],
-                tempDirectory: inputsDirectory,
-                materializer: FASTQCLIMaterializer(runner: .shared)
-            )
-        ) { error in
-            guard case AssembleInputResolutionError.unreadableBundlePayload = error else {
-                return XCTFail("unexpected error \(error)")
-            }
+        await XCTAssertThrowsErrorAsync(try await command.run()) { error in
+            XCTAssertEqual((error as? ExitCode)?.rawValue, CLIExitCode.formatError.rawValue)
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: inputsDirectory.path), "nothing was materialized")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "nothing was materialized")
     }
 
     // MARK: - Helpers
@@ -234,9 +280,9 @@ final class AssembleCommandResolutionTests: XCTestCase {
     }
 
     private func resolve(_ inputs: [URL]) async throws -> ResolvedSequenceInputs {
-        try await AssembleCommand.resolveExecutionInputs(
-            for: inputs,
-            tempDirectory: root.appendingPathComponent("resolve-\(UUID().uuidString)/.lungfish-assembly-inputs", isDirectory: true),
+        try await ResolvedSequenceInputs.resolveForAssembly(
+            inputURLs: inputs,
+            materializationDirectory: root.appendingPathComponent("resolve-\(UUID().uuidString)/.lungfish-assembly-inputs", isDirectory: true),
             materializer: FASTQCLIMaterializer(runner: .shared)
         )
     }
@@ -260,8 +306,8 @@ final class AssembleCommandResolutionTests: XCTestCase {
     }
 
     /// Assembles `bundle` with SPAdes the way `AssembleCommand.run` does:
-    /// its own resolution, pairing and layout, and `ManagedAssemblyPipeline`
-    /// with a stand-in SPAdes.
+    /// the shared resolution, pairing and layout rules it calls, and
+    /// `ManagedAssemblyPipeline` with a stand-in SPAdes.
     private func assemble(_ bundle: URL, label: String) async throws -> AssembleRun {
         try await assemble([bundle], pairedFlag: false, label: label)
     }
@@ -270,13 +316,13 @@ final class AssembleCommandResolutionTests: XCTestCase {
         let runRoot = root.appendingPathComponent("run-\(UUID().uuidString)", isDirectory: true)
         let spades = try StandInSPAdes(root: runRoot)
         let outputDirectory = runRoot.appendingPathComponent("assembly", isDirectory: true)
-        let resolved = try await AssembleCommand.resolveExecutionInputs(
-            for: inputs,
-            tempDirectory: outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
+        let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+            inputURLs: inputs,
+            materializationDirectory: outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
             materializer: FASTQCLIMaterializer(runner: .shared)
         )
         let pairedEnd = pairedFlag || resolved.resolvedAsMatePair
-        let layout = AssembleCommand.resolveInputLayout(
+        let layout = AssemblyRunRequest.resolveInputLayout(
             tool: .spades,
             readType: .illuminaShortReads,
             pairedEnd: pairedEnd,

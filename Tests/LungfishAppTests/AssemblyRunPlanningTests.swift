@@ -178,9 +178,9 @@ final class AssemblyRunPlanningTests: XCTestCase {
                 inputURLs: inputs,
                 pairedEnd: command.pairedEnd
             )
-            let resolved = try await AssembleCommand.resolveExecutionInputs(
-                for: inputs,
-                tempDirectory: root.appendingPathComponent("cli-\(UUID().uuidString)/.lungfish-assembly-inputs", isDirectory: true),
+            let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+                inputURLs: inputs,
+                materializationDirectory: root.appendingPathComponent("cli-\(UUID().uuidString)/.lungfish-assembly-inputs", isDirectory: true),
                 materializer: FASTQCLIMaterializer(runner: .shared)
             )
             runs.append(CLIRun(

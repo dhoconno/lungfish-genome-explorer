@@ -59,7 +59,7 @@ final class AssembleReadLayoutTests: XCTestCase {
                 named: "hg002-\(naming.rawValue)", in: tempDir, pairCount: 6, naming: naming
             )
             let execution = try AssembleCommand.resolveExecutionInputURLs(for: [bundle.bundleURL])
-            let resolution = try XCTUnwrap(AssembleCommand.resolveInputLayout(
+            let resolution = try XCTUnwrap(AssemblyRunRequest.resolveInputLayout(
                 tool: .spades,
                 readType: .illuminaShortReads,
                 pairedEnd: false,
@@ -89,7 +89,7 @@ final class AssembleReadLayoutTests: XCTestCase {
             named: "vsp2", in: tempDir, pairCount: 5, mergedCount: 3, naming: .identical
         )
         let execution = try AssembleCommand.resolveExecutionInputURLs(for: [bundle.bundleURL])
-        let resolution = try XCTUnwrap(AssembleCommand.resolveInputLayout(
+        let resolution = try XCTUnwrap(AssemblyRunRequest.resolveInputLayout(
             tool: .megahit,
             readType: .illuminaShortReads,
             pairedEnd: false,
@@ -115,7 +115,7 @@ final class AssembleReadLayoutTests: XCTestCase {
 
     func testExplicitLayoutWinsAndMaterializedCopyUsesTheOriginalBundleAsHint() throws {
         let bundle = try InterleavedFASTQFixture.writeBundle(named: "hg002", in: tempDir, pairCount: 4, naming: .identical)
-        let explicit = try XCTUnwrap(AssembleCommand.resolveInputLayout(
+        let explicit = try XCTUnwrap(AssemblyRunRequest.resolveInputLayout(
             tool: .spades,
             readType: .illuminaShortReads,
             pairedEnd: false,
@@ -130,7 +130,7 @@ final class AssembleReadLayoutTests: XCTestCase {
         // bundle's metadata as hints.
         let scratch = tempDir.appendingPathComponent("materialized.fastq")
         try FileManager.default.copyItem(at: bundle.fastqURL, to: scratch)
-        let hinted = try XCTUnwrap(AssembleCommand.resolveInputLayout(
+        let hinted = try XCTUnwrap(AssemblyRunRequest.resolveInputLayout(
             tool: .skesa,
             readType: .illuminaShortReads,
             pairedEnd: false,
@@ -146,15 +146,15 @@ final class AssembleReadLayoutTests: XCTestCase {
         let r2 = tempDir.appendingPathComponent("R2.fastq")
         try "@a\nACGT\n+\nIIII\n".write(to: r1, atomically: true, encoding: .utf8)
         try "@a\nACGT\n+\nIIII\n".write(to: r2, atomically: true, encoding: .utf8)
-        XCTAssertNil(AssembleCommand.resolveInputLayout(
+        XCTAssertNil(AssemblyRunRequest.resolveInputLayout(
             tool: .spades, readType: .illuminaShortReads, pairedEnd: true, explicit: nil,
             originalInputURLs: [r1, r2], executionInputURLs: [r1, r2]
         ))
-        XCTAssertNil(AssembleCommand.resolveInputLayout(
+        XCTAssertNil(AssemblyRunRequest.resolveInputLayout(
             tool: .spades, readType: .illuminaShortReads, pairedEnd: false, explicit: nil,
             originalInputURLs: [r1, r2], executionInputURLs: [r1, r2]
         ))
-        XCTAssertNil(AssembleCommand.resolveInputLayout(
+        XCTAssertNil(AssemblyRunRequest.resolveInputLayout(
             tool: .flye, readType: .ontReads, pairedEnd: false, explicit: nil,
             originalInputURLs: [r1], executionInputURLs: [r1]
         ))
@@ -182,7 +182,7 @@ final class AssembleReadLayoutTests: XCTestCase {
         )
         try result.save(to: outputDir)
 
-        let resolution = try XCTUnwrap(AssembleCommand.resolveInputLayout(
+        let resolution = try XCTUnwrap(AssemblyRunRequest.resolveInputLayout(
             tool: .spades,
             readType: .illuminaShortReads,
             pairedEnd: false,
