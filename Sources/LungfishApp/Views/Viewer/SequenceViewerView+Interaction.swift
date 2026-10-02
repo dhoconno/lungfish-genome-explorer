@@ -488,7 +488,7 @@ extension SequenceViewerView {
             NotificationCenter.default.post(
                 name: .readSelected,
                 object: self,
-                userInfo: selectedRead.map { windowScopedUserInfo([NotificationUserInfoKey.alignedRead: $0]) ?? [:] }
+                userInfo: windowScopedUserInfo(selectedRead.map { [NotificationUserInfoKey.alignedRead: $0] })
             )
             isSelecting = false
             setNeedsDisplay(bounds)
