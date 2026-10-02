@@ -34,12 +34,22 @@ public enum CompressionLevel: String, Codable, Sendable, CaseIterable {
     }
 }
 
-// MARK: - SequencingPlatform
+// MARK: - IngestionPlatform
 
-/// Sequencing platform of a FASTQ dataset.
+/// The platform a FASTQ import runs as.
 ///
-/// Used to provide sensible defaults for the ingestion pipeline configuration.
-public enum SequencingPlatform: String, Codable, CaseIterable, Sendable {
+/// This is the import subset of `LungfishIO.SequencingPlatform`, the canonical
+/// platform that FASTQ sidecars, barcode kits and demultiplex plans record. It
+/// carries the ingestion defaults (pairing, storage optimization, quality
+/// binning and compression). Its raw values are the spellings of
+/// `lungfish-cli import fastq --platform`, which recipe files and import
+/// provenance record, so they never change.
+///
+/// Oxford Nanopore is `ont` here and `oxfordNanopore` in LungfishIO, so convert
+/// with ``sequencingPlatform`` and ``init(importing:)``, never through raw
+/// values. The display name of `pacbio` is "PacBio HiFi" here and "PacBio" in
+/// LungfishIO.
+public enum IngestionPlatform: String, Codable, CaseIterable, Sendable {
     case illumina
     case ont
     case pacbio
@@ -91,13 +101,17 @@ public enum SequencingPlatform: String, Codable, CaseIterable, Sendable {
 
 // MARK: - Auto-detection
 
-extension SequencingPlatform {
+extension IngestionPlatform {
 
     /// Attempts to identify the sequencing platform from a FASTQ read header line.
     ///
+    /// This is not `LungfishIO.SequencingPlatform.detect(fromHeader:)`, and the
+    /// two disagree on several headers (WorkflowPlatformPinTests lists them).
+    /// `lungfish-cli import fastq` uses this one when `--platform` is absent.
+    ///
     /// - Parameter header: The first line of a FASTQ record (may or may not start with `@`).
     /// - Returns: The detected platform, or `nil` if the header format is unrecognised.
-    public static func detect(fromFASTQHeader header: String) -> SequencingPlatform? {
+    public static func detect(fromFASTQHeader header: String) -> IngestionPlatform? {
         // Strip leading @ if present.
         let line = header.hasPrefix("@") ? String(header.dropFirst()) : header
 
@@ -120,5 +134,37 @@ extension SequencingPlatform {
         }
 
         return nil
+    }
+}
+
+// MARK: - Relationship to LungfishIO.SequencingPlatform
+
+extension IngestionPlatform {
+
+    /// The canonical platform that a bundle imported as this platform records
+    /// in its FASTQ sidecar (`PersistedFASTQMetadata.sequencingPlatform`).
+    public var sequencingPlatform: LungfishIO.SequencingPlatform {
+        switch self {
+        case .illumina: return .illumina
+        case .ont:      return .oxfordNanopore
+        case .pacbio:   return .pacbio
+        case .ultima:   return .ultima
+        }
+    }
+
+    /// The import platform for a canonical platform, as the app passes it to
+    /// `lungfish-cli import fastq --platform`.
+    ///
+    /// Element, MGI and unknown data have no import platform of their own and
+    /// import as `illumina`, which the import then records in the bundle's
+    /// sidecar through ``sequencingPlatform``.
+    public init(importing platform: LungfishIO.SequencingPlatform) {
+        switch platform {
+        case .illumina:                self = .illumina
+        case .oxfordNanopore:          self = .ont
+        case .pacbio:                  self = .pacbio
+        case .ultima:                  self = .ultima
+        case .element, .mgi, .unknown: self = .illumina
+        }
     }
 }

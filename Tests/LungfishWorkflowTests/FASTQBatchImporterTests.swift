@@ -740,7 +740,7 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertEqual(
             envelope.options.defaults["platform"],
-            .string(LungfishWorkflow.SequencingPlatform.illumina.rawValue)
+            .string(IngestionPlatform.illumina.rawValue)
         )
         XCTAssertEqual(envelope.options.defaults["threads"], .integer(4))
         XCTAssertEqual(envelope.options.defaults["optimizeStorage"], .boolean(true))

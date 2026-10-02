@@ -140,7 +140,7 @@ public enum FASTQBatchImporter {
         public let pairing: ImportPairing
         /// Sequencing platform. Drives default values for quality binning,
         /// storage optimisation, and compression level.
-        public let platform: LungfishWorkflow.SequencingPlatform
+        public let platform: IngestionPlatform
         /// Old-format recipe (for supported unmigrated recipes like WGS and HiFi).
         public let recipe: ProcessingRecipe?
         /// New-format declarative recipe (e.g., VSP2).
@@ -161,7 +161,7 @@ public enum FASTQBatchImporter {
 
         public init(
             projectDirectory: URL,
-            platform: LungfishWorkflow.SequencingPlatform = .illumina,
+            platform: IngestionPlatform = .illumina,
             recipe: ProcessingRecipe? = nil,
             newRecipe: Recipe? = nil,
             qualityBinning: QualityBinningScheme? = nil,
@@ -194,7 +194,7 @@ public enum FASTQBatchImporter {
             self.forceReimport = forceReimport
         }
 
-        private static func platformSupportsClumping(_ platform: LungfishWorkflow.SequencingPlatform) -> Bool {
+        private static func platformSupportsClumping(_ platform: IngestionPlatform) -> Bool {
             switch platform {
             case .illumina, .ultima:
                 return true
@@ -236,22 +236,13 @@ public enum FASTQBatchImporter {
     }
 
     public static func persistedSequencingPlatform(
-        for platform: LungfishWorkflow.SequencingPlatform
+        for platform: IngestionPlatform
     ) -> LungfishIO.SequencingPlatform? {
-        switch platform {
-        case .illumina:
-            return .illumina
-        case .ont:
-            return .oxfordNanopore
-        case .pacbio:
-            return .pacbio
-        case .ultima:
-            return .ultima
-        }
+        platform.sequencingPlatform
     }
 
     public static func persistedAssemblyReadType(
-        for platform: LungfishWorkflow.SequencingPlatform
+        for platform: IngestionPlatform
     ) -> FASTQAssemblyReadType? {
         switch platform {
         case .illumina:
@@ -265,7 +256,7 @@ public enum FASTQBatchImporter {
 
     public static func applyConfirmedPlatformMetadata(
         to metadata: inout PersistedFASTQMetadata,
-        platform: LungfishWorkflow.SequencingPlatform
+        platform: IngestionPlatform
     ) {
         metadata.sequencingPlatform = persistedSequencingPlatform(for: platform)
         if let readType = persistedAssemblyReadType(for: platform) {
@@ -2196,7 +2187,7 @@ public enum FASTQBatchImporter {
 
     private static func provenanceDefaultParameters(config: ImportConfig) -> [String: ParameterValue] {
         [
-            "platform": .string(LungfishWorkflow.SequencingPlatform.illumina.rawValue),
+            "platform": .string(IngestionPlatform.illumina.rawValue),
             "recipe": .string("none"),
             "qualityBinning": .string(
                 (config.newRecipe?.qualityBinning ?? config.platform.defaultQualityBinning).rawValue

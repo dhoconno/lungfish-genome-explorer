@@ -143,7 +143,7 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
     public var tags: [String]
 
     /// Compatible sequencing platforms.
-    public let platforms: [SequencingPlatform]
+    public let platforms: [IngestionPlatform]
 
     /// Whether the recipe requires paired, single, or any input.
     public let requiredInput: InputRequirement
@@ -170,7 +170,7 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
         description: String? = nil,
         author: String? = nil,
         tags: [String] = [],
-        platforms: [SequencingPlatform] = [.illumina],
+        platforms: [IngestionPlatform] = [.illumina],
         requiredInput: InputRequirement = .any,
         qualityBinning: QualityBinningScheme? = nil,
         steps: [RecipeStep]
@@ -197,7 +197,7 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
         description    = try container.decodeIfPresent(String.self,       forKey: .description)
         author         = try container.decodeIfPresent(String.self,       forKey: .author)
         tags           = try container.decodeIfPresent([String].self,     forKey: .tags) ?? []
-        platforms      = try container.decode([SequencingPlatform].self,  forKey: .platforms)
+        platforms      = try container.decode([IngestionPlatform].self,   forKey: .platforms)
         requiredInput  = try container.decode(InputRequirement.self,      forKey: .requiredInput)
         qualityBinning = try container.decodeIfPresent(QualityBinningScheme.self, forKey: .qualityBinning)
         steps          = try container.decode([RecipeStep].self,          forKey: .steps)

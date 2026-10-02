@@ -10,7 +10,7 @@ import LungfishWorkflow
 /// The four-case platform `lungfish-cli import fastq --platform` accepts.
 /// Before the R15 reconciliation it was a second public enum named
 /// `SequencingPlatform`.
-private typealias WorkflowPlatform = LungfishWorkflow.SequencingPlatform
+private typealias WorkflowPlatform = LungfishWorkflow.IngestionPlatform
 
 /// Pins how the Import FASTQ sheet's platform, a `LungfishIO.SequencingPlatform`,
 /// becomes the `--platform` value of the CLI import the app runs. Written

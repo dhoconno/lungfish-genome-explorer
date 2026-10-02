@@ -8,9 +8,6 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
-// Disambiguate the two SequencingPlatform types that exist in LungfishIO and LungfishWorkflow.
-typealias WorkflowPlatform = LungfishWorkflow.SequencingPlatform
-
 protocol ManagedDatabaseProvisioning: Sendable {
     func requiredDatabaseManifest(for id: String) async -> BundledDatabase?
     func isDatabaseInstalled(_ id: String) async -> Bool
@@ -293,9 +290,9 @@ extension ImportCommand {
 
             // MARK: Resolve platform
 
-            let resolvedPlatform: WorkflowPlatform
+            let resolvedPlatform: IngestionPlatform
             if let platformStr = platform {
-                guard let p = WorkflowPlatform(rawValue: platformStr.lowercased()) else {
+                guard let p = IngestionPlatform(rawValue: platformStr.lowercased()) else {
                     print(formatter.error(
                         "Unknown platform '\(platformStr)'. Valid: illumina, ont, pacbio, ultima"
                     ))
@@ -618,7 +615,7 @@ extension ImportCommand {
             _ pairs: [SamplePair],
             homeDirectory: URL = currentHomeDirectory(),
             appIdentity: LungfishAppIdentity = .current
-        ) throws -> WorkflowPlatform? {
+        ) throws -> IngestionPlatform? {
             guard let first = pairs.first else { return nil }
 
             let r1 = first.r1
@@ -665,7 +662,7 @@ extension ImportCommand {
                     .components(separatedBy: "\n").first ?? ""
             }
 
-            return WorkflowPlatform.detect(fromFASTQHeader: header)
+            return IngestionPlatform.detect(fromFASTQHeader: header)
         }
 
         static func managedPigzExecutableURL(

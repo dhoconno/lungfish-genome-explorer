@@ -43,7 +43,7 @@ public enum ONTBAMImportMaterializer {
 
     public static func materializeIfNeeded(
         pair: SamplePair,
-        platform: SequencingPlatform,
+        platform: IngestionPlatform,
         workspace: URL,
         threads: Int = 1,
         runner: NativeToolRunner = .shared

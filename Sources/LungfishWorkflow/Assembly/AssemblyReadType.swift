@@ -44,7 +44,7 @@ public enum AssemblyReadType: String, CaseIterable, Codable, Sendable {
     }
 
     /// Maps the workflow-level ingestion platform model onto v1 assembly classes.
-    public static func detect(fromWorkflowPlatform platform: SequencingPlatform) -> Self? {
+    public static func detect(fromWorkflowPlatform platform: IngestionPlatform) -> Self? {
         switch platform {
         case .illumina: return .illuminaShortReads
         case .ont: return .ontReads
