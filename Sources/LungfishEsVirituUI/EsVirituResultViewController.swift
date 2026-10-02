@@ -408,10 +408,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         )
 
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleBatchSampleSelectionChanged),
-            name: .metagenomicsSampleSelectionChanged,
-            object: nil
+            self, selector: #selector(handleBatchSampleSelectionChanged), name: .metagenomicsSampleSelectionChanged, object: nil
         )
     }
 
@@ -939,7 +936,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         )
     }
 
-    @objc private func handleBatchSampleSelectionChanged() {
+    @objc private func handleBatchSampleSelectionChanged(_ notification: Notification) {
+        guard ScopedEventFilter.accept(notification, for: ScopedEventFilter.hostingWindowScope(of: viewIfLoaded)) else { return }
         guard isBatchMode else { return }
         applyBatchSampleFilter()
     }

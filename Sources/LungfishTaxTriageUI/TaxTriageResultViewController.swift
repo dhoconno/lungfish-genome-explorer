@@ -645,10 +645,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         wireCallbacks()
 
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInspectorSampleSelectionChanged),
-            name: .metagenomicsSampleSelectionChanged,
-            object: nil
+            self, selector: #selector(handleInspectorSampleSelectionChanged), name: .metagenomicsSampleSelectionChanged, object: nil
         )
 
         NotificationCenter.default.addObserver(
@@ -1487,7 +1484,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
     }
 
-    @objc private func handleInspectorSampleSelectionChanged() {
+    @objc private func handleInspectorSampleSelectionChanged(_ notification: Notification) {
+        guard ScopedEventFilter.accept(notification, for: ScopedEventFilter.hostingWindowScope(of: viewIfLoaded)) else { return }
         guard samplePickerState != nil else { return }
         if isBatchGroupMode {
             databaseSampleSelectionDidChange()
