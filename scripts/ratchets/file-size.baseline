@@ -4,7 +4,7 @@ Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3390
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
 Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1590
-Sources/LungfishApp/App/AppDelegate.swift 2720
+Sources/LungfishApp/App/AppDelegate.swift 2712
 Sources/LungfishApp/App/MainMenu.swift 1670
 Sources/LungfishApp/App/VCFImportHelper.swift 1147
 Sources/LungfishApp/Services/AI/AIAssistantService.swift 901
@@ -12,7 +12,7 @@ Sources/LungfishApp/Services/AI/AIToolRegistry.swift 951
 Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
 Sources/LungfishApp/Services/FASTQBundleMergeService.swift 861
 Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1747
-Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 1014
+Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 803
 Sources/LungfishApp/Services/FASTQIngestionService.swift 1538
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 906
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1337

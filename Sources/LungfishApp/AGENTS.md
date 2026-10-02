@@ -14,7 +14,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit and the nine leaf UI mod
 
 | Family | Main file | Size |
 |---|---|---|
-| AppDelegate | Sources/LungfishApp/App/AppDelegate.swift and 16 `AppDelegate+*.swift` extensions | 14,654 lines |
+| AppDelegate | Sources/LungfishApp/App/AppDelegate.swift and 17 `AppDelegate+*.swift` extensions | 14,631 lines |
 | MainSplitViewController | Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift and 11 extensions | 8,656 lines |
 | ViewerViewController | Sources/LungfishApp/Views/Viewer/ViewerViewController.swift and 25 extensions | 11,995 lines |
 | MainWindowController | Sources/LungfishApp/Views/MainWindow/MainWindowController.swift | 1,149 lines |
