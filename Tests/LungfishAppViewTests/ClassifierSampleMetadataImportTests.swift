@@ -9,6 +9,7 @@ import LungfishCore
 @testable import LungfishEsVirituUI
 import LungfishIO
 import LungfishKit
+import LungfishKitTestSupport
 
 @MainActor
 final class ClassifierSampleMetadataImportTests: XCTestCase {
@@ -158,11 +159,15 @@ final class ClassifierSampleMetadataImportTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        // The viewer observes the sample selection of the project window that shows it.
+        let projectWindow = ScopeOwningWindowController()
+        projectWindow.window = window
         window.contentViewController = viewer
         window.layoutIfNeeded()
         defer {
             window.orderOut(nil)
             window.contentView = nil
+            withExtendedLifetime(projectWindow) {}
         }
         viewer.configureFromDatabase(database, resultURL: root)
 
@@ -215,7 +220,11 @@ final class ClassifierSampleMetadataImportTests: XCTestCase {
         try showMetadataColumn(named: "Cohort", in: batchTable.testTableView)
 
         viewer.samplePickerState.selectedSamples = ["sample-a"]
-        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+        NotificationCenter.default.post(
+            name: .metagenomicsSampleSelectionChanged,
+            object: nil,
+            userInfo: ScopedEventFilter.scopedUserInfo(scope: projectWindow.windowStateScope)
+        )
 
         let deadline = Date().addingTimeInterval(5)
         while batchTable.displayedRows.count < 3 && Date() < deadline {

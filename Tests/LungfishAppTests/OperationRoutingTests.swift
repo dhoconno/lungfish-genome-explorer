@@ -675,28 +675,6 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(source.contains("throw CancellationError()"))
     }
 
-    func testFASTQBatchSubprocessCancellationTerminatesTreeAndDrainsStderr() throws {
-        let serviceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Services/FASTQIngestionService.swift")
-        let source = try String(contentsOf: serviceURL, encoding: .utf8)
-        let body = try sourceFunctionBody(
-            named: "nonisolated private static func runCLISubprocess",
-            endingBefore: "    }\n}",
-            in: source
-        )
-
-        XCTAssertTrue(body.contains("NativeProcessCancellationHandle"))
-        XCTAssertTrue(body.contains("withTaskCancellationHandler"))
-        XCTAssertTrue(body.contains("requestProcessTreeTermination"))
-        XCTAssertTrue(body.contains("cancellationHandle.store(process)"))
-        XCTAssertTrue(body.contains("cancellationHandle.clear(process)"))
-        XCTAssertTrue(body.contains("stderrHandle.readabilityHandler"))
-        XCTAssertTrue(body.contains("throw CancellationError()"))
-    }
-
     func testFASTQImportSlotPreventsIdleSystemSleepWhileProcessing() throws {
         let serviceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

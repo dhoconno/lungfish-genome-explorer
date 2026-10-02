@@ -48,6 +48,55 @@ public final class ReferenceBundleManualAnnotationService {
 
     public init() {}
 
+    // MARK: - The lungfish-cli commands that reproduce the edits (findings R3 and R8)
+
+    /// The `lungfish-cli` argv, from the `sequence update-annotation` words
+    /// on, that persists the edit
+    /// ``updateAnnotation(_:name:type:strand:note:bundleURL:)`` writes to the
+    /// row at `location`, with the same name, type, strand and note. The
+    /// edit's Operations row and its provenance are both built from this
+    /// argv. The edited values are joined to their options, so the parser
+    /// reads the reverse strand `-` or a hyphen-leading name as a value. A nil
+    /// note clears the note on both paths, so the command passes no `--note`
+    /// then. The builder touches no state, so any isolation can call it.
+    static func annotationUpdateArguments(
+        location: ReferenceBundleAnnotationRowLocation,
+        name: String,
+        type: String,
+        strand: String,
+        note: String?,
+        bundleURL: URL
+    ) -> [String] {
+        var arguments = [
+            "sequence", "update-annotation",
+            bundleURL.path,
+            "--track-id", location.trackID,
+            "--row-id", String(location.rowID),
+            "--name=\(name)",
+            "--type=\(type)",
+            "--strand=\(strand)",
+        ]
+        if let note {
+            arguments.append("--note=\(note)")
+        }
+        return arguments
+    }
+
+    /// The `lungfish-cli` argv that deletes `rowIDs` from one annotation track.
+    /// The annotation drawer executes it and records it, and the Inspector and
+    /// viewer-menu delete row and the provenance of
+    /// ``deleteAnnotation(_:bundleURL:)`` record it too. The builder touches
+    /// no state, so any isolation can call it.
+    static func annotationRowDeletionArguments(bundleURL: URL, trackID: String, rowIDs: [Int64]) -> [String] {
+        var values = ["sequence", "delete-annotations", bundleURL.path, "--track-id", trackID]
+        for rowID in rowIDs {
+            values.append("--row-id")
+            values.append(String(rowID))
+        }
+        values.append("--quiet")
+        return values
+    }
+
     public func addAnnotation(
         _ annotation: SequenceAnnotation,
         toBundleAt bundleURL: URL
@@ -119,6 +168,11 @@ public final class ReferenceBundleManualAnnotationService {
     /// reference bundle's SQLite annotation database. Coordinates and gene
     /// name are left untouched -- the Inspector and viewer editors only expose name, type,
     /// strand and note.
+    ///
+    /// The provenance records the `lungfish-cli sequence update-annotation`
+    /// command the edit's Operations row records, which reproduces the edit.
+    /// It used to record `Lungfish.app manual-annotation-update`, the form for
+    /// an edit no command reproduces.
     public func updateAnnotation(
         _ location: ReferenceBundleAnnotationRowLocation,
         name: String,
@@ -128,16 +182,14 @@ public final class ReferenceBundleManualAnnotationService {
         bundleURL: URL
     ) async throws -> SequenceAnnotationTrackWorkflow.UpdateAnnotationResult {
         let standardizedBundleURL = bundleURL.standardizedFileURL
-        let command = [
-            "Lungfish.app",
-            "manual-annotation-update",
-            "--bundle", standardizedBundleURL.path,
-            "--track-id", location.trackID,
-            "--row-id", String(location.rowID),
-            "--name", name,
-            "--type", type,
-            "--strand", strand,
-        ]
+        let command = [CLICommandIdentity.executableName] + Self.annotationUpdateArguments(
+            location: location,
+            name: name,
+            type: type,
+            strand: strand,
+            note: note,
+            bundleURL: standardizedBundleURL
+        )
         let request = SequenceAnnotationTrackWorkflow.UpdateAnnotationRequest(
             bundleURL: standardizedBundleURL,
             trackID: location.trackID,
@@ -172,18 +224,21 @@ public final class ReferenceBundleManualAnnotationService {
     /// delete path (`ViewerViewController+AnnotationDrawer.runAnnotationRowDeletion`), so
     /// the viewer context-menu and Inspector delete entry points behave the same as the
     /// drawer's.
+    ///
+    /// The provenance records the `lungfish-cli sequence delete-annotations`
+    /// command the drawer and the delete row record, which reproduces the
+    /// delete. It used to record `Lungfish.app manual-annotation-delete`, the
+    /// form for an edit no command reproduces.
     public func deleteAnnotation(
         _ location: ReferenceBundleAnnotationRowLocation,
         bundleURL: URL
     ) async throws -> SequenceAnnotationTrackWorkflow.DeleteAnnotationsResult {
         let standardizedBundleURL = bundleURL.standardizedFileURL
-        let command = [
-            "Lungfish.app",
-            "manual-annotation-delete",
-            "--bundle", standardizedBundleURL.path,
-            "--track-id", location.trackID,
-            "--row-id", String(location.rowID),
-        ]
+        let command = [CLICommandIdentity.executableName] + Self.annotationRowDeletionArguments(
+            bundleURL: standardizedBundleURL,
+            trackID: location.trackID,
+            rowIDs: [location.rowID]
+        )
         let request = SequenceAnnotationTrackWorkflow.DeleteAnnotationsRequest(
             bundleURL: standardizedBundleURL,
             trackID: location.trackID,

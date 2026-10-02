@@ -13,7 +13,7 @@ Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
 Sources/LungfishApp/Services/FASTQBundleMergeService.swift 861
 Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1747
 Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 803
-Sources/LungfishApp/Services/FASTQIngestionService.swift 1538
+Sources/LungfishApp/Services/FASTQIngestionService.swift 1338
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 901
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1337
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1245
@@ -54,7 +54,7 @@ Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerView.swift 966
 Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift 891
 Sources/LungfishApp/Views/Metagenomics/TaxonomySunburstView.swift 874
 Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift 1602
-Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift 1975
+Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift 1973
 Sources/LungfishApp/Views/Operations/OperationsPanelController.swift 1265
 Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1283
 Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1161
@@ -82,7 +82,7 @@ Sources/LungfishApp/Views/Viewer/SequenceViewerView+MultiSequence.swift 1066
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1235
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 958
 Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2844
-Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 913
+Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 901
 Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 871
 Sources/LungfishApp/Views/Viewer/ViewerViewController+Mapping.swift 956
 Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4424
@@ -116,7 +116,7 @@ Sources/LungfishCore/Services/NCBI/NCBIService.swift 1959
 Sources/LungfishCore/Services/NCBI/SRAService.swift 1093
 Sources/LungfishCore/Storage/PortablePath.swift 1014
 Sources/LungfishCore/Storage/ProjectStore.swift 1587
-Sources/LungfishEsVirituUI/EsVirituResultViewController.swift 2274
+Sources/LungfishEsVirituUI/EsVirituResultViewController.swift 2272
 Sources/LungfishEsVirituUI/ViralDetectionTableView.swift 2101
 Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift 2906
 Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift 1605
@@ -172,11 +172,11 @@ Sources/LungfishKit/MetadataColumnController.swift 895
 Sources/LungfishKit/MiniBAMViewController.swift 1013
 Sources/LungfishKit/MiniPileupView.swift 861
 Sources/LungfishKit/OperationCenter.swift 1381
-Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift 3289
-Sources/LungfishNvdUI/NvdResultViewController.swift 3193
+Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift 3287
+Sources/LungfishNvdUI/NvdResultViewController.swift 3191
 Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 2015
 Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift 867
-Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 5918
+Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 5916
 Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift 1828
 Sources/LungfishWorkflow/Alignment/Minimap2Pipeline.swift 1263
 Sources/LungfishWorkflow/Bundles/ReferenceBundleAnnotationImportService.swift 905

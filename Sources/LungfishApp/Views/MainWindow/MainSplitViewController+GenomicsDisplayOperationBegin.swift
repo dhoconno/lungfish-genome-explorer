@@ -12,12 +12,12 @@ import LungfishWorkflow
 /// registers its row through `OperationReporting`, so a test can check the row,
 /// its lock and its command without touching `OperationCenter.shared`.
 ///
-/// None of the four launches declares a bundle lock, so `begin` cannot refuse
+/// None of the three launches declares a bundle lock, so `begin` cannot refuse
 /// them on a real `OperationCenter` today. Each launch still switches on the
 /// result and runs nothing on a refusal, which keeps it correct if a lock is
 /// added later.
 extension MainSplitViewController {
-    // MARK: - Reference downloads
+    // MARK: - Reference download
 
     /// Registers the reference download row for a variant-only (naked) bundle
     /// and, only when it starts, calls `launch` with the operation ID. The row
@@ -56,40 +56,6 @@ extension MainSplitViewController {
         return result
     }
 
-    /// Registers the reference download row for the VCF dashboard's "Download
-    /// Reference" action and, only when it starts, calls `launch` with the
-    /// operation ID. The row is a download row, locks no bundle and records no
-    /// command.
-    ///
-    /// CLI parity gap. The closest command is `lungfish-cli fetch genome`,
-    /// which takes one accession and does its own bundle build. This run
-    /// searches the assembly database by the inferred accession or, without
-    /// one, by organism and assembly name, so no single `fetch genome`
-    /// invocation reproduces every case. The row keeps recording no command
-    /// until a command covers both searches.
-    @discardableResult
-    static func beginVCFReferenceDownloadOperation(
-        assembly: String,
-        routeContext: OperationRouteContext?,
-        reporter: any OperationReporting = OperationCenter.shared,
-        launch: (UUID) -> Void
-    ) -> OperationStartResult {
-        let result = reporter.begin(
-            title: "\(assembly) Reference",
-            detail: "Searching NCBI...",
-            operationType: .download,
-            cliCommand: nil,
-            routeContext: routeContext
-        )
-        switch result {
-        case .started(let operationID):
-            launch(operationID)
-        case .refused:
-            break // The panel already shows the refused row. Nothing was launched.
-        }
-        return result
-    }
-
     // MARK: - FASTQ operations
 
     /// Registers the row for a FASTQ derivative run from the FASTQ dataset
@@ -104,10 +70,11 @@ extension MainSplitViewController {
     /// bundle recorded. That is the `lungfish-cli` invocation
     /// `FASTQOperationCLIInvocationBuilder` builds, the one the FASTQ
     /// operations dialog runs for the same request, so this row and the dialog
-    /// row record the same command. FASTQOperationOutputImporter records the
-    /// same invocation as derivative provenance. A request with a setting no
-    /// `lungfish-cli` option expresses records no command, a CLI parity gap
-    /// that MainSplitGenomicsDisplayOperationTests pins.
+    /// row record the same command. FASTQOperationOutputImporter and, with the
+    /// final output, FASTQDerivativeService record the same invocation in the
+    /// derivative's manifest. A request with a setting no `lungfish-cli`
+    /// option expresses records no command, a CLI parity gap that
+    /// MainSplitGenomicsDisplayOperationTests pins.
     static func beginFASTQDerivativeOperation(
         request: FASTQDerivativeRequest,
         inputURL: URL,

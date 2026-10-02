@@ -36,7 +36,7 @@ final class ViewerAnnotationDrawerOperationTests: XCTestCase {
 
     func testAnnotationRowDeletionArgumentsAreTheArgvTheRunExecutes() {
         XCTAssertEqual(
-            ViewerViewController.annotationRowDeletionArguments(
+            ReferenceBundleManualAnnotationService.annotationRowDeletionArguments(
                 bundleURL: bundleURL,
                 trackID: "orfs_chr1",
                 rowIDs: [3, 17]
@@ -54,7 +54,7 @@ final class ViewerAnnotationDrawerOperationTests: XCTestCase {
 
         let result = ViewerViewController.beginAnnotationRowDeletionOperation(
             bundleURL: bundleURL,
-            cliArguments: ViewerViewController.annotationRowDeletionArguments(
+            cliArguments: ReferenceBundleManualAnnotationService.annotationRowDeletionArguments(
                 bundleURL: bundleURL,
                 trackID: "orfs_chr1",
                 rowIDs: [3]
@@ -76,7 +76,7 @@ final class ViewerAnnotationDrawerOperationTests: XCTestCase {
 
         ViewerViewController.beginAnnotationRowDeletionOperation(
             bundleURL: bundleURL,
-            cliArguments: ViewerViewController.annotationRowDeletionArguments(
+            cliArguments: ReferenceBundleManualAnnotationService.annotationRowDeletionArguments(
                 bundleURL: bundleURL,
                 trackID: "orfs_chr1",
                 rowIDs: [3, 17, 42]
@@ -105,7 +105,7 @@ final class ViewerAnnotationDrawerOperationTests: XCTestCase {
 
         ViewerViewController.beginAnnotationRowDeletionOperation(
             bundleURL: bundleURL,
-            cliArguments: ViewerViewController.annotationRowDeletionArguments(
+            cliArguments: ReferenceBundleManualAnnotationService.annotationRowDeletionArguments(
                 bundleURL: bundleURL,
                 trackID: "orfs_chr1",
                 rowIDs: [9]

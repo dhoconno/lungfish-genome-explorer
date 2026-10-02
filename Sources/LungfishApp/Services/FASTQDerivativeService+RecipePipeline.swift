@@ -59,7 +59,7 @@ extension FASTQDerivativeService {
             case .fastpTrim:
                 progress?(fraction, "Adapter and quality trimming (\(index + 1)/\(steps.count))...")
                 commandLine = "fastp (adapter+quality-trim) threshold=\(step.qualityThreshold ?? 20) window=\(step.windowSize ?? 4) mode=\((step.qualityTrimMode ?? .cutRight).rawValue) adapter=\((step.adapterMode ?? .autoDetect).rawValue) interleaved=\(currentIsInterleaved)"
-                _ = try await runFastpCombinedTrim(
+                try await runFastpCombinedTrim(
                     sourceFASTQ: currentURL,
                     outputFASTQ: outputURL,
                     threshold: step.qualityThreshold ?? 20,
@@ -74,7 +74,7 @@ extension FASTQDerivativeService {
             case .qualityTrim:
                 progress?(fraction, "Quality trimming (\(index + 1)/\(steps.count))...")
                 commandLine = "fastp (quality-trim) threshold=\(step.qualityThreshold ?? 20) window=\(step.windowSize ?? 4) mode=\((step.qualityTrimMode ?? .cutRight).rawValue) interleaved=\(currentIsInterleaved)"
-                _ = try await runFastpQualityTrim(
+                try await runFastpQualityTrim(
                     sourceFASTQ: currentURL,
                     outputFASTQ: outputURL,
                     threshold: step.qualityThreshold ?? 20,
@@ -87,7 +87,7 @@ extension FASTQDerivativeService {
             case .adapterTrim:
                 progress?(fraction, "Adapter trimming (\(index + 1)/\(steps.count))…")
                 commandLine = "fastp (adapter-trim) mode=\((step.adapterMode ?? .autoDetect).rawValue) interleaved=\(currentIsInterleaved)"
-                _ = try await runFastpAdapterTrim(
+                try await runFastpAdapterTrim(
                     sourceFASTQ: currentURL,
                     outputFASTQ: outputURL,
                     mode: step.adapterMode ?? .autoDetect,
@@ -102,7 +102,7 @@ extension FASTQDerivativeService {
             case .fixedTrim:
                 progress?(fraction, "Fixed trimming (\(index + 1)/\(steps.count))…")
                 commandLine = "fastp (fixed-trim) trim5=\(step.trimFrom5Prime ?? 0) trim3=\(step.trimFrom3Prime ?? 0) interleaved=\(currentIsInterleaved)"
-                _ = try await runFastpFixedTrim(
+                try await runFastpFixedTrim(
                     sourceFASTQ: currentURL,
                     outputFASTQ: outputURL,
                     from5Prime: step.trimFrom5Prime ?? 0,
@@ -147,7 +147,7 @@ extension FASTQDerivativeService {
                 try fm.createDirectory(at: mergeDir, withIntermediateDirectories: true)
 
                 // bbmerge writes: merged.fastq, unmerged_R1.fastq, unmerged_R2.fastq
-                let (_, _) = try await runBBMerge(
+                _ = try await runBBMerge(
                     sourceFASTQ: currentURL,
                     outputBundleURL: mergeDir,
                     strictness: strictness,

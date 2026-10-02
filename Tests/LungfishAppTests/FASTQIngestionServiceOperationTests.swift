@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The four FASTQ ingestion launches register their Operations panel rows
+// The three FASTQ ingestion launches register their Operations panel rows
 // through static begin helpers (R4). None of them declares a bundle lock, so a
 // real center never refuses them, and a recording reporter that holds a lock
-// stands in for the refusal. The two bundle imports and the batch subprocess
-// record `lungfish-cli import fastq` commands, which the tests parse with the
+// stands in for the refusal. The two bundle imports record
+// `lungfish-cli import fastq` commands, which the tests parse with the
 // real CLI parser and compare with the values the run uses. The in-place
 // ingestion has no command that reproduces it, so its test pins today's
 // command as a CLI parity gap.
@@ -308,84 +308,6 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
             bundleName: "Sample 9",
             importConfig: importConfig(skipClumpify: false),
             forceReplace: false,
-            routeContext: routeContext,
-            reporter: reporter
-        ) { _ in launched = true }
-
-        XCTAssertNil(result.startedID)
-        XCTAssertFalse(launched)
-        XCTAssertEqual(reporter.items.map(\.state), [.refused])
-    }
-
-    // MARK: - Batch import subprocess (site 27)
-
-    private let batchInputURL = URL(fileURLWithPath: "/tmp/lane 1a2l3/Sequencing Run 12", isDirectory: true)
-
-    private func recordedBatchRow(qualityBinning: QualityBinningScheme) throws -> RecordingOperationReporter.Item {
-        let reporter = RecordingOperationReporter()
-        var launchedID: UUID?
-        let result = FASTQIngestionService.beginBatchSubprocessImportOperation(
-            inputDirectory: batchInputURL,
-            projectDirectory: projectURL,
-            recipe: "vsp2",
-            qualityBinning: qualityBinning,
-            routeContext: routeContext,
-            reporter: reporter
-        ) { launchedID = $0 }
-        let item = try assertIngestionRow(
-            reporter,
-            launchedID: launchedID,
-            title: "FASTQ Batch Import",
-            detail: "Starting batch import\u{2026}"
-        )
-        XCTAssertEqual(result.startedID, item.id)
-        return item
-    }
-
-    func testBatchImportRecordsACommandThatCarriesTheQualityBinningTheRunPasses() throws {
-        for scheme in QualityBinningScheme.allCases {
-            let item = try recordedBatchRow(qualityBinning: scheme)
-
-            let command = try RecordedCLICommand.parse(item.cliCommand, as: ImportCommand.FastqSubcommand.self)
-            XCTAssertEqual(command.input, [batchInputURL.path])
-            XCTAssertEqual(command.project, projectURL.path)
-            XCTAssertEqual(command.recipe, "vsp2")
-            // The CLI defaults to none, so a command without the flag would not bin.
-            XCTAssertEqual(command.qualityBinning, scheme.rawValue)
-        }
-    }
-
-    func testBatchImportRecordsTheArgumentsTheSubprocessExecutes() throws {
-        let item = try recordedBatchRow(qualityBinning: .illumina4)
-
-        // `runCLISubprocess` sets `process.arguments` to this array.
-        let runArguments = FASTQIngestionService.batchSubprocessImportArguments(
-            inputDirectory: batchInputURL,
-            projectDirectory: projectURL,
-            recipe: "vsp2",
-            qualityBinning: .illumina4
-        )
-        XCTAssertEqual(runArguments, [
-            "import", "fastq", batchInputURL.path,
-            "--project", projectURL.path,
-            "--recipe", "vsp2",
-            "--quality-binning", "illumina4",
-        ])
-        XCTAssertEqual(
-            item.cliCommand,
-            OperationCenter.buildCLICommand(subcommand: "import fastq", args: Array(runArguments.dropFirst(2)))
-        )
-    }
-
-    func testRefusedBatchImportLaunchesNothing() {
-        let reporter = RecordingOperationReporter(lockHeldBy: "Importing BAM")
-        var launched = false
-
-        let result = FASTQIngestionService.beginBatchSubprocessImportOperation(
-            inputDirectory: batchInputURL,
-            projectDirectory: projectURL,
-            recipe: "vsp2",
-            qualityBinning: .none,
             routeContext: routeContext,
             reporter: reporter
         ) { _ in launched = true }

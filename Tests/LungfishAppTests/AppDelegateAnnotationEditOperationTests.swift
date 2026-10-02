@@ -9,7 +9,10 @@
 // update-annotation` and `sequence delete-annotations` run, so the rows now
 // record those commands. These tests parse each recorded command with the real
 // CLI parser, check it carries every value the service passes, and run it on a
-// copy of the bundle to show it writes what the service writes.
+// copy of the bundle to show it writes what the service writes. The service's
+// provenance used to record `Lungfish.app manual-annotation-update` and
+// `manual-annotation-delete` (R8), and the provenance tests show it now records
+// the row's command, built by the same service builder.
 
 import XCTest
 @testable import LungfishApp
@@ -220,7 +223,7 @@ final class AppDelegateAnnotationEditOperationTests: XCTestCase {
             item.cliCommand,
             OperationCenter.buildCLICommand(
                 subcommand: "sequence delete-annotations",
-                args: Array(ViewerViewController.annotationRowDeletionArguments(
+                args: Array(ReferenceBundleManualAnnotationService.annotationRowDeletionArguments(
                     bundleURL: bundleURL, trackID: location.trackID, rowIDs: [location.rowID]
                 ).dropFirst(2))
             ),
@@ -248,6 +251,49 @@ final class AppDelegateAnnotationEditOperationTests: XCTestCase {
             try BundleManifest.load(from: appBundle).annotations.map(\.id),
             "both remove the emptied track or neither does"
         )
+    }
+
+    // MARK: - Provenance (R8)
+
+    func testUpdateProvenanceRecordsTheCommandTheRowRecords() async throws {
+        let bundleURL = try makeBundle(named: "Sample")
+        let (annotation, location) = try editedGene(in: bundleURL)
+        let reporter = RecordingOperationReporter()
+        AppDelegate.beginAnnotationUpdateOperation(
+            annotation: annotation, location: location, bundleURL: bundleURL, routeContext: nil, reporter: reporter
+        )
+        let row = try XCTUnwrap(reporter.items.first?.cliCommand)
+
+        let result = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+            location,
+            name: annotation.name,
+            type: annotation.type.rawValue,
+            strand: annotation.strand.rawValue,
+            note: annotation.note,
+            bundleURL: bundleURL
+        )
+
+        let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        let rowArgv = [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: row))
+        XCTAssertEqual(envelope.argv, rowArgv, "the provenance used to record Lungfish.app manual-annotation-update")
+        XCTAssertEqual(envelope.steps.map(\.argv), [rowArgv])
+    }
+
+    func testDeleteProvenanceRecordsTheCommandTheRowRecords() async throws {
+        let bundleURL = try makeBundle(named: "Sample")
+        let (_, location) = try editedGene(in: bundleURL)
+        let reporter = RecordingOperationReporter()
+        AppDelegate.beginAnnotationDeletionOperation(
+            location: location, bundleURL: bundleURL, routeContext: nil, reporter: reporter
+        )
+        let row = try XCTUnwrap(reporter.items.first?.cliCommand)
+
+        let result = try await ReferenceBundleManualAnnotationService().deleteAnnotation(location, bundleURL: bundleURL)
+
+        let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        let rowArgv = [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: row))
+        XCTAssertEqual(envelope.argv, rowArgv, "the provenance used to record Lungfish.app manual-annotation-delete")
+        XCTAssertEqual(envelope.steps.map(\.argv), [rowArgv])
     }
 
     // MARK: - Refusal

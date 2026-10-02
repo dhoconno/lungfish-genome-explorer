@@ -1598,10 +1598,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         )
 
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInspectorSampleSelectionChanged),
-            name: .metagenomicsSampleSelectionChanged,
-            object: nil
+            self, selector: #selector(handleInspectorSampleSelectionChanged), name: .metagenomicsSampleSelectionChanged, object: nil
         )
     }
 
@@ -1680,6 +1677,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     @objc private func handleInspectorSampleSelectionChanged(_ notification: Notification) {
+        guard ScopedEventFilter.accept(notification, for: ScopedEventFilter.hostingWindowScope(of: viewIfLoaded)) else { return }
         let newSelection = samplePickerState.selectedSamples
         guard newSelection != selectedSamples else { return }
         selectedSamples = newSelection

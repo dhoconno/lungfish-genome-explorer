@@ -187,7 +187,7 @@ extension FASTQDerivativeService {
         progress?("Applying transformation...")
         let transformedFASTQ = tempDir.appendingPathComponent("transformed.fastq")
         let nativeProvenanceCollector = FASTQDerivativeNativeProvenanceCollector()
-        let operation = try await runTransformation(
+        var operation = try await runTransformation(
             request: request,
             sourceFASTQ: executionSourceFASTQ,
             outputFASTQ: transformedFASTQ,
@@ -213,8 +213,6 @@ extension FASTQDerivativeService {
         guard stats.readCount > 0 else {
             throw FASTQDerivativeError.emptyResult
         }
-
-        let lineage = baseLineage + [operation]
 
         let outputBundle = try createOutputBundleURL(
             sourceBundleURL: sourceBundleURL,
@@ -339,6 +337,16 @@ extension FASTQDerivativeService {
             )
             payload = .subset(readIDListFilename: destinationReadIDURL.lastPathComponent)
         }
+
+        // The manifest records the lungfish-cli command for the source and the
+        // final output, which are known only now (findings R3 and R8).
+        operation.toolCommand = Self.derivativeToolCommand(
+            for: request,
+            sourceBundleURL: sourceBundleURL,
+            finalOutputURL: Self.derivativeFinalOutputURL(in: outputBundle, payload: payload),
+            randomSeed: operation.randomSeed
+        )
+        let lineage = baseLineage + [operation]
 
         // Compute relative paths from the output bundle to parent and root bundles.
         // Prefer project-relative paths (@/...); fall back to filesystem-relative.

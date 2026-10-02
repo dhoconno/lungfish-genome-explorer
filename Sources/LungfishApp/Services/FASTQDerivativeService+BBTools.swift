@@ -13,10 +13,6 @@ extension FASTQDerivativeService {
 
     // MARK: - BBTools Operations
 
-    struct BBToolResult {
-        let toolCommand: String
-    }
-
     /// Builds environment variables required by BBTools shell scripts.
     ///
     /// Result is cached after first call since the managed environment path is stable.
@@ -47,7 +43,7 @@ extension FASTQDerivativeService {
         sourceBundleURL: URL,
         isInterleaved: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> BBToolResult {
+    ) async throws {
         var args = [
             "in=\(sourceFASTQ.path)",
             "out=\(outputFASTQ.path)",
@@ -97,13 +93,11 @@ extension FASTQDerivativeService {
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("bbduk contaminant filter failed: \(result.stderr)")
         }
-        return BBToolResult(toolCommand: "bbduk.sh \(args.joined(separator: " "))")
     }
 
-    /// Result of a bbduk entropy-filter run: the command plus the parsed
-    /// read/base summary lines, when bbduk printed them.
+    /// The result of a bbduk entropy-filter run, the parsed read and base
+    /// summary lines when bbduk printed them.
     struct BBDukEntropyResult {
-        let toolCommand: String
         let summary: BBDukEntropySummary?
     }
 
@@ -160,10 +154,7 @@ extension FASTQDerivativeService {
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("bbduk entropy filter failed: \(result.stderr)")
         }
-        return BBDukEntropyResult(
-            toolCommand: "bbduk.sh \(args.joined(separator: " "))",
-            summary: BBDukEntropySummary(stderr: result.stderr)
-        )
+        return BBDukEntropyResult(summary: BBDukEntropySummary(stderr: result.stderr))
     }
 
     /// Runs bbmerge.sh to merge overlapping paired-end reads.
@@ -178,7 +169,7 @@ extension FASTQDerivativeService {
         countDuplicateMergedReads: Bool = true,
         isInterleaved: Bool = true,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> (BBToolResult, ReadClassification) {
+    ) async throws -> ReadClassification {
         let mergedURL = outputBundleURL.appendingPathComponent("merged.fastq")
         let countedMergedURL = outputBundleURL.appendingPathComponent("merged.counted.fastq")
         let unmergedInterleavedURL = outputBundleURL.appendingPathComponent("unmerged.fastq")
@@ -223,7 +214,6 @@ extension FASTQDerivativeService {
         }
 
         var mergedCount = 0
-        var countedMergedSummary: CountedFASTQMaterializationResult?
         if FileManager.default.fileExists(atPath: mergedURL.path) {
             if countDuplicateMergedReads {
                 let summary = try await CountedFASTQMaterializer().materialize(
@@ -233,7 +223,6 @@ extension FASTQDerivativeService {
                 )
                 try? FileManager.default.removeItem(at: mergedURL)
                 try FileManager.default.moveItem(at: countedMergedURL, to: mergedURL)
-                countedMergedSummary = summary
                 mergedCount = summary.totalReadCount
             } else {
                 mergedCount = try countFASTQReads(at: mergedURL)
@@ -266,16 +255,7 @@ extension FASTQDerivativeService {
             try? FileManager.default.removeItem(at: mergedURL)
         }
 
-        let classification = ReadClassification(files: files)
-        return (
-            BBToolResult(
-                toolCommand: "bbmerge.sh \(args.joined(separator: " ")); reformat.sh out1=unmerged_R1.fastq out2=unmerged_R2.fastq"
-                    + (countDuplicateMergedReads
-                       ? "; lungfish counted-fastq merged.fastq duplicateCountEncoding=size=N uniqueMergedRecords=\(countedMergedSummary?.uniqueSequenceCount ?? 0)"
-                       : "")
-            ),
-            classification
-        )
+        return ReadClassification(files: files)
     }
 
     /// Runs repair.sh to fix desynchronized paired-end FASTQ files.
@@ -286,7 +266,7 @@ extension FASTQDerivativeService {
         sourceFASTQ: URL,
         outputBundleURL: URL,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> (BBToolResult, ReadClassification) {
+    ) async throws -> ReadClassification {
         // repair.sh writes repaired pairs to out1/out2, singletons to outs
         let repairedR1URL = outputBundleURL.appendingPathComponent("repaired_R1.fastq")
         let repairedR2URL = outputBundleURL.appendingPathComponent("repaired_R2.fastq")
@@ -333,8 +313,7 @@ extension FASTQDerivativeService {
             try? FileManager.default.removeItem(at: singletonsURL)
         }
 
-        let classification = ReadClassification(files: files)
-        return (BBToolResult(toolCommand: "repair.sh \(args.joined(separator: " "))"), classification)
+        return ReadClassification(files: files)
     }
 
     /// Runs cutadapt for PCR primer trimming.
@@ -345,7 +324,7 @@ extension FASTQDerivativeService {
         sourceBundleURL: URL,
         isInterleaved: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> BBToolResult {
+    ) async throws {
         try validatePrimerTrimConfiguration(configuration)
         let primerSpec = try await resolvePrimerTrimSpecification(
             configuration: configuration,
@@ -422,7 +401,6 @@ extension FASTQDerivativeService {
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("cutadapt primer trimming failed: \(result.stderr)")
         }
-        return BBToolResult(toolCommand: "cutadapt \(args.joined(separator: " "))")
     }
 
     func resolvePrimerTrimSpecification(
@@ -499,7 +477,7 @@ extension FASTQDerivativeService {
         sourceBundleURL: URL,
         isInterleaved: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> BBToolResult {
+    ) async throws {
         // Resolve primer reference
         let refPath: String
         switch configuration.source {
@@ -563,7 +541,6 @@ extension FASTQDerivativeService {
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("bbduk primer trim failed: \(result.stderr)")
         }
-        return BBToolResult(toolCommand: "bbduk.sh \(args.joined(separator: " "))")
     }
 
     /// Runs cutadapt for adapter presence filtering (no trimming).
@@ -585,7 +562,7 @@ extension FASTQDerivativeService {
         sourceBundleURL: URL,
         isInterleaved: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> BBToolResult {
+    ) async throws {
         var args: [String] = [
             "-e", String(errorRate),
             "--overlap", String(minOverlap),
@@ -641,7 +618,6 @@ extension FASTQDerivativeService {
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("cutadapt adapter presence filter failed: \(result.stderr)")
         }
-        return BBToolResult(toolCommand: "cutadapt \(args.joined(separator: " "))")
     }
 
     /// Runs tadpole.sh for k-mer-based error correction.
@@ -651,7 +627,7 @@ extension FASTQDerivativeService {
         kmerSize: Int,
         isInterleaved: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> BBToolResult {
+    ) async throws {
         var args = [
             "in=\(sourceFASTQ.path)",
             "out=\(outputFASTQ.path)",
@@ -675,7 +651,6 @@ extension FASTQDerivativeService {
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("tadpole error correction failed: \(result.stderr)")
         }
-        return BBToolResult(toolCommand: "tadpole.sh \(args.joined(separator: " "))")
     }
 
     /// Runs reformat.sh for interleaving or deinterleaving paired-end reads.
@@ -685,7 +660,7 @@ extension FASTQDerivativeService {
         direction: FASTQInterleaveDirection,
         sourceBundleURL: URL,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
-    ) async throws -> BBToolResult {
+    ) async throws {
         var args: [String]
 
         switch direction {
@@ -724,7 +699,7 @@ extension FASTQDerivativeService {
             // For the transformation step, we just copy through; the actual split happens
             // when creating the bundle payload.
             try FileManager.default.copyItem(at: sourceFASTQ, to: outputFASTQ)
-            return BBToolResult(toolCommand: "reformat.sh in=\(sourceFASTQ.path) out1=R1.fastq out2=R2.fastq")
+            return
         }
 
         let env = await bbToolsEnvironment()
@@ -738,7 +713,6 @@ extension FASTQDerivativeService {
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("reformat.sh failed: \(result.stderr)")
         }
-        return BBToolResult(toolCommand: "reformat.sh \(args.joined(separator: " "))")
     }
 
     /// Concatenates multiple FASTQ files into one output file.
