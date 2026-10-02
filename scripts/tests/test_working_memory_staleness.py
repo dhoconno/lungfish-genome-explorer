@@ -116,6 +116,65 @@ def test_open_status_passes(root, capsys, line):
     assert code == 0, err
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Status: active. Phase 0 shipped",
+        "Status: Active, Phase 0 complete and merged",
+        "Status: ACTIVE. Companion plan implemented.",
+        "**Status: active. Phase 0 shipped in 2026.9.77**",
+        "**Status:** Active. Phase 0 shipped.",
+        "Status 2026-10-02: active, first lane merged",
+    ],
+)
+def test_active_status_passes_even_with_a_finished_word(root, capsys, line):
+    write(root, "docs/plans/2026-10-02-program.md", f"# Program\n\n{line}\n")
+    code, _, err = run(root, capsys)
+    assert code == 0, err
+
+
+def test_active_status_heading_form_passes(root, capsys):
+    write(root, "docs/plans/2026-10-02-program.md", "# Program\n\n## Status\n\nActive. Phase 0 shipped in 2026.9.77.\n")
+    code, _, err = run(root, capsys)
+    assert code == 0, err
+
+
+def test_active_status_passes_in_reports_too(root, capsys):
+    write(root, "docs/reports/2026-10-02-review.md", "# Review\n\nStatus: active. Findings resolved as lanes merge.\n")
+    code, _, err = run(root, capsys)
+    assert code == 0, err
+
+
+def test_shipped_status_still_fails(root, capsys):
+    write(root, "docs/plans/2026-10-02-program.md", "# Program\n\nStatus: shipped\n")
+    code, _, err = run(root, capsys)
+    assert code == 1
+    assert "docs/plans/2026-10-02-program.md: finished-status: Status line says 'shipped'" in err
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Status: shipped, no longer active",
+        "Status: inactive, shipped in 2026.9.36",
+        "Status: was active, now complete",
+    ],
+)
+def test_active_later_in_the_status_line_does_not_exempt_it(root, capsys, line):
+    write(root, "docs/plans/2026-10-02-program.md", f"# Program\n\n{line}\n")
+    code, _, err = run(root, capsys)
+    assert code == 1
+    assert "docs/plans/2026-10-02-program.md: finished-status" in err
+
+
+def test_active_status_does_not_hide_the_checkbox_rule(root, capsys):
+    write(root, "docs/plans/2026-10-02-program.md", "# Program\n\nStatus: active. Phase 0 shipped\n\n- [x] a\n- [x] b\n- [x] c\n")
+    code, _, err = run(root, capsys)
+    assert code == 1
+    assert "all-steps-done" in err
+    assert "finished-status" not in err
+
+
 def test_status_after_the_first_lines_is_not_read(root, capsys):
     body = "# Thing\n" + "text\n" * 30 + "Status: complete\n"
     write(root, "docs/plans/2026-10-01-thing.md", body)

@@ -24,8 +24,10 @@ Rules. Each finding prints as `<path>: <rule>: <message>`.
                      `## Status` heading followed by text. A word is ignored when not,
                      never, no, nothing, none, until, before, once, when, after, if or
                      unless comes earlier in the same clause, so `Status: not yet merged`
-                     passes. Delete the file, or change the Status line if the work is
-                     still open.
+                     passes. A Status text that begins with the word active, in any
+                     letter case, declares the doc live and is not scanned for finished
+                     words, so `Status: active. Phase 0 shipped` passes. Delete the
+                     file, or change the Status line if the work is still open.
   all-steps-done     At least 3 checkbox steps and every one is ticked.
   stale-no-status    No Status line and the file is older than --max-age-days (default
                      14). Age comes from the YYYY-MM-DD- prefix of the file name, or
@@ -82,6 +84,7 @@ NEGATION = re.compile(
     re.IGNORECASE,
 )
 CLAUSE_END = re.compile(r"[.;:!?]")
+ACTIVE = re.compile(r"active\b", re.IGNORECASE)
 STATUS_LINE = re.compile(r"^[\s>*_#-]*status\b[^:\n]{0,16}:\s*(.*)$", re.IGNORECASE)
 STATUS_HEADING = re.compile(r"^\s*#{1,6}\s*status\s*$", re.IGNORECASE)
 CHECKBOX = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s")
@@ -134,6 +137,11 @@ def status_text(lines: list[str]) -> str | None:
     return None
 
 
+def declares_active(text: str) -> bool:
+    """True when the Status text begins with the word active, which declares the doc live."""
+    return ACTIVE.match(text) is not None
+
+
 def finished_word(text: str) -> str | None:
     """First finished-state word that no negation precedes in its own clause."""
     for match in FINISHED.finditer(text):
@@ -179,7 +187,7 @@ def check(root: Path, allow, today: dt.date, max_age_days: int):
                 continue
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
             status = status_text(lines)
-            if status is not None:
+            if status is not None and not declares_active(status):
                 word = finished_word(status)
                 if word:
                     findings.append((rel, "finished-status", f"Status line says '{word}', delete the file or fix the line"))
