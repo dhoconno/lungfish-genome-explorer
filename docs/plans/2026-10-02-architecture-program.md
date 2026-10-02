@@ -94,22 +94,57 @@ No file under Sources/LungfishWorkflow except through zero-logic deletions expli
 
 ## Phase 1, foundations (weeks 1 to 2)
 
-Entry criteria. Phase 0 merged and green. Golden fixtures captured for mapping (SARS-CoV-2 fixture), EsViritu and Kraken2 (virtual-bundle input, read counts and provenance with timestamps masked), genotype workbook and matrix exports from the demo MHC projects, and `lungfish-cli --help` for every command. These captures live under Tests/Fixtures/golden and are the oracle for Phases 1 to 4.
+Phase 1 started on 2026-10-02. This section was rewritten then to add the work agreed with the owner. Phase 0 above is the historical record.
 
-| Task | Finding | Files | Model | Lane | Acceptance |
+### How Phase 1 runs
+
+An Opus 5.5 session is the program manager. The program branch is `claude/lungfish-phase-1-orchestration-d7a1c6`, created from main at 1f70a13ea. The Phase 0 branch `claude/arch-maintainability` is not used. Each lane runs in its own worktree branched from the program branch and owns an explicit file set that no other running lane shares. A lane that needs a file outside its set asks the owning lane or the manager and never edits that file. The manager reviews every diff, merges it into the program branch, fast-forwards the primary checkout's local main, and runs the unit gate there, one gate at a time and never in a worktree. Doc-only lanes share one gate. The golden compare runs after every code merge. main is not pushed until the release.
+
+Sonnet 5.5 takes the mechanical lanes, which are the start to begin batches after an Opus exemplar, the audit tags, the docs sweep, ToolProvisioning, the type moves and the release chain. Opus 5.5 takes the design and scientific lanes, which are the goldens, OperationReporting, the Nextflow environments, SequencingPlatform, ScopedEventFilter, the test doubles, the specialist docs, the dead minimap2 path and the routing and sidebar safety nets. A stuck lane, or a judgment call with scientific risk, goes to Fable. Sonnet lanes stop and report judgment calls instead of deciding them.
+
+At most four lanes build Swift at once, and free disk stays above 40 GiB.
+
+### Entry criteria, golden fixtures (lane 1.0, Opus)
+
+The goldens are captured from main at 1f70a13ea and merge before any other Phase 1 code. They cover four outputs.
+
+- Mapping on the SARS-CoV-2 fixture.
+- EsViritu and Kraken2 on a virtual FASTQ bundle input, with read counts and provenance.
+- Genotype workbook and matrix exports from the mhc-genotyping demo project or another de-identified MHC project. Demo projects hold inputs only, so one genotyping run produces the result. 32566_MS267_Williams1.lungfish is never touched.
+- `lungfish-cli --help` for every command and subcommand.
+
+Normalized outputs live under Tests/Fixtures/golden with one re-runnable compare command. Normalization masks only timestamps and run IDs, and replaces the run's scratch root with a fixed token so the rest of each path is still compared. Everything else is compared byte for byte. Any other field that differs between two runs on main goes to the manager before it is masked. No BAM or other large file is committed (docs/development/large-files.md). Acceptance is that the compare passes on unmodified main, fails on an injected one-byte change, and records its own runtime.
+
+### Tasks
+
+| Lane | Task | Finding | Files | Model | Acceptance |
 |---|---|---|---|---|---|
-| OperationReporting protocol and RecordingOperationReporter | R4 | Sources/LungfishKit/OperationReporting.swift (new), OperationCenter.swift, Tests/Support/LungfishTestSupport/RecordingOperationReporter.swift | Opus | 1a | Lock semantics untouched (existing lock tests pass), a test asserts a recorded item has non-nil cliCommand |
-| Remove operationType and cliCommand defaults, migrate 58 start() sites to begin() | R4 | OperationCenter.swift and the 27 files with start( calls | Sonnet in batches of 5 files, Fable review | 1a (after the protocol) | unchecked-operation-start ratchet reaches 0, each migrated site has a test that a refused lock launches no subprocess |
-| Route TaxTriage, PBAA and NextflowRunner through WorkflowEngineLaunch.resolve, remove `which nextflow` | R7 | TaxTriagePipeline.swift, PBAAClusteringPipeline.swift, Engines/NextflowRunner.swift | Opus | 1b | TaxTriage and Viral Recon smoke runs pass before and after, Docker profile and NXF_CONDA_CACHEDIR stay as explicit overrides, a test asserts JAVA_HOME is set when no system JDK exists |
-| Audit tag rewrite (396 tags become self-contained sentences) and lint against new tags | R5 | Sources files holding tags, scripts/checks/audit-tags.py (new) | Sonnet | 1c | Zero `[A-Z]{2,4}-[0-9]+` tags in Sources, SCI and GEN rationale text preserved verbatim |
-| Docs retention sweep and staleness check | R5 | docs/superpowers, docs/plans, docs/issues, docs/product-specs, docs/verification, scripts/checks/working-memory-staleness.py (new) | Sonnet | 1d | Each deletion cites the shipping commit, reports cited by ratchets or tests are kept |
-| Specialist docs rewritten as role prompts pointing at module AGENTS.md | R5 | agents/specialists/*.md, agents/process/*.md | Opus | 1d | doc-path-references.py enforced on agents/specialists |
-| SequencingPlatform reconciliation | R15 | LungfishIO/Formats/FASTQ/SequencingPlatform.swift, LungfishWorkflow/Recipes/SequencingPlatform.swift and their switches | Opus | 1e | Cases and every switch diffed first, a test pins platform-specific recipe parameters, allowlist entry removed |
-| ToolProvisioning deletion | R15 | Sources/LungfishWorkflow/Native/ToolProvisioning, ProvisionToolsCommand | Sonnet | 1e | release scripts grep clean for provision-tools, CLI --help golden updated deliberately |
-| ScopedEventFilter and scope classification | R9 | Sources/LungfishKit/ScopedEventFilter.swift (new), the 7 copies, LungfishCore/Models/Notifications.swift (each name classified window or application) | Opus | 1f | Two-window test fixture shows an unscoped window event is dropped and an application event arrives |
-| Test doubles out of production | R10 | AppDelegate.swift:2723, MainSplitViewController+Testing.swift, LungfishKit/TestHarnessDetection.swift users, Tests/Support | Sonnet | 1g | No TestHarness.isRunning branch in Sources, XCUI Viral Recon fixtures still exercise real primer staging |
+| 1a.1 | OperationReporting protocol, RecordingOperationReporter and an exemplar migration batch | R4 | Sources/LungfishKit/OperationReporting.swift (new), OperationCenter.swift, Tests/Support/LungfishTestSupport/RecordingOperationReporter.swift (new), five exemplar files | Opus | Lock tests pass unchanged, a test asserts a recorded item has a non-nil cliCommand, the exemplar sites carry the per-site tests, and the test pattern is written into docs/contracts/ADDING-AN-OPERATION.md |
+| 1a.2 | Migrate the remaining start() sites to begin() | R4 | The files that call start( on OperationCenter, five files per batch | Sonnet, Opus review | Per-site tests as below |
+| 1a.3 | Delete start() and remove the operationType and cliCommand defaults | R4 | OperationCenter.swift and any caller that relied on a default | Sonnet | The unchecked-operation-start ratchet reaches 0 and its baseline is lowered to 0 |
+| 1b | Route TaxTriage, PBAA and NextflowRunner through WorkflowEngineLaunch.resolve and remove `which nextflow` | R7 | TaxTriagePipeline.swift, PBAAClusteringPipeline.swift, Engines/NextflowRunner.swift, WorkflowEngineLaunch.swift and their tests | Opus | TaxTriage and Viral Recon smoke runs pass before and after on Docker Desktop, the Docker profile and NXF_CONDA_CACHEDIR stay explicit overrides, and a test asserts JAVA_HOME is set when no system JDK exists |
+| 1c | Audit tag rewrite and its lint | R5 | Comments that carry audit tags in Sources, Tests and scripts, and scripts/checks/audit-tags.py (new) | Sonnet | No audit-report tag remains in Sources, Tests or scripts, the lint matches only the audit report's tag prefixes so UTF-8 and SHA-256 pass, SCI and GEN rationale text is preserved verbatim, and the diff is shown to be comment-only |
+| 1d.1 | Docs retention sweep and staleness check | R5 | docs/superpowers, docs/plans, docs/issues, docs/product-specs, docs/verification, finished reports under docs/reports, scripts/checks/working-memory-staleness.py (new) | Sonnet | Each deletion cites its shipping commit, reports cited by ratchets, tests or contracts are kept, and the 2026-09-23 audit report is deleted only after 1c merges |
+| 1d.2 | Specialist docs rewritten as role prompts that point at the module AGENTS.md files | R5 | agents/specialists/*.md, agents/process/*.md, scripts/checks/doc-path-references.py | Opus | doc-path-references.py is enforced on agents/specialists and exits 0 |
+| 1e.1 | SequencingPlatform reconciliation | R15 | LungfishIO/Formats/FASTQ/SequencingPlatform.swift, LungfishWorkflow/Recipes/SequencingPlatform.swift and their switches | Opus | Cases and every switch are diffed first, a test pins the platform-specific recipe parameters before the change, and the duplicate-public-types allowlist entry is removed |
+| 1e.2 | ToolProvisioning deletion | R15 | Sources/LungfishWorkflow/Native/ToolProvisioning, ProvisionToolsCommand.swift and their tests | Sonnet | Release scripts grep clean for provision-tools, and the CLI help golden is updated deliberately in the same commit |
+| 1f | ScopedEventFilter and scope classification | R9 | Sources/LungfishKit/ScopedEventFilter.swift (new), the seven filter copies, LungfishCore/Models/Notifications.swift, and the posters of window events | Opus | Every Notification.Name is classified as window or application, every poster of a window event attaches its scope before the filter fails closed, and a two-window test shows an unscoped window event is dropped while an application event arrives |
+| 1g | Test doubles out of production | R10 | AppDelegate.swift (test process runner), MainSplitViewController+Testing.swift, LungfishKit/TestHarnessDetection.swift and its users, Tests/Support | Opus | No TestHarness.isRunning branch in Sources, the launch-argument XCUI backends still work, and the XCUI Viral Recon fixtures still exercise real primer staging |
+| 1h | Delete the unreachable minimap2 launch path (F2, carried over from Phase 0) | R15 | FASTQOperationDialogState.swift, AppDelegate+ToolsMenu.swift, UnifiedClassifierRunnerTests.swift, ViralReconWorkflowExecutionServiceTests.swift, FASTQOperationDialogRoutingTests.swift | Opus | The virtual-input provenance guarantee has a behavioural test on the live mapping path before the deletion, the three source-scan tests are retargeted, and ManagedMappingPipelineTests and MappingResultViewControllerTests pass |
+| 1i | Type-per-file moves for the oversized files that hold several types | R6 | FastqCommand.swift, FetchCommand.swift and the other files over 800 lines with several top-level types | Sonnet | Pure moves only, files that tests read as source text are skipped, and the file-size baseline is lowered |
+| 1j | Routing-table and sidebar-scan safety nets | R1, R2 | New test files only | Opus | The routing table covers every fixture bundle kind and asserts which surface opens and what it binds (Viral Recon binds .lungfishref), the sidebar-scan snapshot covers the fixture projects, and both pass on main |
 
-Exit criteria. All of the above merged, ratchets at or below Phase 0 baselines, golden fixtures byte-identical. Rollback. Each task is one commit and reverts cleanly, the protocol task is reverted with its migration batches.
+Per-site tests for 1a. A migrated site that declares a bundle lock gets a test that a refused lock launches no subprocess. Every migrated site gets a test that its recorded item carries the right operationType and a cliCommand. Each site keeps its existing lock targets, so the migration changes no lock behaviour.
+
+CLI parity. The owner asked that every command the GUI runs be CLI driven with no drift between the GUI and the CLI. Phase 1 enforces this in three ways. Every operation records a `lungfish-cli` command built from the configuration the GUI executes. The defaults that allowed a missing command are removed. A test parses each recorded command with the real CLI parser. Operations that still execute in process in the GUI are listed in the Phase 1 report against the Phase 2 task that moves them behind the CLI.
+
+Order. 1.0 merges first and the golden compare runs after every later code merge. 1c edits comments in about 300 files, so it runs on files no running lane owns, and a second pass covers the rest. 1i runs after the code lanes merge.
+
+Not in Phase 1. No RNA-seq work, because RNA-seq is only the yardstick for the contracts. No genotype controller decomposition, which stays in Phase 4a. The Phase 1 report says whether to bring it forward.
+
+Exit criteria. Every task above is merged. Every ratchet is at or below its baseline, with unchecked-operation-start at 0. The golden compare is byte-identical. GUI checks on a debug app pass for operation launches and the Operations panel types, two-window Inspector scoping, and the screens touched by the test-double removal. An independent Opus reviewer finds no blocker. Preview 2026.10.1 is then cut as a rewind point.
+
+Rollback. Each task is one commit, or one commit per batch, and reverts cleanly. The protocol task is reverted with its migration batches.
 
 ## Phase 2, one executor, one process primitive, one provenance recorder (weeks 3 to 5)
 
