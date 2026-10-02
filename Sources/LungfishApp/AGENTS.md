@@ -34,7 +34,9 @@ The pipeline side is in Sources/LungfishWorkflow/AGENTS.md and the CLI side in S
 
 ## Operation launch pattern for new code
 
-Call `OperationCenter.shared.begin` with operationType and cliCommand, then run `lungfish-cli` through `CLISubprocessTransport` and map events with `OperationCenterCLIBridge` (Services/OperationCenterCLIBridge.swift line 20). The reference pair is Views/Inspector/InspectorViewController+MSAPairwiseIdentity.swift line 41 and Services/CLIMSAActionRunner.swift.
+A standalone operation calls `OperationCenter.shared.begin` with operationType and cliCommand, then runs `lungfish-cli` through `CLISubprocessTransport` and maps events with `OperationCenterCLIBridge` (Services/OperationCenterCLIBridge.swift line 20). The reference pair is Views/Inspector/InspectorViewController+MSAPairwiseIdentity.swift line 41 and Services/CLIMSAActionRunner.swift.
+
+A read tool joins the FASTQ operation dialog family instead. Its Tools menu item is generated from `FASTQOperationToolID` (Views/FASTQ/FASTQOperationDialogState.swift line 1970) and `toolIDs(for:)`, and it runs through Services/FASTQOperationPlanner.swift, FASTQOperationCLIInvocationBuilder.swift, FASTQOperationExecutionService.swift and FASTQOperationOutputImporter.swift. Dialogs live under Views/<Area>/, such as Views/Mapping/MappingWizardSheet.swift. docs/contracts/ADDING-AN-OPERATION.md has the full list.
 
 ## Tests
 
@@ -51,6 +53,7 @@ Targets LungfishAppTests (515 files), LungfishAppViewTests and LungfishAppWorkfl
 | EsViritu GUI and CLI write different result trees | App/AppDelegate+Classification.swift lines 1042 to 1290 against Sources/LungfishCLI/Commands/EsVirituCommand.swift (R3) |
 | View controllers run tools in process | Views/Viewer/FASTQDatasetViewController.swift lines 1378, 1535 and 1643 (R3) |
 | Scoped notifications fail open in seven copied filters | Views/MainWindow/MainSplitViewController.swift line 817 and six others (R9) |
+| FASTQ-family and Workflow Operations runners start their own `Process` instead of using `CLISubprocessTransport`. Do not copy this into a new runner | `LungfishCLIProcessRunner` in Services/FASTQOperationExecutionService.swift line 800, `ProcessViralReconWorkflowProcessRunner` in Services/ViralReconWorkflowExecutionService.swift line 772 (R7, Phase 2) |
 | Test runner code inside production | App/AppDelegate.swift line 2723 (R10) |
 
 Every viewport switch clears transient state through `clearTransientViewportState` (Views/MainWindow/MainSplitViewController.swift line 526, memory file known-issues.md).

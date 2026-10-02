@@ -30,7 +30,7 @@ The 104 command files live in Sources/LungfishCLI/Commands, one top-level comman
 
 - The argv a command accepts must match what the GUI records as its cliCommand, so a copied command reruns the same analysis.
 - Commands the app drives through `CLISubprocessTransport` emit `CLIEvent` lines (Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift).
-- Every scientific top-level command has a provenance policy entry, checked by ScientificCLIProvenanceCoverageTests.
+- Every scientific top-level command has a provenance policy entry in Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift, checked by ScientificCLIProvenanceCoverageTests.
 - Managed tools are resolved through `WorkflowEngineLaunch.resolve`, never `/usr/bin/env <tool>` (memory file project_cli_subprocess_bare_path.md).
 
 ## Tests
@@ -48,6 +48,7 @@ Target LungfishCLITests in Tests/LungfishCLITests. Run only it with `swift test 
 | nf-core schemas reject paths with spaces, so inputs are staged | Commands/NFCoreLaunchStaging.swift (memory file project_cli_subprocess_bare_path.md) |
 | `GlobalOptions()` direct init crashes, use `GlobalOptions.parse([])` | memory file reference_runtime_patterns.md |
 | Very large command files | Commands/FastqCommand.swift is 4,114 lines (R6) |
+| A new top-level command without a `cliCommandPolicies` entry fails the coverage test, and one listed in `canonicalCLICommandNames` but not registered fails it as stale. A non-scientific command goes in the test's `nonScientificTopLevelCommands` set | Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift line 86, Tests/LungfishCLITests/ScientificCLIProvenanceCoverageTests.swift line 103 |
 | `provision-tools` is the only route into Native/ToolProvisioning | Commands/ProvisionToolsCommand.swift (R15) |
 
 Commands/WorkflowEngineLaunch.swift is only a typealias for the LungfishWorkflow type of the same name.

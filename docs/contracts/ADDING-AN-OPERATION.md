@@ -52,6 +52,46 @@ Variant calling is the recommended example because its layering is right. It sti
 | Its `onEvent` closure and `applyVariantCallingEvent` repeat the event-to-panel mapping by hand. | Rule 8 | `OperationCenterCLIBridge.onEvent(operationID:)` in `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift`, used by `Sources/LungfishApp/Services/CLITreeRunner.swift` |
 | It writes the legacy `WorkflowRun` sidecar shape, not a `ProvenanceEnvelope`. | Rule 6 | `CLIProvenanceSupport.recordSingleStepRun` in `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift`, which builds with `ProvenanceRunBuilder` and writes with `ProvenanceWriter` |
 
+## Which launch family a new operation joins
+
+Variant calling is a standalone runner. Most read-processing tools instead belong to the FASTQ operation dialog family, which has its own menu wiring, request type and execution service. Pick the family before writing code.
+
+| The operation | Family | Model to copy |
+|---|---|---|
+| reads FASTQ or FASTA datasets and is launched from the FASTQ operations dialog (Tools menu categories such as Clustering, Mapping, Assembly or Trimming & Filtering) | FASTQ operation dialog family | Savont, traced below |
+| takes any other input (a reference bundle, an alignment track, a variant track, an MSA, a tree) | standalone runner | a new `CLIFooRunner` modelled on `CLITreeRunner` in `Sources/LungfishApp/Services/CLITreeRunner.swift` |
+
+### The Savont path, traced through the code
+
+Line numbers are correct as of commit 9569fe2b6.
+
+| Step | What happens | File |
+|---|---|---|
+| 1. Menu entry | `ToolsMenuModel.build` starts from `WorkflowLibraryCatalog.builtIn`, which maps over `FASTQOperationToolID.allCases`. `MainMenu.operationMenuItems(for:)` adds one item per tool listed by `FASTQOperationDialogState.toolIDs(for:)`. Every item calls `launchFASTQOperationToolFromMenu`, which opens `showFASTQOperationsDialog` with the tool preselected. No menu item is written by hand. | `Sources/LungfishApp/App/ToolsMenuModel.swift`, `Sources/LungfishApp/Services/WorkflowLibrary.swift` line 165, `Sources/LungfishApp/App/MainMenu.swift` line 983, `Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift` line 85 |
+| 2. Dialog and request | The Savont pane collects settings. `launchRequestForSelectedTool()` returns `FASTQOperationLaunchRequest.savont`, which the dialog exposes as `pendingLaunchRequest`. | `Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift` and `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift` line 455 |
+| 3. Launcher | The dialog's completion hands the request to `runFASTQOperationLaunchRequest`, which registers a `.fastqOperation` row with the deprecated `start` and calls `trackAnalysisOutput`. | `Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift` and `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift` line 934 |
+| 4. Plan | `FASTQOperationPlanner` picks the output mode, makes one execution plan per input with `makeExecutionPlans`, and later finds outputs with `discoverOutputs`. | `Sources/LungfishApp/Services/FASTQOperationPlanner.swift` |
+| 5. argv | `FASTQOperationCLIInvocationBuilder.buildInvocation` turns the request into `lungfish-cli fastq savont-cluster` arguments. The launcher builds the displayed command from the same invocation. | `Sources/LungfishApp/Services/FASTQOperationCLIInvocationBuilder.swift` |
+| 6. Subprocess | `FASTQOperationExecutionService.execute` materializes inputs, runs each invocation through `LungfishCLIProcessRunner`, and decodes `CLIEvent` lines. That runner finds the binary with `LungfishCLIRunner.findCLI` and starts its own `Process`. It does not use `CLISubprocessTransport`. | `Sources/LungfishApp/Services/FASTQOperationExecutionService.swift` lines 774 and 800 |
+| 7. Import | `BundleFASTQOperationImporter` turns the discovered outputs into project bundles. | `Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift` line 438 |
+
+Some tools leave this path early in `showFASTQOperationsDialog`, and none of them is a model for new work. Mapping tools (minimap2, BWA-MEM2, Bowtie2, BBMap) set `pendingMappingRequest`, and `runManagedMapping` in `Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift` still runs `ManagedMappingPipeline` in process, which breaks Rule 9 (finding R3). The classifiers set their own pending configurations and run through `Sources/LungfishApp/App/AppDelegate+Classification.swift`, and Viral Recon runs through `Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift`. Workflow Library items with the `.workflowOperations` capability (ONT genotyping, full-length ONT MHC genotyping, 12S amplicon matching) open the Workflow Operations window and run through `WorkflowOperationExecutionService` in `Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift`, which also starts its own `Process`.
+
+### What a new FASTQ-input tool adds
+
+| Piece | File | What to add |
+|---|---|---|
+| Tool identity | `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift` | a `FASTQOperationToolID` case and its arms. Bowtie2 has 14 switch arms (9 in the enum's own properties, 2 in the dialog state, 3 in the panes file) plus one entry in `toolIDs(for:)`. A switch with a `default` arm compiles without the new case, so search for an existing tool's case and add the new one beside every hit. |
+| Menu placement | `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift` | the tool in `toolIDs(for:)` for its category, which is what puts it in the Tools menu and the dialog sidebar |
+| Category | `Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift` | an existing `FASTQOperationCategoryID`. A new category also needs `title` and `requiredPackIDs` arms there, a `toolIDs(for:)` arm, and a `menuTitle` arm in `Sources/LungfishApp/App/ToolsMenuModel.swift` |
+| Settings pane | `Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift` | an arm in `FASTQOperationToolPanes.body` and in the primary and advanced settings sections. A tool with a large form embeds its own sheet there, as mapping embeds `MappingWizardSheet` |
+| Request and argv | `FASTQOperationLaunchRequest` in `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift` and `Sources/LungfishApp/Services/FASTQOperationCLIInvocationBuilder.swift` | a request case and its invocation |
+| Outputs | `Sources/LungfishApp/Services/FASTQOperationPlanner.swift` and `Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift` | the output mode, output discovery and import arms |
+
+### The known gap in the FASTQ family
+
+`LungfishCLIProcessRunner` and the Workflow Operations runner each build their own `Process`, apart from `CLISubprocessTransport`. Finding R7 records this, and Phase 2 (task 2a, the `ToolProcess` primitive) retires it. A new tool in the FASTQ family inherits this runner until then. A new standalone runner never copies it. It runs `lungfish-cli` through `CLISubprocessTransport` as Rule 9 requires.
+
 ## Rules
 
 Each rule is a requirement. A reviewer rejects a change that breaks one. The column on the right names the code that shows the rule done correctly today.
@@ -66,8 +106,9 @@ Each rule is a requirement. A reviewer rejects a change that breaks one. The col
 | 6. Provenance through the envelope | Write a `ProvenanceEnvelope` with `ProvenanceRunBuilder` and `ProvenanceWriter` (or `CLIProvenanceSupport.recordSingleStepRun` from a CLI command). Record argv, resolved defaults, tool version, runtime identity, input and output checksums, exit status and wall time. Use `ProvenanceRecorder.provenanceFilename` or `ProvenanceRecorder.fileSidecarURL(for:)`. Never add a new sidecar filename or a private `writeProvenance` copy. | `Sources/LungfishWorkflow/Provenance/ProvenanceRunBuilder.swift`, `Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift`, `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift` |
 | 7. Virtual FASTQ materialized first | A derived FASTQ bundle holds only `preview.fastq` (about 1,000 reads). Before any tool sees FASTQ input, check `SequenceInputResolver.unmaterializedDerivedBundleURL(for:)` and materialize with `FASTQCLIMaterializer`. Never pass `FASTQBundle.resolvePrimaryFASTQURL` output straight to a tool. | `Sources/LungfishIO/Formats/Common/SequenceInputResolver.swift`, `Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift`, its use in `Sources/LungfishCLI/Commands/MapCommand.swift` |
 | 8. One event schema, one bridge | The CLI command emits `CLIEvent` lines through `CLIEventEmitter` when asked for JSON. The GUI decodes them in `CLISubprocessTransport` and maps them with `OperationCenterCLIBridge`, which calls both `update` and `log` so the expanded row keeps its history. Never declare a private NDJSON event struct. | `Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift`, `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift` |
-| 9. CLI parity | The GUI runs the CLI command through `CLISubprocessTransport` and never calls `NativeToolRunner`, `CondaManager` or a pipeline type in process. Both paths produce the same output tree and provenance. The displayed command reproduces the GUI result when pasted into a terminal. | `Sources/LungfishApp/Services/CLITreeRunner.swift`, `Tests/LungfishAppTests/CLIRunnerArgvRoundTripTests.swift` |
+| 9. CLI parity | The GUI runs the CLI command as a subprocess and never calls `NativeToolRunner`, `CondaManager` or a pipeline type in process. A standalone runner uses `CLISubprocessTransport`. A FASTQ-family tool goes through `FASTQOperationExecutionService` until Phase 2 replaces its runner. Both paths produce the same output tree and provenance. The displayed command reproduces the GUI result when pasted into a terminal. | `Sources/LungfishApp/Services/CLITreeRunner.swift`, `Tests/LungfishAppTests/CLIRunnerArgvRoundTripTests.swift` |
 | 10. Registered and tested | Add or update the feature entry in `docs/user-manual/features.yaml` with every source file, including the launcher. Add an argv round-trip test, a CLI test, and a Workflow test on a fixture whose expected output is checked by value. | the tests listed in the trace above |
+| 11. Provenance policy registered | A new top-level CLI command goes in `ScientificProvenancePolicy.canonicalCLICommandNames` and gets a `cliCommandPolicies` entry, or `ScientificCLIProvenanceCoverageTests` fails. A command that writes no scientific data is instead added to that test's non-scientific set with a reason. A subcommand that needs its own policy goes in `cliCommandPathPolicies`. A new `NativeTool` case needs a `nativeToolPolicies` entry, or every `NativeToolRunner.run` call for it throws `missingProvenancePolicy` (`requireProvenancePolicy`, line 1145). | `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift`, `Sources/LungfishWorkflow/Native/NativeToolRunner.swift`, `Tests/LungfishCLITests/ScientificCLIProvenanceCoverageTests.swift` |
 
 ### Scientific rules that apply to every operation
 
@@ -85,13 +126,28 @@ A new operation named Foo that writes an `Analyses/` folder touches these places
 
 | Layer | File |
 |---|---|
-| Request type and service | new `FooRequest` and `FooPipeline` types in a domain folder under `Sources/LungfishWorkflow/` |
+| Request type and service | new `FooRequest` and `FooPipeline` types in a domain folder under `Sources/LungfishWorkflow/` (see "Where a new domain goes" below) |
 | Tool availability | the lock manifest `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, and either a `NativeTool` case in `Sources/LungfishWorkflow/Native/NativeToolRunner.swift` or a conda environment run through `Sources/LungfishWorkflow/Conda/CondaManager.swift` (Phase 2 replaces both with one tool descriptor) |
+| Provenance policy | the CLI command and any `NativeTool` case in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` (Rule 11) |
 | CLI command | a new `FooCommand` in `Sources/LungfishCLI/Commands/`, registered in `Sources/LungfishCLI/LungfishCLI.swift` |
 | Operation type | a case in `OperationType` in `Sources/LungfishKit/OperationCenter.swift` if none fits |
-| GUI runner and launcher | a new `CLIFooRunner` in `Sources/LungfishApp/Services/` modeled on `Sources/LungfishApp/Services/CLITreeRunner.swift`, plus a launcher in the owning leaf or App extension (see `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`) |
+| GUI runner and launcher, standalone family | a new `CLIFooRunner` in `Sources/LungfishApp/Services/` modeled on `Sources/LungfishApp/Services/CLITreeRunner.swift`, plus a launcher in the owning leaf or App extension (see `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`) |
+| GUI wiring, FASTQ family | the rows in "What a new FASTQ-input tool adds" above, with no new runner and no hand-written menu item |
 | Result recognition | the tool tables listed in `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` until Phase 2 replaces them |
 | Registry and tests | `docs/user-manual/features.yaml`, plus tests under `Tests/LungfishWorkflowTests`, `Tests/LungfishCLITests` and `Tests/LungfishAppTests` |
+
+### Smaller touch points that are easy to miss
+
+| Touch point | File | When it applies |
+|---|---|---|
+| Analysis entry on the source bundle | `AnalysisManifestStore.recordAnalysis(_:bundleURL:)` in `Sources/LungfishIO/Bundles/AnalysisManifest.swift`, which the Inspector reads in `Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift` | the run reads a project bundle and should appear in that bundle's analysis history. The mapping launchers in `Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift` record it directly or through `MappingResultLayoutService.recordAnalysisManifest`. |
+| Deterministic UI-test backend | `AppUITestConfiguration` in `Sources/LungfishKit/AppUITestConfiguration.swift` and a per-tool backend such as `Sources/LungfishApp/App/AppUITestMappingBackend.swift` | the operation is driven by an XCUI test. The launcher checks `backendMode == .deterministic` and writes a fixed result instead of running the tool. |
+| Managed tool display name and smoke test | `displayName` and `smokeTest` in `Sources/LungfishWorkflow/Conda/ManagedToolLock.swift` | optional. Both have a `default` arm, so add an arm only when the capitalized lock id reads badly or the tool needs a version probe. |
+| Dialog location | `Sources/LungfishApp/Views/<Area>/`, for example `Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift` | the operation has its own dialog or sheet |
+
+### Where a new domain goes
+
+Today a new domain is a folder under `Sources/LungfishWorkflow/`, beside Mapping, Variants and TwelveS. Phase 4d of `docs/plans/2026-10-02-architecture-program.md` splits LungfishWorkflow into a core target and domain targets and creates an empty LungfishRNASeq target. Domain code moves into its target when that target exists. RNA-seq work waits for the Phase 5 prerequisites listed in "Prerequisites that must exist first" in `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`.
 
 ## What changes later in the program
 

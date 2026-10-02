@@ -18,7 +18,7 @@ Copy this file into the plan for a new surface in Lungfish Genome Explorer (LGE)
 
 ## Each operation the surface launches
 
-- [ ] One Workflow service, one CLI command and one GUI runner built on `CLISubprocessTransport`.
+- [ ] One Workflow service, one CLI command, and either a GUI runner built on `CLISubprocessTransport` or a FASTQ dialog tool.
 - [ ] `OperationCenter.shared.begin` with an explicit `operationType`, a non-nil `cliCommand` built from the executed argv, and declared lock scope.
 - [ ] Progress mapped through `OperationCenterCLIBridge`, so the row gets both `update` and `log`.
 - [ ] Cancellation reaches the subprocess without waiting on the running task.
@@ -30,6 +30,13 @@ Copy this file into the plan for a new surface in Lungfish Genome Explorer (LGE)
 - [ ] The producer calls `AnalysesFolder.markAnalysisComplete` and the GUI calls `trackAnalysisOutput`.
 - [ ] Provenance is a `ProvenanceEnvelope` written by `ProvenanceWriter`, with argv, versions, input and output checksums, exit status and wall time.
 - [ ] Alignments are sorted, indexed BAM, and no SAM is left behind.
+
+### Registration and smaller touch points
+
+- [ ] A FASTQ-input tool is a `FASTQOperationToolID` case listed in `toolIDs(for:)`, with no hand-written menu item.
+- [ ] Every new CLI command and `NativeTool` case has an entry in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift`.
+- [ ] A run on a project bundle records an entry with `AnalysisManifestStore.recordAnalysis` so the bundle's Inspector lists it.
+- [ ] An operation driven by XCUI tests has a deterministic backend gated on `AppUITestConfiguration`, like `Sources/LungfishApp/App/AppUITestMappingBackend.swift`.
 
 ## Viewport, Inspector and sidebar
 

@@ -44,13 +44,14 @@ LungfishCLI sits beside the UI stack and imports only Core, IO and Workflow. Lun
 | Tool execution and pinned tool versions | `Sources/LungfishWorkflow/Native/NativeToolRunner.swift`, `Sources/LungfishWorkflow/Conda/CondaManager.swift`, `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json` |
 | Operations panel and bundle locks | `Sources/LungfishKit/OperationCenter.swift` |
 | Running `lungfish-cli` from the app | `Sources/LungfishKit/CLISubprocessTransport.swift` and `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift` |
+| FASTQ operations dialog execution | `Sources/LungfishApp/Services/FASTQOperationExecutionService.swift`, with `FASTQOperationPlanner`, `FASTQOperationCLIInvocationBuilder` and `FASTQOperationOutputImporter` beside it |
 | CLI commands | `Sources/LungfishCLI/Commands`, registered in `Sources/LungfishCLI/LungfishCLI.swift` |
 | CLI progress events | `Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift` |
 | Provenance | `Sources/LungfishWorkflow/Provenance/ProvenanceEnvelope.swift` |
 | File formats | `Sources/LungfishIO/Formats` and `Sources/LungfishIO/Registry/FormatRegistry.swift` |
 | Sidebar routing | `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift` and `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift` |
 | Viewer slots | `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift` and its `ViewerViewController+<Feature>.swift` extensions |
-| Menus | `Sources/LungfishApp/App/MainMenu.swift` and `Sources/LungfishApp/App/ToolsMenuModel.swift` |
+| Menus | `Sources/LungfishApp/App/MainMenu.swift`. Tools menu read tools are generated from `FASTQOperationToolID` in `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift` through `WorkflowLibraryCatalog.builtIn` and `ToolsMenuModel.build`, so add a case and a `toolIDs(for:)` entry, never a menu item |
 | Test helpers | `Tests/Support/LungfishTestSupport` |
 
 ## Binding rules
@@ -64,6 +65,7 @@ These rules are not optional. Each one exists because breaking it caused a shipp
 | Provenance envelope is mandatory | Every operation writes a provenance record through `ProvenanceEnvelope`. A run without provenance is a defect. |
 | BAM, never SAM | Alignments are stored as sorted, indexed BAM. Convert any SAM with samtools sort and index, then delete the SAM. |
 | Materialize virtual FASTQ first | A virtual FASTQ bundle holds only `preview.fastq`. Materialize it with `FASTQCLIMaterializer` before any classifier or mapper runs. |
+| Provenance policy registered | A new top-level CLI command needs an entry in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` or `ScientificCLIProvenanceCoverageTests` fails. A new `NativeTool` case without a `nativeToolPolicies` entry makes `NativeToolRunner` throw `missingProvenancePolicy`. |
 | Viral Recon binds `.lungfishref` | The Viral Recon viewport binds a `.lungfishref` bundle whose manifest registers the BAM. It never opens a loose BAM. |
 
 One more habit matters. Call both `OperationCenter.shared.update` and `OperationCenter.shared.log` from a running operation, because only logged lines persist in the row history.

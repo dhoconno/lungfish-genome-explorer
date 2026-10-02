@@ -16,7 +16,7 @@ Declare the leaf in `Package.swift` next to `LungfishTwelveSUI`. A leaf depends 
 
 ### 2. Domain code and result type
 
-Scientific logic and the on-disk result type do not belong in the leaf. Put the computation in a Workflow domain folder and the result reader in LungfishIO or the domain, so the CLI can produce and read the same result. A leaf reads results and presents them. It never runs a tool.
+Scientific logic and the on-disk result type do not belong in the leaf. Put the computation in a domain folder under `Sources/LungfishWorkflow/` and the result reader in LungfishIO or the domain, so the CLI can produce and read the same result. Phase 4d turns domains into separate targets, and code moves when its target exists. A leaf reads results and presents them. It never runs a tool.
 
 ### 3. Viewport class
 
@@ -43,6 +43,8 @@ Until Phase 3 lands the `ResultViewport` protocol and the surface registry in Lu
 | Display and hide methods | a new `ViewerViewController+<Name>.swift` in `Sources/LungfishApp/Views/Viewer/` | a display method that hides every other viewport, a hide method, and a call to your hide method in every other display method | Phase 3a |
 | Drawer and toolbar state | `Sources/LungfishApp/Views/MainWindow/MainWindowController.swift` | an arm in `toggleAnnotationDrawer` if the viewport has its own drawer | Phase 3a |
 | Inspector document | `Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift` | an update method like `updateTwelveSAmpliconResultDocument` | Phase 3a, sections come from the viewport |
+| Tools menu and FASTQ dialog, if the operation reads FASTQ | `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift`, `Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift` and `Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift` | a `FASTQOperationToolID` case with its arms and a `toolIDs(for:)` entry. The menu is generated from these, so never add a menu item by hand. The full list is in "What a new FASTQ-input tool adds" in `docs/contracts/ADDING-AN-OPERATION.md` | Phase 3d `OperationLauncher` |
+| Provenance policy | `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` | the CLI command and every new `NativeTool` case, or the coverage test fails and the tool refuses to run | stays |
 | Launch glue | an `AppDelegate+<Area>.swift` file in `Sources/LungfishApp/App/` or an `InspectorViewController+<Area>.swift` file in `Sources/LungfishApp/Views/Inspector/` | the dialog presentation and the operation launcher | Phase 2d executor and Phase 3d `OperationLauncher` |
 | Inspector tab by filename prefix | `Sources/LungfishApp/App/AppDelegate.swift`, lines 301 to 305 | a `hasPrefix` arm if the result should keep its own Inspector tab after download | Phase 3b |
 | Analyses folder recognition | `Sources/LungfishIO/Bundles/AnalysesFolder.swift` | the tool id in `knownTools`, a `displayName(for:)` arm, and a `probeToolType(in:)` signature | Phase 2c, tool descriptor registry |
@@ -72,7 +74,7 @@ Do not write STAR, HISAT2, salmon, kallisto, featureCounts or R code until these
 
 ### Targets and commands
 
-LungfishRNASeq is a Workflow domain target. It holds request types, pipelines, the count-matrix builder and the DE runner, with no AppKit. LungfishRNASeqUI is a leaf on LungfishKit that holds the viewports, Inspector sections and row commands. The CLI gets one command group with a subcommand per stage (index, align, quant, count, de). Each subcommand is a complete operation under `docs/contracts/ADDING-AN-OPERATION.md`, so a user can rerun any stage from the copied command.
+LungfishRNASeq is the RNA-seq domain target. Phase 4d creates it empty when it splits LungfishWorkflow into domain targets, and Phase 5e builds the surface in it, so RNA-seq code never starts as a folder under `Sources/LungfishWorkflow/`. Any other new domain is still a folder there until Phase 4d. LungfishRNASeq holds request types, pipelines, the count-matrix builder and the DE runner, with no AppKit. LungfishRNASeqUI is a leaf on LungfishKit that holds the viewports, Inspector sections and row commands. The CLI gets one command group with a subcommand per stage (index, align, quant, count, de). Each subcommand is a complete operation under `docs/contracts/ADDING-AN-OPERATION.md`, so a user can rerun any stage from the copied command.
 
 ### Stage 1. Reference index build
 

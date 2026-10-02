@@ -21,6 +21,7 @@ Add to these. Never write a second copy in the CLI or the app.
 | EsViritu viral detection | `EsVirituPipeline` | Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline.swift line 338 |
 | TaxTriage | `TaxTriagePipeline` | Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift line 144 |
 | Provenance record format | `ProvenanceEnvelope` | Sources/LungfishWorkflow/Provenance/ProvenanceEnvelope.swift line 52 |
+| Provenance policy per CLI command and native tool | `ScientificProvenancePolicy` | Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift line 60 |
 | Provenance recording and writing | `ProvenanceRecorder`, `ProvenanceWriter` | Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift line 46, ProvenanceWriter.swift line 146 |
 | Virtual FASTQ materialization | `FASTQCLIMaterializer` | Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift line 26 |
 | Multiple sequence alignment | `MAFFTAlignmentPipeline` | Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift line 93 |
@@ -30,7 +31,7 @@ Add to these. Never write a second copy in the CLI or the app.
 | Nextflow launch environment | `WorkflowEngineLaunch.resolve` | Sources/LungfishWorkflow/WorkflowEngineLaunch.swift line 56 |
 | CLI progress events | `CLIEvent` | Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift line 19 |
 
-Domain subtrees, largest first, are ONTGenotyping (47.7K lines), Metagenomics (18.3K), PrimerDesign (10.1K), Mapping, Variants, Alignment, Assembly, TwelveS, TaxTriage, MSA and ViralRecon. Infrastructure subtrees are Provenance, Conda, Native, Engines, Containers, Ingestion, Extraction and Storage. Tool versions come only from Resources/ManagedTools/third-party-tools-lock.json.
+A new domain is a folder here until Phase 4d splits domains into their own targets (RNA-seq waits for its LungfishRNASeq target, see docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md). Domain subtrees, largest first, are ONTGenotyping (47.7K lines), Metagenomics (18.3K), PrimerDesign (10.1K), Mapping, Variants, Alignment, Assembly, TwelveS, TaxTriage, MSA and ViralRecon. Infrastructure subtrees are Provenance, Conda, Native, Engines, Containers, Ingestion, Extraction and Storage. Tool versions come only from Resources/ManagedTools/third-party-tools-lock.json.
 
 ## Where a Kraken2 run starts here
 
@@ -58,6 +59,7 @@ Target LungfishWorkflowTests in Tests/LungfishWorkflowTests, with subfolders tha
 | Mapper indexes are rebuilt per run inside the output folder | Mapping/ManagedMappingPipeline.swift lines 521 to 539 (R17) |
 | Provenance still emits a legacy run inside the envelope | Provenance/ProvenanceEnvelope.swift lines 81, 82, 113 and 139 (R8) |
 | Two public enums named SequencingPlatform | Recipes/SequencingPlatform.swift line 42 and LungfishIO/Formats/FASTQ/SequencingPlatform.swift line 12 (R15) |
+| A new `NativeTool` case without a `nativeToolPolicies` entry makes every run of it throw `missingProvenancePolicy` | Provenance/ScientificProvenancePolicy.swift line 208, Native/NativeToolRunner.swift line 1145 |
 | Install paths with spaces break samtools and ivar pipes, so conda lives under ~/.lungfish/conda | memory file project_conda_plugins.md |
 
 Do not change pipeline, runner, provenance or materializer logic without reference outputs captured first (plan, "What must NOT be changed tonight").

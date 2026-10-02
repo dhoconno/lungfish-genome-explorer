@@ -4,7 +4,7 @@ These documents are the written rules for extending Lungfish Genome Explorer (LG
 
 | Contract | Read it when you |
 |---|---|
-| `docs/contracts/ADDING-AN-OPERATION.md` | add or change anything that runs a tool or writes scientific output |
+| `docs/contracts/ADDING-AN-OPERATION.md` | add or change anything that runs a tool or writes scientific output, including a new tool in the FASTQ operations dialog or a new CLI command that needs a provenance policy |
 | `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` | add a new kind of result with its own viewport, Inspector sections and sidebar entry, including the RNA-seq surface |
 | `docs/contracts/analysis-surface-checklist.md` | need the copyable per-surface checklist to paste into a plan |
 | `docs/contracts/CONCURRENCY-PLAYBOOK.md` | move work off the main actor, report progress, or apply a result that might be stale |
