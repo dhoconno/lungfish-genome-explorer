@@ -146,4 +146,36 @@ final class FASTQBundleRootSequenceURLsTests: XCTestCase {
         let validated = try FASTQBundle.validatedBundleMemberURL(for: relative, in: multi.bundle, field: "rootFASTQFilename")
         XCTAssertEqual(validated.standardizedFileURL.path, multi.chunks[1].standardizedFileURL.path)
     }
+
+    /// The manifest's integrity and staleness reports follow the same
+    /// resolution as the materializer, so a derivative over a multi-file
+    /// root that recorded the bare chunk name is intact, a change to any
+    /// member makes it stale, and a root missing a member is not intact.
+    func testIntegrityAndStalenessCheckEveryRootFile() throws {
+        let multi = try makeMultiFileBundle()
+        let derived = root.appendingPathComponent("subset.lungfishfastq")
+        try FileManager.default.createDirectory(at: derived, withIntermediateDirectories: true)
+        try "m1\n".write(to: derived.appendingPathComponent("read-ids.txt"), atomically: true, encoding: .utf8)
+        let operation = FASTQDerivativeOperation(kind: .searchText, query: "m")
+        let manifest = FASTQDerivedBundleManifest(
+            name: "subset",
+            parentBundleRelativePath: "multi.lungfishfastq",
+            rootBundleRelativePath: "multi.lungfishfastq",
+            rootFASTQFilename: "run_0.fastq",
+            payload: .subset(readIDListFilename: "read-ids.txt"),
+            lineage: [operation],
+            operation: operation,
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 10),
+            pairingMode: .singleEnd
+        )
+        XCTAssertTrue(manifest.validateIntegrity(bundleURL: derived).rootPayloadFileExists, "the bare name resolves to the members, which exist")
+        XCTAssertEqual(manifest.isStale(bundleURL: derived), false, "no member changed after the derivative was made")
+
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: multi.chunks[1].path)
+        XCTAssertEqual(manifest.isStale(bundleURL: derived), true, "a change to a member other than the recorded one")
+
+        try FileManager.default.removeItem(at: multi.chunks[1])
+        XCTAssertFalse(manifest.validateIntegrity(bundleURL: derived).rootPayloadFileExists, "a root missing a member is not intact")
+        XCTAssertNil(manifest.isStale(bundleURL: derived), "staleness is unknown for a root missing a member")
+    }
 }
