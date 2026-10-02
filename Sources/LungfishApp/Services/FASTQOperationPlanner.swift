@@ -3,19 +3,6 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
-enum FASTQOperationExecutionOutputKind: Sendable, Equatable {
-    case fastqFile
-    case directory
-    case jsonReport
-}
-
-struct FASTQOperationPlan: Sendable, Equatable {
-    let originalRequest: FASTQOperationLaunchRequest
-    let resolvedRequest: FASTQOperationLaunchRequest
-    let outputTarget: URL
-    let outputKind: FASTQOperationExecutionOutputKind
-}
-
 struct FASTQOperationPlanner: Sendable {
     func executionOutputDirectory(
         for request: FASTQOperationLaunchRequest,
