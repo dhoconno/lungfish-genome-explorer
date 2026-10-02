@@ -626,91 +626,88 @@ extension AppDelegate {
             return
         }
 
-        let opID = OperationCenter.shared.start(
-            title: "NVD Import",
-            detail: "Importing \(url.lastPathComponent)...",
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "import",
-                args: ["nvd", url.path, "--output-dir", importsDir.path]
-            ),
+        let began = Self.beginNvdImportOperation(
+            sourceURL: url,
+            importsDirectory: importsDir,
             routeContext: routeContext
-        )
-
-        onDispatch?(.started)
-        let task = Task.detached { [weak self] in
-            do {
-                let result = try await MetagenomicsImportHelperClient.importViaCLI(
-                    kind: .nvd,
-                    inputURL: url,
-                    outputDirectory: importsDir
-                ) { progress, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(
-                                id: opID,
-                                progress: progress,
-                                detail: message
-                            )
+        ) { opID in
+            onDispatch?(.started)
+            let task = Task.detached { [weak self] in
+                do {
+                    let result = try await MetagenomicsImportHelperClient.importViaCLI(
+                        kind: .nvd,
+                        inputURL: url,
+                        outputDirectory: importsDir
+                    ) { progress, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                _ = OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: progress,
+                                    detail: message
+                                )
+                            }
                         }
                     }
-                }
 
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard OperationCenter.shared.complete(
-                            id: opID,
-                            detail: result.detail,
-                            bundleURLs: [result.resultDirectory]
-                        ) else { return }
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .info,
-                            message: "NVD import complete: \(result.resultDirectory.lastPathComponent)"
-                        )
-                        self?.targetMainWindowController(routeContext: routeContext)?
-                            .mainSplitViewController?.sidebarController.requestReloadFromFilesystem()
-                    }
-                }
-            } catch is CancellationError {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.acknowledgeCancellation(id: opID)
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .info,
-                            message: "NVD import cancelled"
-                        )
-                    }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        if let partialDir = (error as? MetagenomicsImportHelperClientError)?
-                            .partialResultDirectory {
-                            try? FileManager.default.removeItem(at: partialDir)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.complete(
+                                id: opID,
+                                detail: result.detail,
+                                bundleURLs: [result.resultDirectory]
+                            ) else { return }
                             OperationCenter.shared.log(
                                 id: opID,
                                 level: .info,
-                                message: "Cleaned up partial NVD import directory"
+                                message: "NVD import complete: \(result.resultDirectory.lastPathComponent)"
+                            )
+                            self?.targetMainWindowController(routeContext: routeContext)?
+                                .mainSplitViewController?.sidebarController.requestReloadFromFilesystem()
+                        }
+                    }
+                } catch is CancellationError {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.acknowledgeCancellation(id: opID)
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "NVD import cancelled"
                             )
                         }
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .error,
-                            message: "NVD import failed: \(error.localizedDescription)"
-                        )
-                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                        self?.showAlert(
-                            title: "NVD Import Failed",
-                            message: error.localizedDescription,
-                            presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
-                        )
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            if let partialDir = (error as? MetagenomicsImportHelperClientError)?
+                                .partialResultDirectory {
+                                try? FileManager.default.removeItem(at: partialDir)
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .info,
+                                    message: "Cleaned up partial NVD import directory"
+                                )
+                            }
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .error,
+                                message: "NVD import failed: \(error.localizedDescription)"
+                            )
+                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                            self?.showAlert(
+                                title: "NVD Import Failed",
+                                message: error.localizedDescription,
+                                presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
+        if case .refused(let refusal) = began { onDispatch?(.rejected(refusal.message)) }
     }
 
     @objc func launchOrientReads(_ sender: Any?) {
@@ -769,45 +766,35 @@ extension AppDelegate {
                     )
                 bundleURL = finalBundleURL
 
-                let cliCmd = OperationCenter.buildCLICommand(
-                    subcommand: "import",
-                    args: [
-                        "cz-id",
-                        url.path,
-                        "--project",
-                        projectURL.standardizedFileURL.path,
-                        "--sample-name",
-                        sampleName,
-                    ]
-                )
-                opID = await appPerformOnMainRunLoop {
-                    OperationCenter.shared.start(
-                        title: "CZ-ID Import",
-                        detail: "Converting \(preview.reportFileName)...",
-                        cliCommand: cliCmd,
+                // The row, its Cancel button and its first progress line are
+                // set up in one main-actor turn. Without the callback the
+                // Operations panel shows no Cancel button, and a hung import
+                // can only be ended by quitting the app. `taskBox.task` is set
+                // to this very task right after `Task.detached` returns below,
+                // and the callback only reads it when the user cancels.
+                let began = await appPerformOnMainRunLoop {
+                    AppDelegate.beginCzIdImportOperation(
+                        sourceURL: url,
+                        projectURL: projectURL,
+                        sampleName: sampleName,
+                        reportFileName: preview.reportFileName,
                         routeContext: routeContext
-                    )
-                }
-                // Without this the Operations panel shows no Cancel
-                // button for this row, and a stalled import can only be
-                // ended by quitting the app. `taskBox.task` is set to this
-                // very task right after `Task.detached` returns below, and
-                // this line cannot run before that assignment happens.
-                if let opID {
-                    await appPerformOnMainRunLoop {
-                        OperationCenter.shared.setCancelCallback(for: opID) { taskBox.task?.cancel() }
-                    }
-                }
-
-                if let opID {
-                    await appPerformOnMainRunLoop {
+                    ) { startedID in
+                        OperationCenter.shared.setCancelCallback(for: startedID) { taskBox.task?.cancel() }
                         onDispatch?(.started)
                         _ = OperationCenter.shared.updateWithLog(
-                            id: opID,
+                            id: startedID,
                             progress: 0.35,
                             detail: "Converting \(preview.reportFileName)..."
                         )
                     }
+                }
+                switch began {
+                case .started(let startedID):
+                    opID = startedID
+                case .refused(let refusal):
+                    await appPerformOnMainRunLoop { onDispatch?(.rejected(refusal.message)) }
+                    return
                 }
 
                 let imported = try await CzIdProjectImportWorkflow.importFromURL(
@@ -1040,7 +1027,7 @@ extension AppDelegate {
     @discardableResult
     static func reportViralReconLaunchFailure(
         _ error: Error,
-        operationCenter: OperationCenter = .shared,
+        operationCenter: any OperationReporting = OperationCenter.shared,
         routeContext: OperationRouteContext?
     ) -> UUID? {
         if error is CancellationError { return nil }
@@ -1048,24 +1035,22 @@ extension AppDelegate {
             return nil
         }
         let reason = error.localizedDescription
-        let operationID = operationCenter.start(
-            title: "Viral Recon",
-            detail: "Starting Viral Recon",
-            operationType: .viralRecon,
-            routeContext: routeContext
-        )
-        operationCenter.log(
-            id: operationID,
-            level: .error,
-            message: "Viral Recon could not start: \(reason)"
-        )
-        _ = operationCenter.fail(
-            id: operationID,
-            detail: reason,
-            errorMessage: "Viral Recon could not start",
-            errorDetail: reason
-        )
-        return operationID
+        return Self.beginViralReconLaunchFailureOperation(
+            routeContext: routeContext,
+            reporter: operationCenter
+        ) { operationID in
+            operationCenter.log(
+                id: operationID,
+                level: .error,
+                message: "Viral Recon could not start: \(reason)"
+            )
+            _ = operationCenter.fail(
+                id: operationID,
+                detail: reason,
+                errorMessage: "Viral Recon could not start",
+                errorDetail: reason
+            )
+        }.startedID
     }
 
     private func runManagedMapping(
@@ -1219,24 +1204,17 @@ extension AppDelegate {
             }
         }
 
-        // The copied command names the bundles the user chose and leaves
-        // --read-layout in auto: `lungfish-cli map` resolves the layout with
-        // the same FASTQInputLayoutResolver this run uses below.
-        let opID = OperationCenter.shared.start(
-            title: "Map Reads (\(request.tool.displayName)): \(request.sampleName)",
-            detail: "Mapping \(request.inputFASTQURLs.count) file(s) to \(request.referenceFASTAURL.lastPathComponent)",
-            operationType: .mapping,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "map",
-                args: MappingCLIInvocationBuilder.arguments(for: request)
-            ),
-            routeContext: routeContext
-        )
-        if let ownedAnalysisDirectory { OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory, for: opID) }
-        registerCancel(opID)
+        let began = Self.beginManagedMappingOperation(request: request, routeContext: routeContext) { opID in
+            if let ownedAnalysisDirectory { OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory, for: opID) }
+            registerCancel(opID)
 
-        if let warning {
-            OperationCenter.shared.log(id: opID, level: .warning, message: warning)
+            if let warning {
+                OperationCenter.shared.log(id: opID, level: .warning, message: warning)
+            }
+        }
+        guard let opID = began.startedID else {
+            discardOwnedAnalysisDirectory()
+            return false
         }
 
         do {
@@ -1401,48 +1379,38 @@ extension AppDelegate {
             extraArguments: request.extraArguments,
             includedSequenceNames: request.includedSequenceNames
         )
-        let cliCommand = OperationCenter.buildCLICommand(
-            subcommand: "align",
-            args: Array(cliArgs.dropFirst())
-        )
-        let opID = OperationCenter.shared.start(
-            title: "Align Sequences (MAFFT)",
-            detail: "Preparing MAFFT alignment...",
-            operationType: .multipleSequenceAlignmentGeneration,
-            cliCommand: cliCommand,
-            routeContext: routeContext
-        )
-
-        let runner = CLIMSAAlignmentRunner()
-        let task = Task.detached { [weak self] in
-            do {
-                let result = try await runner.run(
-                    arguments: cliArgs,
-                    operationID: opID
-                )
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    guard OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "MAFFT complete: \(result.rowCount) rows, \(result.alignedLength) columns",
-                        bundleURLs: [result.bundleURL]
-                    ) else { return }
-                    self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
-                        .sidebarController.requestReloadFromFilesystem()
-                }}
-            } catch {
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(
-                        id: opID,
-                        detail: error.localizedDescription,
-                        errorMessage: error.localizedDescription,
-                        errorDetail: "\(error)"
+        Self.beginMAFFTAlignmentOperation(cliArguments: cliArgs, routeContext: routeContext) { opID in
+            let runner = CLIMSAAlignmentRunner()
+            let task = Task.detached { [weak self] in
+                do {
+                    let result = try await runner.run(
+                        arguments: cliArgs,
+                        operationID: opID
                     )
-                }}
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        guard OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "MAFFT complete: \(result.rowCount) rows, \(result.alignedLength) columns",
+                            bundleURLs: [result.bundleURL]
+                        ) else { return }
+                        self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
+                            .sidebarController.requestReloadFromFilesystem()
+                    }}
+                } catch {
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        _ = OperationCenter.shared.fail(
+                            id: opID,
+                            detail: error.localizedDescription,
+                            errorMessage: error.localizedDescription,
+                            errorDetail: "\(error)"
+                        )
+                    }}
+                }
             }
-        }
-        OperationCenter.shared.setCancelCallback(for: opID) {
-            task.cancel()
-            runner.cancel()
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                task.cancel()
+                runner.cancel()
+            }
         }
     }
 
