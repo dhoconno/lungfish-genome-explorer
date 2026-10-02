@@ -14,6 +14,7 @@ This contract covers the short videos about Lungfish Genome Explorer (LGE) in `s
 | `screencasts/<slug>/takes/` | Raw window recordings | no, internal LabKey area |
 | `screencasts/<slug>/out/` | Renders, posters, contact sheets and render fingerprints | no |
 | `docs/site/videos.qmd`, `docs/site/videos/<slug>.vtt` | The Videos page and its caption tracks | yes, generated |
+| `docs/site/index.qmd`, between `videos:begin` and `videos:end` | The video list at the bottom of the home page, where most visitors land | yes, generated (the rest of the page is hand-written) |
 
 Shared pieces live in `screencasts/_shared/`. These are the brand tokens, the overlay templates, the window recorder, `site.yaml` (page intro and section order) and `video-template.yaml` (a commented spec to copy).
 
@@ -27,7 +28,7 @@ Shared pieces live in `screencasts/_shared/`. These are the brand tokens, the ov
 | Spoken forms come from the lexicon | Abbreviations, accessions, units, genotypes and lone base letters are rewritten in `narration.lexicon`, never misspelled in the narration text. See Pronunciation. |
 | Prose rules everywhere | Captions, narration and page text follow the documentation prose rules. `render.py` lints every on-screen and spoken string. |
 | Public area holds the current cut only | One wide render and one poster per video, overwritten in place. Scan the contact sheet for home-folder paths and unrelated rows before publishing. |
-| The page is generated | Never edit `docs/site/videos.qmd` by hand. Change `site.yaml` or the spec and run `publish.py --page`. |
+| The pages are generated | Never edit `docs/site/videos.qmd` or the home page video list by hand. Change `site.yaml` or the spec and run `publish.py --page`. |
 
 ## Making a new video
 
@@ -59,7 +60,7 @@ Status is one of open, changed (rendered, not yet published), published with a d
 | Pace, a frozen frame, framing | `in`, `duration`, `zoom`, `crop`, `highlights`, `blur` | no | yes | yes |
 | Voice or delivery overall | `narration` settings in every learner spec, and `VOICES.md` | no | yes, every line | yes |
 | Wrong or outdated app footage | re-film the beat as its `capture` says, update `filmed_with` | yes | yes | yes |
-| Page wording or order | `site.summary`, `site.section`, `_shared/site.yaml` | no | no | `publish.py --page` |
+| Page wording or order | `site.summary`, `site.heading`, `site.section`, `_shared/site.yaml` | no | no | `publish.py --page` |
 
 A narrated beat grows to fit its line, and the picture holds its last frame until the line ends. When narration outruns the footage by more than a few seconds, record a longer take or shorten the line rather than leaving a long frozen frame.
 
@@ -80,10 +81,10 @@ python3 screencasts/publish.py screencasts/<slug>/video.yaml          # checks a
 python3 screencasts/publish.py screencasts/<slug>/video.yaml --yes    # uploads and updates the repository files
 ```
 
-The dry run refuses a render made from a different spec or from re-filmed takes (it compares the fingerprint `render.py` writes beside each render), a render made with a draft voice, a spec without a `site` entry, and page text that breaks the prose rules. Review the contact sheet before `--yes`. With `--yes` the script uploads the render and poster over the public copies, checks an anonymous download byte for byte, and rewrites `published.yaml`, `large-files.tsv`, the captions, the transcript and the Videos page. Raw takes go to the internal area separately with `scripts/lge-files/lge-files.sh --internal sync`.
+The dry run refuses a render made from a different spec or from re-filmed takes (it compares the fingerprint `render.py` writes beside each render), a render made with a draft voice, a spec without a `site` entry, and page text that breaks the prose rules. Review the contact sheet before `--yes`. With `--yes` the script uploads the render and poster over the public copies, checks an anonymous download byte for byte, and rewrites `published.yaml`, `large-files.tsv`, the captions, the transcript, the Videos page and the home page video list. Raw takes go to the internal area separately with `scripts/lge-files/lge-files.sh --internal sync`.
 
 Commit the video folder and `docs/site`, then push `main`. The site workflow redeploys when `docs/site` changes. Until it does, the new render plays with the old caption timings, so publish and push in one sitting.
 
 ## How this contract is kept honest
 
-`python3 screencasts/publish.py --check` runs in the pre-push hook. It fails when the Videos page is not what the specs generate, when a site caption track differs from the video's `captions.vtt` or belongs to no published video, when `large-files.tsv` has no public row with the published checksums, or when a published video used the draft voice. It reads the working tree, so commit every file `publish.py` wrote before pushing.
+`python3 screencasts/publish.py --check` runs in the pre-push hook. It fails when the Videos page or the home page video list is not what the specs generate, when a site caption track differs from the video's `captions.vtt` or belongs to no published video, when `large-files.tsv` has no public row with the published checksums, or when a published video used the draft voice. It reads the working tree, so commit every file `publish.py` wrote before pushing.
