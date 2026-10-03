@@ -11,8 +11,8 @@
 // materializer now writes a sidecar beside such a file recording its merged
 // reads, so the scan says mixed and `fastq merge` splits it by read name.
 //
-// The bundle's pairs are interleaved with reformat.sh and merged with
-// bbmerge, so the test skips when the managed BBTools are missing.
+// fastq merge runs bbmerge, so the test skips when the managed bbmerge is
+// missing.
 
 import ArgumentParser
 import Foundation
@@ -103,9 +103,8 @@ final class FastqMergeMaterializedMixedBundleTests: XCTestCase {
     /// bbmerge paired m1 with m2 by position. The scan now says mixed, and
     /// `fastq merge` passes m1 to m3 through unchanged.
     func testMergeOfALargeMaterializedMergeBundleSplitsByNameAndPassesMergedReadsThrough() async throws {
-        guard await NativeToolRunner.shared.isToolAvailable(.reformat),
-              await NativeToolRunner.shared.isToolAvailable(.bbmerge) else {
-            try ToolAvailability.skipOrFail("managed BBTools (reformat.sh, bbmerge.sh) are not installed")
+        guard await NativeToolRunner.shared.isToolAvailable(.bbmerge) else {
+            try ToolAvailability.skipOrFail("managed bbmerge.sh is not installed")
         }
         let bundle = try makeMergeBundle()
         let scratch = root.appendingPathComponent("scratch", isDirectory: true)

@@ -133,7 +133,7 @@ public final class FASTQCLIMaterializer: Sendable {
                   FileManager.default.fileExists(atPath: r2URL.path) else {
                 throw FASTQCLIMaterializerError.sourceFASTQMissing
             }
-            try await interleaveWithReformat(r1URL: r1URL, r2URL: r2URL, outputURL: outputURL)
+            try interleaveMates(r1URL: r1URL, r2URL: r2URL, outputURL: outputURL)
             return outputURL
 
         case .fullMixed(let classification):
@@ -528,30 +528,6 @@ public final class FASTQCLIMaterializer: Sendable {
         let result = try await runner.run(.seqkit, arguments: args, timeout: timeout)
         guard result.isSuccess else {
             throw FASTQCLIMaterializerError.toolFailed("seqkit grep", result.stderr)
-        }
-    }
-
-    // MARK: - fullPaired interleave
-
-    func interleaveWithReformat(r1URL: URL, r2URL: URL, outputURL: URL) async throws {
-        let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
-        let env = CoreToolLocator.bbToolsEnvironment(
-            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
-            existingPath: existingPath
-        )
-        let result = try await runner.run(
-            .reformat,
-            arguments: [
-                "in1=\(r1URL.path)",
-                "in2=\(r2URL.path)",
-                "out=\(outputURL.path)",
-                "interleaved=t",
-            ],
-            environment: env,
-            timeout: 1800
-        )
-        guard result.isSuccess else {
-            throw FASTQCLIMaterializerError.toolFailed("reformat.sh", result.stderr)
         }
     }
 

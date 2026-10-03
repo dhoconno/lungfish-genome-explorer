@@ -12,8 +12,7 @@
 // (pairs interleaved, then merged reads, then single reads), whether the
 // child records that bundle as its root or, written earlier, the raw import.
 //
-// Subsets run seqkit and the merge bundle's pair is interleaved with
-// reformat.sh, so the tests skip when either managed tool is missing.
+// Subsets run seqkit, so the tests skip when the managed seqkit is missing.
 
 import Foundation
 import XCTest
@@ -37,9 +36,6 @@ final class FASTQCLIMaterializerDerivedRootTests: XCTestCase {
     private func requireTools() async throws {
         guard await NativeToolRunner.shared.isToolAvailable(.seqkit) else {
             try ToolAvailability.skipOrFail("managed seqkit is not installed (subsets are materialized with it)")
-        }
-        guard await NativeToolRunner.shared.isToolAvailable(.reformat) else {
-            try ToolAvailability.skipOrFail("managed reformat.sh is not installed (the merge bundle's pair is interleaved with it)")
         }
     }
 

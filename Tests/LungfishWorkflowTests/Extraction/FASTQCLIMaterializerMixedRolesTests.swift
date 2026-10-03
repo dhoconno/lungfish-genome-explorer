@@ -6,7 +6,7 @@
 // missing merged or unpaired file without a word, and dropped the R1 reads
 // when the manifest named no R2 (D3, Phase 1.5 lane A7). Every listed file of
 // every role is now read, and a missing file or an R1 without its R2 throws.
-// These cases need no pairs interleaved, so they run without reformat.sh.
+// These cases need no external tool.
 
 import Foundation
 import XCTest
@@ -143,7 +143,7 @@ final class FASTQCLIMaterializerMixedRolesTests: XCTestCase {
         }
     }
 
-    /// A missing R2 file throws before reformat.sh runs, naming the file.
+    /// A missing R2 file throws before the pair is interleaved, naming the file.
     func testAMissingR2FileThrowsNamingIt() async throws {
         let bundle = try makeMixedBundle(
             entries: [

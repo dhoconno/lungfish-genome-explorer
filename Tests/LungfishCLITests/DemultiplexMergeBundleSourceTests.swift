@@ -10,9 +10,8 @@
 // A7). The barcode bundles now root at the merge bundle, and their preview
 // and statistics come from the demultiplexed reads.
 //
-// The exact-bare engine and the subset run seqkit, and the merge bundle's
-// pair is interleaved with reformat.sh, so the test skips when either
-// managed tool is missing.
+// The exact-bare engine and the subset run seqkit, so the test skips when
+// the managed seqkit is missing.
 
 import ArgumentParser
 import Foundation
@@ -38,9 +37,6 @@ final class DemultiplexMergeBundleSourceTests: XCTestCase {
     private func requireTools() async throws {
         guard await NativeToolRunner.shared.isToolAvailable(.seqkit) else {
             try ToolAvailability.skipOrFail("managed seqkit is not installed")
-        }
-        guard await NativeToolRunner.shared.isToolAvailable(.reformat) else {
-            try ToolAvailability.skipOrFail("managed reformat.sh is not installed")
         }
     }
 
