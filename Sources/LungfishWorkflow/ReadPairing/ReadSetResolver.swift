@@ -361,11 +361,20 @@ public struct ReadSetResolver: Sendable {
         } else {
             resolution = FASTQInputLayoutResolver.resolve(inputURLs: [file])
         }
+        // The scan reads a bounded number of records. The whole-file count
+        // of a materialization outranks it, so pairs followed by single reads
+        // past the scan limit (the D2 shape) are mixed, never strict pairs.
+        var layout = resolution.layout
+        var layoutReason = resolution.reason
+        if let counts = materializedCounts, counts.pairs > 0, counts.unpaired > 0, layout != .mixedMergedAndPairs {
+            layout = .mixedMergedAndPairs
+            layoutReason = "The whole file holds \(counts.pairs) adjacent mate pairs and \(counts.unpaired) reads without a mate, so it mixes pairs and single reads. \(resolution.reason)"
+        }
         // A classification in the L3 form, every role naming this file,
         // records the counts of its kinds of records.
         let ownClassification = wasMaterialized ? nil : Self.singleFileClassification(of: file)
         let evidence = roleEvidence ?? ownClassification
-        switch resolution.layout {
+        switch layout {
         case .strictlyInterleaved:
             return ReadSetSource(
                 parts: [.pair(ReadSetMatePair(
@@ -373,7 +382,7 @@ public struct ReadSetResolver: Sendable {
                     pairCount: materializedCounts?.pairs ?? ownClassification.map { $0.pairedReadCount / 2 }
                 ))],
                 layout: .interleavedFile,
-                reason: resolution.reason,
+                reason: layoutReason,
                 platform: platform,
                 wasMaterialized: wasMaterialized
             )
@@ -387,7 +396,7 @@ public struct ReadSetResolver: Sendable {
                     singleReadRole: Self.singleReadRole(from: evidence)
                 ))],
                 layout: .mixedFile,
-                reason: resolution.reason,
+                reason: layoutReason,
                 platform: platform,
                 wasMaterialized: wasMaterialized
             )
@@ -399,7 +408,7 @@ public struct ReadSetResolver: Sendable {
                     readCount: materializedCounts.map { $0.pairs * 2 + $0.unpaired }
                 ))],
                 layout: .singleEndFile,
-                reason: resolution.reason,
+                reason: layoutReason,
                 platform: platform,
                 wasMaterialized: wasMaterialized
             )

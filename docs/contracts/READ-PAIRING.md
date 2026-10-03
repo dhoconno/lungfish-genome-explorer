@@ -40,7 +40,7 @@ The resolver turns each sample into a `ReadSetPlan` for one tool. A plan holds t
 | L5b | `fullPaired` derivative | One mate pair |
 | L5c, L5d | `fullMixed` derivative from merge or repair | Its roles. R1 and R2 files form a mate pair, merged files are merged reads and unpaired files are orphans. A missing role file stops the plan. |
 | L5e | `fullFASTA` derivative | Single records |
-| L6 | Virtual derivative | Materialized first, then read whole once and scanned with the merge evidence of every bundle it derives from. A truncated or unreadable materialization stops the plan. |
+| L6 | Virtual derivative | Materialized first, then read whole once and scanned with the merge evidence of every bundle it derives from. A truncated or unreadable materialization stops the plan. When the whole file holds pairs and single reads, it is mixed even if the bounded scan saw only pairs. |
 
 Three more rules decide the edge cases.
 
