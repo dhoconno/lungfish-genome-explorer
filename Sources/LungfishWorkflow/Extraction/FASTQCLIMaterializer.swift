@@ -191,8 +191,13 @@ public final class FASTQCLIMaterializer: Sendable {
         }
 
         // Every file of the root the recipe applies to: the members of a
-        // multi-file root in manifest order, else the one recorded file.
-        let rootFASTQURLs = try rootSequenceURLs(manifest.rootFASTQFilename, in: rootBundleURL)
+        // multi-file root in manifest order, else the one recorded file, or
+        // the paired or mixed bundle the reads come from, materialized (D1).
+        let rootRead = try await virtualRootRead(
+            of: bundleURL, manifest: manifest, recordedRoot: rootBundleURL, tempDirectory: tempDirectory
+        )
+        defer { rootRead.cleanup() }
+        let rootFASTQURLs = rootRead.urls
 
         switch manifest.payload {
         case .full, .fullFASTA, .fullPaired, .fullMixed:

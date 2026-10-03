@@ -29,7 +29,21 @@ extension DemultiplexingPipeline {
     /// Nil when the run has no root, the recorded file is not a safe member
     /// of the root, or a root file is missing. The caller then reads
     /// cutadapt's output instead, as it did before.
+    ///
+    /// Nil too when the reads come from a deinterleaved or mixed bundle, the
+    /// root itself or the source's nearest paired or mixed ancestor. Its
+    /// files listed one after another are not its reads in order (R1 then R2
+    /// breaks the pairs), and a run before lane A7 rebuilt the counts from
+    /// the raw import's mates. The demultiplexed reads are the bundle's reads
+    /// in order (D1, Phase 1.5 lane A7).
     func virtualRootSequenceURLs(config: DemultiplexConfig) -> [URL]? {
+        if let rootBundleURL = config.rootBundleURL,
+           FASTQDerivedPayloadRoot.holdsPairedOrMixedPayload(rootBundleURL)
+            || config.sourceBundleURL.flatMap({
+                FASTQDerivedPayloadRoot.pairedOrMixedSource(of: $0, recordedRoot: rootBundleURL)
+            }) != nil {
+            return nil
+        }
         guard let rootBundleURL = config.rootBundleURL,
               let rootFASTQFilename = config.rootFASTQFilename,
               let urls = try? FASTQBundle.rootSequenceURLs(rootFASTQFilename: rootFASTQFilename, in: rootBundleURL),
