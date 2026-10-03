@@ -23,6 +23,7 @@ Add to these. Never write a second copy in the CLI or the app.
 | Provenance record format | `ProvenanceEnvelope` | Sources/LungfishWorkflow/Provenance/ProvenanceEnvelope.swift line 15 |
 | Provenance policy per CLI command and native tool | `ScientificProvenancePolicy` | Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift line 60 |
 | Provenance recording and writing | `ProvenanceRecorder`, `ProvenanceWriter` | Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift line 46, ProvenanceWriter.swift line 9 |
+| How a sample's reads are paired for a tool (pairs, merged and single reads) | `ReadSetResolver`, `ReadPairingCapabilityRegistry` | Sources/LungfishWorkflow/ReadPairing/ReadSetResolver.swift, ReadPairing/ReadPairingCapabilityRegistry.swift |
 | Virtual FASTQ materialization | `FASTQCLIMaterializer` | Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift line 26 |
 | Multiple sequence alignment | `MAFFTAlignmentPipeline` | Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift line 93 |
 | Viral variant calling | `ViralVariantCallingPipeline` | Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift line 8 |
@@ -44,6 +45,7 @@ A new domain is a folder here until Phase 4d splits domains into their own targe
 - Every run writes a provenance envelope with a non-nil command (REVIEW.md invariants).
 - Viral Recon binds a .lungfishref manifest, never a loose BAM, and never swaps MN908947.3 for NC_045512.2 (memory file project_viral_recon_results_integration.md).
 - Coverage ignores CIGAR deletions and N skips (REVIEW.md R13).
+- Pairing is decided only by `ReadSetResolver`, which every tool reaches through its `ReadPairingCapability` (docs/contracts/READ-PAIRING.md). A sample of only single reads or only pairs makes no step and records nothing new. Tools move onto the resolver lane by lane and set `adopted` in their family file under ReadPairing/Capabilities.
 
 ## Tests
 

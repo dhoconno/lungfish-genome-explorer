@@ -6,8 +6,10 @@
 // that consumes FASTQ to say what it does with single-end, strictly
 // interleaved, mixed (merged reads plus pairs), and R1/R2 input. The
 // mappers declare next to their builder (MappingTool+ReadLayout). The rest
-// are declared here, with the source that decides the behaviour named in
-// the rationale. Every consumer now resolves its layout through
+// are declared by family in the FASTQConsumerRegistry+<Family>.swift files,
+// with the source that decides the behaviour named in the rationale. Each
+// consumer's read-pairing capability (docs/contracts/READ-PAIRING.md) is in
+// ReadPairingCapabilityRegistry under the same consumer ID. Every consumer now resolves its layout through
 // FASTQInputLayoutResolver (metadata, then a record scan) and either pairs
 // mixed input by NAME or runs it as single reads; `mixedHandlingIsGraceful
 // == false` is reserved for a consumer that still pairs mixed input by
