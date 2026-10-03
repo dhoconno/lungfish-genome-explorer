@@ -226,7 +226,7 @@ public extension AssemblyRunRequest {
     func normalizedForExecution(on host: AssemblyExecutionHost = .current) -> AssemblyRunRequest {
         AssemblyRunRequest(
             tool: tool,
-            readType: readType,
+            readType: AssemblyCompatibility.effectiveReadType(tool: tool, readType: readType),
             inputURLs: inputURLs,
             projectName: projectName,
             outputDirectory: outputDirectory,

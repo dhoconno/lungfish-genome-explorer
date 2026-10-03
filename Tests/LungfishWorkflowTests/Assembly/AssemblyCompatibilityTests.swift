@@ -87,6 +87,14 @@ final class AssemblyCompatibilityTests: XCTestCase {
             detections: [.ontReads, .illuminaShortReads], tool: .spades, explicitReadType: .illuminaShortReads, lengthDefault: nil
         )
         XCTAssertEqual(explicit, AssemblyReadTypeDecision(readType: .illuminaShortReads, warnings: []))
+
+        // An explicit read type the tool does not take used to be an input
+        // error. It now runs the tool with its own settings and warns.
+        let explicitMismatch = AssemblyCompatibility.decideReadType(
+            detections: [], tool: .flye, explicitReadType: .illuminaShortReads, lengthDefault: nil
+        )
+        XCTAssertEqual(explicitMismatch.readType, .ontReads)
+        XCTAssertEqual(explicitMismatch.warnings.count, 1)
     }
 
     func testPacBioSubreadsDoNotAutoClassifyAsHiFi() throws {

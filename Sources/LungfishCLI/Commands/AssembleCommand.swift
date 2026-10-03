@@ -49,7 +49,7 @@ struct AssembleCommand: AsyncParsableCommand {
     @Argument(help: "Input sequence file(s). Provide two files with --paired for paired-end Illumina reads.")
     var fastqFiles: [String]
 
-    @Option(name: .customLong("assembler"), help: "Assembler to run: spades, megahit, skesa, flye, hifiasm (default: follows the input read class, spades for short or unknown reads)")
+    @Option(name: .customLong("assembler"), help: "Assembler to run: spades, megahit, skesa, flye, hifiasm (default: follows the read type, so spades for short reads or no evidence, flye for ONT or other long reads, hifiasm for PacBio HiFi)")
     var assembler: String?
 
     @Option(name: .customLong("read-type"), help: "Read class: illumina-short-reads, ont-reads, pacbio-hifi")
@@ -164,12 +164,6 @@ struct AssembleCommand: AsyncParsableCommand {
             explicitReadType = try Self.parseExplicitReadType(readType)
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.inputError.exitCode
-        }
-
-        if let explicitReadType,
-           !AssemblyCompatibility.isSupported(tool: tool, for: explicitReadType) {
-            print(formatter.error("\(tool.displayName) is not available for \(explicitReadType.displayName) in v1."))
             throw CLIExitCode.inputError.exitCode
         }
 

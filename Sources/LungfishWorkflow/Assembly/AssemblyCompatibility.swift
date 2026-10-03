@@ -156,7 +156,14 @@ extension AssemblyCompatibility {
         lengthDefault: AssemblyReadType?
     ) -> AssemblyReadTypeDecision {
         if let explicitReadType {
-            return AssemblyReadTypeDecision(readType: explicitReadType, warnings: [])
+            guard let tool, !isSupported(tool: tool, for: explicitReadType) else {
+                return AssemblyReadTypeDecision(readType: explicitReadType, warnings: [])
+            }
+            let toolReadType = defaultReadType(for: tool)
+            return AssemblyReadTypeDecision(
+                readType: toolReadType,
+                warnings: ["\(tool.displayName) is designed for \(supportedReadTypes(for: tool)), and the read type given is \(explicitReadType.displayName). The run uses \(tool.displayName) as chosen, with its \(toolReadType.displayName) settings."]
+            )
         }
         var warnings: [String] = []
         let known = AssemblyReadType.allCases.filter { detections.contains($0) }

@@ -326,12 +326,6 @@ public enum AssemblyRunner {
     }
 
     static func validatePreMaterializationTopology(for request: AssemblyRunRequest) throws {
-        guard AssemblyCompatibility.isSupported(tool: request.tool, for: request.readType) else {
-            throw ManagedAssemblyPipelineError.incompatibleSelection(
-                "\(request.tool.displayName) is not available for \(request.readType.displayName) in v1."
-            )
-        }
-
         for inputURL in request.inputURLs {
             if let unsupportedMessage = AssemblyInputMaterialization.unsupportedAssemblyInputMessage(for: inputURL) {
                 throw ManagedAssemblyPipelineError.unsupportedInputTopology(unsupportedMessage)

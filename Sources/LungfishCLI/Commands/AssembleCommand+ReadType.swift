@@ -48,7 +48,9 @@ extension AssembleCommand {
         inputURLs: [URL]
     ) -> AssemblyReadTypeDecision? {
         if let explicitReadType {
-            return AssemblyReadTypeDecision(readType: explicitReadType, warnings: [])
+            return AssemblyCompatibility.decideReadType(
+                detections: [], tool: tool, explicitReadType: explicitReadType, lengthDefault: nil
+            )
         }
         let detections = inputURLs.map(detectPreMaterializationReadType)
         guard !detections.isEmpty, !detections.contains(where: { $0 == nil }) else { return nil }
