@@ -8,7 +8,7 @@ import Foundation
 
 /// File layout for data flowing between recipe steps.
 ///
-/// This is distinct from ``FileFormat`` (in `ProvenanceRecord.swift`), which
+/// This is distinct from ``FileFormat`` (in `FileFormat.swift`), which
 /// describes genomic file types.  `RecipeFileFormat` describes how FASTQ reads
 /// are arranged on disk as they move from step to step in a recipe pipeline.
 public enum RecipeFileFormat: String, Codable, Sendable, Equatable {
