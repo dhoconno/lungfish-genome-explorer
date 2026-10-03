@@ -297,6 +297,19 @@ struct SequenceCommand: AsyncParsableCommand {
                 note: note,
                 quiet: globalOptions.quiet
             )
+            var explicitOptions: [String: ParameterValue] = [
+                "operation": .string("update-annotation"),
+                "track_id": .string(trackID),
+                "row_id": .integer(Int(rowID)),
+                "name": .string(name),
+                "type": .string(type),
+                "strand": .string(strand),
+            ]
+            // A note the command was given is an explicit option too. The
+            // app's edit lists it the same way (finding R8).
+            if let note {
+                explicitOptions["note"] = .string(note)
+            }
             let request = SequenceAnnotationTrackWorkflow.UpdateAnnotationRequest(
                 bundleURL: bundleURL,
                 trackID: trackID,
@@ -306,14 +319,7 @@ struct SequenceCommand: AsyncParsableCommand {
                 strand: strand,
                 note: note,
                 command: command,
-                explicitOptions: [
-                    "operation": .string("update-annotation"),
-                    "track_id": .string(trackID),
-                    "row_id": .integer(Int(rowID)),
-                    "name": .string(name),
-                    "type": .string(type),
-                    "strand": .string(strand),
-                ],
+                explicitOptions: explicitOptions,
                 defaultOptions: [:],
                 resolvedOptions: [
                     "operation": .string("update-annotation"),

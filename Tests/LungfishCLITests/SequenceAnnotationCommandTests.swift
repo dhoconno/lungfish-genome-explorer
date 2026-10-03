@@ -528,6 +528,17 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["track_id"]?.stringValue, "orfs_chr1")
         XCTAssertEqual(envelope.options.resolvedDefaults["row_id"]?.integerValue, Int(rowID))
         XCTAssertEqual(envelope.options.resolvedDefaults["name"]?.stringValue, "renamed-orf")
+        // Every option the command was given is an explicit option, the note
+        // included, which the envelope used to leave out (R8).
+        XCTAssertEqual(envelope.options.explicit, [
+            "operation": .string("update-annotation"),
+            "track_id": .string("orfs_chr1"),
+            "row_id": .integer(Int(rowID)),
+            "name": .string("renamed-orf"),
+            "type": .string("gene"),
+            "strand": .string("-"),
+            "note": .string("curated by hand"),
+        ])
     }
 
     func testUpdateAnnotationRejectsUnknownRowIDWithoutMutation() async throws {
