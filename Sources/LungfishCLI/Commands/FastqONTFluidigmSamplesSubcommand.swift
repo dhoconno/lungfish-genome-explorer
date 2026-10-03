@@ -75,42 +75,37 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
             primerMismatches: primerMismatches,
             minimumInsertLength: minimumInsertLength,
             canonicalizeReverseComplements: canonicalizeReverseComplements,
-            force: force
+            force: force,
+            threads: threads
         )
         let result = try await ONTFluidigmAmpliconMaterializer().run(request) { fraction, message in
             emitProgress(fraction, message)
         }
 
-        var cliArguments = [
-            "ont-fluidigm-samples",
-            inputURL.path,
-            "--barcodes", barcodeURL.path,
-            "--output", outputURL.path,
-            "--primer-mismatches", String(primerMismatches),
-            "--minimum-insert-length", String(minimumInsertLength),
-        ]
-        if threads != 1 {
-            cliArguments += ["--threads", String(threads)]
-        }
-        if !canonicalizeReverseComplements {
-            cliArguments.append("--no-canonicalize-reverse-complements")
-        }
-        if force {
-            cliArguments.append("--force")
-        }
+        // The argv each sample bundle records, so the envelope and the
+        // bundles name one command. It spells out the reverse complement
+        // setting either way, because a replay without the flag takes the
+        // default (off) whatever the run used (finding R8).
+        let cliArguments = request.subcommandArguments
 
+        // Folders get a manifest hash and a byte count, as ProvenanceRunBuilder
+        // requires of a directory. Records without them made every run fail
+        // after it had written the sample bundles. A bundle input is recorded
+        // by the FASTQ files the run read.
         let outputPayloads = result.outputBundleURLs
             .compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
         let outputs = [
-            directoryOutputRecord(result.outputDirectory),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: result.outputDirectory, format: .unknown, role: .output),
             ProvenanceRecorder.fileRecord(url: result.manifestURL, format: .json, role: .output),
         ] + result.outputBundleURLs.map {
-            directoryOutputRecord($0)
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .unknown, role: .output)
         } + outputPayloads.map {
             ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
         }
-        let inputRecords = [
-            ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input),
+        let resolvedInputFASTQs = (try? ONTBarcodeDemuxGenotypingPipeline.resolveInputFASTQURLs(for: inputURL)) ?? [inputURL]
+        let inputRecords = resolvedInputFASTQs.map {
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .fastq, role: .input)
+        } + [
             ProvenanceRecorder.fileRecord(url: barcodeURL, format: .text, role: .input),
         ]
         try await CLIProvenanceSupport.recordSingleStepRun(
@@ -173,16 +168,6 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
-    }
-
-    private func directoryOutputRecord(_ url: URL) -> FileRecord {
-        FileRecord(
-            path: url.standardizedFileURL.path,
-            sha256: nil,
-            sizeBytes: nil,
-            format: .unknown,
-            role: .output
-        )
     }
 
     private func emitProgress(_ fraction: Double, _ message: String) {

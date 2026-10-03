@@ -10,9 +10,14 @@
 // (R3, R8). These tests run each materializer on a small fixture, parse the
 // recorded command with the real CLI parser, run it again into the same folder
 // and compare the sample bundles. The materializer no lungfish-cli command
-// runs records a `Lungfish.app` form, a pinned CLI parity gap.
+// runs records a `Lungfish.app` form, a pinned CLI parity gap. The last test
+// runs the ONT Fluidigm Sample Split launch through
+// FASTQOperationExecutionService, as the FASTQ operations dialog and the
+// import sheet do.
 
+import ArgumentParser
 import XCTest
+@testable import LungfishApp
 @testable import LungfishCLI
 import LungfishCore
 import LungfishIO
@@ -102,7 +107,8 @@ final class ONTSampleMaterializationCommandTests: XCTestCase {
             barcodeDefinitionsURL: sheet,
             outputDirectory: root.appendingPathComponent("fluidigm samples", isDirectory: true),
             primerMismatches: 1,
-            minimumInsertLength: 8
+            minimumInsertLength: 8,
+            threads: 3
         )
         XCTAssertTrue(request.canonicalizeReverseComplements)
 
@@ -122,20 +128,16 @@ final class ONTSampleMaterializationCommandTests: XCTestCase {
         XCTAssertEqual(command.minimumInsertLength, 8)
         XCTAssertTrue(command.canonicalizeReverseComplements, "the run canonicalized reverse complements")
         XCTAssertFalse(command.force)
+        XCTAssertEqual(command.threads, 3)
 
+        // The command, run again into the same folder, writes the same sample
+        // bundles and records itself in them and in its own envelope. Its
+        // provenance step used to refuse the checksum-less folder records, so
+        // every run failed after writing the bundles, and its argv left out
+        // `--canonicalize-reverse-complements`, so a replay ran without it.
         let appOutput = root.appendingPathComponent("fluidigm samples from the app", isDirectory: true)
         try FileManager.default.moveItem(at: request.outputDirectory, to: appOutput)
-        // CLI defect, pinned. The command records its output folder and
-        // bundles with no checksum or size, which ProvenanceRunBuilder refuses,
-        // so the command fails after it has written the sample bundles. When
-        // the command records them with ProvenanceRecorder.fileOrDirectoryRecord,
-        // as ont-pacbio-barcode-demux does, run it with a plain `try`.
-        do {
-            try await command.run()
-            XCTFail("the command's provenance step no longer fails, so drop this pin")
-        } catch let error as ProvenanceBuilderError {
-            XCTAssertEqual(error, .localDescriptorRequiresURL(request.outputDirectory.path))
-        }
+        try await command.run()
         for bundle in bundles {
             try await assertSameReads(
                 appOutput.appendingPathComponent(bundle),
@@ -144,6 +146,11 @@ final class ONTSampleMaterializationCommandTests: XCTestCase {
             let rerun = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: request.outputDirectory.appendingPathComponent(bundle)))
             XCTAssertEqual(rerun.operation.toolCommand, toolCommand, bundle)
         }
+        let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(from: request.outputDirectory))
+        XCTAssertEqual(envelope.argv, request.recordedCommandArguments, "the argv the command records for its own run")
+        XCTAssertEqual(envelope.argv.filter { $0.hasSuffix("canonicalize-reverse-complements") }, [
+            "--canonicalize-reverse-complements",
+        ])
     }
 
     func testFluidigmRequestWithOtherPrimersRecordsTheAppFormNoCommandRuns() throws {
@@ -164,6 +171,72 @@ final class ONTSampleMaterializationCommandTests: XCTestCase {
         let reverse = try XCTUnwrap(words.firstIndex(of: "--reverse-primer"))
         XCTAssertEqual(words[reverse + 1], ONTFluidigmAmpliconMaterializer.defaultReversePrimer)
         assertIsNotALungfishCLICommand(request.recordedCommandLine)
+    }
+
+    // MARK: - ONT Fluidigm Sample Split launch
+
+    func testFluidigmSampleSplitLaunchPublishesEachSampleBundleWithTheRunsProvenance() async throws {
+        // The launch used to fail at the end of every run. The command's
+        // provenance step refused its checksum-less folder records after the
+        // sample bundles were written, and the service then removed them.
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let source = try FASTQOperationTestHelper.makeBundle(
+            named: "barcode11",
+            in: project.appendingPathComponent("Imports", isDirectory: true)
+        )
+        try Self.writeFASTQ(Self.fluidigmReads(), to: source.fastqURL)
+        let sheet = project.appendingPathComponent("NB11 samples.csv")
+        try "sample,barcode\nLF2871,AAAACCCCGG\nLF2872,GGGGTTTTAA\n".write(to: sheet, atomically: true, encoding: .utf8)
+        let launch = FASTQOperationLaunchRequest.ontFluidigmSampleSplit(
+            inputFASTQURL: source.bundleURL,
+            barcodeDefinitionsURL: sheet,
+            threads: 2
+        )
+        let service = FASTQOperationExecutionService(
+            commandRunner: InProcessFluidigmCLIRunner(),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: project)
+        )
+
+        let result = try await service.execute(
+            request: launch,
+            workingDirectory: project.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+        )
+
+        XCTAssertEqual(result.importedURLs.map(\.lastPathComponent).sorted(), ["LF2871.lungfishfastq", "LF2872.lungfishfastq"])
+        let ran = try RecordedCLICommand.parse(
+            FASTQOperationCLIInvocationBuilder.commandLine(for: try XCTUnwrap(result.executedInvocations.first)),
+            as: FastqONTFluidigmSamplesSubcommand.self
+        )
+        XCTAssertEqual(Self.physicalPath(ran.input), Self.physicalPath(source.bundleURL.path))
+        XCTAssertEqual(ran.threads, 2)
+        for bundle in result.importedURLs {
+            let name = bundle.lastPathComponent
+            let payload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle), name)
+            let reads = try await FASTQReader(validateSequence: false).readAll(from: payload)
+            XCTAssertFalse(reads.isEmpty, name)
+            let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(from: bundle), name)
+            XCTAssertEqual(envelope.workflowName, "lungfish fastq ont-fluidigm-samples", name)
+            XCTAssertEqual(envelope.outputs.map { Self.physicalPath($0.path) }, [Self.physicalPath(payload.path)], name)
+            // The bundle and the run's envelope name one command, with the
+            // thread count and the reverse complement setting the run used.
+            let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle), name)
+            XCTAssertEqual(
+                try RecordedCLICommand.arguments(of: manifest.operation.toolCommand).map(Self.physicalPath),
+                envelope.argv.dropFirst().map(Self.physicalPath),
+                name
+            )
+            let recorded = try RecordedCLICommand.parse(manifest.operation.toolCommand, as: FastqONTFluidigmSamplesSubcommand.self)
+            XCTAssertEqual(Self.physicalPath(recorded.input), Self.physicalPath(source.bundleURL.path), name)
+            XCTAssertEqual(recorded.threads, 2, name)
+            XCTAssertFalse(recorded.canonicalizeReverseComplements, name)
+        }
+    }
+
+    /// `path` with symbolic links resolved when it is an absolute path, so
+    /// `/var` and `/private/var` compare equal, and any other word unchanged.
+    private static func physicalPath(_ path: String) -> String {
+        guard path.hasPrefix("/") else { return path }
+        return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
     // MARK: - Fluidigm whole reads
@@ -231,14 +304,15 @@ final class ONTSampleMaterializationCommandTests: XCTestCase {
     }
 
     /// Two LF2871 reads and one LF2872 read in the CS1, insert, rc(CS2),
-    /// spacer, barcode layout the Fluidigm materializers expect.
+    /// spacer, barcode layout the Fluidigm materializers expect. The 24 base
+    /// inserts pass the command's default minimum insert length of 20.
     private static func fluidigmReads() -> [(String, String)] {
         let cs1 = ONTFluidigmAmpliconMaterializer.defaultForwardPrimer
         let cs2RC = reverseComplement(ONTFluidigmAmpliconMaterializer.defaultReversePrimer)
         return [
-            ("read-1", cs1 + "ACGTACGTACGTACGT" + cs2RC + "CC" + "AAAACCCCGG"),
-            ("read-2", cs1 + "ACGTACGTACGTACGT" + cs2RC + "CC" + "AAAACCCCGG"),
-            ("read-3", cs1 + "TTTTCCCCAAAAGGGG" + cs2RC + "AA" + "GGGGTTTTAA"),
+            ("read-1", cs1 + "ACGTACGTACGTACGTACGTACGT" + cs2RC + "CC" + "AAAACCCCGG"),
+            ("read-2", cs1 + "ACGTACGTACGTACGTACGTACGT" + cs2RC + "CC" + "AAAACCCCGG"),
+            ("read-3", cs1 + "TTTTCCCCAAAAGGGGTTTTCCCC" + cs2RC + "AA" + "GGGGTTTTAA"),
         ]
     }
 
@@ -257,5 +331,23 @@ final class ONTSampleMaterializationCommandTests: XCTestCase {
             "@\(identifier)\n\(sequence)\n+\n\(String(repeating: "I", count: sequence.count))\n"
         }.joined()
         try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+/// Runs each invocation with the real `lungfish-cli` subcommand in this
+/// process, as the shipped binary parses it.
+private struct InProcessFluidigmCLIRunner: FASTQOperationCommandRunning {
+    func run(
+        invocation: FASTQCLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
+        let words = invocation.subcommand.split(separator: " ").map(String.init) + invocation.arguments
+        let parsed = try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(words))
+        guard var command = parsed as? AsyncParsableCommand else {
+            throw CocoaError(.featureUnsupported)
+        }
+        try await command.run()
+        return FASTQCLIExecutionResult(outputURLs: [])
     }
 }
