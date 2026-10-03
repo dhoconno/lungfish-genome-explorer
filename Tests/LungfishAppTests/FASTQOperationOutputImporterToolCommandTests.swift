@@ -332,6 +332,65 @@ final class FASTQOperationOutputImporterToolCommandTests: XCTestCase {
         XCTAssertEqual(classification.unpairedReadCount + classification.mergedReadCount, 2)
     }
 
+    /// A trim of an interleaved source (no merge evidence) that appends its
+    /// orphans after 100,002 pair records. The first 100,000 records scan as
+    /// strict pairs, so the roles were decided by that scan and none were
+    /// written (Lead A review R1). They are decided from the whole file: 3
+    /// single reads, recorded as unpaired.
+    func testAnInterleavedSourcesOutputWithAnOrphanTailPastTheScanRecordsItsRoles() async throws {
+        let imports = root.appendingPathComponent("Project.lungfish/Imports", isDirectory: true)
+        try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
+        let source = try FASTQOperationTestHelper.makeBundle(named: "pairs-l2", in: imports)
+        try FASTQOperationTestHelper.writeFASTQ(
+            records: [(id: "p1/1", sequence: "ACGTACGTAC"), (id: "p1/2", sequence: "ACGTACGTAC")],
+            to: source.fastqURL
+        )
+        var sourceMetadata = PersistedFASTQMetadata()
+        sourceMetadata.ingestion = IngestionMetadata(pairingMode: .interleaved)
+        FASTQMetadataStore.save(sourceMetadata, for: source.fastqURL)
+
+        let staging = root.appendingPathComponent("work-orphans", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let staged = staging.appendingPathComponent("pairs-l2.trimmed.fastq")
+        let pairCount = 50_001
+        var records: [(id: String, sequence: String)] = []
+        records.reserveCapacity(pairCount * 2 + 3)
+        for index in 0..<pairCount {
+            records.append((id: "p\(index)/1", sequence: "ACGTACGTAC"))
+            records.append((id: "p\(index)/2", sequence: "ACGTACGTAC"))
+        }
+        records += [(id: "o1/1", sequence: "ACGTACGTAC"), (id: "o2/2", sequence: "ACGTACGTAC"), (id: "o3/1", sequence: "ACGTACGTAC")]
+        try FASTQOperationTestHelper.writeFASTQ(records: records, to: staged)
+        try SyntheticToolProvenance.write(
+            argv: ["fixture-tool", source.fastqURL.path, "-o", staged.path],
+            inputURL: source.fastqURL,
+            outputURL: staged,
+            in: staging
+        )
+        let destination = root.appendingPathComponent("Project.lungfish/Derived", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        let bundleURL = try await makeWriter().importFASTQOutput(
+            sourceURL: staged,
+            bundleURL: destination.appendingPathComponent("pairs-l2-trimmed.\(FASTQBundle.directoryExtension)"),
+            originalRequest: .derivative(
+                request: .qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight),
+                inputURLs: [source.bundleURL],
+                outputMode: .perInput
+            ),
+            sourceInputURL: source.bundleURL
+        )
+
+        let payload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        let classification = try XCTUnwrap(FASTQMetadataStore.load(for: payload)?.readClassification)
+        XCTAssertEqual(classification.pairedReadCount, pairCount * 2)
+        XCTAssertEqual(classification.unpairedReadCount, 3)
+        XCTAssertEqual(classification.mergedReadCount, 0)
+        XCTAssertEqual(Set(classification.files.map(\.filename)), [payload.lastPathComponent])
+        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [bundleURL])
+        XCTAssertEqual(resolution.layout, .mixedMergedAndPairs, resolution.reason)
+    }
+
     /// A strictly interleaved output of a paired source records no roles,
     /// as before.
     func testAStrictlyInterleavedOutputRecordsNoReadRoles() async throws {
