@@ -12,7 +12,7 @@
 #     every bundled Python resource script under Sources/*/Resources
 #     (scripts/checks/compile-embedded-python.py), then
 #     runs the architecture-program ratchets and checks (file-size,
-#     concurrency-hatches, source-text-assertions, doc-path-references,
+#     concurrency-hatches, source-text-assertions, cli-parity-gaps, doc-path-references,
 #     module-map-current, features-yaml-sources, duplicate-public-types; docs/plans/2026-10-02-architecture-program.md), then
 #     checks that no plan, spec, issue or verification note under docs/ looks finished or
 #     stale (scripts/checks/working-memory-staleness.py, finding R5), then
@@ -147,6 +147,12 @@ if ! python3 "$REPO_ROOT/scripts/ratchets/source-text-assertions.sh"; then
     exit 1
 fi
 
+echo "pre-push: checking the cli-parity-gaps ratchet (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/ratchets/cli-parity-gaps.sh"; then
+    echo "pre-push: cli-parity-gaps ratchet FAILED (a new CLI parity gap, an unpinned marker, or a nil command with no marker; see docs/contracts/CLI-EQUIVALENCE.md) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
 echo "pre-push: checking doc path references (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/checks/doc-path-references.py"; then
     echo "pre-push: doc path-reference check FAILED (a doc cites a Swift file that does not exist) — push aborted. Use --no-verify to bypass." >&2
@@ -199,7 +205,7 @@ fi
 HOOK_EOF
 chmod +x "$PRE_PUSH_HOOK"
 echo "Installed pre-push hook at $PRE_PUSH_HOOK"
-echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches and source-text-assertions ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, working-memory-staleness, audit-tags, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
+echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches, source-text-assertions and cli-parity-gaps ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, working-memory-staleness, audit-tags, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
 
 cat > "$PRE_COMMIT_HOOK" << 'HOOK_EOF'
 #!/bin/bash

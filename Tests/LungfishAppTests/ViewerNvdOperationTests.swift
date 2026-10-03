@@ -42,7 +42,7 @@ final class ViewerNvdOperationTests: XCTestCase {
         XCTAssertNil(item.routeContext)
     }
 
-    func testContigBlastRowPinsTodaysCommandAsAParityGap() throws {
+    func testContigBlastRowRecordsNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
 
         ViewerViewController.beginNvdBlastVerificationOperation(
@@ -53,14 +53,10 @@ final class ViewerNvdOperationTests: XCTestCase {
         ) { _ in }
 
         let item = try XCTUnwrap(reporter.items.first)
-        // CLI parity gap. No lungfish-cli command BLASTs an NVD contig. The
-        // closest is `blast verify`, which covers a Kraken2 classification
-        // only and also needs --kreport, --kraken-output and --source. When a
-        // command covers NVD contigs, record it and replace this pin with a
-        // parse test.
-        XCTAssertEqual(item.cliCommand, "lungfish-cli blast verify --taxid 2697049")
-        XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), ["blast", "verify", "--taxid", "2697049"])
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        // No lungfish-cli command BLASTs an NVD contig, so the row records no
+        // command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "blast-nvd")
     }
 
     func testContigBlastLaunchesNothingWhenTheBeginIsRefused() {

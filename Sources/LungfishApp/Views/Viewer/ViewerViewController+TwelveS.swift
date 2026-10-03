@@ -218,37 +218,42 @@ extension ViewerViewController {
         return arguments
     }
 
+    /// The prefix of the log line that names the export step's command.
+    static let twelveSExportLogPrefix = "Export step: "
+
     /// Registers the 12S unresolved-sequence BLAST row and, only when it
     /// starts, calls `launch` with the operation ID. The row locks no bundle.
     ///
     /// `cliArguments` is the argv the run executes first, which
     /// ``twelveSUnresolvedExportArguments(bundleURL:minimumReads:exportURL:sequenceIDs:)``
-    /// builds. The row records it as the
+    /// builds. The row's log records it as the
     /// `lungfish-cli fastq 12s-export-unresolved` command it is.
     ///
-    /// Partial CLI parity gap. That command exports the unresolved sequences
-    /// to a FASTA file and stops there. The run then submits the sequences to
-    /// NCBI BLAST through `BlastService`, and no lungfish-cli command does
-    /// that. The closest BLAST command is `blast verify`, which covers one
-    /// Kraken2 taxon. A command that submits sequences would extend or
-    /// replace the recorded one.
+    /// cli-parity-gap: blast-12s-unresolved. That command exports the
+    /// unresolved sequences to a FASTA file and stops there. The run then
+    /// submits the sequences to NCBI BLAST through `BlastService`, and no
+    /// lungfish-cli command does that. The closest BLAST command is
+    /// `blast verify`, which covers one Kraken2 taxon. The row records no
+    /// command until a command submits the sequences.
     @discardableResult
     static func beginTwelveSUnresolvedBlastOperation(
         cliArguments: [String],
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
+        let exportCommand = OperationCenter.buildCLICommand(
+            subcommand: "fastq 12s-export-unresolved",
+            args: Array(cliArguments.dropFirst(2))
+        )
         let result = reporter.begin(
             title: "BLAST 12S Unresolved",
             detail: "Preparing unresolved sequence FASTA...",
             operationType: .blastVerification,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "fastq 12s-export-unresolved",
-                args: Array(cliArguments.dropFirst(2))
-            )
+            cliCommand: nil
         )
         switch result {
         case .started(let operationID):
+            reporter.log(id: operationID, level: .info, message: "\(Self.twelveSExportLogPrefix)\(exportCommand)")
             launch(operationID)
         case .refused:
             break // The panel already shows the refused row. Nothing was launched.

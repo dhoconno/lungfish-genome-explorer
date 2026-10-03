@@ -39,6 +39,9 @@ final class GenotypeAIHaplotypingExecutionService {
                 detail: "Preparing \(displayName(for: mode))"
             )
         } else {
+            // cli-parity-gap: ai-haplotyping. The run builds its command
+            // preview only after it resolves the provider, and it only logs
+            // that preview, so the row records no command.
             let startResult = operationCenter.begin(
                 title: "AI Haplotyping",
                 detail: "Preparing \(displayName(for: mode))",

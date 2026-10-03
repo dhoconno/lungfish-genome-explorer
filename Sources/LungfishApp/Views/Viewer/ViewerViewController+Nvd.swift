@@ -204,12 +204,10 @@ extension ViewerViewController {
     /// starts, calls `launch` with the operation ID. The run submits the one
     /// contig sequence and locks no bundle.
     ///
-    /// CLI parity gap. No `lungfish-cli` command BLASTs an NVD contig. The
-    /// closest is `lungfish-cli blast verify`, which covers a Kraken2
-    /// classification only. The row keeps recording `blast verify --taxid <id>`
-    /// until a CLI command covers NVD verification. The CLI rejects that
-    /// command, because it also needs `--kreport`, `--kraken-output` and
-    /// `--source`.
+    /// cli-parity-gap: blast-nvd. No `lungfish-cli` command BLASTs an NVD
+    /// contig. The closest is `lungfish-cli blast verify`, which covers a
+    /// Kraken2 classification only. The row records no command until a CLI
+    /// command covers NVD verification.
     @discardableResult
     static func beginNvdBlastVerificationOperation(
         contigName: String,
@@ -222,10 +220,7 @@ extension ViewerViewController {
             title: "BLAST \(contigName) \u{2014} \(classificationName)",
             detail: "Preparing BLAST verification\u{2026}",
             operationType: .blastVerification,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "blast verify",
-                args: ["--taxid", "\(taxId)"]
-            )
+            cliCommand: nil
         )
         switch result {
         case .started(let operationID):

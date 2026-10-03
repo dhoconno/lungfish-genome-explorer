@@ -5,16 +5,13 @@
 // The database browser registers its batch download row through a static begin
 // helper (R4). The row is a download row and locks no bundle, so a reporter
 // that refuses every begin stands in for a refusal and proves the launch
-// closure sits behind the `.started` case. The recorded command is the closest
-// `lungfish-cli fetch` command for the source. `fetch sra download` and `fetch
-// genome` take one accession, so a single record must parse with the values
-// the run uses, and a batch of several records keeps the flat accession list
-// that the CLI rejects, which the tests pin as a CLI parity gap. A genome
-// assembly names the project's Downloads folder, where the run puts the
-// bundle (R3). `fetch ncbi`
-// saves one GenBank file where the run builds a bundle for each record, so the
-// NCBI nucleotide, NCBI virus and Pathoplexus rows are pinned as parity gaps
-// too. A command added later fails a pin and prompts a parse test in its place.
+// closure sits behind the `.started` case. Only one NCBI genome assembly
+// records a command, `fetch genome`, which must parse with the values the run
+// uses and names the project's Downloads folder, where the run puts the
+// bundle (R3). SRA runs, genome batches, NCBI nucleotide and virus records and
+// Pathoplexus records record no command, and the tests pin each as a CLI
+// parity gap. A command added later fails a pin and prompts a parse test in
+// its place.
 
 import XCTest
 @testable import LungfishApp
@@ -65,33 +62,16 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
 
     // MARK: - SRA runs
 
-    func testSRARunRecordsTheFetchSraDownloadCommandForOneRecord() throws {
-        let item = try recordedRow(title: "SRR11140748", accessions: ["SRR11140748"], source: .ena)
-
-        XCTAssertEqual(item.cliCommand, "lungfish-cli fetch sra download SRR11140748 --output-dir .")
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: SRADownloadSubcommand.self)
-        XCTAssertEqual(command.accession, "SRR11140748")
-        XCTAssertEqual(command.outputDir, ".")
-        XCTAssertFalse(command.useToolkit)
-    }
-
-    func testSRARunBatchRecordsTheFlatAccessionListAsAParityGap() throws {
-        let item = try recordedRow(
-            title: "European Nucleotide Archive: SRR11140748, SRR11140749 +1 more",
-            accessions: ["SRR11140748", "SRR11140749", "SRR11140750"],
-            source: .ena
-        )
-
-        // CLI parity gap. `fetch sra download` takes one accession, so no single
-        // command downloads the batch. The row keeps the flat list it recorded
-        // before, which the CLI rejects. Running the command once per accession
-        // is the closest reproduction. When a command takes several runs,
-        // record it and replace this pin with a parse test.
-        XCTAssertEqual(
-            item.cliCommand,
-            "lungfish-cli fetch sra download SRR11140748 SRR11140749 SRR11140750 --output-dir ."
-        )
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+    func testSRARunsRecordNoCommandAsAParityGap() throws {
+        // `fetch sra download` downloads one run and stops. The run then
+        // imports the FASTQ files into the project with the settings the user
+        // confirmed in the import sheet, which no command does, so no SRA row
+        // records a command, for one run or several.
+        for accessions in [["SRR11140748"], ["SRR11140748", "SRR11140749", "SRR11140750"]] {
+            let item = try recordedRow(title: accessions.joined(separator: ", "), accessions: accessions, source: .ena)
+            XCTAssertNil(item.cliCommand, "\(accessions)")
+            assertCLIParityGap(item.cliCommand, id: "download-sra")
+        }
     }
 
     // MARK: - NCBI genome assemblies
@@ -121,7 +101,7 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         XCTAssertFalse(command.noBundle)
     }
 
-    func testGenomeAssemblyBatchRecordsTheFlatAccessionListAsAParityGap() throws {
+    func testGenomeAssemblyBatchRecordsNoCommandAsAParityGap() throws {
         let item = try recordedRow(
             title: "Genome: GCF_003047895.1, GCF_000001405.40",
             accessions: ["GCF_003047895.1", "GCF_000001405.40"],
@@ -129,36 +109,34 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
             searchType: .genome
         )
 
-        // CLI parity gap. `fetch genome` takes one accession, so no single
-        // command builds the batch. The row keeps the flat list, which the CLI
-        // rejects. Running the command once per accession is the closest
-        // reproduction. When a command takes several assemblies, record it and
-        // replace this pin with a parse test.
-        XCTAssertEqual(
-            item.cliCommand,
-            "lungfish-cli fetch genome GCF_003047895.1 GCF_000001405.40"
-                + " --output-dir '/tmp/lane 1a2g/Project.lungfish/Downloads'"
-        )
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        // `fetch genome` takes one accession, so no single command builds the
+        // batch, and the row records no command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "download-genome-batch")
     }
 
-    func testGenomeAssemblyWithNoProjectKeepsTheCurrentFolder() throws {
+    func testGenomeAssemblyWithNoProjectRecordsNoCommandAsAParityGap() throws {
         // With no project in the route context the run picks the Downloads
         // folder of the window the download lands in, which the row cannot
-        // know before the run, so the command keeps the current folder.
-        let command = DatabaseBrowserViewModel.batchDownloadCLICommand(
+        // know before the run. A relative `--output-dir .` would break the
+        // absolute-path rule, so the row records no command.
+        let reporter = RecordingOperationReporter()
+        DatabaseBrowserViewModel.beginBatchDownloadOperation(
+            title: "GCF_003047895.1",
+            accessions: ["GCF_003047895.1"],
             source: .ncbi,
             searchType: .genome,
-            accessions: ["GCF_003047895.1"],
-            projectURL: nil
-        )
-        XCTAssertEqual(command, "lungfish-cli fetch genome GCF_003047895.1 --output-dir .")
-        XCTAssertEqual(try RecordedCLICommand.parse(command, as: GenomeSubcommand.self).outputDir, ".")
+            routeContext: nil,
+            reporter: reporter
+        ) { _ in }
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "download-genome-no-project")
     }
 
     // MARK: - NCBI nucleotide and virus records, and Pathoplexus
 
-    func testNucleotideAndVirusRowsKeepTheFetchNcbiCommandAsAParityGap() throws {
+    func testNucleotideAndVirusRowsRecordNoCommandAsAParityGap() throws {
         for searchType in [NCBISearchType.nucleotide, .virus] {
             let item = try recordedRow(
                 title: "GenBank: MN908947.3, NC_045512.2",
@@ -167,39 +145,26 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
                 searchType: searchType
             )
 
-            // CLI parity gap. The command parses, and it saves one GenBank file
-            // where the run builds one `.lungfishref` bundle for each record. It
-            // also refuses `--save-to .` at run time, because that path is a
-            // directory. `fetch genome <accession>` also builds a bundle from a
-            // nucleotide record, with a layout of its own, and is the closest
-            // command. When a command reproduces the run, record it and replace
-            // this pin.
-            XCTAssertEqual(
-                item.cliCommand,
-                "lungfish-cli fetch ncbi MN908947.3 NC_045512.2 --save-to .",
-                "\(searchType)"
-            )
-            let command = try RecordedCLICommand.parse(item.cliCommand, as: NCBISubcommand.self)
-            XCTAssertEqual(command.accessions, ["MN908947.3", "NC_045512.2"])
-            XCTAssertEqual(command.saveTo, ".", "a directory, which the command rejects when it writes")
-            XCTAssertEqual(command.fetchFormat, "genbank", "the command saves a GenBank file, not a bundle")
+            // `fetch ncbi` saves one GenBank file where the run builds one
+            // `.lungfishref` bundle for each record. `fetch genome
+            // <accession>` also builds a bundle from a nucleotide record, with
+            // a layout of its own, and is the closest command.
+            XCTAssertNil(item.cliCommand, "\(searchType)")
+            assertCLIParityGap(item.cliCommand, id: "download-ncbi-bundle")
         }
     }
 
-    func testPathoplexusRowKeepsTheFetchNcbiCommandAsAParityGap() throws {
+    func testPathoplexusRowRecordsNoCommandAsAParityGap() throws {
         let item = try recordedRow(
             title: "LOC_0001GA1.1",
             accessions: ["LOC_0001GA1.1"],
             source: .pathoplexus
         )
 
-        // CLI parity gap. No fetch command reads Pathoplexus, and its accessions
-        // are not NCBI accessions, so this string cannot reproduce the run. The
-        // row keeps the value it recorded before until a Pathoplexus command
-        // exists.
-        XCTAssertEqual(item.cliCommand, "lungfish-cli fetch ncbi LOC_0001GA1.1 --save-to .")
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: NCBISubcommand.self)
-        XCTAssertEqual(command.accessions, ["LOC_0001GA1.1"])
+        // No fetch command reads Pathoplexus, and its accessions are not NCBI
+        // accessions.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "download-pathoplexus")
     }
 
     // MARK: - Refusal

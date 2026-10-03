@@ -16,7 +16,7 @@ import LungfishKitTestSupport
 
 @MainActor
 final class AppDelegateMenuActionsOperationTests: XCTestCase {
-    func testFailureSeedRecordsItsRowWithNoLockAndAFixtureCommandAsAParityGap() throws {
+    func testFailureSeedRecordsItsRowWithNoLockAndNoCommandAsAnExemptFixture() throws {
         let reporter = RecordingOperationReporter()
         var launchedID: UUID?
 
@@ -30,11 +30,10 @@ final class AppDelegateMenuActionsOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertNil(item.routeContext)
-        // CLI parity gap. No run stands behind this fixture row, so its
-        // command is a fixed string in the shape of a classification command.
-        // `conda classify` has no `--reads` option, so no parse succeeds.
-        XCTAssertEqual(item.cliCommand, "lungfish-cli conda classify --reads '~/ui-test/R1.fastq.gz'")
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        // cli-parity-exempt: not-an-operation. No run stands behind this
+        // fixture row, so it records no command.
+        XCTAssertNil(item.cliCommand)
+        XCTAssertThrowsError(try RecordedCLICommand.parseScript(item.cliCommand))
     }
 
     func testFailureSeedLeavesTheFailedRowTheXCUITestExpects() throws {

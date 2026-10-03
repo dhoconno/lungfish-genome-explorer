@@ -14,16 +14,18 @@ extension TaxonomyReadExtractionAction {
     /// with the operation ID. Extraction writes a new file or bundle and
     /// locks no existing bundle.
     ///
-    /// `cliCommand` comes from ``buildCLIString(context:options:destination:)``,
-    /// which the caller also stores as the bundle's provenance command. File
-    /// and bundle destinations record a `lungfish-cli extract reads` command
-    /// that reproduces the run. Clipboard and share destinations have no CLI
-    /// equivalent (a CLI parity gap) and record the command with a GUI-only
-    /// note in place of `-o`.
+    /// `cliCommand` comes from ``rowCLICommand(_:destination:)``. File and
+    /// bundle destinations record the `lungfish-cli extract reads` command
+    /// ``buildCLIString(context:options:destination:)`` builds, which the
+    /// caller also stores as the bundle's provenance command and which
+    /// reproduces the run.
+    ///
+    /// cli-parity-gap: classifier-extract-clipboard-share. Clipboard and share
+    /// destinations have no CLI equivalent, so they record no command.
     @discardableResult
     static func beginExtractionOperation(
         context: Context,
-        cliCommand: String,
+        cliCommand: String?,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -41,6 +43,19 @@ extension TaxonomyReadExtractionAction {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
+    }
+
+    /// The command the extraction row records for `cli`, the string
+    /// ``buildCLIString(context:options:destination:)`` built for
+    /// `destination`. A clipboard or share destination records nil, because
+    /// the CLI writes files and no command reproduces either.
+    static func rowCLICommand(_ cli: String, destination: ExtractionDestination) -> String? {
+        switch destination {
+        case .file, .bundle:
+            return cli
+        case .clipboard, .share:
+            return nil
+        }
     }
 
     /// The folder a `.bundle` extraction writes into, the same folder

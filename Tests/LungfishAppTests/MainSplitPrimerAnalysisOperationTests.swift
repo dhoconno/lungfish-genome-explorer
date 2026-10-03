@@ -208,13 +208,11 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         ]
         for settings in filteredViews {
             let item = try recordedOrder(draft: makeDraft(settings: settings))
-            // CLI parity gap. `primers analysis export-order --scope displayed`
-            // captures the default view and has no option for these filters,
-            // so no command reproduces the order. When the CLI can express a
-            // filtered view, record the command and replace this pin with a
-            // parse test.
+            // `primers analysis export-order --scope displayed` captures the
+            // default view and has no option for these filters, so no command
+            // reproduces the order.
             XCTAssertNil(item.cliCommand)
-            XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+            assertCLIParityGap(item.cliCommand, id: "primer-order-export-custom-view")
         }
     }
 
@@ -282,7 +280,7 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
             // which covers a whole Primer3 result. When a selection export
             // command exists, record it and replace this pin with a parse test.
             XCTAssertNil(item.cliCommand)
-            XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+            assertCLIParityGap(item.cliCommand, id: "primer-selection-export")
         }
     }
 

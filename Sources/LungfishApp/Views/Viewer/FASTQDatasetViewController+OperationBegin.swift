@@ -16,16 +16,15 @@ extension FASTQDatasetViewController {
     /// with the operation ID. The row locks no bundle and carries no route
     /// context, as before.
     ///
-    /// CLI parity gap. The row keeps recording the `seqkit stats` description it
-    /// has always recorded, built by `qualityReportCommandDescription(for:)`.
-    /// That text is not a `lungfish-cli` command and does not parse. The run
-    /// calls `seqkit stats` through `NativeToolRunner` in this process, unless
+    /// cli-parity-gap: fastq-quality-report. The row records no command. It
+    /// used to record a `seqkit stats` description, which is not a
+    /// `lungfish-cli` command and does not parse. The run calls
+    /// `seqkit stats` through `NativeToolRunner` in this process, unless
     /// the import already cached a seqkit summary, then takes a 100,000-read
     /// `seqkit head` sample and stores the statistics in the dataset's metadata
     /// sidecar. The closest command is `lungfish-cli fastq qc-summary`, which
     /// computes its statistics with `FASTQReader` and writes them to a JSON
-    /// file, so it neither runs seqkit nor updates the sidecar. A command that
-    /// records the viewport's statistics would replace the description.
+    /// file, so it neither runs seqkit nor updates the sidecar.
     @discardableResult
     static func beginQualityReportOperation(
         fastqURL: URL,
@@ -36,7 +35,7 @@ extension FASTQDatasetViewController {
             title: "Quality Report",
             detail: fastqURL.lastPathComponent,
             operationType: .qualityReport,
-            cliCommand: qualityReportCommandDescription(for: fastqURL)
+            cliCommand: nil
         )
         switch result {
         case .started(let operationID):
@@ -45,12 +44,5 @@ extension FASTQDatasetViewController {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
-    }
-
-    /// The text the Quality Report row shows in place of a command. It names the
-    /// seqkit calls the run makes and describes the two steps that run in
-    /// process with parenthesized notes.
-    static func qualityReportCommandDescription(for fastqURL: URL) -> String {
-        "seqkit stats -a -T \(fastqURL.path) && (count Q20/Q30 bases) && seqkit head -n 100000 \(fastqURL.path) | (sampled quality analysis)"
     }
 }

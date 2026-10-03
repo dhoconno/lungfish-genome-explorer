@@ -137,7 +137,7 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         XCTAssertFalse(launched, "a refused row must start no GATK pipeline and attach nothing")
     }
 
-    func testGATKVariantCallingRecordsTodaysCommandAsAParityGap() throws {
+    func testGATKVariantCallingRecordsNoCommandAsAParityGapAndLogsTheGATKCommands() throws {
         let reporter = RecordingOperationReporter()
         let request = gatkRequest()
 
@@ -154,10 +154,14 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         XCTAssertEqual(item.operationType, .variantCalling)
         XCTAssertEqual(item.targetBundleURL, bundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        // CLI parity gap. No lungfish-cli command runs GATK and attaches the
-        // VCF to the bundle. The closest is `gatk haplotype-caller --execute`.
-        // When one exists, record it and replace this pin with a parse test.
-        XCTAssertEqual(item.cliCommand, request.commands.map(\.shellCommand).joined(separator: " && "))
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        // No lungfish-cli command runs GATK and attaches the VCF to the
+        // bundle. The closest is `gatk haplotype-caller --execute`. The row
+        // records no command and logs the GATK commands instead.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "gatk-variant-calling")
+        XCTAssertEqual(
+            item.logs.map(\.message),
+            request.commands.map { "GATK command: \($0.shellCommand)" }
+        )
     }
 }

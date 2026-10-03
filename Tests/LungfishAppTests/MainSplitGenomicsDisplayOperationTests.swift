@@ -61,7 +61,7 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         // bundle from one accession. When a merge command exists, record it and
         // replace this pin with a parse test.
         XCTAssertNil(item.cliCommand)
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        assertCLIParityGap(item.cliCommand, id: "variant-only-reference-download")
     }
 
     func testRefusedReferenceDownloadsLaunchNothing() {
@@ -261,7 +261,7 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         for (name, request) in Self.requestsNoCLIOptionExpresses {
             let item = try recordedDerivativeRow(request)
             XCTAssertNil(item.cliCommand, name)
-            XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand), name)
+            assertCLIParityGap(item.cliCommand, id: "fastq-dashboard-derivative")
         }
     }
 
