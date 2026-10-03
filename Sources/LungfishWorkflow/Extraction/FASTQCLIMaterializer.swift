@@ -526,7 +526,7 @@ public final class FASTQCLIMaterializer: Sendable {
 
     // MARK: - fullPaired interleave
 
-    private func interleaveWithReformat(r1URL: URL, r2URL: URL, outputURL: URL) async throws {
+    func interleaveWithReformat(r1URL: URL, r2URL: URL, outputURL: URL) async throws {
         let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
         let env = CoreToolLocator.bbToolsEnvironment(
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
@@ -548,69 +548,9 @@ public final class FASTQCLIMaterializer: Sendable {
         }
     }
 
-    // MARK: - fullMixed materialization
-
-    private func materializeFullMixed(
-        classification: ReadClassification,
-        bundleURL: URL,
-        tempDirectory: URL,
-        outputURL: URL
-    ) async throws {
-        let fm = FileManager.default
-        let pairedR1 = classification.files.first(where: { $0.role == .pairedR1 })
-        let pairedR2 = classification.files.first(where: { $0.role == .pairedR2 })
-        var fileURLsToConcat: [URL] = []
-        var tempInterleavedURL: URL?
-
-        if let r1 = pairedR1, let r2 = pairedR2 {
-            let r1URL = try payloadMemberURL(
-                r1.filename,
-                in: bundleURL,
-                field: "readClassification.files[].filename"
-            )
-            let r2URL = try payloadMemberURL(
-                r2.filename,
-                in: bundleURL,
-                field: "readClassification.files[].filename"
-            )
-            let interleavedURL = tempDirectory
-                .appendingPathComponent("interleaved-\(UUID().uuidString).fastq")
-            try await interleaveWithReformat(r1URL: r1URL, r2URL: r2URL, outputURL: interleavedURL)
-            tempInterleavedURL = interleavedURL
-            fileURLsToConcat.append(interleavedURL)
-        }
-        defer {
-            if let url = tempInterleavedURL { try? fm.removeItem(at: url) }
-        }
-
-        let otherRoles: [ReadClassification.FileRole] = [.merged, .unpaired]
-        for role in otherRoles {
-            if let fileRecord = classification.files.first(where: { $0.role == role }) {
-                let url = try payloadMemberURL(
-                    fileRecord.filename,
-                    in: bundleURL,
-                    field: "readClassification.files[].filename"
-                )
-                if fm.fileExists(atPath: url.path) {
-                    fileURLsToConcat.append(url)
-                }
-            }
-        }
-
-        guard !fileURLsToConcat.isEmpty else {
-            throw FASTQCLIMaterializerError.sourceFASTQMissing
-        }
-
-        if fileURLsToConcat.count == 1 {
-            try fm.copyItem(at: fileURLsToConcat[0], to: outputURL)
-        } else {
-            try concatenateFiles(fileURLsToConcat, to: outputURL)
-        }
-    }
-
     // MARK: - Utilities
 
-    private func payloadMemberURL(_ relativePath: String, in bundleURL: URL, field: String) throws -> URL {
+    func payloadMemberURL(_ relativePath: String, in bundleURL: URL, field: String) throws -> URL {
         do {
             return try FASTQBundle.validatedBundleMemberURL(
                 for: relativePath,
@@ -762,7 +702,7 @@ public final class FASTQCLIMaterializer: Sendable {
         return id
     }
 
-    private func concatenateFiles(_ sources: [URL], to destination: URL) throws {
+    func concatenateFiles(_ sources: [URL], to destination: URL) throws {
         FileManager.default.createFile(atPath: destination.path, contents: nil)
         let outHandle = try FileHandle(forWritingTo: destination)
         defer { try? outHandle.close() }
@@ -790,6 +730,7 @@ public enum FASTQCLIMaterializerError: Error, LocalizedError {
     case toolFailed(String, String)
     case unsupportedPayload(String)
     case unsupportedTrimFormat(String)
+    case roleFileMissing(String)
 
     public var errorDescription: String? {
         switch self {
@@ -809,6 +750,8 @@ public enum FASTQCLIMaterializerError: Error, LocalizedError {
             return "Payload type '\(type)' cannot be materialized to a single FASTQ file"
         case .unsupportedTrimFormat(let reason):
             return "Unsupported trim file format: \(reason)"
+        case .roleFileMissing(let detail):
+            return "The mixed bundle cannot be read whole: \(detail)"
         }
     }
 }
