@@ -47,6 +47,8 @@ SUBCOMMANDS:
   import-ont              Import ONT output directory into per-barcode bundles
   materialize             Materialize a virtual FASTQ bundle to a physical
                           FASTQ file
+  platform                Show, check or correct the sequencing platform
+                          recorded for FASTQ bundles
   qc-summary              Compute a JSON QC summary for FASTQ input files
   pbaa-cluster            Cluster PacBio HiFi amplicon reads with pbAA in
                           pinned containers

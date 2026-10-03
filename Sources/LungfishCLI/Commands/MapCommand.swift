@@ -50,7 +50,7 @@ struct MapCommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("preset"),
-        help: "Mode/preset. minimap2: sr, asm5, splice, map-ont, map-hifi, map-pb. bbmap: bbmap-standard, bbmap-pacbio."
+        help: "Mode/preset. minimap2: sr, asm5, splice, map-ont, map-hifi, map-pb. bbmap: bbmap-standard, bbmap-pacbio. (default: follows the input read class)"
     )
     var preset: String?
 
@@ -252,7 +252,11 @@ struct MapCommand: AsyncParsableCommand {
 
         let selectedMode: MappingMode
         do {
-            selectedMode = try resolveMode(tool: selectedTool, preset: preset)
+            let presetDefault = preset == nil ? Self.defaultPreset(tool: selectedTool, inputURLs: inputURLs) : nil
+            selectedMode = try presetDefault?.mode ?? resolveMode(tool: selectedTool, preset: preset)
+            if let note = presetDefault?.note, !globalOptions.quiet {
+                FileHandle.standardError.write(Data("note: \(note)\n".utf8))
+            }
         } catch {
             print(formatter.error(error.localizedDescription))
             throw CLIExitCode.inputError.exitCode
@@ -371,6 +375,7 @@ struct MapCommand: AsyncParsableCommand {
             outputTrackName: trackName
         )
         let readLayoutPlan = request.readLayoutPlan
+        Self.printCompatibilityWarnings(for: request)
         // `--format json` prints one JSON document at the end; the text
         // header, tables and carriage-return progress lines would corrupt it.
         let printsText = globalOptions.outputFormat != .json

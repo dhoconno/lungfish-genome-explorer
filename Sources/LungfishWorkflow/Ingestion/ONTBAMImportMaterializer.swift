@@ -16,7 +16,7 @@ public struct ONTBAMMaterialization: Sendable {
 }
 
 public enum ONTBAMImportError: Error, LocalizedError, Sendable {
-    case requiresONT(String)
+    case pacBioBAMUnsupported(String)
     case requiresSingleBAM(String)
     case conversionFailed(String)
     case compressionFailed(String)
@@ -24,12 +24,12 @@ public enum ONTBAMImportError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .requiresONT(let filename):
-            return "BAM read input \(filename) is supported only for Oxford Nanopore imports."
+        case .pacBioBAMUnsupported(let filename):
+            return "PacBio BAM import is not supported yet. Convert \(filename) with samtools fastq and import the FASTQ."
         case .requiresSingleBAM(let sample):
             return "BAM read input for \(sample) must be a single file, not an R1/R2 pair."
         case .conversionFailed(let detail):
-            return "Could not convert the ONT BAM to FASTQ: \(detail)"
+            return "Could not convert the BAM to FASTQ: \(detail)"
         case .compressionFailed(let detail):
             return "Could not compress the temporary FASTQ: \(detail)"
         case .emptyOutput(let filename):
@@ -41,9 +41,33 @@ public enum ONTBAMImportError: Error, LocalizedError, Sendable {
 public enum ONTBAMImportMaterializer {
     public static let primaryReadFlagFilter = 0x900
 
+    /// Refuses only PacBio BAM (its kinetics and per-read tags need their own
+    /// conversion, owner ruling 4). Every other unaligned BAM converts with
+    /// `samtools fastq`, whatever its platform. A paired BAM converts to
+    /// interleaved /1 and /2 records, which `--pairing auto` records as
+    /// interleaved mates.
+    public static func checkPlatform(_ platform: SequencingPlatform, for pair: SamplePair) throws {
+        if platform == .pacbio {
+            throw ONTBAMImportError.pacBioBAMUnsupported(pair.r1.lastPathComponent)
+        }
+    }
+
     public static func materializeIfNeeded(
         pair: SamplePair,
         platform: IngestionPlatform,
+        workspace: URL,
+        threads: Int = 1,
+        runner: NativeToolRunner = .shared
+    ) async throws -> ONTBAMMaterialization {
+        try await materializeIfNeeded(
+            pair: pair, platform: platform.sequencingPlatform, workspace: workspace,
+            threads: threads, runner: runner
+        )
+    }
+
+    public static func materializeIfNeeded(
+        pair: SamplePair,
+        platform: SequencingPlatform,
         workspace: URL,
         threads: Int = 1,
         runner: NativeToolRunner = .shared
@@ -56,9 +80,7 @@ public enum ONTBAMImportMaterializer {
         guard r1IsBAM, pair.r2 == nil else {
             throw ONTBAMImportError.requiresSingleBAM(pair.sampleName)
         }
-        guard platform == .ont else {
-            throw ONTBAMImportError.requiresONT(pair.r1.lastPathComponent)
-        }
+        try checkPlatform(platform, for: pair)
 
         let fastqURL = workspace.appendingPathComponent("\(pair.sampleName)-from-bam.fastq")
         let compressedURL = workspace.appendingPathComponent("\(pair.sampleName)-from-bam.fastq.gz")

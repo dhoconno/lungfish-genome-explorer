@@ -45,7 +45,7 @@ final class WorkflowPlatformPinTests: XCTestCase {
             defaultQualityBinning: .none, defaultCompressionLevel: .balanced
         ),
         DefaultsRow(
-            platform: .pacbio, rawValue: "pacbio", displayName: "PacBio HiFi",
+            platform: .pacbio, rawValue: "pacbio", displayName: "PacBio",
             defaultPairing: .singleEnd, defaultOptimizeStorage: false,
             defaultQualityBinning: .none, defaultCompressionLevel: .balanced
         ),
@@ -155,7 +155,15 @@ final class WorkflowPlatformPinTests: XCTestCase {
                 QualityBinningScheme.none, label
             )
         }
-        XCTAssertEqual(FASTQBatchImporter.ImportConfig(projectDirectory: project).platform, .illumina)
+        // No default platform: an import names one, or asks for auto.
+        XCTAssertEqual(FASTQBatchImporter.ImportConfig(projectDirectory: project, platform: .illumina).sequencingPlatform, .illumina)
+        let auto = FASTQBatchImporter.ImportConfig(projectDirectory: project, platform: .auto)
+        XCTAssertEqual(auto.platformRequest, .auto)
+        XCTAssertEqual(auto.sequencingPlatform, .unknown)
+        // Element and MGI keep the short-read storage defaults, Unknown takes the long-read ones.
+        XCTAssertEqual(resolved(.init(projectDirectory: project, platform: .given(.element))), shortRead)
+        XCTAssertEqual(resolved(.init(projectDirectory: project, platform: .given(.mgi))), shortRead)
+        XCTAssertEqual(resolved(.init(projectDirectory: project, platform: .given(.unknown))), longRead)
     }
 
     // MARK: - Mapping onto LungfishIO.SequencingPlatform
@@ -213,71 +221,68 @@ final class WorkflowPlatformPinTests: XCTestCase {
         }
     }
 
-    func testBAMInputIsAcceptedOnlyForONT() async {
+    /// BAM input used to be accepted only for ONT. Only PacBio BAM is refused now.
+    func testBAMInputIsRefusedOnlyForPacBio() async {
         let pair = SamplePair(sampleName: "reads", r1: URL(fileURLWithPath: "/tmp/reads.bam"), r2: nil)
-        for platform in WorkflowPlatform.allCases where platform != .ont {
+        for platform in LungfishIO.SequencingPlatform.allCases {
             do {
-                _ = try await ONTBAMImportMaterializer.materializeIfNeeded(
-                    pair: pair,
-                    platform: platform,
-                    workspace: URL(fileURLWithPath: "/tmp")
-                )
-                XCTFail("A \(platform.rawValue) BAM import must be rejected")
+                try ONTBAMImportMaterializer.checkPlatform(platform, for: pair)
+                XCTAssertNotEqual(platform, .pacbio, "A PacBio BAM import must be rejected")
             } catch {
-                XCTAssertTrue(error.localizedDescription.contains("only for Oxford Nanopore"), platform.rawValue)
+                XCTAssertEqual(platform, .pacbio, platform.rawValue)
+                XCTAssertTrue(error.localizedDescription.contains("PacBio BAM import is not supported"))
             }
         }
     }
 
     // MARK: - Header detection
 
-    /// The import platform's `detect(fromFASTQHeader:)` beside the LungfishIO
-    /// detector on the same headers. The two detectors disagree on several of
-    /// them today. `lungfish-cli import fastq` uses the import detector and
-    /// falls back to Illumina when it returns nil. The app's import sheet,
-    /// mapping, assembly, Viral Recon and genotyping use the LungfishIO one.
-    private static let headerDetections: [(label: String, header: String, workflow: WorkflowPlatform?, io: LungfishIO.SequencingPlatform?)] = [
+    /// One detector. The import detector this table once compared is gone,
+    /// and `lungfish-cli import fastq`, the app and every consumer call
+    /// `PlatformInference` (pinned in LungfishIOTests/PlatformInferenceTests).
+    /// Each row gives the platform one header alone names.
+    private static let headerDetections: [(label: String, header: String, io: LungfishIO.SequencingPlatform?)] = [
         (
             "MinKNOW header with every key",
             "@0a1b2c3d-4e5f-6789-abcd-ef0123456789 runid=8a9b0c1d2e3f405162738495a6b7c8d9e0f1a2b3 sampleid=s1 read=12 ch=34 start_time=2023-05-01T10:20:30Z flow_cell_id=FAW12345 protocol_group_id=run1 sample_id=s1 barcode=barcode01 basecall_model_version_id=dna_r10.4.1_e8.2_400bps_sup@v4.2.0",
-            .ont, .oxfordNanopore
+            .oxfordNanopore
         ),
         (
             "Guppy header with start_time and flow_cell_id",
             "@0a1b2c3d-4e5f-6789-abcd-ef0123456789 runid=8a9b0c1d read=12 ch=34 start_time=2019-05-01T10:20:30Z flow_cell_id=FAK12345",
-            .ont, .oxfordNanopore
+            .oxfordNanopore
         ),
-        ("ONT header with runid only", "@d3ef25a0-5d5c-4a5f-8c3b-12345abcdef runid=abc123 sampleid=sample1", .ont, nil),
-        ("basecall_gpu key only", "@read1 basecall_gpu=Tesla_V100", nil, .oxfordNanopore),
-        ("start_time without flow_cell_id", "@read1 start_time=2019-05-01T10:20:30Z", nil, nil),
+        ("ONT header with runid only", "@d3ef25a0-5d5c-4a5f-8c3b-12345abcdef runid=abc123 sampleid=sample1", .oxfordNanopore),
+        ("basecall_gpu key only", "@read1 basecall_gpu=Tesla_V100", .oxfordNanopore),
+        ("start_time without flow_cell_id", "@read1 start_time=2019-05-01T10:20:30Z", nil),
         (
             "dorado SAM tags in the header",
             "@0a1b2c3d-4e5f-6789-abcd-ef0123456789\tqs:f:12.5\tdu:f:3.2\tns:i:16000\tch:i:123\tst:Z:2023-05-01T10:20:30.000+00:00\tRG:Z:8a9b0c1d_dna_r10.4.1_e8.2_400bps_sup@v4.2.0",
-            nil, .illumina
+            .oxfordNanopore
         ),
-        ("PacBio Sequel CCS", "@m64011_190830_220126/101/ccs", .pacbio, .pacbio),
-        ("PacBio Revio CCS", "@m84011_220902_175841_s1/12345/ccs", nil, .pacbio),
-        ("PacBio by-strand CCS", "@m64011_190830_220126/101/ccs/fwd", .pacbio, .pacbio),
-        ("PacBio subread", "@m54006_160504_020705/4194370/0_3920", nil, nil),
-        ("zmw anywhere in the header", "@read_zmw_123", nil, .pacbio),
-        ("Illumina CASAVA 1.8 with comment", "@A00488:61:HMLGNDSXX:4:1101:1234:5678 1:N:0:ACGTACGT", .illumina, .illumina),
-        ("Illumina CASAVA 1.8 without @", "A00488:61:HMLGNDSXX:4:1101:1234:5678", .illumina, .illumina),
-        ("Illumina MiSeq flow cell with a dash", "@M00123:45:000000000-ABCDE:1:1101:15589:1333 1:N:0:1", nil, .illumina),
-        ("Illumina pre-1.8", "@HWUSI-EAS100R:6:73:941:1973#0/1", nil, nil),
-        ("SRA spot name", "@SRR12345678.1 1 length=150", nil, nil),
-        ("SRA spot with original Illumina name", "@SRR6750055.1 A00123:8:H5YNKDSXX:1:1101:1000:1000 length=151", nil, .illumina),
-        ("seven non-numeric colon fields", "@a:b:c:d:e:f:g", nil, .illumina),
-        ("seven numeric colon fields", "@sample:1:2:3:4:5:6", .illumina, .illumina),
-        ("MGI DNBSEQ", "@V350012345L1C001R00100000001/1", nil, nil),
-        ("generic read name", "@read1 some random format", nil, nil),
-        ("empty", "", nil, nil),
-        ("bare @", "@", nil, nil),
+        ("PacBio Sequel CCS", "@m64011_190830_220126/101/ccs", .pacbio),
+        ("PacBio Revio CCS", "@m84011_220902_175841_s1/12345/ccs", .pacbio),
+        ("PacBio by-strand CCS", "@m64011_190830_220126/101/ccs/fwd", .pacbio),
+        ("PacBio subread", "@m54006_160504_020705/4194370/0_3920", .pacbio),
+        ("zmw anywhere in the header", "@read_zmw_123", nil),
+        ("Illumina CASAVA 1.8 with comment", "@A00488:61:HMLGNDSXX:4:1101:1234:5678 1:N:0:ACGTACGT", .illumina),
+        ("Illumina CASAVA 1.8 without @", "A00488:61:HMLGNDSXX:4:1101:1234:5678", .illumina),
+        ("Illumina MiSeq flow cell with a dash", "@M00123:45:000000000-ABCDE:1:1101:15589:1333 1:N:0:1", .illumina),
+        ("Illumina pre-1.8", "@HWUSI-EAS100R:6:73:941:1973#0/1", .illumina),
+        ("SRA spot name", "@SRR12345678.1 1 length=150", nil),
+        ("SRA spot with original Illumina name", "@SRR6750055.1 A00123:8:H5YNKDSXX:1:1101:1000:1000 length=151", .illumina),
+        ("seven non-numeric colon fields", "@a:b:c:d:e:f:g", nil),
+        ("seven numeric colon fields", "@sample:1:2:3:4:5:6", .illumina),
+        ("MGI DNBSEQ", "@V350012345L1C001R00100000001/1", .mgi),
+        ("generic read name", "@read1 some random format", nil),
+        ("empty", "", nil),
+        ("bare @", "@", nil),
     ]
 
-    func testHeaderDetectionBesideTheLungfishIODetector() {
+    func testHeaderDetectionUsesTheSharedDetector() {
         for row in Self.headerDetections {
-            XCTAssertEqual(WorkflowPlatform.detect(fromFASTQHeader: row.header), row.workflow, "import detector: \(row.label)")
-            XCTAssertEqual(LungfishIO.SequencingPlatform.detect(fromHeader: row.header), row.io, "LungfishIO detector: \(row.label)")
+            XCTAssertEqual(LungfishIO.SequencingPlatform.detect(fromHeader: row.header), row.io, row.label)
+            XCTAssertEqual(PlatformInference.infer(fromHeader: row.header).isActionable, row.io != nil, row.label)
         }
     }
 
@@ -336,7 +341,8 @@ final class WorkflowPlatformPinTests: XCTestCase {
 
         object["sourcePlatform"] = "ont"
         let importSpelling = try JSONSerialization.data(withJSONObject: object)
-        XCTAssertThrowsError(try JSONDecoder().decode(DemultiplexStep.self, from: importSpelling))
+        // Tolerant platform decoding: an unrecognised spelling reads as unknown.
+        XCTAssertEqual(try JSONDecoder().decode(DemultiplexStep.self, from: importSpelling).sourcePlatform, .unknown)
     }
 
     // MARK: - End to end
@@ -374,9 +380,11 @@ final class WorkflowPlatformPinTests: XCTestCase {
         let provenanceData = PortablePath.resolveJSON(try Data(contentsOf: provenanceURL), forFileAt: provenanceURL)
         let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: provenanceData)
 
-        // Provenance and the replay command carry the import spelling.
+        // Provenance and the replay command carry the import spelling. The
+        // default is auto, which infers the platform, never Illumina.
         XCTAssertEqual(envelope.options.explicit["platform"], .string("ont"))
-        XCTAssertEqual(envelope.options.defaults["platform"], .string("illumina"))
+        XCTAssertEqual(envelope.options.explicit["platformSource"], .string("given"))
+        XCTAssertEqual(envelope.options.defaults["platform"], .string("auto"))
         XCTAssertEqual(envelope.options.defaults["optimizeStorage"], .boolean(false))
         XCTAssertEqual(envelope.options.defaults["clumpingTool"], .string("none"))
         XCTAssertEqual(envelope.options.defaults["compressionLevel"], .string("balanced"))

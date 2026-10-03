@@ -536,8 +536,8 @@ public enum LungfishHelpContent {
 
     public static let fastqImportPlatform = HelpItem(
         id: "workflow.fastq.import.platform",
-        summary: "Confirm the sequencing platform used to generate these reads.",
-        detail: "Confirmed platform affects defaults and is written with command provenance.",
+        summary: "The platform is detected from the read headers. Keep it, or choose the platform the reads came from.",
+        detail: "Left as detected, each sample is imported as the platform its reads show, and reads that match no known form are recorded as Unknown. A platform you choose is recorded as given. It sets defaults only and is written with command provenance.",
         audience: .benchScientist,
         provenanceRelevant: true
     )

@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import Compression
 import Foundation
 import LungfishIO
 
@@ -69,40 +68,29 @@ public enum MappingReadClass: String, CaseIterable, Codable, Sendable {
         return nil
     }
 
+    /// Detects the read class from a bounded sample of the FASTQ with the
+    /// shared platform detector.
     public static func detect(fromFASTQ url: URL) -> Self? {
-        guard let header = readFASTQHeader(from: url) else {
-            return nil
-        }
-        return detect(fromFASTQHeader: header)
+        detect(fromInference: PlatformInference.infer(fromFASTQ: url))
     }
 
     public static func detect(fromFASTQHeader header: String) -> Self? {
-        let stripped = header.hasPrefix("@") ? String(header.dropFirst()) : header
-        let lowercased = stripped.lowercased()
+        detect(fromInference: PlatformInference.infer(fromHeader: header))
+    }
 
-        if lowercased.contains("/ccs") {
-            return .pacBioHiFi
+    /// The mapping read class of an inference. PacBio reads without HiFi
+    /// evidence (subreads) map as CLR.
+    public static func detect(fromInference inference: PlatformInference) -> Self? {
+        guard inference.isActionable else { return nil }
+        if inference.platform == .pacbio {
+            return inference.readClass == .pacBioHiFi ? .pacBioHiFi : .pacBioCLR
         }
-
-        guard let platform = LungfishIO.SequencingPlatform.detect(fromHeader: header) else {
-            return nil
-        }
-
-        switch platform {
-        case .illumina:
-            return .illuminaShortReads
-        case .oxfordNanopore:
-            return .ontReads
-        case .pacbio:
-            return .pacBioCLR
-        default:
-            return nil
-        }
+        return inference.readClass.flatMap(Self.init(persistedReadType:))
     }
 
     public static func detect(from platform: LungfishIO.SequencingPlatform) -> Self? {
         switch platform {
-        case .illumina:
+        case .illumina, .element, .mgi:
             return .illuminaShortReads
         case .oxfordNanopore:
             return .ontReads
@@ -111,6 +99,15 @@ public enum MappingReadClass: String, CaseIterable, Codable, Sendable {
         default:
             return nil
         }
+    }
+
+    /// The read class an input of unknown platform defaults to, from its read
+    /// lengths: ONT reads for long reads, short reads for short reads, nil when
+    /// the lengths say neither. Only a default, never a gate.
+    public static func lengthDefault(forInputURL url: URL) -> Self? {
+        guard let fastqURL = resolveFASTQURL(forInputURL: url) else { return nil }
+        return PlatformInference.defaultReadType(forLengthProfile: PlatformInference.lengthProfile(forFASTQ: fastqURL))
+            .flatMap(Self.init(persistedReadType:))
     }
 
     public init?(persistedReadType: FASTQAssemblyReadType) {
@@ -122,60 +119,6 @@ public enum MappingReadClass: String, CaseIterable, Codable, Sendable {
         case .pacBioHiFi:
             self = .pacBioHiFi
         }
-    }
-
-    private static func readFASTQHeader(from url: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 4096), !data.isEmpty else { return nil }
-
-        let text: String?
-        if data.count >= 2, data[0] == 0x1F, data[1] == 0x8B {
-            text = decompressGzipPrefix(data: data).flatMap { String(data: $0, encoding: .utf8) }
-        } else {
-            text = String(data: data, encoding: .utf8)
-        }
-
-        guard let text, let firstLine = text.split(separator: "\n", maxSplits: 1).first else {
-            return nil
-        }
-        return String(firstLine)
-    }
-
-    private static func decompressGzipPrefix(data: Data) -> Data? {
-        guard data.count > 10 else { return nil }
-        var offset = 10
-        let flags = data[3]
-        if flags & 0x04 != 0, data.count > offset + 2 {
-            let xlen = Int(data[offset]) | (Int(data[offset + 1]) << 8)
-            offset += 2 + xlen
-        }
-        if flags & 0x08 != 0 {
-            while offset < data.count, data[offset] != 0 { offset += 1 }
-            offset += 1
-        }
-        if flags & 0x10 != 0 {
-            while offset < data.count, data[offset] != 0 { offset += 1 }
-            offset += 1
-        }
-        if flags & 0x02 != 0 { offset += 2 }
-        guard offset < data.count else { return nil }
-
-        let compressed = data.subdata(in: offset..<data.count)
-        let bufferSize = 4096
-        var output = Data(count: bufferSize)
-        let size: Int = compressed.withUnsafeBytes { src in
-            output.withUnsafeMutableBytes { dst in
-                guard let srcPtr = src.baseAddress, let dstPtr = dst.baseAddress else { return 0 }
-                return compression_decode_buffer(
-                    dstPtr.assumingMemoryBound(to: UInt8.self), bufferSize,
-                    srcPtr.assumingMemoryBound(to: UInt8.self), compressed.count,
-                    nil, COMPRESSION_ZLIB
-                )
-            }
-        }
-        guard size > 0 else { return nil }
-        return output.prefix(size)
     }
 
     static func resolveFASTQURL(forInputURL url: URL) -> URL? {

@@ -72,6 +72,29 @@ public struct MappingInputInspection: Sendable, Equatable {
         readClass != nil && hasUnclassifiedFASTQInputs
     }
 
+    /// The read class FASTQ inputs of unknown platform default to, from the
+    /// longest read: ONT reads over 1,000 bases, short reads up to 600. Nil
+    /// when a read class is known, the inputs mix classes, or the length says
+    /// neither. Only a default, never a gate.
+    public var lengthDefaultReadClass: MappingReadClass? {
+        guard readClass == nil, !mixedReadClasses, sequenceFormat != .fasta,
+              let observedMaxReadLength else { return nil }
+        if observedMaxReadLength > 1_000 { return .ontReads }
+        if observedMaxReadLength <= 600 { return .illuminaShortReads }
+        return nil
+    }
+
+    /// One sentence naming inputs whose recorded platform contradicts their
+    /// reads (imported before platform inference), or nil.
+    public static func suspectLabelNote(for urls: [URL]) -> String? {
+        let suspects = urls.compactMap { url -> String? in
+            guard let check = PlatformLabelCheck.check(inputURL: url), check.isSuspect else { return nil }
+            return "\(url.deletingPathExtension().lastPathComponent): \(check.reasons.joined(separator: " "))"
+        }
+        guard !suspects.isEmpty else { return nil }
+        return "The recorded read type may be wrong. \(suspects.joined(separator: " ")) The preset follows the recorded read type. Check the bundle in the Inspector."
+    }
+
     private struct ResolvedSequenceInput: Sendable, Equatable {
         let url: URL
         let format: SequenceFormat

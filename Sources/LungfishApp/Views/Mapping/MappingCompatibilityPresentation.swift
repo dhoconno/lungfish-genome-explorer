@@ -6,6 +6,12 @@ import SwiftUI
 import LungfishIO
 import LungfishWorkflow
 
+/// The status line under the Map Reads settings.
+///
+/// Read class and platform only choose defaults. A preset that does not suit
+/// the reads, mixed read classes and reads of unknown platform show a warning
+/// in orange and the run stays available. Only a combination the mapper cannot
+/// run (`MappingCompatibilityState.blocked`) disables Run.
 struct MappingCompatibilityPresentation {
     let message: String
     let color: Color
@@ -19,7 +25,8 @@ struct MappingCompatibilityPresentation {
         detectedReadClass: MappingReadClass?,
         mixedReadClasses: Bool,
         mixedSequenceFormats: Bool,
-        mixesDetectedAndUnclassifiedReadClasses: Bool = false
+        mixesDetectedAndUnclassifiedReadClasses: Bool = false,
+        suspectLabelNote: String? = nil
     ) -> MappingCompatibilityPresentation {
         guard hasInputs else {
             return .init(message: "Select at least one sequence dataset.", color: .secondary, isReady: false)
@@ -34,65 +41,42 @@ struct MappingCompatibilityPresentation {
                 isReady: false
             )
         }
-        if mixedReadClasses {
-            return .init(
-                message: "Selected FASTQ inputs mix incompatible read classes. Select one read class per mapping run.",
-                color: Color.lungfishOrangeFallback,
-                isReady: false
-            )
-        }
-        if mixesDetectedAndUnclassifiedReadClasses {
-            return .init(
-                message: "Selected FASTQ inputs mix classified and unclassified read types. Re-import or edit the read type metadata so every selected FASTQ has the same read type.",
-                color: Color.lungfishOrangeFallback,
-                isReady: false
-            )
-        }
-        if detectedSequenceFormat == .fasta {
-            guard let compatibility else {
-                return .init(
-                    message: "Detected FASTA sequence input.",
-                    color: .secondary,
-                    isReady: true
-                )
-            }
-            switch compatibility.state {
-            case .allowed:
-                return .init(
-                    message: "Ready: \(compatibility.tool.displayName) is compatible with FASTA sequence input.",
-                    color: Color.lungfishSecondaryText,
-                    isReady: true
-                )
-            case .blocked(let message):
-                return .init(message: message, color: Color.lungfishOrangeFallback, isReady: false)
-            }
-        }
         if let compatibility, case .blocked(let message) = compatibility.state {
             return .init(message: message, color: Color.lungfishOrangeFallback, isReady: false)
         }
-        guard let detectedReadClass else {
-            return .init(
-                message: "Unable to detect a supported read class from the selected FASTQ inputs.",
-                color: Color.lungfishOrangeFallback,
-                isReady: false
-            )
+
+        var warnings: [String] = []
+        if detectedSequenceFormat != .fasta {
+            if mixedReadClasses {
+                warnings.append("Selected FASTQ inputs mix read classes, so one preset maps all of them.")
+            }
+            if mixesDetectedAndUnclassifiedReadClasses {
+                warnings.append("Some selected FASTQ inputs have no known read type.")
+            }
         }
+        if let warning = compatibility?.warningMessage, !warnings.contains(warning) {
+            warnings.append(warning)
+        }
+        if let suspectLabelNote {
+            warnings.append(suspectLabelNote)
+        }
+        if !warnings.isEmpty {
+            return .init(message: warnings.joined(separator: " "), color: Color.lungfishOrangeFallback, isReady: true)
+        }
+
         guard let compatibility else {
-            return .init(
-                message: "Detected \(detectedReadClass.displayName).",
-                color: .secondary,
-                isReady: true
-            )
+            let detected = detectedSequenceFormat == .fasta
+                ? "Detected FASTA sequence input."
+                : detectedReadClass.map { "Detected \($0.displayName)." } ?? PlatformInference.untunedDefaultsNote
+            return .init(message: detected, color: .secondary, isReady: true)
         }
-        switch compatibility.state {
-        case .allowed:
-            return .init(
-                message: "Ready: \(compatibility.tool.displayName) is compatible with \(detectedReadClass.displayName).",
-                color: Color.lungfishSecondaryText,
-                isReady: true
-            )
-        case .blocked(let message):
-            return .init(message: message, color: Color.lungfishOrangeFallback, isReady: false)
-        }
+        let target = detectedSequenceFormat == .fasta
+            ? "FASTA sequence input"
+            : detectedReadClass?.displayName ?? "these reads"
+        return .init(
+            message: "Ready: \(compatibility.tool.displayName) is compatible with \(target).",
+            color: Color.lungfishSecondaryText,
+            isReady: true
+        )
     }
 }

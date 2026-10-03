@@ -30,7 +30,7 @@ struct IngestionPlatformTests {
 
     @Test func testPacBioDefaults() {
         let platform = IngestionPlatform.pacbio
-        #expect(platform.displayName == "PacBio HiFi")
+        #expect(platform.displayName == "PacBio")
         #expect(platform.defaultPairing == .singleEnd)
         #expect(platform.defaultOptimizeStorage == false)
         #expect(platform.defaultQualityBinning == .none)
@@ -46,25 +46,25 @@ struct IngestionPlatformTests {
 
     @Test func testAutoDetectIllumina() {
         let header = "@A00488:61:HMLGNDSXX:4:1101:1234:5678 1:N:0:ACGTACGT"
-        let detected = IngestionPlatform.detect(fromFASTQHeader: header)
+        let detected = LungfishIO.SequencingPlatform.detect(fromHeader: header)
         #expect(detected == .illumina)
     }
 
     @Test func testAutoDetectONT() {
         let header = "@d3ef25a0-5d5c-4a5f-8c3b-12345abcdef runid=abc123 sampleid=sample1"
-        let detected = IngestionPlatform.detect(fromFASTQHeader: header)
-        #expect(detected == .ont)
+        let detected = LungfishIO.SequencingPlatform.detect(fromHeader: header)
+        #expect(detected == .oxfordNanopore)
     }
 
     @Test func testAutoDetectPacBio() {
         let header = "@m64011_190830_220126/101/ccs"
-        let detected = IngestionPlatform.detect(fromFASTQHeader: header)
+        let detected = LungfishIO.SequencingPlatform.detect(fromHeader: header)
         #expect(detected == .pacbio)
     }
 
     @Test func testAutoDetectUnknown() {
         let header = "@read1 some random format"
-        let detected = IngestionPlatform.detect(fromFASTQHeader: header)
+        let detected = LungfishIO.SequencingPlatform.detect(fromHeader: header)
         #expect(detected == nil)
     }
 

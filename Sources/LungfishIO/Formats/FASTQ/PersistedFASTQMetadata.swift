@@ -55,6 +55,10 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
     /// represented here when the user explicitly confirms HiFi/CCS suitability.
     public var assemblyReadType: FASTQAssemblyReadType?
 
+    /// How `sequencingPlatform` and `assemblyReadType` were decided, with the
+    /// evidence. Nil for bundles imported before platform inference.
+    public var platformAssignment: PlatformAssignment?
+
     public init(
         computedStatistics: FASTQDatasetStatistics? = nil,
         sraRunInfo: SRARunInfo? = nil,
@@ -66,7 +70,8 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
         readClassification: ReadClassification? = nil,
         demultiplexMetadata: FASTQDemultiplexMetadata? = nil,
         sequencingPlatform: SequencingPlatform? = nil,
-        assemblyReadType: FASTQAssemblyReadType? = nil
+        assemblyReadType: FASTQAssemblyReadType? = nil,
+        platformAssignment: PlatformAssignment? = nil
     ) {
         self.computedStatistics = computedStatistics
         self.sraRunInfo = sraRunInfo
@@ -79,5 +84,6 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
         self.demultiplexMetadata = demultiplexMetadata
         self.sequencingPlatform = sequencingPlatform
         self.assemblyReadType = assemblyReadType
+        self.platformAssignment = platformAssignment
     }
 }

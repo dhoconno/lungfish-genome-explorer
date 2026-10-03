@@ -74,6 +74,29 @@ final class AssemblyInterleavedPairingTests: XCTestCase {
         XCTAssertEqual(arguments[basisIndex + 1], "Nano Raw preselected: median read quality Q8 is below Q10")
     }
 
+    /// A HiFi bundle assembled with Flye records and runs --pacbio-hifi, so
+    /// the recorded assemble command replays in Flye's HiFi mode.
+    func testFlyeOnHiFiReadsRecordsThePacBioHiFiMode() throws {
+        XCTAssertEqual(AssemblyWizardSheet.seededProfileID(for: .flye, flyeSelection: nil, readType: .pacBioHiFi), "pacbio-hifi")
+        let request = AssemblyRunRequest(
+            tool: .flye,
+            readType: .pacBioHiFi,
+            inputURLs: [URL(fileURLWithPath: "/tmp/hifi.lungfishfastq/hifi.fastq")],
+            projectName: "hifi",
+            outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+            pairedEnd: false,
+            threads: 4,
+            selectedProfileID: nil
+        )
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: .assemble(request: request, outputMode: .perInput))
+        let arguments = invocation.arguments
+        let profileIndex = try XCTUnwrap(arguments.firstIndex(of: "--profile"))
+        XCTAssertEqual(arguments[profileIndex + 1], "pacbio-hifi")
+        let readTypeIndex = try XCTUnwrap(arguments.firstIndex(of: "--read-type"))
+        XCTAssertEqual(arguments[readTypeIndex + 1], "pacbio-hifi")
+    }
+
     func testReadLayoutCaptionNamesAnInterleavedBundle() {
         let empty: (forward: [URL], reverse: [URL], unpaired: [URL]) = ([], [], [URL(fileURLWithPath: "/tmp/a.lungfishfastq")])
         XCTAssertEqual(

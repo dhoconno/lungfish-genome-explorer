@@ -599,7 +599,7 @@ public enum FASTQIngestionService {
             r1: pair.r1,
             r2: pair.r2,
             projectDirectory: projectDirectory,
-            platform: cliPlatformString(for: importConfig.confirmedPlatform),
+            platform: importConfig.cliPlatformValue,
             recipeName: resolvedRecipeName(for: importConfig),
             qualityBinning: importConfig.qualityBinning.rawValue,
             optimizeStorage: !importConfig.skipClumpify,
@@ -618,8 +618,8 @@ public enum FASTQIngestionService {
     ) -> FASTQImportConfiguration {
         FASTQImportConfiguration(
             inputFiles: [pair.r1] + (pair.r2.map { [$0] } ?? []),
-            detectedPlatform: .illumina,
-            confirmedPlatform: .illumina,
+            detectedPlatform: .unknown,
+            confirmedPlatform: .unknown,
             pairingMode: pairingMode,
             pairingModeIsUserChoice: pairingModeIsUserChoice,
             qualityBinning: .illumina4,
@@ -633,7 +633,7 @@ public enum FASTQIngestionService {
     }
 
     nonisolated static func cliPlatformString(for platform: LungfishIO.SequencingPlatform) -> String {
-        IngestionPlatform(importing: platform).rawValue
+        platform.importCLIValue
     }
 
     nonisolated static func resolvedRecipeName(for importConfig: FASTQImportConfiguration) -> String? {

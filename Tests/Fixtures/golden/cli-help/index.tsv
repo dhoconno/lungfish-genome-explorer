@@ -40,6 +40,7 @@ lungfish-cli fastq ont-pacbio-barcode-demux	shown	0	lungfish-cli.fastq.ont-pacbi
 lungfish-cli fastq scout	shown	0	lungfish-cli.fastq.scout.txt
 lungfish-cli fastq import-ont	shown	0	lungfish-cli.fastq.import-ont.txt
 lungfish-cli fastq materialize	shown	0	lungfish-cli.fastq.materialize.txt
+lungfish-cli fastq platform	shown	0	lungfish-cli.fastq.platform.txt
 lungfish-cli fastq qc-summary	shown	0	lungfish-cli.fastq.qc-summary.txt
 lungfish-cli fastq pbaa-cluster	shown	0	lungfish-cli.fastq.pbaa-cluster.txt
 lungfish-cli fastq savont-cluster	shown	0	lungfish-cli.fastq.savont-cluster.txt

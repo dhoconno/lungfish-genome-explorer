@@ -543,26 +543,25 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         XCTAssertTrue(args[outputIndex + 1].contains("managed-assembly-"))
     }
 
-    func testRejectsIncompatibleToolReadType() {
+    /// Flye with a short-read type used to be refused. The run now uses Flye
+    /// with its own ONT settings (owner ruling: read class sets defaults only).
+    func testAToolGivenAReadTypeItDoesNotTakeRunsWithItsOwnSettings() throws {
         let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("managed-assembly-invalid-\(UUID().uuidString)")
+            .appendingPathComponent("managed-assembly-mismatch-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let request = AssemblyRunRequest(
             tool: .flye,
             readType: .illuminaShortReads,
             inputURLs: [URL(fileURLWithPath: "/tmp/sample.fastq.gz")],
-            projectName: "bad-demo",
+            projectName: "mismatch-demo",
             outputDirectory: tempDir,
             threads: 8
         )
 
-        XCTAssertThrowsError(try ManagedAssemblyPipeline.buildCommand(for: request)) { error in
-            XCTAssertEqual(
-                error.localizedDescription,
-                "Flye is not available for Illumina short reads in v1."
-            )
-        }
+        let command = try ManagedAssemblyPipeline.buildCommand(for: request)
+        XCTAssertTrue(command.arguments.contains { $0.hasPrefix("--nano") }, "\(command.arguments)")
+        XCTAssertEqual(request.normalizedForExecution().readType, .ontReads)
     }
 
     func testHifiasmTopologyErrorUsesCombinedONTAndHiFiLabel() {

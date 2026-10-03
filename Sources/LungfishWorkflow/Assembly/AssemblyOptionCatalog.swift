@@ -245,10 +245,10 @@ public enum AssemblyOptionCatalog {
         .flye: [
             AssemblyOptionDefinition(
                 id: "flye-read-mode",
-                title: "ONT Read Mode",
-                summary: "Choose ONT raw, HQ, or corrected input mode for the selected reads.",
+                title: "Read Mode",
+                summary: "Choose ONT raw, HQ or corrected, or PacBio HiFi or CLR input mode for the selected reads.",
                 placement: .advanced,
-                toolMappings: [.flye: "--nano-raw / --nano-hq / --nano-corr"]
+                toolMappings: [.flye: "--nano-raw / --nano-hq / --nano-corr / --pacbio-hifi / --pacbio-raw"]
             ),
             AssemblyOptionDefinition(
                 id: "flye-genome-size",

@@ -17,14 +17,16 @@ private typealias WorkflowPlatform = LungfishWorkflow.IngestionPlatform
 /// before the R15 reconciliation and expected to pass unchanged after it.
 final class FASTQImportPlatformPinTests: XCTestCase {
 
+    // Element, MGI and Unknown used to be passed as illumina. They now keep
+    // their own spelling (owner decision 3).
     private let expectedSpellings: [(LungfishIO.SequencingPlatform, String)] = [
         (.illumina, "illumina"),
         (.oxfordNanopore, "ont"),
         (.pacbio, "pacbio"),
-        (.element, "illumina"),
+        (.element, "element"),
         (.ultima, "ultima"),
-        (.mgi, "illumina"),
-        (.unknown, "illumina"),
+        (.mgi, "mgi"),
+        (.unknown, "unknown"),
     ]
 
     func testEverySheetPlatformBecomesAnImportSpellingTheCLIAccepts() {
@@ -32,7 +34,7 @@ final class FASTQImportPlatformPinTests: XCTestCase {
         for (platform, spelling) in expectedSpellings {
             let cliValue = FASTQIngestionService.cliPlatformString(for: platform)
             XCTAssertEqual(cliValue, spelling, platform.rawValue)
-            XCTAssertNotNil(WorkflowPlatform(rawValue: cliValue), platform.rawValue)
+            XCTAssertEqual(ImportPlatformRequest(cliValue: cliValue), .given(platform), platform.rawValue)
         }
     }
 
@@ -45,6 +47,7 @@ final class FASTQImportPlatformPinTests: XCTestCase {
                 inputFiles: [r1],
                 detectedPlatform: platform,
                 confirmedPlatform: platform,
+                platformIsUserChoice: true,
                 pairingMode: .singleEnd,
                 qualityBinning: .none,
                 skipClumpify: true,
@@ -71,5 +74,29 @@ final class FASTQImportPlatformPinTests: XCTestCase {
             return nil
         }
         return arguments[index + 1]
+    }
+
+    /// An untouched Platform popup passes --platform auto, so the CLI infers
+    /// each sample and records the source as inferred. The sheetless
+    /// single-file import does the same. Nothing passes illumina by default.
+    func testAnUntouchedPopupAndTheSheetlessPathPassAuto() {
+        let r1 = URL(fileURLWithPath: "/data/reads.fastq.gz")
+        let project = URL(fileURLWithPath: "/projects/pin.lungfish")
+        let untouched = FASTQImportConfiguration(
+            inputFiles: [r1], detectedPlatform: .oxfordNanopore, confirmedPlatform: .oxfordNanopore,
+            pairingMode: .singleEnd, qualityBinning: .none, skipClumpify: true, deleteOriginals: false,
+            postImportRecipe: nil, resolvedPlaceholders: [:], recipeName: nil, compressionLevel: .balanced
+        )
+        let arguments = FASTQIngestionService.cliImportArguments(
+            pair: FASTQFilePair(r1: r1, r2: nil), projectDirectory: project, importConfig: untouched
+        )
+        XCTAssertEqual(value(after: "--platform", in: arguments), "auto")
+
+        let sheetless = FASTQIngestionService.legacySingleFileImportConfiguration(for: r1)
+        XCTAssertEqual(sheetless.cliPlatformValue, "auto")
+
+        // An archive record's platform is recorded as given when kept, an unknown one stays auto.
+        XCTAssertEqual(untouched.namingArchivePlatform(.oxfordNanopore).cliPlatformValue, "ont")
+        XCTAssertEqual(untouched.namingArchivePlatform(.unknown).cliPlatformValue, "auto")
     }
 }

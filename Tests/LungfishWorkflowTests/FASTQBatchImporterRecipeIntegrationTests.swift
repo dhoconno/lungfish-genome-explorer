@@ -85,7 +85,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             ]
         )
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: tempDir.appendingPathComponent("Project.lungfish"),
+            projectDirectory: tempDir.appendingPathComponent("Project.lungfish"), platform: .illumina,
             recipe: recipe,
             qualityBinning: QualityBinningScheme.none,
             optimizeStorage: false,
@@ -158,7 +158,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             ]
         )
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: tempDir.appendingPathComponent("MergeProject.lungfish"),
+            projectDirectory: tempDir.appendingPathComponent("MergeProject.lungfish"), platform: .illumina,
             recipe: recipe,
             qualityBinning: QualityBinningScheme.none,
             optimizeStorage: false,
@@ -239,7 +239,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         )
 
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: tempDir.appendingPathComponent("VSP2Project.lungfish"),
+            projectDirectory: tempDir.appendingPathComponent("VSP2Project.lungfish"), platform: .illumina,
             newRecipe: recipe,
             qualityBinning: QualityBinningScheme.none,
             optimizeStorage: false,
@@ -418,7 +418,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         }
 
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: tempDir.appendingPathComponent("VSP2Mates.lungfish"),
+            projectDirectory: tempDir.appendingPathComponent("VSP2Mates.lungfish"), platform: .illumina,
             newRecipe: recipe,
             qualityBinning: QualityBinningScheme.none,
             optimizeStorage: true,

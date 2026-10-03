@@ -54,8 +54,6 @@ struct AssemblyWizardRunPresentation {
 }
 
 struct AssemblyWizardSheet: View {
-    private static let mixedDetectedAndUnclassifiedInputsMessage =
-        "Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."
     static let advancedDisclosureTitle = "Curated extra arguments"
     static let extraArgumentsFieldTitle = "Extra arguments"
 
@@ -115,7 +113,7 @@ struct AssemblyWizardSheet: View {
 
         let detectedReadType = Self.detectedReadType(from: inputFiles)
         _selectedTool = State(initialValue: initialTool)
-        _selectedReadType = State(initialValue: detectedReadType ?? Self.defaultReadType(for: initialTool))
+        _selectedReadType = State(initialValue: detectedReadType ?? inputFiles.first.flatMap(AssemblyReadType.lengthDefault(forInputURL:)) ?? Self.defaultReadType(for: initialTool))
         _minContigLength = State(initialValue: Self.defaultMinContigLength(for: initialTool))
         _selectedProfileID = State(initialValue: Self.defaultProfileID(for: initialTool) ?? "")
         _showAdvanced = State(initialValue: AppUITestConfiguration.current.isEnabled)
@@ -208,7 +206,7 @@ struct AssemblyWizardSheet: View {
     }
 
     private var effectiveReadType: AssemblyReadType {
-        compatibilityEvaluation.resolvedReadType ?? selectedReadType
+        AssemblyCompatibility.effectiveReadType(tool: selectedTool, readType: compatibilityEvaluation.resolvedReadType ?? selectedReadType)
     }
 
     private var requiresManualReadTypeConfirmation: Bool {
@@ -244,21 +242,12 @@ struct AssemblyWizardSheet: View {
         Self.profileOptions(for: selectedTool)
     }
 
-    private var availableTools: [AssemblyTool] {
-        guard let readType = compatibilityEvaluation.resolvedReadType,
-              compatibilityBlockingMessage == nil else {
-            return AssemblyTool.allCases
-        }
-
-        return AssemblyCompatibility.supportedTools(for: readType)
-    }
+    /// Every assembler. A read class one does not suit is a warning, never a gate.
+    private var availableTools: [AssemblyTool] { AssemblyTool.allCases }
 
     private var compatibilityBlockingMessage: String? {
         if let message = compatibilityEvaluation.blockingMessage {
             return message
-        }
-        if hasKnownAndUnknownMix {
-            return Self.mixedDetectedAndUnclassifiedInputsMessage
         }
         return nil
     }
@@ -280,7 +269,8 @@ struct AssemblyWizardSheet: View {
             readType: effectiveReadType,
             packReady: packReady,
             toolReady: toolReady,
-            blockingMessage: compatibilityBlockingMessage ?? readTopologyMessage
+            blockingMessage: compatibilityBlockingMessage ?? readTopologyMessage,
+            warningMessage: AssemblyCompatibility.windowWarning(tool: selectedTool, detected: inputFiles.map(AssemblyReadType.detect(fromInputURL:)), chosenReadType: effectiveReadType)
         )
     }
 
@@ -347,7 +337,7 @@ struct AssemblyWizardSheet: View {
                    initialTool: initialTool,
                    detectedReadType: Self.detectedReadType(from: inputFiles)
                ) {
-                let selection = await FlyeProfileSelector.select(forInputURL: first)
+                let selection = await FlyeProfileSelector.select(forInputURL: first, readType: effectiveReadType)
                 flyeProfileSelection = selection
                 if selectedTool == .flye {
                     selectedProfileID = selection.profileID
@@ -376,7 +366,7 @@ struct AssemblyWizardSheet: View {
         }
         .onChange(of: selectedTool) { _, newValue in
             resetToolSpecificOptions()
-            let nextProfileID = Self.seededProfileID(for: newValue, flyeSelection: flyeProfileSelection) ?? ""
+            let nextProfileID = Self.seededProfileID(for: newValue, flyeSelection: flyeProfileSelection, readType: effectiveReadType) ?? ""
             if !profileOptions.map(\.id).contains(selectedProfileID) {
                 selectedProfileID = nextProfileID
             } else if profileOptions.isEmpty {
@@ -398,6 +388,7 @@ struct AssemblyWizardSheet: View {
             if !readTypeIsLockedToDetection {
                 hasConfirmedManualReadType = true
             }
+            if selectedTool == .flye { selectedProfileID = Self.seededProfileID(for: .flye, flyeSelection: flyeProfileSelection, readType: effectiveReadType) ?? selectedProfileID }
         }
     }
 
@@ -963,6 +954,8 @@ struct AssemblyWizardSheet: View {
                 AssemblyProfileOption(id: "nano-hq", title: "Nano HQ", detail: "High-quality ONT reads."),
                 AssemblyProfileOption(id: "nano-raw", title: "Nano Raw", detail: "Raw ONT reads."),
                 AssemblyProfileOption(id: "nano-corr", title: "Nano Corrected", detail: "Corrected ONT reads."),
+                AssemblyProfileOption(id: "pacbio-hifi", title: "PacBio HiFi", detail: "PacBio HiFi/CCS reads."),
+                AssemblyProfileOption(id: "pacbio-raw", title: "PacBio CLR", detail: "PacBio subreads (CLR)."),
             ]
         case .hifiasm:
             return [
@@ -1023,7 +1016,8 @@ struct AssemblyWizardSheet: View {
     /// The profile the picker opens on. Flye takes the read-quality
     /// preselection when one was measured; every other tool keeps its
     /// catalog default.
-    static func seededProfileID(for tool: AssemblyTool, flyeSelection: FlyeProfileSelection?) -> String? {
+    static func seededProfileID(for tool: AssemblyTool, flyeSelection: FlyeProfileSelection?, readType: AssemblyReadType? = nil) -> String? {
+        if tool == .flye, let profileID = FlyeProfileSelector.profileID(forReadType: readType) { return profileID }
         if tool == .flye, let flyeSelection {
             return flyeSelection.profileID
         }

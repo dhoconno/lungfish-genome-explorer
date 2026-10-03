@@ -371,7 +371,7 @@ final class ManagedMappingPipelineTests: XCTestCase {
         )
     }
 
-    func testValidateCompatibilityRejectsMixedReadClasses() throws {
+    func testValidateCompatibilityWarnsOnMixedReadClasses() throws {
         let fixture = try MappingFASTQFixture()
         defer { fixture.cleanup() }
 
@@ -397,15 +397,12 @@ final class ManagedMappingPipelineTests: XCTestCase {
             threads: 4
         )
 
-        XCTAssertThrowsError(try ManagedMappingPipeline.validateCompatibility(for: request)) { error in
-            guard case .incompatibleSelection(let message) = error as? ManagedMappingPipelineError else {
-                return XCTFail("Expected incompatibleSelection error, got \(error)")
-            }
-            XCTAssertEqual(message, "Selected FASTQ inputs mix incompatible read classes. Select one read class per mapping run.")
-        }
+        // Mixed read classes are a warning, not a refusal: one preset maps all inputs.
+        let warnings = try ManagedMappingPipeline.validateCompatibility(for: request)
+        XCTAssertTrue(warnings.contains { $0.contains("mix read classes") }, "\(warnings)")
     }
 
-    func testValidateCompatibilityRejectsMixedClassifiedAndUnclassifiedFASTQInputs() throws {
+    func testValidateCompatibilityWarnsOnMixedClassifiedAndUnclassifiedFASTQInputs() throws {
         let fixture = try MappingFASTQFixture()
         defer { fixture.cleanup() }
 
@@ -444,15 +441,8 @@ final class ManagedMappingPipelineTests: XCTestCase {
             threads: 4
         )
 
-        XCTAssertThrowsError(try ManagedMappingPipeline.validateCompatibility(for: request)) { error in
-            guard case .incompatibleSelection(let message) = error as? ManagedMappingPipelineError else {
-                return XCTFail("Expected incompatibleSelection error, got \(error)")
-            }
-            XCTAssertEqual(
-                message,
-                "Selected FASTQ inputs mix classified and unclassified read types. Re-import or edit the read type metadata so every selected FASTQ has the same read type."
-            )
-        }
+        let warnings = try ManagedMappingPipeline.validateCompatibility(for: request)
+        XCTAssertTrue(warnings.contains { $0.contains("no known read type") }, "\(warnings)")
     }
 
     func testValidateCompatibilityRejectsBBMapStandardReadsLongerThan500Bases() throws {

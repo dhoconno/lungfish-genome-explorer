@@ -231,7 +231,7 @@ final class FASTQBatchImportTests: XCTestCase {
         )]
 
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: projectDir,
+            projectDirectory: projectDir, platform: .illumina,
             recipe: nil,
             qualityBinning: .illumina4,
             threads: 4,
@@ -279,7 +279,7 @@ final class FASTQBatchImportTests: XCTestCase {
         try "existing user data".write(to: sentinelURL, atomically: true, encoding: .utf8)
 
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: projectDir,
+            projectDirectory: projectDir, platform: .illumina,
             recipe: nil,
             qualityBinning: .illumina4,
             threads: 4,
@@ -310,7 +310,7 @@ final class FASTQBatchImportTests: XCTestCase {
 
         // Provide empty pairs list so no real I/O happens
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: projectDir,
+            projectDirectory: projectDir, platform: .illumina,
             recipe: nil,
             qualityBinning: .illumina4,
             threads: 4,

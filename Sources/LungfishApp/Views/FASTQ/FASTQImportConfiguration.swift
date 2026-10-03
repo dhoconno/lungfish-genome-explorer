@@ -15,6 +15,10 @@ public struct FASTQImportConfiguration: Sendable {
     public let detectedPlatform: LungfishIO.SequencingPlatform
     /// Platform confirmed or overridden by the user.
     public let confirmedPlatform: LungfishIO.SequencingPlatform
+    /// Whether the user picked ``confirmedPlatform``, or an archive record
+    /// named it. `false` while the popup shows the detection: the import then
+    /// runs with `--platform auto` and infers each sample from its reads.
+    public var platformIsUserChoice: Bool
     /// Pairing mode shown in the sheet's Pairing popup.
     public let pairingMode: FASTQIngestionConfig.PairingMode
     /// Whether the user picked ``pairingMode``. `false` when the popup still
@@ -47,6 +51,7 @@ public struct FASTQImportConfiguration: Sendable {
         inputFiles: [URL],
         detectedPlatform: LungfishIO.SequencingPlatform,
         confirmedPlatform: LungfishIO.SequencingPlatform,
+        platformIsUserChoice: Bool = false,
         pairingMode: FASTQIngestionConfig.PairingMode,
         pairingModeIsUserChoice: Bool = true,
         qualityBinning: QualityBinningScheme,
@@ -62,6 +67,7 @@ public struct FASTQImportConfiguration: Sendable {
         self.inputFiles = inputFiles
         self.detectedPlatform = detectedPlatform
         self.confirmedPlatform = confirmedPlatform
+        self.platformIsUserChoice = platformIsUserChoice
         self.pairingMode = pairingMode
         self.pairingModeIsUserChoice = pairingModeIsUserChoice
         self.qualityBinning = qualityBinning
@@ -73,6 +79,22 @@ public struct FASTQImportConfiguration: Sendable {
         self.recipeName = recipeName
         self.compressionLevel = compressionLevel
         self.demultiplexOutputFolderName = demultiplexOutputFolderName
+    }
+
+    /// The `--platform` the CLI import receives: the chosen platform, or
+    /// `auto` while nobody chose one. Never Illumina by default.
+    public var cliPlatformValue: String {
+        platformIsUserChoice ? confirmedPlatform.importCLIValue : ImportPlatformRequest.auto.cliValue
+    }
+
+    /// This configuration with an ENA or SRA record's platform recorded as
+    /// given, when the user kept it. The download's own provenance names the
+    /// record the value came from. An unknown record platform stays `auto`.
+    public func namingArchivePlatform(_ platform: LungfishIO.SequencingPlatform) -> FASTQImportConfiguration {
+        guard !platformIsUserChoice, platform != .unknown, confirmedPlatform == platform else { return self }
+        var copy = self
+        copy.platformIsUserChoice = true
+        return copy
     }
 
     /// The `--pairing` the CLI import receives: the chosen mode, or `nil`

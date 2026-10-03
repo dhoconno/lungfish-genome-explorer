@@ -199,7 +199,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         )
     }
 
-    func testManagedAssemblyRejectsIncompatibleReadTypeBeforeMaterializingVirtualInput() async throws {
+    func testManagedAssemblyNoLongerRefusesAReadTypeTheToolDoesNotTake() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("app-managed-incompatible-no-materialize-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -249,17 +249,13 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
                     return tempDir.appendingPathComponent("materialized.fastq")
                 }
             )
-            XCTFail("Expected incompatible assembly selection to fail before materialization")
         } catch {
-            XCTAssertTrue(error.localizedDescription.contains("Flye is not available for Illumina short reads"))
+            // The materializer stub returns a file that does not exist, so a
+            // later step may fail. The read type no longer refuses the run.
+            XCTAssertFalse(error.localizedDescription.contains("is not available for"), error.localizedDescription)
         }
 
-        XCTAssertTrue(calls.bundles.isEmpty)
-        XCTAssertFalse(
-            FileManager.default.fileExists(
-                atPath: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true).path
-            )
-        )
+        XCTAssertEqual(calls.bundles.count, 1, "a read type Flye does not take no longer stops materialization")
     }
 
     func testManagedAssemblyInputRecordsPreserveOriginalVirtualBundleLineage() throws {
