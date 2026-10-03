@@ -41,7 +41,7 @@ public enum FASTQConsumerRegistry {
 
     // MARK: - Classifiers
 
-    private static var classifierDeclarations: [FASTQConsumerDeclaration] {
+    static var classifierDeclarations: [FASTQConsumerDeclaration] {
         [
             FASTQConsumerDeclaration(
                 consumerID: "classify.kraken2",
@@ -81,7 +81,7 @@ public enum FASTQConsumerRegistry {
 
     // MARK: - Assemblers
 
-    private static var assemblerDeclarations: [FASTQConsumerDeclaration] {
+    static var assemblerDeclarations: [FASTQConsumerDeclaration] {
         // Verified against the installed tools' help on 2026-09-27 (SPAdes
         // 4.3.0 `--12`, MEGAHIT 1.2.9 `--12`, SKESA 2.5.1 `--use_paired_ends`):
         // each pairs the records of one file by POSITION, so only a strictly
@@ -122,7 +122,7 @@ public enum FASTQConsumerRegistry {
 
     // MARK: - lungfish-cli fastq subcommands
 
-    private static var fastqSubcommandDeclarations: [FASTQConsumerDeclaration] {
+    static var fastqSubcommandDeclarations: [FASTQConsumerDeclaration] {
         // Subcommands whose pair-aware tool pairs records by POSITION. Their
         // --pairing option resolves the layout through FASTQPairingModeResolver
         // (FASTQInputLayoutResolver underneath) and turns the tool's pair mode
@@ -262,7 +262,7 @@ public enum FASTQConsumerRegistry {
 
     // MARK: - GUI in-process derivatives, ingestion, recipes
 
-    private static var guiAndRecipeDeclarations: [FASTQConsumerDeclaration] {
+    static var guiAndRecipeDeclarations: [FASTQConsumerDeclaration] {
         [
             FASTQConsumerDeclaration(
                 consumerID: "gui.fastq-derivative",
@@ -302,7 +302,7 @@ public enum FASTQConsumerRegistry {
 
     // MARK: - Genotyping, 12S, Viral Recon
 
-    private static var genotypingAndWorkflowDeclarations: [FASTQConsumerDeclaration] {
+    static var genotypingAndWorkflowDeclarations: [FASTQConsumerDeclaration] {
         [
             FASTQConsumerDeclaration(
                 consumerID: "genotype.illumina-mhc",
