@@ -45,6 +45,11 @@ public struct SamplePair: Sendable {
 /// Structured log events emitted during a batch import run.
 public enum ImportLogEvent: Sendable {
     case importStart(sampleCount: Int, recipeName: String?)
+    /// The platform one sample is imported as, decided before it starts.
+    case platformResolved(
+        sample: String, platform: String, source: String, confidence: String,
+        readClass: String?, evidence: [String], message: String
+    )
     case sampleStart(sample: String, index: Int, total: Int, r1: String, r2: String?)
     case stepStart(sample: String, step: String, stepIndex: Int, totalSteps: Int)
     case stepComplete(sample: String, step: String, durationSeconds: Double)
@@ -605,6 +610,16 @@ public enum FASTQBatchImporter {
             dict["sampleCount"] = sampleCount
             if let name = recipeName { dict["recipeName"] = name }
 
+        case .platformResolved(let sample, let platform, let source, let confidence, let readClass, let evidence, let message):
+            dict["event"] = "platformResolved"
+            dict["sample"] = sample
+            dict["platform"] = platform
+            dict["source"] = source
+            dict["confidence"] = confidence
+            if let readClass { dict["readClass"] = readClass }
+            dict["evidence"] = evidence
+            dict["message"] = message
+
         case .sampleStart(let sample, let index, let total, let r1, let r2):
             dict["event"] = "sampleStart"
             dict["sample"] = sample
@@ -786,7 +801,7 @@ public enum FASTQBatchImporter {
             // Process this sample; autoreleasepool drains synchronous ObjC objects between iterations
             let result = await processSingleSample(
                 pair: pair,
-                config: config,
+                config: sampleConfig(for: pair, config: config, log: log),
                 sampleIndex: index,
                 totalSamples: pairs.count,
                 log: log,
@@ -862,7 +877,7 @@ public enum FASTQBatchImporter {
 
             let materialization = try await ONTBAMImportMaterializer.materializeIfNeeded(
                 pair: pair,
-                platform: config.platform,
+                platform: config.sequencingPlatform,
                 workspace: workspace,
                 threads: config.threads
             )
@@ -1116,7 +1131,7 @@ public enum FASTQBatchImporter {
                 forMixedLayout: recipeMixedLayout,
                 bundleFASTQName: bundleFASTQName
             )
-            applyConfirmedPlatformMetadata(to: &metadata, platform: config.platform)
+            applyPlatformMetadata(to: &metadata, config: config)
             if let recipe = config.newRecipe, !recipeStepResults.isEmpty {
                 metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
                     recipeID: recipe.id,
@@ -1424,7 +1439,7 @@ public enum FASTQBatchImporter {
         steps.append(StepExecution(
             toolName: "lungfish import fastq",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: reproducibleImportCommand(pair: pair, config: config),
+            command: reproducibleImportCommand(pair: pair, config: config, durable: true),
             inputs: originalInputURLs.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: provenanceFormat(for: $0), role: .input)
             }
@@ -1457,6 +1472,7 @@ public enum FASTQBatchImporter {
 
         let completedAt = Date()
         let command = reproducibleImportCommand(pair: pair, config: config)
+        let durableCommand = reproducibleImportCommand(pair: pair, config: config, durable: true)
         var builder = ProvenanceRunBuilder(
             workflowName: "lungfish import fastq",
             workflowVersion: WorkflowRun.currentAppVersion,
@@ -1464,7 +1480,7 @@ public enum FASTQBatchImporter {
             toolVersion: WorkflowRun.currentAppVersion
         )
         .argv(command)
-        .durableReplayArgv(command)
+        .durableReplayArgv(durableCommand)
             .options(
             explicit: provenanceParameters(pair: pair, config: config, bundleURL: publishedBundleURL),
             defaults: provenanceDefaultParameters(config: config),
@@ -2065,7 +2081,7 @@ public enum FASTQBatchImporter {
         config: ImportConfig,
         bundleURL: URL
     ) -> [String: ParameterValue] {
-        [
+        platformProvenanceParameters(config: config).merging([
             "sampleName": .string(pair.sampleName),
             "r1": .file(pair.r1),
             "r2": pair.r2.map(ParameterValue.file) ?? .null,
@@ -2075,7 +2091,7 @@ public enum FASTQBatchImporter {
             ),
             "projectDirectory": .file(config.projectDirectory),
             "outputBundle": .file(bundleURL),
-            "platform": .string(config.platform.rawValue),
+            "platform": .string(config.sequencingPlatform.importCLIValue),
             "recipe": .string(config.newRecipe?.id ?? config.recipe?.name ?? "none"),
             "qualityBinning": .string(config.qualityBinning.rawValue),
             "optimizeStorage": .boolean(config.optimizeStorage),
@@ -2083,19 +2099,17 @@ public enum FASTQBatchImporter {
             "compressionLevel": .string(config.compressionLevel.rawValue),
             "threads": .integer(config.threads),
             "forceReimport": .boolean(config.forceReimport),
-        ]
+        ]) { platform, _ in platform }
     }
 
     private static func provenanceDefaultParameters(config: ImportConfig) -> [String: ParameterValue] {
         [
-            "platform": .string(IngestionPlatform.illumina.rawValue),
+            "platform": .string(ImportPlatformRequest.auto.cliValue),
             "recipe": .string("none"),
-            "qualityBinning": .string(
-                (config.newRecipe?.qualityBinning ?? config.platform.defaultQualityBinning).rawValue
-            ),
-            "optimizeStorage": .boolean(config.platform.defaultOptimizeStorage),
-            "clumpingTool": .string(config.platform.defaultOptimizeStorage ? ClumpingTool.default.rawValue : ClumpingTool.none.rawValue),
-            "compressionLevel": .string(config.platform.defaultCompressionLevel.rawValue),
+            "qualityBinning": .string((config.newRecipe?.qualityBinning ?? QualityBinningScheme.none).rawValue),
+            "optimizeStorage": .boolean(config.sequencingPlatform.supportsStorageClumping),
+            "clumpingTool": .string(config.sequencingPlatform.supportsStorageClumping ? ClumpingTool.default.rawValue : ClumpingTool.none.rawValue),
+            "compressionLevel": .string(CompressionLevel.balanced.rawValue),
             "threads": .integer(4),
             "forceReimport": .boolean(false),
             "r2": .null,
@@ -2154,13 +2168,16 @@ public enum FASTQBatchImporter {
         }
     }
 
-    private static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig) -> [String] {
+    /// The import command line. `durable` names the resolved platform instead
+    /// of what was asked for, so a replay never depends on the detector.
+    private static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig, durable: Bool = false) -> [String] {
+        let platform = durable ? config.sequencingPlatform.importCLIValue : config.platformRequest.cliValue
         if let sampleSheetURL = pair.sampleSheetURL {
             var command = [
                 CLICommandIdentity.executableName, "import", "fastq",
                 "--samplesheet", sampleSheetURL.path,
                 "--project", config.projectDirectory.path,
-                "--platform", config.platform.rawValue,
+                "--platform", platform,
                 "--recipe", config.newRecipe?.id ?? config.recipe?.name ?? "none",
                 "--quality-binning", config.qualityBinning.rawValue,
                 "--clumping-tool", config.clumpingTool.rawValue,
@@ -2185,7 +2202,7 @@ public enum FASTQBatchImporter {
         }
         command += [
             "--project", config.projectDirectory.path,
-            "--platform", config.platform.rawValue,
+            "--platform", platform,
             "--recipe", config.newRecipe?.id ?? config.recipe?.name ?? "none",
             "--quality-binning", config.qualityBinning.rawValue,
             "--clumping-tool", config.clumpingTool.rawValue,

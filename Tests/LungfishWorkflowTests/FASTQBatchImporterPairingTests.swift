@@ -47,12 +47,12 @@ final class FASTQBatchImporterPairingTests: XCTestCase {
         XCTAssertFalse(FASTQBatchImporter.ImportPairing.interleaved.keepsDetectedPairs)
 
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: URL(fileURLWithPath: "/project.lungfish"),
+            projectDirectory: URL(fileURLWithPath: "/project.lungfish"), platform: .illumina,
             pairing: .interleaved
         )
         XCTAssertEqual(config.pairing, .interleaved)
         XCTAssertEqual(
-            FASTQBatchImporter.ImportConfig(projectDirectory: URL(fileURLWithPath: "/project.lungfish")).pairing,
+            FASTQBatchImporter.ImportConfig(projectDirectory: URL(fileURLWithPath: "/project.lungfish"), platform: .illumina).pairing,
             .auto,
             "Callers that predate the option keep name-based detection"
         )

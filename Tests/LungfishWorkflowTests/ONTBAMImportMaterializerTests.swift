@@ -30,10 +30,10 @@ final class ONTBAMImportMaterializerTests: XCTestCase {
         do {
             _ = try await ONTBAMImportMaterializer.materializeIfNeeded(
                 pair: pair,
-                platform: .illumina,
+                platform: IngestionPlatform.illumina,
                 workspace: URL(fileURLWithPath: "/tmp")
             )
-            XCTFail("Expected the non-ONT BAM import to be rejected")
+            XCTFail("Expected an Illumina BAM import to be rejected")
         } catch {
             XCTAssertTrue(error.localizedDescription.contains("only for Oxford Nanopore"))
         }

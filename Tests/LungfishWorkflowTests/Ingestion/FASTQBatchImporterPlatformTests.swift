@@ -187,7 +187,7 @@ final class FASTQBatchImporterPlatformTests: XCTestCase {
         let pacbio = SamplePair(sampleName: "hifi", r1: PlatformHeaderFixtures.url("pacbio-hifi.bam"), r2: nil)
         XCTAssertEqual(FASTQBatchImporter.resolvePlatform(for: pacbio, request: .auto).platform, .pacbio)
         do {
-            _ = try await ONTBAMImportMaterializer.materializeIfNeeded(pair: pacbio, platform: .pacbio, workspace: root)
+            _ = try await ONTBAMImportMaterializer.materializeIfNeeded(pair: pacbio, platform: LungfishIO.SequencingPlatform.pacbio, workspace: root)
             XCTFail("A PacBio BAM import must be refused")
         } catch {
             XCTAssertTrue(error.localizedDescription.contains("PacBio BAM import is not supported"), error.localizedDescription)

@@ -64,19 +64,6 @@ private final class StubLineSink: @unchecked Sendable {
 }
 
 final class ImportFastqCommandTests: XCTestCase {
-    private func makeManagedPigzHome(script: String) throws -> (home: URL, pigzURL: URL) {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "import-fastq-pigz-home-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        let binDir = home.appendingPathComponent(".lungfish/conda/envs/pigz/bin", isDirectory: true)
-        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
-        let pigzURL = binDir.appendingPathComponent("pigz")
-        try script.write(to: pigzURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pigzURL.path)
-        return (home, pigzURL)
-    }
-
     func testParseMinimalArguments() throws {
         let command = try ImportCommand.FastqSubcommand.parse([
             "/data/fastq_dir",
@@ -194,7 +181,7 @@ final class ImportFastqCommandTests: XCTestCase {
             "/data/fastq_dir",
             "--project", "/projects/Test.lungfish",
         ])
-        XCTAssertNil(command.platform)
+        XCTAssertEqual(command.platform, "auto")
         XCTAssertFalse(command.noOptimizeStorage)
         XCTAssertNil(command.clumpingTool)
         XCTAssertEqual(command.compression, "balanced")
@@ -458,79 +445,6 @@ final class ImportFastqCommandTests: XCTestCase {
         let emitted = sink.currentLines()
         XCTAssertEqual(installCalls, ["deacon-panhuman"])
         XCTAssertTrue(emitted.contains(where: { $0.contains("Installing required database") }))
-    }
-
-    func testManagedPigzExecutableURLUsesManagedEnvironmentLayout() throws {
-        let (home, pigzURL) = try makeManagedPigzHome(script: "#!/bin/sh\nexit 0\n")
-
-        let resolved = ImportCommand.FastqSubcommand.managedPigzExecutableURL(homeDirectory: home, appIdentity: .preview)
-
-        XCTAssertEqual(resolved, pigzURL)
-    }
-
-    func testManagedPigzExecutableURLDoesNotFallBackToSystemGunzip() {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "import-fastq-pigz-missing-\(UUID().uuidString)",
-            isDirectory: true
-        )
-
-        let resolved = ImportCommand.FastqSubcommand.managedPigzExecutableURL(homeDirectory: home)
-
-        XCTAssertNil(resolved)
-    }
-
-    func testDetectPlatformFromCompressedFASTQThrowsWhenManagedPigzMissing() {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "import-fastq-pigz-missing-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        let pair = SamplePair(
-            sampleName: "sample",
-            r1: URL(fileURLWithPath: "/tmp/sample_R1.fastq.gz"),
-            r2: nil
-        )
-
-        XCTAssertThrowsError(
-            try ImportCommand.FastqSubcommand.detectPlatformFromPairs([pair], homeDirectory: home)
-        ) { error in
-            XCTAssertTrue(
-                error.localizedDescription.contains("Managed pigz is required"),
-                "Unexpected error: \(error.localizedDescription)"
-            )
-        }
-    }
-
-    func testDetectPlatformFromBAMReturnsONTWithoutReadingFASTQHeader() throws {
-        let pair = SamplePair(
-            sampleName: "nanopore",
-            r1: URL(fileURLWithPath: "/tmp/nanopore.bam"),
-            r2: nil
-        )
-
-        let platform = try ImportCommand.FastqSubcommand.detectPlatformFromPairs([pair])
-
-        XCTAssertEqual(platform, .ont)
-    }
-
-    func testDetectPlatformFromCompressedFASTQThrowsWhenManagedPigzFails() throws {
-        let (home, _) = try makeManagedPigzHome(script: """
-        #!/bin/sh
-        exit 1
-        """)
-        let pair = SamplePair(
-            sampleName: "sample",
-            r1: URL(fileURLWithPath: "/tmp/sample_R1.fastq.gz"),
-            r2: nil
-        )
-
-        XCTAssertThrowsError(
-            try ImportCommand.FastqSubcommand.detectPlatformFromPairs([pair], homeDirectory: home, appIdentity: .preview)
-        ) { error in
-            XCTAssertTrue(
-                error.localizedDescription.contains("Managed pigz failed"),
-                "Unexpected error: \(error.localizedDescription)"
-            )
-        }
     }
 
     /// Regression: `--name` is rejected outright when more than one

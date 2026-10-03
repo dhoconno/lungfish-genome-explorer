@@ -104,9 +104,17 @@ extension ImportCommand {
 
         @Option(
             name: .customLong("platform"),
-            help: "Sequencing platform: illumina, ont, pacbio, ultima (default: auto-detect)"
+            help: ArgumentHelp(
+                "Sequencing platform: auto, illumina, ont, pacbio, element, mgi, ultima, unknown (default: auto)",
+                discussion: """
+                auto infers each sample's platform from its read headers (and a BAM \
+                file's @RG PL) and prints the evidence. Reads whose platform cannot \
+                be inferred are recorded as unknown, never as Illumina. A given value \
+                is recorded as given, even when the reads suggest another platform.
+                """
+            )
         )
-        var platform: String?
+        var platform: String = "auto"
 
         @Option(
             name: .customLong("pairing"),
@@ -281,41 +289,24 @@ extension ImportCommand {
             }
             print("")
 
+            // MARK: Resolve platform request
+
+            guard let platformRequest = ImportPlatformRequest(cliValue: platform) else {
+                print(formatter.error(
+                    "Unknown platform '\(platform)'. Valid: \(ImportPlatformRequest.cliValues.joined(separator: ", "))"
+                ))
+                throw CLIExitCode.inputError.exitCode
+            }
+
             // MARK: Dry-run exit
 
             if dryRun {
+                for pair in effectivePairs {
+                    let resolution = FASTQBatchImporter.resolvePlatform(for: pair, request: platformRequest)
+                    print("  \(pair.sampleName): \(resolution.summaryLine)")
+                }
                 print(formatter.info("Dry-run mode — no files were imported."))
                 return
-            }
-
-            // MARK: Resolve platform
-
-            let resolvedPlatform: IngestionPlatform
-            if let platformStr = platform {
-                guard let p = IngestionPlatform(rawValue: platformStr.lowercased()) else {
-                    print(formatter.error(
-                        "Unknown platform '\(platformStr)'. Valid: illumina, ont, pacbio, ultima"
-                    ))
-                    throw CLIExitCode.inputError.exitCode
-                }
-                resolvedPlatform = p
-            } else {
-                do {
-                    // Auto-detect from the first FASTQ header; unknown headers still
-                    // fall back to Illumina, but managed decompression failures are fatal.
-                    resolvedPlatform = try Self.detectPlatformFromPairs(effectivePairs) ?? .illumina
-                } catch let error as PlatformDetectionError {
-                    print(formatter.error(error.localizedDescription))
-                    switch error {
-                    case .managedPigzUnavailable:
-                        throw CLIExitCode.dependency.exitCode
-                    case .managedPigzFailed:
-                        throw CLIExitCode.workflowError.exitCode
-                    }
-                }
-                if !globalOptions.quiet {
-                    print(formatter.info("Platform: \(resolvedPlatform.displayName) (auto-detected)"))
-                }
             }
 
             // MARK: Resolve recipe
@@ -378,7 +369,7 @@ extension ImportCommand {
 
             let config = FASTQBatchImporter.ImportConfig(
                 projectDirectory: projectURL,
-                platform: resolvedPlatform,
+                platform: platformRequest,
                 recipe: oldRecipe,
                 newRecipe: newRecipe,
                 qualityBinning: binningScheme,
@@ -414,6 +405,13 @@ extension ImportCommand {
                 pairs: effectivePairs,
                 config: config,
                 log: { event in
+                    if !isJSON, !globalOptions.quiet, case .platformResolved(let sample, let platform, let source, _, _, _, let message) = event {
+                        let line = "\(sample): \(message)"
+                        print(platform == "unknown" && source == "inferred" ? formatter.warning(line) : formatter.info(line))
+                    }
+                    if !isJSON, case .notice(let sample, let message) = event, message.hasPrefix("--platform ") {
+                        print(formatter.warning("\(sample): \(message)"))
+                    }
                     if isJSON || !globalOptions.quiet {
                         let json = FASTQBatchImporter.encodeLogEvent(event)
                         print(json)
@@ -591,101 +589,6 @@ extension ImportCommand {
                     throw CLIExitCode.dependency.exitCode
                 }
             }
-        }
-
-        // MARK: - Platform auto-detection
-
-        /// Reads the first FASTQ header from the first pair's R1 file and attempts
-        /// platform detection. Supports both plain and gzip-compressed files.
-        enum PlatformDetectionError: LocalizedError {
-            case managedPigzUnavailable(URL)
-            case managedPigzFailed(URL)
-
-            var errorDescription: String? {
-                switch self {
-                case .managedPigzUnavailable(let url):
-                    return "Managed pigz is required to auto-detect platform from compressed FASTQ \(url.lastPathComponent). Install the managed pigz environment or pass --platform explicitly."
-                case .managedPigzFailed(let url):
-                    return "Managed pigz failed while reading compressed FASTQ \(url.lastPathComponent). Reinstall the managed pigz environment or pass --platform explicitly."
-                }
-            }
-        }
-
-        static func detectPlatformFromPairs(
-            _ pairs: [SamplePair],
-            homeDirectory: URL = currentHomeDirectory(),
-            appIdentity: LungfishAppIdentity = .current
-        ) throws -> IngestionPlatform? {
-            guard let first = pairs.first else { return nil }
-
-            let r1 = first.r1
-            if SequencingReadImportSource.isBAM(r1) {
-                return .ont
-            }
-            let isGzipped = r1.pathExtension.lowercased() == "gz"
-
-            let header: String
-            if isGzipped {
-                guard let pigzURL = Self.managedPigzExecutableURL(homeDirectory: homeDirectory, appIdentity: appIdentity) else {
-                    throw PlatformDetectionError.managedPigzUnavailable(r1)
-                }
-                // Use managed pigz -dc and read only the first 1 KB to avoid blocking.
-                let process = Process()
-                process.executableURL = pigzURL
-                process.arguments = ["-d", "-c", r1.path]
-                let pipe = Pipe()
-                process.standardOutput = pipe
-                process.standardError = Pipe() // suppress error output
-                do {
-                    try process.run()
-                } catch {
-                    throw PlatformDetectionError.managedPigzFailed(r1)
-                }
-                let data = pipe.fileHandleForReading.readData(ofLength: 1024)
-                if data.isEmpty {
-                    process.waitUntilExit()
-                    if process.terminationStatus != 0 {
-                        throw PlatformDetectionError.managedPigzFailed(r1)
-                    }
-                } else {
-                    process.terminate()
-                    process.waitUntilExit()
-                }
-                header = String(data: data, encoding: .utf8)?
-                    .components(separatedBy: "\n").first ?? ""
-            } else {
-                // Plain text — just open and read the first line
-                guard let handle = FileHandle(forReadingAtPath: r1.path) else { return nil }
-                let data = handle.readData(ofLength: 512)
-                try? handle.close()
-                header = String(data: data, encoding: .utf8)?
-                    .components(separatedBy: "\n").first ?? ""
-            }
-
-            return IngestionPlatform.detect(fromFASTQHeader: header)
-        }
-
-        static func managedPigzExecutableURL(
-            homeDirectory: URL = currentHomeDirectory(),
-            appIdentity: LungfishAppIdentity = .current
-        ) -> URL? {
-            let pigzURL = CoreToolLocator.managedExecutableURL(
-                environment: "pigz",
-                executableName: "pigz",
-                homeDirectory: homeDirectory,
-                appIdentity: appIdentity
-            )
-            guard FileManager.default.isExecutableFile(atPath: pigzURL.path) else {
-                return nil
-            }
-            return pigzURL
-        }
-
-        private static func currentHomeDirectory() -> URL {
-            if let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty {
-                return URL(fileURLWithPath: home, isDirectory: true)
-            }
-            return FileManager.default.homeDirectoryForCurrentUser
         }
 
         private static func newRecipeStepRequiresHumanScrubber(_ step: RecipeStep) -> Bool {

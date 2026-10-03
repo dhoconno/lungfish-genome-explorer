@@ -590,7 +590,7 @@ final class FASTQBatchImporterTests: XCTestCase {
         let recipe = ProcessingRecipe.illuminaWGS
 
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: projectURL,
+            projectDirectory: projectURL, platform: .illumina,
             recipe: recipe,
             qualityBinning: .eightLevel,
             threads: 8,
@@ -606,7 +606,7 @@ final class FASTQBatchImporterTests: XCTestCase {
 
     func testImportConfigDefaultValues() {
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: URL(fileURLWithPath: "/tmp"),
+            projectDirectory: URL(fileURLWithPath: "/tmp"), platform: .illumina,
             recipe: nil
         )
         XCTAssertNil(config.recipe)
@@ -650,7 +650,7 @@ final class FASTQBatchImporterTests: XCTestCase {
             SamplePair(sampleName: name, r1: URL(fileURLWithPath: "/dev/null"), r2: nil)
         }
 
-        let config = FASTQBatchImporter.ImportConfig(projectDirectory: tmpDir, recipe: nil)
+        let config = FASTQBatchImporter.ImportConfig(projectDirectory: tmpDir, platform: .illumina, recipe: nil)
 
         // Collect skip events using a Sendable-safe approach
         actor EventCollector {
@@ -679,7 +679,7 @@ final class FASTQBatchImporterTests: XCTestCase {
 
     func testRunBatchImportEmptyPairsReturnsZeros() async {
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: URL(fileURLWithPath: "/tmp"),
+            projectDirectory: URL(fileURLWithPath: "/tmp"), platform: .illumina,
             recipe: nil
         )
         let result = await FASTQBatchImporter.runBatchImport(pairs: [], config: config, log: nil)
@@ -706,7 +706,7 @@ final class FASTQBatchImporterTests: XCTestCase {
         try r2Contents.write(to: r2, atomically: true, encoding: .utf8)
 
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: projectURL,
+            projectDirectory: projectURL, platform: .illumina,
             recipe: nil,
             qualityBinning: QualityBinningScheme.none,
             optimizeStorage: false,
@@ -868,7 +868,7 @@ final class FASTQBatchImporterTests: XCTestCase {
             let projectURL = tmpDir.appendingPathComponent("\(pairing.rawValue).lungfish", isDirectory: true)
             try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
             let config = FASTQBatchImporter.ImportConfig(
-                projectDirectory: projectURL,
+                projectDirectory: projectURL, platform: .illumina,
                 recipe: nil,
                 qualityBinning: QualityBinningScheme.none,
                 optimizeStorage: false,
@@ -918,7 +918,7 @@ final class FASTQBatchImporterTests: XCTestCase {
         )
         let projectURL = tmpDir.appendingPathComponent("Project.lungfish", isDirectory: true)
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: projectURL,
+            projectDirectory: projectURL, platform: .illumina,
             newRecipe: recipe,
             qualityBinning: QualityBinningScheme.none,
             optimizeStorage: false,
@@ -973,7 +973,7 @@ final class FASTQBatchImporterTests: XCTestCase {
 
         let projectURL = tmpDir.appendingPathComponent("Project.lungfish", isDirectory: true)
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: projectURL,
+            projectDirectory: projectURL, platform: .illumina,
             recipe: .illuminaWGS,
             qualityBinning: QualityBinningScheme.none,
             optimizeStorage: false,
@@ -1034,7 +1034,7 @@ final class FASTQBatchImporterTests: XCTestCase {
         )
         let projectURL = tmpDir.appendingPathComponent("Project.lungfish", isDirectory: true)
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: projectURL,
+            projectDirectory: projectURL, platform: .illumina,
             recipe: recipe,
             qualityBinning: QualityBinningScheme.none,
             optimizeStorage: false,

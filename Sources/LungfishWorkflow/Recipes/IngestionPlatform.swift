@@ -47,8 +47,8 @@ public enum CompressionLevel: String, Codable, Sendable, CaseIterable {
 ///
 /// Oxford Nanopore is `ont` here and `oxfordNanopore` in LungfishIO, so convert
 /// with ``sequencingPlatform`` and ``init(importing:)``, never through raw
-/// values. The display name of `pacbio` is "PacBio HiFi" here and "PacBio" in
-/// LungfishIO.
+/// values. `lungfish-cli import fastq --platform` takes the wider
+/// `ImportPlatformRequest`, so Element, MGI and Unknown import as themselves.
 public enum IngestionPlatform: String, Codable, CaseIterable, Sendable {
     case illumina
     case ont
@@ -59,7 +59,7 @@ public enum IngestionPlatform: String, Codable, CaseIterable, Sendable {
         switch self {
         case .illumina: return "Illumina"
         case .ont:      return "Oxford Nanopore"
-        case .pacbio:   return "PacBio HiFi"
+        case .pacbio:   return "PacBio"
         case .ultima:   return "Ultima Genomics"
         }
     }
@@ -99,44 +99,6 @@ public enum IngestionPlatform: String, Codable, CaseIterable, Sendable {
     }
 }
 
-// MARK: - Auto-detection
-
-extension IngestionPlatform {
-
-    /// Attempts to identify the sequencing platform from a FASTQ read header line.
-    ///
-    /// This is not `LungfishIO.SequencingPlatform.detect(fromHeader:)`, and the
-    /// two disagree on several headers (WorkflowPlatformPinTests lists them).
-    /// `lungfish-cli import fastq` uses this one when `--platform` is absent.
-    ///
-    /// - Parameter header: The first line of a FASTQ record (may or may not start with `@`).
-    /// - Returns: The detected platform, or `nil` if the header format is unrecognised.
-    public static func detect(fromFASTQHeader header: String) -> IngestionPlatform? {
-        // Strip leading @ if present.
-        let line = header.hasPrefix("@") ? String(header.dropFirst()) : header
-
-        // ONT: header contains "runid=" key-value pair.
-        if line.contains("runid=") {
-            return .ont
-        }
-
-        // PacBio CCS/subreads: ^m<digits>_<digits>_<digits>/<digits>/(ccs|subreads)
-        let pacbioPattern = #"^m\d+_\d+_\d+/\d+/(ccs|subreads)"#
-        if let _ = line.range(of: pacbioPattern, options: .regularExpression) {
-            return .pacbio
-        }
-
-        // Illumina: ^<instrument>:<run>:<flowcell>:<lane>:<tile>:<x>:<y>
-        // e.g. A00488:61:HMLGNDSXX:4:1101:1234:5678
-        let illuminaPattern = #"^[A-Za-z0-9_-]+:\d+:[A-Za-z0-9]+:\d+:\d+:\d+:\d+"#
-        if let _ = line.range(of: illuminaPattern, options: .regularExpression) {
-            return .illumina
-        }
-
-        return nil
-    }
-}
-
 // MARK: - Relationship to LungfishIO.SequencingPlatform
 
 extension IngestionPlatform {
@@ -152,12 +114,12 @@ extension IngestionPlatform {
         }
     }
 
-    /// The import platform for a canonical platform, as the app passes it to
-    /// `lungfish-cli import fastq --platform`.
+    /// The recipe family of a canonical platform, used only to filter recipes
+    /// by their `platforms` list.
     ///
-    /// Element, MGI and unknown data have no import platform of their own and
-    /// import as `illumina`, which the import then records in the bundle's
-    /// sidecar through ``sequencingPlatform``.
+    /// Element, MGI and unknown data run the Illumina recipes. This is never
+    /// the platform an import records or passes to `--platform`, which use
+    /// `ImportPlatformRequest` and `SequencingPlatform.importCLIValue`.
     public init(importing platform: LungfishIO.SequencingPlatform) {
         switch platform {
         case .illumina:                self = .illumina

@@ -175,7 +175,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: tempDir.appendingPathComponent("project"),
+            projectDirectory: tempDir.appendingPathComponent("project"), platform: .illumina,
             recipe: ProcessingRecipe(
                 name: "Human Scrub Only",
                 steps: [
