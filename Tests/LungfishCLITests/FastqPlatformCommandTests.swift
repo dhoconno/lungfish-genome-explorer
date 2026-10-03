@@ -97,7 +97,7 @@ final class FastqPlatformCommandTests: XCTestCase {
     func testValidation() {
         XCTAssertThrowsError(try FastqPlatformSubcommand.parse(["a.lungfishfastq", "--set", "sanger"]))
         XCTAssertThrowsError(try FastqPlatformSubcommand.parse(["a.lungfishfastq", "--set", "ont", "--confirm"]))
-        XCTAssertThrowsError(try FastqPlatformSubcommand.parse(["a.lungfishfastq", "b.lungfishfastq", "--set", "ont"]))
+        XCTAssertNoThrow(try FastqPlatformSubcommand.parse(["a.lungfishfastq", "b.lungfishfastq", "--read-type", "auto"]))
         XCTAssertThrowsError(try FastqPlatformSubcommand.parse(["a.lungfishfastq", "--include-derivatives"]))
         XCTAssertNoThrow(try FastqPlatformSubcommand.parse(["a.lungfishfastq", "--set", "nanopore", "--read-type", "ont-reads"]))
     }

@@ -101,12 +101,15 @@ public enum FASTQPlatformLabelService {
     }
 
     /// Writes a new label. `platform` nil keeps the recorded platform, and
-    /// `readType` nil takes the read type the platform implies.
+    /// `readType` nil takes the read type the platform implies (or keeps the
+    /// recorded one when no platform is given). `clearReadType` removes the
+    /// recorded read type, so detection decides.
     @discardableResult
     public static func apply(
         toBundle bundleURL: URL,
         platform: SequencingPlatform?,
         readType: FASTQAssemblyReadType?,
+        clearReadType: Bool = false,
         source: PlatformAssignment.Source,
         now: Date = Date()
     ) throws -> Change {
@@ -118,7 +121,9 @@ public enum FASTQPlatformLabelService {
         let inference = PlatformInference.infer(fromFASTQ: fastqURL)
 
         let newReadType: FASTQAssemblyReadType?
-        if let readType {
+        if clearReadType {
+            newReadType = nil
+        } else if let readType {
             newReadType = readType
         } else if let platform {
             newReadType = Self.readType(for: platform, inference: inference)

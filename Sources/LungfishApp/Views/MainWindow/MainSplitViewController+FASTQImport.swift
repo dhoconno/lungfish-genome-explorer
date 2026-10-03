@@ -394,10 +394,9 @@ extension MainSplitViewController {
 
     nonisolated static func detectedImportPlatform(for pairs: [FASTQFilePair]) -> LungfishIO.SequencingPlatform {
         guard let first = pairs.first else { return .unknown }
-        if SequencingReadImportSource.isBAM(first.r1) {
-            return .oxfordNanopore
-        }
-        return LungfishIO.SequencingPlatform.detect(fromFASTQ: first.r1) ?? .unknown
+        let inference = SequencingReadImportSource.isBAM(first.r1)
+            ? PlatformInference.infer(fromBAM: first.r1) : PlatformInference.infer(fromFASTQ: first.r1)
+        return inference.isActionable ? inference.platform : .unknown
     }
 
     /// Entry point for Import Center FASTQ import (no sidebar request ID).

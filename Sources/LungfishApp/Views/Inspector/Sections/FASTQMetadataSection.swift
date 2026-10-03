@@ -114,6 +114,20 @@ public final class FASTQMetadataSectionViewModel {
     /// Callback to persist metadata changes.
     var onSave: ((_ bundleURL: URL, _ metadata: FASTQSampleMetadata) -> Void)?
 
+    /// Runs a platform or read-type change. Production runs
+    /// `lungfish-cli fastq platform` through the Operations panel, so the
+    /// change has a recorded command and provenance. Tests record the call.
+    var platformLabelChanger: @MainActor (
+        _ change: FASTQPlatformLabelOperation.Change,
+        _ bundleURLs: [URL],
+        _ onFinish: (@MainActor (Bool) -> Void)?
+    ) -> Void = { change, bundleURLs, onFinish in
+        FASTQPlatformLabelOperation.run(change: change, bundleURLs: bundleURLs, onFinish: onFinish)
+    }
+
+    /// The suspect-label check of the displayed bundle, set on load.
+    var platformLabelCheck: PlatformLabelCheck?
+
     // MARK: - Methods
 
     /// Loads metadata from a FASTQ bundle.
@@ -142,6 +156,7 @@ public final class FASTQMetadataSectionViewModel {
         }
         lastSavedAssemblyReadType = assemblyReadType
         assemblyReadTypeChangedSinceLastSave = false
+        platformLabelCheck = PlatformLabelCheck.check(inputURL: bundleURL)
         attachmentManager = BundleAttachmentManager(bundleURL: bundleURL)
         attachmentFilenames = attachmentManager?.listAttachments() ?? []
     }
@@ -295,21 +310,26 @@ public final class FASTQMetadataSectionViewModel {
     func beginEditing() {}
     func cancelEditing() { revertToLastSaved() }
 
+    /// Sends the read-type choice to `lungfish-cli fastq platform --read-type`
+    /// for every selected bundle. "Auto" clears the recorded read type.
     private func persistAssemblyReadTypeToTargets() {
         let targets = Self.normalizedReadTypeTargets(readTypeTargetBundleURLs, fallback: bundleURL)
-        for targetBundleURL in targets {
-            guard let targetFASTQURL = FASTQBundle.resolvePrimaryFASTQURL(for: targetBundleURL) else {
-                continue
-            }
-            var sidecarMetadata = FASTQMetadataStore.load(for: targetFASTQURL) ?? PersistedFASTQMetadata()
-            sidecarMetadata.assemblyReadType = assemblyReadType
-            FASTQMetadataStore.save(sidecarMetadata, for: targetFASTQURL)
+        platformLabelChanger(.setReadType(assemblyReadType), targets, nil)
+    }
+
+    /// Records the platform the reads show ("Use <platform>" in the notice).
+    func applySuggestedPlatform() {
+        guard let bundleURL, let platform = platformLabelCheck?.suggestedPlatform else { return }
+        platformLabelChanger(.setPlatform(platform), [bundleURL]) { [weak self] succeeded in
+            if succeeded { self?.load(from: bundleURL, readTypeTargetBundleURLs: self?.readTypeTargetBundleURLs) }
         }
-        if let primaryFASTQURL,
-           !targets.contains(where: { FASTQBundle.resolvePrimaryFASTQURL(for: $0) == primaryFASTQURL }) {
-            var sidecarMetadata = FASTQMetadataStore.load(for: primaryFASTQURL) ?? PersistedFASTQMetadata()
-            sidecarMetadata.assemblyReadType = assemblyReadType
-            FASTQMetadataStore.save(sidecarMetadata, for: primaryFASTQURL)
+    }
+
+    /// Keeps the recorded platform and stops the notice ("Keep" in the notice).
+    func confirmRecordedPlatform() {
+        guard let bundleURL else { return }
+        platformLabelChanger(.confirm, [bundleURL]) { [weak self] succeeded in
+            if succeeded { self?.load(from: bundleURL, readTypeTargetBundleURLs: self?.readTypeTargetBundleURLs) }
         }
     }
 
@@ -433,6 +453,13 @@ public struct FASTQMetadataSection: View {
                     .font(LungfishInspectorStyle.controlFont)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let check = viewModel.platformLabelCheck, check.isSuspect {
+                FASTQPlatformNotice(
+                    check: check,
+                    onUseSuggested: viewModel.applySuggestedPlatform,
+                    onKeep: viewModel.confirmRecordedPlatform
+                )
             }
         }
     }

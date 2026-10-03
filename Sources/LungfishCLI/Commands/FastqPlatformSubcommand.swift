@@ -22,7 +22,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
             exits 0 when every label is consistent and 11 when one is suspect. Pass
             a project folder to check every FASTQ bundle in it.
 
-            --set, --read-type and --confirm change the label of one bundle. Only
+            --set, --read-type and --confirm change the label of the listed bundles. Only
             the bundle's metadata file is rewritten, never the reads, and a
             provenance record beside that file names the change.
 
@@ -52,7 +52,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("read-type"),
-        help: "Record this read type: illumina-short-reads, ont-reads or pacbio-hifi (default: the one the platform implies)"
+        help: "Record this read type: illumina-short-reads, ont-reads, pacbio-hifi, or auto to clear it (default: the one the platform implies)"
     )
     var readType: String?
 
@@ -72,17 +72,18 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
         let changes = [setPlatform != nil || readType != nil, confirm].filter { $0 }.count
         if changes > 1 { throw ValidationError("--confirm cannot be combined with --set or --read-type.") }
         if changes == 1, check { throw ValidationError("--check cannot be combined with a change.") }
-        if changes == 1, inputs.count != 1 { throw ValidationError("A change applies to exactly one bundle.") }
         if includeDerivatives, changes == 0 { throw ValidationError("--include-derivatives needs --set, --read-type or --confirm.") }
         if let setPlatform, Self.parsePlatform(setPlatform) == nil {
             throw ValidationError("Unknown platform '\(setPlatform)'. Valid: \(Self.platformValues.joined(separator: ", ")).")
         }
-        if let readType, Self.parseReadType(readType) == nil {
-            throw ValidationError("Unknown read type '\(readType)'. Valid: illumina-short-reads, ont-reads, pacbio-hifi.")
+        if let readType, Self.parseReadType(readType) == nil, readType.lowercased() != Self.clearReadTypeValue {
+            throw ValidationError("Unknown read type '\(readType)'. Valid: illumina-short-reads, ont-reads, pacbio-hifi, auto.")
         }
     }
 
     static let platformValues = ["illumina", "ont", "pacbio", "element", "mgi", "ultima", "unknown"]
+    /// `--read-type auto` clears the recorded read type, so detection decides.
+    static let clearReadTypeValue = "auto"
 
     static func parsePlatform(_ value: String) -> SequencingPlatform? {
         guard case .given(let platform)? = ImportPlatformRequest(cliValue: value) else { return nil }
@@ -115,7 +116,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
         }
 
         if setPlatform != nil || readType != nil || confirm {
-            try await runChange(bundleURL: urls[0], formatter: formatter)
+            try await runChange(bundleURLs: urls, formatter: formatter)
             return
         }
 
@@ -147,16 +148,22 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
         }
     }
 
-    private func runChange(bundleURL: URL, formatter: TerminalFormatter) async throws {
+    private func runChange(bundleURLs: [URL], formatter: TerminalFormatter) async throws {
         let startedAt = Date()
         let platform = setPlatform.flatMap(Self.parsePlatform)
         let explicitReadType = readType.flatMap(Self.parseReadType)
+        let clearReadType = readType?.lowercased() == Self.clearReadTypeValue
         let source: PlatformAssignment.Source = confirm ? .userConfirmed : .userCorrected
+        let events = CLIEventEmitter(enabled: globalOptions.outputFormat == .json) { print($0) }
+        events.emitStart(message: "Recording the sequencing platform of \(bundleURLs.count) FASTQ bundle(s)")
 
-        var targets = [bundleURL]
-        if includeDerivatives {
-            let searchRoot = Self.projectFolder(containing: bundleURL) ?? bundleURL.deletingLastPathComponent()
-            targets += FASTQPlatformLabelService.derivedBundles(ofRoot: bundleURL, searchingFrom: searchRoot)
+        var targets: [URL] = []
+        for bundleURL in bundleURLs {
+            targets.append(bundleURL)
+            if includeDerivatives {
+                let searchRoot = Self.projectFolder(containing: bundleURL) ?? bundleURL.deletingLastPathComponent()
+                targets += FASTQPlatformLabelService.derivedBundles(ofRoot: bundleURL, searchingFrom: searchRoot)
+            }
         }
 
         let sidecars = try targets.map { try FASTQMetadataStore.metadataURL(for: FASTQPlatformLabelService.labelledFASTQURL(forBundle: $0)) }
@@ -177,6 +184,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
                     toBundle: target,
                     platform: confirm ? nil : platform,
                     readType: confirm ? nil : explicitReadType,
+                    clearReadType: !confirm && clearReadType,
                     source: source
                 ))
             }
@@ -185,20 +193,19 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
             }
         } catch {
             try snapshot.restore()
-            print(formatter.error(error.localizedDescription))
+            if globalOptions.outputFormat == .json {
+                events.emitFailed(error.localizedDescription)
+            } else {
+                print(formatter.error(error.localizedDescription))
+            }
             throw CLIExitCode.outputError.exitCode
         }
 
         if globalOptions.outputFormat == .json {
-            let rows = changes.map { change -> [String: Any] in
-                [
-                    "bundle": change.bundleURL.path,
-                    "platform": change.platform?.rawValue ?? NSNull(),
-                    "readType": change.readType?.rawValue ?? NSNull(),
-                    "source": change.source.rawValue,
-                ]
-            }
-            Self.printJSONObject(["changes": rows])
+            events.emitComplete(
+                outputs: changes.map(\.sidecarURL.path),
+                message: "Recorded the platform of \(changes.count) FASTQ bundle(s)"
+            )
         } else if !globalOptions.quiet {
             for change in changes {
                 let platformText = change.platform?.displayName ?? "no platform"
@@ -217,6 +224,8 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
         }
         if let readType, let parsed = Self.parseReadType(readType) {
             command += ["--read-type", Self.cliValue(of: parsed)]
+        } else if readType?.lowercased() == Self.clearReadTypeValue {
+            command += ["--read-type", Self.clearReadTypeValue]
         }
         if confirm { command.append("--confirm") }
         return command

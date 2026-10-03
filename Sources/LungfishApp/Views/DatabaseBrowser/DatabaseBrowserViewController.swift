@@ -2565,23 +2565,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     do {
                         let readRecords = try await ena.searchReads(term: firstAccession, limit: 1)
                         if let readRecord = readRecords.first {
-                            switch readRecord.instrumentPlatform?.uppercased() {
-                            case "ILLUMINA":       detectedPlatform = .illumina
-                            case "OXFORD_NANOPORE": detectedPlatform = .oxfordNanopore
-                            case "PACBIO_SMRT":     detectedPlatform = .pacbio
-                            case "ULTIMA":          detectedPlatform = .ultima
-                            default:                detectedPlatform = .unknown
-                            }
+                            // ELEMENT, BGISEQ and DNBSEQ map too, ION_TORRENT stays unknown.
+                            detectedPlatform = LungfishIO.SequencingPlatform(vendor: readRecord.instrumentPlatform ?? "")
                             isPaired = readRecord.libraryLayout?.uppercased() == "PAIRED"
                             firstRunBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
                         } else if let runInfo = try await ncbiService.sraEFetchRunInfo(ids: [firstAccession]).first {
-                            switch runInfo.platform?.uppercased() {
-                            case "ILLUMINA":        detectedPlatform = .illumina
-                            case "OXFORD_NANOPORE": detectedPlatform = .oxfordNanopore
-                            case "PACBIO_SMRT":     detectedPlatform = .pacbio
-                            case "ULTIMA":          detectedPlatform = .ultima
-                            default:                detectedPlatform = .unknown
-                            }
+                            detectedPlatform = LungfishIO.SequencingPlatform(vendor: runInfo.platform ?? "")
                             isPaired = runInfo.libraryLayout?.uppercased() == "PAIRED"
                             firstRunBytes = runInfo.size.map { Int64($0) * 1_000_000 }
                         }
@@ -2618,11 +2607,11 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             pairs: placeholderPairs,
                             knownDownloadBytes: recordsToDownload.count == 1 ? firstRunBytes : nil
                         ),
-                        onImport: { [downloadCenterTaskID, totalCount] importConfig in
+                        onImport: { [downloadCenterTaskID, totalCount, detectedPlatform] importConfig in
                             // User confirmed — start the actual download with captured config
                             self.startENADownloadTask(
                                 records: recordsToDownload,
-                                importConfig: importConfig,
+                                importConfig: importConfig.namingArchivePlatform(detectedPlatform),
                                 downloadCenterTaskID: downloadCenterTaskID,
                                 totalCount: totalCount
                             )
@@ -2962,7 +2951,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
             r1: r1,
             r2: r2,
             projectDirectory: projectDirectory,
-            platform: FASTQIngestionService.cliPlatformString(for: importConfig.confirmedPlatform),
+            platform: importConfig.cliPlatformValue,
             recipeName: FASTQIngestionService.resolvedRecipeName(for: importConfig),
             qualityBinning: importConfig.qualityBinning.rawValue,
             optimizeStorage: !importConfig.skipClumpify,
@@ -2980,11 +2969,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
     ) {
         let ena = enaService
         let sra = SRAService(ncbiService: ncbiService)
-        let confirmedPlatform = importConfig.confirmedPlatform
-
         // Recorded in the GUI provenance envelope; the argv itself comes from
         // `sraImportCLIArguments` so the two never disagree.
-        let platformStr = FASTQIngestionService.cliPlatformString(for: confirmedPlatform)
+        let platformStr = importConfig.cliPlatformValue
         let recipeName = FASTQIngestionService.resolvedRecipeName(for: importConfig)
         let compressionStr = importConfig.compressionLevel?.rawValue ?? "balanced"
         let qualityBinning = importConfig.qualityBinning.rawValue
@@ -3263,10 +3250,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         metadata.enaReadRecord = readRecord
                         metadata.downloadDate = Date()
                         metadata.downloadSource = downloadSource
-                        metadata.sequencingPlatform = confirmedPlatform
-                        if let readType = FASTQAssemblyReadType(sequencingPlatform: confirmedPlatform) {
-                            metadata.assemblyReadType = readType
-                        }
                         FASTQMetadataStore.save(metadata, for: fastqURL)
 
                         try writeGUISRAFASTQImportProvenance(

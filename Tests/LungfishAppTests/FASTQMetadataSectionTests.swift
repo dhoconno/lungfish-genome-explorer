@@ -92,6 +92,8 @@ final class FASTQMetadataSectionViewModelTests: XCTestCase {
         )
 
         let vm = FASTQMetadataSectionViewModel()
+        var changes: [(FASTQPlatformLabelOperation.Change, [URL])] = []
+        vm.platformLabelChanger = { change, bundles, _ in changes.append((change, bundles)) }
         vm.load(from: bundleDir)
 
         vm.metadata?.sampleType = "Blood"
@@ -108,11 +110,10 @@ final class FASTQMetadataSectionViewModelTests: XCTestCase {
         let restored = FASTQSampleMetadata(from: loaded!, fallbackName: "Persist")
         XCTAssertEqual(restored.sampleType, "Blood")
         XCTAssertEqual(restored.collectionDate, "2026-03-25")
-        let primaryFASTQURL = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleDir))
-        XCTAssertEqual(
-            FASTQMetadataStore.load(for: primaryFASTQURL)?.assemblyReadType,
-            .pacBioHiFi
-        )
+        // The read type is written by lungfish-cli fastq platform, never by the app.
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes.first?.0, .setReadType(.pacBioHiFi))
+        XCTAssertEqual(changes.first?.1, [bundleDir.standardizedFileURL])
     }
 
     func testReadTypeSelectionPersistsToAllSelectedBundles() throws {
@@ -128,15 +129,17 @@ final class FASTQMetadataSectionViewModelTests: XCTestCase {
         }
 
         let vm = FASTQMetadataSectionViewModel()
+        var changes: [(FASTQPlatformLabelOperation.Change, [URL])] = []
+        vm.platformLabelChanger = { change, bundles, _ in changes.append((change, bundles)) }
         vm.load(from: firstBundle, readTypeTargetBundleURLs: [firstBundle, secondBundle])
 
         vm.setAssemblyReadType(.ontReads)
         vm.performSave()
 
-        let firstFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: firstBundle))
-        let secondFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: secondBundle))
-        XCTAssertEqual(FASTQMetadataStore.load(for: firstFASTQ)?.assemblyReadType, .ontReads)
-        XCTAssertEqual(FASTQMetadataStore.load(for: secondFASTQ)?.assemblyReadType, .ontReads)
+        // One lungfish-cli fastq platform run covers every selected bundle.
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes.first?.0, .setReadType(.ontReads))
+        XCTAssertEqual(changes.first?.1, [firstBundle.standardizedFileURL, secondBundle.standardizedFileURL])
     }
 
     func testLoadReadsPersistedAssemblyReadTypeFromSidecar() throws {
