@@ -1,4 +1,4 @@
-// DemultiplexingPipeline+VirtualRootFiles.swift - Rebuilding virtual barcode bundles from their root files in one pass
+// DemultiplexingPipeline+VirtualRootFiles.swift - Rebuilding virtual barcode bundles from their root files, one pass per group
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -54,8 +54,8 @@ extension DemultiplexingPipeline {
         let statisticsURL: URL
     }
 
-    /// The routing of every virtual barcode bundle's reads for one pass over
-    /// the root files.
+    /// The routing of the reads of a group of virtual barcode bundles for one
+    /// pass over the root files.
     ///
     /// A bundle is folded in as soon as its read list is known. For each read
     /// it lists the plan keeps the bundle, whether the read is reverse
@@ -137,6 +137,60 @@ extension DemultiplexingPipeline {
                 }
             }
             return target
+        }
+    }
+
+    /// The virtual barcode bundles waiting for a pass over the root files, at
+    /// most `capacity` of them. The plan, the previews held in memory and the
+    /// statistics FASTQs on disk therefore never cover more bundles than that.
+    ///
+    /// A single pass for every bundle held these for all the bundles at once,
+    /// so memory and scratch disk grew with the number of bundles (1z
+    /// re-review SF1 and SF2). The pipeline makes a group as large as the
+    /// number of bundles it processes at a time, eight in virtual mode, which
+    /// is what the per-barcode rebuild before it held. A run with n bundles
+    /// reads the root files ceil(n / 8) times. A bundle's preview, statistics
+    /// FASTQ and statistics do not depend on the bundles that share its pass,
+    /// so the grouping changes no output (R3).
+    struct VirtualRootRebuildGroup<BundleResult> {
+        let pipeline: DemultiplexingPipeline
+        let rootFASTQs: [URL]
+        let capacity: Int
+        private var plan = VirtualRootRebuildPlan()
+        /// Each waiting bundle's index among `plan.targets` and how its result is made from its statistics.
+        private var waiting: [(target: Int, result: (FASTQDatasetStatistics) -> BundleResult)] = []
+
+        init(pipeline: DemultiplexingPipeline, rootFASTQs: [URL], capacity: Int) {
+            self.pipeline = pipeline
+            self.rootFASTQs = rootFASTQs
+            self.capacity = capacity
+        }
+
+        /// Adds a bundle, and rebuilds the group as soon as it holds `capacity` bundles.
+        ///
+        /// - Parameter result: Makes the bundle's result from its statistics.
+        /// - Returns: The results of the bundles that pass rebuilt, else none.
+        mutating func add(
+            _ rebuild: VirtualBarcodeRebuild,
+            result: @escaping (FASTQDatasetStatistics) -> BundleResult
+        ) async throws -> [BundleResult] {
+            waiting.append((plan.add(rebuild), result))
+            guard waiting.count >= capacity else { return [] }
+            return try await flush()
+        }
+
+        /// Rebuilds every waiting bundle in one pass over the root files and
+        /// returns their results in the order they were added. The group is
+        /// empty afterwards, and its statistics FASTQs are deleted.
+        mutating func flush() async throws -> [BundleResult] {
+            guard !waiting.isEmpty else { return [] }
+            let plan = self.plan
+            let waiting = self.waiting
+            self.plan = VirtualRootRebuildPlan()
+            self.waiting = []
+            try await pipeline.rebuildVirtualBarcodeFiles(fromRootFASTQs: rootFASTQs, plan: plan)
+            let statistics = try await pipeline.virtualBarcodeStatistics(plan: plan)
+            return waiting.map { $0.result(statistics[$0.target]) }
         }
     }
 

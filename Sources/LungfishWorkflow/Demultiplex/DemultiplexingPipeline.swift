@@ -456,7 +456,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         }
         enum BundleOutcome: Sendable {
             case finished(VirtualBundleResult)
-            /// The bundle's preview and statistics come from the one pass over the root below.
+            /// The bundle's preview and statistics come from its group's pass over the root.
             case rebuildFromRoot(baseName: String, isUnassigned: Bool, bundleURL: URL, bundleName: String, VirtualBarcodeRebuild)
         }
 
@@ -465,23 +465,25 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         // Every root file a virtual bundle's preview and statistics are rebuilt
         // from, resolved once, in manifest order (R3, final review B1).
         let rootFASTQURLs = isVirtualMode ? virtualRootSequenceURLs(config: config) : nil
-        var rebuildPlan = VirtualRootRebuildPlan()
-        var rebuiltBundles: [(baseName: String, isUnassigned: Bool, bundleURL: URL, bundleName: String, target: Int)] = []
 
-        var bundleResults: [VirtualBundleResult] = try await withThrowingTaskGroup(
+        let bundleResults: [VirtualBundleResult] = try await withThrowingTaskGroup(
             of: BundleOutcome?.self,
             returning: [VirtualBundleResult].self
         ) { group in
             var results: [VirtualBundleResult] = []
             var inFlight = 0
             let maxConcurrentBundles = (isVirtualMode || config.captureTrimsForChaining) ? 8 : 2
-            // A bundle rebuilt from the root joins the one-pass plan as soon as
-            // its task ends, so its read list and tables are released (R3).
-            func collect(_ outcome: BundleOutcome?) {
+            // A bundle rebuilt from the root joins a group as soon as its task ends, so its
+            // read list and tables are released. A full group of eight is rebuilt in one pass
+            // over the root before another task starts (R3, 1z re-review SF1 and SF2).
+            var rebuildGroup = VirtualRootRebuildGroup<VirtualBundleResult>(pipeline: self, rootFASTQs: rootFASTQURLs ?? [], capacity: maxConcurrentBundles)
+            func collect(_ outcome: BundleOutcome?) async throws {
                 switch outcome {
                 case .finished(let result): results.append(result)
                 case .rebuildFromRoot(let baseName, let isUnassigned, let bundleURL, let bundleName, let rebuild):
-                    rebuiltBundles.append((baseName, isUnassigned, bundleURL, bundleName, rebuildPlan.add(rebuild)))
+                    results += try await rebuildGroup.add(rebuild) {
+                        VirtualBundleResult(baseName: baseName, isUnassigned: isUnassigned, bundleURL: bundleURL, bundleName: bundleName, statistics: $0)
+                    }
                 case nil: break
                 }
             }
@@ -490,7 +492,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 // Keep full-output post-processing gentle on memory and disk I/O.
                 if inFlight >= maxConcurrentBundles {
                     if let result = try await group.next() {
-                        collect(result)
+                        try await collect(result)
                         inFlight -= 1
                     }
                 }
@@ -603,7 +605,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     if capturedIsVirtual {
                         // Virtual mode: create a small preview alongside the read ID list,
                         // from cutadapt's output here when there are no root files, else
-                        // in the one pass over the root files below.
+                        // in its group's pass over the root files.
                         if rootFASTQURLs == nil {
                             let previewURL = bundleURL.appendingPathComponent("preview.fastq")
                             let previewResult = try await capturedRunner.run(
@@ -676,8 +678,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
                     // Virtual bundles scan the canonical root-based reconstruction, otherwise
                     // cached lengths can disagree with the preview/materialized sequence when trim
-                    // positions have been rebased to the root FASTQ. Every one is rebuilt in one
-                    // pass over the root files once all tasks have ended (R3).
+                    // positions have been rebased to the root FASTQ. Each is rebuilt with its
+                    // group in one pass over the root files (R3).
                     if capturedIsVirtual, rootFASTQURLs != nil {
                         return .rebuildFromRoot(
                             baseName: file.baseName,
@@ -718,27 +720,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 inFlight += 1
             }
 
-            // Collect remaining results
+            // Collect remaining results, then rebuild the last group, however many it holds
             for try await result in group {
-                collect(result)
+                try await collect(result)
             }
+            results += try await rebuildGroup.flush()
             return results
-        }
-
-        // Every bundle rebuilt from the root gets its preview and statistics FASTQ
-        // from one pass over the root files, then its statistics as before (R3).
-        if let rootFASTQURLs, !rebuiltBundles.isEmpty {
-            try await rebuildVirtualBarcodeFiles(fromRootFASTQs: rootFASTQURLs, plan: rebuildPlan)
-            let statistics = try await virtualBarcodeStatistics(plan: rebuildPlan)
-            for bundle in rebuiltBundles {
-                bundleResults.append(VirtualBundleResult(
-                    baseName: bundle.baseName,
-                    isUnassigned: bundle.isUnassigned,
-                    bundleURL: bundle.bundleURL,
-                    bundleName: bundle.bundleName,
-                    statistics: statistics[bundle.target]
-                ))
-            }
         }
 
         // Process results and write derived manifests
