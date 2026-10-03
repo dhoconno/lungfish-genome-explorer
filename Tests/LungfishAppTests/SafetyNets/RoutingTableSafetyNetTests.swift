@@ -28,9 +28,11 @@ final class RoutingTableSafetyNetTests: XCTestCase {
     /// How long a row may take to settle. Reference and mapping viewports
     /// install on the next run-loop turn and several results load in a task
     /// that reads files off the main actor. A row ends as soon as it matches,
-    /// so the margin costs nothing when the machine is idle. Under heavy load
-    /// the NAO-MGS rows took up to 8 seconds.
-    private static let settleTimeout: Duration = .seconds(30)
+    /// so the margin costs nothing when the machine is idle. The NAO-MGS rows
+    /// open their SQLite database on the main actor, and under the unit gate's
+    /// own load (load average 126 on 14 cores) they and the genotype workbook
+    /// preview row took more than 30 seconds.
+    private static let settleTimeout: Duration = .seconds(120)
 
     // MARK: - Coverage
 
