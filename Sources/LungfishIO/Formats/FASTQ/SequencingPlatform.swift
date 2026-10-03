@@ -2,14 +2,13 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import Compression
 import Foundation
 
 /// Identifies the sequencing platform that generated a FASTQ dataset.
 ///
 /// Used to select platform-appropriate adapter contexts, error rates,
 /// and demultiplexing strategies.
-public enum SequencingPlatform: String, Codable, Sendable, CaseIterable {
+public enum SequencingPlatform: String, Sendable, CaseIterable {
     case illumina
     case oxfordNanopore
     case pacbio
@@ -100,109 +99,61 @@ public enum SequencingPlatform: String, Codable, Sendable, CaseIterable {
         }
     }
 
-    /// Detects the sequencing platform from a FASTQ header line.
+    /// Detects the sequencing platform from one FASTQ header line.
     ///
-    /// ONT headers contain `basecall_model_version_id=` or `runid=` with 40-char hex.
-    /// PacBio CCS headers contain `ccs` or `zmw`.
-    /// Illumina headers match the pattern `@INSTRUMENT:RUN:FLOWCELL:LANE:TILE:X:Y`.
-    /// Returns nil if the platform cannot be determined.
+    /// A thin wrapper over ``PlatformInference``. Returns the platform when the
+    /// header alone gives high or medium confidence, otherwise nil.
     public static func detect(fromHeader header: String) -> SequencingPlatform? {
-        // ONT: headers contain key=value metadata from MinKNOW basecaller
-        if header.contains("basecall_model_version_id=")
-            || header.contains("basecall_gpu=")
-            || header.contains("start_time=") && header.contains("flow_cell_id=") {
-            return .oxfordNanopore
-        }
-        // PacBio CCS: movie/zmw format like m64001_190101_000000/123/ccs
-        if header.contains("/ccs") || header.contains("zmw") {
-            return .pacbio
-        }
-        // Illumina: @INSTRUMENT:RUN:FLOWCELL:LANE:TILE:X:Y format (7 colon-separated fields)
-        let stripped = header.hasPrefix("@") ? String(header.dropFirst()) : header
-        let colonFields = stripped.split(separator: ":").count
-        if colonFields >= 7 {
-            return .illumina
-        }
-        return nil
+        let inference = PlatformInference.infer(fromHeader: header)
+        return inference.isActionable ? inference.platform : nil
     }
 
-    /// Detects the sequencing platform by reading the first header of a FASTQ file.
-    ///
-    /// Handles both plain text and gzip-compressed FASTQ files.
-    /// Reads only the first line, so this is very fast.
+    /// Detects the sequencing platform from a bounded sample of a FASTQ file
+    /// (plain, gzip or BGZF). A thin wrapper over ``PlatformInference``.
     public static func detect(fromFASTQ url: URL) -> SequencingPlatform? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 4096), !data.isEmpty else { return nil }
-
-        let text: String?
-        if data.count >= 2, data[0] == 0x1F, data[1] == 0x8B {
-            // Gzip-compressed: decompress to get the header
-            text = decompressGzipPrefix(data: data).flatMap { String(data: $0, encoding: .utf8) }
-        } else {
-            text = String(data: data, encoding: .utf8)
-        }
-
-        guard let text, let firstLine = text.split(separator: "\n", maxSplits: 1).first else {
-            return nil
-        }
-        return detect(fromHeader: String(firstLine))
+        let inference = PlatformInference.infer(fromFASTQ: url)
+        return inference.isActionable ? inference.platform : nil
     }
 
-    /// Decompresses the beginning of a gzip stream to extract header text.
-    private static func decompressGzipPrefix(data: Data) -> Data? {
-        guard data.count > 10 else { return nil }
-        var offset = 10
-        let flags = data[3]
-        if flags & 0x04 != 0, data.count > offset + 2 {
-            let xlen = Int(data[offset]) | (Int(data[offset + 1]) << 8)
-            offset += 2 + xlen
-        }
-        if flags & 0x08 != 0 {
-            while offset < data.count, data[offset] != 0 { offset += 1 }
-            offset += 1
-        }
-        if flags & 0x10 != 0 {
-            while offset < data.count, data[offset] != 0 { offset += 1 }
-            offset += 1
-        }
-        if flags & 0x02 != 0 { offset += 2 }
-        guard offset < data.count else { return nil }
-
-        let compressed = data.subdata(in: offset..<data.count)
-        let bufferSize = 4096
-        var output = Data(count: bufferSize)
-        let size: Int = compressed.withUnsafeBytes { src in
-            output.withUnsafeMutableBytes { dst in
-                guard let srcPtr = src.baseAddress, let dstPtr = dst.baseAddress else { return 0 }
-                return compression_decode_buffer(
-                    dstPtr.assumingMemoryBound(to: UInt8.self), bufferSize,
-                    srcPtr.assumingMemoryBound(to: UInt8.self), compressed.count,
-                    nil, COMPRESSION_ZLIB
-                )
-            }
-        }
-        guard size > 0 else { return nil }
-        return output.prefix(size)
-    }
-
-    /// Maps legacy vendor strings to platform enum values.
+    /// Maps vendor strings to platform enum values.
+    ///
+    /// Covers the `lungfish-cli import fastq --platform` values, the LungfishIO
+    /// raw values and the ENA and SRA `instrument_platform` spellings
+    /// (`OXFORD_NANOPORE`, `PACBIO_SMRT`, `BGISEQ`, `DNBSEQ`, `ELEMENT`).
+    /// `ION_TORRENT` and anything unrecognised map to `.unknown`.
     public init(vendor: String) {
         switch vendor.lowercased().replacingOccurrences(of: "_", with: "-") {
         case "illumina":
             self = .illumina
-        case "oxford-nanopore", "oxfordnanopore", "ont":
+        case "oxford-nanopore", "oxfordnanopore", "ont", "nanopore":
             self = .oxfordNanopore
-        case "pacbio", "pacific-biosciences":
+        case "pacbio", "pacific-biosciences", "pacbio-smrt":
             self = .pacbio
-        case "element", "element-biosciences":
+        case "element", "element-biosciences", "element-aviti", "aviti":
             self = .element
         case "ultima", "ultima-genomics":
             self = .ultima
-        case "mgi", "bgi", "dnbseq", "mgi-tech":
+        case "mgi", "bgi", "dnbseq", "mgi-tech", "bgiseq":
             self = .mgi
         default:
             self = .unknown
         }
+    }
+}
+
+// MARK: - Tolerant coding
+
+/// An unrecognised raw value decodes as `.unknown` instead of failing the whole
+/// file, so a later case (such as Ion Torrent) never makes an older reader drop
+/// a sidecar, kit or plan.
+extension SequencingPlatform: Codable {
+    public init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = SequencingPlatform(rawValue: raw) ?? .unknown
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }

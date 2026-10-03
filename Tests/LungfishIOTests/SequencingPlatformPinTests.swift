@@ -152,7 +152,13 @@ final class SequencingPlatformPinTests: XCTestCase {
             ("bgi", .mgi),
             ("dnbseq", .mgi),
             ("mgi-tech", .mgi),
-            ("nanopore", .unknown),
+            ("nanopore", .oxfordNanopore),
+            ("OXFORD_NANOPORE", .oxfordNanopore),
+            ("PACBIO_SMRT", .pacbio),
+            ("BGISEQ", .mgi),
+            ("DNBSEQ", .mgi),
+            ("ELEMENT", .element),
+            ("ION_TORRENT", .unknown),
             ("oxford nanopore", .unknown),
             ("pacbio-hifi", .unknown),
             ("hifi", .unknown),
@@ -181,28 +187,28 @@ final class SequencingPlatformPinTests: XCTestCase {
             "@0a1b2c3d-4e5f-6789-abcd-ef0123456789 runid=8a9b0c1d read=12 ch=34 start_time=2019-05-01T10:20:30Z flow_cell_id=FAK12345",
             .oxfordNanopore
         ),
-        ("ONT header with runid only", "@d3ef25a0-5d5c-4a5f-8c3b-12345abcdef runid=abc123 sampleid=sample1", nil),
+        ("ONT header with runid only", "@d3ef25a0-5d5c-4a5f-8c3b-12345abcdef runid=abc123 sampleid=sample1", .oxfordNanopore),
         ("basecall_gpu key only", "@read1 basecall_gpu=Tesla_V100", .oxfordNanopore),
         ("start_time without flow_cell_id", "@read1 start_time=2019-05-01T10:20:30Z", nil),
         (
             "dorado SAM tags in the header",
             "@0a1b2c3d-4e5f-6789-abcd-ef0123456789\tqs:f:12.5\tdu:f:3.2\tns:i:16000\tch:i:123\tst:Z:2023-05-01T10:20:30.000+00:00\tRG:Z:8a9b0c1d_dna_r10.4.1_e8.2_400bps_sup@v4.2.0",
-            .illumina
+            .oxfordNanopore
         ),
         ("PacBio Sequel CCS", "@m64011_190830_220126/101/ccs", .pacbio),
         ("PacBio Revio CCS", "@m84011_220902_175841_s1/12345/ccs", .pacbio),
         ("PacBio by-strand CCS", "@m64011_190830_220126/101/ccs/fwd", .pacbio),
-        ("PacBio subread", "@m54006_160504_020705/4194370/0_3920", nil),
-        ("zmw anywhere in the header", "@read_zmw_123", .pacbio),
+        ("PacBio subread", "@m54006_160504_020705/4194370/0_3920", .pacbio),
+        ("zmw anywhere in the header", "@read_zmw_123", nil),
         ("Illumina CASAVA 1.8 with comment", "@A00488:61:HMLGNDSXX:4:1101:1234:5678 1:N:0:ACGTACGT", .illumina),
         ("Illumina CASAVA 1.8 without @", "A00488:61:HMLGNDSXX:4:1101:1234:5678", .illumina),
         ("Illumina MiSeq flow cell with a dash", "@M00123:45:000000000-ABCDE:1:1101:15589:1333 1:N:0:1", .illumina),
-        ("Illumina pre-1.8", "@HWUSI-EAS100R:6:73:941:1973#0/1", nil),
+        ("Illumina pre-1.8", "@HWUSI-EAS100R:6:73:941:1973#0/1", .illumina),
         ("SRA spot name", "@SRR12345678.1 1 length=150", nil),
         ("SRA spot with original Illumina name", "@SRR6750055.1 A00123:8:H5YNKDSXX:1:1101:1000:1000 length=151", .illumina),
-        ("seven non-numeric colon fields", "@a:b:c:d:e:f:g", .illumina),
+        ("seven non-numeric colon fields", "@a:b:c:d:e:f:g", nil),
         ("six colon fields", "@a:b:c:d:e:f", nil),
-        ("MGI DNBSEQ", "@V350012345L1C001R00100000001/1", nil),
+        ("MGI DNBSEQ", "@V350012345L1C001R00100000001/1", .mgi),
         ("generic read name", "@read1 some random format", nil),
         ("empty", "", nil),
         ("bare @", "@", nil),
@@ -222,13 +228,19 @@ final class SequencingPlatformPinTests: XCTestCase {
     /// Guppy-style ONT record with runid, start_time and flow_cell_id, gzip with mtime 0.
     private static let gzippedONTRecord = "H4sIAAAAAAAC/x2NSwrCMBQA9zlF9hJ4L2m0LQQsguK+ILgJ+dJCqpJEvL7RWQ4McwSDljvhWRdkZPtDPzBjnWchAnLRyZ+h+f1YverNYMGhp8VsrxSaKUhzMF4hp25RoqOlmlx1XbegOHDBQDLAGWHkMAq405ieH+1CSrrV5+n2X5DpdJnJjlwb5AsI1wpNkQAAAA=="
 
-    func testFASTQFileDetectionReadsOnlyTheFirstHeader() throws {
+    func testFASTQFileDetectionSamplesRecordsAndRefusesToGuessMixedFiles() throws {
         let root = try TestTempDirectory.make(prefix: "sequencing-platform-pin")
         defer { TestTempDirectory.cleanup(root) }
 
-        let plainONT = root.appendingPathComponent("ont.fastq")
+        // An ONT read followed by an Illumina read is a mixed file. It used to
+        // read as ONT from its first header alone.
+        let mixed = root.appendingPathComponent("mixed.fastq")
         try "@read1 basecall_gpu=Tesla_V100\nACGT\n+\nIIII\n@A00488:61:HMLGNDSXX:4:1101:1234:5678\nACGT\n+\nIIII\n"
-            .write(to: plainONT, atomically: true, encoding: .utf8)
+            .write(to: mixed, atomically: true, encoding: .utf8)
+        XCTAssertNil(SequencingPlatform.detect(fromFASTQ: mixed))
+
+        let plainONT = root.appendingPathComponent("ont.fastq")
+        try "@read1 basecall_gpu=Tesla_V100\nACGT\n+\nIIII\n".write(to: plainONT, atomically: true, encoding: .utf8)
         XCTAssertEqual(SequencingPlatform.detect(fromFASTQ: plainONT), .oxfordNanopore)
 
         let plainPacBio = root.appendingPathComponent("pacbio.fq")
@@ -334,9 +346,11 @@ final class SequencingPlatformPinTests: XCTestCase {
             XCTAssertEqual(FASTQMetadataStore.load(for: fastqURL)?.sequencingPlatform, row.platform)
         }
 
-        // A sidecar that spells the import subset ("ont") does not decode.
-        XCTAssertThrowsError(
-            try JSONDecoder().decode(PersistedFASTQMetadata.self, from: Data("{\"sequencingPlatform\":\"ont\"}".utf8))
+        // A sidecar that spells the import subset ("ont"), or a platform a
+        // later version adds, decodes as unknown and keeps the rest of the file.
+        XCTAssertEqual(
+            try JSONDecoder().decode(PersistedFASTQMetadata.self, from: Data("{\"sequencingPlatform\":\"ont\"}".utf8)).sequencingPlatform,
+            .unknown
         )
     }
 
@@ -345,9 +359,9 @@ final class SequencingPlatformPinTests: XCTestCase {
             (.illumina, .illuminaShortReads),
             (.oxfordNanopore, .ontReads),
             (.pacbio, nil),
-            (.element, nil),
+            (.element, .illuminaShortReads),
             (.ultima, nil),
-            (.mgi, nil),
+            (.mgi, .illuminaShortReads),
             (.unknown, nil),
         ]
         XCTAssertEqual(expected.map(\.0), SequencingPlatform.allCases)
