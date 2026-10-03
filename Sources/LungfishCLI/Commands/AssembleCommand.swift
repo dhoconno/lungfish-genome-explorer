@@ -234,7 +234,8 @@ struct AssembleCommand: AsyncParsableCommand {
             tool: tool,
             explicitProfile: profile,
             explicitProfileBasis: profileBasis,
-            inputURL: inputURLs.first
+            inputURL: inputURLs.first,
+            readType: resolvedReadType
         )
 
         // Resolved on the materialized input with the ORIGINAL bundle's
@@ -382,7 +383,8 @@ struct AssembleCommand: AsyncParsableCommand {
         tool: AssemblyTool,
         explicitProfile: String?,
         explicitProfileBasis: String? = nil,
-        inputURL: URL?
+        inputURL: URL?,
+        readType: AssemblyReadType? = nil
     ) async -> (profileID: String?, basis: String?) {
         if let explicitProfile {
             let basis = explicitProfileBasis?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -391,7 +393,7 @@ struct AssembleCommand: AsyncParsableCommand {
         guard tool == .flye, let inputURL else {
             return (nil, nil)
         }
-        let selection = await FlyeProfileSelector.select(forInputURL: inputURL)
+        let selection = await FlyeProfileSelector.select(forInputURL: inputURL, readType: readType)
         return (selection.profileID, selection.provenanceBasis(appliedProfileID: nil))
     }
 

@@ -29,14 +29,14 @@ final class AssemblyCompatibilityTests: XCTestCase {
         XCTAssertFalse(AssemblyCompatibility.isSupported(tool: .skesa, for: .ontReads))
     }
 
-    func testPacBioHiFiEnablesOnlyHifiasm() {
+    func testPacBioHiFiEnablesHifiasmAndFlye() {
         XCTAssertEqual(
             Set(AssemblyCompatibility.supportedTools(for: .pacBioHiFi)),
-            [.hifiasm]
+            [.hifiasm, .flye]
         )
         XCTAssertTrue(AssemblyCompatibility.isSupported(tool: .hifiasm, for: .pacBioHiFi))
         XCTAssertFalse(AssemblyCompatibility.isSupported(tool: .spades, for: .pacBioHiFi))
-        XCTAssertFalse(AssemblyCompatibility.isSupported(tool: .flye, for: .pacBioHiFi))
+        XCTAssertTrue(AssemblyCompatibility.isSupported(tool: .flye, for: .pacBioHiFi))
         XCTAssertFalse(AssemblyCompatibility.isSupported(tool: .megahit, for: .pacBioHiFi))
         XCTAssertFalse(AssemblyCompatibility.isSupported(tool: .skesa, for: .pacBioHiFi))
     }

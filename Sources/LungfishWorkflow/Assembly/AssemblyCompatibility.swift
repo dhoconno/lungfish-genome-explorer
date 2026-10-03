@@ -20,7 +20,8 @@ public enum AssemblyCompatibility {
         case .ontReads:
             return [.flye, .hifiasm]
         case .pacBioHiFi:
-            return [.hifiasm]
+            // Flye runs HiFi reads in its own --pacbio-hifi mode.
+            return [.hifiasm, .flye]
         }
     }
 

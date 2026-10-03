@@ -234,7 +234,9 @@ public extension AssemblyRunRequest {
             threads: effectiveThreadCount(on: host),
             memoryGB: memoryGB,
             minContigLength: minContigLength,
-            selectedProfileID: selectedProfileID,
+            selectedProfileID: selectedProfileID ?? (tool == .flye
+                ? FlyeProfileSelector.profileID(forReadType: AssemblyCompatibility.effectiveReadType(tool: tool, readType: readType))
+                : nil),
             extraArguments: extraArguments,
             profileSelectionBasis: profileSelectionBasis,
             inputLayout: inputLayout

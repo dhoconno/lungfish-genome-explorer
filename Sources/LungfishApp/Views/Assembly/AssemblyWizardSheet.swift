@@ -337,7 +337,7 @@ struct AssemblyWizardSheet: View {
                    initialTool: initialTool,
                    detectedReadType: Self.detectedReadType(from: inputFiles)
                ) {
-                let selection = await FlyeProfileSelector.select(forInputURL: first)
+                let selection = await FlyeProfileSelector.select(forInputURL: first, readType: effectiveReadType)
                 flyeProfileSelection = selection
                 if selectedTool == .flye {
                     selectedProfileID = selection.profileID
@@ -366,7 +366,7 @@ struct AssemblyWizardSheet: View {
         }
         .onChange(of: selectedTool) { _, newValue in
             resetToolSpecificOptions()
-            let nextProfileID = Self.seededProfileID(for: newValue, flyeSelection: flyeProfileSelection) ?? ""
+            let nextProfileID = Self.seededProfileID(for: newValue, flyeSelection: flyeProfileSelection, readType: effectiveReadType) ?? ""
             if !profileOptions.map(\.id).contains(selectedProfileID) {
                 selectedProfileID = nextProfileID
             } else if profileOptions.isEmpty {
@@ -388,6 +388,7 @@ struct AssemblyWizardSheet: View {
             if !readTypeIsLockedToDetection {
                 hasConfirmedManualReadType = true
             }
+            if selectedTool == .flye { selectedProfileID = Self.seededProfileID(for: .flye, flyeSelection: flyeProfileSelection, readType: effectiveReadType) ?? selectedProfileID }
         }
     }
 
@@ -953,6 +954,8 @@ struct AssemblyWizardSheet: View {
                 AssemblyProfileOption(id: "nano-hq", title: "Nano HQ", detail: "High-quality ONT reads."),
                 AssemblyProfileOption(id: "nano-raw", title: "Nano Raw", detail: "Raw ONT reads."),
                 AssemblyProfileOption(id: "nano-corr", title: "Nano Corrected", detail: "Corrected ONT reads."),
+                AssemblyProfileOption(id: "pacbio-hifi", title: "PacBio HiFi", detail: "PacBio HiFi/CCS reads."),
+                AssemblyProfileOption(id: "pacbio-raw", title: "PacBio CLR", detail: "PacBio subreads (CLR)."),
             ]
         case .hifiasm:
             return [
@@ -1013,7 +1016,8 @@ struct AssemblyWizardSheet: View {
     /// The profile the picker opens on. Flye takes the read-quality
     /// preselection when one was measured; every other tool keeps its
     /// catalog default.
-    static func seededProfileID(for tool: AssemblyTool, flyeSelection: FlyeProfileSelection?) -> String? {
+    static func seededProfileID(for tool: AssemblyTool, flyeSelection: FlyeProfileSelection?, readType: AssemblyReadType? = nil) -> String? {
+        if tool == .flye, let profileID = FlyeProfileSelector.profileID(forReadType: readType) { return profileID }
         if tool == .flye, let flyeSelection {
             return flyeSelection.profileID
         }

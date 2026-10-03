@@ -29,10 +29,10 @@ final class MappingReadClassInferenceTests: XCTestCase {
         XCTAssertEqual(MappingReadClass.detect(fromInputURL: PlatformHeaderFixtures.url("pacbio-revio-ccs.fastq")), .pacBioHiFi)
     }
 
-    func testRevioAssemblesWithHifiasmOnly() {
+    func testRevioAssemblesWithHifiasmOrFlye() {
         let readType = AssemblyReadType.detect(fromInputURL: PlatformHeaderFixtures.url("pacbio-revio-ccs.fastq"))
         XCTAssertEqual(readType, .pacBioHiFi)
-        XCTAssertEqual(readType.map(AssemblyCompatibility.supportedTools(for:)), [.hifiasm])
+        XCTAssertEqual(readType.map(AssemblyCompatibility.supportedTools(for:)), [.hifiasm, .flye])
         XCTAssertEqual(AssemblyCompatibility.defaultTool(for: readType), .hifiasm)
     }
 
