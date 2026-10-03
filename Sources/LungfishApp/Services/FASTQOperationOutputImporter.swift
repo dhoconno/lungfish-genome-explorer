@@ -154,7 +154,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 storageInputSizeBytes: result.originalSizeBytes,
                 storageOutputSizeBytes: result.finalSizeBytes
             )
-            metadata.readClassification = try outputReadRoles(of: result.outputFile, sourceInputURL: sourceInputURL) ?? metadata.readClassification
+            metadata.readClassification = outputReadRoles(of: result.outputFile, sourceInputURL: sourceInputURL) ?? metadata.readClassification
             FASTQMetadataStore.save(metadata, for: result.outputFile)
 
             let operation = try writeDerivedManifest(
