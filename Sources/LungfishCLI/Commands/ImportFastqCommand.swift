@@ -105,7 +105,7 @@ extension ImportCommand {
         @Option(
             name: .customLong("platform"),
             help: ArgumentHelp(
-                "Sequencing platform: auto, illumina, ont, pacbio, element, mgi, ultima, unknown (default: auto)",
+                "Sequencing platform: auto, illumina, ont, pacbio, element, mgi, ultima, unknown",
                 discussion: """
                 auto infers each sample's platform from its read headers (and a BAM \
                 file's @RG PL) and prints the evidence. Reads whose platform cannot \
