@@ -244,14 +244,25 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     /// `replace` is set, in which case the directory is deleted first. A
     /// rerun used to overwrite the earlier barcode bundles in place.
     static func prepareOutputDirectory(_ outputURL: URL, replace: Bool) throws {
+        if try checkOutputDirectory(outputURL, replace: replace) {
+            try FileManager.default.removeItem(at: outputURL)
+        }
+    }
+
+    /// The refusals of ``prepareOutputDirectory(_:replace:)`` without the
+    /// delete. Returns whether the directory holds earlier results that
+    /// `replace` deletes, so `run` deletes them only after the input and
+    /// every argument have passed and a refused run keeps them (R3, final
+    /// review B2).
+    static func checkOutputDirectory(_ outputURL: URL, replace: Bool) throws -> Bool {
         let fm = FileManager.default
         var isDirectory: ObjCBool = false
-        guard fm.fileExists(atPath: outputURL.path, isDirectory: &isDirectory) else { return }
+        guard fm.fileExists(atPath: outputURL.path, isDirectory: &isDirectory) else { return false }
         guard isDirectory.boolValue else {
             throw ValidationError("Output path \(outputURL.path) is a file, not a directory")
         }
         let contents = (try? fm.contentsOfDirectory(atPath: outputURL.path))?.filter { !$0.hasPrefix(".") } ?? []
-        guard !contents.isEmpty else { return }
+        guard !contents.isEmpty else { return false }
         guard replace else {
             let preview = contents.sorted().prefix(5).joined(separator: ", ")
             let more = contents.count > 5 ? ", ..." : ""
@@ -260,7 +271,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
                 + "Choose a new --output to keep them, or pass --replace to delete them first."
             )
         }
-        try fm.removeItem(at: outputURL)
+        return true
     }
 
     func run() async throws {
@@ -272,7 +283,10 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         }
 
         let outputURL = URL(fileURLWithPath: output)
-        try Self.prepareOutputDirectory(outputURL, replace: replace)
+        // The output is checked before a bundle is joined for the run, and
+        // earlier results are deleted only below, once the input, the kit,
+        // the location and the engine have passed (R3, final review B2).
+        let replacesEarlierOutput = try Self.checkOutputDirectory(outputURL, replace: replace)
         // A bundle is demultiplexed as its reads (every file of a multi-file
         // bundle, the materialized reads of a virtual one), with the bundle
         // kept as the lineage source (R3, lane 1x).
@@ -337,6 +351,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
                 """.utf8))
         }
 
+        if replacesEarlierOutput {
+            try FileManager.default.removeItem(at: outputURL)
+        }
         let preparedFASTA = fastaInput
             ? try await FastqDemultiplexSequenceFormat.prepareFASTA(inputURL: inputURL, outputDirectory: outputURL)
             : nil

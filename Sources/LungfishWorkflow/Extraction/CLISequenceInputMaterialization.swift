@@ -570,16 +570,8 @@ public enum CLISequenceInputMaterialization {
             )
         }
 
-        let rootBundleURL = FASTQBundle.resolveBundle(
-            relativePath: manifest.rootBundleRelativePath,
-            from: bundleURL
-        )
-        if let rootPayloadURL = existingBundleMemberURL(
-            manifest.rootFASTQFilename,
-            in: rootBundleURL,
-            field: "rootFASTQFilename",
-            allowExistingSymlinkEscape: true
-        ) {
+        // Every root file the recipe reads, in manifest order (R8).
+        for rootPayloadURL in existingRootSequenceURLs(for: manifest, derivedBundleURL: bundleURL) {
             descriptors.append(
                 try ProvenanceFileDescriptor.file(
                     url: rootPayloadURL,

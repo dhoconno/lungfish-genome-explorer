@@ -41,16 +41,11 @@ public enum AssemblyInputMaterialization {
         if let bundleURL = bundleRequiringMaterialization(for: standardizedURL),
            let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
             var descriptors = [try bundleAggregateDescriptor(for: bundleURL)]
-            let rootBundleURL = FASTQBundle.resolveBundle(
-                relativePath: manifest.rootBundleRelativePath,
-                from: bundleURL
-            )
-            if let rootPayloadURL = try? FASTQBundle.validatedBundleMemberURL(
-                for: manifest.rootFASTQFilename,
-                in: rootBundleURL,
-                field: "rootFASTQFilename",
-                allowExistingSymlinkEscape: true
-            ), FileManager.default.fileExists(atPath: rootPayloadURL.path) {
+            // Every root file the recipe reads, in manifest order (R8).
+            for rootPayloadURL in CLISequenceInputMaterialization.existingRootSequenceURLs(
+                for: manifest,
+                derivedBundleURL: bundleURL
+            ) {
                 descriptors.append(
                     try ProvenanceFileDescriptor.file(
                         url: rootPayloadURL,
@@ -130,16 +125,10 @@ public enum AssemblyInputMaterialization {
         if let bundleURL = bundleRequiringMaterialization(for: standardizedURL),
            let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
             var records = [bundleAggregateRecord(for: bundleURL)]
-            let rootBundleURL = FASTQBundle.resolveBundle(
-                relativePath: manifest.rootBundleRelativePath,
-                from: bundleURL
-            )
-            if let rootPayloadURL = try? FASTQBundle.validatedBundleMemberURL(
-                for: manifest.rootFASTQFilename,
-                in: rootBundleURL,
-                field: "rootFASTQFilename",
-                allowExistingSymlinkEscape: true
-            ), FileManager.default.fileExists(atPath: rootPayloadURL.path) {
+            for rootPayloadURL in CLISequenceInputMaterialization.existingRootSequenceURLs(
+                for: manifest,
+                derivedBundleURL: bundleURL
+            ) {
                 records.append(inputRecord(forFile: rootPayloadURL, originPath: rootPayloadURL.path))
             }
             return records
