@@ -83,6 +83,8 @@ bash scripts/full-suite-gate.sh --tier unit --quiet    # the gate the pre-push h
 python3 scripts/index/generate-module-map.py           # regenerate MODULES.md
 python3 scripts/checks/module-map-current.py           # fails when MODULES.md is stale
 python3 scripts/checks/features-yaml-entry-points.py   # features.yaml menu paths
+python3 scripts/golden/golden.py compare               # golden mapping, classifier, genotype and CLI help outputs
+python3 scripts/refactoring/verify_pure_move.py . HEAD~1 HEAD   # a move commit changes no line
 bash scripts/install-git-hooks.sh                      # install the pre-push hook
 ```
 
