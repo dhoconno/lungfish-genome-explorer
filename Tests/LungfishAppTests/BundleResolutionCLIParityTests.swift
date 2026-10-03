@@ -62,6 +62,94 @@ final class BundleResolutionCLIParityTests: XCTestCase {
         }
     }
 
+    /// Kraken2 read sets (decisions 1 and 2, lane A2). For every layout the
+    /// app's launch and the command it records plan the same read set
+    /// through `KrakenReadSetPlanner`: the same files in the same order, the
+    /// same pairing and the same kraken2 flags. The recorded command is
+    /// parsed with the real parser and planned as `ClassifyCommand.run` plans it.
+    func testCondaClassifyPlansTheReadSetTheAppsKraken2LaunchDoes() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("read-sets", isDirectory: true))
+        let cases: [(String, URL, Bool)] = [
+            ("L1 single", fixtures.singleRoot, false),
+            ("L2 interleaved", fixtures.interleavedRoot, false),
+            ("L3 mixed root", fixtures.mixedRoot, true),
+            ("L4 chunked", fixtures.chunkedRoot, false),
+            ("L5b paired", fixtures.pairedDerivative, true),
+            ("L5c merge", fixtures.mergeDerivative, true),
+            ("L5d repair", fixtures.repairDerivative, true),
+            ("L6 subset of single", fixtures.subsetOfSingle, false),
+            ("L6 subset of merge", fixtures.subsetOfMerge, true),
+        ]
+        let databasePath = root.appendingPathComponent("kraken-db", isDirectory: true)
+        let database = MetagenomicsDatabaseInfo(
+            name: "Viral", tool: "kraken2", version: "1", sizeBytes: 1, catalogID: "kraken2-viral",
+            installationRecipe: nil, payloadDigest: nil, description: "", path: databasePath,
+            status: .ready, recommendedRAM: 1
+        )
+        for (shape, bundle, paired) in cases {
+            let sample = try XCTUnwrap(MetagenomicsSampleGrouper.group([bundle]).first, shape)
+            let readPlan = await ClassificationSampleReadPlan.planned(for: sample)
+            let outputDirectory = root.appendingPathComponent("out-\(UUID().uuidString)", isDirectory: true)
+            let wizardConfig = ClassificationWizardSheet.makeProfileConfig(
+                sample: sample, readPlan: readPlan, database: database, databasePath: databasePath,
+                outputDirectory: outputDirectory, confidence: 0.2, minimumHitGroups: 2, threads: 4,
+                memoryMapping: false, extraArguments: []
+            )
+
+            // The app: resolve (the stub materializes a virtual bundle), then plan.
+            let appTemp = root.appendingPathComponent("app-\(UUID().uuidString)", isDirectory: true)
+            let appResolved = try await ResolvedSequenceInputs.resolve(
+                inputURLs: wizardConfig.inputFiles, materializationDirectory: appTemp, materializer: fixtures.materializer
+            ).executionInputURLs
+            var appConfig = wizardConfig
+            appConfig.originalInputFiles = wizardConfig.inputFiles
+            appConfig.inputFiles = appResolved
+            appConfig = try await AppDelegate.planKraken2ReadSet(appConfig, materializedInputs: appResolved)
+
+            // The command the Operations panel records, run as `conda classify` runs it.
+            let recorded = Array(ClassificationCLIInvocationBuilder.build(for: wizardConfig).arguments.dropFirst(2))
+            let command = try ClassifyCommand.parse(recorded)
+            let inputs = command.fastqFiles.map { URL(fileURLWithPath: $0).standardizedFileURL }
+            let cliInputsDirectory = outputDirectory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName, isDirectory: true)
+            let cliResolved = try await ClassifyCommand.resolveExecutionInputs(
+                for: inputs, tempDirectory: cliInputsDirectory, materializer: fixtures.materializer
+            ).executionInputURLs
+            var cliConfig = try command.makeConfigForTesting(
+                inputURLs: inputs, databasePath: databasePath,
+                inputFormat: try ClassifyCommand.inferInputFormat(from: inputs), outputDirectory: outputDirectory
+            )
+            cliConfig.confidence = command.confidence ?? cliConfig.confidence
+            cliConfig.minimumHitGroups = command.minHitGroups ?? cliConfig.minimumHitGroups
+            cliConfig.inputFiles = cliResolved
+            cliConfig.originalInputFiles = inputs
+            _ = try await command.planReadSet(
+                inputURLs: inputs, executionInputURLs: cliResolved, config: &cliConfig,
+                materializationDirectory: cliInputsDirectory
+            )
+
+            XCTAssertEqual(appConfig.isPairedEnd, paired, "\(shape): pairs run as pairs")
+            XCTAssertEqual(cliConfig.isPairedEnd, appConfig.isPairedEnd, "\(shape): the same pairing")
+            XCTAssertEqual(cliConfig.interleavedInput, appConfig.interleavedInput, "\(shape): the same split")
+            XCTAssertEqual(
+                try (cliConfig.inputFiles + cliConfig.singleReadFiles).map(ParityBundleShapes.readNames(in:)),
+                try (appConfig.inputFiles + appConfig.singleReadFiles).map(ParityBundleShapes.readNames(in:)),
+                "\(shape): the same files, in the same order"
+            )
+            XCTAssertEqual(flags(cliConfig.kraken2Arguments()), flags(appConfig.kraken2Arguments()), "\(shape): the same kraken2 flags")
+            XCTAssertEqual(cliConfig.fragmentComposition, appConfig.fragmentComposition, "\(shape): the same fragments")
+            if paired {
+                XCTAssertTrue(recorded.contains("auto"), "\(shape): recorded with --read-format auto")
+                XCTAssertFalse(recorded.contains("unpaired"), "\(shape): never recorded as unpaired")
+                XCTAssertFalse(recorded.contains("--paired"), "\(shape): --paired names two files only")
+            }
+        }
+    }
+
+    /// The kraken2 arguments that are not file paths.
+    private func flags(_ arguments: [String]) -> [String] {
+        arguments.filter { !$0.hasPrefix("/") }
+    }
+
     /// The app's FASTQ operations read one file per bundle (the QC summary
     /// and the derivative operations, through the execution service's input
     /// resolver), which joins the chunks of a multi-file bundle in order.
