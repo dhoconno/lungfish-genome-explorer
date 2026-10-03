@@ -82,6 +82,33 @@ public final class ReferenceBundleManualAnnotationService {
         return arguments
     }
 
+    /// The explicit options the update's provenance records, one for each
+    /// option ``annotationUpdateArguments(location:name:type:strand:note:bundleURL:)``
+    /// passes, so the envelope's options and its argv describe the same edit
+    /// (finding R8). They used to name only the track and the row.
+    /// `lungfish-cli sequence update-annotation` records the same keys for
+    /// the track, row, name, type and strand.
+    static func annotationUpdateExplicitOptions(
+        location: ReferenceBundleAnnotationRowLocation,
+        name: String,
+        type: String,
+        strand: String,
+        note: String?
+    ) -> [String: ParameterValue] {
+        var options: [String: ParameterValue] = [
+            "operation": .string("update-annotation"),
+            "track_id": .string(location.trackID),
+            "row_id": .integer(Int(location.rowID)),
+            "name": .string(name),
+            "type": .string(type),
+            "strand": .string(strand),
+        ]
+        if let note {
+            options["note"] = .string(note)
+        }
+        return options
+    }
+
     /// The `lungfish-cli` argv that deletes `rowIDs` from one annotation track.
     /// The annotation drawer executes it and records it, and the Inspector and
     /// viewer-menu delete row and the provenance of
@@ -199,11 +226,13 @@ public final class ReferenceBundleManualAnnotationService {
             strand: strand,
             note: note,
             command: command,
-            explicitOptions: [
-                "operation": .string("update-annotation"),
-                "track_id": .string(location.trackID),
-                "row_id": .integer(Int(location.rowID)),
-            ],
+            explicitOptions: Self.annotationUpdateExplicitOptions(
+                location: location,
+                name: name,
+                type: type,
+                strand: strand,
+                note: note
+            ),
             defaultOptions: [:],
             resolvedOptions: [
                 "operation": .string("update-annotation"),

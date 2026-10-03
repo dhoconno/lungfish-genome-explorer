@@ -12,7 +12,9 @@
 // copy of the bundle to show it writes what the service writes. The service's
 // provenance used to record `Lungfish.app manual-annotation-update` and
 // `manual-annotation-delete` (R8), and the provenance tests show it now records
-// the row's command, built by the same service builder.
+// the row's command, built by the same service builder. The update's explicit
+// options used to name only the track and the row, and now name every option
+// that command passes.
 
 import XCTest
 @testable import LungfishApp
@@ -294,6 +296,72 @@ final class AppDelegateAnnotationEditOperationTests: XCTestCase {
         let rowArgv = [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: row))
         XCTAssertEqual(envelope.argv, rowArgv, "the provenance used to record Lungfish.app manual-annotation-delete")
         XCTAssertEqual(envelope.steps.map(\.argv), [rowArgv])
+    }
+
+    func testUpdateProvenanceExplicitOptionsNameEveryOptionTheRecordedCommandPasses() async throws {
+        let bundleURL = try makeBundle(named: "Sample")
+        let (annotation, location) = try editedGene(in: bundleURL)
+
+        let result = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+            location,
+            name: annotation.name,
+            type: annotation.type.rawValue,
+            strand: annotation.strand.rawValue,
+            note: annotation.note,
+            bundleURL: bundleURL
+        )
+
+        let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        let command = try RecordedCLICommand.parse(
+            envelope.argv.map(shellEscape).joined(separator: " "),
+            as: SequenceCommand.UpdateAnnotation.self
+        )
+        XCTAssertEqual(
+            envelope.options.explicit,
+            [
+                "operation": .string("update-annotation"),
+                "track_id": .string(command.trackID),
+                "row_id": .integer(Int(command.rowID)),
+                "name": .string(command.name),
+                "type": .string(command.type),
+                "strand": .string(command.strand),
+                "note": .string(try XCTUnwrap(command.note)),
+            ],
+            "the explicit options used to name only the track and the row"
+        )
+    }
+
+    func testUpdateProvenanceExplicitOptionsMatchTheEnvelopeTheRecordedCommandWrites() async throws {
+        // An edit that clears the note passes no `--note`, so the app's
+        // envelope and the one `lungfish-cli` writes when it runs the row's
+        // command hold the same explicit options.
+        let appBundle = try makeBundle(named: "App")
+        let cliBundle = try makeBundle(named: "CLI")
+        let (appAnnotation, appLocation) = try editedGene(in: appBundle)
+        let (editedCLIGene, cliLocation) = try editedGene(in: cliBundle)
+        var cliAnnotation = editedCLIGene
+        cliAnnotation.note = nil
+
+        let appResult = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+            appLocation,
+            name: appAnnotation.name,
+            type: appAnnotation.type.rawValue,
+            strand: appAnnotation.strand.rawValue,
+            note: nil,
+            bundleURL: appBundle
+        )
+        let reporter = RecordingOperationReporter()
+        AppDelegate.beginAnnotationUpdateOperation(
+            annotation: cliAnnotation, location: cliLocation, bundleURL: cliBundle, routeContext: nil, reporter: reporter
+        )
+        let command = try RecordedCLICommand.parse(reporter.items.first?.cliCommand, as: SequenceCommand.UpdateAnnotation.self)
+        try await command.run()
+
+        let appEnvelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: appResult.provenanceURL))
+        let cliEnvelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(from: cliBundle))
+        XCTAssertEqual(cliEnvelope.workflowName, "lungfish sequence update-annotation")
+        XCTAssertEqual(appEnvelope.options.explicit, cliEnvelope.options.explicit)
+        XCTAssertNil(appEnvelope.options.explicit["note"])
     }
 
     // MARK: - Refusal
