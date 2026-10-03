@@ -28,8 +28,12 @@ OPTIONS:
                           none)
   --log-dir <log-dir>     Directory for per-sample log files
   --dry-run               List detected pairs without importing
-  --platform <platform>   Sequencing platform: illumina, ont, pacbio, ultima
-                          (default: auto-detect)
+  --platform <platform>   Sequencing platform: auto, illumina, ont, pacbio,
+                          element, mgi, ultima, unknown (default: auto)
+        auto infers each sample's platform from its read headers (and a BAM
+        file's @RG PL) and prints the evidence. Reads whose platform cannot be
+        inferred are recorded as unknown, never as Illumina. A given value is
+        recorded as given, even when the reads suggest another platform.
   --pairing <pairing>     Read pairing: auto, single, paired, interleaved
                           (default: auto) (default: auto)
         auto and paired match R1/R2 files by name. For a file with no mate

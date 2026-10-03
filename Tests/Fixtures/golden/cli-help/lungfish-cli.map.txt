@@ -24,7 +24,8 @@ OPTIONS:
   --mapper <mapper>       Mapper: minimap2, bwa-mem2, bowtie2, bbmap (default:
                           minimap2)
   --preset <preset>       Mode/preset. minimap2: sr, asm5, splice, map-ont,
-                          map-hifi, map-pb. bbmap: bbmap-standard, bbmap-pacbio.
+                          map-hifi, map-pb. bbmap: bbmap-standard,
+                          bbmap-pacbio. (default: follows the input read class)
   -o, --output-dir <output-dir>
                           Output directory (default:
                           Analyses/<mapper>-<timestamp>/ inside --project, else

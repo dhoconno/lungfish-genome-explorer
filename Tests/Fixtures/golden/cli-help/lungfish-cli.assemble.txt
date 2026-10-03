@@ -15,7 +15,8 @@ ARGUMENTS:
 
 OPTIONS:
   --assembler <assembler> Assembler to run: spades, megahit, skesa, flye,
-                          hifiasm (default: spades)
+                          hifiasm (default: follows the input read class,
+                          spades for short or unknown reads)
   --read-type <read-type> Read class: illumina-short-reads, ont-reads,
                           pacbio-hifi
   -o, --output, --output-dir <output>
