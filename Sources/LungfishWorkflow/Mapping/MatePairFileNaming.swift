@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 /// Recognises the R1 and R2 files of one mate pair by their names.
 ///
@@ -35,6 +36,19 @@ public enum MatePairFileNaming {
         default:
             return nil
         }
+    }
+
+    /// ``matePair(in:)`` for files whose bundle records `sequencingPlatform`.
+    /// Oxford Nanopore and PacBio reads are never mates, so two chunks of a
+    /// long-read import named `x_1` and `x_2` stay single reads.
+    public static func matePair(
+        in files: [URL],
+        sequencingPlatform: SequencingPlatform?
+    ) -> (r1: URL, r2: URL)? {
+        if sequencingPlatform == .oxfordNanopore || sequencingPlatform == .pacbio {
+            return nil
+        }
+        return matePair(in: files)
     }
 
     /// The sample stem of a file name and the mate it names, by the markers
