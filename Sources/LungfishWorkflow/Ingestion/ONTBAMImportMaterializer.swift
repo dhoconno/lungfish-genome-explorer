@@ -16,7 +16,6 @@ public struct ONTBAMMaterialization: Sendable {
 }
 
 public enum ONTBAMImportError: Error, LocalizedError, Sendable {
-    case requiresONT(String)
     case pacBioBAMUnsupported(String)
     case requiresSingleBAM(String)
     case conversionFailed(String)
@@ -25,14 +24,12 @@ public enum ONTBAMImportError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .requiresONT(let filename):
-            return "BAM read input \(filename) is supported only for Oxford Nanopore reads and reads whose platform is unknown. Convert it with samtools fastq and import the FASTQ."
         case .pacBioBAMUnsupported(let filename):
             return "PacBio BAM import is not supported yet. Convert \(filename) with samtools fastq and import the FASTQ."
         case .requiresSingleBAM(let sample):
             return "BAM read input for \(sample) must be a single file, not an R1/R2 pair."
         case .conversionFailed(let detail):
-            return "Could not convert the ONT BAM to FASTQ: \(detail)"
+            return "Could not convert the BAM to FASTQ: \(detail)"
         case .compressionFailed(let detail):
             return "Could not compress the temporary FASTQ: \(detail)"
         case .emptyOutput(let filename):
@@ -44,18 +41,14 @@ public enum ONTBAMImportError: Error, LocalizedError, Sendable {
 public enum ONTBAMImportMaterializer {
     public static let primaryReadFlagFilter = 0x900
 
-    /// Refuses a BAM whose platform cannot be imported from BAM. Oxford
-    /// Nanopore BAM and BAM with no platform (`@RG` without `PL`) import.
-    /// PacBio BAM is refused (its kinetics and per-read tags need their own
-    /// conversion), and so is a BAM given another short-read platform.
+    /// Refuses only PacBio BAM (its kinetics and per-read tags need their own
+    /// conversion, owner ruling 4). Every other unaligned BAM converts with
+    /// `samtools fastq`, whatever its platform. A paired BAM converts to
+    /// interleaved /1 and /2 records, which `--pairing auto` records as
+    /// interleaved mates.
     public static func checkPlatform(_ platform: SequencingPlatform, for pair: SamplePair) throws {
-        switch platform {
-        case .oxfordNanopore, .unknown:
-            return
-        case .pacbio:
+        if platform == .pacbio {
             throw ONTBAMImportError.pacBioBAMUnsupported(pair.r1.lastPathComponent)
-        case .illumina, .element, .mgi, .ultima:
-            throw ONTBAMImportError.requiresONT(pair.r1.lastPathComponent)
         }
     }
 

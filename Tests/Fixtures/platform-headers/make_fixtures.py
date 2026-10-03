@@ -117,3 +117,17 @@ bam("pacbio-hifi.bam", "pacbio-revio-ccs.fastq",
     "@PG\tID:ccs\tPN:ccs\tVN:7.0.0\tCL:ccs subreads.bam hifi_reads.bam")
 bam("unlabelled.bam", "sra-renamed-long.fastq",
     "@RG\tID:rg1\tSM:s1", "@PG\tID:samtools\tPN:samtools\tVN:1.21\tCL:samtools import reads.fastq")
+
+# A paired Illumina unaligned BAM: two pairs (flags 77 and 141) from the NovaSeq reads.
+nova = open(os.path.join(out, "illumina-novaseq6000.fastq")).read().splitlines()
+sam = os.path.join(out, "illumina-paired.sam")
+with open(sam, "w") as s:
+    s.write("@HD\tVN:1.6\tSO:unknown\n")
+    s.write("@RG\tID:A00488.61.4\tPL:ILLUMINA\tPU:HMLGNDSXX.4\tLB:lib1\tSM:s1\n")
+    s.write("@PG\tID:bcl2fastq\tPN:bcl2fastq\tVN:2.20\n")
+    for k in range(4):
+        name = "A00488:61:HMLGNDSXX:4:1101:%d:5678" % (1000 + k // 2)
+        flag = 77 if k % 2 == 0 else 141
+        s.write(f"{name}\t{flag}\t*\t0\t0\t*\t*\t0\t0\t{nova[4 * k + 1]}\t{nova[4 * k + 3]}\tRG:Z:A00488.61.4\n")
+subprocess.run([samtools, "view", "--no-PG", "-b", "-o", os.path.join(out, "illumina-paired.bam"), sam], check=True)
+os.remove(sam)

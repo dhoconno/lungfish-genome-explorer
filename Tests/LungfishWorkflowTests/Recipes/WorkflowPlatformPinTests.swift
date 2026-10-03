@@ -221,17 +221,16 @@ final class WorkflowPlatformPinTests: XCTestCase {
         }
     }
 
-    func testBAMInputIsAcceptedForONTAndUnknownOnly() async {
+    /// BAM input used to be accepted only for ONT. Only PacBio BAM is refused now.
+    func testBAMInputIsRefusedOnlyForPacBio() async {
         let pair = SamplePair(sampleName: "reads", r1: URL(fileURLWithPath: "/tmp/reads.bam"), r2: nil)
         for platform in LungfishIO.SequencingPlatform.allCases {
-            let accepted = platform == .oxfordNanopore || platform == .unknown
             do {
                 try ONTBAMImportMaterializer.checkPlatform(platform, for: pair)
-                XCTAssertTrue(accepted, "A \(platform.rawValue) BAM import must be rejected")
+                XCTAssertNotEqual(platform, .pacbio, "A PacBio BAM import must be rejected")
             } catch {
-                XCTAssertFalse(accepted, platform.rawValue)
-                let expected = platform == .pacbio ? "PacBio BAM import is not supported" : "only for Oxford Nanopore"
-                XCTAssertTrue(error.localizedDescription.contains(expected), platform.rawValue)
+                XCTAssertEqual(platform, .pacbio, platform.rawValue)
+                XCTAssertTrue(error.localizedDescription.contains("PacBio BAM import is not supported"))
             }
         }
     }

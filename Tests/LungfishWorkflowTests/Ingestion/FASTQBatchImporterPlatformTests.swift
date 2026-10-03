@@ -199,5 +199,32 @@ final class FASTQBatchImporterPlatformTests: XCTestCase {
         XCTAssertEqual(FASTQBatchImporter.resolvePlatform(for: ont, request: .auto).platform, .oxfordNanopore)
         XCTAssertNoThrow(try ONTBAMImportMaterializer.checkPlatform(.unknown, for: unlabelled))
         XCTAssertNoThrow(try ONTBAMImportMaterializer.checkPlatform(.oxfordNanopore, for: ont))
+
+        // A PL:ILLUMINA BAM resolves to Illumina and converts.
+        let illumina = SamplePair(sampleName: "ilmn", r1: PlatformHeaderFixtures.url("illumina-paired.bam"), r2: nil)
+        let resolution = FASTQBatchImporter.resolvePlatform(for: illumina, request: .auto)
+        XCTAssertEqual(resolution.platform, .illumina)
+        XCTAssertEqual(resolution.readClass, .illuminaShortReads)
+        XCTAssertNoThrow(try ONTBAMImportMaterializer.checkPlatform(resolution.platform, for: illumina))
+    }
+
+    /// A paired Illumina BAM converts to interleaved /1 and /2 records, which
+    /// --pairing auto records as interleaved mates.
+    func testAPairedIlluminaBAMConvertsToInterleavedMates() async throws {
+        guard let samtools = BamFixtureBuilder.locateSamtools() else {
+            throw XCTSkip("A real samtools is required")
+        }
+        let output = root.appendingPathComponent("paired.fastq")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: samtools)
+        process.arguments = ["fastq", "-F", String(ONTBAMImportMaterializer.primaryReadFlagFilter), PlatformHeaderFixtures.url("illumina-paired.bam").path]
+        FileManager.default.createFile(atPath: output.path, contents: nil)
+        process.standardOutput = try FileHandle(forWritingTo: output)
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        let pairing = FASTQBatchImporter.recordedPairing(pairing: .auto, r1: output, hasR2: false)
+        XCTAssertEqual(pairing.mode, .interleaved)
     }
 }

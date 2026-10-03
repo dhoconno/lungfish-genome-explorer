@@ -33,4 +33,5 @@ Each file holds four reads with a real header form and synthetic bases and quali
 | `ont-dorado-samtags.bgzf.fastq.gz` | `bgzip` of the same file | BGZF, a multi-member gzip |
 | `ont-dorado.bam` | unaligned BAM with `@RG PL:ONT` and `@PG PN:dorado` | dorado basecaller output |
 | `pacbio-hifi.bam` | unaligned BAM with `@RG PL:PACBIO`, `READTYPE=CCS` and `@PG PN:ccs` | PacBio `hifi_reads.bam` |
+| `illumina-paired.bam` | unaligned BAM with `@RG PL:ILLUMINA` and two read pairs (flags 77 and 141) | `bcl2fastq` or Picard FastqToSam output |
 | `unlabelled.bam` | unaligned BAM with no `PL` | `samtools import` of reads with no platform |
