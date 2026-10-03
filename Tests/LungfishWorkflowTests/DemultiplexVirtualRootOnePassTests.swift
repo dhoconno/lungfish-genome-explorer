@@ -1,4 +1,4 @@
-// DemultiplexVirtualRootOnePassTests.swift - Virtual barcode bundles are rebuilt from their root in one pass
+// DemultiplexVirtualRootOnePassTests.swift - A group of virtual barcode bundles is rebuilt from its root in one pass
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -7,8 +7,10 @@
 // reading the whole root for the statistics and again for the preview until
 // it was complete. Since a multi-file root is every chunk (final review B1),
 // a chunked ONT import with 96 barcodes was read about 190 times. The
-// pipeline now folds every bundle into one plan and reads the root files
-// once (R3). The per-barcode code is copied below from DemultiplexingPipeline
+// pipeline now folds up to eight bundles into one plan and reads the root
+// files once per group (R3). This fixture holds three bundles, so it is
+// one pass. DemultiplexVirtualRootGroupedRebuildTests covers two groups.
+// The per-barcode code is copied below from DemultiplexingPipeline
 // at 336e77cd1 as the reference the one pass must match byte for byte, on a
 // multi-file root and on a single-file root, with mate-specific trims,
 // reverse-complemented reads, a read ID that repeats in the root, a read two
