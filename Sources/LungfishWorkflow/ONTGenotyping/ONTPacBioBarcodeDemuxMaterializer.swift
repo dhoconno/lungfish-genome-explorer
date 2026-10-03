@@ -335,11 +335,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
         })
         {
             sampleOutputs.append(
-                try await builder.finalize(
-                    inputURL: request.inputURL,
-                    barcodeDefinitionsURL: request.barcodeDefinitionsURL,
-                    cutadaptVersion: cutadaptVersion
-                )
+                try await builder.finalize(request: request, cutadaptVersion: cutadaptVersion)
             )
         }
 
@@ -557,9 +553,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
         let materializedSamples = try await materializeExactSampleOutputs(
             demuxResult: demuxResult,
             inputFASTQs: inputFASTQs,
-            outputDirectory: request.outputDirectory,
-            inputURL: request.inputURL,
-            barcodeDefinitionsURL: request.barcodeDefinitionsURL,
+            request: request,
             resolvedAssignments: barcodeDefinitions.resolvedSampleAssignments,
             progress: progress
         )
@@ -636,9 +630,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
     private func materializeExactSampleOutputs(
         demuxResult: ExactBarcodeDemuxResult,
         inputFASTQs: [URL],
-        outputDirectory: URL,
-        inputURL: URL,
-        barcodeDefinitionsURL: URL,
+        request: ONTPacBioBarcodeDemuxMaterializationRequest,
         resolvedAssignments: [ONTPacBioResolvedBarcodeAssignment],
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> [ExactMaterializedSample] {
@@ -667,7 +659,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
             buildersBySample[sample.sampleName] = try ExactSampleBuilder(
                 sampleResult: sample,
                 resolvedAssignment: resolvedAssignment,
-                outputDirectory: outputDirectory
+                outputDirectory: request.outputDirectory
             )
         }
 
@@ -710,13 +702,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
             guard let builder = buildersBySample[sample.sampleName] else {
                 continue
             }
-            materialized.append(
-                try await builder.finalize(
-                    sampleResult: sample,
-                    inputURL: inputURL,
-                    barcodeDefinitionsURL: barcodeDefinitionsURL
-                )
-            )
+            materialized.append(try await builder.finalize(sampleResult: sample, request: request))
         }
         return materialized
     }
@@ -937,8 +923,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
         }
 
         func finalize(
-            inputURL: URL,
-            barcodeDefinitionsURL: URL,
+            request: ONTPacBioBarcodeDemuxMaterializationRequest,
             cutadaptVersion: String
         ) async throws -> SampleOutput {
             let checksum = try PayloadChecksum.sha256Hex(fileAt: fastqURL)
@@ -948,7 +933,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 sampleName: sampleID,
                 toolUsed: "cutadapt",
                 toolVersion: cutadaptVersion,
-                toolCommand: "lungfish fastq ont-pacbio-barcode-demux"
+                toolCommand: request.recordedCommandLine
             )
             let manifest = FASTQDerivedBundleManifest(
                 name: sampleID,
@@ -964,7 +949,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 provenance: SampleProvenance(
                     sampleID: sampleID,
                     libraryPrep: "Full-length MHC ONT amplicon with PacBio barcode pairs",
-                    notes: "Materialized per-sample ONT reads after chunked cutadapt demultiplexing with PacBio barcode pairs from \(barcodeDefinitionsURL.lastPathComponent). Source: \(inputURL.path)"
+                    notes: "Materialized per-sample ONT reads after chunked cutadapt demultiplexing with PacBio barcode pairs from \(request.barcodeDefinitionsURL.lastPathComponent). Source: \(request.inputURL.path)"
                 ),
                 payloadChecksums: PayloadChecksum(checksums: [fastqURL.lastPathComponent: checksum]),
                 materializationState: .materialized(checksum: checksum)
@@ -1019,8 +1004,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
 
         func finalize(
             sampleResult: ExactBarcodeSampleResult,
-            inputURL: URL,
-            barcodeDefinitionsURL: URL
+            request: ONTPacBioBarcodeDemuxMaterializationRequest
         ) async throws -> ExactMaterializedSample {
             try handle.close()
             guard writtenReadCount == sampleResult.readCount else {
@@ -1037,7 +1021,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 sampleName: sampleID,
                 toolUsed: "exact-barcode-demux",
                 toolVersion: nil,
-                toolCommand: "lungfish fastq ont-pacbio-barcode-demux"
+                toolCommand: request.recordedCommandLine
             )
             let manifest = FASTQDerivedBundleManifest(
                 name: sampleID,
@@ -1059,7 +1043,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 provenance: SampleProvenance(
                     sampleID: sampleID,
                     libraryPrep: "Full-length MHC ONT amplicon with PacBio barcode pairs",
-                    notes: "Original sample ID: \(resolvedAssignment.originalSampleID). Resolved output ID: \(resolvedAssignment.resolvedSampleID). Source row: \(resolvedAssignment.sourceRow). Barcode pair: \(resolvedAssignment.assignment.forwardBarcodeID ?? "unknown") / \(resolvedAssignment.assignment.reverseBarcodeID ?? "unknown"). Materialized per-sample ONT reads with exact PacBio barcode-pair matching from \(barcodeDefinitionsURL.lastPathComponent). Source: \(inputURL.path)"
+                    notes: "Original sample ID: \(resolvedAssignment.originalSampleID). Resolved output ID: \(resolvedAssignment.resolvedSampleID). Source row: \(resolvedAssignment.sourceRow). Barcode pair: \(resolvedAssignment.assignment.forwardBarcodeID ?? "unknown") / \(resolvedAssignment.assignment.reverseBarcodeID ?? "unknown"). Materialized per-sample ONT reads with exact PacBio barcode-pair matching from \(request.barcodeDefinitionsURL.lastPathComponent). Source: \(request.inputURL.path)"
                 ),
                 payloadChecksums: PayloadChecksum(checksums: [fastqURL.lastPathComponent: checksum]),
                 materializationState: .materialized(checksum: checksum)

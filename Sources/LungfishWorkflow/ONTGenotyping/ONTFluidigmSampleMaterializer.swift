@@ -144,7 +144,7 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
             }
             return try Self.writeSampleBundle(
                 accumulator: accumulator,
-                outputDirectory: request.outputDirectory
+                request: request
             )
         }
         let manifestURL = request.outputDirectory.appendingPathComponent(Self.manifestFilename)
@@ -342,9 +342,9 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
 
     private static func writeSampleBundle(
         accumulator: SampleAccumulator,
-        outputDirectory: URL
+        request: ONTFluidigmSampleMaterializationRequest
     ) throws -> SampleOutput {
-        let bundleURL = outputDirectory.appendingPathComponent(
+        let bundleURL = request.outputDirectory.appendingPathComponent(
             "\(accumulator.entry.sampleID).lungfishfastq",
             isDirectory: true
         )
@@ -363,9 +363,9 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
             kind: .demultiplex,
             barcodeID: accumulator.entry.sampleID,
             sampleName: accumulator.entry.sampleID,
-            toolUsed: "lungfish",
+            toolUsed: request.recordedCommandArguments.first,
             toolVersion: WorkflowRun.currentAppVersion,
-            toolCommand: "lungfish fastq ont-fluidigm-samples"
+            toolCommand: request.recordedCommandLine
         )
         let manifest = FASTQDerivedBundleManifest(
             name: accumulator.entry.sampleID,

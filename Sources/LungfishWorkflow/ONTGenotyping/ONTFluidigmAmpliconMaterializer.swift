@@ -576,9 +576,9 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             primerSearchReverseComplement: true,
             barcodeID: accumulator.entry.sampleID,
             sampleName: accumulator.entry.sampleID,
-            toolUsed: "lungfish",
+            toolUsed: request.recordedCommandArguments.first,
             toolVersion: WorkflowRun.currentAppVersion,
-            toolCommand: "lungfish fastq ont-fluidigm-samples"
+            toolCommand: request.recordedCommandLine
         )
         let manifest = FASTQDerivedBundleManifest(
             name: accumulator.entry.sampleID,
