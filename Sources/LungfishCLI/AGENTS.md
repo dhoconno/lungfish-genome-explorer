@@ -20,7 +20,7 @@ LungfishCore, LungfishIO, LungfishWorkflow and ArgumentParser. Never LungfishKit
 | Output formatting | Sources/LungfishCLI/Output/CLIOutput.swift |
 | Provenance helpers for commands | Sources/LungfishCLI/Support/CLIProvenanceSupport.swift |
 
-The command files live in Sources/LungfishCLI/Commands, and each command or subcommand type has its own file named for it. A type that uses a file-private helper stays beside the helper. So FastqCommand.swift keeps FastqDemultiplexSubcommand and FastqScoutSubcommand, FetchCommand.swift keeps NCBISubcommand and ENAFastaSubcommand, and MetadataCommand.swift keeps MetadataSetSubcommand and MetadataImportSubcommand.
+The command files live in Sources/LungfishCLI/Commands. Find a subcommand by its type name. Most FASTQ, bundle, fetch and workflow subcommands have a file named for their type, such as FastqTrimSubcommand.swift. A type that uses a file-private helper stays beside the helper. So FastqCommand.swift keeps FastqDemultiplexSubcommand and FastqScoutSubcommand, FetchCommand.swift keeps NCBISubcommand and ENAFastaSubcommand, and MetadataCommand.swift keeps MetadataSetSubcommand and MetadataImportSubcommand.
 
 ## Where a Kraken2 run starts in the CLI
 
