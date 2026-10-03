@@ -1,0 +1,17 @@
+# Begin sites whose function no App test names beside a command parse.
+# One file:function per line. This list may only shrink.
+Sources/LungfishApp/App/AppDelegate+ImportCenter.swift:performSingleAnnotationTrackImport
+Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift:runFullLengthONTMHCGenotyping
+Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift:runONTGenotyping
+Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift:runTwelveSAmpliconMatching
+Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift:runTwelveSReferenceBundleBuild
+Sources/LungfishApp/Views/Inspector/InspectorViewController+MSADiscriminatingSites.swift:runMSADiscriminatingSites
+Sources/LungfishApp/Views/Inspector/InspectorViewController+MSAPairwiseIdentity.swift:runMSAPairwiseIdentityExport
+Sources/LungfishApp/Views/Inspector/InspectorViewController+TrimDuplicateWorkflows.swift:startDuplicateWorkflowOperation
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift:importNonFASTQFile
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+PrimerAnalysis.swift:savePrimerScheme
+Sources/LungfishApp/Views/Viewer/ViewerViewController+MSAExport.swift:exportMSAAlignment
+Sources/LungfishApp/Views/Viewer/ViewerViewController.swift:exportMSASelectionViaCLI
+Sources/LungfishApp/Views/Viewer/ViewerViewController.swift:performTreeBundleOperationViaCLI
+Sources/LungfishApp/Views/Viewer/ViewerViewController.swift:runIQTreeInferenceViaCLI
+Sources/LungfishApp/Views/Viewer/ViewerViewController.swift:runMSAInPlaceAnnotationAction
