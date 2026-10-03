@@ -32,19 +32,19 @@ The resolver turns each sample into a `ReadSetPlan` for one tool. A plan holds t
 
 | Row | Layout | Plan |
 |---|---|---|
-| L1 | Root single-end file | Single reads |
+| L1 | Root single-end file | Single reads. A root holding only `preview.fastq` has no payload and stops the plan, because the preview is a subset. A root that is not chunked and holds two files named as R1 and R2 is one mate pair. |
 | L2 | Root interleaved file | One interleaved mate pair |
 | L3 | Root file of merged reads followed by pairs | A mixed stream, split by name when the tool takes separate files |
-| L4 | Chunked root (`source-files.json`) | Each chunk as single reads. Two chunks named as R1 and R2 are one mate pair, except for a long-read platform. |
+| L4 | Chunked root (`source-files.json`) | Each chunk as single reads. Two chunks named as R1 and R2 are one mate pair only when the bundle records a short-read platform (Illumina, Element, Ultima or MGI). |
 | L5a | `full` derivative | Read as a root file. A sidecar classification in the L3 form makes it a mixed stream, as for a re-imported `fastq merge` output. |
 | L5b | `fullPaired` derivative | One mate pair |
 | L5c, L5d | `fullMixed` derivative from merge or repair | Its roles. R1 and R2 files form a mate pair, merged files are merged reads and unpaired files are orphans. A missing role file stops the plan. |
 | L5e | `fullFASTA` derivative | Single records |
-| L6 | Virtual derivative | Materialized first, then scanned with the merge evidence of every bundle it derives from |
+| L6 | Virtual derivative | Materialized first, then read whole once and scanned with the merge evidence of every bundle it derives from. A truncated or unreadable materialization stops the plan. |
 
 Three more rules decide the edge cases.
 
-- A bundle whose recorded platform is Oxford Nanopore or PacBio is never paired, by file name or by content. `MatePairFileNaming.matePair(in:sequencingPlatform:)` applies the same rule.
+- A bundle whose recorded platform is Oxford Nanopore or PacBio is never paired, by file name or by content. `MatePairFileNaming.matePair(in:sequencingPlatform:)` applies the same rule. A chunked root that records `unknown` or no platform is not paired by file name either, since no importer writes a paired chunked root.
 - A virtual child of a repair derivative carries only `repair` in its lineage. The resolver reads the parent's roles, so the child is planned as mixed and never as strict pairs.
 - The platform is the `sequencingPlatform` field the FASTQ sidecar stores, read from the bundle or from the bundle it derives from.
 

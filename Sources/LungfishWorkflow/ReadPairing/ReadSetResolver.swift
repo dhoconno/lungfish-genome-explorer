@@ -18,13 +18,16 @@ import LungfishIO
 ///   derivative is read the same way, so a re-imported `fastq merge` output
 ///   whose sidecar records the L3 classification is a mixed stream.
 /// - A chunked root (`source-files.json`) gives each chunk as single reads,
-///   unless it holds exactly two files named as mates. A root whose recorded
-///   platform is Oxford Nanopore or PacBio is never paired at all.
+///   unless it holds exactly two files named as mates and records a
+///   short-read platform. A root whose recorded platform is Oxford Nanopore
+///   or PacBio is never paired at all. A root holding only `preview.fastq`
+///   throws, because the preview is a subset of the sample.
 /// - A `fullPaired` derivative gives its R1 and R2 as one mate pair.
 /// - A `fullMixed` derivative gives its roles: R1 and R2 files as a mate
 ///   pair, merged files as merged reads, unpaired files as orphans. A role
 ///   file that is missing throws, so no read is silently left out.
-/// - A virtual derivative is materialized and its one file scanned, with the
+/// - A virtual derivative is materialized, read whole once (a truncated
+///   file throws) and its one file scanned, with the
 ///   merge evidence of every bundle it derives from as hints, so a subset of
 ///   a merge or repair derivative is never read as strict pairs.
 ///
@@ -183,7 +186,11 @@ public struct ReadSetResolver: Sendable {
         if Self.isLongRead(platform) {
             return Self.longReadSource(files, platform: platform)
         }
-        if let pair = MatePairFileNaming.matePair(in: files, sequencingPlatform: platform) {
+        // A chunked root pairs by file name only when a short-read platform
+        // is recorded (an unrecognised import records `unknown`). A legacy
+        // root holding two files keeps the file-name rule.
+        let mayPairByName = !isChunked || Self.isKnownShortRead(platform)
+        if mayPairByName, let pair = MatePairFileNaming.matePair(in: files, sequencingPlatform: platform) {
             return ReadSetSource(
                 parts: [.pair(ReadSetMatePair(files: .separate(r1: pair.r1, r2: pair.r2)))],
                 layout: .pairedFiles,
@@ -328,6 +335,10 @@ public struct ReadSetResolver: Sendable {
                 wasMaterialized: wasMaterialized
             )
         }
+        // A materialized file was written for this run, so it is read whole
+        // once. A truncated or unreadable file stops the plan, and the
+        // by-name counts are exact.
+        let materializedCounts = wasMaterialized ? try FASTQPairInterleaver.countMixed(interleaved: file) : nil
         if Self.isLongRead(platform) {
             var source = Self.longReadSource([file], platform: platform)
             source.wasMaterialized = wasMaterialized
@@ -335,7 +346,7 @@ public struct ReadSetResolver: Sendable {
         }
         let resolution: FASTQInputLayoutResolution
         if let hints {
-            let scan = (try? FASTQReadLayoutClassifier.readHeaders(from: file)) ?? (headers: [], scannedWholeFile: true)
+            let scan = try FASTQReadLayoutClassifier.readHeaders(from: file)
             let classification = FASTQReadLayoutClassifier.classify(
                 headers: scan.headers,
                 scannedWholeFile: scan.scannedWholeFile,
@@ -357,7 +368,10 @@ public struct ReadSetResolver: Sendable {
         switch resolution.layout {
         case .strictlyInterleaved:
             return ReadSetSource(
-                parts: [.pair(ReadSetMatePair(files: .interleaved(file), pairCount: ownClassification.map { $0.pairedReadCount / 2 }))],
+                parts: [.pair(ReadSetMatePair(
+                    files: .interleaved(file),
+                    pairCount: materializedCounts?.pairs ?? ownClassification.map { $0.pairedReadCount / 2 }
+                ))],
                 layout: .interleavedFile,
                 reason: resolution.reason,
                 platform: platform,
@@ -367,8 +381,9 @@ public struct ReadSetResolver: Sendable {
             return ReadSetSource(
                 parts: [.mixed(ReadSetMixedStream(
                     url: file,
-                    pairCount: ownClassification.map { $0.pairedReadCount / 2 },
-                    singleReadCount: ownClassification.map { $0.mergedReadCount + $0.unpairedReadCount },
+                    pairCount: materializedCounts?.pairs ?? ownClassification.map { $0.pairedReadCount / 2 },
+                    singleReadCount: materializedCounts?.unpaired
+                        ?? ownClassification.map { $0.mergedReadCount + $0.unpairedReadCount },
                     singleReadRole: Self.singleReadRole(from: evidence)
                 ))],
                 layout: .mixedFile,
@@ -378,7 +393,11 @@ public struct ReadSetResolver: Sendable {
             )
         case .singleEnd, .pairedFiles:
             return ReadSetSource(
-                parts: [.single(ReadSetSingleReads(url: file, role: .singleEnd))],
+                parts: [.single(ReadSetSingleReads(
+                    url: file,
+                    role: .singleEnd,
+                    readCount: materializedCounts.map { $0.pairs * 2 + $0.unpaired }
+                ))],
                 layout: .singleEndFile,
                 reason: resolution.reason,
                 platform: platform,

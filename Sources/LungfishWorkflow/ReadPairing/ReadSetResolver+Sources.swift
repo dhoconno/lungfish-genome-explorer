@@ -228,8 +228,18 @@ extension ReadSetResolver {
         }
     }
 
-    /// The FASTQ files directly inside a root bundle, by name, without
-    /// `preview.fastq` when the bundle holds another file.
+    /// Whether `platform` is a known short-read platform, the only kind
+    /// whose chunks may be paired by file name.
+    static func isKnownShortRead(_ platform: SequencingPlatform?) -> Bool {
+        switch platform {
+        case .illumina, .element, .ultima, .mgi: return true
+        case .oxfordNanopore, .pacbio, .unknown, nil: return false
+        }
+    }
+
+    /// The FASTQ files directly inside a root bundle, by name. The preview
+    /// is never one of them: a root holding only `preview.fastq` has no
+    /// payload, and planning its preview would analyse a subset silently.
     static func physicalFASTQFiles(in bundleURL: URL) -> [URL] {
         let contents = (try? FileManager.default.contentsOfDirectory(
             at: bundleURL,
@@ -240,7 +250,6 @@ extension ReadSetResolver {
             .filter { FASTQBundle.isFASTQFileURL($0) }
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
             .map(\.standardizedFileURL)
-        let withoutPreview = files.filter { $0.lastPathComponent != "preview.fastq" }
-        return withoutPreview.isEmpty ? files : withoutPreview
+        return files.filter { $0.lastPathComponent != "preview.fastq" }
     }
 }
