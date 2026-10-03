@@ -28,6 +28,11 @@ extension ClassifyCommand {
     /// `auto` classifies a single input with ``FASTQReadLayoutClassifier``;
     /// several inputs without `--paired` stay unpaired, as before.
     func resolveReadFormat(inputURLs: [URL]) throws -> ResolvedReadFormat {
+        if !unpaired.isEmpty, !((pairedEnd || readFormat == .paired) && inputURLs.count == 2) {
+            throw CLIError.validationFailed(errors: [
+                KrakenReadSetPlannerError.unpairedNeedsAPair.errorDescription ?? "--unpaired needs --paired.",
+            ])
+        }
         if pairedEnd {
             guard readFormat == .auto || readFormat == .paired else {
                 throw CLIError.validationFailed(errors: [
@@ -45,5 +50,51 @@ extension ClassifyCommand {
             let layout = FASTQReadLayoutClassifier.classify(inputURL: inputURLs[0])
             return ResolvedReadFormat(format: .forSingleFile(layout.layout), layout: layout)
         }
+    }
+
+    /// The files a planned run reads, with the input each came from.
+    struct PlannedReadSetInputs: Sendable {
+        let executionInputURLs: [URL]
+        let originalInputURLs: [URL]
+    }
+
+    /// Plans the sample's read set through ``KrakenReadSetPlanner``, the
+    /// function the app's launch runs too (decisions 1 and 2), and sets
+    /// `config` from it.
+    ///
+    /// Two inputs given as pairs with `--unpaired` files run the pair and
+    /// the single reads together. One bundle under `--read-format auto` runs
+    /// its pairs as pairs and its merged or single reads beside them. Any
+    /// other input, and a bundle of single reads only, keeps today's config
+    /// and returns nil.
+    func planReadSet(
+        inputURLs: [URL],
+        executionInputURLs: [URL],
+        config: inout ClassificationConfig,
+        materializationDirectory: URL
+    ) async throws -> PlannedReadSetInputs? {
+        let plan: ReadSetPlan
+        if !unpaired.isEmpty, config.isPairedEnd, executionInputURLs.count == 2 {
+            plan = try KrakenReadSetPlanner.plan(
+                r1: executionInputURLs[0],
+                r2: executionInputURLs[1],
+                singleReads: unpaired.map { URL(fileURLWithPath: $0).standardizedFileURL },
+                materializationDirectory: materializationDirectory
+            )
+        } else if readFormat == .auto, !pairedEnd, let bundle = KrakenReadSetPlanner.plannableBundle(inputURLs) {
+            plan = try await KrakenReadSetPlanner.plan(
+                bundle: bundle,
+                materializedInputs: executionInputURLs,
+                materializationDirectory: materializationDirectory
+            )
+        } else {
+            return nil
+        }
+        guard try KrakenReadSetPlanner.apply(plan, to: &config) else { return nil }
+        let executionURLs = config.inputFiles + config.singleReadFiles
+        let originals = inputURLs.count == 1
+            ? Array(repeating: inputURLs[0].standardizedFileURL, count: executionURLs.count)
+            : executionURLs
+        return PlannedReadSetInputs(executionInputURLs: executionURLs, originalInputURLs: originals)
     }
 }

@@ -104,6 +104,9 @@ struct ClassifyCommand: AsyncParsableCommand {
     )
     var readFormat: ReadFormatChoice = .auto
 
+    @Option(name: .customLong("unpaired"), help: "A file of merged or single reads classified beside the --paired R1 and R2 files (repeatable)")
+    var unpaired: [String] = []
+
     @Flag(name: .customLong("recursive"), help: "When an input is a directory, include eligible FASTQ/FASTA files in subfolders")
     var recursive: Bool = false
 
@@ -362,6 +365,16 @@ struct ClassifyCommand: AsyncParsableCommand {
         }
         config.originalInputFiles = inputURLs.map(\.standardizedFileURL)
         config.sampleDisplayName = inputURLs.first?.deletingPathExtension().lastPathComponent
+        let readSet: PlannedReadSetInputs?
+        do {
+            readSet = try await planReadSet(inputURLs: inputURLs, executionInputURLs: executionInputURLs,
+                                            config: &config, materializationDirectory: materializationDirectory)
+        } catch {
+            failureContext.failureMessage = error.localizedDescription
+            throw CLIError.wrapping(error)
+        }
+        failureContext.executionInputURLs = readSet?.executionInputURLs ?? failureContext.executionInputURLs
+        failureContext.executionOriginalInputURLs = readSet?.originalInputURLs ?? executionOriginalInputURLs
         failureContext.config = config
 
         // Print configuration.
@@ -370,7 +383,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         print(formatter.keyValueTable([
             ("Input files", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
             ("Input format", inputFormat == .fasta ? "FASTA" : "FASTQ"),
-            ("Read format", "\(config.readFormat.rawValue) (\(ClassificationConfig.ReadFormat.inputLabel(format: config.readFormat, layout: config.inputLayout?.layout)))"),
+            ("Read format", "\(config.readFormat.rawValue) (\(config.inputLabel))"),
             ("Database", databaseName),
             ("Preset", preset.rawValue),
             ("Confidence", String(format: "%.2f", config.confidence)),
@@ -406,10 +419,10 @@ struct ClassifyCommand: AsyncParsableCommand {
         do {
             _ = try Self.writeProvenance(
                 result: result,
-                originalInputURLs: executionOriginalInputURLs,
-                executionInputURLs: executionInputURLs,
+                originalInputURLs: readSet?.originalInputURLs ?? executionOriginalInputURLs,
+                executionInputURLs: readSet?.executionInputURLs ?? executionInputURLs,
                 argv: CommandLine.arguments,
-                durableReplayArgv: durableReplayArguments,
+                durableReplayArgv: readSet == nil ? durableReplayArguments : nil,
                 preset: preset.rawValue,
                 startedAt: startedAt,
                 endedAt: Date(),
