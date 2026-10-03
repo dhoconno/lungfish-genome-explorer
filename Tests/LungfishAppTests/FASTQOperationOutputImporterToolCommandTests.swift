@@ -10,7 +10,8 @@
 // such as `seqkit seq --reverse --complement` for a reverse complement (R3, R8).
 // These tests import operation outputs and check that the manifest records the
 // invocation FASTQOperationCLIInvocationBuilder builds for the same request,
-// the one the dialog row records and the execution service runs.
+// the one the dialog row records and the execution service runs. The output
+// of a launch that is not a derivative records the app's import form.
 
 import ArgumentParser
 import Darwin
@@ -173,6 +174,52 @@ final class FASTQOperationOutputImporterToolCommandTests: XCTestCase {
             XCTAssertNoThrow(try RecordedCLICommand.parse(manifest.operation.toolCommand), request.operationLabel)
             XCTAssertFalse(recorded.contains(staged.path), "\(request.operationLabel): the CLI's output is not the input")
         }
+    }
+
+    func testImportForALaunchThatIsNotADerivativeRecordsTheAppImportForm() async throws {
+        // Only a derivative's FASTQ output reaches this import today. The
+        // manifest for any other launch used to record `lungfish <FASTQ> -o
+        // <payload>`, the legacy executable name with arguments no command
+        // takes and the scratch FASTQ the run deletes. No lungfish-cli command
+        // writes that FASTQ, so the record names the app's import instead.
+        let source = try makeSourceBundle()
+        let staging = root.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let staged = staging.appendingPathComponent("LF1001.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: staged, readCount: 2, readLength: 20)
+        try SyntheticToolProvenance.write(
+            argv: ["fixture-tool", source.fastqURL.path, "-o", staged.path],
+            inputURL: source.fastqURL,
+            outputURL: staged,
+            in: staging
+        )
+        let destination = root.appendingPathComponent("Project.lungfish/Derived", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let launch = FASTQOperationLaunchRequest.ontFluidigmSampleSplit(
+            inputFASTQURL: source.bundleURL,
+            barcodeDefinitionsURL: root.appendingPathComponent("samples.csv"),
+            threads: 2
+        )
+
+        let bundleURL = try await makeWriter().importFASTQOutput(
+            sourceURL: staged,
+            bundleURL: destination.appendingPathComponent("LF1001.\(FASTQBundle.directoryExtension)"),
+            originalRequest: launch,
+            sourceInputURL: source.bundleURL
+        )
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundleURL))
+        let payload = bundleURL.appendingPathComponent(manifest.rootFASTQFilename)
+        let toolCommand = try XCTUnwrap(manifest.operation.toolCommand)
+        XCTAssertEqual(manifest.operation.toolUsed, "Lungfish.app")
+        XCTAssertEqual(try AdvancedCommandLineOptions.parse(toolCommand), [
+            "Lungfish.app", "import-fastq-operation-output",
+            "--operation", launch.operationDisplayTitle,
+            "--input", source.bundleURL.path,
+            "--output", payload.path,
+        ])
+        XCTAssertThrowsError(try RecordedCLICommand.parse(toolCommand), "no lungfish-cli command writes this FASTQ")
+        XCTAssertEqual(manifest.lineage.last?.toolCommand, toolCommand)
     }
 
     func testRibosomalRNAOutputRecordsTheFolderOfThePublishedBundlesAsTheOutputDirectory() async throws {

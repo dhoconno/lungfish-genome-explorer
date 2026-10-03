@@ -35,6 +35,17 @@ struct GenomicsDisplayDerivativeCase {
 }
 
 enum GenomicsDisplayDerivativeCases {
+    /// CLI parity gap. Neither row records a subsample's `--seed`. Both
+    /// register before the run draws its seed and the request carries none,
+    /// so the rows and the dialog's manifest leave it out. The CLI records the
+    /// seed it drew in its provenance envelope, and an in-process run records
+    /// it in the manifest. One seed drawn at launch would have to travel in
+    /// `FASTQDerivativeRequest.subsampleProportion` and `.subsampleCount` or
+    /// in `FASTQOperationLaunchRequest.derivative`, the one value the row, the
+    /// executed invocation and the manifest share, associated values that
+    /// several source files and many tests match on.
+    static let subsampleSeedGap = "the row registers before the run draws its seed"
+
     /// The derivative kinds whose recorded command is a lungfish-cli command
     /// at both FASTQ launch sites. The dataset viewport row used to record the
     /// last seven wrongly. Five were native tool commands, and two left out a
@@ -55,6 +66,7 @@ enum GenomicsDisplayDerivativeCases {
                 XCTAssertEqual(command.input, input)
                 XCTAssertEqual(command.proportion, 0.1)
                 XCTAssertNil(command.count)
+                XCTAssertNil(command.seed, Self.subsampleSeedGap)
                 XCTAssertEqual(command.output.output, "<derived>")
             },
             GenomicsDisplayDerivativeCase("subsample by count", .subsampleCount(1000)) { parsed, input in
@@ -62,6 +74,7 @@ enum GenomicsDisplayDerivativeCases {
                 XCTAssertEqual(command.input, input)
                 XCTAssertEqual(command.count, 1000)
                 XCTAssertNil(command.proportion)
+                XCTAssertNil(command.seed, Self.subsampleSeedGap)
                 XCTAssertEqual(command.output.output, "<derived>")
             },
             GenomicsDisplayDerivativeCase("length filter minimum only", .lengthFilter(min: 100, max: nil)) { parsed, input in
@@ -200,12 +213,8 @@ enum GenomicsDisplayDerivativeCases {
                 XCTAssertEqual(command.kmerSize, 40)
                 XCTAssertEqual(command.output.output, "<derived>")
             },
-            GenomicsDisplayDerivativeCase("interleave", .interleaveReformat(direction: .interleave)) { parsed, input in
-                let command = try XCTUnwrap(parsed as? FastqInterleaveSubcommand)
-                XCTAssertEqual(command.in1, input)
-                XCTAssertEqual(command.in2, "<R2>")
-                XCTAssertEqual(command.output.output, "<derived>")
-            },
+            // Interleave names the R1 and R2 files of a paired bundle, which
+            // the input here is not. FASTQInterleaveCommandTests covers it.
             GenomicsDisplayDerivativeCase("deinterleave", .interleaveReformat(direction: .deinterleave)) { parsed, input in
                 let command = try XCTUnwrap(parsed as? FastqDeinterleaveSubcommand)
                 XCTAssertEqual(command.input, input)

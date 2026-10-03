@@ -161,7 +161,6 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 for: result.outputFile,
                 in: stagingBundleURL,
                 manifestBundleURL: finalBundleURL,
-                sourceURL: sourceURL,
                 recordedOutputURL: finalOutputURL,
                 originalRequest: originalRequest,
                 sourceInputURL: sourceInputURL,
@@ -308,7 +307,6 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         for outputFASTQ: URL,
         in storageBundleURL: URL,
         manifestBundleURL: URL,
-        sourceURL: URL,
         recordedOutputURL: URL,
         originalRequest: FASTQOperationLaunchRequest,
         sourceInputURL: URL?,
@@ -317,7 +315,6 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
     ) throws -> FASTQDerivativeOperation {
         let operation = derivativeOperation(
             for: originalRequest,
-            sourceURL: sourceURL,
             sourceInputURL: sourceInputURL,
             outputURL: recordedOutputURL
         )
@@ -373,17 +370,17 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
 
     /// `toolCommand` is the `lungfish-cli` invocation that ran, from the request and builder the execution
     /// service used, with this output's input and final path (the bundles' folder for a folder output).
+    /// Any other launch records ``appImportCommandLine(for:inputURL:outputURL:)``.
     private func derivativeOperation(
         for request: FASTQOperationLaunchRequest,
-        sourceURL: URL,
         sourceInputURL: URL?,
         outputURL: URL
     ) -> FASTQDerivativeOperation {
         guard case .derivative(let derivativeRequest, let inputURLs, _) = request else {
             return FASTQDerivativeOperation(
                 kind: .deduplicate,
-                toolUsed: "lungfish",
-                toolCommand: "lungfish \(sourceURL.path) -o \(outputURL.path)"
+                toolUsed: "Lungfish.app",
+                toolCommand: Self.appImportCommandLine(for: request, inputURL: sourceInputURL, outputURL: outputURL)
             )
         }
 
