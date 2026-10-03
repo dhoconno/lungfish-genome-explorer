@@ -1,40 +1,5 @@
 import Foundation
 
-struct GeneiousDecodedSequenceSet: Sendable, Equatable {
-    let documentRelativePath: String
-    let documentName: String
-    let records: [GeneiousDecodedSequenceRecord]
-    let decodedSidecarPaths: Set<String>
-    let annotationSidecarPaths: Set<String>
-    let hasInlineAnnotations: Bool
-    let warnings: [String]
-}
-
-struct GeneiousDecodedSequenceRecord: Sendable, Equatable {
-    let name: String
-    let sequence: String
-    let sidecarRelativePath: String
-    let annotations: [GeneiousDecodedAnnotation]
-}
-
-struct GeneiousDecodedAnnotation: Sendable, Equatable {
-    let type: String
-    let description: String
-    let intervals: [GeneiousDecodedAnnotationInterval]
-    let qualifiers: [GeneiousDecodedAnnotationQualifier]
-}
-
-struct GeneiousDecodedAnnotationInterval: Sendable, Equatable {
-    let minimumIndex: Int
-    let maximumIndex: Int
-    let direction: String
-}
-
-struct GeneiousDecodedAnnotationQualifier: Sendable, Equatable {
-    let name: String
-    let value: String
-}
-
 struct GeneiousPackedSequenceExtractor {
     private let fileManager: FileManager
 

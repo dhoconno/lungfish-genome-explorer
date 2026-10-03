@@ -4,7 +4,7 @@ Line numbers were checked at commit a0eec8b32. When a line has moved, search for
 
 ## Purpose
 
-Every scientific computation and every external tool run lives here, with no UI. It owns tool execution (conda, native tools, containers, Nextflow and Snakemake), provenance, FASTQ materialization and the domain pipelines. The CLI and the app both call into it. It holds about 467 files and 215K lines (REVIEW.md R12).
+Every scientific computation and every external tool run lives here, with no UI. It owns tool execution (conda, native tools, containers, Nextflow and Snakemake), provenance, FASTQ materialization and the domain pipelines. The CLI and the app both call into it. It holds about 640 files and 215K lines after the R6 splits (REVIEW.md R12 counted 467 files).
 
 ## Allowed imports
 
@@ -20,12 +20,12 @@ Add to these. Never write a second copy in the CLI or the app.
 | Kraken2 and Bracken classification | `ClassificationPipeline` | Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift line 133 |
 | EsViritu viral detection | `EsVirituPipeline` | Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline.swift line 338 |
 | TaxTriage | `TaxTriagePipeline` | Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift line 144 |
-| Provenance record format | `ProvenanceEnvelope` | Sources/LungfishWorkflow/Provenance/ProvenanceEnvelope.swift line 52 |
+| Provenance record format | `ProvenanceEnvelope` | Sources/LungfishWorkflow/Provenance/ProvenanceEnvelope.swift line 15 |
 | Provenance policy per CLI command and native tool | `ScientificProvenancePolicy` | Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift line 60 |
-| Provenance recording and writing | `ProvenanceRecorder`, `ProvenanceWriter` | Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift line 46, ProvenanceWriter.swift line 146 |
+| Provenance recording and writing | `ProvenanceRecorder`, `ProvenanceWriter` | Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift line 46, ProvenanceWriter.swift line 9 |
 | Virtual FASTQ materialization | `FASTQCLIMaterializer` | Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift line 26 |
 | Multiple sequence alignment | `MAFFTAlignmentPipeline` | Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift line 93 |
-| Viral variant calling | `ViralVariantCallingPipeline` | Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift line 152 |
+| Viral variant calling | `ViralVariantCallingPipeline` | Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift line 8 |
 | Native tool runs | `NativeToolRunner` | Sources/LungfishWorkflow/Native/NativeToolRunner.swift line 648 |
 | Conda environment tool runs | `CondaManager.runTool` | Sources/LungfishWorkflow/Conda/CondaManager.swift line 1112 |
 | Nextflow launch environment | `WorkflowEngineLaunch.resolve` | Sources/LungfishWorkflow/WorkflowEngineLaunch.swift line 56 |
@@ -57,7 +57,7 @@ Target LungfishWorkflowTests in Tests/LungfishWorkflowTests, with subfolders tha
 | `CondaManager.runTool` has a 3600 s default timeout and different PATH rules from `NativeToolRunner` | Conda/CondaManager.swift line 1118 (R2, R17) |
 | Shelling out to a tool macOS does not ship | Bundles/ReferenceSourcePreparer.swift line 227 runs `zstd` (R7) |
 | Mapper indexes are rebuilt per run inside the output folder | Mapping/ManagedMappingPipeline.swift lines 521 to 539 (R17) |
-| Provenance still emits a legacy run inside the envelope | Provenance/ProvenanceEnvelope.swift lines 81, 82, 113 and 139 (R8) |
+| Provenance still emits a legacy run inside the envelope | Provenance/ProvenanceEnvelope.swift lines 44, 45, 76 and 102 (R8) |
 | `IngestionPlatform` (`illumina`, `ont`, `pacbio`, `ultima`) is the import subset of `LungfishIO.SequencingPlatform`. Its raw values are the `import fastq --platform` values that recipe files, import provenance and replay commands record, while the FASTQ sidecar records the LungfishIO spelling, so `ont` becomes `oxfordNanopore`. Map between them with `sequencingPlatform` and `init(importing:)`. Element, MGI and Unknown import as `illumina`, and the sidecar then says Illumina | Recipes/IngestionPlatform.swift lines 52, 146 and 161, `persistedSequencingPlatform` in Ingestion/FASTQBatchImporter.swift, Tests/LungfishWorkflowTests/Recipes/WorkflowPlatformPinTests.swift (R15) |
 | Without `--platform`, `lungfish-cli import fastq` detects the platform with `IngestionPlatform.detect(fromFASTQHeader:)`, not the LungfishIO detector, and imports as Illumina when it finds nothing. It finds nothing for Revio CCS headers and dorado SAM-tag headers, so a PacBio or ONT bundle imported that way is recorded as Illumina short reads | Recipes/IngestionPlatform.swift line 114, `detectPlatformFromPairs` in Sources/LungfishCLI/Commands/ImportFastqCommand.swift (R15) |
 | A new `NativeTool` case without a `nativeToolPolicies` entry makes every run of it throw `missingProvenancePolicy` | Provenance/ScientificProvenancePolicy.swift line 208, Native/NativeToolRunner.swift line 1145 |
