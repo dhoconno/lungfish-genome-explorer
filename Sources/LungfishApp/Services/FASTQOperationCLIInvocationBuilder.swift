@@ -33,8 +33,9 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
     /// - Parameter pairingMetadataURL: the ORIGINAL input (bundle or the file
     ///   inside it) whose metadata describes the reads, used as hints when a
     ///   recorded `interleaved` pairing is verified against the records. Its
-    ///   bundle also holds the R1 and R2 files an interleave names. When
-    ///   `nil`, the request's first input is the original.
+    ///   bundle also holds the R1 and R2 files an interleave names and
+    ///   anchors a relative contaminant reference. When `nil`, the request's
+    ///   first input is the original.
     func buildInvocation(
         for request: FASTQOperationLaunchRequest,
         outputTargetPath: String,
@@ -127,6 +128,26 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             )
         }
         return pairedFiles
+    }
+
+    /// The `--ref` path for a custom contaminant reference, the file the
+    /// in-process filter (`FASTQDerivativeService.runBBDukContaminantFilter`)
+    /// reads. An absolute path stays as given. A relative one names a file
+    /// in the input bundle, `bundle.appendingPathComponent(path)`, as the run
+    /// resolves it.
+    ///
+    /// The command used to pass a relative path as given, and `lungfish-cli
+    /// fastq contaminant-filter` resolves it against its own working
+    /// directory, so the recorded command found no reference, or another
+    /// file, when it ran from another folder (findings R3 and R8). An input
+    /// outside any bundle gives a relative path no folder, so it has no
+    /// command.
+    static func contaminantReferencePath(_ reference: String, originalInputURL: URL?) throws -> String {
+        guard !reference.hasPrefix("/") else { return reference }
+        guard let bundleURL = fastqBundle(containing: originalInputURL) else {
+            throw FASTQOperationCLIInvocationError.contaminantReferenceNeedsBundle(reference: reference)
+        }
+        return bundleURL.appendingPathComponent(reference).path
     }
 
     /// The `.lungfishfastq` bundle `url` names or lies in, found from the
@@ -505,7 +526,8 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--hdist", "\(hammingDistance)",
             ] + pairingArguments + ["-o", outputTarget]
             if let referenceFasta {
-                arguments.insert(contentsOf: ["--ref", referenceFasta], at: 4)
+                let reference = try Self.contaminantReferencePath(referenceFasta, originalInputURL: originalInputURL)
+                arguments.insert(contentsOf: ["--ref", reference], at: 4)
             }
             return arguments
         case .lowComplexityFilter(let entropy, let window, let kmer):
@@ -696,11 +718,15 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
 enum FASTQOperationCLIInvocationError: Error, LocalizedError, Equatable {
     /// An interleave whose input is not a bundle of separate R1 and R2 files.
     case interleaveNeedsPairedBundle(input: String)
+    /// A relative contaminant reference whose input is in no bundle to resolve it in.
+    case contaminantReferenceNeedsBundle(reference: String)
 
     var errorDescription: String? {
         switch self {
         case .interleaveNeedsPairedBundle(let input):
             return "Interleave reads the R1 and R2 files of a paired .lungfishfastq bundle, and \(input) is not one."
+        case .contaminantReferenceNeedsBundle(let reference):
+            return "The contaminant reference \(reference) is a relative path, and the input is in no .lungfishfastq bundle to resolve it in. Choose the reference by its full path."
         }
     }
 }
