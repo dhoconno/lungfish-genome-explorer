@@ -108,9 +108,8 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                     pairingMode: ingestionPipelinePairingMode(for: pairingMode),
                     outputDirectory: stagingBundleURL,
                     threads: max(1, ProcessInfo.processInfo.activeProcessorCount),
-                    // We delete `sourceURL` ourselves below, only after
-                    // verifying the re-ingested output's read count matches.
-                    // The pipeline must not delete it first.
+                    // We delete `sourceURL` below once the re-ingested read
+                    // count matches. The pipeline must not delete it first.
                     deleteOriginals: false,
                     // FASTQ operation outputs are never
                     // re-binned or re-trimmed on re-import. Quality binning
@@ -155,6 +154,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 storageInputSizeBytes: result.originalSizeBytes,
                 storageOutputSizeBytes: result.finalSizeBytes
             )
+            metadata.readClassification = outputReadRoles(of: result.outputFile, sourceInputURL: sourceInputURL) ?? metadata.readClassification
             FASTQMetadataStore.save(metadata, for: result.outputFile)
 
             let operation = try writeDerivedManifest(

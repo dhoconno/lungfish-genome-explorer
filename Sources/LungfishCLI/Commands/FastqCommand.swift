@@ -303,14 +303,14 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             ? resolvedInput.bundleURL
             : nil
         let sourceManifest = sourceBundleURL.flatMap { FASTQBundle.loadDerivedManifest(in: $0) }
-        let rootBundleURL = sourceBundleURL.flatMap { bundleURL -> URL? in
-            guard let sourceManifest else { return nil }
-            return FASTQBundle.resolveBundle(
-                relativePath: sourceManifest.rootBundleRelativePath,
-                from: bundleURL
-            )
+        // A source that holds its reads as files (a merge, repair or
+        // deinterleave bundle) is the barcode bundles' root, never its own
+        // raw root (D1, Phase 1.5 lane A7).
+        let childRoot = sourceBundleURL.flatMap {
+            FASTQDerivedPayloadRoot.childRoot(ofSource: $0, manifest: sourceManifest)
         }
-        let rootFASTQFilename = sourceManifest?.rootFASTQFilename
+        let rootBundleURL = childRoot?.bundleURL
+        let rootFASTQFilename = childRoot?.rootFASTQFilename
         let inputPairingMode = sourceManifest?.pairingMode
             ?? sourceBundleURL
                 .flatMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
