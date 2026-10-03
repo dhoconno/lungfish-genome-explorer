@@ -76,6 +76,6 @@ A replay that needs an external tool runs in the integration tier, which takes e
 2. Its value is the number of distinct `cli-parity-gap: <ID>` markers in `Sources/` plus the lines in `cli-parity-gaps.pending`. The value must not exceed `scripts/ratchets/cli-parity-gaps.baseline`, and `--update` may only lower the baseline.
 3. It fails when a marker ID has no `assertCLIParityGap` call with the same ID in `Tests/`, or when a test pins an ID that no marker or pending line carries.
 4. It fails when a `begin` call passes the literal `nil` as `cliCommand` and its function carries neither a gap marker nor an exemption marker, and when a marker belongs to no `begin` call.
-5. It fails when the function that holds a `begin` call is named in no test under `Tests/LungfishAppTests` that calls `RecordedCLICommand.parse`, `parseScript` or `assertCLIParityGap`. The sites that failed this when the ratchet landed are listed in `cli-parity-gaps.untested`, and that list may only shrink.
+5. It fails when the function that holds a `begin` call is named in no test under `Tests/LungfishAppTests` that calls `RecordedCLICommand.parse`, `parseScript` or `assertCLIParityGap` and also names the type that holds the call or the stem of its source file. The sites that failed this when the ratchet landed are listed in `cli-parity-gaps.untested`, and that list may only shrink.
 
 `--print` lists every site with its status. Exempt rows are listed and are not counted. The value falls to 0 as the gaps close.

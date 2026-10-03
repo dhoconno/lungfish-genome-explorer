@@ -323,6 +323,31 @@ def test_caller_of_a_forwarding_wrapper_is_a_site(tmp_path):
     assert "Demo.swift:8 (download) records cliCommand: nil with no" in result.stderr
 
 
+GENERIC_SITE = '''
+final class HaplotypeService {
+    func run() {
+        _ = center.begin(title: "Run", detail: "", operationType: .workflow, cliCommand: builtCommand())
+    }
+}
+'''
+
+
+def test_a_generic_function_name_needs_its_type_or_file_in_the_same_test(tmp_path):
+    unrelated = "func testOther() { model.run(); _ = try RecordedCLICommand.parse(command) }\n"
+    script = make_repo(tmp_path, {"Services/HaplotypeService.swift": GENERIC_SITE}, {"OtherTests.swift": unrelated}, baseline=0)
+    result = run(script)
+    assert result.returncode == 1
+    assert "Services/HaplotypeService.swift:run holds a begin site" in result.stderr
+
+    named_type = "func testRun() { HaplotypeService().run(); _ = try RecordedCLICommand.parse(command) }\n"
+    (tmp_path / "Tests/LungfishAppTests/OtherTests.swift").write_text(named_type)
+    assert run(script).returncode == 0
+
+    named_file = "// HaplotypeService.swift\nfunc testRun() { service.run(); _ = try RecordedCLICommand.parse(command) }\n"
+    (tmp_path / "Tests/LungfishAppTests/OtherTests.swift").write_text(named_file)
+    assert run(script).returncode == 0
+
+
 def test_update_lowers_the_baseline_and_refuses_to_raise_it(tmp_path):
     script = make_repo(
         tmp_path,

@@ -25,7 +25,9 @@ This script is a source scan with a test cross-check, so it needs no build.
    marker or a `cli-parity-exempt: <reason>` marker.
 5. The function that holds a begin site must be named in a test file under
    Tests/LungfishAppTests that also calls `RecordedCLICommand.parse`,
-   `parseScript` or `assertCLIParityGap`. Sites that fail this today are listed
+   `parseScript` or `assertCLIParityGap`, and that same file must name the
+   type that encloses the site or the stem of its source file, so a generic
+   function name such as `run` is not matched by an unrelated test. Sites that fail this today are listed
    in cli-parity-gaps.untested (one `file:function` per line), which may only
    shrink.
 6. A gap or exempt marker must belong to a begin site.
@@ -50,6 +52,7 @@ NAME = "cli-parity-gaps"
 GAP_MARKER = re.compile(r"cli-parity-gap:\s*([a-z0-9][a-z0-9-]*)")
 EXEMPT_MARKER = re.compile(r"cli-parity-exempt:\s*([a-z0-9][a-z0-9-]*)")
 BEGIN_CALL = re.compile(r"(?<![A-Za-z0-9_])begin\(")
+TYPE_DECL = re.compile(r"(?<![A-Za-z0-9_])(?:class|struct|enum|actor|extension)\s+([A-Za-z_][A-Za-z0-9_]*)")
 FUNC_DECL = re.compile(r"(?<![A-Za-z0-9_])(?:func\s+([A-Za-z_][A-Za-z0-9_]*)|(init)\s*[?!]?\s*[(<])")
 PIN_CALL = re.compile(r"(?<![A-Za-z0-9_])assertCLIParityGap\(")
 PIN_ID = re.compile(r"\bid:\s*\"([^\"]+)\"")
@@ -184,6 +187,7 @@ class Site:
     line: int
     function: str
     nil_command: bool
+    enclosing_type: str = ""
     gaps: list[str] = field(default_factory=list)
     exempt: list[str] = field(default_factory=list)
 
@@ -230,6 +234,21 @@ def functions_in(text: str, mask: list[bool]) -> list[Function]:
     return found
 
 
+def types_in(text: str, mask: list[bool]) -> list[tuple[str, int, int]]:
+    """Each class, struct, enum, actor or extension with its body range."""
+    found = []
+    for match in TYPE_DECL.finditer(text):
+        if not mask[match.start()]:
+            continue
+        brace = match.end()
+        while brace < len(text) and not (mask[brace] and text[brace] in "{};"):
+            brace += 1
+        if brace >= len(text) or text[brace] != "{":
+            continue
+        found.append((match.group(1), brace, matching(text, mask, brace, "{", "}")))
+    return found
+
+
 def scan_sources(root: Path) -> tuple[list[Site], dict[str, list[str]]]:
     """Begin sites, and every marker in Sources by ID with its location."""
     sites: list[Site] = []
@@ -248,6 +267,7 @@ def scan_sources(root: Path) -> tuple[list[Site], dict[str, list[str]]]:
                 line = all_comments.count("\n", 0, match.start()) + 1
                 markers.setdefault(f"{kind}:{match.group(1)}", []).append(f"{rel}:{line}")
         functions = functions_in(text, mask) if "begin(" in text else []
+        types = types_in(text, mask) if "begin(" in text else []
         for match in BEGIN_CALL.finditer(text):
             if not mask[match.start()]:
                 continue
@@ -266,7 +286,10 @@ def scan_sources(root: Path) -> tuple[list[Site], dict[str, list[str]]]:
                 continue  # a forwarding wrapper, such as OperationReporting's default arguments
             region_start = function.decl_start if function else 0
             comments = comment_text(text, mask, region_start, close + 1)
+            holders = [t for t in types if t[1] < match.start() < t[2]]
+            holder = max(holders, key=lambda t: t[1])[0] if holders else ""
             site = Site(
+                enclosing_type=holder,
                 path=rel,
                 line=text.count("\n", 0, match.start()) + 1,
                 function=function.name if function else "<top-level>",
@@ -303,19 +326,31 @@ def scan_pins(root: Path) -> dict[str, list[str]]:
     return pins
 
 
-def tested_functions(root: Path, functions: set[str]) -> set[str]:
-    """The function names that appear in an App test file that parses a command."""
+def names_word(text: str, word: str) -> bool:
+    return bool(word) and re.search(r"(?<![A-Za-z0-9_])" + re.escape(word) + r"(?![A-Za-z0-9_])", text) is not None
+
+
+def tested_sites(root: Path, sites: list) -> set[str]:
+    """Keys of the sites an App test file covers. The file calls a parse or a
+    pin, names the site's function, and names its enclosing type or the stem
+    of its source file."""
     tested: set[str] = set()
     app_tests = root / "Tests" / "LungfishAppTests"
     if not app_tests.exists():
         return tested
+    texts = []
     for path in sorted(app_tests.rglob("*.swift")):
         text = path.read_text(encoding="utf-8", errors="replace")
-        if not PARSE_CALL.search(text):
-            continue
-        for name in functions:
-            if name not in tested and re.search(r"(?<![A-Za-z0-9_])" + re.escape(name) + r"(?![A-Za-z0-9_])", text):
-                tested.add(name)
+        if PARSE_CALL.search(text):
+            texts.append(text)
+    for site in sites:
+        stem = Path(site.path).stem
+        for text in texts:
+            if names_word(text, site.function) and (
+                names_word(text, site.enclosing_type) or stem in text
+            ):
+                tested.add(site.key)
+                break
     return tested
 
 
@@ -358,8 +393,8 @@ def evaluate(root: Path):
     pending = read_pending(root / "scripts" / "ratchets" / f"{NAME}.pending")
     untested_listed = read_lines(root / "scripts" / "ratchets" / f"{NAME}.untested")
 
-    tested = tested_functions(root, {s.function for s in sites})
-    untested = sorted({s.key for s in sites if s.function not in tested})
+    tested = tested_sites(root, sites)
+    untested = sorted({s.key for s in sites if s.key not in tested})
 
     gap_ids = {key.split(":", 1)[1] for key in markers if key.startswith("gap:")}
     site_gap_ids = {gap for s in sites for gap in s.gaps}

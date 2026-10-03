@@ -1,6 +1,7 @@
 # Begin sites whose function no App test names beside a command parse.
 # One file:function per line. This list may only shrink.
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift:performSingleAnnotationTrackImport
+Sources/LungfishApp/Services/GenotypeAIHaplotypingExecutionService.swift:run
 Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift:runFullLengthONTMHCGenotyping
 Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift:runONTGenotyping
 Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift:runTwelveSAmpliconMatching
