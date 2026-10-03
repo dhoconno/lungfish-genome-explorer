@@ -172,7 +172,12 @@ KNOWN_HANGING_TESTS=''
 # column) was implemented and the tests were reconciled.
 # Remove an entry as soon as its decision is made and the test is fixed.
 KNOWN_PREEXISTING_FAILURES=''
-INTEGRATION_FILTER="^LungfishIntegrationTests\\.|${CLI_E2E_SUITES}|${STORAGE_SUITES}|${PARALLEL_HAZARD_SUITES}"
+# A LungfishAppTests class whose name ends in ReplayTests replays a recorded
+# lungfish-cli command with real tools (docs/contracts/CLI-EQUIVALENCE.md), so
+# it runs serially in the integration tier. A name rule, not a list, so a new
+# replay suite needs no gate edit.
+REPLAY_SUITES='^LungfishAppTests\.[A-Za-z0-9_]*ReplayTests(/|$)'
+INTEGRATION_FILTER="^LungfishIntegrationTests\\.|${CLI_E2E_SUITES}|${STORAGE_SUITES}|${PARALLEL_HAZARD_SUITES}|${REPLAY_SUITES}"
 
 if [ -n "$TIER" ] && [ -n "$FILTER" ]; then
     echo "--tier and --filter are mutually exclusive" >&2
