@@ -11,7 +11,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 1 | 300 | 1 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 587 | 236794 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 587 | 236777 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1996 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 200 | 60973 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
@@ -27,14 +27,14 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 12 | 3372 | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 661 | 217335 | 1309 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 24 | 4375 | 23 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 27 | 5138 | 24 | LungfishCore, LungfishIO, LungfishWorkflow |
 
 ## Test targets
 
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 1 | 219 | LungfishAlignmentUI, LungfishKit |
-| LungfishAppTests | Tests/LungfishAppTests | 599 | 160510 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 602 | 161031 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 35 | 18863 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 6 | 5531 | LungfishApp, LungfishKitTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
@@ -84,7 +84,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 587, lines 236794
+- Swift files. 587, lines 236777
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -94,30 +94,30 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| App | 61 | 23138 |
-| Services | 133 | 38727 |
+| App | 61 | 23124 |
+| Services | 133 | 38730 |
 | Services/AI | 4 | 1929 |
 | StateManagement | 7 | 595 |
 | Support | 2 | 94 |
 | UITestSupport | 4 | 485 |
 | ViewModels | 4 | 2397 |
-| Views | 376 | 171358 |
+| Views | 376 | 171352 |
 | Views/AI | 1 | 1011 |
 | Views/Assembly | 5 | 2083 |
 | Views/BAM | 12 | 1580 |
 | Views/Components | 2 | 242 |
-| Views/DatabaseBrowser | 12 | 5337 |
+| Views/DatabaseBrowser | 12 | 5327 |
 | Views/DemoProjects | 4 | 937 |
 | Views/Dependencies | 3 | 892 |
 | Views/Extraction | 1 | 229 |
 | Views/FASTQ | 8 | 5183 |
 | Views/Help | 1 | 576 |
 | Views/ImportCenter | 6 | 1769 |
-| Views/Inspector | 56 | 23600 |
+| Views/Inspector | 56 | 23606 |
 | Views/Layout | 3 | 293 |
-| Views/MainWindow | 21 | 10180 |
+| Views/MainWindow | 21 | 10186 |
 | Views/Mapping | 4 | 2228 |
-| Views/Metagenomics | 38 | 13923 |
+| Views/Metagenomics | 38 | 13938 |
 | Views/Operations | 9 | 2303 |
 | Views/Phylogenetics | 3 | 490 |
 | Views/PluginManager | 4 | 2732 |
@@ -130,7 +130,7 @@ None.
 | Views/Shared | 8 | 1038 |
 | Views/Sidebar | 18 | 9139 |
 | Views/TranslationTool | 1 | 213 |
-| Views/Viewer | 106 | 66361 |
+| Views/Viewer | 106 | 66338 |
 | Views/Welcome | 1 | 1827 |
 | Views/WorkflowLibrary | 3 | 1050 |
 | Views/WorkflowOperations | 5 | 4294 |
@@ -3106,7 +3106,7 @@ None.
 
 - Kind. library
 - Path. Tests/Support/LungfishTestSupport
-- Swift files. 24, lines 4375
+- Swift files. 27, lines 5138
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. none
 - Used by. LungfishKitTestSupport
@@ -3128,6 +3128,7 @@ None.
 - `ManagedSamtoolsHome` struct, `Tests/Support/LungfishTestSupport/ManagedSamtoolsHome.swift:5`
 - `MappingResultLayoutScaffold` struct, `Tests/Support/LungfishTestSupport/MappingResultLayoutScaffold.swift:17`
 - `MappingViewerScaffold` struct, `Tests/Support/LungfishTestSupport/MappingViewerScaffold.swift:28`
+- `OutputEquivalence` enum, `Tests/Support/LungfishTestSupport/OutputEquivalence.swift:14`
 - `ProcessResult` struct, `Tests/Support/LungfishTestSupport/ToolAvailability.swift:76`
 - `ProcessRunner` enum, `Tests/Support/LungfishTestSupport/ToolAvailability.swift:82`
 - `ProjectStorageFixtureOracle` enum, `Tests/Support/LungfishTestSupport/ProjectStorageLargeTreeFixture.swift:482`
