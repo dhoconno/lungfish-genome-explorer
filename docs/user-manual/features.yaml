@@ -96,6 +96,7 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishCLI/Commands/FetchCommand.swift
+      - Sources/LungfishCLI/Commands/SRADownloadSubcommand.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseSearchDialog.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/SRARunsSearchPane.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
@@ -242,6 +243,7 @@ features:
       - Sources/LungfishApp/App/AppDelegate+ImportCenterOperationBegin.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift
       - Sources/LungfishCLI/Commands/BundleCommand.swift
+      - Sources/LungfishCLI/Commands/BundleCreateSubcommand.swift
       - Sources/LungfishCore/Bundles/BundleManifest.swift
     module: [LungfishApp, LungfishCLI, LungfishCore]
     notes: >-
@@ -329,6 +331,7 @@ features:
     viewport_class: sequence
     sources:
       - Sources/LungfishCLI/Commands/BundleCommand.swift
+      - Sources/LungfishCLI/Commands/BundleExtractAnnotationsSubcommand.swift
       - Sources/LungfishCLI/Commands/ExtractCommand.swift
     module: [LungfishCLI]
     notes: >-
@@ -419,6 +422,12 @@ features:
       - Sources/LungfishApp/Services/FASTQOperationPlanner.swift
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplayOperationBegin.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
+      - Sources/LungfishCLI/Commands/FastqTrimSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqAdapterTrimSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqQualityTrimSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqFixedTrimSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqLengthFilterSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqSubsampleSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqSequenceFilterSubcommand.swift
     module: [LungfishApp, LungfishCLI]
     notes: >-
@@ -440,6 +449,8 @@ features:
       - Sources/LungfishCLI/Commands/FastqDeaconRiboSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqRiboDetectorSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
+      - Sources/LungfishCLI/Commands/FastqContaminantFilterSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqEntropyFilterSubcommand.swift
       - Sources/LungfishIO/Formats/FASTQ/FASTQEntropyFilter.swift
     module: [LungfishCLI, LungfishIO]
     notes: >-
@@ -460,6 +471,13 @@ features:
       - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplayOperationBegin.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
+      - Sources/LungfishCLI/Commands/FastqReverseComplementSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqMergeSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqErrorCorrectSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqDeduplicateSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqRepairSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqInterleaveSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqDeinterleaveSubcommand.swift
     module: [LungfishApp, LungfishCLI]
     notes: >-
       Reverse-complements, merges overlapping pairs with bbmerge, corrects
@@ -540,6 +558,9 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishCLI/Commands/FetchCommand.swift
+      - Sources/LungfishCLI/Commands/ENASubcommand.swift
+      - Sources/LungfishCLI/Commands/ENASearchSubcommand.swift
+      - Sources/LungfishCLI/Commands/ENAReadsSubcommand.swift
     module: [LungfishCLI]
     notes: >-
       Searches the European Nucleotide Archive and fetches sequences in FASTA
@@ -558,6 +579,7 @@ features:
       - Sources/LungfishApp/ViewModels/GenBankBundleDownloadViewModel.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController+OperationBegin.swift
       - Sources/LungfishCLI/Commands/FetchCommand.swift
+      - Sources/LungfishCLI/Commands/GenomeSubcommand.swift
     module: [LungfishApp, LungfishCLI]
     notes: >-
       Downloads a genome assembly with annotations from NCBI and builds an
@@ -644,6 +666,7 @@ features:
     sources:
       - Sources/LungfishWorkflow/Alignment/AlignmentDuplicateService.swift
       - Sources/LungfishCLI/Commands/MarkdupCommand.swift
+      - Sources/LungfishCLI/Commands/CLIDeduplicatedBundleSupport.swift
       - Sources/LungfishCLI/Commands/BAMCommand.swift
     module: [LungfishCLI, LungfishWorkflow]
     notes: >-
@@ -748,7 +771,9 @@ features:
     viewport_class: variant
     sources:
       - Sources/LungfishCLI/Commands/ImportCommand.swift
+      - Sources/LungfishCLI/Commands/MetadataSubcommand.swift
       - Sources/LungfishCLI/Commands/MetadataCommand.swift
+      - Sources/LungfishCLI/Commands/MetadataExportBioSampleSubcommand.swift
       - Sources/LungfishApp/Views/Sidebar/FolderMetadataEditorSheet.swift
       - Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+OperationBegin.swift
     module: [LungfishCLI, LungfishApp]
@@ -1260,6 +1285,7 @@ features:
       - Sources/LungfishWorkflow/WorkflowDefinition.swift
       - Sources/LungfishWorkflow/nf-core/NFCoreSupportedWorkflowCatalog.swift
       - Sources/LungfishCLI/Commands/WorkflowCommand.swift
+      - Sources/LungfishCLI/Commands/RunSubcommand.swift
     module: [LungfishWorkflow, LungfishCLI]
     notes: >-
       Runs Nextflow pipelines with auto-generated parameter forms from
@@ -1277,6 +1303,7 @@ features:
       - Sources/LungfishWorkflow/WorkflowRunner.swift
       - Sources/LungfishWorkflow/WorkflowDefinition.swift
       - Sources/LungfishCLI/Commands/WorkflowCommand.swift
+      - Sources/LungfishCLI/Commands/RunSubcommand.swift
     module: [LungfishWorkflow, LungfishCLI]
     notes: >-
       Runs Snakemake workflows from inside the app with outputs auto-imported as
