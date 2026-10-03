@@ -31,7 +31,7 @@ body{margin:0;padding:18px;background:var(--canvas);color:var(--ink);font-family
 .lf-callout a{color:var(--deep-ink);text-decoration:none;border-bottom:1px solid var(--creamsicle);font-weight:600}
 .lf-title{font:700 44px/1.14 var(--font-display);letter-spacing:-.01em;color:var(--deep-ink);margin:0;padding-bottom:.45rem;position:relative}
 .lf-title::after{content:"";position:absolute;left:0;bottom:0;width:var(--accent-bar-width);height:var(--accent-bar-height);background:var(--creamsicle)}
-.lf-eyebrow{font:600 13px/1.4 var(--font-sans);letter-spacing:.16em;text-transform:uppercase;color:var(--warm-grey);margin:1.1rem 0 0}
+.lf-subtitle{font:400 20px/1.4 var(--font-sans);color:var(--deep-ink);margin:1.1rem 0 0;max-width:68ch}
 .lf-h2{font:500 27px/1.2 var(--font-display);color:var(--deep-ink);border-top:1px solid var(--rule);padding-top:1.2rem;margin:2rem 0 .6rem}
 .lf-seq{font:700 19px/1 var(--font-system-mono);display:inline-flex;gap:2px}
 .lf-seq i{font-style:normal;width:22px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-4);color:#fff}

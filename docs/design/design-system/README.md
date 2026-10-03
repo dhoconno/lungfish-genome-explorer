@@ -61,8 +61,10 @@ The GUI uses the macOS system fonts. Set text with `.font(.system(...))` or `NSF
 | Role | Face | Styles |
 |---|---|---|
 | Display and headings | Space Grotesk | `display` 700, `heading-2` and `heading-3` 500 |
-| Body and labels | Inter | `body` 400, `eyebrow` 600 uppercase and tracked |
+| Body, subtitles and labels | Inter | `body` 400, `subtitle` 400 |
 | Code, CLI, data and sequence | IBM Plex Mono | `code` |
+
+Never use eyebrows. That means no small uppercase or letter-spaced label above or below a title, and no uppercase tracked section or TOC labels. Put context in a sentence-case `subtitle` under the title, or in the title itself.
 
 Fall back to Arial for Space Grotesk and Inter, and to Consolas for Plex Mono. All three brand faces are free on Google Fonts. They never ship inside the app.
 
