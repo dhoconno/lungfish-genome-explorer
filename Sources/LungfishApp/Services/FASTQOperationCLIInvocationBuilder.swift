@@ -32,7 +32,9 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
     ///   builder looks next to the input path itself.
     /// - Parameter pairingMetadataURL: the ORIGINAL input (bundle or the file
     ///   inside it) whose metadata describes the reads, used as hints when a
-    ///   recorded `interleaved` pairing is verified against the records.
+    ///   recorded `interleaved` pairing is verified against the records. Its
+    ///   bundle also holds the R1 and R2 files an interleave names. When
+    ///   `nil`, the request's first input is the original.
     func buildInvocation(
         for request: FASTQOperationLaunchRequest,
         outputTargetPath: String,
@@ -107,6 +109,36 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         }
     }
 
+    /// The R1 and R2 files `fastq interleave` reads for an interleave
+    /// request, the two files of the `fullPaired` bundle the request names.
+    ///
+    /// The in-process interleave (`FASTQDerivativeService.runReformat`) runs
+    /// `reformat.sh in1=<R1> in2=<R2>` on the files
+    /// `FASTQBundle.pairedFASTQURLs(forDerivedBundle:)` returns for its
+    /// source bundle, and the command names the same two files. The request
+    /// carries no R2 of its own, so an input that is not such a bundle has no
+    /// command (findings R3 and R8). The command used to pass the literal
+    /// placeholder `<R2>`, which no run could read.
+    static func interleaveInputFiles(originalInputURL: URL?) throws -> (r1: URL, r2: URL) {
+        guard let bundleURL = fastqBundle(containing: originalInputURL),
+              let pairedFiles = FASTQBundle.pairedFASTQURLs(forDerivedBundle: bundleURL) else {
+            throw FASTQOperationCLIInvocationError.interleaveNeedsPairedBundle(
+                input: originalInputURL?.path ?? "the request"
+            )
+        }
+        return pairedFiles
+    }
+
+    /// The `.lungfishfastq` bundle `url` names or lies in, found from the
+    /// path alone.
+    private static func fastqBundle(containing url: URL?) -> URL? {
+        guard let url else { return nil }
+        if url.pathExtension.lowercased() == FASTQBundle.directoryExtension {
+            return url
+        }
+        return SequenceInputResolver.enclosingFASTQBundleURL(for: url)
+    }
+
     private func legacyBuildInvocation(
         for request: FASTQOperationLaunchRequest,
         outputTargetPath: String,
@@ -128,6 +160,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 arguments: try fastqArguments(
                     for: request,
                     inputURLs: inputURLs,
+                    originalInputURL: pairingMetadataURL ?? inputURLs.first,
                     outputTarget: outputTargetPath,
                     pairingArguments: Self.pairingArguments(
                         for: resolvedPairingMode,
@@ -349,6 +382,9 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         }
     }
 
+    /// - Parameter originalInputURL: the input the user chose, a bundle or a
+    ///   file inside one. The execution service materializes a bundle to a
+    ///   scratch file before the CLI runs, so `inputURLs` may no longer name it.
     /// - Parameter byNamePairingArguments: the `--pairing` arguments for a
     ///   subcommand that partitions its input by read name (the fastp trims,
     ///   which run the pairs of a mixed file paired and its unpaired reads
@@ -357,6 +393,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
     private func fastqArguments(
         for request: FASTQDerivativeRequest,
         inputURLs: [URL],
+        originalInputURL: URL?,
         outputTarget: String,
         pairingArguments: [String],
         byNamePairingArguments: [String]
@@ -573,7 +610,8 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         case .interleaveReformat(let direction):
             switch direction {
             case .interleave:
-                return ["interleave", "--in1", inputURL.path, "--in2", "<R2>", "-o", outputTarget]
+                let pairedFiles = try Self.interleaveInputFiles(originalInputURL: originalInputURL)
+                return ["interleave", "--in1", pairedFiles.r1.path, "--in2", pairedFiles.r2.path, "-o", outputTarget]
             case .deinterleave:
                 return [
                     "deinterleave", inputURL.path,
@@ -646,6 +684,23 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--database-id", DeaconRibokmersDatabaseInstaller.databaseID,
                 "--retain", retention.rawValue,
             ] + pairingArguments + ["-o", outputTarget]
+        }
+    }
+}
+
+/// Why `FASTQOperationCLIInvocationBuilder` cannot write a `lungfish-cli`
+/// command for a request whose input lacks a value the command needs. The
+/// Operations rows and derivative manifests that record the command record
+/// none, a CLI parity gap the tests pin, and a dialog run fails with the
+/// description before the CLI starts.
+enum FASTQOperationCLIInvocationError: Error, LocalizedError, Equatable {
+    /// An interleave whose input is not a bundle of separate R1 and R2 files.
+    case interleaveNeedsPairedBundle(input: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .interleaveNeedsPairedBundle(let input):
+            return "Interleave reads the R1 and R2 files of a paired .lungfishfastq bundle, and \(input) is not one."
         }
     }
 }

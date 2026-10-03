@@ -200,12 +200,8 @@ enum GenomicsDisplayDerivativeCases {
                 XCTAssertEqual(command.kmerSize, 40)
                 XCTAssertEqual(command.output.output, "<derived>")
             },
-            GenomicsDisplayDerivativeCase("interleave", .interleaveReformat(direction: .interleave)) { parsed, input in
-                let command = try XCTUnwrap(parsed as? FastqInterleaveSubcommand)
-                XCTAssertEqual(command.in1, input)
-                XCTAssertEqual(command.in2, "<R2>")
-                XCTAssertEqual(command.output.output, "<derived>")
-            },
+            // Interleave names the R1 and R2 files of a paired bundle, which
+            // the input here is not. FASTQInterleaveCommandTests covers it.
             GenomicsDisplayDerivativeCase("deinterleave", .interleaveReformat(direction: .deinterleave)) { parsed, input in
                 let command = try XCTUnwrap(parsed as? FastqDeinterleaveSubcommand)
                 XCTAssertEqual(command.input, input)
