@@ -13,6 +13,11 @@ extension PlatformInference {
     /// The read-length shape of a FASTQ file: the cached statistics in its
     /// sidecar when they exist, otherwise a bounded sample of its reads.
     ///
+    /// The cached statistics hold no per-read spread, so that path uses the
+    /// longest read only (over 1,000 bases long, up to 600 short). The sampled
+    /// path in ``PlatformInference/lengthProfile(of:)`` also calls a sample
+    /// long when its mean is over 500 with a coefficient of variation over 0.3.
+    ///
     /// Unknown-platform reads take long-read defaults for a long profile and
     /// short-read defaults for a short one. The platform only chooses defaults
     /// and never blocks a run.

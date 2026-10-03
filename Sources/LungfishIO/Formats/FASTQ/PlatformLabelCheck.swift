@@ -80,7 +80,12 @@ public struct PlatformLabelCheck: Sendable, Equatable {
         let inference = suppliedInference ?? PlatformInference.infer(fromFASTQ: fastqURL)
         if inference.confidence == .high, inference.platform != .unknown {
             let recordedName = platform?.displayName ?? "no platform"
-            if let platform, platform != inference.platform {
+            // Element or MGI reads recorded as Illumina (imports before
+            // inference) take the same short-read class and processing, so
+            // they are not questioned.
+            let sameReadClass = platform.flatMap(FASTQAssemblyReadType.init(sequencingPlatform:)) == inference.readClass
+                && (readClass == nil || readClass == inference.readClass)
+            if let platform, platform != inference.platform, !sameReadClass {
                 reasons.append("Recorded as \(recordedName), but the read headers look like \(inference.platform.displayName). \(inference.evidence.first ?? "")")
             } else if let readClass, let inferredClass = inference.readClass, readClass != inferredClass {
                 reasons.append("Recorded as \(readClass.displayName), but the reads look like \(inferredClass.displayName). \(inference.evidence.first ?? "")")

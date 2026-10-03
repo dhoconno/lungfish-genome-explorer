@@ -131,6 +131,26 @@ final class PlatformInferenceTests: XCTestCase {
         XCTAssertEqual(PlatformInference.infer(fromHeader: "@movie/12/ccs\tnp:i:3\trq:f:0.95").confidence, .high)
     }
 
+    func testAWrappedFASTQFallsBackToTheFirstHeader() throws {
+        let root = try TestTempDirectory.make(prefix: "platform-inference-wrapped")
+        defer { TestTempDirectory.cleanup(root) }
+        let url = root.appendingPathComponent("wrapped.fastq")
+        try "@m84011_220902_175841_s1/12345/ccs\nACGTACGT\nACGTACGT\n+\nIIIIIIII\nIIIIIIII\n".write(to: url, atomically: true, encoding: .utf8)
+        let inference = PlatformInference.infer(fromFASTQ: url)
+        XCTAssertEqual(inference.platform, .pacbio)
+        XCTAssertNil(inference.lengthProfile)
+    }
+
+    func testElementOrMGIRecordedAsIlluminaIsNotSuspect() throws {
+        let root = try TestTempDirectory.make(prefix: "platform-label-short-family")
+        defer { TestTempDirectory.cleanup(root) }
+        let legacy = PersistedFASTQMetadata(sequencingPlatform: .illumina, assemblyReadType: .illuminaShortReads)
+        for fixture in ["element-aviti.fastq", "mgi-dnbseq.fastq"] {
+            let fastq = try PlatformHeaderFixtures.copy(fixture, to: root)
+            XCTAssertEqual(PlatformLabelCheck.check(fastqURL: fastq, metadata: legacy).verdict, .consistent, fixture)
+        }
+    }
+
     func testLengthAloneNeverNamesAPlatform() {
         let records = (0..<4).map { PlatformInference.Record(header: "@read\($0)", length: 5_000) }
         let inference = PlatformInference.infer(records: records)
@@ -151,6 +171,10 @@ final class PlatformInferenceTests: XCTestCase {
         let pacbio = PlatformInference.infer(fromBAM: PlatformHeaderFixtures.url("pacbio-hifi.bam"))
         XCTAssertEqual(pacbio.platform, .pacbio)
         XCTAssertEqual(pacbio.readClass, .pacBioHiFi)
+
+        let illumina = PlatformInference.infer(fromBAM: PlatformHeaderFixtures.url("illumina-paired.bam"))
+        XCTAssertEqual(illumina.platform, .illumina)
+        XCTAssertEqual(illumina.readClass, .illuminaShortReads)
 
         let unlabelled = PlatformInference.infer(fromBAM: PlatformHeaderFixtures.url("unlabelled.bam"))
         XCTAssertEqual(unlabelled.platform, .unknown)

@@ -126,7 +126,20 @@ public struct PlatformInference: Sendable, Equatable, Codable {
     /// Infers the platform from decoded FASTQ text. A partial last record is
     /// dropped unless `isComplete` says the text is the whole file.
     public static func infer(fromFASTQPrefix data: Data, maxRecords: Int = 32, isComplete: Bool = false) -> PlatformInference {
-        infer(records: parseRecords(data, maxRecords: maxRecords, isComplete: isComplete))
+        let records = parseRecords(data, maxRecords: maxRecords, isComplete: isComplete)
+        if records.isEmpty, let header = firstHeaderLine(data) {
+            // No four-line record parses (wrapped sequence lines, for example),
+            // so the first header votes alone with no length evidence.
+            return infer(fromHeader: header)
+        }
+        return infer(records: records)
+    }
+
+    static func firstHeaderLine(_ data: Data) -> String? {
+        let text = String(decoding: data.prefix(65_536), as: UTF8.self)
+        guard let line = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first,
+              line.hasPrefix("@") else { return nil }
+        return String(trimCR(line))
     }
 
     /// Infers the platform from one header line, with no length evidence.
