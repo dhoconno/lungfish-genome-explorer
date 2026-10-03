@@ -72,7 +72,7 @@ A replay that needs an external tool runs in the integration tier, which takes e
 
 `scripts/ratchets/cli-parity-gaps.sh` runs in the pre-push hook. It is a source scan with a test cross-check, and it needs no build.
 
-1. It finds every Operations panel `begin` call, which is a call whose argument list names both `operationType:` and `cliCommand:`.
+1. It finds every Operations panel `begin` call, which is a call whose argument list names `cliCommand:`. A call inside a function that is itself named `begin` forwards its caller's command and is skipped, and the call to that forwarder counts instead.
 2. Its value is the number of distinct `cli-parity-gap: <ID>` markers in `Sources/` plus the lines in `cli-parity-gaps.pending`. The value must not exceed `scripts/ratchets/cli-parity-gaps.baseline`, and `--update` may only lower the baseline.
 3. It fails when a marker ID has no `assertCLIParityGap` call with the same ID in `Tests/`, or when a test pins an ID that no marker or pending line carries.
 4. It fails when a `begin` call passes the literal `nil` as `cliCommand` and its function carries neither a gap marker nor an exemption marker, and when a marker belongs to no `begin` call.

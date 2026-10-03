@@ -11,9 +11,11 @@ function and the end of the call. A test pins it with
 
 This script is a source scan with a test cross-check, so it needs no build.
 
-1. A begin site is a call named `begin` whose argument list names both
-   `operationType:` and `cliCommand:`. A call inside a function that is itself
-   named `begin` forwards its caller's value and is not a site.
+1. A begin site is a call named `begin` whose argument list names
+   `cliCommand:`. A call inside a function that is itself named `begin`
+   forwards its caller's value and is not a site, but the call to that
+   forwarder is, so a wrapper such as DemoProjectsViewModel's
+   `begin(title:detail:cliCommand:)` hides no row.
 2. The value is the number of distinct gap IDs in Sources plus the IDs listed
    in cli-parity-gaps.pending (gaps whose site sits in a file another lane owns,
    so it carries no marker yet). The value may not pass the baseline.
@@ -256,7 +258,7 @@ def scan_sources(root: Path) -> tuple[list[Site], dict[str, list[str]]]:
             close = matching(text, mask, open_paren, "(", ")")
             call = text[open_paren : close + 1]
             code_only = "".join(c if mask[open_paren + k] else " " for k, c in enumerate(call))
-            if "operationType:" not in code_only or "cliCommand:" not in code_only:
+            if "cliCommand:" not in code_only:
                 continue
             enclosing = [f for f in functions if f.body_start < match.start() < f.body_end]
             function = max(enclosing, key=lambda f: f.body_start) if enclosing else None

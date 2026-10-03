@@ -300,6 +300,29 @@ def test_forwarding_begin_wrapper_is_not_a_site(tmp_path):
     assert "SITES 0" in run(script, "--print").stdout
 
 
+WRAPPER_AND_CALLER = '''
+final class DemoModel {
+    func begin(title: String, detail: String, cliCommand: String?) -> UUID? {
+        center.begin(title: title, detail: detail, operationType: .download, cliCommand: cliCommand)
+    }
+
+    func download() {
+        _ = begin(title: "Demo", detail: "Downloading", cliCommand: nil)
+    }
+}
+'''
+
+
+def test_caller_of_a_forwarding_wrapper_is_a_site(tmp_path):
+    script = make_repo(tmp_path, {"Demo.swift": WRAPPER_AND_CALLER}, {}, baseline=0)
+    printed = run(script, "--print").stdout
+    assert "SITES 1" in printed
+    assert "Demo.swift:8 download parses untested" in printed
+    result = run(script)
+    assert result.returncode == 1
+    assert "Demo.swift:8 (download) records cliCommand: nil with no" in result.stderr
+
+
 def test_update_lowers_the_baseline_and_refuses_to_raise_it(tmp_path):
     script = make_repo(
         tmp_path,
