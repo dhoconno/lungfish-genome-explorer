@@ -12,25 +12,21 @@ extension AppFASTQOutputBundleWriter {
     /// holds adjacent pairs and single reads, or nil for any other output.
     ///
     /// An operation on a source that holds pairs can write a file that mixes
-    /// pairs with merged or orphan reads, a trim of a mixed file writing its
-    /// pairs first and its single reads last. The import labels such an output
-    /// single-end, the contract default, and recorded no roles, so with more
-    /// pair records than the 100,000-record layout scan the bundle later read
-    /// as strictly interleaved and a positional pair tool paired its single
-    /// reads (D10, Phase 1.5 lane A7). The roles are counted in the imported
-    /// file, so they describe the records as stored, and they are merge
-    /// evidence to the scan (``FASTQMixedLayoutHint``). Only an output whose
-    /// source metadata records pairs or merged reads is counted, so single-end
-    /// work costs no extra pass.
-    func outputReadRoles(of outputFASTQ: URL, sourceInputURL: URL?) -> ReadClassification? {
+    /// pairs with merged or orphan reads, a trim writing its pairs first and
+    /// its single reads last. The import labels such an output single-end
+    /// when its layout scan sees the mix, or interleaved when the single
+    /// reads lie past the 100,000 records the scan reads, and recorded no
+    /// roles either way. A later positional pair tool then paired the single
+    /// reads (D10, Phase 1.5 lane A7). The whole stored file is counted
+    /// (``FASTQMixedLayoutHint``), never the scan, and the roles are merge
+    /// evidence to every later scan. Only an output whose source metadata
+    /// records pairs or merged reads is counted, so single-end work costs no
+    /// extra pass. An output that cannot be read fails the import.
+    func outputReadRoles(of outputFASTQ: URL, sourceInputURL: URL?) throws -> ReadClassification? {
         guard let sourceInputURL else { return nil }
         let hints = FASTQReadLayoutClassifier.metadataHints(for: sourceInputURL)
-        guard hints.claimsPairedContent || hints.hasMergedOrUnpairedReads,
-              FASTQInputLayoutResolver.resolve(fastqURL: outputFASTQ, metadataFrom: sourceInputURL).layout
-                == .mixedMergedAndPairs,
-              let counts = try? FASTQMixedLayoutHint.countPairsAndSingles(in: outputFASTQ) else {
-            return nil
-        }
+        guard hints.claimsPairedContent || hints.hasMergedOrUnpairedReads else { return nil }
+        let counts = try FASTQMixedLayoutHint.countPairsAndSingles(in: outputFASTQ)
         return FASTQMixedLayoutHint.classification(
             pairs: counts.pairs,
             singles: counts.singles,
