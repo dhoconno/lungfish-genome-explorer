@@ -19,11 +19,9 @@ extension AppDelegate {
     /// opens the Operations panel, presses the report button on the failed
     /// row and checks that the GitHub issue URL names the title below.
     ///
-    /// CLI parity gap. No run stands behind the row, so its command is a fixed
-    /// string in the shape of a classification command. It is not a command
-    /// that `lungfish-cli` accepts, because `conda classify` has no `--reads`
-    /// option. The closest real command is `conda classify` with its input
-    /// files and `--db`.
+    /// cli-parity-exempt: not-an-operation. No run stands behind the row, so
+    /// it records no command (docs/contracts/CLI-EQUIVALENCE.md, "Narrow
+    /// exceptions").
     @discardableResult
     static func beginOperationsPanelFailureSeedOperation(
         reporter: any OperationReporting = OperationCenter.shared,
@@ -33,7 +31,7 @@ extension AppDelegate {
             title: "UI test failed operation",
             detail: "Preparing deterministic failure",
             operationType: .classification,
-            cliCommand: "\(CLICommandIdentity.executableName) conda classify --reads '~/ui-test/R1.fastq.gz'"
+            cliCommand: nil
         )
         switch result {
         case .started(let operationID):

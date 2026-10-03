@@ -6,8 +6,8 @@
 // pack install records `lungfish-cli conda install --pack`, and a database
 // update records `lungfish-cli conda db update`. Both commands must parse with
 // the values the run uses. A pack reinstall has no command, because `conda
-// install` has no option that reinstalls a pack, so its test pins the plain
-// install command as a CLI parity gap. Neither row locks a bundle, so a
+// install` has no option that reinstalls a pack, so its row records no
+// command and its test pins the CLI parity gap. Neither row locks a bundle, so a
 // reporter that refuses every begin stands in for a refusal and proves each
 // launch closure sits behind the `.started` case.
 
@@ -56,7 +56,7 @@ final class PluginManagerViewModelOperationTests: XCTestCase {
         XCTAssertFalse(command.overwrite)
     }
 
-    func testPackReinstallRecordsThePlainInstallCommandAsAParityGap() throws {
+    func testPackReinstallRecordsNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
         let pack = try makePack()
         var launchedID: UUID?
@@ -72,26 +72,12 @@ final class PluginManagerViewModelOperationTests: XCTestCase {
         XCTAssertEqual(item.title, "Plugin Pack: \(pack.name)")
         XCTAssertEqual(item.initialDetail, "Preparing to reinstall \(pack.name)")
         XCTAssertEqual(item.operationType, .condaPluginPack)
-        // CLI parity gap. The run passes `reinstall: true`, which recreates the
-        // pack's environments. `conda install --pack` always passes `false`, and
-        // its `--overwrite` flag applies only with `--offline`, so no option
-        // expresses a reinstall. The row records the plain install command, which
-        // is the closest. When the command gains a reinstall option, record it
-        // and replace this pin with a parse test of the option.
-        let installItem = try recordedInstallRow(for: pack)
-        XCTAssertEqual(item.cliCommand, installItem.cliCommand)
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: CondaCommand.InstallSubcommand.self)
-        XCTAssertTrue(command.isPack)
-        XCTAssertEqual(command.packages, [pack.id])
-        XCTAssertFalse(command.offline, "the command cannot express a reinstall")
-        XCTAssertFalse(command.overwrite, "--overwrite applies only to an offline pack bundle")
-    }
-
-    /// The row a plain install of `pack` registers.
-    private func recordedInstallRow(for pack: PluginPack) throws -> RecordingOperationReporter.Item {
-        let reporter = RecordingOperationReporter()
-        PluginManagerViewModel.beginPluginPackOperation(pack: pack, reinstall: false, reporter: reporter) { _ in }
-        return try XCTUnwrap(reporter.items.first)
+        // The run passes `reinstall: true`, which recreates the pack's
+        // environments. `conda install --pack` always passes `false`, and its
+        // `--overwrite` flag applies only with `--offline`, so no option
+        // expresses a reinstall and the row records no command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "plugin-reinstall")
     }
 
     // MARK: - Database update (site 47)

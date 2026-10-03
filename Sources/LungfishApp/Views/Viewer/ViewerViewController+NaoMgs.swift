@@ -176,12 +176,10 @@ extension ViewerViewController {
     /// it starts, calls `launch` with the operation ID. The run submits reads
     /// the result already holds and locks no bundle.
     ///
-    /// CLI parity gap. No `lungfish-cli` command BLASTs the reads of a NAO-MGS
-    /// taxon. The closest is `lungfish-cli blast verify`, which covers a
-    /// Kraken2 classification only. The row keeps recording
-    /// `blast verify --taxid <id>` until a CLI command covers NAO-MGS
-    /// verification. The CLI rejects that command, because it also needs
-    /// `--kreport`, `--kraken-output` and `--source`.
+    /// cli-parity-gap: blast-nao-mgs. No `lungfish-cli` command BLASTs the
+    /// reads of a NAO-MGS taxon. The closest is `lungfish-cli blast verify`,
+    /// which covers a Kraken2 classification only. The row records no command
+    /// until a CLI command covers NAO-MGS verification.
     @discardableResult
     static func beginNaoMgsBlastVerificationOperation(
         taxonName: String,
@@ -193,10 +191,7 @@ extension ViewerViewController {
             title: "BLAST \(taxonName)",
             detail: "Preparing BLAST verification\u{2026}",
             operationType: .blastVerification,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "blast verify",
-                args: ["--taxid", "\(taxId)"]
-            )
+            cliCommand: nil
         )
         switch result {
         case .started(let operationID):

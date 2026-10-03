@@ -49,7 +49,7 @@ final class TaxonomyReadExtractionOperationTests: XCTestCase {
         var launchedID: UUID?
         TaxonomyReadExtractionAction.beginExtractionOperation(
             context: context(),
-            cliCommand: cli,
+            cliCommand: TaxonomyReadExtractionAction.rowCLICommand(cli, destination: destination),
             reporter: reporter
         ) { launchedID = $0 }
         let item = try XCTUnwrap(reporter.items.first)
@@ -120,17 +120,17 @@ final class TaxonomyReadExtractionOperationTests: XCTestCase {
         }
     }
 
-    func testClipboardAndShareRecordTheGUIOnlyNoteAsAParityGap() throws {
+    func testClipboardAndShareRecordNoCommandAsAParityGap() throws {
         let destinations: [ExtractionDestination] = [
             .clipboard(format: .fastq, cap: TaxonomyReadExtractionAction.clipboardReadCap),
             .share(tempDirectory: URL(fileURLWithPath: "/tmp/lane 1a1/Project.lungfish/.lungfish/.tmp")),
         ]
         for destination in destinations {
             let item = try recordedItem(destination: destination)
-            // CLI parity gap. The CLI writes files, not the clipboard or a
-            // share sheet. The row keeps today's command with its note.
-            XCTAssertEqual(item.cliCommand?.contains("GUI only"), true)
-            XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+            // The CLI writes files, not the clipboard or a share sheet, so
+            // the row records no command.
+            XCTAssertNil(item.cliCommand)
+            assertCLIParityGap(item.cliCommand, id: "classifier-extract-clipboard-share")
         }
     }
 }

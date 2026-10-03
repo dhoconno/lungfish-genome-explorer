@@ -81,7 +81,7 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
 
     // MARK: - Taxa collection batch extraction, a CLI parity gap
 
-    func testTaxaCollectionExtractionRecordsTodaysNoteAsAParityGap() throws {
+    func testTaxaCollectionExtractionRecordsNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = OperationRouteContext(
             projectURL: URL(fileURLWithPath: "/tmp/lane 1a1/Project.lungfish"),
@@ -105,10 +105,7 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
         // CLI parity gap. No lungfish-cli command extracts a whole collection.
         // The closest is `conda extract`, once per taxon. When a batch command
         // exists, record it and replace this pin with a parse test.
-        XCTAssertEqual(
-            item.cliCommand,
-            "# Taxonomy Read Extraction workflow for collection 'Respiratory Viruses' (batch pipeline; see output provenance for replay details)"
-        )
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "taxa-collection-extraction")
     }
 }

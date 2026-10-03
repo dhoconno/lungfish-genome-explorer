@@ -44,7 +44,7 @@ final class OperationCenterDependencySinkOperationTests: XCTestCase {
         // When the sink protocol carries a command, record it and replace this
         // pin with a parse test.
         XCTAssertNil(item.cliCommand)
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        assertCLIParityGap(item.cliCommand, id: "tools-update-subset")
     }
 
     func testItemRowsUseTheSameRowShape() throws {

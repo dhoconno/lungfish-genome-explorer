@@ -159,12 +159,11 @@ extension ViewerViewController {
     /// Registers the contig BLAST row for an assembly result and, only when it
     /// starts, calls `launch` with the operation ID. The run locks no bundle.
     ///
-    /// CLI parity gap. No `lungfish-cli` command BLASTs assembled contigs. The
-    /// closest is `lungfish-cli blast verify`, which covers a Kraken2
-    /// classification only and needs `--kreport`, `--kraken-output`,
-    /// `--source` and `--taxid`. The row keeps recording `blast verify` with no
-    /// arguments until a CLI command covers contig verification. The CLI
-    /// rejects that command, because the options above are required.
+    /// cli-parity-gap: blast-assembly. No `lungfish-cli` command BLASTs
+    /// assembled contigs. The closest is `lungfish-cli blast verify`, which
+    /// covers a Kraken2 classification only and needs `--kreport`,
+    /// `--kraken-output`, `--source` and `--taxid`. The row records no command
+    /// until a CLI command covers contig verification.
     @discardableResult
     static func beginAssemblyContigBlastVerificationOperation(
         sourceLabel: String,
@@ -175,7 +174,7 @@ extension ViewerViewController {
             title: "BLAST \(sourceLabel)",
             detail: "Preparing contig BLAST…",
             operationType: .blastVerification,
-            cliCommand: OperationCenter.buildCLICommand(subcommand: "blast verify", args: [])
+            cliCommand: nil
         )
         switch result {
         case .started(let operationID):

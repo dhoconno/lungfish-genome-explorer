@@ -539,8 +539,9 @@ extension SequenceViewerView {
     /// only when it starts, calls `launch` with the operation ID. The row locks
     /// no bundle and records no command.
     ///
-    /// CLI parity gap. The closest command is `extract sequence`, which writes
-    /// the extracted FASTA to a file or to standard output. The run builds a
+    /// cli-parity-gap: region-bundle-extraction. The closest command is
+    /// `extract sequence`, which writes the extracted FASTA to a file or to
+    /// standard output. The run builds a
     /// `.lungfishref` bundle from the extraction result, with the source
     /// bundle's annotation and variant tracks and an optional sample filter.
     /// No lungfish-cli command does that, so the row keeps recording no

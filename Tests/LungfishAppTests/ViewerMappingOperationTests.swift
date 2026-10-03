@@ -120,7 +120,7 @@ final class ViewerMappingOperationTests: XCTestCase {
 
     // MARK: - Alignment consensus, a CLI parity gap
 
-    func testAlignmentConsensusRecordsTodaysDescriptionAsAParityGap() throws {
+    func testAlignmentConsensusRecordsNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
         let region = ResolvedAlignmentRegion(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9)
         var launchedID: UUID?
@@ -138,19 +138,16 @@ final class ViewerMappingOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertNil(item.routeContext)
-        // CLI parity gap. No lungfish-cli command calls a consensus from a BAM
-        // or CRAM alignment. The closest is `msa consensus`, which reads a
-        // `.lungfishmsa` bundle. When a command that reads an alignment
-        // exists, record it and replace this pin with a parse test.
+        // No lungfish-cli command calls a consensus from a BAM or CRAM
+        // alignment. The closest is `msa consensus`, which reads a
+        // `.lungfishmsa` bundle, so the row records no command and its log
+        // names the scope and region.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "alignment-consensus")
         XCTAssertEqual(
-            item.cliCommand,
-            "Lungfish.app alignment consensus --scope selectedRegion --region chrSynthetic:4-9 --reference-fill never"
+            item.logs.map(\.message),
+            ["Consensus scope selectedRegion, region chrSynthetic:4-9, reference fill never"]
         )
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand)) { error in
-            guard case RecordedCLICommand.ParseError.notALungfishCLICommand = error else {
-                return XCTFail("The pin must fail because the text is not a lungfish-cli command, got \(error)")
-            }
-        }
     }
 
     func testAlignmentConsensusDescribesTheWholeContigScope() throws {
@@ -163,8 +160,8 @@ final class ViewerMappingOperationTests: XCTestCase {
         ) { _ in }
 
         XCTAssertEqual(
-            reporter.items.first?.cliCommand,
-            "Lungfish.app alignment consensus --scope wholeContig --region chrSynthetic:0-100 --reference-fill never"
+            reporter.items.first?.logs.map(\.message),
+            ["Consensus scope wholeContig, region chrSynthetic:0-100, reference fill never"]
         )
     }
 

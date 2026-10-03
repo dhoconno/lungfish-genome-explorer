@@ -26,11 +26,9 @@ extension AppDelegate {
     /// equivalent, `lungfish-cli import nvd <source> --output-dir <imports>`,
     /// which reaches the same `MetagenomicsImportService.importNvd`.
     ///
-    /// Partial CLI parity gap. The helper mode hands the managed samtools to
-    /// that service, which then marks duplicates in the copied BAM files and
-    /// counts unique reads. `lungfish-cli import nvd` hands it no samtools
-    /// path, so a pasted command skips both steps. The command parses, and a
-    /// test pins the exact string.
+    /// Both paths hand the managed samtools to that service, which marks
+    /// duplicates in the copied BAM files and counts unique reads, so the
+    /// recorded command reproduces the run. A test pins the exact string.
     @discardableResult
     static func beginNvdImportOperation(
         sourceURL: URL,
@@ -114,9 +112,9 @@ extension AppDelegate {
     /// builds its command or registers its own row, so no command exists to
     /// record.
     ///
-    /// CLI parity gap. The row records no command. The closest real command is
-    /// `lungfish-cli workflow run nf-core/viralrecon`, which the run's own row
-    /// records once it has a request to build it from.
+    /// cli-parity-exempt: not-an-operation. The row records no command. The
+    /// run's own row records `lungfish-cli workflow run nf-core/viralrecon`
+    /// once it has a request to build it from.
     @discardableResult
     static func beginViralReconLaunchFailureOperation(
         routeContext: OperationRouteContext?,

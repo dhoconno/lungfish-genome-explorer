@@ -21,7 +21,7 @@ import LungfishKitTestSupport
 final class FASTQDatasetViewControllerOperationTests: XCTestCase {
     private let fastqURL = URL(fileURLWithPath: "/tmp/lane 1a2g/Project.lungfish/Imports/Sample 1.lungfishfastq/reads.fastq.gz")
 
-    func testQualityReportRecordsItsRowAndTodaysDescriptionAsAParityGap() throws {
+    func testQualityReportRecordsItsRowAndNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
         var launchedID: UUID?
 
@@ -40,21 +40,12 @@ final class FASTQDatasetViewControllerOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertNil(item.routeContext)
-        // CLI parity gap. The run calls seqkit in process and stores the result
-        // in the dataset's metadata sidecar. The closest command is
-        // `fastq qc-summary`, which computes its statistics with FASTQReader and
-        // writes a JSON file. When a command reproduces the run, record it and
-        // replace this pin with a parse test.
-        XCTAssertEqual(
-            item.cliCommand,
-            "seqkit stats -a -T \(fastqURL.path) && (count Q20/Q30 bases)"
-                + " && seqkit head -n 100000 \(fastqURL.path) | (sampled quality analysis)"
-        )
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand)) { error in
-            guard case RecordedCLICommand.ParseError.notALungfishCLICommand = error else {
-                return XCTFail("The pin must fail because the text is not a lungfish-cli command, got \(error)")
-            }
-        }
+        // The run calls seqkit in process and stores the result in the
+        // dataset's metadata sidecar. The closest command is
+        // `fastq qc-summary`, which computes its statistics with FASTQReader
+        // and writes a JSON file, so the row records no command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "fastq-quality-report")
     }
 
     func testRefusedQualityReportLaunchesNothing() {

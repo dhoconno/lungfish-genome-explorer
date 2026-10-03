@@ -14,13 +14,13 @@ enum PrimerDesignOperation {
   /// with the operation ID. The row locks `destination`, the new
   /// `.lungfishprimeranalysis` bundle the run writes.
   ///
-  /// CLI parity gap. The row records no command when it starts. Once a native
-  /// tool launches, `start` replaces the command with that tool's argv
-  /// through `setCommand`, which is not a `lungfish-cli` command. The closest
+  /// cli-parity-gap: primer-design. The row records no command. Once a
+  /// native tool launches, `start` logs that tool's argv, which is not a
+  /// `lungfish-cli` command, so the row's history keeps it. The closest
   /// commands are `lungfish-cli primers design primer3`, `primalscheme3`,
   /// `olivar` and `varvamp`, which run the same pipelines. The app has no
   /// builder from the dialog's settings to those commands' options, so the row
-  /// keeps today's value until one exists.
+  /// records no command until one exists.
   @discardableResult
   static func beginPrimerDesignOperation(
     title: String,
@@ -66,7 +66,7 @@ enum PrimerDesignOperation {
               MainActor.assumeIsolated {
                 switch event {
                 case .started(let argv):
-                  center.setCommand(id: id, command: argv.map(shellEscape).joined(separator: " "))
+                  center.log(id: id, level: .info, message: "Native command: " + argv.map(shellEscape).joined(separator: " "))
                 case .output(_, let line):
                   // Stderr is commonly routine tool progress, not an error outcome.
                   center.log(id: id, level: .info, message: line)

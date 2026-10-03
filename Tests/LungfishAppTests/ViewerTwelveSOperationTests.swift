@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: MIT
 //
 // The 12S unresolved-sequence BLAST registers its row through a static begin
-// helper (R4). The row locks no bundle. It records the
-// `lungfish-cli fastq 12s-export-unresolved` command the run executes first,
-// and that command must parse with the values the run uses. The run then
-// submits the exported sequences to NCBI BLAST, which no lungfish-cli command
-// does, so the recorded command covers the first step only (a partial CLI
-// parity gap). A reporter that refuses every begin proves the launch closure
-// sits behind the `.started` case.
+// helper (R4). The row locks no bundle. The run executes
+// `lungfish-cli fastq 12s-export-unresolved` first and then submits the
+// exported sequences to NCBI BLAST, which no lungfish-cli command does. The
+// row records no command (CLI parity gap blast-12s-unresolved) and logs the
+// export command, which must parse with the values the run uses. A reporter
+// that refuses every begin proves the launch closure sits behind the
+// `.started` case.
 
 import XCTest
 @testable import LungfishApp
@@ -37,7 +37,14 @@ final class ViewerTwelveSOperationTests: XCTestCase {
         )
     }
 
-    func testTwelveSUnresolvedBlastRecordsItsRowAndARunnableExportCommand() throws {
+    /// The export command the row's log names.
+    private func loggedExportCommand(_ item: RecordingOperationReporter.Item) throws -> String {
+        let message = try XCTUnwrap(item.logs.first?.message)
+        XCTAssertTrue(message.hasPrefix(ViewerViewController.twelveSExportLogPrefix), message)
+        return String(message.dropFirst(ViewerViewController.twelveSExportLogPrefix.count))
+    }
+
+    func testTwelveSUnresolvedBlastRecordsItsRowAndLogsARunnableExportCommand() throws {
         let reporter = RecordingOperationReporter()
         var launchedID: UUID?
 
@@ -54,7 +61,11 @@ final class ViewerTwelveSOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertNil(item.routeContext)
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: FastqTwelveSExportUnresolvedSubcommand.self)
+        assertCLIParityGap(item.cliCommand, id: "blast-12s-unresolved")
+        let command = try RecordedCLICommand.parse(
+            try loggedExportCommand(item),
+            as: FastqTwelveSExportUnresolvedSubcommand.self
+        )
         XCTAssertEqual(command.bundle, bundleURL.path)
         XCTAssertEqual(command.minimumReads, 3)
         XCTAssertEqual(command.output, exportURL.path)
@@ -73,12 +84,13 @@ final class ViewerTwelveSOperationTests: XCTestCase {
         ) { _ in }
 
         let item = try XCTUnwrap(reporter.items.first)
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: FastqTwelveSExportUnresolvedSubcommand.self)
+        let exportCommand = try loggedExportCommand(item)
+        let command = try RecordedCLICommand.parse(exportCommand, as: FastqTwelveSExportUnresolvedSubcommand.self)
         XCTAssertEqual(command.sequenceIDs, [])
-        XCTAssertFalse(try XCTUnwrap(item.cliCommand).contains("--sequence-id"))
+        XCTAssertFalse(exportCommand.contains("--sequence-id"))
     }
 
-    func testTwelveSUnresolvedBlastRecordsTodaysCommandStringForThePartialGap() throws {
+    func testTwelveSUnresolvedBlastRecordsNoCommandAndLogsTheExportStringByteForByte() throws {
         let reporter = RecordingOperationReporter()
 
         ViewerViewController.beginTwelveSUnresolvedBlastOperation(
@@ -86,14 +98,15 @@ final class ViewerTwelveSOperationTests: XCTestCase {
             reporter: reporter
         ) { _ in }
 
-        // Partial CLI parity gap. The command exports the unresolved sequences
-        // to a FASTA file and stops there. The run then submits them to NCBI
-        // BLAST through BlastService, and no lungfish-cli command does that.
-        // The row recorded this string before the migration, so it must not
-        // drift. When a command that submits sequences exists, record it and
-        // extend this test.
+        // The export command stops at a FASTA file. The run then submits the
+        // sequences to NCBI BLAST through BlastService, and no lungfish-cli
+        // command does that, so the row records no command. The log keeps the
+        // export string the row recorded before, byte for byte.
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "blast-12s-unresolved")
         XCTAssertEqual(
-            reporter.items.first?.cliCommand,
+            try loggedExportCommand(item),
             "lungfish-cli fastq 12s-export-unresolved"
                 + " --bundle '/tmp/lane 1a2f/Project.lungfish/Analyses/12S Run/result.lungfish12s'"
                 + " --min-reads 3"

@@ -42,7 +42,7 @@ final class ViewerExtractionOperationTests: XCTestCase {
         // or standard output, and no command builds a `.lungfishref` bundle
         // with annotation and variant tracks from an extraction result.
         XCTAssertNil(item.cliCommand)
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        assertCLIParityGap(item.cliCommand, id: "region-bundle-extraction")
     }
 
     func testExtractionBundleLaunchesNothingWhenTheBeginIsRefused() throws {

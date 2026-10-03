@@ -187,7 +187,16 @@ public enum FASTQBundle {
     /// same records as reading the one file the sidecar was made from, plus
     /// any record in another member that repeats a listed ID, which is the
     /// rule a single file that repeats an ID already follows (R3).
+    ///
+    /// A deinterleaved or mixed derived root is its payload files in role
+    /// order (``derivedPayloadRootSequenceURLs(in:)``), whatever file is
+    /// recorded. That list is not a read order, so the materializer reads such
+    /// a root materialized instead (D1, Phase 1.5 lane A7).
     public static func rootSequenceURLs(rootFASTQFilename: String, in rootBundleURL: URL) throws -> [URL] {
+        // A deinterleaved or mixed derived root is every payload file, in role order (D1).
+        if let payloadURLs = try derivedPayloadRootSequenceURLs(in: rootBundleURL) {
+            return payloadURLs
+        }
         let recordedURL = try validatedBundleMemberURL(
             for: rootFASTQFilename,
             in: rootBundleURL,

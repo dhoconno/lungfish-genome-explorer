@@ -231,13 +231,12 @@ extension ViewerViewController {
     /// when it starts, calls `launch` with the operation ID. The run extracts
     /// reads from the sample's BAM and locks no bundle.
     ///
-    /// CLI parity gap. No `lungfish-cli` command BLASTs the reads of a
-    /// TaxTriage organism. The closest is `lungfish-cli blast verify`, which
-    /// covers a Kraken2 classification only and needs `--kreport`,
-    /// `--kraken-output`, `--source` and `--taxid`. The row keeps recording
-    /// `blast verify --organism <name>` until a CLI command covers TaxTriage
-    /// verification. The CLI rejects that command, because it needs the
-    /// options above and has no `--organism` option.
+    /// cli-parity-gap: blast-taxtriage. No `lungfish-cli` command BLASTs the
+    /// reads of a TaxTriage organism. The closest is
+    /// `lungfish-cli blast verify`, which covers a Kraken2 classification
+    /// only and needs `--kreport`, `--kraken-output`, `--source` and
+    /// `--taxid`. The row records no command until a CLI command covers
+    /// TaxTriage verification.
     @discardableResult
     static func beginTaxTriageBlastVerificationOperation(
         taxonName: String,
@@ -248,10 +247,7 @@ extension ViewerViewController {
             title: "BLAST \(taxonName)",
             detail: "Preparing BLAST verification…",
             operationType: .blastVerification,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "blast verify",
-                args: ["--organism", taxonName]
-            )
+            cliCommand: nil
         )
         switch result {
         case .started(let operationID):

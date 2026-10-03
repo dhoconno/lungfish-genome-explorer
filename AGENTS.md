@@ -11,6 +11,7 @@ This is the entry point for any agent working in the Lungfish Genome Explorer (L
 | `Sources/<Module>/AGENTS.md` | Module-specific purpose, allowed imports, entry points, owned contracts, test target and known traps |
 | [docs/contracts/README.md](docs/contracts/README.md) | Index of the written contracts |
 | [docs/contracts/ADDING-AN-OPERATION.md](docs/contracts/ADDING-AN-OPERATION.md) | The full path for a new operation, from Workflow service to CLI command to App runner |
+| [docs/contracts/CLI-EQUIVALENCE.md](docs/contracts/CLI-EQUIVALENCE.md) | What "every operation has a `lungfish-cli` equivalent" means, how a recorded command is tested and replayed, and how parity gaps are pinned and counted |
 | [docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md](docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md) | The leaf-module recipe for a new result viewer and every App touch point it needs today |
 | [docs/contracts/analysis-surface-checklist.md](docs/contracts/analysis-surface-checklist.md) | A copyable checklist to tick per surface |
 | [docs/contracts/CONCURRENCY-PLAYBOOK.md](docs/contracts/CONCURRENCY-PLAYBOOK.md) | MainActor dispatch, progress callbacks, generation counters and the ratcheted escape hatches |
@@ -62,7 +63,7 @@ These rules are not optional. Each one exists because breaking it caused a shipp
 | Rule | What it means |
 |---|---|
 | Register with `OperationCenter.begin` | Register every operation with `OperationCenter.shared.begin(...)` and switch on the result. A `.refused` result means a bundle lock conflicted, so launch nothing. `begin` has no default for `operationType` or `cliCommand`, so name both on every call, and pass `nil` for a run that no CLI command reproduces. `scripts/ratchets/unchecked-operation-start.sh` stays as a guard and reports 0. |
-| CLI parity | Every GUI operation must have a `lungfish-cli` equivalent that produces the same result, and the GUI records that command in the Operations panel. Shared logic lives in LungfishWorkflow so both paths run it. |
+| CLI parity | Every GUI operation must have a `lungfish-cli` equivalent that produces the same result, and the GUI records that command in the Operations panel. Shared logic lives in LungfishWorkflow so both paths run it. `docs/contracts/CLI-EQUIVALENCE.md` defines "same result", the gap markers and the `scripts/ratchets/cli-parity-gaps.sh` ratchet. |
 | Provenance envelope is mandatory | Every operation writes a provenance record through `ProvenanceEnvelope`. A run without provenance is a defect. |
 | BAM, never SAM | Alignments are stored as sorted, indexed BAM. Convert any SAM with samtools sort and index, then delete the SAM. |
 | Materialize virtual FASTQ first | A virtual FASTQ bundle holds only `preview.fastq`. Materialize it with `FASTQCLIMaterializer` before any classifier or mapper runs. |

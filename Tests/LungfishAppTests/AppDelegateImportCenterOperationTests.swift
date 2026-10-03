@@ -739,13 +739,12 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
             reporter: reporter
         ) { _ in }
 
-        // CLI parity gap. Several sources or a captured document snapshot have
-        // no single input file for `convert`. When a command covers them,
-        // record it and replace this pin with a parse test.
+        // Several sources or a captured document snapshot have no single
+        // input file for `convert`.
         let item = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(item.operationType, .export)
         XCTAssertNil(item.cliCommand)
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        assertCLIParityGap(item.cliCommand, id: "sequence-export-compressed-or-bundle")
     }
 
     func testCompressedSequenceExportRecordsNoCommandAsAParityGap() throws {
@@ -761,14 +760,14 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
                 reporter: reporter
             ) { _ in }
 
-            // CLI parity gap. `convert` writes no compressed output.
+            // `convert` writes no compressed output.
             let item = try XCTUnwrap(reporter.items.first)
             XCTAssertNil(item.cliCommand, "\(compression) export has no convert equivalent")
-            XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+            assertCLIParityGap(item.cliCommand, id: "sequence-export-compressed-or-bundle")
         }
     }
 
-    func testBatchSequenceExportRecordsItsRowAndTheFirstConvertCommandAsAParityGap() throws {
+    func testBatchSequenceExportRecordsItsRowAndNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = makeRouteContext()
         let outputFolder = URL(fileURLWithPath: "/tmp/lane 1a2/Exports", isDirectory: true)
@@ -797,27 +796,10 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
 
-        // CLI parity gap. One `convert` command exports one bundle and no
-        // command covers the batch, so the row records the first command and a
-        // note that counts the rest. The whole string does not parse. When a
-        // batch command exists, record it and replace this pin with a parse
-        // test.
-        let commands = AppDelegate.batchSequenceExportCLICommands(
-            for: bundles,
-            outputFolder: outputFolder,
-            format: .genbank,
-            compression: .none
-        )
-        XCTAssertEqual(commands.count, 3)
-        XCTAssertEqual(item.cliCommand, "\(commands[0])\n# ... 2 more export command(s)")
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
-        // The first line is a runnable export of the first bundle.
-        let firstLine = try XCTUnwrap(item.cliCommand?.components(separatedBy: "\n").first)
-        let first = try RecordedCLICommand.parse(firstLine, as: ConvertCommand.self)
-        XCTAssertEqual(first.input, bundles[0].path)
-        XCTAssertEqual(first.outputFile, outputFolder.appendingPathComponent("Alpha.gb").path)
-        XCTAssertEqual(first.toFormat, "genbank")
-        XCTAssertTrue(first.includeAnnotations)
+        // One `convert` command exports one bundle and no command covers the
+        // batch, so the row records no command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "sequence-export-batch")
     }
 
     func testCompressedBatchSequenceExportRecordsNoCommandAsAParityGap() throws {
@@ -838,7 +820,7 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
         let item = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(item.title, "Exporting 2 sequence files")
         XCTAssertNil(item.cliCommand)
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        assertCLIParityGap(item.cliCommand, id: "sequence-export-batch")
     }
 
     // MARK: - Sites with no lock launch nothing when the begin is refused

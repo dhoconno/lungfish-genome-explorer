@@ -56,6 +56,7 @@ final class ReferenceBundleMergeOperationTests: XCTestCase {
         // The closest is `bundle create`. When a merge command exists, record
         // it and replace this pin with a parse test.
         XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "reference-bundle-merge")
         XCTAssertEqual(item.state, .failed)
         XCTAssertEqual(item.failure?.errorMessage, "Select at least two reference bundles to merge.")
         XCTAssertEqual(item.logs.first?.message, "Merging 1 reference bundles into \"Merged\".")

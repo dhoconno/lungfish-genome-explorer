@@ -53,8 +53,8 @@ final class AnnotationTableDrawerViewOperationTests: XCTestCase {
     }
 
     func testVariantStorageMutationRecordsItsTypeAndLockAndNoCommandAsAParityGap() throws {
-        let titles = ["Variant deletion", "Delete all variants", "Sample metadata import"]
-        for title in titles {
+        var commands: [String: String?] = [:]
+        for title in ["Variant deletion", "Delete all variants", "Sample metadata import"] {
             let reporter = RecordingOperationReporter()
             let routeContext = OperationRouteContext(
                 projectURL: URL(fileURLWithPath: "/tmp/lane 1a2/Project.lungfish"),
@@ -82,8 +82,12 @@ final class AnnotationTableDrawerViewOperationTests: XCTestCase {
             // When an edit command exists, record it and replace this pin
             // with a parse test.
             XCTAssertNil(item.cliCommand)
-            XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+            commands[title] = item.cliCommand
         }
+        // One gap per edit, each with its own ID.
+        assertCLIParityGap(try XCTUnwrap(commands["Variant deletion"]), id: "variant-delete-selected")
+        assertCLIParityGap(try XCTUnwrap(commands["Delete all variants"]), id: "variant-delete-all")
+        assertCLIParityGap(try XCTUnwrap(commands["Sample metadata import"]), id: "variant-sample-metadata")
     }
 
     /// The drawer's own entry point registers its row through the helper, on

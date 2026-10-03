@@ -218,6 +218,10 @@ extension MainSplitViewController {
     /// `launch` with the operation ID. The row locks the new order folder,
     /// `destinationURL`, and records the command
     /// ``primerOrderExportCLICommand(draft:metadata:destinationURL:)`` builds.
+    ///
+    /// cli-parity-gap: primer-order-export-custom-view. A PrimalScheme draft
+    /// whose view settings differ from the defaults records no command,
+    /// because the CLI captures the default view.
     @discardableResult
     static func beginPrimerOrderExportOperation(
         title: String,
@@ -253,9 +257,9 @@ extension MainSplitViewController {
     /// its candidate pairs, an Olivar or varVAMP draft names selected or all
     /// reported assays, and a PrimalScheme draft names the displayed oligos.
     /// The CLI captures the default view, so a PrimalScheme draft whose view
-    /// settings differ from the defaults has no command that reproduces it.
-    /// That is a CLI parity gap, and the row records no command for it. The
-    /// other scopes ignore the view settings.
+    /// settings differ from the defaults has no command that reproduces it,
+    /// and the function returns nil for it. The other scopes ignore the view
+    /// settings.
     static func primerOrderExportCLICommand(
         draft: PrimerOrderDraft,
         metadata: PrimerOrderMetadata,
@@ -430,9 +434,9 @@ extension MainSplitViewController {
     /// `launch` with the operation ID. The row locks the new export folder,
     /// `destinationURL`, and records no command.
     ///
-    /// CLI parity gap. No lungfish-cli command writes a primer FASTA bundle or
-    /// extracts the reference amplicon for a selected primer, amplicon or
-    /// pool. The closest is `primers analysis annotated-reference`, which
+    /// cli-parity-gap: primer-selection-export. No lungfish-cli command writes
+    /// a primer FASTA bundle or extracts the reference amplicon for a selected
+    /// primer, amplicon or pool. The closest is `primers analysis annotated-reference`, which
     /// writes the whole Primer3 template of one result as an annotated
     /// reference bundle. The row keeps recording no command until a selection
     /// export command exists.

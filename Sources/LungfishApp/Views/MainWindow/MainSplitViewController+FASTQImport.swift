@@ -142,7 +142,7 @@ extension MainSplitViewController {
                 detail: "Importing \(url.lastPathComponent)...",
                 operationType: .bundleBuild,
                 targetBundleURL: bundleURL,
-                cliCommand: nil,
+                cliCommand: nil, // cli-parity-gap: annotation-attach-sidebar-drop. No command attaches a track.
                 routeContext: operationRouteContext
             )
             guard case .started(let opID) = startResult else {

@@ -35,7 +35,7 @@ final class ViewerEsVirituOperationTests: XCTestCase {
         XCTAssertNil(item.routeContext)
     }
 
-    func testDetectionBlastRowPinsTodaysCommandAsAParityGap() throws {
+    func testDetectionBlastRowRecordsNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
 
         ViewerViewController.beginEsVirituBlastVerificationOperation(
@@ -44,18 +44,10 @@ final class ViewerEsVirituOperationTests: XCTestCase {
         ) { _ in }
 
         let item = try XCTUnwrap(reporter.items.first)
-        // CLI parity gap. No lungfish-cli command BLASTs the reads of an
-        // EsViritu detection. The closest is `blast verify`, which covers a
-        // Kraken2 classification only. It needs --kreport, --kraken-output,
-        // --source and --taxid, and it has no --virus option. When a command
-        // covers EsViritu detections, record it and replace this pin with a
-        // parse test.
-        XCTAssertEqual(item.cliCommand, "lungfish-cli blast verify --virus 'Hepatitis B virus'")
-        XCTAssertEqual(
-            try RecordedCLICommand.arguments(of: item.cliCommand),
-            ["blast", "verify", "--virus", "Hepatitis B virus"]
-        )
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        // No lungfish-cli command BLASTs the reads of an EsViritu detection, so
+        // the row records no command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "blast-esviritu")
     }
 
     func testDetectionBlastLaunchesNothingWhenTheBeginIsRefused() {

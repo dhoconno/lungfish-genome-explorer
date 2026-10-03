@@ -72,10 +72,10 @@ class FullSuiteGateTierTests(unittest.TestCase):
     def test_unit_tier_skip_is_composed_from_integration_and_conformance(self):
         gate = _gate_text()
         self.assertIn(
-            'INTEGRATION_FILTER="^LungfishIntegrationTests\\\\.|${CLI_E2E_SUITES}|${STORAGE_SUITES}|${PARALLEL_HAZARD_SUITES}"',
+            'INTEGRATION_FILTER="^LungfishIntegrationTests\\\\.|${CLI_E2E_SUITES}|${STORAGE_SUITES}|${PARALLEL_HAZARD_SUITES}|${REPLAY_SUITES}"',
             gate,
             "INTEGRATION_FILTER must be composed from the CLI + storage + "
-            "parallel-hazard variables",
+            "parallel-hazard + replay variables",
         )
         self.assertIn(
             'SKIP="${INTEGRATION_FILTER}|${CONFORMANCE_FILTER}"',
@@ -118,6 +118,26 @@ class FullSuiteGateTierTests(unittest.TestCase):
         self.assertEqual(integration["skip"], "")
         self.assertFalse(unit["requireTools"])
         self.assertFalse(integration["requireTools"])
+
+    def test_app_replay_suites_run_serially_in_the_integration_tier_by_name(self):
+        # docs/contracts/CLI-EQUIVALENCE.md: a LungfishAppTests class whose
+        # name ends in ReplayTests replays a recorded command with real tools.
+        unit = _legacy_selection("unit")
+        integration = _legacy_selection("integration")
+        for case in (
+            "LungfishAppTests.CLIReplayHarnessReplayTests/testBAMFilterReplaysToTheSameBundle",
+            "LungfishAppTests.BlastSubmitReplayTests/testReplay",
+        ):
+            with self.subTest(case=case):
+                self.assertRegex(case, unit["skip"])
+                self.assertRegex(case, integration["filter"])
+        for case in (
+            "LungfishWorkflowTests.LocalWorkflowRunReplayTests/testCompletedManifestRetainsExactTypedRequestForConfigurationReopening",
+            "LungfishAppTests.FASTQOperationReplayParityTests/testX",
+            "LungfishAppTests.ReplayTestsHelperTests/testX",
+        ):
+            with self.subTest(case=case):
+                self.assertNotRegex(case, integration["filter"])
 
     def test_unit_tier_implies_parallel(self):
         gate = _gate_text()
