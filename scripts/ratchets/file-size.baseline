@@ -15,7 +15,7 @@ Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1689
 Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 803
 Sources/LungfishApp/Services/FASTQIngestionService.swift 1338
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 858
-Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1337
+Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1334
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1232
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
 Sources/LungfishApp/Services/ReferenceBundleMergeService.swift 1056
@@ -212,7 +212,7 @@ Sources/LungfishWorkflow/ONTGenotyping/GenotypeReviewableRowCatalogPublisher.swi
 Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift 1110
 Sources/LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift 5718
 Sources/LungfishWorkflow/ONTGenotyping/ONTGenotypingPipeline.swift 840
-Sources/LungfishWorkflow/ONTGenotyping/ONTPacBioBarcodeDemuxMaterializer.swift 1163
+Sources/LungfishWorkflow/ONTGenotyping/ONTPacBioBarcodeDemuxMaterializer.swift 1147
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3AlleleContract.swift 1231
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3CoverageContract.swift 930
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift 1338
