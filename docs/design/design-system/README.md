@@ -1,5 +1,16 @@
 Lungfish is an open-source environmental surveillance research collaborative. This system covers its public face (the docs site, the user manual and site-facing material) and the Lungfish Genome Explorer (LGE) macOS app. The stance is clarity, not alarm. Be calm, precise and useful.
 
+## Where each rule applies
+
+The system serves two surfaces with different type rules.
+
+| Surface | Fonts | What carries the brand |
+|---|---|---|
+| The macOS app (GUI) | Apple system fonts only, SF Pro and SF Mono through the system font APIs | Color, shape, spacing, icon wells and copy |
+| Docs, Read the Docs manual, site, slides and print | Space Grotesk, Inter and IBM Plex Mono | Everything in this system |
+
+When you work in the GUI, Apple's fonts and the macOS Human Interface Guidelines come first. Never set a brand face in the app, and never let a docs rule override a system font. Color, spacing, radius and voice rules apply to both surfaces.
+
 ## Content fundamentals
 
 - Write the name in title case as one word, and call Lungfish a collaborative, never a company or product.
@@ -41,16 +52,19 @@ The app's asset-catalog accent is `lungfish-orange`. The brand manual's canonica
 
 Never use a traffic-light red, amber and green set, and never let a dot carry meaning alone. Base colors are user-adjustable defaults and the only saturated colors outside the palette.
 
-## Typography
+## Typography in the app
+
+The GUI uses the macOS system fonts. Set text with `.font(.system(...))` or `NSFont.systemFont` and use `.monospaced` or `NSFont.monospacedSystemFont` for sequence letters and numeric columns. Prefer the semantic text styles (`.headline`, `.subheadline`, `.caption`) where a view already uses them, and keep the `app-*` sizes where a view sets a size directly. The `system` and `system-mono` families stand in for SF Pro and SF Mono in web previews only.
+
+## Typography in docs and the site
 
 | Role | Face | Styles |
 |---|---|---|
 | Display and headings | Space Grotesk | `display` 700, `heading-2` and `heading-3` 500 |
 | Body and labels | Inter | `body` 400, `eyebrow` 600 uppercase and tracked |
-| Code, CLI, data and sequence | IBM Plex Mono | `code`, `app-mono` |
-| macOS app | System font (SF Pro) | the `app-*` styles |
+| Code, CLI, data and sequence | IBM Plex Mono | `code` |
 
-Fall back to Arial for Space Grotesk and Inter, and to Consolas for Plex Mono. All three brand faces are free on Google Fonts. Do not ship them inside the app.
+Fall back to Arial for Space Grotesk and Inter, and to Consolas for Plex Mono. All three brand faces are free on Google Fonts. They never ship inside the app.
 
 Every H1 gets the Creamsicle bar, `accent-bar-width` by `accent-bar-height` in `creamsicle`, flush left beneath it. After the logo it is the most consistent brand element. Keep line length at or under 68ch.
 
@@ -80,6 +94,6 @@ The app icon is the only mark in this system. Show it on `cream` or `deep-ink` o
 ## Not synced
 
 - The brand wordmark and monogram are not in the repository. Set the name in plain type until those files are added.
-- Brand font files are not in the repository. Load the three faces from Google Fonts.
+- Brand font files are not in the repository. Docs load the three faces from Google Fonts.
 - The app is SwiftUI, so there is no web component library. The component cards are static web renditions hand-written from the Welcome window, the operation preview view and the site theme.
 - System semantic colors in read views (`systemGreen`, `systemYellow`, `systemOrange`, `systemIndigo`, `systemPurple`) and the manual's preview banner are not placed.

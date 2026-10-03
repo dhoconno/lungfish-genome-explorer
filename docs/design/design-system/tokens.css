@@ -103,4 +103,5 @@
   --font-sans: Inter, Arial, sans-serif;
   --font-mono: "IBM Plex Mono", Consolas, monospace;
   --font-system: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-system-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
