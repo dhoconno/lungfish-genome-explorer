@@ -738,10 +738,8 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "lungfish import fastq")
         XCTAssertEqual(envelope.toolName, "lungfish import fastq")
         XCTAssertEqual(envelope.exitStatus, 0)
-        XCTAssertEqual(
-            envelope.options.defaults["platform"],
-            .string(IngestionPlatform.illumina.rawValue)
-        )
+        // The default platform is auto (inference), no longer Illumina.
+        XCTAssertEqual(envelope.options.defaults["platform"], .string("auto"))
         XCTAssertEqual(envelope.options.defaults["threads"], .integer(4))
         XCTAssertEqual(envelope.options.defaults["optimizeStorage"], .boolean(true))
         XCTAssertEqual(envelope.options.resolvedDefaults["threads"], .integer(1))
