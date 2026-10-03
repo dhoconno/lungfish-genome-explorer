@@ -117,6 +117,83 @@ final class ReadSetResolverLayoutTests: XCTestCase {
         XCTAssertTrue(plan.recordsNothingNew)
     }
 
+    /// Lead A F3. After lane B1 a CLI import with unrecognised headers
+    /// records `unknown`, and no importer writes a paired chunked root, so
+    /// chunks pair by name only when a short-read platform is recorded.
+    func testChunkedRootWithUnknownPlatformStaysSingleReads() async throws {
+        let plan = try await plan(fixtures.unknownPlatformChunkedRoot)
+        XCTAssertEqual(plan.sequencingPlatform, .unknown)
+        XCTAssertEqual(plan.sourceLayout, .multiFileRoot)
+        XCTAssertTrue(plan.matePairs.isEmpty)
+        XCTAssertEqual(plan.singleReads.map { $0.url.lastPathComponent }, ["x_1.fastq", "x_2.fastq"])
+    }
+
+    func testChunkedRootWithNoPlatformStaysSingleReads() async throws {
+        try FileManager.default.removeItem(at: FASTQMetadataStore.metadataURL(
+            for: fixtures.namedPairChunkedRoot.appendingPathComponent("chunks/sample_R1.fastq")
+        ))
+        let plan = try await plan(fixtures.namedPairChunkedRoot)
+        XCTAssertNil(plan.sequencingPlatform)
+        XCTAssertTrue(plan.matePairs.isEmpty)
+        XCTAssertEqual(plan.singleReads.count, 2)
+    }
+
+    /// A root that is not chunked and holds exactly two files named as
+    /// mates keeps the file-name rule, whatever the platform records.
+    func testLegacyRootWithTwoNamedFilesIsOnePair() async throws {
+        let legacy = fixtures.importsURL.appendingPathComponent("legacy-pair.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try ReadSetFixtures.fastq(["w1/1"]).write(to: legacy.appendingPathComponent("w_R1.fastq"), atomically: true, encoding: .utf8)
+        try ReadSetFixtures.fastq(["w1/2"]).write(to: legacy.appendingPathComponent("w_R2.fastq"), atomically: true, encoding: .utf8)
+        let plan = try await plan(legacy)
+        XCTAssertEqual(plan.sourceLayout, .pairedFiles)
+        XCTAssertEqual(plan.matePairs.count, 1)
+    }
+
+    /// Lead A F1. A root whose only FASTQ is the preview is never planned
+    /// as the sample, which would analyse a 1,000-read subset silently.
+    func testRootHoldingOnlyThePreviewThrows() async throws {
+        let previewOnly = fixtures.importsURL.appendingPathComponent("preview-only.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: previewOnly, withIntermediateDirectories: true)
+        try ReadSetFixtures.fastq(["z1"]).write(to: previewOnly.appendingPathComponent("preview.fastq"), atomically: true, encoding: .utf8)
+        do {
+            _ = try await plan(previewOnly)
+            XCTFail("a preview is not the sample")
+        } catch let error as ReadSetResolverError {
+            guard case .noReads = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workDirectory.path))
+    }
+
+    /// Lead A F2. A materialized file that ends inside a record stops the
+    /// plan instead of being read as single reads.
+    func testTruncatedMaterializationThrows() async throws {
+        let truncated = ReadSetFixtures.StubMaterializer(readsByBundlePath: [
+            fixtures.subsetOfSingle.standardizedFileURL.path: ReadSetFixtures.fastq(["s1"]) + "@s3\nACGT\n",
+        ])
+        let resolver = ReadSetResolver(materializationDirectory: workDirectory, materializer: truncated)
+        do {
+            _ = try await resolver.plan(for: fixtures.subsetOfSingle, capability: .bothInOneRunAsSeparateFiles)
+            XCTFail("a truncated materialization must stop the plan")
+        } catch is FASTQPairInterleaver.InterleaveError {
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workDirectory.path))
+    }
+
+    func testUnreadableMaterializationThrows() async throws {
+        struct Vanishing: CLISequenceInputMaterializing, Sendable {
+            func materialize(bundleURL: URL, tempDirectory: URL, progress: (@Sendable (String) -> Void)?) async throws -> URL {
+                tempDirectory.appendingPathComponent("never-written.fastq")
+            }
+        }
+        let resolver = ReadSetResolver(materializationDirectory: workDirectory, materializer: Vanishing())
+        do {
+            _ = try await resolver.plan(for: fixtures.subsetOfSingle, capability: .bothInOneRunAsSeparateFiles)
+            XCTFail("an unreadable materialization must stop the plan")
+        } catch {
+        }
+    }
+
     // MARK: - Physical derivatives
 
     func testFullDerivativeOfSingleReadsIsSingleReads() async throws {

@@ -27,8 +27,11 @@ public struct ReadSetFixtures: Sendable {
     /// L4 from an Oxford Nanopore import whose two chunks are named `x_1`
     /// and `x_2`, which the file-name rule would call mates.
     public let nanoporeChunkedRoot: URL
-    /// L4 of a short-read run whose two chunks are named as R1 and R2.
+    /// L4 of an Illumina run whose two chunks are named as R1 and R2.
     public let namedPairChunkedRoot: URL
+    /// L4 whose sidecar records no known platform (`unknown`) and whose two
+    /// chunks are named `x_1` and `x_2`.
+    public let unknownPlatformChunkedRoot: URL
     /// L5a, a `full` derivative of single reads g1 and g2.
     public let fullDerivative: URL
     /// L5a, a `full` derivative of a re-imported `fastq merge` output:
@@ -112,7 +115,12 @@ public struct ReadSetFixtures: Sendable {
         sidecar(nanoporeChunks[0], platform: .oxfordNanopore)
 
         namedPairChunkedRoot = try bundle("named-pair")
-        try Self.chunks(in: namedPairChunkedRoot, [("sample_R1.fastq", ["q1/1"]), ("sample_R2.fastq", ["q1/2"])])
+        let namedPairChunks = try Self.chunks(in: namedPairChunkedRoot, [("sample_R1.fastq", ["q1/1"]), ("sample_R2.fastq", ["q1/2"])])
+        sidecar(namedPairChunks[0], platform: .illumina)
+
+        unknownPlatformChunkedRoot = try bundle("unknown-platform")
+        let unknownChunks = try Self.chunks(in: unknownPlatformChunkedRoot, [("x_1.fastq", ["v1"]), ("x_2.fastq", ["v2"])])
+        sidecar(unknownChunks[0], platform: .unknown)
 
         fullDerivative = try bundle("full")
         try write(["g1", "g2"], to: fullDerivative.appendingPathComponent("reads.fastq"))
@@ -269,6 +277,10 @@ public struct ReadSetFixtures: Sendable {
         }
 
         public let readsByBundlePath: [String: String]
+
+        public init(readsByBundlePath: [String: String]) {
+            self.readsByBundlePath = readsByBundlePath
+        }
 
         public func materialize(
             bundleURL: URL,
