@@ -34,7 +34,7 @@ final class ViewerAssemblyOperationTests: XCTestCase {
         XCTAssertNil(item.routeContext)
     }
 
-    func testContigBlastRowPinsTodaysCommandAsAParityGap() throws {
+    func testContigBlastRowRecordsNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
 
         ViewerViewController.beginAssemblyContigBlastVerificationOperation(
@@ -43,14 +43,10 @@ final class ViewerAssemblyOperationTests: XCTestCase {
         ) { _ in }
 
         let item = try XCTUnwrap(reporter.items.first)
-        // CLI parity gap. No lungfish-cli command BLASTs assembled contigs. The
-        // closest is `blast verify`, which covers a Kraken2 classification
-        // only and needs --kreport, --kraken-output, --source and --taxid. When
-        // a command covers contigs, record it and replace this pin with a
-        // parse test.
-        XCTAssertEqual(item.cliCommand, "lungfish-cli blast verify")
-        XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), ["blast", "verify"])
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        // No lungfish-cli command BLASTs assembled contigs, so the row records
+        // no command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "blast-assembly")
     }
 
     func testContigBlastLaunchesNothingWhenTheBeginIsRefused() {

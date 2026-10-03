@@ -78,6 +78,6 @@ final class InspectorMetadataImportOperationTests: XCTestCase {
         // a removal command exists, record it and replace this pin with a
         // parse test.
         XCTAssertNil(item.cliCommand)
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        assertCLIParityGap(item.cliCommand, id: "alignment-track-remove")
     }
 }

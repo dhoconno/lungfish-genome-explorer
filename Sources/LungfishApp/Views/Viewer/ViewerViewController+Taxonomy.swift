@@ -551,9 +551,10 @@ extension ViewerViewController {
     /// it starts, calls `launch` with the operation ID. The run writes into
     /// the classification folder and locks no bundle.
     ///
-    /// CLI parity gap. No `lungfish-cli` command extracts a whole collection.
-    /// The closest is `lungfish-cli conda extract`, run once per taxon. The
-    /// row keeps recording today's note until a CLI command covers the batch.
+    /// cli-parity-gap: taxa-collection-extraction. No `lungfish-cli` command
+    /// extracts a whole collection. The closest is `lungfish-cli conda
+    /// extract`, run once per taxon. The row records no command until a CLI
+    /// command covers the batch.
     @discardableResult
     static func beginTaxaCollectionExtractionOperation(
         collection: TaxaCollection,
@@ -565,7 +566,7 @@ extension ViewerViewController {
             title: "Extract \(collection.name)",
             detail: "Preparing batch extraction\u{2026}",
             operationType: .taxonomyExtraction,
-            cliCommand: "# Taxonomy Read Extraction workflow for collection '\(collection.name)' (batch pipeline; see output provenance for replay details)",
+            cliCommand: nil,
             routeContext: routeContext
         )
         switch result {

@@ -16,12 +16,11 @@ extension ViewerViewController {
     /// Registers the alignment consensus row and, only when it starts, calls
     /// `launch` with the operation ID. The row locks no bundle.
     ///
-    /// CLI parity gap. No lungfish-cli command calls a consensus from a BAM or
-    /// CRAM alignment. The closest is `msa consensus`, which reads a
-    /// `.lungfishmsa` bundle. The row keeps recording the
-    /// `Lungfish.app alignment consensus` description it has always recorded.
-    /// That text does not start with `lungfish-cli` and does not parse. A
-    /// command that calls a consensus from an alignment would replace it.
+    /// cli-parity-gap: alignment-consensus. No lungfish-cli command calls a
+    /// consensus from a BAM or CRAM alignment. The closest is `msa consensus`,
+    /// which reads a `.lungfishmsa` bundle. The row records no command. It
+    /// used to record a `Lungfish.app alignment consensus` description, which
+    /// does not parse, so the row's log names the scope and region instead.
     @discardableResult
     static func beginAlignmentConsensusGenerationOperation(
         region: ResolvedAlignmentRegion,
@@ -32,10 +31,15 @@ extension ViewerViewController {
             title: "Generate Alignment Consensus",
             detail: "Calling evidence-only consensus…",
             operationType: .export,
-            cliCommand: "Lungfish.app alignment consensus --scope \(region.scope.rawValue) --region \(region.contig):\(region.start)-\(region.end) --reference-fill never"
+            cliCommand: nil
         )
         switch result {
         case .started(let operationID):
+            reporter.log(
+                id: operationID,
+                level: .info,
+                message: "Consensus scope \(region.scope.rawValue), region \(region.contig):\(region.start)-\(region.end), reference fill never"
+            )
             launch(operationID)
         case .refused:
             break // The panel already shows the refused row. Nothing was launched.

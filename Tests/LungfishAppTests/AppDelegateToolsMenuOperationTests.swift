@@ -157,12 +157,11 @@ final class AppDelegateToolsMenuOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // CLI parity gap. The failure happens before the run builds its
-        // command, so the row records none. The closest real command is
-        // `workflow run nf-core/viralrecon`. When a command can stand behind
-        // this row, record it and replace this pin with a parse test.
+        // cli-parity-exempt: not-an-operation. The failure happens before the
+        // run builds its command, so the row records none. The run's own row
+        // records `workflow run nf-core/viralrecon`.
         XCTAssertNil(item.cliCommand)
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        XCTAssertThrowsError(try RecordedCLICommand.parseScript(item.cliCommand))
     }
 
     func testViralReconLaunchFailureLeavesAFailedRowThatCarriesTheReason() throws {

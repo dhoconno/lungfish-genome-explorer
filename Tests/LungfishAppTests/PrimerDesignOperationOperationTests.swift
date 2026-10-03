@@ -5,9 +5,9 @@
 // The primer design row locks the analysis bundle it writes (R4). A held lock
 // must refuse the row and launch no worker. The run has no recorded
 // lungfish-cli command yet, because the app has no builder from the dialog's
-// settings to `lungfish-cli primers design`. Its tests pin today's values, the
-// nil command at begin and the native tool argv that arrives through
-// `setCommand`, so a command added later fails here and prompts a parse test.
+// settings to `lungfish-cli primers design`. Its tests pin the nil command
+// (CLI parity gap primer-design) and check that the native tool argv goes to
+// the row's log, so a command added later fails here and prompts a parse test.
 
 import XCTest
 import LungfishKit
@@ -80,12 +80,12 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
         // the row records no command when it starts. When one exists, record
         // it and replace this pin with a parse test.
         XCTAssertNil(item.cliCommand)
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        assertCLIParityGap(item.cliCommand, id: "primer-design")
     }
 
     // MARK: - start
 
-    func testTheNativeToolArgvReplacesTheCommandAndDoesNotParseAsALungfishCommand() async throws {
+    func testTheNativeToolArgvGoesToTheLogAndTheRowRecordsNoCommand() async throws {
         let reporter = RecordingOperationReporter()
         let gate = AsyncStream<Void>.makeStream()
         let argv = ["/path with spaces/primer3_core", "--format_output", "/tmp/lane 1a2/primer3 input.txt"]
@@ -103,17 +103,12 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
             onResultSaved: { _ in }
         )
 
-        XCTAssertNil(reporter.item(handle.id)?.cliCommand, "the row starts with no command")
-        await waitUntil { reporter.item(handle.id)?.cliCommand != nil }
-        let command = try XCTUnwrap(reporter.item(handle.id)?.cliCommand)
-        // CLI parity gap. The native argv is what the row records today, and it
-        // is not a lungfish-cli command.
-        XCTAssertEqual(command, argv.map(shellEscape).joined(separator: " "))
-        XCTAssertThrowsError(try RecordedCLICommand.parse(command)) { error in
-            guard case RecordedCLICommand.ParseError.notALungfishCLICommand = error else {
-                return XCTFail("expected a command that is not lungfish-cli, got \(error)")
-            }
-        }
+        let expectedLog = "Native command: " + argv.map(shellEscape).joined(separator: " ")
+        await waitUntil { reporter.item(handle.id)?.logs.contains { $0.message == expectedLog } == true }
+        // The native argv is not a lungfish-cli command, so it goes to the
+        // row's log and the row keeps recording no command.
+        XCTAssertNil(reporter.item(handle.id)?.cliCommand)
+        assertCLIParityGap(reporter.item(handle.id)?.cliCommand, id: "primer-design")
         gate.continuation.finish()
         await handle.task.value
         XCTAssertEqual(reporter.item(handle.id)?.state, .completed)

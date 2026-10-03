@@ -135,8 +135,9 @@ extension InspectorViewController {
     /// calls `launch` with the operation ID. The row locks `bundleURL` and
     /// records no command.
     ///
-    /// CLI parity gap. No lungfish-cli command removes an alignment track from
-    /// a bundle, because only the app calls `BundleAlignmentTrackRemovalService`.
+    /// cli-parity-gap: alignment-track-remove. No lungfish-cli command removes
+    /// an alignment track from a bundle, because only the app calls
+    /// `BundleAlignmentTrackRemovalService`.
     /// The closest is `bam filter`, which creates the derived tracks this
     /// removes. The row keeps recording no command until a removal command
     /// exists.

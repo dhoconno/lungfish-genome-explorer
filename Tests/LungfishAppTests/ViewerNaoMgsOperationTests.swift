@@ -36,7 +36,7 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
         XCTAssertNil(item.routeContext)
     }
 
-    func testTaxonBlastRowPinsTodaysCommandAsAParityGap() throws {
+    func testTaxonBlastRowRecordsNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
 
         ViewerViewController.beginNaoMgsBlastVerificationOperation(
@@ -46,14 +46,10 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
         ) { _ in }
 
         let item = try XCTUnwrap(reporter.items.first)
-        // CLI parity gap. No lungfish-cli command BLASTs the reads of a
-        // NAO-MGS taxon. The closest is `blast verify`, which covers a Kraken2
-        // classification only and also needs --kreport, --kraken-output and
-        // --source. When a command covers NAO-MGS taxa, record it and replace
-        // this pin with a parse test.
-        XCTAssertEqual(item.cliCommand, "lungfish-cli blast verify --taxid 11320")
-        XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), ["blast", "verify", "--taxid", "11320"])
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        // No lungfish-cli command BLASTs the reads of a NAO-MGS taxon, so the
+        // row records no command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "blast-nao-mgs")
     }
 
     func testTaxonBlastLaunchesNothingWhenTheBeginIsRefused() {

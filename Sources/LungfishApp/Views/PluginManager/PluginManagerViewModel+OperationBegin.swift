@@ -22,12 +22,12 @@ extension PluginManagerViewModel {
     /// `PluginPackStatusProviding.install` call as the run, with `reinstall`
     /// false.
     ///
-    /// CLI parity gap for a reinstall. `conda install` has no option that
+    /// cli-parity-gap: plugin-reinstall. `conda install` has no option that
     /// reinstalls a pack, because its `--overwrite` flag applies only to an
     /// offline pack bundle. A reinstall run passes `reinstall` true, which
     /// recreates the pack's environments instead of installing only what is
-    /// missing. The reinstall row keeps recording the plain install command,
-    /// which is the closest command, and the title and detail say which one ran.
+    /// missing. The reinstall row records no command. The plain install
+    /// command is the closest, and it does not reproduce a reinstall.
     @discardableResult
     static func beginPluginPackOperation(
         pack: PluginPack,
@@ -39,7 +39,7 @@ extension PluginManagerViewModel {
             title: "Plugin Pack: \(pack.name)",
             detail: "\(reinstall ? "Preparing to reinstall" : "Preparing to install") \(pack.name)",
             operationType: .condaPluginPack,
-            cliCommand: OperationCenter.buildCLICommand(
+            cliCommand: reinstall ? nil : OperationCenter.buildCLICommand(
                 subcommand: "conda install",
                 args: ["--pack", pack.id]
             )

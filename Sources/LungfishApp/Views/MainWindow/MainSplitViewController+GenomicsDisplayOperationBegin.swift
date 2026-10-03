@@ -28,8 +28,8 @@ extension MainSplitViewController {
     /// before this migration, and the helper keeps it. Adding a lock target is
     /// a separate decision (Rule 3 in docs/contracts/ADDING-AN-OPERATION.md).
     ///
-    /// CLI parity gap. No lungfish-cli command adds a downloaded reference to
-    /// an existing bundle. The closest is `lungfish-cli fetch genome`, which
+    /// cli-parity-gap: variant-only-reference-download. No lungfish-cli
+    /// command adds a downloaded reference to an existing bundle. The closest is `lungfish-cli fetch genome`, which
     /// builds a new bundle from one accession and never merges into an
     /// existing one. The row keeps recording no command until a merge command
     /// exists.
@@ -72,8 +72,10 @@ extension MainSplitViewController {
     /// operations dialog runs for the same request, so this row and the dialog
     /// row record the same command. FASTQOperationOutputImporter and, with the
     /// final output, FASTQDerivativeService record the same invocation in the
-    /// derivative's manifest. A request with a setting no `lungfish-cli`
-    /// option expresses records no command, a CLI parity gap that
+    /// derivative's manifest.
+    ///
+    /// cli-parity-gap: fastq-dashboard-derivative. A request with a setting no
+    /// `lungfish-cli` option expresses records no command, which
     /// MainSplitGenomicsDisplayOperationTests pins.
     static func beginFASTQDerivativeOperation(
         request: FASTQDerivativeRequest,

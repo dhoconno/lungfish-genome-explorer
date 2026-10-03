@@ -65,7 +65,9 @@ final class PrimerDesignOperationTests: XCTestCase {
       }, onResultSaved: { _ in })
     await waitUntil { center.items.first?.logEntries.contains(where: { $0.message == "Native progress on stderr" }) == true }
     XCTAssertEqual(center.items.first?.state, .running)
-    XCTAssertEqual(center.items.first?.cliCommand, ["/path with spaces/python", "adapter.py"].map(shellEscape).joined(separator: " "))
+    XCTAssertNil(center.items.first?.cliCommand)
+    let nativeCommand = "Native command: " + ["/path with spaces/python", "adapter.py"].map(shellEscape).joined(separator: " ")
+    XCTAssertTrue(center.items.first?.logEntries.contains(where: { $0.message == nativeCommand }) == true)
     XCTAssertTrue(center.items.first?.logEntries.contains(where: { $0.message == "Live native output" }) == true)
     XCTAssertTrue(center.items.first?.logEntries.contains(where: { $0.message == "Native progress on stderr" && $0.level == .info }) == true)
     gate.continuation.finish()

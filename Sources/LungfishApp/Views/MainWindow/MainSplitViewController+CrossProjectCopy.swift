@@ -111,7 +111,7 @@ extension MainSplitViewController {
     /// project and returns the result. The row locks no bundle, as before,
     /// and the launch skips the item on a refusal.
     ///
-    /// CLI parity gap (R3). No `lungfish-cli` command copies an item between
+    /// cli-parity-gap: cross-project-copy. No `lungfish-cli` command copies an item between
     /// projects. `CrossProjectItemCopier` lands the item in the folder the
     /// project expects, rewrites the links it can resolve and lists the
     /// sources the project lacks, and it runs only in the app, so the row
