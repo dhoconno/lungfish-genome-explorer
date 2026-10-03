@@ -54,4 +54,45 @@ extension FASTQCLIMaterializer {
             throw error
         }
     }
+
+    // MARK: - Layout hint (D2)
+
+    /// Marks a materialized mixed bundle as mixed. It holds every pair before
+    /// its merged and single reads, so with more pair records than the layout
+    /// scan reads it looked strictly interleaved, and a positional pair tool
+    /// (bbmerge `interleaved=t` in `fastq merge`) paired the merged reads with
+    /// each other (D2, Phase 1.5 lane A7). The counts are the bundle's own.
+    func writeMixedLayoutHint(beside outputURL: URL, roles: ReadClassification) {
+        let pairs = roles.files.filter { $0.role == .pairedR1 }.reduce(0) { $0 + $1.readCount }
+        guard let hint = FASTQMixedLayoutHint.classification(
+            pairs: pairs,
+            singles: roles.mergedReadCount + roles.unpairedReadCount,
+            singleRole: FASTQMixedLayoutHint.singleRole(of: roles),
+            filename: outputURL.lastPathComponent
+        ) else { return }
+        FASTQMixedLayoutHint.write(hint, beside: outputURL)
+    }
+
+    /// Marks a materialized virtual derivative of a mixed bundle as mixed
+    /// when it holds pairs and single reads, counted in the output (D2).
+    func writeMixedLayoutHint(
+        beside outputURL: URL,
+        readFrom rootRead: VirtualRootRead,
+        sequenceFormat: SequenceFormat?
+    ) throws {
+        guard sequenceFormat != .fasta,
+              let source = rootRead.pairedOrMixedSource,
+              case .fullMixed(let roles) = FASTQBundle.loadDerivedManifest(in: source)?.payload,
+              roles.mergedReadCount + roles.unpairedReadCount > 0 else {
+            return
+        }
+        let counts = try FASTQMixedLayoutHint.countPairsAndSingles(in: outputURL)
+        guard let hint = FASTQMixedLayoutHint.classification(
+            pairs: counts.pairs,
+            singles: counts.singles,
+            singleRole: FASTQMixedLayoutHint.singleRole(of: roles),
+            filename: outputURL.lastPathComponent
+        ) else { return }
+        FASTQMixedLayoutHint.write(hint, beside: outputURL)
+    }
 }

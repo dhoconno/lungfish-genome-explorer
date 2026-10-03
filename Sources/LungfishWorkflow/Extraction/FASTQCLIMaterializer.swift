@@ -143,6 +143,7 @@ public final class FASTQCLIMaterializer: Sendable {
                 tempDirectory: tempDirectory,
                 outputURL: outputURL
             )
+            writeMixedLayoutHint(beside: outputURL, roles: classification)
             return outputURL
 
         case .subset, .trim, .demuxedVirtual, .orientMap, .demuxGroup:
@@ -319,6 +320,7 @@ public final class FASTQCLIMaterializer: Sendable {
             throw FASTQCLIMaterializerError.unsupportedPayload("demuxGroup")
         }
 
+        try writeMixedLayoutHint(beside: outputURL, readFrom: rootRead, sequenceFormat: manifest.sequenceFormat)
         return outputURL
     }
 
