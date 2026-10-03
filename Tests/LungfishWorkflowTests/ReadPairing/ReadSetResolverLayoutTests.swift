@@ -180,6 +180,33 @@ final class ReadSetResolverLayoutTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: workDirectory.path))
     }
 
+    /// Lead A follow-on to F2, the D2 shape. A materialization whose first
+    /// 100,000 records alternate mates scans as strict, but single reads
+    /// follow past the scan limit. The whole-file count shows them, so the
+    /// file is mixed and no single read is planned as half of a pair.
+    func testPairsBeyondTheScanLimitFollowedBySingleReadsAreMixed() async throws {
+        let pairNames = (0..<50_001).flatMap { ["d\($0)/1", "d\($0)/2"] }
+        let reads = ReadSetFixtures.fastq(pairNames) + ReadSetFixtures.fastq(["merged-a", "merged-b", "merged-c"])
+        let materializer = ReadSetFixtures.StubMaterializer(readsByBundlePath: [
+            fixtures.subsetOfSingle.standardizedFileURL.path: reads,
+        ])
+        let resolver = ReadSetResolver(materializationDirectory: workDirectory, materializer: materializer)
+
+        let separate = try await resolver.plan(for: fixtures.subsetOfSingle, capability: .bothInOneRunAsSeparateFiles)
+        XCTAssertEqual(separate.sourceLayout, .mixedFile)
+        XCTAssertEqual(separate.steps.map(\.kind), [.splitByName])
+        XCTAssertEqual(separate.matePairs.first?.pairCount, 50_001)
+        XCTAssertEqual(separate.singleReads.map(\.readCount), [3])
+        XCTAssertEqual(try names(XCTUnwrap(separate.singleReads.first).url), ["merged-a", "merged-b", "merged-c"])
+        XCTAssertEqual(separate.composition.fragmentCount, 50_004)
+
+        let samplesheet = try await resolver.plan(for: fixtures.subsetOfSingle, capability: .pairsOnlyWhenAllPaired)
+        XCTAssertEqual(samplesheet.sourceLayout, .mixedFile)
+        XCTAssertTrue(samplesheet.matePairs.isEmpty)
+        XCTAssertEqual(samplesheet.singleReads.map(\.readCount), [100_005])
+        XCTAssertNotNil(samplesheet.singleReadReason)
+    }
+
     func testUnreadableMaterializationThrows() async throws {
         struct Vanishing: CLISequenceInputMaterializing, Sendable {
             func materialize(bundleURL: URL, tempDirectory: URL, progress: (@Sendable (String) -> Void)?) async throws -> URL {
