@@ -556,7 +556,23 @@ public actor ClassificationPipeline {
                 throw error
             }
         }
-        let kraken2Dependencies = [replayMaterializationStepID, interleavedSplitStepID].compactMap { $0 }
+        // A read set of pairs and single reads: its splits, then a header-only
+        // mate staged beside each file of single reads (decisions 1 and 2).
+        defer { Self.removeStagedMates(for: kraken2Config) }
+        let readSetStepIDs: [UUID]
+        do {
+            readSetStepIDs = try await recordReadSetInputSteps(
+                config: kraken2Config, runID: runID, recorder: provenanceRecorder,
+                dependsOn: [replayMaterializationStepID].compactMap { $0 }
+            )
+        } catch {
+            try await persistInterruptedClassificationRun(
+                provenanceRecorder: provenanceRecorder, runID: runID, requestedConfig: config,
+                effectiveConfig: effectiveConfig, resolution: profileResolution, status: .failed, profileState: "failed"
+            )
+            throw error
+        }
+        let kraken2Dependencies = [replayMaterializationStepID, interleavedSplitStepID].compactMap { $0 } + readSetStepIDs
 
         progress?(0.10, "Detecting tool versions...")
 
@@ -578,7 +594,7 @@ public actor ClassificationPipeline {
         var durableReplayConfig = effectiveConfig
         durableReplayConfig.inputFiles = replayInputs.inputFiles
         let durableKraken2Command = ["kraken2"] + durableReplayConfig.kraken2Arguments()
-        let sequenceInputRecords = effectiveConfig.inputFiles.map { url in
+        let sequenceInputRecords = (effectiveConfig.inputFiles + Self.readSetExtraInputs(kraken2Config)).map { url in
             ProvenanceRecorder.fileRecord(
                 url: url,
                 format: effectiveConfig.provenanceInputFileFormat,
@@ -752,6 +768,16 @@ public actor ClassificationPipeline {
                 stderr: kraken2Result.stderr
             )
         }
+        Self.removeStagedMates(for: kraken2Config)
+        do {
+            try Self.verifyFragmentCount(config: kraken2Config, kraken2Stderr: kraken2Result.stderr)
+        } catch {
+            try await persistInterruptedClassificationRun(
+                provenanceRecorder: provenanceRecorder, runID: runID, requestedConfig: config,
+                effectiveConfig: effectiveConfig, resolution: profileResolution, status: .failed, profileState: "failed"
+            )
+            throw error
+        }
 
         progress?(0.80, "Parsing classification report...")
 
@@ -924,7 +950,9 @@ public actor ClassificationPipeline {
             profileOutcome: profileOutcome,
             runtime: totalRuntime,
             toolVersion: toolVersion,
-            provenanceId: runID
+            provenanceId: runID,
+            fragmentComposition: effectiveConfig.fragmentComposition,
+            readPairingContract: effectiveConfig.fragmentComposition.map { _ in ClassificationResult.currentReadPairingContract }
         )
         let provenanceOptions = classificationProvenanceOptions(
             requestedConfig: config,
@@ -2161,6 +2189,7 @@ public actor ClassificationPipeline {
             "reportMinimizerData": .boolean(true),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
         ]
+        parameters.merge(config.readSetPlan?.provenanceParameters ?? [:]) { current, _ in current }
         if let resolution {
             parameters["brackenRankRequest"] = .string(resolution.request.provenanceValue)
             parameters["brackenRequestedReadLength"] = .integer(
@@ -2609,6 +2638,7 @@ private extension ClassificationConfig {
         )
         profiled.sampleDisplayName = sampleDisplayName
         profiled.originalInputFiles = originalInputFiles
+        profiled.copyReadSet(from: self)
         return profiled
     }
 }

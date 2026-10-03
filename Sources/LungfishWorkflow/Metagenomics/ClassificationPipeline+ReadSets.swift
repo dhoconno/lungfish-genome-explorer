@@ -130,3 +130,216 @@ func parseKraken2ProgressLine(
 
     progress(0.50, "Classifying: \(formattedCount) sequences processed...")
 }
+
+// MARK: - Read sets with pairs and single reads (decisions 1 and 2)
+
+/// A Kraken2 run whose fragment counts disagree with the read set it was
+/// given. kraken2 classifies a staged single read as a pair whose second
+/// mate is empty, so a kraken2 that handled empty mates differently would
+/// show here first.
+public enum KrakenFragmentGuardError: LocalizedError, Sendable, Equatable {
+    case processedCountMissing(expected: Int)
+    case processedCountDiffers(expected: Int, reported: Int)
+    case perReadLineCountDiffers(expected: Int, lines: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .processedCountMissing(let expected):
+            return "kraken2 did not report how many sequences it processed, so the \(expected) fragments of the read set cannot be checked."
+        case .processedCountDiffers(let expected, let reported):
+            return "kraken2 reported \(reported) sequences processed, but the read set holds \(expected) fragments (pairs plus single reads)."
+        case .perReadLineCountDiffers(let expected, let lines):
+            return "The kraken2 per-read output has \(lines) lines, but the read set holds \(expected) fragments (pairs plus single reads)."
+        }
+    }
+}
+
+extension ClassificationPipeline {
+
+    /// The provenance step that writes each header-only mate.
+    static let singleReadMateStagingToolName = "Lungfish Classification Single-Read Mate Staging"
+
+    /// Records the splits the read-set plan wrote and stages a header-only
+    /// mate for each file of single reads, as provenance steps. Returns the
+    /// step IDs kraken2 depends on. A run of single reads or pairs only
+    /// records nothing.
+    func recordReadSetInputSteps(
+        config: ClassificationConfig,
+        runID: UUID,
+        recorder: ProvenanceRecorder,
+        dependsOn: [UUID]
+    ) async throws -> [UUID] {
+        var stepIDs: [UUID] = []
+        for step in config.readSetPlan?.steps ?? [] {
+            let execution = try step.stepExecution(toolVersion: WorkflowRun.currentAppVersion)
+            let stepID = await recorder.recordStep(
+                runID: runID,
+                toolName: execution.toolName,
+                toolVersion: execution.toolVersion,
+                command: execution.command,
+                resolvedOptions: execution.resolvedOptions,
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                inputs: execution.inputs,
+                outputs: execution.outputs,
+                exitCode: 0,
+                wallTime: execution.wallTime ?? 0,
+                dependsOn: dependsOn
+            )
+            if let stepID { stepIDs.append(stepID) }
+        }
+        guard !config.singleReadFiles.isEmpty else { return stepIDs }
+
+        let startedAt = Date()
+        let staged = try Self.stageEmptyMates(for: config)
+        let command = ["LungfishWorkflow", "stage-empty-mates"]
+            + staged.flatMap { ["--in", $0.single.path, "--out", $0.mate.path] }
+        let stepID = await recorder.recordStep(
+            runID: runID,
+            toolName: Self.singleReadMateStagingToolName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            resolvedOptions: [
+                "singleReadFiles": .integer(staged.count),
+                "records": .integer(staged.reduce(0) { $0 + $1.records }),
+                "recordsPerFile": .array(staged.map { .integer($0.records) }),
+            ],
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            inputs: staged.map { ProvenanceRecorder.fileRecord(url: $0.single, format: .fastq, role: .input) },
+            outputs: staged.map { ProvenanceRecorder.fileRecord(url: $0.mate, format: .fastq, role: .output) },
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            dependsOn: dependsOn + stepIDs
+        )
+        if let stepID { stepIDs.append(stepID) }
+        return stepIDs
+    }
+
+    /// The single-read files and their staged mates kraken2 reads beside the
+    /// pair, for the kraken2 step's inputs.
+    static func readSetExtraInputs(_ config: ClassificationConfig) -> [URL] {
+        config.singleReadFiles.flatMap { [$0, config.emptyMateURL(for: $0)] }
+    }
+
+    /// Writes the header-only mate of every file of single reads.
+    static func stageEmptyMates(
+        for config: ClassificationConfig
+    ) throws -> [(single: URL, mate: URL, records: Int)] {
+        var staged: [(single: URL, mate: URL, records: Int)] = []
+        do {
+            for single in config.singleReadFiles {
+                let mate = config.emptyMateURL(for: single)
+                try FileManager.default.createDirectory(
+                    at: mate.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                let records = try writeEmptyMate(of: single, to: mate)
+                staged.append((single, mate, records))
+            }
+        } catch {
+            removeStagedMates(for: config)
+            throw error
+        }
+        return staged
+    }
+
+    /// Writes `mate` with each header of `single`, in order, followed by an
+    /// empty sequence line, `+` and an empty quality line. Returns the number
+    /// of records.
+    static func writeEmptyMate(of single: URL, to mate: URL) throws -> Int {
+        let reader = try FASTQRawLineReader(url: single)
+        defer { reader.close() }
+        FileManager.default.createFile(atPath: mate.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: mate)
+        defer { try? handle.close() }
+        var buffer: [UInt8] = []
+        var lineNumber = 0
+        var records = 0
+        while let line = try reader.nextLine() {
+            if lineNumber % 4 == 0 {
+                guard line.first == UInt8(ascii: "@") else {
+                    throw FASTQPairInterleaver.InterleaveError.malformedRecord(
+                        file: single.lastPathComponent,
+                        recordNumber: records + 1,
+                        reason: "header line does not start with '@'"
+                    )
+                }
+                buffer.append(contentsOf: line)
+                buffer.append(contentsOf: Array("\n\n+\n\n".utf8))
+                records += 1
+                if buffer.count >= 4 * 1_048_576 {
+                    try handle.write(contentsOf: buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+            }
+            lineNumber += 1
+        }
+        guard lineNumber % 4 == 0 else {
+            throw FASTQPairInterleaver.InterleaveError.malformedRecord(
+                file: single.lastPathComponent,
+                recordNumber: records,
+                reason: "file ends inside the record"
+            )
+        }
+        if !buffer.isEmpty { try handle.write(contentsOf: buffer) }
+        return records
+    }
+
+    /// Removes the staged mates once kraken2 has read them.
+    static func removeStagedMates(for config: ClassificationConfig) {
+        let fm = FileManager.default
+        for single in config.singleReadFiles {
+            try? fm.removeItem(at: config.emptyMateURL(for: single))
+        }
+        // The inputs folder goes too when the staged mates were all it held.
+        if let mate = config.singleReadFiles.first.map(config.emptyMateURL(for:)) {
+            let folder = mate.deletingLastPathComponent()
+            if (try? fm.contentsOfDirectory(atPath: folder.path))?.isEmpty == true {
+                try? fm.removeItem(at: folder)
+            }
+        }
+    }
+
+    /// Checks that kraken2 classified exactly the fragments of the read set.
+    /// Its "N sequences processed" count and the per-read output's line count
+    /// must both equal pairs plus single reads. A run whose plan held no pairs
+    /// is not checked.
+    static func verifyFragmentCount(config: ClassificationConfig, kraken2Stderr: String) throws {
+        guard let expected = config.fragmentComposition?.fragmentCount else { return }
+        guard let reported = sequencesProcessed(in: kraken2Stderr) else {
+            throw KrakenFragmentGuardError.processedCountMissing(expected: expected)
+        }
+        guard reported == expected else {
+            throw KrakenFragmentGuardError.processedCountDiffers(expected: expected, reported: reported)
+        }
+        let lines = try lineCount(of: config.outputURL)
+        guard lines == expected else {
+            throw KrakenFragmentGuardError.perReadLineCountDiffers(expected: expected, lines: lines)
+        }
+    }
+
+    /// The count in kraken2's "N sequences (X Mbp) processed in ..." line.
+    static func sequencesProcessed(in stderr: String) -> Int? {
+        for line in stderr.split(whereSeparator: \.isNewline).reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.contains("sequences ("), trimmed.contains("processed") else { continue }
+            if let first = trimmed.split(separator: " ").first, let count = Int(first) {
+                return count
+            }
+        }
+        return nil
+    }
+
+    /// The lines of a text file, the last counted even without a newline.
+    static func lineCount(of url: URL) throws -> Int {
+        let reader = try FASTQRawLineReader(url: url)
+        defer { reader.close() }
+        var lines = 0
+        var lastByte: UInt8 = 0x0A
+        while let chunk = try reader.readChunk() {
+            if chunk.isEmpty { continue }
+            for byte in chunk where byte == 0x0A { lines += 1 }
+            lastByte = chunk[chunk.count - 1]
+        }
+        return lastByte == 0x0A ? lines : lines + 1
+    }
+}

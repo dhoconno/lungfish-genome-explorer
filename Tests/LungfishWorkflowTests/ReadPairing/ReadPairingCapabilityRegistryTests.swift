@@ -52,11 +52,11 @@ final class ReadPairingCapabilityRegistryTests: XCTestCase {
         }
     }
 
-    /// Lane A1 adds the resolver and no consumer runs on it yet. A lane that
+    /// Lane A2 moved Kraken2 onto the resolver. A lane that
     /// moves a tool onto the resolver flips `adopted` for it and adds its ID here.
     func testAdoptedConsumersAreTheOnesMovedOntoTheResolver() {
         let adopted = Set(ReadPairingCapabilityRegistry.declarations.filter(\.adopted).map(\.consumerID))
-        XCTAssertEqual(adopted, [])
+        XCTAssertEqual(adopted, ["classify.kraken2"])
     }
 
     func testCapabilityKeepsSeparateFilesForKindsThatTakeOneForm() {
