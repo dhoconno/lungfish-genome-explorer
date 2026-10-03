@@ -73,6 +73,10 @@ Small read fixtures used by deterministic assembly UI and XCUI coverage.
 | `ont/reads.fastq` | ONT-style single-read example with nanopore header |
 | `pacbio-hifi/reads.fastq` | PacBio HiFi example with `/ccs` header |
 
+## platform-headers/
+
+Four-read FASTQ files, two gzip copies and three unaligned BAM files, one per read-header form the sequencing-platform detector knows (Illumina, Element, MGI, Ion Torrent, Oxford Nanopore and PacBio forms, plus conflicts). Real header forms with synthetic bases. `platform-headers/README.md` names the source of each form, and `PlatformHeaderFixtures` in LungfishTestSupport resolves the paths. About 380 KB.
+
 ## Usage in Tests
 
 ```swift
