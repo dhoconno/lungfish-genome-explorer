@@ -52,9 +52,11 @@ extension AssembleCommand {
         }
         let detections = inputURLs.map(detectPreMaterializationReadType)
         guard !detections.isEmpty, !detections.contains(where: { $0 == nil }) else { return nil }
-        return AssemblyCompatibility.decideReadType(
+        let decision = AssemblyCompatibility.decideReadType(
             detections: detections, tool: tool, explicitReadType: nil, lengthDefault: nil
         )
+        guard let suspect = MappingInputInspection.suspectLabelNote(for: inputURLs) else { return decision }
+        return AssemblyReadTypeDecision(readType: decision.readType, warnings: decision.warnings + [suspect])
     }
 
     /// The read type decided from the materialized execution inputs, with
@@ -79,9 +81,11 @@ extension AssembleCommand {
             PlatformInference.defaultReadType(forLengthProfile: PlatformInference.lengthProfile(forFASTQ: executionURL))
                 .flatMap(AssemblyReadType.init(persistedReadType:))
         }
-        return AssemblyCompatibility.decideReadType(
+        let decision = AssemblyCompatibility.decideReadType(
             detections: detections, tool: tool, explicitReadType: explicit, lengthDefault: lengthDefault
         )
+        guard let suspect = MappingInputInspection.suspectLabelNote(for: originalInputURLs) else { return decision }
+        return AssemblyReadTypeDecision(readType: decision.readType, warnings: decision.warnings + [suspect])
     }
 
     /// The read type before materialization, nil when it waits for the reads.

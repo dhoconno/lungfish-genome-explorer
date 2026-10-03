@@ -51,7 +51,10 @@ extension MapCommand {
     /// Prints the compatibility warnings for a request to standard error. The
     /// run continues with the settings as given.
     static func printCompatibilityWarnings(for request: MappingRunRequest) {
-        guard let warnings = try? ManagedMappingPipeline.validateCompatibility(for: request) else { return }
+        guard var warnings = try? ManagedMappingPipeline.validateCompatibility(for: request) else { return }
+        if let suspect = MappingInputInspection.suspectLabelNote(for: request.originalInputFASTQURLs ?? request.inputFASTQURLs) {
+            warnings.append(suspect)
+        }
         for warning in warnings {
             FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
         }
