@@ -86,6 +86,14 @@ final class CLIReplayHarnessReplayTests: XCTestCase {
 
         // 4. The two bundles are the same bundle.
         OutputEquivalence.assertSame(bundleA, bundleB, kind: .bundle)
+
+        // Provenance names the command. The GUI run's envelope records the
+        // command the row recorded, and the replay's envelope records the
+        // rebased command.
+        let envelopeA = try XCTUnwrap(try ProvenanceEnvelopeReader.load(from: bundleA))
+        let envelopeB = try XCTUnwrap(try ProvenanceEnvelopeReader.load(from: bundleB))
+        XCTAssertEqual(envelopeA.argv, try AdvancedCommandLineOptions.parse(recorded))
+        XCTAssertEqual(envelopeB.argv, try AdvancedCommandLineOptions.parse(replay))
         XCTAssertNotEqual(
             try OutputEquivalence.differences(bundleA, fixture.bundleURL, kind: .bundle),
             [],

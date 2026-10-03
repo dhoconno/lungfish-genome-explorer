@@ -13,13 +13,13 @@ extension Array where Element == OutputEquivalence.Mask {
     /// inside provenance envelopes.
     public static var standard: [OutputEquivalence.Mask] {
         [
+            OutputEquivalence.Masks.contentComparedDigests,
             OutputEquivalence.Masks.roots,
             OutputEquivalence.Masks.uuids,
             OutputEquivalence.Masks.runIDs,
             OutputEquivalence.Masks.isoTimestamps,
             OutputEquivalence.Masks.epochValues,
             OutputEquivalence.Masks.provenanceRuntime,
-            OutputEquivalence.Masks.contentComparedDigests,
         ]
     }
 }
@@ -88,17 +88,24 @@ extension OutputEquivalence {
             )
         }
 
-        /// In a JSON record that names a file compared by content rather than
-        /// by bytes (a BAM, a gzip or BGZF file, a SQLite database, an index
-        /// or a JSON manifest compared after masks), replaces the checksum and size the record states. The file
-        /// itself is still compared under its own kind, so only the record's
-        /// copy of its byte-level digest is masked.
-        public static let contentComparedDigests = Mask(name: "contentComparedDigests") { text, _ in
+        /// In a JSON record that names a file present in both trees and
+        /// compared by content rather than by bytes (a BAM, a gzip or BGZF
+        /// file, a SQLite database, an index or a JSON manifest compared after
+        /// masks), replaces the checksum and size the record states. That file
+        /// is still compared under its own kind, so only the record's copy of
+        /// its byte-level digest is masked. A record that names a run's
+        /// scratch intermediate, a content-compared file under the system
+        /// temporary folder that no longer exists, is masked the same way,
+        /// because the run deleted it and it cannot be compared. A record
+        /// that names any other file, such as an input outside the trees,
+        /// keeps its digest.
+        public static let contentComparedDigests = Mask(name: "contentComparedDigests") { text, context in
             guard let data = text.data(using: .utf8),
                   let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
             else { return text }
             var changed = false
-            let masked = maskDigests(in: value, changed: &changed)
+            let roots = rootSpellings(context.rootA) + rootSpellings(context.rootB)
+            let masked = maskDigests(in: value, paths: context.contentComparedPaths, roots: roots, changed: &changed)
             guard changed,
                   let encoded = try? JSONSerialization.data(
                       withJSONObject: masked,
@@ -112,18 +119,34 @@ extension OutputEquivalence {
         static let contentComparedSuffixes = [
             ".bam", ".bai", ".csi", ".tbi", ".crai", ".gz", ".bgz", ".bgzf", ".db", ".sqlite", ".sqlite3", ".json",
         ]
+        /// A content-compared file under the system temporary folder that
+        /// no longer exists.
+        static func isDeletedScratchIntermediate(_ path: String) -> Bool {
+            let lowered = path.lowercased()
+            guard contentComparedSuffixes.contains(where: { lowered.hasSuffix($0) }) else { return false }
+            let temporary = FileManager.default.temporaryDirectory
+            let prefixes = rootSpellings(temporary) + ["/tmp", "/private/tmp"]
+            guard prefixes.contains(where: { path.hasPrefix($0 + "/") }) else { return false }
+            return !FileManager.default.fileExists(atPath: path)
+        }
+
         static let digestKeys: Set<String> = ["checksumSHA256", "sha256", "checksum"]
         static let sizeKeys: Set<String> = ["fileSize", "sizeBytes", "size_bytes", "file_size_bytes"]
 
-        static func maskDigests(in value: Any, changed: inout Bool) -> Any {
+        /// Runs before every other mask, on unmasked text, so a path is
+        /// checked as the run wrote it.
+        static func maskDigests(in value: Any, paths: Set<String>, roots: [String], changed: inout Bool) -> Any {
             if let array = value as? [Any] {
-                return array.map { maskDigests(in: $0, changed: &changed) }
+                return array.map { maskDigests(in: $0, paths: paths, roots: roots, changed: &changed) }
             }
             guard var object = value as? [String: Any] else { return value }
             let namesContentComparedFile = object.values.contains { item in
                 guard let path = item as? String else { return false }
-                let lowered = path.lowercased()
-                return contentComparedSuffixes.contains { lowered.hasSuffix($0) }
+                var relative = path
+                if let root = roots.first(where: { path.hasPrefix($0 + "/") }) {
+                    relative = String(path.dropFirst(root.count + 1))
+                }
+                return paths.contains(relative) || isDeletedScratchIntermediate(path)
             }
             for (key, item) in object {
                 if namesContentComparedFile, digestKeys.contains(key) {
@@ -133,7 +156,7 @@ extension OutputEquivalence {
                     object[key] = "<CONTENT-SIZE>"
                     changed = true
                 } else {
-                    object[key] = maskDigests(in: item, changed: &changed)
+                    object[key] = maskDigests(in: item, paths: paths, roots: roots, changed: &changed)
                 }
             }
             return object

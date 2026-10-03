@@ -39,16 +39,25 @@ public enum OutputEquivalence {
     /// both roots replaced by `<ROOT>`. `runIDNumbers` numbers every run ID
     /// in that side's tree by first appearance, file names first and then
     /// file contents in path order, so the same run ID gets the same number
-    /// in a file name and in a manifest value.
+    /// in a file name and in a manifest value. `contentComparedPaths` holds
+    /// this side's unmasked relative paths of the files that exist in both
+    /// trees and are compared by content rather than by bytes.
     public struct MaskContext: Sendable {
         public let rootA: URL
         public let rootB: URL
         public let runIDNumbers: [String: Int]
+        public let contentComparedPaths: Set<String>
 
-        public init(rootA: URL, rootB: URL, runIDNumbers: [String: Int] = [:]) {
+        public init(
+            rootA: URL,
+            rootB: URL,
+            runIDNumbers: [String: Int] = [:],
+            contentComparedPaths: Set<String> = []
+        ) {
             self.rootA = rootA
             self.rootB = rootB
             self.runIDNumbers = runIDNumbers
+            self.contentComparedPaths = contentComparedPaths
         }
     }
 
@@ -107,11 +116,34 @@ public enum OutputEquivalence {
             filesA = filesA.filter { isSQLiteFile($0.value) }
             filesB = filesB.filter { isSQLiteFile($0.value) }
         }
-        let contextA = MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: runIDNumbers(in: filesA))
-        let contextB = MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: runIDNumbers(in: filesB))
+        let numbersA = runIDNumbers(in: filesA)
+        let numbersB = runIDNumbers(in: filesB)
         let maskPaths = kind == .bundle
-        let keyedA = keyed(filesA, maskPaths: maskPaths, masks: masks, context: contextA)
-        let keyedB = keyed(filesB, maskPaths: maskPaths, masks: masks, context: contextB)
+        let keyedA = keyed(
+            filesA, maskPaths: maskPaths, masks: masks,
+            context: MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: numbersA)
+        )
+        let keyedB = keyed(
+            filesB, maskPaths: maskPaths, masks: masks,
+            context: MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: numbersB)
+        )
+        // Files in both trees that are compared by content. Only a record
+        // that names one of them has its stated checksum and size masked.
+        let shared = Set(keyedA.keys).intersection(keyedB.keys).filter { name in
+            Masks.contentComparedSuffixes.contains { name.lowercased().hasSuffix($0) }
+        }
+        // The digest mask runs before any other mask, so each side gets the
+        // raw relative names of its own copies.
+        func rawNames(_ files: [String: URL], _ keyedFiles: [String: URL]) -> Set<String> {
+            let nameByPath = Dictionary(files.map { ($0.value.path, $0.key) }, uniquingKeysWith: { first, _ in first })
+            return Set(shared.compactMap { keyedFiles[$0].flatMap { nameByPath[$0.path] } })
+        }
+        let contextA = MaskContext(
+            rootA: rootA, rootB: rootB, runIDNumbers: numbersA, contentComparedPaths: rawNames(filesA, keyedA)
+        )
+        let contextB = MaskContext(
+            rootA: rootA, rootB: rootB, runIDNumbers: numbersB, contentComparedPaths: rawNames(filesB, keyedB)
+        )
 
         var found: [String] = []
         for name in Set(keyedA.keys).subtracting(keyedB.keys).sorted() {
@@ -219,7 +251,12 @@ public enum OutputEquivalence {
             let lineA = index < linesA.count ? linesA[index] : "<end>"
             let lineB = index < linesB.count ? linesB[index] : "<end>"
             if lineA != lineB {
-                return "  line \(index + 1)\n    A: \(lineA.prefix(300))\n    B: \(lineB.prefix(300))"
+                let before = linesA[max(0, index - 3)..<min(index, linesA.count)]
+                    .map { "    = \($0.prefix(300))" }
+                let after = linesA[min(index + 1, linesA.count)..<min(index + 4, linesA.count)]
+                    .map { "    = \($0.prefix(300))" }
+                return (["  line \(index + 1)"] + before + ["    A: \(lineA.prefix(300))", "    B: \(lineB.prefix(300))"] + after)
+                    .joined(separator: "\n")
             }
         }
         return "  (no line differs)"

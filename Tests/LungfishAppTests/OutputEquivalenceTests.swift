@@ -182,8 +182,32 @@ final class OutputEquivalenceTests: XCTestCase {
         let record = { (path: String, checksum: String, size: Int) in
             #"{"files":[{"path":""# + path + #"","checksumSHA256":""# + checksum + #"","sizeBytes":"# + "\(size)}]}"
         }
-        try write(record("alignments/x.bam", "aaaa", 584), to: a, "provenance.json")
-        try write(record("alignments/x.bam", "bbbb", 585), to: b, "provenance.json")
+        // A database present in both trees, compared by its rows.
+        try write("same rows\n", to: a, "tracks/x.db")
+        try write("same rows\n", to: b, "tracks/x.db")
+        try write(record("tracks/x.db", "aaaa", 584), to: a, "provenance.json")
+        try write(record("tracks/x.db", "bbbb", 585), to: b, "provenance.json")
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
+        // The same record under the root path.
+        try write(record(a.path + "/tracks/x.db", "aaaa", 584), to: a, "provenance.json")
+        try write(record(b.path + "/tracks/x.db", "bbbb", 585), to: b, "provenance.json")
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
+
+        // An input BAM outside both trees keeps its checksum, so different
+        // input bytes at the same path are reported, whether the input sits
+        // under the temporary folder or not.
+        let input = scratch.appendingPathComponent("inputs/input.bam")
+        try write("input placeholder\n", to: scratch, "inputs/input.bam")
+        for inputPath in [input.path, "/Users/someone/Project.lungfish/input.bam"] {
+            try write(record(inputPath, "aaaa", 584), to: a, "provenance.json")
+            try write(record(inputPath, "bbbb", 584), to: b, "provenance.json")
+            XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle).count, 1, inputPath)
+        }
+
+        // A scratch intermediate the run deleted is masked like a tree file.
+        let deleted = scratch.appendingPathComponent("work-\(UUID().uuidString)/x.filtered.unsorted.bam").path
+        try write(record(deleted, "aaaa", 584), to: a, "provenance.json")
+        try write(record(deleted, "bbbb", 585), to: b, "provenance.json")
         XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
 
         try write(record("reads.fasta", "aaaa", 584), to: a, "provenance.json")
