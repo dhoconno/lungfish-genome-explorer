@@ -7,65 +7,6 @@ import Darwin
 import CryptoKit
 import LungfishIO
 
-public enum ProvenancePublicationSnapshotError:
-    Error, LocalizedError, Sendable
-{
-    case invalidRollbackWitness
-    case artifactInspectionFailed(path: String, code: Int32)
-    case artifactChangedDuringSnapshot(path: String)
-    case mutationReceiptConflict(path: String)
-
-    public var errorDescription: String? {
-        switch self {
-        case .invalidRollbackWitness:
-            return "The provenance rollback witness belongs to a different publication snapshot."
-        case .artifactInspectionFailed(let path, let code):
-            return "Could not inspect provenance publication artifact at "
-                + "\(path) (errno \(code))."
-        case .artifactChangedDuringSnapshot(let path):
-            return "The provenance publication artifact changed while its rollback snapshot was captured: \(path)."
-        case .mutationReceiptConflict(let path):
-            return "The provenance publication artifact no longer matches the transaction generation at \(path)."
-        }
-    }
-}
-
-struct ProvenancePublicationArtifactMetadata:
-    Equatable, Sendable
-{
-    let mode: UInt32
-    let device: UInt64
-    let inode: UInt64
-    let linkCount: UInt64
-    let size: Int64
-}
-
-indirect enum ProvenancePublicationArtifactState:
-    Equatable, Sendable
-{
-    case missing
-    case file(
-        ProvenancePublicationArtifactMetadata,
-        sha256: String
-    )
-    case symbolicLink(
-        ProvenancePublicationArtifactMetadata,
-        destination: String
-    )
-    case directory(
-        ProvenancePublicationArtifactMetadata,
-        children: [ProvenancePublicationDirectoryEntry]
-    )
-    case other(ProvenancePublicationArtifactMetadata)
-}
-
-struct ProvenancePublicationDirectoryEntry:
-    Equatable, Sendable
-{
-    let name: String
-    let state: ProvenancePublicationArtifactState
-}
-
 /// Filesystem identities captured after this transaction publishes its
 /// payload. A rollback may restore only artifacts that still match these
 /// identities; another writer's later replacement is therefore preserved.
@@ -904,35 +845,6 @@ public struct ProvenancePublicationSnapshot {
     }
 }
 
-public struct ProvenancePublicationRollbackError: Error, LocalizedError {
-    public let originalErrorDescription: String
-    public let rollbackErrorDescription: String
-
-    public init(originalError: Error, rollbackError: Error) {
-        originalErrorDescription = String(reflecting: originalError)
-        rollbackErrorDescription = String(reflecting: rollbackError)
-    }
-
-    public var errorDescription: String? {
-        "Provenance publication failed and rollback failed; original error: \(originalErrorDescription); rollback failed: \(rollbackErrorDescription)"
-    }
-}
-
-public struct ProvenancePublicationPreservedChangesError:
-    Error, LocalizedError, Sendable
-{
-    public let paths: [String]
-
-    public init(urls: [URL]) {
-        paths = urls.map(\.path)
-    }
-
-    public var errorDescription: String? {
-        "Rollback preserved newer external filesystem generations at: "
-            + paths.joined(separator: ", ")
-    }
-}
-
 public func throwAfterProvenancePublicationFailure(
     _ originalError: Error,
     restore: () throws -> Void
@@ -946,23 +858,4 @@ public func throwAfterProvenancePublicationFailure(
         )
     }
     throw originalError
-}
-
-public enum ProvenancePublicationArtifacts {
-    public static func bundleRootArtifacts(for rootURL: URL) -> [URL] {
-        sidecarArtifacts(for: rootURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
-            + [rootURL.appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)]
-    }
-
-    public static func fileSidecarArtifacts(for outputURL: URL) -> [URL] {
-        sidecarArtifacts(for: ProvenanceRecorder.fileSidecarURL(for: outputURL))
-    }
-
-    public static func sidecarArtifacts(for sidecarURL: URL) -> [URL] {
-        [
-            sidecarURL,
-            ProvenanceSigningConfiguration.signatureURL(for: sidecarURL),
-            ProvenanceSigningConfiguration.publicKeyURL(for: sidecarURL),
-        ]
-    }
 }
