@@ -25,9 +25,9 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 2 | 2041 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8359 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 12 | 3372 | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 643 | 215634 | 1295 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 661 | 217335 | 1309 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 23 | 4078 | 22 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 24 | 4375 | 23 | LungfishCore, LungfishIO, LungfishWorkflow |
 
 ## Test targets
 
@@ -50,7 +50,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 2 | 735 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3199 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 11 | 2331 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 337 | 147773 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 342 | 148500 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -1718,7 +1718,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 643, lines 215634
+- Swift files. 661, lines 217335
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1745,9 +1745,9 @@ None.
 | Extraction | 20 | 8290 |
 | FASTQ | 1 | 271 |
 | Geneious | 10 | 2380 |
-| Ingestion | 13 | 8093 |
+| Ingestion | 18 | 8140 |
 | MSA | 13 | 2610 |
-| Mapping | 22 | 9067 |
+| Mapping | 22 | 9081 |
 | Metagenomics | 40 | 18499 |
 | Metagenomics/CzId | 3 | 908 |
 | Native | 9 | 5115 |
@@ -1758,6 +1758,8 @@ None.
 | PrimerDesign | 36 | 10114 |
 | Primers | 8 | 1968 |
 | Provenance | 50 | 13541 |
+| ReadPairing | 13 | 1640 |
+| ReadPairing/Capabilities | 6 | 193 |
 | Recipes | 12 | 2569 |
 | Recipes/Steps | 7 | 878 |
 | Savont | 4 | 1166 |
@@ -2170,7 +2172,7 @@ None.
 - `FASTQBundleCopyImportWorkflow` class, `Sources/LungfishWorkflow/Ingestion/FASTQBundleCopyImportWorkflow.swift:43`
 - `FASTQCLIMaterializer` class, `Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift:26`
 - `FASTQCLIMaterializerError` enum, `Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift:784`
-- `FASTQConsumerRegistry` enum, `Sources/LungfishWorkflow/Ingestion/FASTQConsumerRegistry.swift:20`
+- `FASTQConsumerRegistry` enum, `Sources/LungfishWorkflow/Ingestion/FASTQConsumerRegistry.swift:22`
 - `FASTQGzipProvenanceResult` struct, `Sources/LungfishWorkflow/Ingestion/FastpPairedRunner.swift:401`
 - `FASTQIngestionConfig` struct, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:54`
 - `FASTQIngestionError` enum, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:194`
@@ -2413,7 +2415,7 @@ None.
 - `MappingViewerBundlePublicationError` enum, `Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationError.swift:8`
 - `MappingViewerBundlePublicationPlan` struct, `Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift:10`
 - `MappingViewerBundlePublicationService` enum, `Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift:551`
-- `MatePairFileNaming` enum, `Sources/LungfishWorkflow/Mapping/MatePairFileNaming.swift:16`
+- `MatePairFileNaming` enum, `Sources/LungfishWorkflow/Mapping/MatePairFileNaming.swift:17`
 - `MCMHaplotypingPreset` struct, `Sources/LungfishWorkflow/ONTGenotyping/MCMHaplotypingPreset.swift:5`
 - `MCMHaplotypingPresetError` enum, `Sources/LungfishWorkflow/ONTGenotyping/MCMHaplotypingPreset.swift:251`
 - `MetagenomicsBatchManifestHeader` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:37`
@@ -2839,6 +2841,20 @@ None.
 - `ReadIDBAMExtractionFormat` enum, `Sources/LungfishWorkflow/Extraction/ExtractionConfig.swift:291`
 - `ReadIDBAMExtractionResult` struct, `Sources/LungfishWorkflow/Extraction/ExtractionConfig.swift:299`
 - `ReadIDExtractionConfig` struct, `Sources/LungfishWorkflow/Extraction/ExtractionConfig.swift:20`
+- `ReadPairingCapability` struct, `Sources/LungfishWorkflow/ReadPairing/ReadPairingCapability.swift:14`
+- `ReadPairingCapabilityDeclaration` struct, `Sources/LungfishWorkflow/ReadPairing/ReadPairingCapability.swift:81`
+- `ReadPairingCapabilityRegistry` enum, `Sources/LungfishWorkflow/ReadPairing/ReadPairingCapabilityRegistry.swift:12`
+- `ReadSetComposition` struct, `Sources/LungfishWorkflow/ReadPairing/ReadSetPlan.swift:132`
+- `ReadSetMatePair` struct, `Sources/LungfishWorkflow/ReadPairing/ReadSetPlan.swift:25`
+- `ReadSetMixedStream` struct, `Sources/LungfishWorkflow/ReadPairing/ReadSetPlan.swift:73`
+- `ReadSetPlan` struct, `Sources/LungfishWorkflow/ReadPairing/ReadSetPlan.swift:169`
+- `ReadSetReadRole` enum, `Sources/LungfishWorkflow/ReadPairing/ReadSetPlan.swift:9`
+- `ReadSetResolver` struct, `Sources/LungfishWorkflow/ReadPairing/ReadSetResolver.swift:39`
+- `ReadSetResolverError` enum, `Sources/LungfishWorkflow/ReadPairing/ReadSetResolver.swift:439`
+- `ReadSetRun` struct, `Sources/LungfishWorkflow/ReadPairing/ReadSetPlan.swift:89`
+- `ReadSetSingleReads` struct, `Sources/LungfishWorkflow/ReadPairing/ReadSetPlan.swift:57`
+- `ReadSetSourceLayout` enum, `Sources/LungfishWorkflow/ReadPairing/ReadSetPlan.swift:111`
+- `ReadSetStep` struct, `Sources/LungfishWorkflow/ReadPairing/ReadSetStep.swift:11`
 - `Recipe` struct, `Sources/LungfishWorkflow/Recipes/Recipe.swift:114`
 - `RecipeBundleAccessor` enum, `Sources/LungfishWorkflow/Recipes/Recipe.swift:10`
 - `RecipeEngine` class, `Sources/LungfishWorkflow/Recipes/RecipeEngine.swift:45`
@@ -3090,7 +3106,7 @@ None.
 
 - Kind. library
 - Path. Tests/Support/LungfishTestSupport
-- Swift files. 23, lines 4078
+- Swift files. 24, lines 4375
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. none
 - Used by. LungfishKitTestSupport
@@ -3117,6 +3133,7 @@ None.
 - `ProjectStorageFixtureOracle` enum, `Tests/Support/LungfishTestSupport/ProjectStorageLargeTreeFixture.swift:482`
 - `ProjectStorageHardLinkUnavailableError` struct, `Tests/Support/LungfishTestSupport/ProjectStorageLargeTreeFixture.swift:7`
 - `ProjectStorageLargeTreeFixture` struct, `Tests/Support/LungfishTestSupport/ProjectStorageLargeTreeFixture.swift:27`
+- `ReadSetFixtures` struct, `Tests/Support/LungfishTestSupport/ReadSetFixtures.swift:14`
 - `TestTempDirectory` enum, `Tests/Support/LungfishTestSupport/TestTempDirectory.swift:13`
 - `ToolAvailability` enum, `Tests/Support/LungfishTestSupport/ToolAvailability.swift:16`
 - `ToolAvailabilityError` enum, `Tests/Support/LungfishTestSupport/ToolAvailability.swift:72`
