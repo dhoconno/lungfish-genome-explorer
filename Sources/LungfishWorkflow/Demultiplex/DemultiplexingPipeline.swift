@@ -34,10 +34,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
     let runner: NativeToolRunner
     private let cutadaptVersionOverride: String?
+    /// Reads the root files a run rebuilds its virtual barcode bundles from.
+    let rootRecordSource: VirtualRootRecordSource
     private static let observedForwardOrientationSuffix = "__lge_forward"
     private static let observedReverseComplementOrientationSuffix = "__lge_reverse_complement"
 
-    private struct DemuxTrimEntry: Sendable {
+    struct DemuxTrimEntry: Sendable {
         let readID: String
         let mate: Int
         let trim5p: Int
@@ -45,14 +47,18 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let rootReadLength: Int?
     }
 
-    public init() {
-        self.runner = .shared
-        self.cutadaptVersionOverride = nil
+    public convenience init() {
+        self.init(runner: .shared)
     }
 
-    public init(runner: NativeToolRunner, cutadaptVersionOverride: String? = nil) {
+    public convenience init(runner: NativeToolRunner, cutadaptVersionOverride: String? = nil) {
+        self.init(runner: runner, cutadaptVersionOverride: cutadaptVersionOverride, rootRecordSource: Self.fileRootRecordSource)
+    }
+
+    init(runner: NativeToolRunner, cutadaptVersionOverride: String? = nil, rootRecordSource: @escaping VirtualRootRecordSource) {
         self.runner = runner
         self.cutadaptVersionOverride = cutadaptVersionOverride
+        self.rootRecordSource = rootRecordSource
     }
 
     /// Runs the demultiplexing pipeline.
@@ -448,26 +454,43 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             let bundleName: String
             let statistics: FASTQDatasetStatistics
         }
+        enum BundleOutcome: Sendable {
+            case finished(VirtualBundleResult)
+            /// The bundle's preview and statistics come from the one pass over the root below.
+            case rebuildFromRoot(baseName: String, isUnassigned: Bool, bundleURL: URL, bundleName: String, VirtualBarcodeRebuild)
+        }
 
         // Virtual mode: extract read IDs + preview (default for single-step and final multi-step)
         // Full mode: move entire cutadapt output into bundle (intermediate multi-step)
         // Every root file a virtual bundle's preview and statistics are rebuilt
         // from, resolved once, in manifest order (R3, final review B1).
         let rootFASTQURLs = isVirtualMode ? virtualRootSequenceURLs(config: config) : nil
+        var rebuildPlan = VirtualRootRebuildPlan()
+        var rebuiltBundles: [(baseName: String, isUnassigned: Bool, bundleURL: URL, bundleName: String, target: Int)] = []
 
-        let bundleResults: [VirtualBundleResult] = try await withThrowingTaskGroup(
-            of: VirtualBundleResult?.self,
+        var bundleResults: [VirtualBundleResult] = try await withThrowingTaskGroup(
+            of: BundleOutcome?.self,
             returning: [VirtualBundleResult].self
         ) { group in
             var results: [VirtualBundleResult] = []
             var inFlight = 0
             let maxConcurrentBundles = (isVirtualMode || config.captureTrimsForChaining) ? 8 : 2
+            // A bundle rebuilt from the root joins the one-pass plan as soon as
+            // its task ends, so its read list and tables are released (R3).
+            func collect(_ outcome: BundleOutcome?) {
+                switch outcome {
+                case .finished(let result): results.append(result)
+                case .rebuildFromRoot(let baseName, let isUnassigned, let bundleURL, let bundleName, let rebuild):
+                    rebuiltBundles.append((baseName, isUnassigned, bundleURL, bundleName, rebuildPlan.add(rebuild)))
+                case nil: break
+                }
+            }
 
             for file in filesToProcess {
                 // Keep full-output post-processing gentle on memory and disk I/O.
                 if inFlight >= maxConcurrentBundles {
                     if let result = try await group.next() {
-                        if let r = result { results.append(r) }
+                        collect(result)
                         inFlight -= 1
                     }
                 }
@@ -497,13 +520,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                             from: destURL,
                             runner: capturedRunner
                         )
-                        return VirtualBundleResult(
+                        return .finished(VirtualBundleResult(
                             baseName: file.baseName,
                             isUnassigned: file.isUnassigned,
                             bundleURL: bundleURL,
                             bundleName: bundleName,
                             statistics: statistics
-                        )
+                        ))
                     }
 
                     let readIDsURL = bundleURL.appendingPathComponent("read-ids.txt")
@@ -578,18 +601,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     }
 
                     if capturedIsVirtual {
-                        // Virtual mode: create a small preview alongside the read ID list
-
-                        let previewURL = bundleURL.appendingPathComponent("preview.fastq")
-                        if let rootFASTQURLs {
-                            try await self.writeVirtualPreviewFASTQ(
-                                fromRootFASTQs: rootFASTQURLs,
-                                orderedReadIDs: Array(orderedReadIDs.prefix(1000)),
-                                trimEntries: allTrimEntries,
-                                orientMap: finalOrientMap,
-                                outputURL: previewURL
-                            )
-                        } else {
+                        // Virtual mode: create a small preview alongside the read ID list,
+                        // from cutadapt's output here when there are no root files, else
+                        // in the one pass over the root files below.
+                        if rootFASTQURLs == nil {
+                            let previewURL = bundleURL.appendingPathComponent("preview.fastq")
                             let previewResult = try await capturedRunner.run(
                                 .seqkit,
                                 arguments: ["head", "-n", "1000", file.url.path, "-o", previewURL.path],
@@ -658,36 +674,31 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         try self.writeOrientMap(finalOrientMap: finalOrientMap, orderedReadIDs: orderedReadIDs, to: bundleURL)
                     }
 
-                    // Compute full statistics (histograms, quality, GC) via native Swift scanner.
-                    // Virtual bundles must scan the canonical root-based reconstruction, otherwise
+                    // Virtual bundles scan the canonical root-based reconstruction, otherwise
                     // cached lengths can disagree with the preview/materialized sequence when trim
-                    // positions have been rebased to the root FASTQ.
-                    let statsSource: URL
-                    var temporaryStatsURL: URL?
-                    if capturedIsVirtual, let rootFASTQURLs {
-                        let tempStatsURL = workDir.appendingPathComponent(
-                            "stats-\(file.baseName)-\(UUID().uuidString).fastq"
+                    // positions have been rebased to the root FASTQ. Every one is rebuilt in one
+                    // pass over the root files once all tasks have ended (R3).
+                    if capturedIsVirtual, rootFASTQURLs != nil {
+                        return .rebuildFromRoot(
+                            baseName: file.baseName,
+                            isUnassigned: file.isUnassigned,
+                            bundleURL: bundleURL,
+                            bundleName: bundleName,
+                            VirtualBarcodeRebuild(
+                                orderedReadIDs: orderedReadIDs,
+                                previewReadIDs: Array(orderedReadIDs.prefix(1000)),
+                                trimEntries: allTrimEntries,
+                                orientMap: finalOrientMap,
+                                previewURL: bundleURL.appendingPathComponent("preview.fastq"),
+                                statisticsURL: workDir.appendingPathComponent("stats-\(file.baseName)-\(UUID().uuidString).fastq")
+                            )
                         )
-                        try await self.writeVirtualStatisticsFASTQ(
-                            fromRootFASTQs: rootFASTQURLs,
-                            orderedReadIDs: orderedReadIDs,
-                            trimEntries: allTrimEntries,
-                            orientMap: finalOrientMap,
-                            outputURL: tempStatsURL
-                        )
-                        statsSource = tempStatsURL
-                        temporaryStatsURL = tempStatsURL
-                    } else {
-                        statsSource = capturedIsVirtual ? file.url : bundleURL.appendingPathComponent(file.url.lastPathComponent)
                     }
-                    defer {
-                        if let temporaryStatsURL {
-                            try? FileManager.default.removeItem(at: temporaryStatsURL)
-                        }
-                    }
-                    let reader = FASTQReader(validateSequence: false)
+                    // Compute full statistics (histograms, quality, GC) via native Swift scanner.
+                    let statsSource = capturedIsVirtual ? file.url : bundleURL.appendingPathComponent(file.url.lastPathComponent)
                     let statistics: FASTQDatasetStatistics
                     if capturedIsVirtual {
+                        let reader = FASTQReader(validateSequence: false)
                         statistics = try await reader.computeStatistics(from: statsSource, sampleLimit: 0).statistics
                     } else {
                         statistics = try await self.computeMaterializedFASTQStatistics(
@@ -696,22 +707,38 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         )
                     }
 
-                    return VirtualBundleResult(
+                    return .finished(VirtualBundleResult(
                         baseName: file.baseName,
                         isUnassigned: file.isUnassigned,
                         bundleURL: bundleURL,
                         bundleName: bundleName,
                         statistics: statistics
-                    )
+                    ))
                 }
                 inFlight += 1
             }
 
             // Collect remaining results
             for try await result in group {
-                if let r = result { results.append(r) }
+                collect(result)
             }
             return results
+        }
+
+        // Every bundle rebuilt from the root gets its preview and statistics FASTQ
+        // from one pass over the root files, then its statistics as before (R3).
+        if let rootFASTQURLs, !rebuiltBundles.isEmpty {
+            try await rebuildVirtualBarcodeFiles(fromRootFASTQs: rootFASTQURLs, plan: rebuildPlan)
+            let statistics = try await virtualBarcodeStatistics(plan: rebuildPlan)
+            for bundle in rebuiltBundles {
+                bundleResults.append(VirtualBundleResult(
+                    baseName: bundle.baseName,
+                    isUnassigned: bundle.isUnassigned,
+                    bundleURL: bundle.bundleURL,
+                    bundleName: bundle.bundleName,
+                    statistics: statistics[bundle.target]
+                ))
+            }
         }
 
         // Process results and write derived manifests
@@ -3120,100 +3147,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         return entries
     }
 
-    private func writeVirtualPreviewFASTQ(
-        fromRootFASTQs rootFASTQs: [URL],
-        orderedReadIDs: [String],
-        trimEntries: [DemuxTrimEntry],
-        orientMap: [String: String],
-        outputURL: URL
-    ) async throws {
-        guard !orderedReadIDs.isEmpty else { return }
-
-        var trimMap: [String: DemuxTrimEntry] = [:]
-        for entry in trimEntries {
-            trimMap["\(entry.readID)\t\(entry.mate)"] = entry
-        }
-
-        let selectedReadIDs = Set(orderedReadIDs)
-        var transformedRecords: [String: FASTQRecord] = [:]
-        let reader = FASTQReader(validateSequence: false)
-
-        rootFiles: for rootFASTQ in rootFASTQs {
-            for try await record in reader.records(from: rootFASTQ) {
-                let rawReadName = record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
-                let (readID, mate) = detectMate(rawReadName: rawReadName)
-                guard selectedReadIDs.contains(readID) else { continue }
-
-                var outputRecord = record
-                if let trim = trimMap["\(readID)\t\(mate)"] ?? trimMap["\(readID)\t0"] {
-                    let trimEnd = max(trim.trim5p, outputRecord.length - trim.trim3p)
-                    outputRecord = outputRecord.trimmed(from: trim.trim5p, to: trimEnd)
-                }
-                if orientMap[readID] == "-" {
-                    outputRecord = outputRecord.reverseComplement()
-                }
-                transformedRecords[readID] = outputRecord
-
-                if transformedRecords.count == selectedReadIDs.count {
-                    break rootFiles
-                }
-            }
-        }
-
-        let writer = FASTQWriter(url: outputURL)
-        try writer.open()
-        defer { try? writer.close() }
-
-        for readID in orderedReadIDs {
-            if let record = transformedRecords[readID] {
-                try writer.write(record)
-            }
-        }
-    }
-
-    private func writeVirtualStatisticsFASTQ(
-        fromRootFASTQs rootFASTQs: [URL],
-        orderedReadIDs: [String],
-        trimEntries: [DemuxTrimEntry],
-        orientMap: [String: String],
-        outputURL: URL
-    ) async throws {
-        guard !orderedReadIDs.isEmpty else { return }
-
-        var trimMap: [String: DemuxTrimEntry] = [:]
-        for entry in trimEntries {
-            trimMap["\(entry.readID)\t\(entry.mate)"] = entry
-        }
-
-        let selectedReadIDs = Set(orderedReadIDs)
-        let reader = FASTQReader(validateSequence: false)
-        let writer = FASTQWriter(url: outputURL)
-        try writer.open()
-        defer { try? writer.close() }
-
-        for rootFASTQ in rootFASTQs {
-            for try await record in reader.records(from: rootFASTQ) {
-                let rawReadName = record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
-                let (readID, mate) = detectMate(rawReadName: rawReadName)
-                guard selectedReadIDs.contains(readID) else { continue }
-
-                var outputRecord = record
-                if let trim = trimMap["\(readID)\t\(mate)"] ?? trimMap["\(readID)\t0"] {
-                    let trimEnd = max(trim.trim5p, outputRecord.length - trim.trim3p)
-                    outputRecord = outputRecord.trimmed(from: trim.trim5p, to: trimEnd)
-                }
-                if orientMap[readID] == "-" {
-                    outputRecord = outputRecord.reverseComplement()
-                }
-                try writer.write(outputRecord)
-            }
-        }
-    }
-
     /// Detects mate number from a read name.
     /// Returns (baseReadID, mate) where mate is 0 (single), 1 (R1), or 2 (R2).
     /// Handles both /1 /2 suffix format and Illumina " 1:N:0" " 2:N:0" format.
-    private func detectMate(rawReadName: String) -> (readID: String, mate: Int) {
+    func detectMate(rawReadName: String) -> (readID: String, mate: Int) {
         let parts = rawReadName.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
         let identifier = parts.first.map(String.init) ?? rawReadName
 
