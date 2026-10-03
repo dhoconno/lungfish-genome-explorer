@@ -5,8 +5,15 @@
 import Foundation
 import LungfishIO
 
+/// Whether a mapper, mode and input can run together.
+///
+/// Read class and platform only choose defaults. A preset that does not suit
+/// the read class is a `.warning`, and the run uses what the user chose. Only
+/// a combination the tool cannot run, or one whose output would be invalid,
+/// is `.blocked`.
 public enum MappingCompatibilityState: Sendable, Equatable {
     case allowed
+    case warning(String)
     case blocked(String)
 }
 
@@ -40,6 +47,14 @@ public struct MappingCompatibilityEvaluation: Sendable, Equatable {
         }
         return false
     }
+
+    /// The warning to show, when the run is allowed with one.
+    public var warningMessage: String? {
+        if case .warning(let message) = state {
+            return message
+        }
+        return nil
+    }
 }
 
 public enum MappingCompatibility {
@@ -70,28 +85,11 @@ public enum MappingCompatibility {
                 )
             }
         } else {
-            guard let readClass else {
-                state = .blocked("Unable to detect a supported read class from the selected FASTQ inputs.")
-                return MappingCompatibilityEvaluation(
-                    tool: tool,
-                    mode: mode,
-                    inputFormat: inputFormat,
-                    readClass: nil,
-                    observedMaxReadLength: observedMaxReadLength,
-                    state: state
-                )
-            }
             switch tool {
             case .minimap2:
                 state = minimap2State(mode: mode, readClass: readClass)
-            case .bwaMem2:
-                state = readClass == .illuminaShortReads
-                    ? .allowed
-                    : .blocked("BWA-MEM2 is only available for Illumina-style short-read mapping in v1.")
-            case .bowtie2:
-                state = readClass == .illuminaShortReads
-                    ? .allowed
-                    : .blocked("Bowtie2 is only available for Illumina-style short-read mapping in v1.")
+            case .bwaMem2, .bowtie2:
+                state = shortReadOnlyState(tool: tool, readClass: readClass)
             case .bbmap:
                 state = bbmapState(mode: mode, readClass: readClass, observedMaxReadLength: observedMaxReadLength)
             }
@@ -107,31 +105,35 @@ public enum MappingCompatibility {
         )
     }
 
-    private static func minimap2State(mode: MappingMode, readClass: MappingReadClass) -> MappingCompatibilityState {
+    /// The suffix of every read-class warning.
+    static let proceedsAsChosen = "The run uses the settings you chose."
+
+    private static func shortReadOnlyState(tool: MappingTool, readClass: MappingReadClass?) -> MappingCompatibilityState {
+        guard let readClass else { return .warning(PlatformInference.untunedDefaultsNote) }
+        return readClass == .illuminaShortReads
+            ? .allowed
+            : .warning("\(tool.displayName) is designed for Illumina-style short reads, and these are \(readClass.displayName). \(proceedsAsChosen)")
+    }
+
+    private static func minimap2State(mode: MappingMode, readClass: MappingReadClass?) -> MappingCompatibilityState {
+        let expected: MappingReadClass?
         switch mode {
-        case .minimap2Asm5:
-            return .allowed
-        case .minimap2Splice:
-            return .allowed
+        case .minimap2Asm5, .minimap2Splice:
+            return readClass == nil ? .warning(PlatformInference.untunedDefaultsNote) : .allowed
         case .defaultShortRead:
-            return readClass == .illuminaShortReads
-                ? .allowed
-                : .blocked("minimap2 short-read mode is only available for Illumina-style short reads.")
+            expected = .illuminaShortReads
         case .minimap2MapONT:
-            return readClass == .ontReads
-                ? .allowed
-                : .blocked("Select the Oxford Nanopore minimap2 preset only for ONT reads.")
+            expected = .ontReads
         case .minimap2MapHiFi:
-            return readClass == .pacBioHiFi
-                ? .allowed
-                : .blocked("Select the PacBio HiFi minimap2 preset only for PacBio HiFi reads.")
+            expected = .pacBioHiFi
         case .minimap2MapPB:
-            return readClass == .pacBioCLR
-                ? .allowed
-                : .blocked("Select the PacBio CLR minimap2 preset only for PacBio CLR reads.")
+            expected = .pacBioCLR
         case .bbmapStandard, .bbmapPacBio:
             return .blocked("\(mode.displayName) mode is not available for minimap2.")
         }
+        guard let readClass else { return .warning(PlatformInference.untunedDefaultsNote) }
+        guard let expected, readClass != expected else { return .allowed }
+        return .warning("The minimap2 \(mode.displayName) preset is tuned for \(expected.displayName), and these are \(readClass.displayName). \(proceedsAsChosen)")
     }
 
     private static func bbmapState(
@@ -142,18 +144,23 @@ public enum MappingCompatibility {
     ) -> MappingCompatibilityState {
         switch mode {
         case .bbmapStandard:
+            // BBMap splits longer reads into 500-base pieces named r_1, r_2 and
+            // so on, so the output would not be one alignment per read.
             if let observedMaxReadLength, observedMaxReadLength > bbmapStandardMaxReadLength {
                 return .blocked("Standard BBMap mode supports reads up to 500 bases. Switch to PacBio mode or choose another mapper.")
             }
-            return .allowed
+            return inputFormat == .fastq && readClass == nil ? .warning(PlatformInference.untunedDefaultsNote) : .allowed
         case .bbmapPacBio:
-            guard inputFormat == .fasta || readClass == .pacBioHiFi || readClass == .pacBioCLR else {
-                return .blocked("BBMap PacBio mode is only available for PacBio-class reads in v1.")
-            }
+            // BBMap splits longer reads into pieces of this length and renames
+            // them, so the output would not be one alignment per read.
             if let observedMaxReadLength, observedMaxReadLength > bbmapPacBioMaxReadLength {
                 return .blocked("BBMap PacBio mode supports reads up to 6000 bases. Choose another mapper for longer reads.")
             }
-            return .allowed
+            if inputFormat == .fasta || readClass == .pacBioHiFi || readClass == .pacBioCLR {
+                return .allowed
+            }
+            guard let readClass else { return .warning(PlatformInference.untunedDefaultsNote) }
+            return .warning("BBMap PacBio mode is tuned for PacBio reads, and these are \(readClass.displayName). \(proceedsAsChosen)")
         case .defaultShortRead, .minimap2Asm5, .minimap2Splice, .minimap2MapONT, .minimap2MapHiFi, .minimap2MapPB:
             return .blocked("\(mode.displayName) mode is not available for BBMap.")
         }

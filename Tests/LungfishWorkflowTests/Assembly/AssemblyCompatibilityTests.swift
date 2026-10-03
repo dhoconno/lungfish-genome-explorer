@@ -45,30 +45,48 @@ final class AssemblyCompatibilityTests: XCTestCase {
         XCTAssertEqual(AssemblyReadType.pacBioHiFi.displayName, "PacBio HiFi/CCS")
     }
 
-    func testMixedDetectedReadTypesAreBlockedInV1() {
+    /// Mixed read classes used to block the run. The owner ruled that read
+    /// class only sets defaults, so the user picks the read class and runs.
+    func testMixedDetectedReadTypesWarnAndAskForTheReadClassInV1() {
         let evaluation = AssemblyCompatibility.evaluate(detectedReadTypes: [.illuminaShortReads, .ontReads])
 
-        XCTAssertTrue(evaluation.isBlocked)
-        XCTAssertEqual(evaluation.blockingMessage, AssemblyCompatibility.hybridAssemblyUnsupportedMessage)
-        XCTAssertEqual(
-            evaluation.blockingMessage,
-            "Hybrid assembly is not supported in v1. Select one read class per run."
-        )
-        XCTAssertEqual(evaluation.supportedTools, [])
+        XCTAssertFalse(evaluation.isBlocked)
+        XCTAssertNil(evaluation.resolvedReadType)
+        XCTAssertTrue(evaluation.requiresReadTypeConfirmation)
+        XCTAssertEqual(evaluation.warningMessage, AssemblyCompatibility.hybridAssemblyUnsupportedMessage)
+        XCTAssertEqual(evaluation.supportedTools, AssemblyTool.allCases)
     }
 
-    func testMixedSinglePassSequenceStillBlocksHybridInput() {
+    func testMixedSinglePassSequenceStillWarnsOnHybridInput() {
         let singlePassSequence = IteratorSequence(
             AnyIterator([AssemblyReadType.ontReads, .illuminaShortReads].makeIterator())
         )
 
         let evaluation = AssemblyCompatibility.evaluate(detectedReadTypes: singlePassSequence)
 
-        XCTAssertTrue(evaluation.isBlocked)
-        XCTAssertEqual(
-            evaluation.blockingMessage,
-            "Hybrid assembly is not supported in v1. Select one read class per run."
+        XCTAssertFalse(evaluation.isBlocked)
+        XCTAssertEqual(evaluation.warningMessage, AssemblyCompatibility.hybridAssemblyUnsupportedMessage)
+    }
+
+    func testReadTypeDecisionWarnsInsteadOfRefusing() {
+        let mismatch = AssemblyCompatibility.decideReadType(
+            detections: [.illuminaShortReads], tool: .flye, explicitReadType: nil, lengthDefault: nil
         )
+        XCTAssertEqual(mismatch.readType, .ontReads)
+        XCTAssertEqual(mismatch.warnings.count, 1)
+
+        let unknown = AssemblyCompatibility.decideReadType(
+            detections: [nil], tool: nil, explicitReadType: nil, lengthDefault: .ontReads
+        )
+        XCTAssertEqual(unknown.readType, .ontReads)
+        XCTAssertEqual(unknown.warnings, [PlatformInference.untunedDefaultsNote])
+        XCTAssertEqual(AssemblyCompatibility.defaultTool(for: unknown.readType), .flye)
+        XCTAssertEqual(AssemblyCompatibility.defaultTool(for: nil), .spades)
+
+        let explicit = AssemblyCompatibility.decideReadType(
+            detections: [.ontReads, .illuminaShortReads], tool: .spades, explicitReadType: .illuminaShortReads, lengthDefault: nil
+        )
+        XCTAssertEqual(explicit, AssemblyReadTypeDecision(readType: .illuminaShortReads, warnings: []))
     }
 
     func testPacBioSubreadsDoNotAutoClassifyAsHiFi() throws {

@@ -120,10 +120,22 @@ public enum ViralReconInputResolver {
             }
         }
 
+        var detectedPacBio = fastqURLs.contains { FASTQMetadataStore.load(for: $0)?.sequencingPlatform == .pacbio }
         for fastqURL in fastqURLs {
-            if let detected = LungfishIO.SequencingPlatform.detect(fromFASTQ: fastqURL),
-               let platform = normalize(platform: detected) {
+            let detected = LungfishIO.SequencingPlatform.detect(fromFASTQ: fastqURL)
+            if let detected, let platform = normalize(platform: detected) {
                 return platform
+            }
+            if detected == .pacbio { detectedPacBio = true }
+        }
+        // Unknown platform: a default from read length, never a refusal.
+        // PacBio stays unresolved because Viral Recon has no PacBio pipeline.
+        guard !detectedPacBio else { return nil }
+        for fastqURL in fastqURLs {
+            switch PlatformInference.lengthProfile(forFASTQ: fastqURL) {
+            case .long?: return .nanopore
+            case .short?: return .illumina
+            case .intermediate?, nil: continue
             }
         }
         return nil

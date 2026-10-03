@@ -98,6 +98,7 @@ struct MappingWizardSheet: View {
     @State private var detectedReadClass: MappingReadClass?
     @State private var observedMaxReadLength: Int?
     @State private var mixedReadClasses = false
+    @State private var suspectLabelNote: String?
     @State private var hasUnclassifiedFASTQInputs = false
     @State private var mixedSequenceFormats = false
     @State private var isInspectingInputs = false
@@ -439,7 +440,7 @@ struct MappingWizardSheet: View {
             detectedReadClass: detectedReadClass,
             mixedReadClasses: mixedReadClasses,
             mixedSequenceFormats: mixedSequenceFormats,
-            mixesDetectedAndUnclassifiedReadClasses: detectedReadClass != nil && hasUnclassifiedFASTQInputs
+            mixesDetectedAndUnclassifiedReadClasses: detectedReadClass != nil && hasUnclassifiedFASTQInputs, suspectLabelNote: suspectLabelNote
         )
     }
 
@@ -690,13 +691,8 @@ struct MappingWizardSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                if let detectedReadClass {
-                    Text("Detected reads: \(detectedReadClass.displayName)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if let observedMaxReadLength {
-                    Text("Observed max read length: \(observedMaxReadLength) bp")
+                if detectedReadClass != nil || observedMaxReadLength != nil {
+                    Text([detectedReadClass.map { "Detected reads: \($0.displayName)" }, observedMaxReadLength.map { "Observed max read length: \($0) bp" }].compactMap { $0 }.joined(separator: "\n"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -933,8 +929,9 @@ struct MappingWizardSheet: View {
         mixedReadClasses = result.mixedReadClasses
         hasUnclassifiedFASTQInputs = result.hasUnclassifiedFASTQInputs
         mixedSequenceFormats = result.mixedSequenceFormats
+        suspectLabelNote = await Task.detached(priority: .utility) { MappingInputInspection.suspectLabelNote(for: inputFiles) }.value
         autoSelectPreferredModeIfNeeded(
-            readClass: result.readClass,
+            readClass: result.readClass ?? result.lengthDefaultReadClass,
             sequenceFormat: result.sequenceFormat,
             observedMaxReadLength: result.observedMaxReadLength
         )
@@ -966,7 +963,7 @@ struct MappingWizardSheet: View {
                 readClass: readClass,
                 observedMaxReadLength: observedMaxReadLength
             )
-            guard evaluation.isBlocked else { return }
+            guard evaluation.state != .allowed else { return }
         }
 
         selectedModeID = preferredMode.id

@@ -1,4 +1,5 @@
 import XCTest
+import LungfishIO
 @testable import LungfishWorkflow
 
 final class MappingCompatibilityTests: XCTestCase {
@@ -31,7 +32,9 @@ final class MappingCompatibilityTests: XCTestCase {
         )
     }
 
-    func testShortReadMappersRejectLongReadClasses() {
+    /// Short-read mappers on long reads used to be refused. The owner ruled
+    /// that read class only sets defaults, so these run with a warning.
+    func testShortReadMappersWarnOnLongReadClasses() {
         let bwaMem2Evaluation = MappingCompatibility.evaluate(
             tool: .bwaMem2,
             mode: .defaultShortRead,
@@ -47,12 +50,34 @@ final class MappingCompatibilityTests: XCTestCase {
 
         XCTAssertEqual(
             bwaMem2Evaluation.state,
-            .blocked("BWA-MEM2 is only available for Illumina-style short-read mapping in v1.")
+            .warning("BWA-MEM2 is designed for Illumina-style short reads, and these are ONT reads. The run uses the settings you chose.")
         )
         XCTAssertEqual(
             bowtie2Evaluation.state,
-            .blocked("Bowtie2 is only available for Illumina-style short-read mapping in v1.")
+            .warning("Bowtie2 is designed for Illumina-style short reads, and these are PacBio HiFi. The run uses the settings you chose.")
         )
+        XCTAssertFalse(bwaMem2Evaluation.isBlocked)
+    }
+
+    func testAMinimap2PresetThatDoesNotSuitTheReadClassIsAWarning() {
+        let evaluation = MappingCompatibility.evaluate(tool: .minimap2, mode: .defaultShortRead, readClass: .ontReads)
+        XCTAssertEqual(evaluation.warningMessage, "The minimap2 Short-read preset is tuned for Illumina short reads, and these are ONT reads. The run uses the settings you chose.")
+        XCTAssertEqual(
+            MappingCompatibility.evaluate(tool: .minimap2, mode: .minimap2MapONT, readClass: .ontReads).state,
+            .allowed
+        )
+    }
+
+    func testAnUnknownReadClassRunsWithTheUntunedNote() {
+        let evaluation = MappingCompatibility.evaluate(tool: .minimap2, mode: .minimap2MapONT, readClass: nil)
+        XCTAssertEqual(evaluation.state, .warning(PlatformInference.untunedDefaultsNote))
+        XCTAssertFalse(
+            MappingCompatibility.evaluate(tool: .bbmap, mode: .bbmapPacBio, readClass: nil, observedMaxReadLength: 2_000).isBlocked
+        )
+    }
+
+    func testAModeTheToolCannotRunStaysBlocked() {
+        XCTAssertTrue(MappingCompatibility.evaluate(tool: .bowtie2, mode: .minimap2MapONT, readClass: .ontReads).isBlocked)
     }
 
     func testPreferredModesSelectCompatibleLongReadPresets() {

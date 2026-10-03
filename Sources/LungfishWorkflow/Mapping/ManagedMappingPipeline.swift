@@ -394,22 +394,23 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         try mappingInputMaterializationSteps(for: request)
     }
 
-    static func validateCompatibility(for request: MappingRunRequest) throws {
+    /// Checks that the mapper can run on the inputs and returns the warnings
+    /// to show. A read class or platform that does not suit the chosen preset
+    /// is a warning, never a refusal (see `MappingCompatibilityState`).
+    @discardableResult
+    public static func validateCompatibility(for request: MappingRunRequest) throws -> [String] {
         let inspection = MappingInputInspection.inspect(urls: request.inputFASTQURLs)
         if inspection.mixedSequenceFormats {
             throw ManagedMappingPipelineError.incompatibleSelection(
                 "Selected sequence inputs mix FASTA and FASTQ formats. Select one format per mapping run."
             )
         }
+        var warnings: [String] = []
         if request.compatibilityReadClassOverride == nil, inspection.mixedReadClasses {
-            throw ManagedMappingPipelineError.incompatibleSelection(
-                "Selected FASTQ inputs mix incompatible read classes. Select one read class per mapping run."
-            )
+            warnings.append("Selected FASTQ inputs mix read classes, so one preset maps all of them. \(MappingCompatibility.proceedsAsChosen)")
         }
         if request.compatibilityReadClassOverride == nil, inspection.mixesDetectedAndUnclassifiedReadClasses {
-            throw ManagedMappingPipelineError.incompatibleSelection(
-                "Selected FASTQ inputs mix classified and unclassified read types. Re-import or edit the read type metadata so every selected FASTQ has the same read type."
-            )
+            warnings.append("Some selected FASTQ inputs have no known read type. \(MappingCompatibility.proceedsAsChosen)")
         }
         guard let mode = MappingMode(rawValue: request.modeID) else {
             throw ManagedMappingPipelineError.incompatibleSelection(
@@ -419,38 +420,22 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
 
         let inputFormat = inspection.sequenceFormat
             ?? (inspection.readClass != nil ? SequenceFormat.fastq : nil)
-
-        if inputFormat == .fasta {
-            let evaluation = MappingCompatibility.evaluate(
-                tool: request.tool,
-                mode: mode,
-                inputFormat: .fasta,
-                readClass: nil,
-                observedMaxReadLength: inspection.observedMaxReadLength
-            )
-            if case .blocked(let message) = evaluation.state {
-                throw ManagedMappingPipelineError.incompatibleSelection(message)
-            }
-            return
-        }
-
-        let resolvedReadClass = request.compatibilityReadClassOverride ?? inspection.readClass
-        guard let readClass = resolvedReadClass else {
-            throw ManagedMappingPipelineError.incompatibleSelection(
-                "Unable to detect a supported read class from the selected FASTQ inputs."
-            )
-        }
-
         let evaluation = MappingCompatibility.evaluate(
             tool: request.tool,
             mode: mode,
-            inputFormat: .fastq,
-            readClass: readClass,
+            inputFormat: inputFormat == .fasta ? .fasta : .fastq,
+            readClass: inputFormat == .fasta ? nil : (request.compatibilityReadClassOverride ?? inspection.readClass),
             observedMaxReadLength: inspection.observedMaxReadLength
         )
-        if case .blocked(let message) = evaluation.state {
+        switch evaluation.state {
+        case .blocked(let message):
             throw ManagedMappingPipelineError.incompatibleSelection(message)
+        case .warning(let message):
+            if !warnings.contains(message) { warnings.append(message) }
+        case .allowed:
+            break
         }
+        return warnings
     }
 
     private func validateInputs(for request: MappingRunRequest) async throws {

@@ -1673,7 +1673,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             }
             let inputFASTQURLs = try Self.resolveInputFASTQURLs(for: first)
             let detected = inputFASTQURLs.compactMap { LungfishIO.SequencingPlatform.detect(fromFASTQ: $0) }
-            if detected.contains(.illumina) {
+            // Element and MGI reads are short reads processed like Illumina.
+            if detected.contains(where: { [.illumina, .element, .mgi].contains($0) }) {
                 return .illuminaPaired
             }
             if detected.contains(.oxfordNanopore) {
