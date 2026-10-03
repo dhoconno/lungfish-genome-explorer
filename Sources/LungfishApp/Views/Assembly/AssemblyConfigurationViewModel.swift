@@ -363,7 +363,7 @@ public enum AssemblyRunner {
     }
 
     /// `originalInputURLs[i]` is the input `executionInputURLs[i]` came from.
-    static func managedAssemblyInputRecords(
+    nonisolated static func managedAssemblyInputRecords(
         originalInputURLs: [URL],
         executionInputURLs: [URL]
     ) -> [InputFileRecord] {
@@ -371,6 +371,31 @@ public enum AssemblyRunner {
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs
         )
+    }
+
+    /// The input records and the materialization steps of a finished run,
+    /// computed on the concurrent executor. Both hash every input file, and
+    /// every file of a joined bundle twice, which held the main thread for
+    /// minutes after the assembler finished on a large ONT bundle (R10,
+    /// final review S2). What they record is unchanged.
+    @concurrent
+    nonisolated static func managedAssemblyProvenanceInputs(
+        originalInputURLs: [URL],
+        executionInputURLs: [URL],
+        startedAt: Date?,
+        endedAt: Date?
+    ) async throws -> (records: [InputFileRecord], steps: [ProvenanceStep]) {
+        let records = managedAssemblyInputRecords(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
+        )
+        let steps = try managedAssemblyMaterializationSteps(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+        return (records, steps)
     }
 
     private static func runManagedAssemblyOperation(
@@ -425,20 +450,18 @@ public enum AssemblyRunner {
                 OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
 
+            let provenanceInputs = try await managedAssemblyProvenanceInputs(
+                originalInputURLs: materializationResult.originalInputURLs,
+                executionInputURLs: executionRequest.inputURLs,
+                startedAt: materializationResult.materializationStartedAt,
+                endedAt: materializationResult.materializationEndedAt
+            )
             let provenance = ProvenanceBuilder.build(
                 request: executionRequest,
                 result: result,
-                inputRecords: managedAssemblyInputRecords(
-                    originalInputURLs: materializationResult.originalInputURLs,
-                    executionInputURLs: executionRequest.inputURLs
-                ),
+                inputRecords: provenanceInputs.records,
                 requestedInputURLs: request.inputURLs,
-                steps: try managedAssemblyMaterializationSteps(
-                    originalInputURLs: materializationResult.originalInputURLs,
-                    executionInputURLs: executionRequest.inputURLs,
-                    startedAt: materializationResult.materializationStartedAt,
-                    endedAt: materializationResult.materializationEndedAt
-                )
+                steps: provenanceInputs.steps
             )
 
             let bundleBuilder = AssemblyBundleBuilder()
@@ -497,7 +520,7 @@ public enum AssemblyRunner {
     /// The steps that wrote the execution files, as `lungfish-cli assemble`
     /// records them: one materialization step for the virtual bundles, then
     /// a `cat` step for each concatenation of a bundle's files.
-    static func managedAssemblyMaterializationSteps(
+    nonisolated static func managedAssemblyMaterializationSteps(
         originalInputURLs: [URL],
         executionInputURLs: [URL],
         startedAt: Date?,
@@ -524,7 +547,7 @@ public enum AssemblyRunner {
     }
 
     /// `originalInputURLs[i]` is the input `executionInputURLs[i]` came from.
-    static func managedAssemblyMaterializationStep(
+    nonisolated static func managedAssemblyMaterializationStep(
         originalInputURLs: [URL],
         executionInputURLs: [URL],
         startedAt: Date?,
