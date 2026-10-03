@@ -892,6 +892,21 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     /// measured window seen under the gate was about 5 s.
     private static let wallHangCeiling: TimeInterval = 30
 
+    /// Runs the main-queue work that setup left queued, so the next measured window holds
+    /// only the edit's own work. Each pass queues a block behind everything already queued
+    /// and waits for it, and three passes also catch work those blocks queue in turn.
+    /// Without it about half of the commit-to-visible window was setup work (0.045 s
+    /// against 0.019 s on an idle machine), which a loaded machine inflates as well.
+    /// Call it before capturing expectations and resetting the counters, because setup's
+    /// own settlement block counts as a commit when it runs.
+    private func drainMainQueue() async {
+        for _ in 0..<3 {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+    }
+
     /// Runs `edit`, yields once so the matrix's visible-settlement block runs, and
     /// returns the wall and main-thread CPU seconds the whole window took.
     private func measureEditToVisible(_ edit: () -> Void) async -> (wall: TimeInterval, cpu: TimeInterval) {
@@ -962,6 +977,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             pinned: NSPoint(x: 0, y: 180),
             samples: NSPoint(x: 43, y: 180)
         )
+        await drainMainQueue()
 
         let expectedSelection = matrix.testingSelectedMatrixTargets
         let expectedSortKey = matrix.testingActiveSortDescriptorKey
@@ -1048,6 +1064,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             pinned: NSPoint(x: 0, y: 0),
             samples: NSPoint(x: 197, y: 0)
         )
+        await drainMainQueue()
         let expectedWidths = matrix.testingAllColumnWidths
         let expectedSamples = matrix.testingVisibleSampleNames
         let expectedRows = matrix.testingVisibleRows.map(\.id)
@@ -1181,6 +1198,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertTrue(controller.testingMatrixVisibilityCapability.canResetVisibility)
         XCTAssertEqual(matrix.testingVisibleRows.count, 119)
         XCTAssertEqual(matrix.testingVisibleSampleNames.count, 51)
+        await drainMainQueue()
 
         matrix.testingProjectionPerformanceClock = { currentThreadCPUTime() }
         controller.testingResetProjectionPerformanceCounters()
