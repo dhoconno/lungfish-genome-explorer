@@ -1,0 +1,91 @@
+// ClassifierExtractionError.swift - Errors produced by ClassifierReadResolver
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import LungfishCore
+import LungfishIO
+import os.log
+
+// MARK: - ClassifierExtractionError
+
+/// Errors produced by `ClassifierReadResolver`.
+///
+/// Distinct from the lower-level `ExtractionError` so callers can differentiate
+/// resolver-scoped failures (BAM-not-found-for-sample, missing Kraken2 output,
+/// etc.) from primitive samtools/seqkit failures.
+public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
+
+    /// The requested tool does not expose BAM-backed reads.
+    case unsupportedBAMTool(ClassifierTool)
+
+    /// No BAM file could be found for the given sample ID.
+    case bamNotFound(sampleId: String)
+
+    /// The Kraken2 per-read classified output file was missing or unreadable.
+    case kraken2OutputMissing(URL)
+
+    /// The Kraken2 taxonomy tree could not be loaded from disk.
+    case kraken2TreeMissing(URL)
+
+    /// The Kraken2 source FASTQ could not be located on disk.
+    case kraken2SourceMissing
+
+    /// A per-sample samtools invocation failed.
+    case samtoolsFailed(sampleId: String, stderr: String)
+
+    /// An extracted clipboard payload exceeded the requested cap.
+    case clipboardCapExceeded(requested: Int, cap: Int)
+
+    /// Destination directory not writable.
+    case destinationNotWritable(URL)
+
+    /// FASTQ → FASTA conversion failed while reading an input record.
+    case fastaConversionFailed(String)
+
+    /// A single invocation mixed selectors for a direct result with batch-sample selectors.
+    case mixedSampleSelectionModes
+
+    /// Zero reads were extracted despite a non-empty pre-flight estimate.
+    case zeroReadsExtracted
+
+    /// Every selected sample was skipped because its classification sidecar or
+    /// source FASTQ could not be resolved.
+    case allSamplesSkipped([String])
+
+    /// The underlying extraction was cancelled.
+    case cancelled
+
+    // MARK: - LocalizedError
+
+    public var errorDescription: String? {
+        switch self {
+        case .unsupportedBAMTool(let tool):
+            return "\(tool.displayName) does not expose BAM-backed reads. Use the classifier extraction path for \(tool.displayName) instead."
+        case .bamNotFound(let sampleId):
+            return "No BAM file found for sample '\(sampleId)'. The classifier result may be corrupted or imported without the underlying alignment data."
+        case .kraken2OutputMissing(let url):
+            return "Kraken2 per-read classification output not found: \(url.lastPathComponent)"
+        case .kraken2TreeMissing(let url):
+            return "Kraken2 taxonomy tree not found: \(url.lastPathComponent)"
+        case .kraken2SourceMissing:
+            return "Kraken2 source FASTQ could not be located. The source file may have been moved or deleted."
+        case .samtoolsFailed(let sampleId, let stderr):
+            return "samtools view failed for sample '\(sampleId)': \(stderr)"
+        case .clipboardCapExceeded(let requested, let cap):
+            return "Selection contains \(requested) reads, which exceeds the clipboard cap of \(cap). Choose Save to File, Save as Bundle, or Share instead."
+        case .destinationNotWritable(let url):
+            return "Destination is not writable: \(url.path)"
+        case .fastaConversionFailed(let reason):
+            return "FASTQ → FASTA conversion failed: \(reason)"
+        case .mixedSampleSelectionModes:
+            return "Cannot combine single-sample and batch-sample selections in one extraction."
+        case .zeroReadsExtracted:
+            return "The selection produced zero reads. Try adjusting the flag filter or selecting different rows."
+        case .allSamplesSkipped(let samples):
+            return "No reads could be extracted: \(samples.count) sample(s) were skipped because their classification output or source FASTQ could not be located (\(samples.joined(separator: ", ")))."
+        case .cancelled:
+            return "Extraction was cancelled"
+        }
+    }
+}
