@@ -11,6 +11,10 @@ public struct ONTFluidigmAmpliconMaterializationRequest: Sendable {
     public let minimumInsertLength: Int
     public let canonicalizeReverseComplements: Bool
     public let force: Bool
+    /// The thread count the command was given. The materializer runs on one
+    /// thread and reads no other value from it, so it changes no output. The
+    /// sample bundles record it only so their command matches the run's argv.
+    public let threads: Int
 
     public init(
         inputURL: URL,
@@ -21,7 +25,8 @@ public struct ONTFluidigmAmpliconMaterializationRequest: Sendable {
         primerMismatches: Int = 2,
         minimumInsertLength: Int = 20,
         canonicalizeReverseComplements: Bool = true,
-        force: Bool = false
+        force: Bool = false,
+        threads: Int = 1
     ) {
         self.inputURL = inputURL.standardizedFileURL
         self.barcodeDefinitionsURL = barcodeDefinitionsURL.standardizedFileURL
@@ -32,6 +37,7 @@ public struct ONTFluidigmAmpliconMaterializationRequest: Sendable {
         self.minimumInsertLength = max(1, minimumInsertLength)
         self.canonicalizeReverseComplements = canonicalizeReverseComplements
         self.force = force
+        self.threads = max(1, threads)
     }
 }
 

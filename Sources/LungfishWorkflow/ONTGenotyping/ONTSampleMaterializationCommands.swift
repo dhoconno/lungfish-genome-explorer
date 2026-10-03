@@ -45,40 +45,53 @@ extension ONTPacBioBarcodeDemuxMaterializationRequest {
 }
 
 extension ONTFluidigmAmpliconMaterializationRequest {
-    /// The command that runs this request.
+    /// The `ont-fluidigm-samples` words that follow `lungfish-cli fastq`, with
+    /// every value the run reads. `lungfish-cli fastq ont-fluidigm-samples`
+    /// records them as its own argv, so its envelope and its sample bundles
+    /// name one command.
     ///
-    /// `lungfish-cli fastq ont-fluidigm-samples` runs this materializer with
-    /// the default CS1 and CS2 primers, so a request with those primers
-    /// records that command with every value the run reads. The reverse
-    /// complement setting is always spelled out, because the command's default
-    /// differs from this request's. The command takes `--threads`, which
-    /// changes no output and which the request does not carry, so the command
-    /// leaves it out. No option sets other primers, so a request with other
-    /// primers records `Lungfish.app ont-fluidigm-samples` with the primers as
-    /// descriptive flags.
-    public var recordedCommandArguments: [String] {
-        let usesTheCommandsPrimers = forwardPrimer == ONTFluidigmAmpliconMaterializer.defaultForwardPrimer
-            && reversePrimer == ONTFluidigmAmpliconMaterializer.defaultReversePrimer
-        var arguments = usesTheCommandsPrimers
-            ? [CLICommandIdentity.executableName, "fastq", "ont-fluidigm-samples"]
-            : ["Lungfish.app", "ont-fluidigm-samples"]
-        arguments += [
+    /// The reverse complement setting is always spelled out, because the
+    /// command's default (off) differs from this request's (on). `--threads`
+    /// appears when it is not 1, as the command records it, though it
+    /// changes no output.
+    public var subcommandArguments: [String] {
+        var arguments = [
+            "ont-fluidigm-samples",
             inputURL.path,
             "--barcodes", barcodeDefinitionsURL.path,
             "--output", outputDirectory.path,
             "--primer-mismatches", String(primerMismatches),
             "--minimum-insert-length", String(minimumInsertLength),
+        ]
+        if threads != 1 {
+            arguments += ["--threads", String(threads)]
+        }
+        arguments.append(
             canonicalizeReverseComplements
                 ? "--canonicalize-reverse-complements"
-                : "--no-canonicalize-reverse-complements",
-        ]
-        if !usesTheCommandsPrimers {
-            arguments += ["--forward-primer", forwardPrimer, "--reverse-primer", reversePrimer]
-        }
+                : "--no-canonicalize-reverse-complements"
+        )
         if force {
             arguments.append("--force")
         }
         return arguments
+    }
+
+    /// The command that runs this request.
+    ///
+    /// `lungfish-cli fastq ont-fluidigm-samples` runs this materializer with
+    /// the default CS1 and CS2 primers, so a request with those primers
+    /// records that command. No option sets other primers, so a request with
+    /// other primers records the `Lungfish.app ont-fluidigm-samples` form with
+    /// the primers as descriptive flags.
+    public var recordedCommandArguments: [String] {
+        let usesTheCommandsPrimers = forwardPrimer == ONTFluidigmAmpliconMaterializer.defaultForwardPrimer
+            && reversePrimer == ONTFluidigmAmpliconMaterializer.defaultReversePrimer
+        guard usesTheCommandsPrimers else {
+            return ["Lungfish.app"] + subcommandArguments
+                + ["--forward-primer", forwardPrimer, "--reverse-primer", reversePrimer]
+        }
+        return [CLICommandIdentity.executableName, "fastq"] + subcommandArguments
     }
 
     /// ``recordedCommandArguments`` as one shell-quoted command line, the

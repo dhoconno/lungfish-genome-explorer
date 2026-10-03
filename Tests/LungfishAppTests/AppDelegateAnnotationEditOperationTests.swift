@@ -332,36 +332,39 @@ final class AppDelegateAnnotationEditOperationTests: XCTestCase {
     }
 
     func testUpdateProvenanceExplicitOptionsMatchTheEnvelopeTheRecordedCommandWrites() async throws {
-        // An edit that clears the note passes no `--note`, so the app's
-        // envelope and the one `lungfish-cli` writes when it runs the row's
-        // command hold the same explicit options.
-        let appBundle = try makeBundle(named: "App")
-        let cliBundle = try makeBundle(named: "CLI")
-        let (appAnnotation, appLocation) = try editedGene(in: appBundle)
-        let (editedCLIGene, cliLocation) = try editedGene(in: cliBundle)
-        var cliAnnotation = editedCLIGene
-        cliAnnotation.note = nil
+        // The app's envelope and the one `lungfish-cli` writes when it runs
+        // the row's command hold the same explicit options, with a note and
+        // for an edit that clears it. The CLI used to leave the note out.
+        for note in ["Edited in the Inspector", nil] {
+            let label = note ?? "no note"
+            let appBundle = try makeBundle(named: "App \(label)")
+            let cliBundle = try makeBundle(named: "CLI \(label)")
+            let (appAnnotation, appLocation) = try editedGene(in: appBundle)
+            let (editedCLIGene, cliLocation) = try editedGene(in: cliBundle)
+            var cliAnnotation = editedCLIGene
+            cliAnnotation.note = note
 
-        let appResult = try await ReferenceBundleManualAnnotationService().updateAnnotation(
-            appLocation,
-            name: appAnnotation.name,
-            type: appAnnotation.type.rawValue,
-            strand: appAnnotation.strand.rawValue,
-            note: nil,
-            bundleURL: appBundle
-        )
-        let reporter = RecordingOperationReporter()
-        AppDelegate.beginAnnotationUpdateOperation(
-            annotation: cliAnnotation, location: cliLocation, bundleURL: cliBundle, routeContext: nil, reporter: reporter
-        )
-        let command = try RecordedCLICommand.parse(reporter.items.first?.cliCommand, as: SequenceCommand.UpdateAnnotation.self)
-        try await command.run()
+            let appResult = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+                appLocation,
+                name: appAnnotation.name,
+                type: appAnnotation.type.rawValue,
+                strand: appAnnotation.strand.rawValue,
+                note: note,
+                bundleURL: appBundle
+            )
+            let reporter = RecordingOperationReporter()
+            AppDelegate.beginAnnotationUpdateOperation(
+                annotation: cliAnnotation, location: cliLocation, bundleURL: cliBundle, routeContext: nil, reporter: reporter
+            )
+            let command = try RecordedCLICommand.parse(reporter.items.first?.cliCommand, as: SequenceCommand.UpdateAnnotation.self)
+            try await command.run()
 
-        let appEnvelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: appResult.provenanceURL))
-        let cliEnvelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(from: cliBundle))
-        XCTAssertEqual(cliEnvelope.workflowName, "lungfish sequence update-annotation")
-        XCTAssertEqual(appEnvelope.options.explicit, cliEnvelope.options.explicit)
-        XCTAssertNil(appEnvelope.options.explicit["note"])
+            let appEnvelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: appResult.provenanceURL), label)
+            let cliEnvelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(from: cliBundle), label)
+            XCTAssertEqual(cliEnvelope.workflowName, "lungfish sequence update-annotation", label)
+            XCTAssertEqual(appEnvelope.options.explicit, cliEnvelope.options.explicit, label)
+            XCTAssertEqual(cliEnvelope.options.explicit["note"], note.map(ParameterValue.string), label)
+        }
     }
 
     // MARK: - Refusal
