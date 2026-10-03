@@ -230,9 +230,7 @@ final class CLIImportRunnerTests: XCTestCase {
             ).rowID
         }
         addTeardownBlock {
-            await MainActor.run {
-                OperationCenter.shared.clearItem(id: operationID)
-            }
+            await Self.finishAndClearOperation(operationID)
         }
 
         await CLIImportRunner().run(
@@ -514,9 +512,7 @@ final class CLIImportRunnerTests: XCTestCase {
             ).rowID
         }
         addTeardownBlock {
-            await MainActor.run {
-                OperationCenter.shared.clearItem(id: operationID)
-            }
+            await Self.finishAndClearOperation(operationID)
         }
 
         let runner = CLIImportRunner()
@@ -583,9 +579,7 @@ final class CLIImportRunnerTests: XCTestCase {
             ).rowID
         }
         addTeardownBlock {
-            await MainActor.run {
-                OperationCenter.shared.clearItem(id: operationID)
-            }
+            await Self.finishAndClearOperation(operationID)
         }
 
         let errors = CLIImportRunnerStringCollector()
@@ -658,9 +652,7 @@ final class CLIImportRunnerTests: XCTestCase {
             ).rowID
         }
         addTeardownBlock {
-            await MainActor.run {
-                OperationCenter.shared.clearItem(id: operationID)
-            }
+            await Self.finishAndClearOperation(operationID)
         }
 
         let bundles = CLIImportRunnerStringCollector()
@@ -765,6 +757,20 @@ final class CLIImportRunnerTests: XCTestCase {
         )
 
         XCTAssertEqual(resolved, explicitCLI)
+    }
+
+    /// Finishes, then removes, a row a test began on the shared OperationCenter.
+    ///
+    /// `CLIImportRunner` fails the row itself when the CLI fails. After a clean exit it
+    /// leaves the row running for its caller to complete with the new bundle, as
+    /// `FASTQIngestionService.runIngestAndBundle` does. These tests are that caller, so
+    /// the row is completed before it is cleared, because `clearItem` skips a running
+    /// row. Two tests used to leave a running row behind, and a later suite in the same
+    /// process that expected no active row failed.
+    @MainActor
+    private static func finishAndClearOperation(_ operationID: UUID) {
+        OperationCenter.shared.complete(id: operationID, detail: "Test finished")
+        OperationCenter.shared.clearItem(id: operationID)
     }
 
     private func makeTemporaryDirectory() throws -> URL {

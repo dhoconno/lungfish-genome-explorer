@@ -163,10 +163,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
 
-        let deadline = Date().addingTimeInterval(5)
-        while vc.testBatchFlatTableView.displayedRows.count < rows.count && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
+        waitForDisplayedRows(in: vc, count: rows.count)
         XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, rows.count)
         vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
         window.layoutIfNeeded()
@@ -308,10 +305,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
 
-        let deadline = Date().addingTimeInterval(5)
-        while vc.testBatchFlatTableView.displayedRows.count < 2 && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
+        waitForDisplayedRows(in: vc, count: 2)
         XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 2)
 
         let firstIndex = try XCTUnwrap(
@@ -517,10 +511,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
 
-        let deadline = Date().addingTimeInterval(5)
-        while vc.testBatchFlatTableView.displayedRows.isEmpty && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
+        waitForDisplayedRows(in: vc, count: 1)
         XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 1)
         vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
         window.layoutIfNeeded()
@@ -616,10 +607,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
 
-        let deadline = Date().addingTimeInterval(5)
-        while vc.testBatchFlatTableView.displayedRows.isEmpty && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
+        waitForDisplayedRows(in: vc, count: 1)
         XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 1)
         vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
 
@@ -719,10 +707,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
 
-        let deadline = Date().addingTimeInterval(5)
-        while vc.testBatchFlatTableView.displayedRows.isEmpty && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
+        waitForDisplayedRows(in: vc, count: 1)
         XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 1)
         vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
 
@@ -792,10 +777,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
             "configureFromDatabase should return before SQLite rows are paged into the viewport"
         )
 
-        let deadline = Date().addingTimeInterval(10)
-        while vc.testBatchFlatTableView.displayedRows.count < rows.count && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
+        waitForDisplayedRows(in: vc, count: rows.count)
 
         XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, rows.count)
     }
@@ -921,10 +903,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 
-        let deadline = Date().addingTimeInterval(10)
-        while vc.testBatchFlatTableView.displayedRows.count < rows.count && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
+        waitForDisplayedRows(in: vc, count: rows.count)
         XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, rows.count)
 
         return (vc, dbURL)
@@ -988,5 +967,24 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
             ($0.representedObject as? String) == name
         })
         menu.performActionForItem(at: index)
+    }
+
+    /// Spins the main run loop until the batch table shows at least `count` rows, and
+    /// returns as soon as it does.
+    ///
+    /// The rows load from the database off the main thread and arrive on the main
+    /// queue. The old loops gave that 5 s or 10 s of wall time, which the loaded parallel
+    /// unit gate used up before any row arrived (gate 12, 2026-10-02). The ceiling here
+    /// is reached only when the rows never come, and each caller asserts the count next.
+    @MainActor private func waitForDisplayedRows(
+        in vc: TaxTriageResultViewController,
+        count: Int,
+        timeout: Duration = .seconds(30)
+    ) {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while vc.testBatchFlatTableView.displayedRows.count < count && clock.now < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
     }
 }

@@ -502,6 +502,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var testingCommitToVisibleCount = 0
     private var testingCommitToVisibleTotalSeconds: TimeInterval = 0
     private var testingCommitToVisibleMaximumSeconds: TimeInterval = 0
+    /// Clock behind the derived-projection and commit-to-visible seconds counters. The default is the continuous clock. Seconds-budget tests swap in the main thread's CPU clock.
+    var testingProjectionPerformanceClock: @MainActor () -> Duration = { ContinuousClock.now - GenotypeComparisonMatrixView.testingPerformanceClockOrigin }
+    private static let testingPerformanceClockOrigin = ContinuousClock.now
     /// Synchronous per-call counter (unlike ``testingCommitToVisibleCount``,
     /// which coalesces same-runloop-turn calls via a settlement generation).
     /// Used to verify keystroke-triggered filter recomputes are debounced.
@@ -543,8 +546,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         NotificationCenter.default.removeObserver(self)
         // `pendingFilterTask` is not explicitly cancelled here: `final`-class
         // deinits may only touch nonisolated state under Swift 6 strict
-        // concurrency. The task's own `[weak self]` capture makes this safe --
-        // it simply no-ops once `self` has been deallocated.
+        // concurrency. The recompute closure the task holds captures `self`
+        // weakly, so the task no-ops once `self` has been deallocated.
     }
 
     private var haplotypeEvidence = GenotypeAlleleHaplotypeEvidenceIndex.empty
@@ -948,16 +951,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         applyFilterState(requestedState, debounce: debounce)
     }
 
-    /// Delay before recomputing the matrix filter/sort in response to a
-    /// user-typed keystroke. Mirrors `BatchTableView.filterDebounceDelay`
-    /// (`Sources/LungfishKit/BatchTableView.swift`) so free-text search feels
-    /// consistent everywhere in the app.
+    /// Delay before recomputing the matrix filter/sort in response to a user-typed keystroke. Mirrors `BatchTableView.filterDebounceDelay` (`Sources/LungfishKit/BatchTableView.swift`) so free-text search feels consistent everywhere in the app.
     private static let filterDebounceDelay: Duration = .milliseconds(180)
 
-    /// Pending debounced recompute scheduled by a user keystroke in the
-    /// filter field. Cancelled whenever a new keystroke arrives or the
-    /// filter is cleared/set programmatically.
+    /// Pending debounced recompute scheduled by a user keystroke in the filter field. Cancelled whenever a new keystroke arrives or the filter is cleared/set programmatically.
     private var pendingFilterTask: Task<Void, Never>?
+
+    /// Starts the debounced recompute and returns its task. The default sleeps for the delay, then recomputes unless cancelled. Tests replace it so they run the recompute without waiting on the clock.
+    var filterDebounceScheduler: @MainActor (Duration, @escaping @MainActor () -> Void) -> Task<Void, Never> = { delay, recompute in
+        Task { @MainActor in
+            do { try await Task.sleep(for: delay) } catch { return }
+            if !Task.isCancelled { recompute() }
+        }
+    }
 
     private func applyFilterState(_ state: NativeFilterState, debounce: Bool = false) {
         let previousSamples = activeSampleNames()
@@ -979,14 +985,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return
         }
         pendingFilterTask?.cancel()
-        let delay = Self.filterDebounceDelay
-        pendingFilterTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: delay)
-            } catch {
-                return
-            }
-            guard let self, !Task.isCancelled else { return }
+        pendingFilterTask = filterDebounceScheduler(Self.filterDebounceDelay) { [weak self] in
+            guard let self else { return }
             self.pendingFilterTask = nil
             self.applyFilterAndSort()
         }
@@ -2345,7 +2345,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return
         }
 #if DEBUG
-        let derivedStart = ContinuousClock.now
+        let derivedStart = testingProjectionPerformanceClock()
 #endif
         let derived = baseProjection.derive(.init(
             globalMinimumPercent: displayState.activeMinimumSupportPercent,
@@ -2377,7 +2377,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             $0.localizedStandardCompare($1) == .orderedAscending
         })
 #if DEBUG
-        let elapsed = Self.seconds(ContinuousClock.now - derivedStart)
+        let elapsed = Self.seconds(testingProjectionPerformanceClock() - derivedStart)
         testingDerivedProjectionPassCount += 1
         testingDerivedProjectionTotalSeconds += elapsed
         testingDerivedProjectionMaximumSeconds = max(
@@ -2567,7 +2567,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let semanticScrollAnchor = semanticScrollAnchor ?? captureSemanticScrollAnchor()
         let previousVisibleRows = visibleRows
 #if DEBUG
-        let commitStart = ContinuousClock.now
+        let commitStart = testingProjectionPerformanceClock()
         testingApplyFilterAndSortInvocationCount += 1
 #endif
         let normalizedFilter = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2641,7 +2641,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 return
             }
             self.layoutSubtreeIfNeeded()
-            let elapsed = Self.seconds(ContinuousClock.now - commitStart)
+            let elapsed = Self.seconds(self.testingProjectionPerformanceClock() - commitStart)
             self.testingCommitToVisibleCount += 1
             self.testingCommitToVisibleTotalSeconds += elapsed
             self.testingCommitToVisibleMaximumSeconds = max(

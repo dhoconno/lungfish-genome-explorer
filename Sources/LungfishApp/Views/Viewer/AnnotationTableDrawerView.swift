@@ -510,6 +510,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Debounce work item for annotation-tab text filtering.
     var annotationQueryWorkItem: DispatchWorkItem?
+    /// Arms `annotationQueryWorkItem` after the debounce delay. Tests replace it so they run the query without waiting on the clock.
+    var annotationQueryDebounceScheduler: @MainActor (TimeInterval, DispatchWorkItem) -> Void = { DispatchQueue.main.asyncAfter(deadline: .now() + $0, execute: $1) }
 
     /// Debounce work item for variant queries to collapse rapid filter/scope changes.
     var variantQueryWorkItem: DispatchWorkItem?
@@ -587,11 +589,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         case placeholder
     }
 
-    /// Database size threshold (1 GB) above which filtered queries are automatically
-    /// scoped to the current chromosome for performance.
+    /// Database size threshold (1 GB) above which filtered queries are automatically scoped to the current chromosome for performance.
     static let chromosomeScopeThreshold: UInt64 = 1_000_000_000
-    /// Database size threshold (25 GB) above which only pre-materialized token paths
-    /// are allowed for variant filtering to keep interactions responsive.
+    /// Database size threshold (25 GB) above which only pre-materialized token paths are allowed for variant filtering to keep interactions responsive.
     static let materializedOnlyThreshold: UInt64 = 25_000_000_000
 
     /// Last variant query match count used for status labeling (especially capped result sets).

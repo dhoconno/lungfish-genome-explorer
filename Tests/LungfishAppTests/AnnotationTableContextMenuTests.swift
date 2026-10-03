@@ -150,14 +150,22 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         _ = drawer.perform(selector, with: item)
     }
 
+    /// Spins the main run loop until `predicate` holds, and returns as soon as it does.
+    ///
+    /// Every caller waits for real work, a SQLite query on a background queue and its
+    /// main-queue hop, so the ceiling is reached only when the update never comes. The
+    /// old 1 s ceiling ran out under the loaded parallel unit gate while the query was
+    /// still running (testAnnotationAttributeColumnFilterCanFindRowsAfterFirstOverLimitPage
+    /// pages through the whole over-limit database).
     private func waitForAnnotationUpdate(
-        timeout: TimeInterval = 1.0,
+        timeout: Duration = .seconds(30),
         file: StaticString = #filePath,
         line: UInt = #line,
         until predicate: () -> Bool
     ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !predicate() && Date() < deadline {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !predicate() && clock.now < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
         XCTAssertTrue(predicate(), "Timed out waiting for annotation update", file: file, line: line)
@@ -827,6 +835,11 @@ final class AnnotationTableContextMenuTests: XCTestCase {
             "chr1\t300\t400\tgene-b\t0\t+\t300\t400\t0,0,0\t1\t100\t0\tgene\tgene=gene-b",
             "chr1\t500\t600\tother\t0\t+\t500\t600\t0,0,0\t1\t100\t0\tgene\tgene=other"
         ])
+        // The test holds the armed work items and decides when the debounce delay has
+        // passed. Waiting 1 s of wall time for the real 0.16 s timer failed under the
+        // loaded parallel unit gate (gate 10, 2026-10-02) with the query never run.
+        let debounce = ManualAnnotationQueryDebounce()
+        drawer.annotationQueryDebounceScheduler = { debounce.arm(after: $0, $1) }
         let initialQueryCount = drawer.debugGetAnnotationQueryExecutionCount()
         let searchField = NSSearchField()
 
@@ -838,17 +851,26 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         drawer.filterFieldChanged(searchField)
 
         XCTAssertEqual(drawer.debugGetAnnotationQueryExecutionCount(), initialQueryCount)
+        XCTAssertEqual(
+            debounce.armed.map(\.delay), [0.16, 0.16, 0.16],
+            "Each keystroke must arm a query 0.16 s out"
+        )
+        XCTAssertEqual(
+            debounce.armed.map(\.workItem.isCancelled), [true, true, false],
+            "Each keystroke must cancel the query the previous keystroke armed"
+        )
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while drawer.debugGetAnnotationQueryExecutionCount() == initialQueryCount && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        // The delay passes for all three. Only the newest keystroke's query may run.
+        debounce.elapseAll()
+        waitForAnnotationUpdate {
+            drawer.debugGetAnnotationQueryExecutionCount() != initialQueryCount
         }
-
         XCTAssertEqual(drawer.debugGetAnnotationQueryExecutionCount(), initialQueryCount + 1)
         waitForAnnotationUpdate {
             drawer.displayedAnnotations.map(\.name) == ["gene-a"]
         }
         XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["gene-a"])
+        XCTAssertEqual(drawer.debugGetAnnotationQueryExecutionCount(), initialQueryCount + 1)
     }
 
     func testAnnotationViewportFilterControlRemainsVisibleInMinimalToolbarDensity() throws {
@@ -1276,5 +1298,27 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         XCTAssertTrue(variants.validateMenuItem(inspector))
         variants.copySelectedRowName(nil)
         XCTAssertEqual(pasteboard.string(forType: .string), "rs1")
+    }
+}
+
+/// Stands in for `AnnotationTableDrawerView.annotationQueryDebounceScheduler`. It keeps
+/// each armed work item, so a test decides when the debounce delay has passed instead
+/// of waiting on the clock.
+@MainActor
+private final class ManualAnnotationQueryDebounce {
+    private(set) var armed: [(delay: TimeInterval, workItem: DispatchWorkItem)] = []
+
+    func arm(after delay: TimeInterval, _ workItem: DispatchWorkItem) {
+        armed.append((delay, workItem))
+    }
+
+    /// Runs every armed work item, as the main queue does once its delay has passed.
+    /// A cancelled work item returns at once.
+    func elapseAll() {
+        let due = armed
+        armed.removeAll()
+        for entry in due {
+            entry.workItem.perform()
+        }
     }
 }

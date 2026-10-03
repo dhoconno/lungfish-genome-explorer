@@ -374,7 +374,7 @@ extension AnnotationTableDrawerView {
             }
         }
         annotationQueryWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.annotationQueryDebounceInterval, execute: workItem)
+        annotationQueryDebounceScheduler(Self.annotationQueryDebounceInterval, workItem)
     }
 
     /// Populates the variant table using viewport-region-filtered or global queries.

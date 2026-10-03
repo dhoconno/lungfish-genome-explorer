@@ -175,7 +175,7 @@ final class VariantTableEnhancementTests: XCTestCase {
     func testExportCellValueForVariants() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
 
-        switchToVariantsAndWait(drawer)
+        switchToVariants(drawer) { !drawer.displayedAnnotations.isEmpty }
 
         // Variants should be loaded
         XCTAssertGreaterThan(drawer.displayedAnnotations.count, 0,
@@ -606,12 +606,16 @@ final class VariantTableEnhancementTests: XCTestCase {
         """
         let drawer = try createDrawerWithAnnotationsAndVariants(vcfContent: vcfContent)
 
-        switchToVariantsAndWait(drawer)
+        switchToVariants(drawer) {
+            drawer.displayedAnnotations.map(\.name) == ["rsHomAlt", "rsHet", "rsOtherHomAlt"]
+        }
         XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["rsHomAlt", "rsHet", "rsOtherHomAlt"])
 
         drawer.debugSetVariantFilterText("Sample[NA12878].GT=1/1")
         drawer.debugRefreshDisplayedAnnotations()
-        waitForVariantQueryToFinish(drawer)
+        waitForVariantRows(in: drawer) {
+            drawer.displayedAnnotations.map(\.name) == ["rsHomAlt", "rsOtherHomAlt"]
+        }
 
         XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["rsHomAlt", "rsOtherHomAlt"])
         XCTAssertFalse(
@@ -962,16 +966,40 @@ final class VariantTableEnhancementTests: XCTestCase {
 
     // MARK: - Async Helpers
 
-    /// Switches to the variants tab and drains the RunLoop until variant query results arrive.
-    private func switchToVariantsAndWait(_ drawer: AnnotationTableDrawerView, timeout: TimeInterval = 2.0) {
+    /// Switches to the variants tab and waits for its query to deliver rows that satisfy `rowsReady`.
+    private func switchToVariants(
+        _ drawer: AnnotationTableDrawerView,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        until rowsReady: () -> Bool
+    ) {
         drawer.switchToTab(.variants)
-        waitForVariantQueryToFinish(drawer, timeout: timeout)
+        waitForVariantRows(in: drawer, file: file, line: line, until: rowsReady)
     }
 
-    private func waitForVariantQueryToFinish(_ drawer: AnnotationTableDrawerView, timeout: TimeInterval = 2.0) {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
+    /// Spins the main run loop until no variant query is running or armed and `rowsReady`
+    /// holds, and returns as soon as both do.
+    ///
+    /// Switching to the variants tab starts one query and arms a viewport re-query 0.12 s
+    /// later. Each query waits out its 0.12 s debounce, reads SQLite on a background queue
+    /// and delivers on the main queue. The old helper gave that chain 2 s of wall time and
+    /// stopped at the deadline, which the loaded parallel unit gate reached before any row
+    /// arrived (gate 11, 2026-10-02). The ceiling here is reached only when the rows never come.
+    private func waitForVariantRows(
+        in drawer: AnnotationTableDrawerView,
+        timeout: Duration = .seconds(30),
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        until rowsReady: () -> Bool
+    ) {
+        func settled() -> Bool {
+            !drawer.isVariantQuerying && drawer.variantQueryWorkItem == nil && rowsReady()
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !settled() && clock.now < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        } while drawer.isVariantQuerying && Date() < deadline
+        }
+        XCTAssertTrue(settled(), "Timed out waiting for the variant query to deliver its rows", file: file, line: line)
     }
 }

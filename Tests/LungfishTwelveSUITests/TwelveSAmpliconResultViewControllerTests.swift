@@ -1,6 +1,7 @@
 import AppKit
 @testable import LungfishCore
 import LungfishKit
+import LungfishTestSupport
 import XCTest
 @testable import LungfishTwelveSUI
 @testable import LungfishIO
@@ -297,11 +298,17 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.configure(result: makeLargeSparseResult(targetCount: 90_000, sampleCount: 19, nonZeroTargetCount: 4_000))
 
-        let start = CFAbsoluteTimeGetCurrent()
+        // The budget reads main-thread CPU time, so time spent waiting for a core on a
+        // loaded machine does not count. The wall-time ceiling catches only a hang, such
+        // as the main thread blocked on a wait.
+        let wallStart = ContinuousClock.now
+        let cpuStart = currentThreadCPUTime()
         controller.applyDisplayState(TwelveSResultDisplayState(filterText: "needle species 3999"))
-        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        let cpu = currentThreadCPUTime() - cpuStart
+        let wall = ContinuousClock.now - wallStart
 
-        XCTAssertLessThan(elapsed, 0.35, "Filtering a sparse 90k-target 12S result should stay interactive")
+        XCTAssertLessThan(cpu, .milliseconds(350), "Filtering a sparse 90k-target 12S result should stay interactive")
+        XCTAssertLessThan(wall, .seconds(30), "Filtering took \(wall) of wall time")
         XCTAssertEqual(controller.visibleTargetRowCount, 1)
         XCTAssertEqual(controller.testingTargetText(row: 0, column: "scientificName"), "Needle species 3999")
     }
