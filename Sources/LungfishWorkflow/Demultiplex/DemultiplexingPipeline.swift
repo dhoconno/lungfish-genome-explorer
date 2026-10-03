@@ -451,6 +451,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         // Virtual mode: extract read IDs + preview (default for single-step and final multi-step)
         // Full mode: move entire cutadapt output into bundle (intermediate multi-step)
+        // Every root file a virtual bundle's preview and statistics are rebuilt
+        // from, resolved once, in manifest order (R3, final review B1).
+        let rootFASTQURLs = isVirtualMode ? virtualRootSequenceURLs(config: config) : nil
 
         let bundleResults: [VirtualBundleResult] = try await withThrowingTaskGroup(
             of: VirtualBundleResult?.self,
@@ -483,16 +486,6 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 let capturedLineageBundleURL = lineageBundleURL
                 let capturedInputFASTQ = inputFASTQ
                 let capturedTrimBarcodes = config.trimBarcodes
-                let capturedRootFASTQURL = config.rootBundleURL.flatMap { rootBundleURL in
-                    config.rootFASTQFilename.flatMap {
-                        try? FASTQBundle.validatedBundleMemberURL(
-                            for: $0,
-                            in: rootBundleURL,
-                            field: "rootFASTQFilename",
-                            allowExistingSymlinkEscape: true
-                        )
-                    }
-                }
                 group.addTask { [self] in
                     try Task.checkCancellation()
 
@@ -588,10 +581,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         // Virtual mode: create a small preview alongside the read ID list
 
                         let previewURL = bundleURL.appendingPathComponent("preview.fastq")
-                        if let capturedRootFASTQURL,
-                           FileManager.default.fileExists(atPath: capturedRootFASTQURL.path) {
+                        if let rootFASTQURLs {
                             try await self.writeVirtualPreviewFASTQ(
-                                fromRootFASTQ: capturedRootFASTQURL,
+                                fromRootFASTQs: rootFASTQURLs,
                                 orderedReadIDs: Array(orderedReadIDs.prefix(1000)),
                                 trimEntries: allTrimEntries,
                                 orientMap: finalOrientMap,
@@ -672,14 +664,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     // positions have been rebased to the root FASTQ.
                     let statsSource: URL
                     var temporaryStatsURL: URL?
-                    if capturedIsVirtual,
-                       let capturedRootFASTQURL,
-                       FileManager.default.fileExists(atPath: capturedRootFASTQURL.path) {
+                    if capturedIsVirtual, let rootFASTQURLs {
                         let tempStatsURL = workDir.appendingPathComponent(
                             "stats-\(file.baseName)-\(UUID().uuidString).fastq"
                         )
                         try await self.writeVirtualStatisticsFASTQ(
-                            fromRootFASTQ: capturedRootFASTQURL,
+                            fromRootFASTQs: rootFASTQURLs,
                             orderedReadIDs: orderedReadIDs,
                             trimEntries: allTrimEntries,
                             orientMap: finalOrientMap,
@@ -3131,7 +3121,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     }
 
     private func writeVirtualPreviewFASTQ(
-        fromRootFASTQ rootFASTQ: URL,
+        fromRootFASTQs rootFASTQs: [URL],
         orderedReadIDs: [String],
         trimEntries: [DemuxTrimEntry],
         orientMap: [String: String],
@@ -3148,23 +3138,25 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         var transformedRecords: [String: FASTQRecord] = [:]
         let reader = FASTQReader(validateSequence: false)
 
-        for try await record in reader.records(from: rootFASTQ) {
-            let rawReadName = record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
-            let (readID, mate) = detectMate(rawReadName: rawReadName)
-            guard selectedReadIDs.contains(readID) else { continue }
+        rootFiles: for rootFASTQ in rootFASTQs {
+            for try await record in reader.records(from: rootFASTQ) {
+                let rawReadName = record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
+                let (readID, mate) = detectMate(rawReadName: rawReadName)
+                guard selectedReadIDs.contains(readID) else { continue }
 
-            var outputRecord = record
-            if let trim = trimMap["\(readID)\t\(mate)"] ?? trimMap["\(readID)\t0"] {
-                let trimEnd = max(trim.trim5p, outputRecord.length - trim.trim3p)
-                outputRecord = outputRecord.trimmed(from: trim.trim5p, to: trimEnd)
-            }
-            if orientMap[readID] == "-" {
-                outputRecord = outputRecord.reverseComplement()
-            }
-            transformedRecords[readID] = outputRecord
+                var outputRecord = record
+                if let trim = trimMap["\(readID)\t\(mate)"] ?? trimMap["\(readID)\t0"] {
+                    let trimEnd = max(trim.trim5p, outputRecord.length - trim.trim3p)
+                    outputRecord = outputRecord.trimmed(from: trim.trim5p, to: trimEnd)
+                }
+                if orientMap[readID] == "-" {
+                    outputRecord = outputRecord.reverseComplement()
+                }
+                transformedRecords[readID] = outputRecord
 
-            if transformedRecords.count == selectedReadIDs.count {
-                break
+                if transformedRecords.count == selectedReadIDs.count {
+                    break rootFiles
+                }
             }
         }
 
@@ -3180,7 +3172,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     }
 
     private func writeVirtualStatisticsFASTQ(
-        fromRootFASTQ rootFASTQ: URL,
+        fromRootFASTQs rootFASTQs: [URL],
         orderedReadIDs: [String],
         trimEntries: [DemuxTrimEntry],
         orientMap: [String: String],
@@ -3199,20 +3191,22 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         try writer.open()
         defer { try? writer.close() }
 
-        for try await record in reader.records(from: rootFASTQ) {
-            let rawReadName = record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
-            let (readID, mate) = detectMate(rawReadName: rawReadName)
-            guard selectedReadIDs.contains(readID) else { continue }
+        for rootFASTQ in rootFASTQs {
+            for try await record in reader.records(from: rootFASTQ) {
+                let rawReadName = record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
+                let (readID, mate) = detectMate(rawReadName: rawReadName)
+                guard selectedReadIDs.contains(readID) else { continue }
 
-            var outputRecord = record
-            if let trim = trimMap["\(readID)\t\(mate)"] ?? trimMap["\(readID)\t0"] {
-                let trimEnd = max(trim.trim5p, outputRecord.length - trim.trim3p)
-                outputRecord = outputRecord.trimmed(from: trim.trim5p, to: trimEnd)
+                var outputRecord = record
+                if let trim = trimMap["\(readID)\t\(mate)"] ?? trimMap["\(readID)\t0"] {
+                    let trimEnd = max(trim.trim5p, outputRecord.length - trim.trim3p)
+                    outputRecord = outputRecord.trimmed(from: trim.trim5p, to: trimEnd)
+                }
+                if orientMap[readID] == "-" {
+                    outputRecord = outputRecord.reverseComplement()
+                }
+                try writer.write(outputRecord)
             }
-            if orientMap[readID] == "-" {
-                outputRecord = outputRecord.reverseComplement()
-            }
-            try writer.write(outputRecord)
         }
     }
 
