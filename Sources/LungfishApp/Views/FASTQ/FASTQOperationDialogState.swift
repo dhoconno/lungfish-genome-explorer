@@ -7,9 +7,6 @@ import LungfishWorkflow
 @MainActor
 @Observable
 final class FASTQOperationDialogState {
-    private static let mixedDetectedAndUnclassifiedAssemblyInputsMessage =
-        "Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."
-
     var selectedCategory: FASTQOperationCategoryID {
         didSet {
             if selectedToolID.categoryID != selectedCategory {
@@ -1554,15 +1551,9 @@ final class FASTQOperationDialogState {
             return nil
 
         case .spades, .megahit, .skesa, .flye, .hifiasm:
-            if let mismatchMessage = assemblyReadClassMismatchMessage {
-                return mismatchMessage
-            }
-            if let assemblyTool = selectedToolID.assemblyTool,
-               let detectedAssemblyReadType,
-               !AssemblyCompatibility.isSupported(tool: assemblyTool, for: detectedAssemblyReadType) {
-                return "\(assemblyTool.displayName) is not available for \(detectedAssemblyReadType.displayName) in v1."
-            }
-            return nil
+            // Read class only sets defaults. The embedded assembly window shows
+            // a mismatch as a warning and runs the tool as chosen.
+            return assemblyReadClassMismatchMessage
 
         case .mafft:
             if selectedInputURLs.contains(where: { SequenceInputResolver.inputSequenceFormat(for: $0) == .fastq }),
@@ -1763,35 +1754,16 @@ final class FASTQOperationDialogState {
             && isDirectory.boolValue
     }
 
+    /// Inputs of mixed or unknown read class are a warning in the assembly
+    /// window, not a refusal, so this evaluation never blocks for them.
     private var assemblyCompatibilityEvaluation: AssemblyCompatibilityEvaluation {
-        let detectedReadTypes = selectedInputURLs.compactMap(AssemblyReadType.detect(fromInputURL:))
-        let evaluation = AssemblyCompatibility.evaluate(detectedReadTypes: detectedReadTypes)
-
-        let hasKnownAndUnknownMix =
-            !detectedReadTypes.isEmpty && detectedReadTypes.count < selectedInputURLs.count
-        guard !evaluation.isBlocked, hasKnownAndUnknownMix else {
-            return evaluation
-        }
-
-        return AssemblyCompatibilityEvaluation(
-            detectedReadTypes: evaluation.detectedReadTypes,
-            resolvedReadType: nil,
-            supportedTools: [],
-            blockingMessage: Self.mixedDetectedAndUnclassifiedAssemblyInputsMessage
-        )
+        AssemblyCompatibility.evaluate(detectedReadTypes: selectedInputURLs.compactMap(AssemblyReadType.detect(fromInputURL:)))
     }
 
+    /// Every assembler stays available. A read class it does not suit is a
+    /// warning in the assembly window.
     private func availability(for toolID: FASTQOperationToolID) -> DatasetOperationAvailability {
-        guard let assemblyTool = toolID.assemblyTool,
-              let readType = detectedAssemblyReadType else {
-            return .available
-        }
-
-        guard !AssemblyCompatibility.isSupported(tool: assemblyTool, for: readType) else {
-            return .available
-        }
-
-        return .disabled(reason: Self.requiredReadTypeBadge(for: assemblyTool))
+        .available
     }
 
     private func visibleToolIDs(for category: FASTQOperationCategoryID) -> [FASTQOperationToolID] {
@@ -1808,18 +1780,8 @@ final class FASTQOperationDialogState {
                 .filter { workflowLibrary.isWorkflowEnabled($0) }
         }
 
-        let allToolIDs = Self.toolIDs(for: category)
+        return Self.toolIDs(for: category)
             .filter { workflowLibrary.isWorkflowEnabled($0) }
-        guard category == .assembly,
-              assemblyReadClassMismatchMessage == nil,
-              let readType = detectedAssemblyReadType else {
-            return allToolIDs
-        }
-
-        let supportedAssemblyToolIDs = Set(
-            AssemblyCompatibility.supportedTools(for: readType).map(Self.toolID(for:))
-        )
-        return allToolIDs.filter { supportedAssemblyToolIDs.contains($0) }
     }
 
     private func preferredToolID(for category: FASTQOperationCategoryID) -> FASTQOperationToolID {
@@ -1848,17 +1810,6 @@ final class FASTQOperationDialogState {
             return .flye
         case .hifiasm:
             return .hifiasm
-        }
-    }
-
-    private static func requiredReadTypeBadge(for tool: AssemblyTool) -> String {
-        switch tool {
-        case .spades, .megahit, .skesa:
-            return "Requires Illumina"
-        case .flye:
-            return "Requires ONT"
-        case .hifiasm:
-            return "Requires ONT or HiFi/CCS"
         }
     }
 

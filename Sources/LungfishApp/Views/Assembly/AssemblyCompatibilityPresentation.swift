@@ -34,7 +34,8 @@ struct AssemblyCompatibilityPresentation: Equatable {
         readType: AssemblyReadType,
         packReady: Bool,
         toolReady: Bool,
-        blockingMessage: String?
+        blockingMessage: String?,
+        warningMessage: String? = nil
     ) {
         if let blockingMessage {
             self.state = .blocked
@@ -43,12 +44,11 @@ struct AssemblyCompatibilityPresentation: Equatable {
             return
         }
 
-        guard AssemblyCompatibility.isSupported(tool: tool, for: readType) else {
-            self.state = .blocked
-            self.fillStyle = .attention
-            self.message = "\(tool.displayName) is not available for \(readType.displayName) in v1."
-            return
-        }
+        // A read class the tool does not suit is a warning: the run uses the
+        // tool's own read-type settings (AssemblyCompatibility.effectiveReadType).
+        let warning = warningMessage ?? (AssemblyCompatibility.isSupported(tool: tool, for: readType)
+            ? nil
+            : "\(tool.displayName) is designed for other reads than \(readType.displayName). The run uses \(tool.displayName) as chosen.")
 
         guard packReady else {
             self.state = .installationRequired
@@ -65,7 +65,7 @@ struct AssemblyCompatibilityPresentation: Equatable {
         }
 
         self.state = .ready
-        self.fillStyle = .success
-        self.message = "\(tool.displayName) is ready for \(readType.displayName)."
+        self.fillStyle = warning == nil ? .success : .attention
+        self.message = warning.map { "\(tool.displayName) is ready. \($0)" } ?? "\(tool.displayName) is ready for \(readType.displayName)."
     }
 }

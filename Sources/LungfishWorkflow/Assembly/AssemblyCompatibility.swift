@@ -187,6 +187,28 @@ extension AssemblyCompatibility {
         return AssemblyReadTypeDecision(readType: readType, warnings: warnings)
     }
 
+    /// The read type a run of `tool` uses when the inputs suggest
+    /// `readType`: that read type when the tool takes it, otherwise the
+    /// tool's own read type.
+    public static func effectiveReadType(tool: AssemblyTool, readType: AssemblyReadType) -> AssemblyReadType {
+        isSupported(tool: tool, for: readType) ? readType : defaultReadType(for: tool)
+    }
+
+    /// The warning the assembly window shows, or nil. It never blocks a run.
+    /// `detected` holds one entry per input, nil when its read type is unknown.
+    public static func windowWarning(
+        tool: AssemblyTool,
+        detected: [AssemblyReadType?],
+        chosenReadType: AssemblyReadType
+    ) -> String? {
+        decideReadType(
+            detections: detected.isEmpty ? [nil] : detected,
+            tool: tool,
+            explicitReadType: detected.contains(where: { $0 != nil }) ? nil : chosenReadType,
+            lengthDefault: chosenReadType
+        ).warnings.first ?? (detected.allSatisfy { $0 == nil } ? PlatformInference.untunedDefaultsNote : nil)
+    }
+
     static func supportedReadTypes(for tool: AssemblyTool) -> String {
         AssemblyReadType.allCases.filter { isSupported(tool: tool, for: $0) }.map(\.displayName).joined(separator: " or ")
     }

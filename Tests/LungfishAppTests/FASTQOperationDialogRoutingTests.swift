@@ -1918,7 +1918,10 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertNil(state.assemblyReadClassMismatchMessage)
     }
 
-    func testAssemblySidebarFiltersToShortReadToolsForDetectedIlluminaReadType() {
+    /// The sidebar used to hide assemblers the detected read class does not
+    /// suit. Read class only sets defaults now: every assembler is listed and
+    /// the default follows the read class.
+    func testAssemblySidebarListsEveryAssemblerAndPreselectsByIlluminaReadType() {
         let state = FASTQOperationDialogState(
             initialCategory: .assembly,
             selectedInputURLs: [illuminaFASTQFixtureURL]
@@ -1928,7 +1931,10 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             FASTQOperationToolID.spades.rawValue,
             FASTQOperationToolID.megahit.rawValue,
             FASTQOperationToolID.skesa.rawValue,
+            FASTQOperationToolID.flye.rawValue,
+            FASTQOperationToolID.hifiasm.rawValue,
         ])
+        XCTAssertEqual(state.selectedToolID, .spades)
     }
 
     func testAssemblyReadTypeDetectionUsesSelectedFASTQBundles() throws {
@@ -1952,7 +1958,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertNil(state.assemblyReadClassMismatchMessage)
     }
 
-    func testAssemblySidebarFiltersToCompatibleToolsForPersistedONTReadType() throws {
+    func testAssemblySidebarListsEveryAssemblerAndPreselectsByPersistedONTReadType() throws {
         let bundleURL = try makeFASTQBundle(
             fastqName: "reads.fastq",
             fastqContents: """
@@ -1975,10 +1981,12 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             selectedInputURLs: [bundleURL]
         )
 
-        XCTAssertEqual(state.sidebarItems.map(\.id), [
+        XCTAssertEqual(state.sidebarItems.map(\.id).suffix(2), [
             FASTQOperationToolID.flye.rawValue,
             FASTQOperationToolID.hifiasm.rawValue,
         ])
+        XCTAssertEqual(state.sidebarItems.count, 5)
+        XCTAssertEqual(state.selectedToolID, .flye)
         XCTAssertTrue(state.sidebarItems.allSatisfy { $0.availability == .available })
     }
 
@@ -2015,7 +2023,10 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.selectedToolID, .hifiasm)
     }
 
-    func testMixedAssemblyReadTypesExposeHybridBlockMessage() throws {
+    /// Mixed read classes used to block the assembly dialog. The owner ruled
+    /// that read class only sets defaults: the embedded assembly window asks
+    /// for the read class and warns.
+    func testMixedAssemblyReadTypesNoLongerBlockTheDialog() throws {
         let ontFASTQ = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQOperationDialogRoutingTests-\(UUID().uuidString).fastq")
         defer { try? FileManager.default.removeItem(at: ontFASTQ) }
@@ -2034,14 +2045,10 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
 
         XCTAssertNil(state.detectedAssemblyReadType)
-        XCTAssertEqual(
-            state.assemblyReadClassMismatchMessage,
-            AssemblyCompatibility.hybridAssemblyUnsupportedMessage
-        )
-        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertNil(state.assemblyReadClassMismatchMessage)
     }
 
-    func testKnownAndUnclassifiedAssemblyReadTypesAreBlocked() throws {
+    func testKnownAndUnclassifiedAssemblyReadTypesNoLongerBlockTheDialog() throws {
         let pacBioSubreadsFASTQ = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQOperationDialogRoutingTests-\(UUID().uuidString).fastq")
         defer { try? FileManager.default.removeItem(at: pacBioSubreadsFASTQ) }
@@ -2059,12 +2066,8 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             selectedInputURLs: [illuminaFASTQFixtureURL, pacBioSubreadsFASTQ]
         )
 
-        XCTAssertNil(state.detectedAssemblyReadType)
-        XCTAssertEqual(
-            state.assemblyReadClassMismatchMessage,
-            "Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."
-        )
-        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(state.detectedAssemblyReadType, .illuminaShortReads)
+        XCTAssertNil(state.assemblyReadClassMismatchMessage)
     }
 
     func testUnknownOnlyAssemblyInputsStayBlockedUntilReadTypeIsConfirmed() throws {
