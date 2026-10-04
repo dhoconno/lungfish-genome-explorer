@@ -50,7 +50,7 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
         case .duplicateIlluminaStagedFile(let filename):
             return "Two Illumina input bundles resolved to the same staged FASTQ filename \(filename); rename the inputs so their sanitized names are distinct."
         case .ambiguousGenotypingMode:
-            return "Could not infer genotyping mode. Choose ONT barcode demux or Illumina sample bundles explicitly."
+            return "Could not infer the genotyping mode from the read headers. Choose it with --mode ont-sample-bundles, --mode illumina-paired or --mode ont-barcode-demux (in the app, the Mode menu of the genotyping window)."
         case .processTimedOut(let tool, let seconds, let stderr):
             let detail = stderr.isEmpty ? "" : ": \(stderr)"
             return "\(tool) timed out after \(Int(seconds)) seconds\(detail)"

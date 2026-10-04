@@ -16,10 +16,13 @@ extension AnnotationTableDrawerView {
     /// `launch` with the operation ID. The row locks `bundleURL` and records
     /// no command. `title` names the edit, for example "Variant deletion".
     ///
-    /// CLI parity gap. No lungfish-cli command edits the variants stored in a
-    /// bundle, whether it deletes them or imports sample metadata for them.
-    /// The closest is `variants query`, which only reads them. The row keeps
-    /// recording no command until an edit command exists.
+    /// cli-parity-gap: variant-delete-selected (title "Variant deletion"),
+    /// cli-parity-gap: variant-delete-all ("Delete all variants") and
+    /// cli-parity-gap: variant-sample-metadata ("Sample metadata import"). No
+    /// lungfish-cli command edits the variants stored in a bundle, whether it
+    /// deletes them or imports sample metadata for them. The closest is
+    /// `variants query`, which only reads them. The row keeps recording no
+    /// command until an edit command exists.
     @discardableResult
     static func beginVariantStorageMutationOperation(
         title: String,

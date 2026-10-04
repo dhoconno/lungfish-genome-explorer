@@ -311,10 +311,12 @@ extension InspectorViewController {
     /// Registers the GATK variant-calling row and, only when it starts, calls
     /// `launch` with the operation ID. The row locks `bundleURL`.
     ///
-    /// CLI parity gap. `lungfish-cli gatk haplotype-caller --execute` runs the
-    /// GATK step, but no CLI command attaches the VCF to the bundle, and the
-    /// pipeline runs in the app process (finding R3). The row keeps recording
-    /// the GATK commands joined by `&&` until a CLI command covers the run.
+    /// cli-parity-gap: gatk-variant-calling. `lungfish-cli gatk
+    /// haplotype-caller --execute` runs the GATK step, but no CLI command
+    /// attaches the VCF to the bundle, and the pipeline runs in the app
+    /// process (finding R3). The row records no command until a CLI command
+    /// covers the run. The GATK commands go to the row's log instead, so its
+    /// history keeps them.
     @discardableResult
     static func beginGATKVariantCallingOperation(
         title: String,
@@ -330,11 +332,14 @@ extension InspectorViewController {
             detail: detail,
             operationType: .variantCalling,
             targetBundleURL: bundleURL,
-            cliCommand: request.commands.map(\.shellCommand).joined(separator: " && "),
+            cliCommand: nil,
             routeContext: routeContext
         )
         switch result {
         case .started(let operationID):
+            for command in request.commands {
+                reporter.log(id: operationID, level: .info, message: "GATK command: \(command.shellCommand)")
+            }
             launch(operationID)
         case .refused:
             break // The panel already shows the refused row. Nothing was launched.

@@ -62,9 +62,11 @@ struct AlignmentScientificActionReporter {
     /// The reporter that sends every report to `center`. Its `begin` locks no
     /// bundle and records no command.
     ///
-    /// CLI parity gap. The closest commands are `extract reads --by-region`
-    /// for a region and `extract reads --by-id --bam` for selected reads, and
-    /// neither reproduces the run. The region run applies the evidence's
+    /// cli-parity-gap: alignment-region-reads (the region row) and
+    /// cli-parity-gap: alignment-selected-reads (the selected-reads row). The
+    /// closest commands are `extract reads --by-region` for a region and
+    /// `extract reads --by-id --bam` for selected reads, and neither
+    /// reproduces the run. The region run applies the evidence's
     /// minimum map quality, excluded flags and read groups, reads its
     /// explicit index and publishes a `.lungfishfastq` bundle at the chosen
     /// destination with provenance. `extract reads --by-region` has no option

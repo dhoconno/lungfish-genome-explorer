@@ -6,6 +6,7 @@ import XCTest
 import LungfishCore
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishCLI
 
 @MainActor
 final class DemoProjectsViewModelTests: XCTestCase {
@@ -165,6 +166,24 @@ final class DemoProjectsViewModelTests: XCTestCase {
             replaceExisting: true
         )
         XCTAssertEqual(command, "lungfish-cli demo fetch demo-fixture --dest '/Users/me/Documents/LGE Demo Projects' --force")
+    }
+
+    /// The row `download` records parses with the shipped parser and names
+    /// the project, folder and replace choice the run uses
+    /// (docs/contracts/CLI-EQUIVALENCE.md).
+    func testCLICommandParsesWithTheValuesTheDownloadUses() throws {
+        let fixture = try makeFixture()
+        for replaceExisting in [false, true] {
+            let command = DemoProjectsViewModel.cliCommand(
+                for: fixture.project,
+                directory: URL(fileURLWithPath: "/Users/me/Documents/LGE Demo Projects"),
+                replaceExisting: replaceExisting
+            )
+            let parsed = try RecordedCLICommand.parse(command, as: DemoCommand.FetchSubcommand.self)
+            XCTAssertEqual(parsed.id, fixture.project.id)
+            XCTAssertEqual(parsed.location.destination, "/Users/me/Documents/LGE Demo Projects")
+            XCTAssertEqual(parsed.force, replaceExisting)
+        }
     }
 
     // MARK: - Harness

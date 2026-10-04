@@ -1980,7 +1980,7 @@ final class WorkflowOperationDialogState {
                 return nil
             }
         }
-        guard let assemblyReadType = metadata.sequencingPlatform.flatMap(FASTQAssemblyReadType.init(sequencingPlatform:)) else {
+        guard let assemblyReadType = metadata.sequencingPlatform.flatMap(FASTQAssemblyReadType.init(sequencingPlatform:)) ?? PlatformInference.defaultReadType(forLengthProfile: PlatformInference.lengthProfile(forFASTQ: fastqURL, metadata: metadata)) else {
             return nil
         }
         switch assemblyReadType {

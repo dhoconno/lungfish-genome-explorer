@@ -596,7 +596,7 @@ extension AppDelegate {
             detail: "Importing \(annotationURL.lastPathComponent)...",
             operationType: .bundleBuild,
             targetBundleURL: bundleURL,
-            cliCommand: nil,
+            cliCommand: nil, // cli-parity-gap: annotation-attach-import-center. No command attaches a track.
             routeContext: routeContext
         )
         guard case .started(let opID) = startResult else {

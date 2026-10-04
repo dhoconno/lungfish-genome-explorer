@@ -143,6 +143,8 @@ public final class FASTQImportConfigSheet: NSViewController {
     /// Set once the user picks a Pairing item. Until then the popup shows the
     /// sheet's proposal and the import runs with `--pairing auto`.
     private var pairingChosenByUser = false
+    /// Set once the user picks a Platform item. Until then the import runs with `--platform auto`.
+    private var platformChosenByUser = false
 
     // MARK: - Init
 
@@ -242,7 +244,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         summaryLabel.font = .systemFont(ofSize: 11)
         summaryLabel.textColor = .secondaryLabelColor
         summaryLabel.translatesAutoresizingMaskIntoConstraints = false
-        summaryLabel.maximumNumberOfLines = 6
+        summaryLabel.maximumNumberOfLines = 7
         summaryLabel.preferredMaxLayoutWidth = 520
         view.addSubview(summaryLabel)
 
@@ -264,22 +266,9 @@ public final class FASTQImportConfigSheet: NSViewController {
             view.addSubview(label)
         }
 
-        // Platform popup
-        let platformNames: [(LungfishIO.SequencingPlatform, String)] = [
-            (.illumina, "Illumina"),
-            (.oxfordNanopore, "Oxford Nanopore"),
-            (.pacbio, "PacBio"),
-            (.element, "Element Biosciences"),
-            (.ultima, "Ultima Genomics"),
-            (.mgi, "MGI / DNBSEQ"),
-            (.unknown, "Unknown / Other"),
-        ]
-        for (_, name) in platformNames {
-            platformPopup.addItem(withTitle: name)
-        }
-        // Select detected platform
-        let detectedIndex = platformNames.firstIndex { $0.0 == detectedPlatform } ?? platformNames.count - 1
-        platformPopup.selectItem(at: detectedIndex)
+        // Platform popup, preselected from the reads with the evidence under the summary
+        let platformDetection = populatePlatformPopup(platformPopup, pairs: pairs, detectedPlatform: detectedPlatform)
+        summaryLabel.stringValue += "\n" + platformDetection.line
         platformPopup.font = .systemFont(ofSize: 12)
         platformPopup.translatesAutoresizingMaskIntoConstraints = false
         platformPopup.target = self
@@ -677,10 +666,9 @@ public final class FASTQImportConfigSheet: NSViewController {
         pairs.reduce(Int64(0)) { $0 + $1.totalSizeBytes }
     }
 
+    /// The popup's platform, or the detected one while it shows "Detected per sample".
     private func selectedPlatform() -> LungfishIO.SequencingPlatform {
-        let platforms: [LungfishIO.SequencingPlatform] = [.illumina, .oxfordNanopore, .pacbio, .element, .ultima, .mgi, .unknown]
-        let idx = platformPopup.indexOfSelectedItem
-        return idx >= 0 && idx < platforms.count ? platforms[idx] : .unknown
+        Self.platformChoice(in: platformPopup) ?? detectedPlatform
     }
 
     private func selectedPairingMode() -> FASTQIngestionConfig.PairingMode {
@@ -716,6 +704,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     // MARK: - Actions
 
     @objc private func platformChanged(_ sender: Any) {
+        platformChosenByUser = Self.platformChoice(in: platformPopup) != nil
         binningPopup.selectItem(at: defaultBinningIndex(for: selectedPlatform()))
         clumpifyCheckbox.state = defaultOptimizeStorage(for: selectedPlatform()) ? .on : .off
         selectClumpingTool(defaultClumpingTool())
@@ -1011,6 +1000,7 @@ public final class FASTQImportConfigSheet: NSViewController {
             },
             detectedPlatform: detectedPlatform,
             confirmedPlatform: platform,
+            platformIsUserChoice: platformChosenByUser,
             pairingMode: pairingMode,
             pairingModeIsUserChoice: pairingChosenByUser && platform != .oxfordNanopore,
             qualityBinning: binning,

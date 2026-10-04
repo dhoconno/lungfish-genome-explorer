@@ -125,7 +125,7 @@ enum ReferenceBundleMergeService {
             title: "Merge Reference Bundles",
             detail: "Preparing to merge \(sourceBundleURLs.count) reference bundles\u{2026}",
             operationType: .bundleBuild,
-            cliCommand: nil // CLI parity gap. No lungfish-cli command merges reference bundles. The closest is `bundle create`.
+            cliCommand: nil // cli-parity-gap: reference-bundle-merge. No command merges bundles. The closest is `bundle create`.
         ).requireStarted()
         reporter.log(
             id: operationID,

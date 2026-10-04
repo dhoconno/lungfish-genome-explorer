@@ -24,17 +24,11 @@ enum AssembleInputResolutionError: LocalizedError {
 
 enum AssembleReadTypeResolutionError: LocalizedError {
     case unknownReadType(String)
-    case mixedDetectedAndUnknown
-    case unsupportedDetectedCombination(String)
 
     var errorDescription: String? {
         switch self {
         case .unknownReadType(let value):
             return "Unknown read type: \(value)"
-        case .mixedDetectedAndUnknown:
-            return "Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."
-        case .unsupportedDetectedCombination(let message):
-            return message
         }
     }
 }
@@ -55,8 +49,8 @@ struct AssembleCommand: AsyncParsableCommand {
     @Argument(help: "Input sequence file(s). Provide two files with --paired for paired-end Illumina reads.")
     var fastqFiles: [String]
 
-    @Option(name: .customLong("assembler"), help: "Assembler to run: spades, megahit, skesa, flye, hifiasm")
-    var assembler: String = "spades"
+    @Option(name: .customLong("assembler"), help: "Assembler to run: spades, megahit, skesa, flye, hifiasm (default: follows the read type, so spades for short reads or no evidence, flye for ONT or other long reads, hifiasm for PacBio HiFi)")
+    var assembler: String?
 
     @Option(name: .customLong("read-type"), help: "Read class: illumina-short-reads, ont-reads, pacbio-hifi")
     var readType: String?
@@ -121,14 +115,13 @@ struct AssembleCommand: AsyncParsableCommand {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         warnIfDeprecatedAdvancedOptionsUsed()
 
-        guard let tool = AssemblyTool(rawValue: assembler.lowercased()) else {
-            print(formatter.error("Unknown assembler: \(assembler)"))
-            throw CLIExitCode.inputError.exitCode
-        }
-
         let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
         for inputURL in inputURLs where !FileManager.default.fileExists(atPath: inputURL.path) {
             print(formatter.error("Input file not found: \(inputURL.path)"))
+            throw CLIExitCode.inputError.exitCode
+        }
+        guard let tool = Self.resolveTool(assembler, readType: readType, inputURLs: inputURLs, quiet: globalOptions.quiet) else {
+            print(formatter.error("Unknown assembler: \(assembler ?? "")"))
             throw CLIExitCode.inputError.exitCode
         }
 
@@ -174,12 +167,6 @@ struct AssembleCommand: AsyncParsableCommand {
             throw CLIExitCode.inputError.exitCode
         }
 
-        if let explicitReadType,
-           !AssemblyCompatibility.isSupported(tool: tool, for: explicitReadType) {
-            print(formatter.error("\(tool.displayName) is not available for \(explicitReadType.displayName) in v1."))
-            throw CLIExitCode.inputError.exitCode
-        }
-
         do {
             try Self.validatePreMaterializationTopology(
                 tool: tool,
@@ -191,23 +178,11 @@ struct AssembleCommand: AsyncParsableCommand {
             throw CLIExitCode.inputError.exitCode
         }
 
-        let preMaterializationReadType: AssemblyReadType?
-        do {
-            preMaterializationReadType = try Self.resolvePreMaterializationReadType(
-                for: tool,
-                explicitReadType: explicitReadType,
-                inputURLs: inputURLs
-            )
-        } catch {
-            print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.inputError.exitCode
-        }
-
-        if let preMaterializationReadType,
-           !AssemblyCompatibility.isSupported(tool: tool, for: preMaterializationReadType) {
-            print(formatter.error("\(tool.displayName) is not available for \(preMaterializationReadType.displayName) in v1."))
-            throw CLIExitCode.inputError.exitCode
-        }
+        let preMaterialization = Self.preMaterializationReadTypeDecision(
+            for: tool,
+            explicitReadType: explicitReadType,
+            inputURLs: inputURLs
+        )
 
         let resolvedInputs: ResolvedSequenceInputs
         let resolvedReadType: AssemblyReadType
@@ -223,16 +198,15 @@ struct AssembleCommand: AsyncParsableCommand {
                     }
                 }
             )
-            resolvedReadType = try preMaterializationReadType ?? Self.resolveReadType(
+            let decision = try preMaterialization ?? Self.readTypeDecision(
                     for: tool,
                     explicitReadType: readType,
                     originalInputURLs: resolvedInputs.originalInputURLs,
                     executionInputURLs: resolvedInputs.executionInputURLs
                 )
-            guard AssemblyCompatibility.isSupported(tool: tool, for: resolvedReadType) else {
-                print(formatter.error("\(tool.displayName) is not available for \(resolvedReadType.displayName) in v1."))
-                try? FileManager.default.removeItem(at: materializationDirectory)
-                throw CLIExitCode.inputError.exitCode
+            resolvedReadType = decision.readType ?? AssemblyCompatibility.defaultReadType(for: tool)
+            for warning in decision.warnings {
+                FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
             }
         } catch let exit as ExitCode {
             throw exit
@@ -260,7 +234,8 @@ struct AssembleCommand: AsyncParsableCommand {
             tool: tool,
             explicitProfile: profile,
             explicitProfileBasis: profileBasis,
-            inputURL: inputURLs.first
+            inputURL: inputURLs.first,
+            readType: resolvedReadType
         )
 
         // Resolved on the materialized input with the ORIGINAL bundle's
@@ -408,7 +383,8 @@ struct AssembleCommand: AsyncParsableCommand {
         tool: AssemblyTool,
         explicitProfile: String?,
         explicitProfileBasis: String? = nil,
-        inputURL: URL?
+        inputURL: URL?,
+        readType: AssemblyReadType? = nil
     ) async -> (profileID: String?, basis: String?) {
         if let explicitProfile {
             let basis = explicitProfileBasis?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -417,7 +393,7 @@ struct AssembleCommand: AsyncParsableCommand {
         guard tool == .flye, let inputURL else {
             return (nil, nil)
         }
-        let selection = await FlyeProfileSelector.select(forInputURL: inputURL)
+        let selection = await FlyeProfileSelector.select(forInputURL: inputURL, readType: readType)
         return (selection.profileID, selection.provenanceBasis(appliedProfileID: nil))
     }
 
@@ -501,77 +477,7 @@ struct AssembleCommand: AsyncParsableCommand {
         return parsedReadType
     }
 
-    static func resolvePreMaterializationReadType(
-        for tool: AssemblyTool,
-        explicitReadType: AssemblyReadType?,
-        inputURLs: [URL]
-    ) throws -> AssemblyReadType? {
-        if let explicitReadType {
-            return explicitReadType
-        }
-        let inputDetections = inputURLs.map(detectPreMaterializationReadType)
-        return try evaluateReadTypeDetections(inputDetections, defaultTool: nil)
-    }
-
-    static func resolveReadType(
-        for tool: AssemblyTool,
-        explicitReadType: String?,
-        originalInputURLs: [URL],
-        executionInputURLs: [URL]
-    ) throws -> AssemblyReadType {
-        if let parsedReadType = try parseExplicitReadType(explicitReadType) {
-            return parsedReadType
-        }
-
-        let inputDetections = CLISequenceInputMaterialization.originalAndExecutionInputs(
-            originalInputURLs: originalInputURLs,
-            executionInputURLs: executionInputURLs
-        ).map { originalURL, executionURL in
-            AssemblyReadType.detect(fromFASTQ: executionURL)
-                ?? AssemblyReadType.detect(fromInputURL: originalURL)
-        }
-        guard let resolvedReadType = try evaluateReadTypeDetections(inputDetections, defaultTool: tool) else {
-            preconditionFailure("Read type resolution with a default tool must return a read type")
-        }
-        return resolvedReadType
-    }
-
-    private static func evaluateReadTypeDetections(
-        _ inputDetections: [AssemblyReadType?],
-        defaultTool tool: AssemblyTool?
-    ) throws -> AssemblyReadType? {
-        let detectedReadTypes = orderedUniqueReadTypes(inputDetections)
-        let evaluation = AssemblyCompatibility.evaluate(detectedReadTypes: detectedReadTypes)
-        let knownInputCount = inputDetections.compactMap { $0 }.count
-        let hasKnownAndUnknownMix = knownInputCount > 0 && knownInputCount < inputDetections.count
-
-        if let blockingMessage = evaluation.blockingMessage {
-            throw AssembleReadTypeResolutionError.unsupportedDetectedCombination(blockingMessage)
-        }
-
-        if hasKnownAndUnknownMix {
-            throw AssembleReadTypeResolutionError.mixedDetectedAndUnknown
-        }
-
-        if let resolvedReadType = evaluation.resolvedReadType {
-            return resolvedReadType
-        }
-
-        guard let tool else {
-            return nil
-        }
-
-        switch tool {
-        case .spades, .megahit, .skesa:
-            return .illuminaShortReads
-        case .flye:
-            return .ontReads
-        case .hifiasm:
-            return .pacBioHiFi
-        }
-    }
-
-    private static func detectPreMaterializationReadType(from inputURL: URL) -> AssemblyReadType? {
+    static func detectPreMaterializationReadType(from inputURL: URL) -> AssemblyReadType? {
         let standardizedURL = inputURL.standardizedFileURL
         if let bundleURL = AssemblyInputMaterialization.bundleRequiringMaterialization(for: standardizedURL),
            let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
@@ -621,11 +527,6 @@ struct AssembleCommand: AsyncParsableCommand {
         case .spades, .megahit, .skesa:
             break
         }
-    }
-
-    private static func orderedUniqueReadTypes(_ readTypes: [AssemblyReadType?]) -> [AssemblyReadType] {
-        let detected = Set(readTypes.compactMap { $0 })
-        return AssemblyReadType.allCases.filter { detected.contains($0) }
     }
 
     private func resolvedProjectName(from inputURLs: [URL]) -> String {

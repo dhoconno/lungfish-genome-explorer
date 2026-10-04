@@ -12,7 +12,7 @@ final class ImportConfigTests: XCTestCase {
             projectDirectory: URL(fileURLWithPath: "/tmp/test.lungfish"),
             platform: .illumina
         )
-        XCTAssertEqual(config.platform, .illumina)
+        XCTAssertEqual(config.sequencingPlatform, .illumina)
         XCTAssertTrue(config.optimizeStorage)
         XCTAssertEqual(config.clumpingTool, .auto)
         XCTAssertEqual(config.qualityBinning, .none)
@@ -89,13 +89,13 @@ final class ImportConfigTests: XCTestCase {
     func testImportConfigBackwardCompatNilRecipe() {
         // Old-style call with recipe: nil should still work
         let config = FASTQBatchImporter.ImportConfig(
-            projectDirectory: URL(fileURLWithPath: "/tmp"),
+            projectDirectory: URL(fileURLWithPath: "/tmp"), platform: .illumina,
             recipe: nil
         )
         XCTAssertNil(config.recipe)
         XCTAssertNil(config.newRecipe)
         // Default platform is .illumina
-        XCTAssertEqual(config.platform, .illumina)
+        XCTAssertEqual(config.sequencingPlatform, .illumina)
         XCTAssertEqual(config.qualityBinning, .none)
     }
 

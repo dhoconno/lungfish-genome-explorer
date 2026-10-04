@@ -16,13 +16,11 @@ extension ViewerViewController {
     /// it starts, calls `launch` with the operation ID. The row locks no
     /// bundle.
     ///
-    /// CLI parity gap. `lungfish-cli blast verify` verifies one Kraken2 taxon
-    /// and needs the Kraken2 report, the per-read output, the source FASTQ and
-    /// a taxon ID. No command submits selected FASTA sequences to BLAST, so
-    /// the row keeps recording the bare `lungfish-cli blast verify` it has
-    /// always recorded, which the command line parser rejects. The closest
-    /// command is `blast verify`. A command that takes FASTA sequences would
-    /// replace this value.
+    /// cli-parity-gap: blast-fasta-selection. `lungfish-cli blast verify`
+    /// verifies one Kraken2 taxon and needs the Kraken2 report, the per-read
+    /// output, the source FASTQ and a taxon ID. No command submits selected
+    /// FASTA sequences to BLAST, so the row records no command until one
+    /// does.
     @discardableResult
     static func beginGenericBlastVerificationOperation(
         sourceLabel: String,
@@ -33,7 +31,7 @@ extension ViewerViewController {
             title: "BLAST \(sourceLabel)",
             detail: "Preparing BLAST verification\u{2026}",
             operationType: .blastVerification,
-            cliCommand: OperationCenter.buildCLICommand(subcommand: "blast verify", args: [])
+            cliCommand: nil
         )
         switch result {
         case .started(let operationID):
@@ -82,18 +80,13 @@ extension ViewerViewController {
     /// Registers the annotated reference import row and, only when it starts,
     /// calls `launch` with the operation ID. The row locks no bundle.
     ///
-    /// The row records `lungfish-cli import fasta <staged FASTA> --output-dir
-    /// <project>`, with `--name` added when the run has a preferred bundle
-    /// name, as the Reference Import row does. `--output-dir` names the
-    /// project, because the command appends the Reference Sequences folder
-    /// itself, which is where the run writes.
-    ///
-    /// Partial CLI parity gap. After the import the run attaches the selected
-    /// annotations to the new bundle as a BED track and writes the extraction
-    /// provenance. No command covers either step, so the recorded command
-    /// rebuilds the bundle without its annotations. The closest command is
-    /// `import fasta`. The run can also carry durable provenance input files,
-    /// which no command option reproduces.
+    /// cli-parity-gap: annotated-reference-import. The run imports a staged
+    /// FASTA the way `lungfish-cli import fasta <staged FASTA> --output-dir
+    /// <project>` does, then attaches the selected annotations to the new
+    /// bundle as a BED track and writes the extraction provenance. No command
+    /// covers either later step, and the staged FASTA is a scratch file, so
+    /// the row records no command. The run can also carry durable provenance
+    /// input files, which no command option reproduces.
     @discardableResult
     static func beginAnnotatedReferenceImportOperation(
         sourceURL: URL,
@@ -104,16 +97,11 @@ extension ViewerViewController {
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
-        var arguments = ["fasta", sourceURL.path, "--output-dir", projectURL.path]
-        let name = preferredBundleName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !name.isEmpty {
-            arguments += ["--name", name]
-        }
         let result = reporter.begin(
             title: "Annotated Reference Import",
             detail: "Creating \(bundleStem).lungfishref...",
             operationType: .bundleBuild,
-            cliCommand: OperationCenter.buildCLICommand(subcommand: "import", args: arguments),
+            cliCommand: nil,
             routeContext: routeContext
         )
         switch result {

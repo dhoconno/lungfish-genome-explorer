@@ -49,7 +49,7 @@ final class MainSplitCrossProjectCopyOperationTests: XCTestCase {
         // project with its links rewritten. When one exists, record it and
         // replace this pin with a parse test.
         XCTAssertNil(item.cliCommand)
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        assertCLIParityGap(item.cliCommand, id: "cross-project-copy")
     }
 
     func testRefusedCopyReturnsTheRefusalSoTheItemIsSkipped() {

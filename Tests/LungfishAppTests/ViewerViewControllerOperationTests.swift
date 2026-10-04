@@ -31,7 +31,7 @@ final class ViewerViewControllerOperationTests: XCTestCase {
 
     // MARK: - FASTA collection BLAST, a CLI parity gap
 
-    func testGenericBlastVerificationRecordsTodaysCommandAsAParityGap() throws {
+    func testGenericBlastVerificationRecordsNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
         var launchedID: UUID?
 
@@ -48,14 +48,10 @@ final class ViewerViewControllerOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertNil(item.routeContext)
-        // CLI parity gap. `lungfish-cli blast verify` verifies one Kraken2
-        // taxon and needs the Kraken2 report, the per-read output, the source
-        // FASTQ and a taxon ID, so no command submits selected FASTA sequences
-        // to BLAST. The closest is `blast verify`. When a command that takes
-        // FASTA sequences exists, record it and replace this pin with a parse
-        // test.
-        XCTAssertEqual(item.cliCommand, "lungfish-cli blast verify")
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        // No lungfish-cli command submits selected FASTA sequences to BLAST, so
+        // the row records no command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "blast-fasta-selection")
     }
 
     // MARK: - Reference bundle created straight from selected FASTA sequences
@@ -115,9 +111,9 @@ final class ViewerViewControllerOperationTests: XCTestCase {
         XCTAssertEqual(item.cliCommand, "lungfish-cli " + arguments.map(shellEscape).joined(separator: " "))
     }
 
-    // MARK: - Annotated reference import, a partial CLI parity gap
+    // MARK: - Annotated reference import, a CLI parity gap
 
-    func testAnnotatedReferenceImportRecordsItsRowAndARunnableCommand() throws {
+    func testAnnotatedReferenceImportRecordsItsRowAndNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = makeRouteContext()
         var launchedID: UUID?
@@ -139,42 +135,11 @@ final class ViewerViewControllerOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // The command writes under the project it names, because `import fasta`
-        // adds the Reference Sequences folder itself, where the run writes.
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: ImportCommand.FASTASubcommand.self)
-        XCTAssertEqual(command.inputFile, stagedFASTAURL.path)
-        XCTAssertEqual(command.outputDir, projectURL.path)
-        XCTAssertEqual(command.name, "Reviewed clusters")
-        // Partial CLI parity gap. After the import the run attaches the
-        // selected annotations to the new bundle as a BED track and writes the
-        // extraction provenance. No command covers either step, so this
-        // command rebuilds the bundle without its annotations. When commands
-        // for them exist, record the full sequence and replace this pin.
-        XCTAssertEqual(
-            item.cliCommand,
-            "lungfish-cli import fasta '/tmp/lane 1a2/Staging/selection.fasta'"
-                + " --output-dir '/tmp/lane 1a2/Project.lungfish' --name 'Reviewed clusters'"
-        )
-    }
-
-    func testAnnotatedReferenceImportRecordsNoNameWhenTheRunHasNone() throws {
-        for preferredBundleName in ["", "  \n "] {
-            let reporter = RecordingOperationReporter()
-
-            ViewerViewController.beginAnnotatedReferenceImportOperation(
-                sourceURL: stagedFASTAURL,
-                projectURL: projectURL,
-                preferredBundleName: preferredBundleName,
-                bundleStem: "selected-sequences",
-                routeContext: nil,
-                reporter: reporter
-            ) { _ in }
-
-            let item = try XCTUnwrap(reporter.items.first)
-            let command = try RecordedCLICommand.parse(item.cliCommand, as: ImportCommand.FASTASubcommand.self)
-            XCTAssertNil(command.name, "a run without a preferred name records no --name (\(preferredBundleName.debugDescription))")
-            XCTAssertFalse(try XCTUnwrap(item.cliCommand).contains("--name"))
-        }
+        // The run imports a staged scratch FASTA, then attaches the selected
+        // annotations as a BED track and writes the extraction provenance. No
+        // command covers the later steps, so the row records no command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "annotated-reference-import")
     }
 
     // MARK: - Sites with no lock launch nothing when the begin is refused

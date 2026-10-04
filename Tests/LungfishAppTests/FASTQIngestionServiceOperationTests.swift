@@ -95,7 +95,7 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
         XCTAssertEqual(
             item.cliCommand,
             "lungfish-cli import fastq '/tmp/lane 1a2l3/Downloads/SRR1770413_1.fastq.gz'"
-                + " --project '/tmp/lane 1a2l3/Downloads' --platform illumina --pairing single"
+                + " --project '/tmp/lane 1a2l3/Downloads' --platform auto --pairing single"
                 + " --format json --quality-binning illumina4 --compression balanced"
         )
         let command = try RecordedCLICommand.parse(item.cliCommand, as: ImportCommand.FastqSubcommand.self)
@@ -165,7 +165,7 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
         XCTAssertEqual(command.input, [sourceURL.path])
         XCTAssertEqual(command.project, projectURL.path)
         XCTAssertEqual(command.name, "Sample 7", "the run passes --name, and the command used to leave it out")
-        XCTAssertEqual(command.platform, "illumina")
+        XCTAssertEqual(command.platform, "auto", "nobody chose the platform, so the CLI infers it (it used to pass illumina)")
         XCTAssertEqual(command.pairing, "auto", "nobody chose the pairing, so the CLI detects it")
         XCTAssertEqual(command.qualityBinning, "illumina4")
         XCTAssertEqual(command.compression, "balanced")
@@ -219,6 +219,7 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
             inputFiles: [pair.r1, pair.r2!],
             detectedPlatform: .illumina,
             confirmedPlatform: .oxfordNanopore,
+            platformIsUserChoice: true,
             pairingMode: .pairedEnd,
             pairingModeIsUserChoice: true,
             qualityBinning: .eightLevel,

@@ -35,7 +35,7 @@ final class ViewerTaxTriageOperationTests: XCTestCase {
         XCTAssertNil(item.routeContext)
     }
 
-    func testOrganismBlastRowPinsTodaysCommandAsAParityGap() throws {
+    func testOrganismBlastRowRecordsNoCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
 
         ViewerViewController.beginTaxTriageBlastVerificationOperation(
@@ -44,18 +44,10 @@ final class ViewerTaxTriageOperationTests: XCTestCase {
         ) { _ in }
 
         let item = try XCTUnwrap(reporter.items.first)
-        // CLI parity gap. No lungfish-cli command BLASTs the reads of a
-        // TaxTriage organism. The closest is `blast verify`, which covers a
-        // Kraken2 classification only. It needs --kreport, --kraken-output,
-        // --source and --taxid, and it has no --organism option. When a
-        // command covers TaxTriage organisms, record it and replace this pin
-        // with a parse test.
-        XCTAssertEqual(item.cliCommand, "lungfish-cli blast verify --organism 'Escherichia coli'")
-        XCTAssertEqual(
-            try RecordedCLICommand.arguments(of: item.cliCommand),
-            ["blast", "verify", "--organism", "Escherichia coli"]
-        )
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        // No lungfish-cli command BLASTs the reads of a TaxTriage organism, so
+        // the row records no command.
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "blast-taxtriage")
     }
 
     func testOrganismBlastLaunchesNothingWhenTheBeginIsRefused() {

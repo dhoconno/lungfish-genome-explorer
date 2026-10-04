@@ -3514,7 +3514,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
         }
     }
 
-    func testInferredUnsupportedReadTypeMetadataDoesNotMaterializeVirtualDerivedInput() async throws {
+    func testInferredUnsupportedReadTypeMetadataWarnsAndUsesTheChosenAssembler() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("assemble-inferred-no-materialize-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -3548,30 +3548,16 @@ final class AssembleCommandRegressionTests: XCTestCase {
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
 
-        let outputDir = tempDir.appendingPathComponent("assembly-out", isDirectory: true)
-        let command = try AssembleCommand.parse([
-            derivedBundleURL.path,
-            "--assembler", "flye",
-            "--output", outputDir.path,
-        ])
-
-        let output = await captureStandardOutputForRegression {
-            do {
-                try await command.run()
-                XCTFail("Expected inferred unsupported read type to fail before materialization")
-            } catch {
-                // Expected: the CLI should reject from root metadata before
-                // invoking the derived-bundle materializer.
-            }
-        }
-
-        XCTAssertTrue(output.contains("Flye is not available for Illumina short reads"))
-        XCTAssertFalse(output.contains("Materializing pointer dataset"))
-        XCTAssertFalse(
-            FileManager.default.fileExists(
-                atPath: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true).path
-            )
-        )
+        // A read type the assembler does not suit is a warning, never a
+        // refusal (owner ruling on platform defaults). The run uses Flye as
+        // chosen, with its ONT settings.
+        let decision = try XCTUnwrap(AssembleCommand.preMaterializationReadTypeDecision(
+            for: .flye,
+            explicitReadType: nil,
+            inputURLs: [derivedBundleURL]
+        ))
+        XCTAssertEqual(decision.readType, .ontReads)
+        XCTAssertTrue(decision.warnings.contains { $0.contains("Flye is designed for ONT reads") }, "\(decision.warnings)")
     }
 
     func testExplicitReadTypeTakesPrecedenceOverPreMaterializationMetadata() throws {
@@ -3660,7 +3646,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
         XCTAssertEqual(readType, .ontReads)
     }
 
-    func testReadTypeInferenceRejectsMixedKnownAndUnknownPerInputMetadata() throws {
+    func testReadTypeInferenceWarnsOnMixedKnownAndUnknownPerInputMetadata() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("assemble-read-type-mixed-metadata-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -3682,19 +3668,16 @@ final class AssembleCommandRegressionTests: XCTestCase {
             for: knownOriginalFASTQ
         )
 
-        XCTAssertThrowsError(
-            try AssembleCommand.resolveReadType(
-                for: .spades,
-                explicitReadType: nil,
-                originalInputURLs: [knownBundleURL, unknownBundleURL],
-                executionInputURLs: [knownExecutionFASTQ, unknownExecutionFASTQ]
-            )
-        ) { error in
-            XCTAssertEqual(
-                error.localizedDescription,
-                AssembleReadTypeResolutionError.mixedDetectedAndUnknown.localizedDescription
-            )
-        }
+        // Mixed known and unknown inputs used to be refused. They now run as
+        // the known read type, with a warning.
+        let decision = try AssembleCommand.readTypeDecision(
+            for: .spades,
+            explicitReadType: nil,
+            originalInputURLs: [knownBundleURL, unknownBundleURL],
+            executionInputURLs: [knownExecutionFASTQ, unknownExecutionFASTQ]
+        )
+        XCTAssertEqual(decision.readType, .illuminaShortReads)
+        XCTAssertTrue(decision.warnings.contains { $0.contains("no known read type") }, "\(decision.warnings)")
     }
 
     func testInvalidReadTypeIsRejectedBeforeFallbackInference() async {

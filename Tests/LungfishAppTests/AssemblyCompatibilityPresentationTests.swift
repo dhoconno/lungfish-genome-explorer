@@ -3,7 +3,9 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class AssemblyCompatibilityPresentationTests: XCTestCase {
-    func testBlockedCombinationUsesAttentionStyling() {
+    /// A tool the read class does not suit used to be blocked. It is now a
+    /// warning and the run uses the tool as chosen.
+    func testMismatchedCombinationWarnsWithAttentionStyling() {
         let presentation = AssemblyCompatibilityPresentation(
             tool: .flye,
             readType: .illuminaShortReads,
@@ -12,11 +14,11 @@ final class AssemblyCompatibilityPresentationTests: XCTestCase {
             blockingMessage: nil
         )
 
-        XCTAssertEqual(presentation.state, .blocked)
+        XCTAssertEqual(presentation.state, .ready)
         XCTAssertEqual(presentation.fillStyle, .attention)
         XCTAssertEqual(
             presentation.message,
-            "Flye is not available for Illumina short reads in v1."
+            "Flye is ready. Flye is designed for other reads than Illumina short reads. The run uses Flye as chosen."
         )
     }
 
@@ -33,7 +35,7 @@ final class AssemblyCompatibilityPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.fillStyle, .attention)
         XCTAssertEqual(
             presentation.message,
-            "Hybrid assembly is not supported in v1. Select one read class per run."
+            "The inputs mix read classes. Hybrid assembly is not supported in v1, so choose the read class to assemble every input as."
         )
     }
 

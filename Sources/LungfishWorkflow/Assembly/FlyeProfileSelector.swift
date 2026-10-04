@@ -17,6 +17,8 @@ public struct FlyeProfileSelection: Sendable, Equatable, Codable {
         case sampledReads
         /// No quality could be measured, so the catalog default applies.
         case unavailable
+        /// The read type chose the mode: PacBio HiFi or PacBio CLR reads.
+        case readType
     }
 
     public let profileID: String
@@ -66,6 +68,10 @@ public struct FlyeProfileSelection: Sendable, Equatable, Codable {
             return "median read quality \(readQualityLabel ?? "unknown") from the first \(count) reads"
         case .unavailable:
             return "read quality could not be measured"
+        case .readType:
+            return profileID == FlyeProfileSelector.pacbioRawProfileID
+                ? "PacBio subread (CLR) read headers"
+                : "the PacBio HiFi read type"
         }
     }
 }
@@ -88,6 +94,14 @@ public enum FlyeProfileSelector {
 
     public static let nanoRawProfileID = "nano-raw"
     public static let nanoHQProfileID = "nano-hq"
+    public static let pacbioHiFiProfileID = "pacbio-hifi"
+    public static let pacbioRawProfileID = "pacbio-raw"
+
+    /// The Flye mode a read type fixes, or nil when read quality decides
+    /// (ONT reads) or nothing is known (today's default).
+    public static func profileID(forReadType readType: AssemblyReadType?) -> String? {
+        readType == .pacBioHiFi ? pacbioHiFiProfileID : nil
+    }
 
     // MARK: - Pure selection
 
@@ -118,6 +132,8 @@ public enum FlyeProfileSelector {
         case nanoRawProfileID: return "Nano Raw"
         case nanoHQProfileID: return "Nano HQ"
         case "nano-corr": return "Nano Corrected"
+        case pacbioHiFiProfileID: return "PacBio HiFi"
+        case pacbioRawProfileID: return "PacBio CLR"
         default: return profileID
         }
     }
@@ -201,6 +217,22 @@ public enum FlyeProfileSelector {
     /// `.lungfishfastq` bundle, or a file inside one. Uses the bundle's
     /// persisted statistics when present and samples the first reads
     /// otherwise. Never throws: an unreadable input yields the catalog default.
+    /// Selects the mode from the read type first: PacBio HiFi takes
+    /// `pacbio-hifi`, and reads whose headers are PacBio subreads take
+    /// `pacbio-raw`. ONT and unknown reads keep the read-quality rule.
+    public static func select(forInputURL inputURL: URL, readType: AssemblyReadType?) async -> FlyeProfileSelection {
+        if let profileID = profileID(forReadType: readType) {
+            return FlyeProfileSelection(profileID: profileID, readQuality: nil, basis: .readType)
+        }
+        if readType != .ontReads, let fastqURL = AssemblyReadType.resolveFASTQURL(forInputURL: inputURL) {
+            let inference = PlatformInference.infer(fromFASTQ: fastqURL)
+            if inference.isActionable, inference.platform == .pacbio, inference.readClass != .pacBioHiFi {
+                return FlyeProfileSelection(profileID: pacbioRawProfileID, readQuality: nil, basis: .readType)
+            }
+        }
+        return await select(forInputURL: inputURL)
+    }
+
     public static func select(forInputURL inputURL: URL) async -> FlyeProfileSelection {
         guard let fastqURL = AssemblyReadType.resolveFASTQURL(forInputURL: inputURL) else {
             return selection(readQuality: nil, basis: .unavailable)

@@ -54,8 +54,8 @@ struct OperationCenterDependencySink: DependencyOperationSink {
     /// operation and does nothing. A real `OperationCenter` refuses only on a bundle
     /// lock, and this row asks for none.
     ///
-    /// CLI parity gap. The row records no command. `lungfish-cli tools update --apply
-    /// --yes` is the closest, and it runs the same `DependencyReconciler` plan. The
+    /// cli-parity-gap: tools-update-subset. The row records no command.
+    /// `lungfish-cli tools update --apply --yes` is the closest, and it runs the same `DependencyReconciler` plan. The
     /// reconciler opens one parent row for the whole run and one row for every item
     /// inside it, through this same call. The sink sees only a title and a detail, so
     /// it cannot tell which command a row belongs to or which items the user chose in

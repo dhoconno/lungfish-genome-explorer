@@ -20,23 +20,21 @@ final class ONTBAMImportMaterializerTests: XCTestCase {
         XCTAssertTrue(result.provenanceSteps.isEmpty)
     }
 
-    func testBAMRequiresONTPlatform() async {
-        let pair = SamplePair(
-            sampleName: "sample",
-            r1: URL(fileURLWithPath: "/tmp/sample.bam"),
-            r2: nil
-        )
-
+    /// Only PacBio BAM is refused (owner ruling 4). A BAM given another
+    /// platform used to be refused as "only for Oxford Nanopore".
+    func testOnlyPacBioBAMIsRefused() async {
+        let pair = SamplePair(sampleName: "sample", r1: URL(fileURLWithPath: "/tmp/sample.bam"), r2: nil)
         do {
             _ = try await ONTBAMImportMaterializer.materializeIfNeeded(
                 pair: pair,
-                platform: .illumina,
+                platform: IngestionPlatform.pacbio,
                 workspace: URL(fileURLWithPath: "/tmp")
             )
-            XCTFail("Expected the non-ONT BAM import to be rejected")
+            XCTFail("Expected a PacBio BAM import to be rejected")
         } catch {
-            XCTAssertTrue(error.localizedDescription.contains("only for Oxford Nanopore"))
+            XCTAssertTrue(error.localizedDescription.contains("PacBio BAM import is not supported"))
         }
+        XCTAssertNoThrow(try ONTBAMImportMaterializer.checkPlatform(.illumina, for: pair))
     }
 
     func testBAMCannotBeUsedAsOneHalfOfAPair() async {

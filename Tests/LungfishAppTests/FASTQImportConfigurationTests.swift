@@ -61,7 +61,8 @@ struct FASTQImportConfigurationTests {
         #expect(pairs[0].r1 == url)
         #expect(pairs[0].r2 == nil)
         #expect(pairs[0].sampleName == "NanoporeSample")
-        #expect(MainSplitViewController.detectedImportPlatform(for: pairs) == .oxfordNanopore)
+        // A BAM is read from its header and never assumed to be ONT. This one does not exist.
+        #expect(MainSplitViewController.detectedImportPlatform(for: pairs) == .unknown)
     }
 
     @Test("R1 without matching R2 is unpaired")

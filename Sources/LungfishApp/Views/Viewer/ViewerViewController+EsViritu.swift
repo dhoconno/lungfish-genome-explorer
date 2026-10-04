@@ -245,13 +245,12 @@ extension ViewerViewController {
     /// when it starts, calls `launch` with the operation ID. The run extracts
     /// reads from the sample's BAM and locks no bundle.
     ///
-    /// CLI parity gap. No `lungfish-cli` command BLASTs the reads of an
-    /// EsViritu detection. The closest is `lungfish-cli blast verify`, which
-    /// covers a Kraken2 classification only and needs `--kreport`,
-    /// `--kraken-output`, `--source` and `--taxid`. The row keeps recording
-    /// `blast verify --virus <name>` until a CLI command covers EsViritu
-    /// verification. The CLI rejects that command, because it needs the
-    /// options above and has no `--virus` option.
+    /// cli-parity-gap: blast-esviritu. No `lungfish-cli` command BLASTs the
+    /// reads of an EsViritu detection. The closest is
+    /// `lungfish-cli blast verify`, which covers a Kraken2 classification
+    /// only and needs `--kreport`, `--kraken-output`, `--source` and
+    /// `--taxid`. The row records no command until a CLI command covers
+    /// EsViritu verification.
     @discardableResult
     static func beginEsVirituBlastVerificationOperation(
         taxonName: String,
@@ -262,10 +261,7 @@ extension ViewerViewController {
             title: "BLAST \(taxonName)",
             detail: "Preparing BLAST verification…",
             operationType: .blastVerification,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "blast verify",
-                args: ["--virus", taxonName]
-            )
+            cliCommand: nil
         )
         switch result {
         case .started(let operationID):

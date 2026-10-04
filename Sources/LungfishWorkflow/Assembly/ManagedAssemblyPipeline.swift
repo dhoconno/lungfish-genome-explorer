@@ -70,12 +70,9 @@ public struct ManagedAssemblyPipeline: Sendable {
         for request: AssemblyRunRequest,
         host: AssemblyExecutionHost
     ) throws -> ManagedAssemblyCommand {
+        // A read type the tool does not take runs with the tool's own
+        // read-type settings (normalizedForExecution), never a refusal.
         let request = request.normalizedForExecution(on: host)
-        guard AssemblyCompatibility.isSupported(tool: request.tool, for: request.readType) else {
-            throw ManagedAssemblyPipelineError.incompatibleSelection(
-                "\(request.tool.displayName) is not available for \(request.readType.displayName) in v1."
-            )
-        }
 
         try FileManager.default.createDirectory(
             at: request.outputDirectory.deletingLastPathComponent(),

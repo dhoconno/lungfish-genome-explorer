@@ -226,7 +226,7 @@ public extension AssemblyRunRequest {
     func normalizedForExecution(on host: AssemblyExecutionHost = .current) -> AssemblyRunRequest {
         AssemblyRunRequest(
             tool: tool,
-            readType: readType,
+            readType: AssemblyCompatibility.effectiveReadType(tool: tool, readType: readType),
             inputURLs: inputURLs,
             projectName: projectName,
             outputDirectory: outputDirectory,
@@ -234,7 +234,9 @@ public extension AssemblyRunRequest {
             threads: effectiveThreadCount(on: host),
             memoryGB: memoryGB,
             minContigLength: minContigLength,
-            selectedProfileID: selectedProfileID,
+            selectedProfileID: selectedProfileID ?? (tool == .flye
+                ? FlyeProfileSelector.profileID(forReadType: AssemblyCompatibility.effectiveReadType(tool: tool, readType: readType))
+                : nil),
             extraArguments: extraArguments,
             profileSelectionBasis: profileSelectionBasis,
             inputLayout: inputLayout

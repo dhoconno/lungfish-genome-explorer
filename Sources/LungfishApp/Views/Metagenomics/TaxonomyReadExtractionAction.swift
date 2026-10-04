@@ -334,7 +334,7 @@ public final class TaxonomyReadExtractionAction {
                     destination: destination
                 )
 
-                let started = Self.beginExtractionOperation(context: context, cliCommand: cli) { opID in
+                let started = Self.beginExtractionOperation(context: context, cliCommand: Self.rowCLICommand(cli, destination: resolvedDestination)) { opID in
                     OperationCenter.shared.log(id: opID, level: .info, message: "Extraction started: \(cli)")
 
                     // `Context` is Sendable, so the outer variable

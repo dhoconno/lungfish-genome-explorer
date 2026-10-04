@@ -194,8 +194,11 @@ final class AlignmentScientificActionCoordinatorOperationTests: XCTestCase {
         XCTAssertEqual(recorder.items.count, 2)
         for item in recorder.items {
             XCTAssertNil(item.cliCommand, item.title)
-            XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand), item.title)
         }
+        let regionRow = try XCTUnwrap(recorder.items.first { $0.title == "Extract Reads in Selected Region" })
+        let readsRow = try XCTUnwrap(recorder.items.first { $0.title == "Extract Selected Reads" })
+        assertCLIParityGap(regionRow.cliCommand, id: "alignment-region-reads")
+        assertCLIParityGap(readsRow.cliCommand, id: "alignment-selected-reads")
     }
 
     // MARK: - Refused begin

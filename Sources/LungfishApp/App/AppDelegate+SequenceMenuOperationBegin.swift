@@ -22,8 +22,8 @@ extension AppDelegate {
     /// the helper keeps it. Adding a lock target is a separate decision (Rule 3
     /// in docs/contracts/ADDING-AN-OPERATION.md).
     ///
-    /// CLI parity gap. No lungfish-cli command adds an annotation to a
-    /// bundle. The closest is `sequence update-annotation`, which edits an
+    /// cli-parity-gap: annotation-add. No lungfish-cli command adds an
+    /// annotation to a bundle. The closest is `sequence update-annotation`, which edits an
     /// existing row. The row keeps recording no command until an add command
     /// exists.
     @discardableResult

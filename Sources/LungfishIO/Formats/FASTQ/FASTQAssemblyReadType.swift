@@ -30,7 +30,7 @@ public enum FASTQAssemblyReadType: String, Codable, Sendable, CaseIterable {
 
     public init?(sequencingPlatform: SequencingPlatform) {
         switch sequencingPlatform {
-        case .illumina:
+        case .illumina, .element, .mgi:
             self = .illuminaShortReads
         case .oxfordNanopore:
             self = .ontReads

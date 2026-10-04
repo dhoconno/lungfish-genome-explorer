@@ -171,7 +171,7 @@ final class AssemblyRunPlanningTests: XCTestCase {
                 OperationCenter.buildCLICommand(subcommand: invocation.subcommand, args: invocation.arguments),
                 as: AssembleCommand.self
             )
-            let tool = try XCTUnwrap(AssemblyTool(rawValue: command.assembler))
+            let tool = try XCTUnwrap(AssemblyTool(rawValue: command.assembler ?? ""))
             let inputs = command.fastqFiles.map { URL(fileURLWithPath: $0) }
             try AssembleCommand.validatePreMaterializationTopology(
                 tool: tool,

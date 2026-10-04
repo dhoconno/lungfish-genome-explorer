@@ -241,7 +241,7 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
     /// What `lungfish-cli assemble` hands its assembler for `command`.
     private func recordedCommandRun(_ command: String) async throws -> Run {
         let parsed = try RecordedCLICommand.parse(command, as: AssembleCommand.self)
-        let tool = try XCTUnwrap(AssemblyTool(rawValue: parsed.assembler))
+        let tool = try XCTUnwrap(AssemblyTool(rawValue: parsed.assembler ?? ""))
         let readType = try XCTUnwrap(parsed.readType.flatMap(AssemblyReadType.init(cliArgument:)))
         let inputs = parsed.fastqFiles.map { URL(fileURLWithPath: $0) }
         try AssembleCommand.validatePreMaterializationTopology(tool: tool, inputURLs: inputs, pairedEnd: parsed.pairedEnd)
