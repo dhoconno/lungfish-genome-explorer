@@ -25,13 +25,19 @@ extension ManagedMappingPipeline {
     /// set. Each run is sorted, `samtools merge -c -p` joins them, and the
     /// merge is normalized like any run, so flagstat and every summary read
     /// the merged BAM. The per-run files and the merge are removed.
+    ///
+    /// Each mapper step of a sample of pairs and single reads records the
+    /// read-set plan (``ReadSetPlan/provenanceParameters``) as options. A
+    /// plan that records nothing new adds nothing.
     func mapAndNormalize(
         prepared: PreparedMappingExecution,
         command: ManagedMappingCommand,
+        readSetPlan: ReadSetPlan?,
         mapperVersion: String,
         samtoolsVersion: String,
         progress: ProgressHandler?
     ) async throws -> MappedAlignment {
+        let planOptions = readSetPlan?.provenanceParameters ?? [:]
         let request = prepared.request
         let referenceURL = prepared.referenceLocator.referenceURL
         let readLayoutPlan = request.readLayoutPlan
@@ -47,26 +53,26 @@ extension ManagedMappingPipeline {
         var intermediates: [URL] = []
         if bbmapRuns.isEmpty {
             alignmentURL = MappingCommandBuilder.rawAlignmentURL(for: request)
-            steps.append(try await executeMappingCommand(
+            steps.append(Self.recording(planOptions, in: try await executeMappingCommand(
                 command,
                 outputURL: alignmentURL,
                 inputRecords: mapperExecutionInputRecords(for: request, referenceURL: referenceURL),
                 mapperVersion: mapperVersion,
                 progress: progress
-            ))
+            )))
         } else {
             var sortedRuns: [URL] = []
             for (index, run) in bbmapRuns.enumerated() {
                 progress?(0.1 + 0.5 * Double(index) / Double(bbmapRuns.count), "Running BBMap on read set \(index + 1) of \(bbmapRuns.count)...")
                 let inputRecords = run.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) }
                     + [ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)]
-                steps.append(try await executeMappingCommand(
+                steps.append(Self.recording(planOptions, in: try await executeMappingCommand(
                     run.command,
                     outputURL: run.rawAlignmentURL,
                     inputRecords: inputRecords,
                     mapperVersion: mapperVersion,
                     progress: progress
-                ))
+                )))
                 let sortedURL = run.rawAlignmentURL.deletingPathExtension().deletingPathExtension().appendingPathExtension("bam")
                 steps.append(try await samtoolsSort(
                     inputURL: run.rawAlignmentURL,
@@ -119,6 +125,33 @@ extension ManagedMappingPipeline {
         }
         steps += try plan.steps.map { try $0.stepExecution(toolVersion: WorkflowRun.currentAppVersion) }
         return steps
+    }
+
+    /// `step` with `options` added to its resolved options, or unchanged when
+    /// `options` is empty.
+    static func recording(_ options: [String: ParameterValue], in step: StepExecution) -> StepExecution {
+        guard !options.isEmpty else { return step }
+        return StepExecution(
+            id: step.id,
+            toolName: step.toolName,
+            toolVersion: step.toolVersion,
+            githubReleaseVersion: step.githubReleaseVersion,
+            containerImage: step.containerImage,
+            containerDigest: step.containerDigest,
+            command: step.command,
+            durableReplayArgv: step.durableReplayArgv,
+            resolvedOptions: (step.resolvedOptions ?? [:]).merging(options) { _, planValue in planValue },
+            runtimeIdentity: step.runtimeIdentity,
+            inputs: step.inputs,
+            outputs: step.outputs,
+            exitCode: step.exitCode,
+            wallTime: step.wallTime,
+            peakMemoryBytes: step.peakMemoryBytes,
+            stderr: step.stderr,
+            dependsOn: step.dependsOn,
+            startTime: step.startTime,
+            endTime: step.endTime
+        )
     }
 
     /// `samtools merge -c -p` of sorted BAMs that share one read group, so

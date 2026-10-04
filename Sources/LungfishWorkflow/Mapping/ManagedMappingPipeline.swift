@@ -137,6 +137,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         let mapped = try await mapAndNormalize(
             prepared: prepared,
             command: command,
+            readSetPlan: readSetPlan,
             mapperVersion: mapperVersion,
             samtoolsVersion: samtoolsVersion,
             progress: progress
