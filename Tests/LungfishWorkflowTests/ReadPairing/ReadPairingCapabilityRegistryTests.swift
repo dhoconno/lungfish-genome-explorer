@@ -62,6 +62,7 @@ final class ReadPairingCapabilityRegistryTests: XCTestCase {
             "classify.kraken2", "classify.esviritu", "classify.taxtriage",
             "assemble.spades", "assemble.megahit", "assemble.skesa",
             "map.minimap2", "map.bwa-mem2", "map.bowtie2", "map.bbmap",
+            "viralrecon.illumina", "genotype.illumina-mhc", "genotype.ont-mhc",
         ])
     }
 

@@ -198,6 +198,54 @@ final class BundleResolutionCLIParityTests: XCTestCase {
             XCTAssertEqual(spy.inputs, [try Data(contentsOf: cliOutput)], "\(shape): the same bytes")
         }
     }
+
+    /// Viral Recon (lane A6b). For every bundle whose reads are not one file,
+    /// the samplesheet the app's wizard writes and the one
+    /// `workflow run nf-core/viralrecon --input <bundle>` writes name the
+    /// bundle the same way, so both runs plan it with the same resolver and
+    /// stage the same rows.
+    func testViralReconWritesTheSamplesheetRowTheAppsWizardWrites() throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("viralrecon-read-sets", isDirectory: true))
+        let cases: [(String, URL)] = [
+            ("L4 chunked", fixtures.chunkedRoot),
+            ("L5b paired", fixtures.pairedDerivative),
+            ("L5c merge", fixtures.mergeDerivative),
+            ("L5d repair", fixtures.repairDerivative),
+            ("L6 subset of single", fixtures.subsetOfSingle),
+            ("L6 subset of merge", fixtures.subsetOfMerge),
+        ]
+        func rows(_ url: URL) throws -> [String] {
+            try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+        }
+        for (shape, bundle) in cases {
+            let appSamples = try ViralReconInputResolver.makeSamples(
+                from: ViralReconWizardInputPolicy.resolveInputs([bundle], platformOverride: nil)
+            )
+            let appSheet = try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(
+                samples: appSamples,
+                in: root.appendingPathComponent("app-\(UUID().uuidString)", isDirectory: true)
+            )
+            var params: [String: String] = [:]
+            let cli = try ViralReconCLIInputs.resolve(
+                inputURLs: [bundle],
+                runBundleURL: root.appendingPathComponent("cli-\(UUID().uuidString).lungfishrun", isDirectory: true),
+                params: &params
+            )
+
+            XCTAssertEqual(try rows(cli.samplesheetURL), try rows(appSheet), "\(shape): the same samplesheet")
+            XCTAssertEqual(
+                appSamples.map { $0.fastqURLs.map(\.standardizedFileURL) },
+                [[bundle.standardizedFileURL]],
+                "\(shape): the row names the bundle"
+            )
+            XCTAssertEqual(
+                ViralReconReadPairing.decisions(for: try XCTUnwrap(cli.illuminaSamples, shape)),
+                ViralReconReadPairing.decisions(for: appSamples),
+                "\(shape): the same expected decision"
+            )
+            XCTAssertTrue(ViralReconReadPairing.decisions(for: appSamples).allSatisfy(\.needsSplit), "\(shape): staged by the run")
+        }
+    }
 }
 
 /// Keeps the bytes of the file each `fastq qc-summary` invocation reads, while

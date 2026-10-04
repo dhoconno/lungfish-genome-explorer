@@ -1027,20 +1027,16 @@ extension FASTQOperationLaunchRequest {
         return engine == .exactBareBarcode
     }
 
+    /// Whether the dialog resolves each input to files before it runs the CLI.
+    /// `fastq genotype` plans each bundle itself (READ-PAIRING.md), so a paired
+    /// derivative is one sample, never an R1 sample and an R2 sample.
     var resolvesInputsBeforeCLI: Bool {
-        if case .savont = self {
+        switch self {
+        case .savont, .assemble, .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .ontGenotyping:
             return false
+        default:
+            return true
         }
-        if case .assemble = self {
-            return false
-        }
-        if case .ontFluidigmSampleSplit = self {
-            return false
-        }
-        if case .ontPacBioBarcodeDemux = self {
-            return false
-        }
-        return true
     }
 
     var requiresSyntheticFASTQBridge: Bool {

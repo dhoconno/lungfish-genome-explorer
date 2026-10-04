@@ -513,6 +513,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 demuxManifestURL: inputPlan.manifestURL,
                 inputSnapshot: inputSnapshot,
                 illuminaPreparation: inputPlan.illuminaPreparation,
+                inputReads: inputPlan.inputReads,
                 scriptURL: scriptURL,
                 reportScriptURL: reportScriptURL,
                 minimap2URL: minimap2URL,
@@ -1344,72 +1345,6 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
     }
 
-    public static func resolveInputFASTQURLs(for inputURL: URL) throws -> [URL] {
-        let standardized = inputURL.standardizedFileURL
-        if FASTQBundle.isFASTQFileURL(standardized) {
-            return [standardized]
-        }
-        guard FASTQBundle.isBundleURL(standardized) else {
-            if Self.urlIsDirectory(standardized) {
-                return Self.resolveRawFASTQDirectoryURLs(for: standardized)
-            }
-            return FASTQBundle.resolveAllFASTQURLs(for: standardized)?.map(\.standardizedFileURL) ?? []
-        }
-        if FASTQSourceFileManifest.exists(in: standardized) {
-            let manifest = try FASTQSourceFileManifest.load(from: standardized)
-            return manifest.files.compactMap { entry in
-                if let bundleRelativeURL = try? FASTQBundle.validatedBundleMemberURL(
-                    for: entry.filename,
-                    in: standardized,
-                    field: "source-files[].filename",
-                    allowExistingSymlinkEscape: true
-                ), FileManager.default.fileExists(atPath: bundleRelativeURL.path) {
-                    return bundleRelativeURL
-                }
-                let originalURL = URL(fileURLWithPath: entry.originalPath).standardizedFileURL
-                if FileManager.default.fileExists(atPath: originalURL.path) {
-                    return originalURL
-                }
-                return nil
-            }
-        }
-        return FASTQBundle.resolveAllFASTQURLs(for: standardized)?.map(\.standardizedFileURL) ?? []
-    }
-
-    private static func urlIsDirectory(_ url: URL) -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
-    }
-
-    private static func resolveRawFASTQDirectoryURLs(for directoryURL: URL) -> [URL] {
-        guard let enumerator = FileManager.default.enumerator(
-            at: directoryURL,
-            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-        var urls: [URL] = []
-        for case let url as URL in enumerator {
-            if url.lastPathComponent.hasPrefix("._") {
-                continue
-            }
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
-                if url.pathExtension.lowercased() == FASTQBundle.directoryExtension {
-                    enumerator.skipDescendants()
-                }
-                continue
-            }
-            if FASTQBundle.isFASTQFileURL(url) {
-                urls.append(url.standardizedFileURL)
-            }
-        }
-        return urls.sorted {
-            $0.path.localizedStandardCompare($1.path) == .orderedAscending
-        }
-    }
-
     private struct ReferenceResolution {
         let referenceFASTAURL: URL
         let sourceReferenceBundleURL: URL?
@@ -1435,6 +1370,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let manifestURL: URL
         let inputSnapshot: SmallInputSnapshot
         let illuminaPreparation: IlluminaPreparation?
+        var inputReads: [GenotypingInputReads] = []
     }
 
     struct IlluminaSampleInput {
@@ -1459,6 +1395,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let readCountSource: String
         /// How the reads were prepared for mapping, recorded in provenance.
         var mergeOutcome: IlluminaAmpliconPairMerger.Outcome?
+        /// How a bundle input was planned (READ-PAIRING.md). Nil for a loose file or a folder.
+        var inputReads: GenotypingInputReads?
 
         /// The sample's read count
         /// in FRAGMENT units -- one count per physical read/amplicon
@@ -1711,9 +1649,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     ) async throws -> InputPlan {
         switch resolvedMode {
         case .ontBarcodeDemux:
-            let inputFASTQURLs = try request.inputFASTQURLs.flatMap { inputURL in
-                try Self.resolveInputFASTQURLs(for: inputURL)
-            }
+            let readSetsDirectory = supportDirectory.appendingPathComponent("read-sets", isDirectory: true)
+            let inputReads = try await Self.plannedInputReads(for: request.inputFASTQURLs, readType: .ont, workDirectory: readSetsDirectory)
+            let inputFASTQURLs = inputReads.flatMap(\.fastqURLs)
             guard !inputFASTQURLs.isEmpty else {
                 throw ONTBarcodeDemuxGenotypingError.noInputFASTQs
             }
@@ -1732,7 +1670,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 originalInputFASTQURLs: inputFASTQURLs,
                 manifestURL: demuxManifestURL,
                 inputSnapshot: inputSnapshot,
-                illuminaPreparation: nil
+                illuminaPreparation: nil,
+                inputReads: inputReads
             )
 
         case .illuminaPaired, .ontSampleBundles:
@@ -1753,7 +1692,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 originalInputFASTQURLs: preparation.sourceFASTQURLs,
                 manifestURL: preparation.sampleManifestURL,
                 inputSnapshot: snapshot,
-                illuminaPreparation: preparation
+                illuminaPreparation: preparation,
+                inputReads: preparation.samples.compactMap(\.inputReads)
             )
 
         case .auto:
@@ -1808,7 +1748,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
         var samples = try await Self.resolveIlluminaSampleInputs(
             from: request.inputFASTQURLs,
-            stagingDirectory: stagedDirectory
+            stagingDirectory: stagedDirectory,
+            readType: isONTSampleBundles ? .ont : .illumina
         )
         _ = pythonURL
         // Illumina pairs must be merged before mapping: the retained-read filter
@@ -2000,7 +1941,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private static func resolveIlluminaSampleInputs(
         from urls: [URL],
-        stagingDirectory: URL
+        stagingDirectory: URL,
+        readType: AmpliconGenotypingReadType = .illumina
     ) async throws -> [IlluminaSampleInput] {
         var samples: [IlluminaSampleInput] = []
         var assignedIDs = Set<String>()
@@ -2008,10 +1950,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         for url in urls.map(\.standardizedFileURL) {
             let rawDirectoryInput = Self.urlIsDirectory(url) && !FASTQBundle.isBundleURL(url)
             let resolvedFASTQs: [URL]
+            var planned: GenotypingInputReads?
             if FASTQBundle.isFASTQFileURL(url) {
                 resolvedFASTQs = [url]
             } else if FASTQBundle.isBundleURL(url) {
-                resolvedFASTQs = try Self.resolveInputFASTQURLs(for: url)
+                let readSetsDirectory = stagingDirectory.appendingPathComponent("read-sets", isDirectory: true)
+                planned = try await Self.plannedInputReads(for: url, readType: readType, workDirectory: readSetsDirectory)
+                resolvedFASTQs = planned?.fastqURLs ?? []
             } else if rawDirectoryInput {
                 resolvedFASTQs = Self.resolveRawFASTQDirectoryURLs(for: url)
             } else {
@@ -2051,6 +1996,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     readCount: effectiveReadCount?.count ?? readCount,
                     readCountSource: effectiveReadCount?.source ?? "fastq-weighted-record-count"
                 ))
+                samples[samples.count - 1].inputReads = planned
             }
         }
         // Defense-in-depth: the disambiguation above guarantees uniqueness, but verify
@@ -3742,6 +3688,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         demuxManifestURL: URL,
         inputSnapshot: SmallInputSnapshot,
         illuminaPreparation: IlluminaPreparation?,
+        inputReads: [GenotypingInputReads],
         scriptURL: URL,
         reportScriptURL: URL,
         minimap2URL: URL,
@@ -3832,6 +3779,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "internalMergePerformed": preparation.pairMerge.performed,
             ]
             preparationRecord.merge(preparation.pairMerge.recordDictionary()) { _, new in new }
+            let readSetPlans = Self.readSetPlanRecords(preparation.samples)
+            if !readSetPlans.isEmpty { preparationRecord["readSetPlans"] = readSetPlans }
             return preparationRecord
         } as Any? ?? NSNull()
         let illuminaInputPreparation: Any = resolvedMode == .illuminaPaired
@@ -4188,6 +4137,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             demuxManifestURL: demuxManifestURL,
             inputSnapshot: inputSnapshot,
             illuminaPreparation: illuminaPreparation,
+            inputReads: inputReads,
             scriptURL: scriptURL,
             reportScriptURL: reportScriptURL,
             minimap2URL: minimap2URL,
@@ -4220,6 +4170,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         demuxManifestURL: URL,
         inputSnapshot: SmallInputSnapshot,
         illuminaPreparation: IlluminaPreparation?,
+        inputReads: [GenotypingInputReads],
         scriptURL: URL,
         reportScriptURL: URL,
         minimap2URL: URL,
@@ -4347,6 +4298,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 ),
             ]
         }
+        canonicalSteps.insert(contentsOf: try Self.readSetProvenanceSteps(inputReads), at: 0)
         canonicalSteps += reviewableRowCatalogPublication?.provenance.steps ?? []
         if let mergeArguments = mapping.samtoolsMergeArguments {
             canonicalSteps.append(
