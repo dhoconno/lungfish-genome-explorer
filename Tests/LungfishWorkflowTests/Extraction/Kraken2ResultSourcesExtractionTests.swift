@@ -50,6 +50,33 @@ final class Kraken2ResultSourcesExtractionTests: XCTestCase {
         XCTAssertEqual(Array(extracted.dropFirst(46)), fixture.mergedNames, "then the merged reads, in file order")
     }
 
+    /// Loose R1 and R2 files classified with --paired, and a file of merged
+    /// reads classified beside them with --unpaired. The taxon's only read is
+    /// the merged y1, which sits in that separate single-read file. It is
+    /// extracted, and nothing else, whatever names the mates carry.
+    func testAMergedReadClassifiedFromASeparateSingleReadFileIsExtracted() async throws {
+        for names in MateNames.allCases {
+            let shapes = try Kraken2ResultShapes(in: root.appendingPathComponent(names.rawValue), names: names)
+            let loose = shapes.fixtures.projectURL.appendingPathComponent("loose", isDirectory: true)
+            let (t, o) = (Kraken2ResultShapes.target, Kraken2ResultShapes.other)
+            let result = try Kraken2ResultShapes.result(
+                "merged-only", in: shapes.analyses,
+                inputs: [loose.appendingPathComponent("sample_R1.fastq"), loose.appendingPathComponent("sample_R2.fastq")],
+                paired: true,
+                singleReadFiles: [loose.appendingPathComponent("merged.fastq")],
+                lines: [Kraken2ResultShapes.pair("q1", o), Kraken2ResultShapes.pair("q2", o), Kraken2ResultShapes.staged("y1", t), Kraken2ResultShapes.staged("y2", o)]
+            )
+
+            let extracted = await extractedNames(result)
+            XCTAssertEqual(extracted, ["y1"], "\(names.rawValue) mate names")
+
+            let bundle = try await extractedBundle(result)
+            let payload = try XCTUnwrap(Self.payload(in: bundle))
+            XCTAssertEqual(FASTQMetadataStore.load(for: payload)?.ingestion?.pairingMode, .singleEnd, "one merged read holds no pair")
+            XCTAssertNil(FASTQMetadataStore.load(for: payload)?.readClassification)
+        }
+    }
+
     /// A single-end result whose read names end in /1 used to extract nothing.
     func testSingleEndReadsNamedWithAMateSuffixAreFound() async throws {
         let shapes = try Kraken2ResultShapes(in: root, names: .slash)
