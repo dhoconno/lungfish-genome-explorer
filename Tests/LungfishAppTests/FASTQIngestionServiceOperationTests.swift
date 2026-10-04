@@ -8,8 +8,8 @@
 // stands in for the refusal. The two bundle imports record
 // `lungfish-cli import fastq` commands, which the tests parse with the
 // real CLI parser and compare with the values the run uses. The in-place
-// ingestion has no command that reproduces it, so its test pins today's
-// command as a CLI parity gap.
+// ingestion has no command that reproduces it, so its row records none and
+// its test pins the CLI parity gap.
 
 import XCTest
 @testable import LungfishApp
@@ -80,41 +80,25 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
         _ = try recordedInPlaceRow(pairingMode: .singleEnd, pairedFile: nil)
     }
 
-    func testInPlaceIngestionRecordsTheImportCommandAsAParityGap() throws {
-        let item = try recordedInPlaceRow(pairingMode: .singleEnd, pairedFile: nil)
-
-        // CLI parity gap. The run clumpifies and compresses the file in place,
-        // deletes the original, writes the FASTQ metadata sidecar and applies no
-        // quality binning (FASTQIngestionConfig defaults to none). No command
-        // reproduces that. The recorded command parses, but it would build a
-        // new bundle under Imports in the file's folder and bin with illumina4.
-        // The closest command is `debug fastq-ingest` with `--binning none
-        // --delete-originals`, which runs the same pipeline and leaves the
-        // sidecar unwritten. When a command covers the in-place run, record it
-        // and replace this pin with a parse test of its values.
-        XCTAssertEqual(
-            item.cliCommand,
-            "lungfish-cli import fastq '/tmp/lane 1a2l3/Downloads/SRR1770413_1.fastq.gz'"
-                + " --project '/tmp/lane 1a2l3/Downloads' --platform auto --pairing single"
-                + " --format json --quality-binning illumina4 --compression balanced"
-        )
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: ImportCommand.FastqSubcommand.self)
-        XCTAssertEqual(command.input, [downloadedURL.path])
-        XCTAssertEqual(command.project, downloadedURL.deletingLastPathComponent().path)
-        XCTAssertEqual(command.qualityBinning, "illumina4", "the in-place run applies no quality binning")
-    }
-
-    func testInPlaceIngestionCommandNamesTheMateOnlyForAPairedRun() throws {
-        let paired = try recordedInPlaceRow(pairingMode: .pairedEnd, pairedFile: downloadedMateURL)
-        let pairedCommand = try RecordedCLICommand.parse(paired.cliCommand, as: ImportCommand.FastqSubcommand.self)
-        XCTAssertEqual(pairedCommand.input, [downloadedURL.path, downloadedMateURL.path])
-        XCTAssertEqual(pairedCommand.pairing, "paired")
-
-        // The run reads a second file only in paired-end mode.
-        let single = try recordedInPlaceRow(pairingMode: .singleEnd, pairedFile: downloadedMateURL)
-        let singleCommand = try RecordedCLICommand.parse(single.cliCommand, as: ImportCommand.FastqSubcommand.self)
-        XCTAssertEqual(singleCommand.input, [downloadedURL.path])
-        XCTAssertEqual(singleCommand.pairing, "single")
+    func testInPlaceIngestionRecordsNoCommandAndPinsTheParityGap() throws {
+        // cli-parity-gap: fastq-ingest-in-place. The run clumpifies and
+        // compresses the file in place, deletes the original, writes the FASTQ
+        // metadata sidecar and applies no quality binning (FASTQIngestionConfig
+        // defaults to none). No command reproduces that. The row used to record
+        // a `lungfish-cli import fastq` command, which would build a new bundle
+        // under Imports in the file's folder and bin with illumina4, a run that
+        // never happened. The closest command is `debug fastq-ingest` with
+        // `--binning none --delete-originals`, which runs the same pipeline and
+        // leaves the sidecar unwritten. When a command covers the in-place run,
+        // record it and replace this pin with a parse test and a replay test.
+        for (pairingMode, pairedFile) in [
+            (FASTQIngestionConfig.PairingMode.singleEnd, nil as URL?),
+            (.pairedEnd, downloadedMateURL),
+        ] {
+            let item = try recordedInPlaceRow(pairingMode: pairingMode, pairedFile: pairedFile)
+            XCTAssertNil(item.cliCommand, "\(pairingMode): the row records no command it cannot reproduce")
+            assertCLIParityGap(item.cliCommand, id: "fastq-ingest-in-place")
+        }
     }
 
     func testRefusedInPlaceIngestionLaunchesNothing() {
