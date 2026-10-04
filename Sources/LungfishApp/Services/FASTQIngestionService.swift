@@ -569,23 +569,6 @@ public enum FASTQIngestionService {
         )
     }
 
-    nonisolated static func inPlaceIngestionCommandPreview(
-        url: URL,
-        pairingMode: FASTQIngestionConfig.PairingMode = .singleEnd,
-        pairedFile: URL? = nil
-    ) -> String {
-        let r2 = pairingMode == .pairedEnd ? pairedFile : nil
-        let pair = FASTQFilePair(r1: url, r2: r2)
-        return cliImportCommandPreview(
-            pair: pair,
-            projectDirectory: url.deletingLastPathComponent(),
-            importConfig: defaultCLIImportConfiguration(
-                pair: pair,
-                pairingMode: pairingMode
-            )
-        )
-    }
-
     nonisolated static func cliImportArguments(
         pair: FASTQFilePair,
         projectDirectory: URL,
@@ -606,27 +589,6 @@ public enum FASTQIngestionService {
             compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced",
             bundleName: bundleName,
             force: force
-        )
-    }
-
-    nonisolated private static func defaultCLIImportConfiguration(
-        pair: FASTQFilePair,
-        pairingMode: FASTQIngestionConfig.PairingMode,
-        pairingModeIsUserChoice: Bool = true
-    ) -> FASTQImportConfiguration {
-        FASTQImportConfiguration(
-            inputFiles: [pair.r1] + (pair.r2.map { [$0] } ?? []),
-            detectedPlatform: .unknown,
-            confirmedPlatform: .unknown,
-            pairingMode: pairingMode,
-            pairingModeIsUserChoice: pairingModeIsUserChoice,
-            qualityBinning: .illumina4,
-            skipClumpify: false,
-            deleteOriginals: false,
-            postImportRecipe: nil,
-            resolvedPlaceholders: [:],
-            recipeName: nil,
-            compressionLevel: .balanced
         )
     }
 

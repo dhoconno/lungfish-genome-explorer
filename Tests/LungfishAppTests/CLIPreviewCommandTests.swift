@@ -23,19 +23,6 @@ final class CLIPreviewCommandTests: XCTestCase {
         XCTAssertFalse(command.contains("use GUI"))
     }
 
-    func testInPlaceFASTQIngestionPreviewUsesAvailableCLIImportCommand() {
-        let sourceURL = URL(fileURLWithPath: "/Volumes/iWES WNPRC/downloads/Sample R1.fastq.gz")
-
-        let command = FASTQIngestionService.inPlaceIngestionCommandPreview(url: sourceURL)
-
-        XCTAssertTrue(command.hasPrefix("lungfish-cli import fastq "))
-        XCTAssertTrue(command.contains("'/Volumes/iWES WNPRC/downloads/Sample R1.fastq.gz'"))
-        XCTAssertTrue(command.contains("--project '/Volumes/iWES WNPRC/downloads'"))
-        XCTAssertTrue(command.contains("--platform illumina"))
-        XCTAssertFalse(command.contains("CLI command not yet available"))
-        XCTAssertFalse(command.contains("use GUI"))
-    }
-
     func testSPAdesConfigurationPreviewUsesManagedAssembleCommand() {
         let config = SPAdesAssemblyConfig(
             mode: .meta,
