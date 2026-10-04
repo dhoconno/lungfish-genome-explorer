@@ -132,31 +132,23 @@ final class AssemblyReadSetArgvTests: XCTestCase {
     /// The request `lungfish-cli assemble <bundle> --assembler <tool>` builds.
     private func assemblyRequest(for bundle: URL, tool: AssemblyTool) async throws -> AssemblyRunRequest {
         let outputDirectory = root.appendingPathComponent("out-\(tool.rawValue)-\(UUID().uuidString)", isDirectory: true)
-        let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+        let resolved = try await AssemblyReadSetResolution.resolve(
             inputURLs: [bundle],
+            tool: tool,
+            pairedEnd: false,
+            explicitLayout: nil,
             materializationDirectory: outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
             materializer: fixtures.materializer
         )
-        let pairedEnd = resolved.resolvedAsMatePair
-        let layout = AssemblyRunRequest.resolveInputLayout(
+        return resolved.request(
             tool: tool,
             readType: .illuminaShortReads,
-            pairedEnd: pairedEnd,
-            explicit: nil,
-            originalInputURLs: resolved.originalInputURLs,
-            executionInputURLs: resolved.executionInputURLs,
-            pooled: resolved.pooledLayoutResolution
-        )
-        return AssemblyRunRequest(
-            tool: tool,
-            readType: .illuminaShortReads,
-            inputURLs: resolved.executionInputURLs,
             projectName: "fixture",
             outputDirectory: outputDirectory,
-            pairedEnd: pairedEnd,
-            threads: 2,
-            inputLayout: layout?.layout
-        )
+            pairedEnd: false,
+            explicitLayout: nil,
+            threads: 2
+        ).request
     }
 
     /// Each file argument as the read names inside it, a comma list of files
