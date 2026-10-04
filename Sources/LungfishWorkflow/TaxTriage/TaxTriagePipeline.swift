@@ -446,24 +446,11 @@ public actor TaxTriagePipeline {
                 interleavedSplits: layoutPrepared.splits
             )
         )
-        for split in layoutPrepared.splits {
-            _ = await ProvenanceRecorder.shared.recordStep(
-                runID: runID,
-                toolName: "Lungfish TaxTriage Interleaved Split",
-                toolVersion: WorkflowRun.currentAppVersion,
-                command: ["LungfishWorkflow", "deinterleave-fastq", split.source.path, split.r1.deletingLastPathComponent().path],
-                resolvedOptions: [
-                    "sample": .string(split.sampleId),
-                    "readLayout": .string(FASTQInputLayout.strictlyInterleaved.rawValue),
-                    "pairs": .integer(split.pairCount),
-                ],
-                runtimeIdentity: ProvenanceRuntimeIdentity(),
-                inputs: [ProvenanceRecorder.fileRecord(url: split.source, format: .fastq, role: .input)],
-                outputs: [],
-                exitCode: 0,
-                wallTime: split.wallTime
-            )
-        }
+        await Self.recordReadSetSteps(
+            runID: runID,
+            config: profileAdjustedConfig,
+            splits: layoutPrepared.splits
+        )
         let provenanceCommand = [micromambaPath.path] + micromambaArgs
 
         let handle: ProcessHandle
@@ -875,6 +862,7 @@ public actor TaxTriagePipeline {
                 interleavedSplits.map { .string($0.sampleId) }
             )
         }
+        parameters.merge(Self.readSetProvenanceParameters(for: config)) { current, _ in current }
         return parameters
     }
 

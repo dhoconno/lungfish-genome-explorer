@@ -256,8 +256,11 @@ extension TaxTriageCommand {
 
             let outputDirectory = URL(fileURLWithPath: outputDir)
 
-            // Build samples from either --input or --samplesheet
-            let samples: [TaxTriageSample]
+            // Build samples from either --input or --samplesheet. A sample
+            // named by --input is resolved to the files TaxTriage reads once
+            // the cheap checks below have passed (`resolveSamples`).
+            var samples: [TaxTriageSample]
+            var resolvesInputs = false
 
             if let samplesheetPath = samplesheet {
                 // Parse samplesheet
@@ -322,24 +325,21 @@ extension TaxTriageCommand {
                         platform: platform.toPlatform()
                     )]
                 } else {
-                    // A .lungfishfastq bundle runs on its FASTQ payload. A
-                    // strictly interleaved payload (LGE's paired import) is
-                    // split into R1/R2 by TaxTriagePipeline and runs as pairs.
-                    samples = try expandedInputURLs.map { inputURL in
-                        let fastq1: URL
-                        do {
-                            fastq1 = try Self.resolveReadsFile(for: inputURL)
-                        } catch {
-                            print(formatter.error(error.localizedDescription))
-                            throw CLIExitCode.inputError.exitCode
-                        }
-                        return TaxTriageSample(
+                    // A .lungfishfastq bundle is planned in `resolveSamples`,
+                    // the way the app's TaxTriage launch plans it. A sample of
+                    // pairs runs as fastq_1 and fastq_2, a strictly interleaved
+                    // file is split into R1/R2 by TaxTriagePipeline and runs as
+                    // pairs, and every read of a mixed or chunked sample runs
+                    // in one file (docs/contracts/READ-PAIRING.md).
+                    samples = expandedInputURLs.map { inputURL in
+                        TaxTriageSample(
                             sampleId: Self.sampleID(for: inputURL, explicitSampleID: sampleId, totalSampleCount: expandedInputURLs.count),
-                            fastq1: fastq1,
+                            fastq1: inputURL,
                             platform: platform.toPlatform()
                         )
                     }
                 }
+                resolvesInputs = true
             }
 
             // Resolve database path
@@ -359,6 +359,33 @@ extension TaxTriageCommand {
                 print(formatter.info("  List installed databases: lungfish-cli conda db list"))
                 print(formatter.info("  Install one:              lungfish-cli conda db download Viral"))
                 throw CLIExitCode.inputError.exitCode
+            }
+
+            // Resolve each --input sample to the files TaxTriage reads, once
+            // the cheap checks above have passed, since a virtual bundle is
+            // materialized here. The scratch folder goes when the run ends,
+            // as the app removes its own.
+            let scratchDirectory = outputDirectory.appendingPathComponent(
+                Self.materializationDirectoryName,
+                isDirectory: true
+            )
+            defer { try? FileManager.default.removeItem(at: scratchDirectory) }
+            if resolvesInputs {
+                do {
+                    samples = try await Self.resolveSamples(
+                        samples,
+                        materializationDirectory: scratchDirectory,
+                        materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
+                        progress: { message in
+                            if !globalOptions.quiet {
+                                print(formatter.info(message))
+                            }
+                        }
+                    )
+                } catch {
+                    print(formatter.error(error.localizedDescription))
+                    throw CLIExitCode.inputError.exitCode
+                }
             }
 
             // Determine effective skipAssembly (default true unless --no-skip-assembly)
@@ -506,24 +533,6 @@ extension TaxTriageCommand {
                 extraArguments: try AdvancedCommandLineOptions.parse(extraArgs),
                 removeTaxids: normalizedRemoveTaxids
             )
-        }
-
-        /// The FASTQ file TaxTriage reads for one `--input` entry: the file
-        /// itself, or the single physical FASTQ payload of a `.lungfishfastq`
-        /// bundle.
-        static func resolveReadsFile(for inputURL: URL) throws -> URL {
-            guard FASTQBundle.isBundleURL(inputURL) else { return inputURL }
-            let payload = FASTQBundle.resolveAllFASTQURLs(for: inputURL) ?? []
-            guard payload.count == 1, let fastq = payload.first,
-                  FileManager.default.fileExists(atPath: fastq.path) else {
-                let reason = payload.count > 1
-                    ? "it holds \(payload.count) FASTQ chunks; TaxTriage needs one file per sample"
-                    : "it has no physical FASTQ payload (a virtual subset must be materialized first)"
-                throw CLIError.validationFailed(errors: [
-                    "Cannot run TaxTriage on bundle \(inputURL.lastPathComponent): \(reason).",
-                ])
-            }
-            return fastq
         }
 
         static func sampleID(for url: URL, explicitSampleID: String?, totalSampleCount: Int) -> String {

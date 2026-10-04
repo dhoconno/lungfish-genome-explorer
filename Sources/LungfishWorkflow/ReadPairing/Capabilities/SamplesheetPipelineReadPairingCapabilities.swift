@@ -17,7 +17,8 @@ extension ReadPairingCapabilityRegistry {
             ReadPairingCapabilityDeclaration(
                 consumerID: "classify.taxtriage",
                 capability: .pairsOnlyWhenAllPaired,
-                rationale: "TaxTriage reads pairs only as samplesheet fastq_1 and fastq_2. \(allSingleWhenMixed)"
+                rationale: "TaxTriage reads pairs only as samplesheet fastq_1 and fastq_2. \(allSingleWhenMixed)",
+                adopted: true
             ),
             ReadPairingCapabilityDeclaration(
                 consumerID: "viralrecon.illumina",

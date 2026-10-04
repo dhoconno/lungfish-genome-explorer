@@ -516,6 +516,12 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
     /// split into R1/R2 mate files so TaxTriage runs it as pairs.
     public var readLayout: FASTQInputLayout?
 
+    /// The read-set plan this sample's files came from, when its input was
+    /// planned (docs/contracts/READ-PAIRING.md). It records the capability used,
+    /// the fragment counts by kind and the reason mates ran as single reads.
+    /// Not serialized, so a saved configuration reads the same either way.
+    public var readSetPlan: ReadSetPlan?
+
     /// Creates a new TaxTriage sample.
     ///
     /// - Parameters:
@@ -524,6 +530,7 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
     ///   - fastq2: Path to R2 FASTQ file (nil for single-end).
     ///   - platform: Sequencing platform.
     ///   - isNegativeControl: Whether this sample is a negative control.
+    ///   - readSetPlan: The read-set plan the files came from, when planned.
     public init(
         sampleId: String,
         fastq1: URL,
@@ -531,7 +538,8 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
         platform: TaxTriageConfig.Platform = .illumina,
         isNegativeControl: Bool = false,
         metadata: FASTQSampleMetadata? = nil,
-        readLayout: FASTQInputLayout? = nil
+        readLayout: FASTQInputLayout? = nil,
+        readSetPlan: ReadSetPlan? = nil
     ) {
         self.sampleId = sampleId
         self.fastq1 = fastq1
@@ -540,6 +548,7 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
         self.isNegativeControl = isNegativeControl
         self.metadata = metadata
         self.readLayout = readLayout
+        self.readSetPlan = readSetPlan
     }
 
     // Backward-compatible decoding: isNegativeControl defaults to false if absent.
@@ -557,6 +566,7 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
         isNegativeControl = try container.decodeIfPresent(Bool.self, forKey: .isNegativeControl) ?? false
         readLayout = try container.decodeIfPresent(FASTQInputLayout.self, forKey: .readLayout)
         metadata = nil  // Not serialized; populated at runtime
+        readSetPlan = nil  // Not serialized; set when the input is planned
     }
 
     /// True if this sample is any type of negative control.

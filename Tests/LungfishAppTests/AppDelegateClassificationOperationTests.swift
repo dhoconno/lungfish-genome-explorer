@@ -567,6 +567,28 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertEqual(command.platform, .illumina)
     }
 
+    /// The row names the bundle the user chose, never a scratch file the run
+    /// deletes. `taxtriage run` plans the bundle itself, as the launch does.
+    func testTaxTriageRowForABundleNamesTheBundleTheUserChose() throws {
+        let bundle = importURL("Sample 1.lungfishfastq")
+        let config = TaxTriageConfig(
+            samples: [TaxTriageSample(sampleId: "Sample 1", fastq1: bundle)],
+            outputDirectory: analysisURL("taxtriage-2026-10-02"),
+            kraken2DatabasePath: databaseURL
+        )
+
+        let command = try assertOneSampleCommandReproducesTheRun(config)
+
+        XCTAssertEqual(command.input, bundle.path)
+        XCTAssertNil(command.input2)
+        XCTAssertEqual(command.sampleId, "Sample 1")
+        let reporter = RecordingOperationReporter()
+        AppDelegate.beginTaxTriageOperation(config: config, routeContext: nil, reporter: reporter) { _ in }
+        let recorded = try XCTUnwrap(reporter.items.first?.cliCommand)
+        XCTAssertFalse(recorded.contains("taxtriage-inputs"), "no scratch folder of the run")
+        XCTAssertFalse(recorded.contains(".lungfish-"), "no scratch folder of the run")
+    }
+
     func testTaxTriageHostRemovalInExtraArgumentsIsNotRecordedTwice() throws {
         // The verbatim extra arguments win over the host taxa field, as in
         // `TaxTriageConfig.effectiveRemoveTaxids`, so the command carries the
