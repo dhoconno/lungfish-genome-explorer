@@ -181,6 +181,57 @@ final class TaxTriageReadSetTests: XCTestCase {
         XCTAssertEqual(resolved.first?.fastq2, r2)
     }
 
+    // MARK: - Files named inside a bundle (coordinator's ruling of 2026-10-04)
+
+    /// Case 1. `--input <one file inside a bundle>` reads that file as named,
+    /// as it always did. The mate beside it and the chunks around it are not
+    /// read. The planner used to take the whole enclosing bundle.
+    func testOneFileInsideABundleIsReadAsNamed() async throws {
+        let r1 = fixtures.pairedDerivative.appendingPathComponent("sample_R1.fastq")
+        let mate = try await resolve(r1)
+        XCTAssertEqual(try reads(of: mate), [["p1/1", "p2/1"]])
+        XCTAssertNil(mate.readSetPlan)
+
+        let chunk = try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: fixtures.chunkedRoot)?.first)
+        let named = try await resolve(chunk)
+        XCTAssertEqual(try reads(of: named), [["c1", "c2"]], "chunk 0 of the run, not both chunks")
+        XCTAssertNil(named.readSetPlan)
+    }
+
+    /// Case 2. `--input <chunk> --input2 <chunk>` naming every member file of
+    /// one bundle collapses to the bundle. Two chunks of one run are single
+    /// reads, so the sample is one joined file, and the two chunks are not
+    /// written as `fastq_1` and `fastq_2`.
+    func testEveryMemberFileGivenWithInputAndInput2CollapsesToTheBundle() async throws {
+        let chunks = try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: fixtures.chunkedRoot))
+        let sample = try await resolve(chunks[0], input2: chunks[1])
+        XCTAssertNil(sample.fastq2, "chunks of one run are not mates")
+        XCTAssertEqual(try reads(of: sample), [["c1", "c2", "c3"]])
+        try assertJoinRecorded(sample, members: ["run_0.fastq", "run_1.fastq"])
+
+        let r1 = fixtures.pairedDerivative.appendingPathComponent("sample_R1.fastq")
+        let r2 = fixtures.pairedDerivative.appendingPathComponent("sample_R2.fastq")
+        let pair = try await resolve(r1, input2: r2)
+        XCTAssertEqual(try reads(of: pair), [["p1/1", "p2/1"], ["p1/2", "p2/2"]])
+        XCTAssertEqual(pair.readSetPlan?.inputURL, fixtures.pairedDerivative.standardizedFileURL, "planned as the bundle")
+    }
+
+    /// A part of a bundle's files is read as named.
+    func testPartOfABundlesFilesGivenWithInputAndInput2AreReadAsNamed() async throws {
+        let r1 = fixtures.mergeDerivative.appendingPathComponent("unmerged_R1.fastq")
+        let r2 = fixtures.mergeDerivative.appendingPathComponent("unmerged_R2.fastq")
+        let pair = try await resolve(r1, input2: r2)
+        XCTAssertEqual(try reads(of: pair), [["u1/1"], ["u1/2"]])
+        XCTAssertNil(pair.readSetPlan)
+    }
+
+    /// Case 3. `--input <bundle>` is the whole bundle.
+    func testABundlePathIsTheWholeBundle() async throws {
+        let sample = try await resolve(fixtures.mergeDerivative)
+        XCTAssertEqual(try reads(of: sample).first?.count, 5)
+        XCTAssertNotNil(sample.readSetPlan)
+    }
+
     // MARK: - Nothing is written for a sample that needs nothing
 
     func testASampleOfSingleReadsWritesNothingToTheScratchFolder() async throws {
@@ -199,11 +250,11 @@ final class TaxTriageReadSetTests: XCTestCase {
         root.appendingPathComponent("inputs-\(UUID().uuidString)", isDirectory: true)
     }
 
-    /// The sample `lungfish-cli taxtriage run --input <bundle>` builds for one
-    /// bundle, resolved to the files TaxTriage reads.
-    private func resolve(_ input: URL) async throws -> TaxTriageSample {
+    /// The sample `lungfish-cli taxtriage run --input <input> [--input2
+    /// <input2>]` builds, resolved to the files TaxTriage reads.
+    private func resolve(_ input: URL, input2: URL? = nil) async throws -> TaxTriageSample {
         let resolved = try await TaxTriageCommand.RunSubcommand.resolveSamples(
-            [TaxTriageSample(sampleId: "sample", fastq1: input)],
+            [TaxTriageSample(sampleId: "sample", fastq1: input, fastq2: input2)],
             materializationDirectory: scratch(),
             materializer: fixtures.materializer
         )

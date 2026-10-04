@@ -157,68 +157,168 @@ final class SamplesheetReadSetParityTests: XCTestCase {
     /// row after the pipeline splits a strictly interleaved file.
     func testTaxTriageRunPlansTheReadSetTheAppsLaunchDoes() async throws {
         for (shape, bundle) in shapes {
-            let sample = TaxTriageSample(sampleId: "sample", fastq1: bundle)
-            let outputDirectory = root.appendingPathComponent("out-\(UUID().uuidString)", isDirectory: true)
-            let wizardConfig = TaxTriageConfig(
-                samples: [sample],
-                outputDirectory: outputDirectory,
-                kraken2DatabasePath: root.appendingPathComponent("db", isDirectory: true)
-            )
-
-            // The app.
-            let app = try await AppDelegate().resolvedTaxTriageConfig(
-                wizardConfig,
-                tempDirectory: root.appendingPathComponent("app-\(UUID().uuidString)", isDirectory: true),
-                materializer: fixtures.materializer
-            )
-
-            // The command the Operations panel records, parsed by the shipped
-            // parser and run as `taxtriage run --input` runs it.
-            let reporter = RecordingOperationReporter()
-            AppDelegate.beginTaxTriageOperation(config: wizardConfig, routeContext: nil, reporter: reporter) { _ in }
-            let recorded = try XCTUnwrap(reporter.items.first?.cliCommand, shape)
-            let command = try RecordedCLICommand.parse(recorded, as: TaxTriageCommand.RunSubcommand.self)
-            XCTAssertEqual(command.input, bundle.path, "\(shape): the row names the input the user chose")
-            let inputs = try CLIClassificationFolderResolver.expandInputArguments(
-                [try XCTUnwrap(command.input)],
-                recursive: command.recursive
-            )
-            let cliSamples = try await TaxTriageCommand.RunSubcommand.resolveSamples(
-                inputs.map {
-                    TaxTriageSample(
-                        sampleId: TaxTriageCommand.RunSubcommand.sampleID(
-                            for: $0,
-                            explicitSampleID: command.sampleId,
-                            totalSampleCount: inputs.count
-                        ),
-                        fastq1: $0,
-                        platform: command.platform.toPlatform()
-                    )
-                },
-                materializationDirectory: outputDirectory.appendingPathComponent(
-                    TaxTriageCommand.RunSubcommand.materializationDirectoryName,
-                    isDirectory: true
-                ),
-                materializer: fixtures.materializer
-            )
-            let cliConfig = TaxTriageConfig(samples: cliSamples, outputDirectory: outputDirectory)
-
-            let appSample = try XCTUnwrap(app.samples.first, shape)
-            let cliSample = try XCTUnwrap(cliConfig.samples.first, shape)
-            XCTAssertEqual(cliSample.readLayout, appSample.readLayout, "\(shape): the same layout")
-            XCTAssertEqual(cliSample.readSetPlan?.singleReadReason, appSample.readSetPlan?.singleReadReason, "\(shape): the same reason")
-            XCTAssertEqual(cliSample.readSetPlan?.composition, appSample.readSetPlan?.composition, "\(shape): the same fragments")
-            XCTAssertEqual(cliSample.readSetPlan?.sourceLayout, appSample.readSetPlan?.sourceLayout, "\(shape): the same source layout")
-
-            // After the pipeline's own split of a strictly interleaved file.
-            let appRow = try await samplesheetRow(app)
-            let cliRow = try await samplesheetRow(cliConfig)
-            XCTAssertEqual(cliRow.fastq1, appRow.fastq1, "\(shape): the same fastq_1")
-            XCTAssertEqual(cliRow.fastq2, appRow.fastq2, "\(shape): the same fastq_2")
+            try await assertTaxTriagePathsAgree(shape, TaxTriageSample(sampleId: "sample", fastq1: bundle), names: bundle.path)
         }
     }
 
+    /// The coordinator's ruling of 2026-10-04. A file or chunk the user names
+    /// is that file on both paths. Every member file of one bundle is that
+    /// bundle on both paths. The preview of a virtual bundle names its bundle
+    /// on both paths. The recorded command names the files the user chose.
+    func testTaxTriageNamedFilesInsideABundleArePlannedTheSameOnBothPaths() async throws {
+        let chunks = try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: fixtures.chunkedRoot))
+        let pairedR1 = fixtures.pairedDerivative.appendingPathComponent("sample_R1.fastq")
+        let pairedR2 = fixtures.pairedDerivative.appendingPathComponent("sample_R2.fastq")
+        let unmergedR1 = fixtures.mergeDerivative.appendingPathComponent("unmerged_R1.fastq")
+        let unmergedR2 = fixtures.mergeDerivative.appendingPathComponent("unmerged_R2.fastq")
+        let cases: [(String, URL, URL?)] = [
+            ("one mate file", pairedR1, nil),
+            ("one chunk", chunks[1], nil),
+            ("every member file of a chunked root", chunks[0], chunks[1]),
+            ("every member file of a paired derivative", pairedR1, pairedR2),
+            ("part of a bundle's files", unmergedR1, unmergedR2),
+            ("the preview of a virtual bundle", fixtures.subsetOfSingle.appendingPathComponent("preview.fastq"), nil),
+        ]
+        for (shape, first, second) in cases {
+            try await assertTaxTriagePathsAgree(
+                shape,
+                TaxTriageSample(sampleId: "sample", fastq1: first, fastq2: second),
+                names: first.path,
+                names2: second?.path
+            )
+        }
+
+        // The planned and the unplanned shapes differ in what they read.
+        let one = try await appSample(TaxTriageSample(sampleId: "sample", fastq1: pairedR1))
+        XCTAssertEqual(try ReadSetFixtures.readNames(in: one.fastq1), ["p1/1", "p2/1"])
+        XCTAssertNil(one.fastq2)
+        let all = try await appSample(TaxTriageSample(sampleId: "sample", fastq1: chunks[0], fastq2: chunks[1]))
+        XCTAssertEqual(try ReadSetFixtures.readNames(in: all.fastq1), ["c1", "c2", "c3"])
+        XCTAssertNil(all.fastq2)
+        let preview = try await appSample(
+            TaxTriageSample(sampleId: "sample", fastq1: fixtures.subsetOfSingle.appendingPathComponent("preview.fastq"))
+        )
+        XCTAssertEqual(try ReadSetFixtures.readNames(in: preview.fastq1), ["s1", "s3"])
+    }
+
     // MARK: - Helpers
+
+    /// The sample the app's TaxTriage launch resolves.
+    private func appSample(_ sample: TaxTriageSample) async throws -> TaxTriageSample {
+        let config = TaxTriageConfig(
+            samples: [sample],
+            outputDirectory: root.appendingPathComponent("out-\(UUID().uuidString)", isDirectory: true)
+        )
+        let resolved = try await AppDelegate().resolvedTaxTriageConfig(
+            config,
+            tempDirectory: root.appendingPathComponent("app-\(UUID().uuidString)", isDirectory: true),
+            materializer: fixtures.materializer
+        )
+        return try XCTUnwrap(resolved.samples.first)
+    }
+
+    /// Resolves `sample` through the app's launch and through the command the
+    /// Operations panel records for it, parsed by the shipped parser and run as
+    /// `taxtriage run --input` builds and resolves its samples, and requires
+    /// the same layout, the same plan and the same samplesheet row.
+    private func assertTaxTriagePathsAgree(
+        _ shape: String,
+        _ sample: TaxTriageSample,
+        names: String,
+        names2: String? = nil,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let outputDirectory = root.appendingPathComponent("out-\(UUID().uuidString)", isDirectory: true)
+        let wizardConfig = TaxTriageConfig(
+            samples: [sample],
+            outputDirectory: outputDirectory,
+            kraken2DatabasePath: root.appendingPathComponent("db", isDirectory: true)
+        )
+
+        // The app.
+        let app = try await AppDelegate().resolvedTaxTriageConfig(
+            wizardConfig,
+            tempDirectory: root.appendingPathComponent("app-\(UUID().uuidString)", isDirectory: true),
+            materializer: fixtures.materializer
+        )
+
+        // The command the Operations panel records.
+        let reporter = RecordingOperationReporter()
+        AppDelegate.beginTaxTriageOperation(config: wizardConfig, routeContext: nil, reporter: reporter) { _ in }
+        let recorded = try XCTUnwrap(reporter.items.first?.cliCommand, shape, file: file, line: line)
+        let command = try RecordedCLICommand.parse(recorded, as: TaxTriageCommand.RunSubcommand.self)
+        XCTAssertEqual(command.input, names, "\(shape): the row names the input the user chose", file: file, line: line)
+        XCTAssertEqual(command.input2, names2, "\(shape): the row names the second input the user chose", file: file, line: line)
+
+        // The CLI builds its samples from `--input` and `--input2` as `run()` does.
+        let inputs = try CLIClassificationFolderResolver.expandInputArguments(
+            [try XCTUnwrap(command.input)],
+            recursive: command.recursive
+        )
+        let unresolved: [TaxTriageSample]
+        if let input2 = command.input2 {
+            unresolved = [TaxTriageSample(
+                sampleId: command.sampleId ?? sample.sampleId,
+                fastq1: inputs[0],
+                fastq2: URL(fileURLWithPath: input2),
+                platform: command.platform.toPlatform()
+            )]
+        } else {
+            unresolved = inputs.map {
+                TaxTriageSample(
+                    sampleId: TaxTriageCommand.RunSubcommand.sampleID(
+                        for: $0,
+                        explicitSampleID: command.sampleId,
+                        totalSampleCount: inputs.count
+                    ),
+                    fastq1: $0,
+                    platform: command.platform.toPlatform()
+                )
+            }
+        }
+        let cliSamples = try await TaxTriageCommand.RunSubcommand.resolveSamples(
+            unresolved,
+            materializationDirectory: outputDirectory.appendingPathComponent(
+                TaxTriageCommand.RunSubcommand.materializationDirectoryName,
+                isDirectory: true
+            ),
+            materializer: fixtures.materializer
+        )
+        let cliConfig = TaxTriageConfig(samples: cliSamples, outputDirectory: outputDirectory)
+
+        let appSample = try XCTUnwrap(app.samples.first, shape, file: file, line: line)
+        let cliSample = try XCTUnwrap(cliConfig.samples.first, shape, file: file, line: line)
+        XCTAssertEqual(cliSample.readLayout, appSample.readLayout, "\(shape): the same layout", file: file, line: line)
+        XCTAssertEqual(
+            cliSample.readSetPlan?.singleReadReason,
+            appSample.readSetPlan?.singleReadReason,
+            "\(shape): the same reason",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            cliSample.readSetPlan?.composition,
+            appSample.readSetPlan?.composition,
+            "\(shape): the same fragments",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            cliSample.readSetPlan?.sourceLayout,
+            appSample.readSetPlan?.sourceLayout,
+            "\(shape): the same source layout",
+            file: file,
+            line: line
+        )
+
+        // After the pipeline's own split of a strictly interleaved file.
+        let appRow = try await samplesheetRow(app)
+        let cliRow = try await samplesheetRow(cliConfig)
+        XCTAssertEqual(cliRow.fastq1, appRow.fastq1, "\(shape): the same fastq_1", file: file, line: line)
+        XCTAssertEqual(cliRow.fastq2, appRow.fastq2, "\(shape): the same fastq_2", file: file, line: line)
+    }
+
 
     /// The flags of an EsViritu argument list, with the file paths left out.
     private func flags(_ arguments: [String]) -> [String] {
