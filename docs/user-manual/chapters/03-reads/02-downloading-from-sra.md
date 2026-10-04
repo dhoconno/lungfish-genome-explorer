@@ -81,7 +81,7 @@ You need a working internet connection. The SRA Toolkit arrives with the [Requir
 
 <!-- SHOT: sra-results-download-selected -->
 
-6. Click Download Selected. LGE reads the run's archive record, then opens the Import FASTQ configuration sheet with Platform set to Illumina and Pairing set to Paired-end, both taken from that record. The sheet is the same one [Importing Sequencing Reads](01-importing-fastq.md#settings) documents, and its Quality Binning popup starts at None (preserve original), which keeps every quality score exactly as the archive holds it. A run that arrives as two mate files always imports as a pair, and the Compression Tool you pick applies to the download as it does to a local import.
+6. Click Download Selected. LGE reads the run's archive record, then opens the Import FASTQ configuration sheet with Platform set to Illumina and Pairing set to Paired-end, both taken from that record. A line under the summary says that the platform came from the archive record. When a record names no platform, the line reads "Platform not known yet", and the import infers the platform from the reads after the download unless you choose one. The sheet is the same one [Importing Sequencing Reads](01-importing-fastq.md#settings) documents, and its Quality Binning popup starts at None (preserve original), which keeps every quality score exactly as the archive holds it. A run that arrives as two mate files always imports as a pair, and the Compression Tool you pick applies to the download as it does to a local import.
 
 7. Click Import.
 

@@ -100,6 +100,7 @@ Every command hands back an [exit status](../../GLOSSARY.md#exit-status), the nu
 | 4 | Output error, such as an output path that cannot be written, one that already exists, or one that names the input file. `workflow run` and `run-headless` also return 4 when an output named with `--expected-output` was not created, with the message "Expected workflow output was not created". |
 | 5 | Format error in an input file. |
 | 10 | Work is pending (`tools update --plan` only). |
+| 11 | A label contradicts its reads (`fastq platform --check` only). |
 | 64 | Workflow error. A command line the program cannot parse, such as one missing a required flag, also returns 64. |
 | 65 | Container error. `debug container` returns it when the Docker background service cannot be reached. |
 | 66 | Network error. |
@@ -154,7 +155,7 @@ The program has 45 top-level commands. Each row names the section that lists its
 | `demo` | List, describe, and download the manual's demo projects. | [Demo projects](#demo-projects) | [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md) |
 | `esviritu` | Run EsViritu and manage its database. | [Classification](#classification) | [Running EsViritu](../06-classification/03-running-esviritu.md) |
 | `extract` | Pull out subsequences, reads, or contigs. | [Sequence utilities](#sequence-utilities), [Read processing](#read-processing), [Assembly](#assembly) | [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md) |
-| `fastq` | Read processing, demultiplexing, genotyping, and 12S matching. | [Read processing](#read-processing) and the sections after it | [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md) and the other Reads chapters |
+| `fastq` | Read processing, platform labels, demultiplexing, genotyping, and 12S matching. | [Read processing](#read-processing) and the sections after it | [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md) and the other Reads chapters |
 | `fetch` | Download from NCBI, the SRA, and ENA. | [Downloading records](#downloading-records) | [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) |
 | `freyja` | Build and run a Freyja lineage demixing plan. | [Classification](#classification) | [Running Freyja](../06-classification/07-running-freyja.md) |
 | `gatk` | Build or run GATK4 germline commands. | [Human Germline Variants (Experimental)](#human-germline-variants-experimental) | [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) |
@@ -439,24 +440,24 @@ lungfish-cli import tree [<options>] <input-file> --project <project>
 
 ### `import fastq`
 
-Imports FASTQ files, folders of them, or unmapped Oxford Nanopore BAM files, one bundle per sample. Give it files or folders, or give it a samplesheet, a CSV with a `sample,r1,r2` header and one row per sample whose extra columns become metadata. Explained in [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
+Imports FASTQ files, folders of them, or unmapped BAM files, one bundle per sample. Give it files or folders, or give it a samplesheet, a CSV with a `sample,r1,r2` header and one row per sample whose extra columns become metadata. Explained in [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
 
 ```text
 lungfish-cli import fastq [<options>] [<input> ...] --project <project>
 ```
 
-`--recipe` takes `none`, `vsp2` (short for `vsp2-target-enrichment`), `wastewater-metagenomics`, `illumina-amplicon-merge`, `wgs`, `hifi`, or the id of a recipe you saved. Quality binning is off by default. Binning rounds each base's quality score to a few values so the file compresses smaller, and it cannot be undone once the original files are removed, so turn it on only on purpose. `--clumping-tool auto` skips clumping when the input is too large for the memory budget and never picks Trim Galore by itself. `--pairing` takes `auto`, `single`, `paired`, or `interleaved`. `auto` and `paired` match R1 and R2 files by name, `single` imports every file as its own single-end sample even when a mate is detected, and `interleaved` imports every file on its own and records it as holding alternating mates. `--dry-run` prints each sample as `[paired]` or `[single-end]` with its file names, then stops. The global `--threads` defaults to the Mac's active core count.
+`--recipe` takes `none`, `vsp2` (short for `vsp2-target-enrichment`), `wastewater-metagenomics`, `illumina-amplicon-merge`, `wgs`, `hifi`, or the id of a recipe you saved. Quality binning is off by default. Binning rounds each base's quality score to a few values so the file compresses smaller, and it cannot be undone once the original files are removed, so turn it on only on purpose. `--clumping-tool auto` skips clumping when the input is too large for the memory budget and never picks Trim Galore by itself. `--pairing` takes `auto`, `single`, `paired`, or `interleaved`. `auto` and `paired` match R1 and R2 files by name, `single` imports every file as its own single-end sample even when a mate is detected, and `interleaved` imports every file on its own and records it as holding alternating mates. `--dry-run` prints each sample as `[paired]` or `[single-end]` with its file names, then the platform it would record for each sample with the evidence, and stops. `--platform` takes `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, or `unknown`, and aliases such as `nanopore` parse too. The default `auto` infers each sample's platform from its own read headers, or from a BAM's header, and prints the evidence with a confidence of high, medium, low, or none. Reads it cannot identify are recorded as `unknown`, never as Illumina, and a value you give is recorded as given. A PacBio BAM is refused with a message to convert it with `samtools fastq` first, and every other unmapped BAM converts. The global `--threads` defaults to the Mac's active core count.
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Directory containing sequencing reads, FASTQ paths, or unmapped ONT BAM paths. |
+| `<input>` | Directory containing sequencing reads, FASTQ paths, or unmapped BAM paths. |
 | `--samplesheet <samplesheet>` | CSV sample sheet with sample,r1,r2 columns and optional metadata columns. |
 | `-p, --project <project>` | Path to `.lungfish` project directory. |
 | `--recipe <recipe>` | Processing recipe, a recipe id such as `vsp2-target-enrichment`, `illumina-amplicon-merge`, or `wastewater-metagenomics`, the alias `vsp2`, the built-in `wgs` or `hifi`, or `none`. `lungfish-cli import fastq --help` lists every id that resolves, your saved recipes included. The default is `none`. |
 | `--quality-binning <quality-binning>` | Quality binning. `illumina4` keeps 7 quality levels, `eightLevel` about 21, and `none` keeps every score. The default is `none`. |
 | `--log-dir <log-dir>` | Directory for per-sample log files. |
 | `--dry-run` | List detected pairs without importing. |
-| `--platform <platform>` | Sequencing platform, one of `illumina`, `ont`, `pacbio`, or `ultima`. The default is `auto-detect`. |
+| `--platform <platform>` | Sequencing platform, one of `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, or `unknown`. The default is `auto`, which infers each sample's platform from its reads. |
 | `--pairing <pairing>` | Read pairing, one of `auto`, `single`, `paired`, or `interleaved`. The default is `auto`. |
 | `--no-optimize-storage` | Skip read reordering for storage optimization. |
 | `--clumping-tool <clumping-tool>` | Storage optimization tool, one of `auto`, `bbtools`, `trim-galore`, or `none`. The default is `platform-specific`. |
@@ -1066,7 +1067,7 @@ The window runs these operations from the FASTQ/FASTA Operations window, which [
 
 Fourteen of them also take `--pairing`. They are the four fastp trimmers, `trim`, `quality-trim`, `adapter-trim`, and `fixed-trim`, and `subsample`, `length-filter`, `contaminant-filter`, `entropy-filter`, `scrub-human`, `deacon-ribo`, `sequence-filter`, `deduplicate`, `search-text`, and `search-motif`. With `interleaved`, adjacent records are mates and are kept or dropped together, and with `single` every record stands alone. The default, `auto`, reads the pairing recorded by the `.lungfishfastq` bundle the input sits in, then inspects read names, recognising mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. The window passes the bundle's own pairing, so a command run on the file inside a paired bundle keeps its mates together as the window does.
 
-The recorded pairing is a claim the command checks against the records. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and `interleaved` would pair such a file by position. On a mixed file the command therefore treats every record as a single read, warns on standard error, and records `readLayout` and `readLayoutReason` in provenance. `search-text` and `search-motif` match by read name, so they still return whole pairs and lone merged reads from a mixed file. The four fastp trimmers sort a mixed file by read name instead, run its pairs through fastp as pairs and its merged reads one at a time, and write the pairs first.
+The recorded pairing is a claim the command checks against the records. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and `interleaved` would pair such a file by position. On a mixed file the command therefore treats every record as a single read, warns on standard error, and records `readLayout` and `readLayoutReason` in provenance. `search-text` and `search-motif` match by read name, so they still return whole pairs and lone merged reads from a mixed file. The four fastp trimmers and `deduplicate` sort a mixed file by read name instead, run its pairs as pairs and its merged reads one at a time, and write the pairs first. `primer-remove`, which takes no `--pairing`, reads the layout from the read names and treats a mixed file the same way.
 
 Run this from the folder holding the hg002-chr20 practice data. It trims adapters and low-quality ends from the first read file with fastp and writes a gzipped result.
 
@@ -1183,12 +1184,12 @@ Removes primer sequences from reads. Give a literal primer with `--literal` or a
 lungfish-cli fastq primer-remove <input> [--literal <literal>] [--ref <ref>] [--kmer <kmer>] [--mink <mink>] [--hdist <hdist>] [--engine <engine>] [--minimum-overlap <minimum-overlap>] [--error-rate <error-rate>] --output <output> [--force] [--compress]
 ```
 
-`--kmer` defaults to 23 here, while the dialog's k defaults to 15, and `--mink` must not exceed `--kmer`. With the default `bbduk` engine, `--ref` runs bbduk with the FASTA as its reference. The dialog's Reference FASTA choice instead runs `--engine cutadapt-linked --minimum-overlap 12 --error-rate 0.12`. `cutadapt-linked` needs `--ref` and rejects `--literal`. `--error-rate` is a fraction of the primer length, so 0.12 on a 25-base primer allows three mismatches.
+`--kmer` defaults to 23 here, while the dialog's k defaults to 15, and `--mink` must not exceed `--kmer`. With the default `bbduk` engine, `--ref` runs bbduk with the FASTA as its reference. The dialog's Reference FASTA choice instead runs `--engine cutadapt-linked --minimum-overlap 12 --error-rate 0.12`. `cutadapt-linked` needs `--ref` and rejects `--literal`. `--error-rate` is a fraction of the primer length, so 0.12 on a 25-base primer allows three mismatches. The `bbduk` engine trims a 5' primer with every base before it, and only when the match ends within the first stretch of the read, the longest primer plus 67 bases, so a primer behind an untrimmed Nanopore adapter and barcode is still found. It matches each primer only as written, so a primer that a read runs into at its 3' end stays. `cutadapt-linked` keeps only the reads that hold both primers of an amplicon, which suits reads that span a whole amplicon. A strictly interleaved input runs in the tool's paired mode, so a pair is kept or dropped whole, and a mixed input is split by name and joined again, pairs first.
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input FASTQ file or `.lungfishfastq` bundle. |
-| `--literal <literal>` | Primer sequence (IUPAC nucleotides). |
+| `--literal <literal>` | Primer sequence. bbduk refuses IUPAC ambiguity codes such as R and S. |
 | `--ref <ref>` | Primer reference FASTA file. |
 | `--kmer <kmer>` | K-mer size. The default is `23`. |
 | `--mink <mink>` | Minimum k-mer size. The default is `11`. |
@@ -1335,7 +1336,7 @@ Removes duplicate reads with clumpify. Explained in [Decontamination](../03-read
 lungfish-cli fastq deduplicate <input> [--subs <subs>] [--optical] [--dupedist <dupedist>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
-`--dupedist` applies only with `--optical`. The table maps the window's presets to these flags.
+`--dupedist` applies only with `--optical`. Pairs are compared whole, so a pair is kept or removed as one, and a mixed input is split by name, its pairs deduplicated as pairs and its merged reads on their own, then joined again with the pairs first. The table maps the window's presets to these flags.
 
 | Window preset | `--subs` | `--optical` | `--dupedist` |
 |---|---|---|---|
@@ -1538,6 +1539,26 @@ lungfish-cli fastq materialize <input> --output <output> [--force] [--compress] 
 | `<input>` | Input `.lungfishfastq` bundle path. |
 | `--temp-dir <temp-dir>` | Temporary directory for intermediate files. |
 
+### `fastq platform`
+
+Shows, checks, or corrects the sequencing platform and read type that FASTQ bundles record. Explained in [Importing Sequencing Reads](../03-reads/01-importing-fastq.md#correcting-a-platform-label).
+
+```text
+lungfish-cli fastq platform [<options>] <inputs> ...
+```
+
+With no option it prints, for each bundle, the platform and read type it records, how they were decided, and what the read headers show. `--check` lists the bundles whose recorded label contradicts the reads and exits 11 when it finds one, or 0 when every label is consistent. Give it a project folder to check every FASTQ bundle in the project. `--set`, `--read-type`, and `--confirm` change the label. Only the bundle's metadata file is rewritten, never the reads, and a provenance record beside that file names the change. The Inspector's **Use** and **Keep** buttons and its **Read Type** popup run this command.
+
+| Argument or flag | What it does |
+|---|---|
+| `<inputs>` | FASTQ bundles, or a project folder with `--check`. |
+| `--check` | List bundles whose recorded platform contradicts the reads. |
+| `--set <set>` | Record this platform, one of `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, or `unknown`. |
+| `--read-type <read-type>` | Record this read type, one of `illumina-short-reads`, `ont-reads`, or `pacbio-hifi`, or `auto` to clear it so detection decides. The default is the read type the platform implies. |
+| `--confirm` | Keep the recorded label and stop the suspect-label notice. |
+| `--include-derivatives` | Apply the change to derived bundles of the same root in the project too. |
+| `--format <format>` | Output format, one of `text`, `json`, or `tsv`. The default is `text`. |
+
 ### `extract reads`
 
 Pulls reads out by one of four routes, and exactly one of `--by-id`, `--by-region`, `--by-db`, or `--by-classifier` must be given. `--by-classifier` uses the same code as the window's extraction dialog, so both produce identical files for the same selection. Explained in [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md) and [Reading an Alignment](../04-alignments/02-reading-an-alignment.md).
@@ -1546,7 +1567,7 @@ Pulls reads out by one of four routes, and exactly one of `--by-id`, `--by-regio
 lungfish-cli extract reads [<options>] --output <output>
 ```
 
-The table marks which route each flag belongs to. A Kraken 2 selection is made with `--taxon <taxid>`, while EsViritu, TaxTriage, NAO-MGS, and NVD selections are made with `--accession`, and `--tool naomgs` fails without one. The source FASTQ is found from the result's own record, so `--source` is for `--by-id` only. `--tool nvd` needs the run's BAM files and stops with "No BAM file found for sample" on an import that holds only BLAST tables. `--bundle-name` is the extraction dialog's Name field. With `--by-region`, `--region` takes a reference name from the BAM header, matched exactly, then as a prefix, then as a substring, or a range on one reference written `name:start-end` and counted from 1 with both ends included. A range extracts the reads that overlap it, and a read that overlaps several ranges is written once. A name that holds a colon goes in braces, as `{name}:start-end`.
+The table marks which route each flag belongs to. A Kraken 2 selection is made with `--taxon <taxid>`, while EsViritu, TaxTriage, NAO-MGS, and NVD selections are made with `--accession`, and `--tool naomgs` fails without one. The source FASTQ is found from the result's own record, so `--source` is for `--by-id` only. A Kraken 2 extraction reads every file the classification read, so it returns both mates of each pair, each merged read, and each orphan, with each R1 read followed by its R2 read and the single reads after the pairs, and it matches mates named with `/1` and `/2` to their Kraken 2 calls. With `--bundle`, the bundle records the layout the app's extraction records, interleaved for pairs alone and mixed, with the role of each read, when single reads are present. `--tool nvd` needs the run's BAM files and stops with "No BAM file found for sample" on an import that holds only BLAST tables. `--bundle-name` is the extraction dialog's Name field. With `--by-region`, `--region` takes a reference name from the BAM header, matched exactly, then as a prefix, then as a substring, or a range on one reference written `name:start-end` and counted from 1 with both ends included. A range extracts the reads that overlap it, and a read that overlaps several ranges is written once. A name that holds a colon goes in braces, as `{name}:start-end`.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1664,7 +1685,7 @@ Assigns Oxford Nanopore reads to samples by exact Fluidigm barcode, cuts out the
 lungfish-cli fastq ont-fluidigm-samples <input> --barcodes <barcodes> --output <output> [--threads <threads>] [--primer-mismatches <primer-mismatches>] [--minimum-insert-length <minimum-insert-length>] [--canonicalize-reverse-complements] [--no-canonicalize-reverse-complements] [--force]
 ```
 
-The global `--threads` value is recorded in provenance and reserved for parallel materialization, and the default here is 1.
+The global `--threads` value is recorded in provenance and reserved for parallel materialization, and the default here is 1. A [virtual bundle](../../GLOSSARY.md#virtual-bundle) given as `<input>` is read whole, every read it lists rather than its preview, and the provenance names the bundle.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1685,7 +1706,7 @@ Splits full-length MHC Oxford Nanopore amplicons into one bundle per sample usin
 lungfish-cli fastq ont-pacbio-barcode-demux <input> --barcodes <barcodes> --output <output> [--threads <threads>] [--chunk-jobs <chunk-jobs>] [--max-reads-per-slice <max-reads-per-slice>] [--max-bytes-per-cutadapt <max-bytes-per-cutadapt>] [--force]
 ```
 
-The global `--threads` is a compatibility option for legacy chunked demux paths here, and the default is 1.
+The global `--threads` is a compatibility option for legacy chunked demux paths here, and the default is 1. A virtual bundle given as `<input>` is read whole, and the provenance names the bundle.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1722,18 +1743,18 @@ Maps reads to a reference with minimap2, BWA-MEM2, Bowtie2, or BBMap and writes 
 lungfish-cli map [<options>] <fastq-files> ... --reference <reference>
 ```
 
-A preset tells the mapper what kind of reads it is given. For minimap2 use `sr` for Illumina short reads, `map-ont` for Oxford Nanopore, `map-hifi` for PacBio HiFi, `map-pb` for older PacBio reads, `asm5` for assembled contigs against a close reference, and `splice` for spliced RNA reads. BBMap takes `bbmap-standard` or `bbmap-pacbio`. The `--rg-*` flags fill the [read group](../../GLOSSARY.md#read-group), the `@RG` label in the BAM header naming the sample and library. A [MAPQ](../../GLOSSARY.md#mapq) floor of 20, about a 1 in 100 chance that a read belongs somewhere else, is a common choice when you want only confidently placed reads. `--reference` takes a FASTA or a `.lungfishref` bundle. `--paired` treats the two files as mates of one sample, and `--sample-name` sets the read-group sample and the output names. `--no-supplementary` is the inverse of the window's Supplementary checkbox. With secondary alignments on, LGE adds `-k 10` for Bowtie2 and `secondary=t` for BBMap.
+A preset tells the mapper what kind of reads it is given. For minimap2 use `sr` for Illumina short reads, `map-ont` for Oxford Nanopore, `map-hifi` for PacBio HiFi, `map-pb` for older PacBio reads, `asm5` for assembled contigs against a close reference, and `splice` for spliced RNA reads. BBMap takes `bbmap-standard` or `bbmap-pacbio`. Without `--preset`, the preset follows the read class the input records or shows, as the window preselects it, and reads of unknown platform take the preset their read lengths suggest, with a note that the default is not tuned to a platform. A preset that does not suit the reads prints a warning on standard error and the run proceeds. The `--rg-*` flags fill the [read group](../../GLOSSARY.md#read-group), the `@RG` label in the BAM header naming the sample and library. A [MAPQ](../../GLOSSARY.md#mapq) floor of 20, about a 1 in 100 chance that a read belongs somewhere else, is a common choice when you want only confidently placed reads. `--reference` takes a FASTA or a `.lungfishref` bundle. `--paired` treats the two files as mates of one sample, and `--sample-name` sets the read-group sample and the output names. `--no-supplementary` is the inverse of the window's Supplementary checkbox. With secondary alignments on, LGE adds `-k 10` for Bowtie2 and `secondary=t` for BBMap.
 
 Where the result goes depends on two flags. With `--project` and no `--output-dir`, the result lands in the project's `Analyses/<mapper>-<timestamp>/` folder, as a window run does. With `--output-dir`, it lands in that folder. With neither, it lands in a `mapping-` folder beside the first input. In every case the command also writes the reference bundle copy with the BAM attached, named by `--track-name`, unless you add `--no-viewer-bundle`, which leaves only the BAM and its records. Such a bare result can be attached to a bundle later with `bam adopt-mapping`.
 
-`--read-layout` says how the records of a single input file relate. `auto` reads the pairing recorded by the `.lungfishfastq` bundle the file sits in, then inspects read names, recognising mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. minimap2 and BWA-MEM2 pair mates in `interleaved` and `mixed` files. Bowtie2 and BBMap pair mates only in a strictly interleaved file and map a mixed file as single reads. The flag describes one file, so it cannot be combined with `--paired`.
+`--read-layout` says how the records of a single input file relate. `auto` reads the pairing recorded by the `.lungfishfastq` bundle the file sits in, then inspects read names, recognising mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. A bundle that holds pairs and merged or single reads maps its pairs as pairs with every short-read mapper. Bowtie2 reads its R1, R2, and single reads with `-1`, `-2`, and `-U`, and BBMap maps the pairs and the single reads in two runs and merges the two sorted BAMs. A file outside a bundle, and a file given an explicit layout, keep each mapper's own handling. minimap2 and BWA-MEM2 pair mates in `interleaved` and `mixed` files, and Bowtie2 and BBMap pair mates only in a strictly interleaved file and map a mixed file as single reads. The flag describes one file, so it cannot be combined with `--paired`, and a bundle that keeps its mates in separate R1 and R2 files refuses it.
 
 | Argument or flag | What it does |
 |---|---|
 | `<fastq-files>` | Input sequence file(s). Provide two files for paired-end mapping. |
 | `--reference <reference>` | Reference FASTA file or `.lungfishref` bundle to align against. |
 | `--mapper <mapper>` | Mapper, one of `minimap2`, `bwa-mem2`, `bowtie2`, or `bbmap`. The default is `minimap2`. |
-| `--preset <preset>` | Mapping preset. See the note above for the values. |
+| `--preset <preset>` | Mapping preset. See the note above for the values. The default follows the input read class. |
 | `-o, --output-dir <output-dir>` | Output folder. The default is `Analyses/<mapper>-<timestamp>/` inside `--project`, and otherwise a `mapping-` folder beside the input. |
 | `--project <project>` | The `.lungfish` project the run belongs to. Without `--output-dir` the result lands in its `Analyses/` folder, where the window puts it, and the run's scratch space and the project-relative paths in its records are bound to this project. |
 | `--sample-name <sample-name>` | Sample name for BAM read groups and output naming. |
@@ -2222,7 +2243,7 @@ Classifies reads or assembled sequences with Kraken 2 against an installed datab
 lungfish-cli conda classify [<options>] <fastq-files> ... --db <db>
 ```
 
-The output folder holds `classification.kreport`, the per-read `classification.kraken`, `classification.bracken` when `--profile` is given, and the provenance record. The kreport has eight columns because LGE always asks Kraken 2 for minimizer data. `--read-format auto` scans a single input, and a file or bundle whose records strictly alternate read 1 and read 2 runs as pairs, split into two temporary mate files for Kraken 2's paired mode. Pairs mixed with merged reads, and true single-end input, run unpaired. Two separate files still need `--paired`, which conflicts with any other explicit `--read-format`. To extract the reads of one taxon afterwards, run `extract reads --by-classifier --tool kraken2 --result <folder> --taxon <taxid> --output <file>`, which finds the source FASTQ from the result's own record.
+The output folder holds `classification.kreport`, the per-read `classification.kraken`, `classification.bracken` when `--profile` is given, and the provenance record. The kreport has eight columns because LGE always asks Kraken 2 for minimizer data. `--read-format auto` plans a single input, a file or a `.lungfishfastq` bundle. Its read pairs run as pairs in Kraken 2's paired mode, and its merged or single reads run beside them in the same Kraken 2 run, each with an empty mate staged beside it so it gets the call a single-end run would give. A file whose records strictly alternate read 1 and read 2 is split into two temporary mate files. A run that held pairs counts fragments, a pair counting once, and the result records how many came from pairs and how many from merged or single reads. `unpaired` classifies every read on its own. Two separate files still need `--paired`, which conflicts with any other explicit `--read-format`, and `--unpaired` adds a file of merged or single reads beside such a pair. To extract the reads of one taxon afterwards, run `extract reads --by-classifier --tool kraken2 --result <folder> --taxon <taxid> --output <file>`, which finds the source FASTQ from the result's own record.
 
 | Argument or flag | What it does |
 |---|---|
@@ -2232,6 +2253,7 @@ The output folder holds `classification.kreport`, the per-read `classification.k
 | `-o, --output-dir <output-dir>` | Output directory. The default is the current folder. |
 | `--paired` | Input files are paired-end reads. |
 | `--read-format <read-format>` | Read layout, one of `auto`, `unpaired`, `paired`, or `interleaved`. The default is `auto`. |
+| `--unpaired <unpaired>` | A file of merged or single reads classified beside the `--paired` R1 and R2 files. Repeat it for each file. |
 | `--recursive` | When an input is a directory, include eligible FASTQ/FASTA files in subfolders. |
 | `--profile` | Run Bracken abundance profiling after classification. |
 | `--confidence <confidence>` | Override confidence threshold (0.0-1.0). |
@@ -2268,15 +2290,15 @@ lungfish-cli conda extract [<options>] --kraken-output <kraken-output> --source 
 Sends a sample of the reads classified to one taxon to NCBI BLAST and reports how many BLAST confirms. Explained in [BLAST Verification](../06-classification/06-blast-verification.md).
 
 ```text
-lungfish-cli blast verify [<options>] --kreport <kreport> --source <source> --kraken-output <kraken-output> --taxid <taxid>
+lungfish-cli blast verify [<options>] --kreport <kreport> --source <source> ... --kraken-output <kraken-output> --taxid <taxid>
 ```
 
-`--reads` accepts 1 to 100, while the window's slider stops at 50. `--source` may be a plain or gzipped FASTQ, and so may the Kraken 2 output. The window always includes reads assigned below the chosen taxon, so add `--include-children` to reproduce a window run. The command draws an unbiased random sample of the taxon's fragments, repeatable through `--seed` (default 0), and from each pair it sends the mate with more k-mer evidence for the taxon. The confidence word is set by supporting reads as a share of supporting plus contradicting reads, as [BLAST Verification](../06-classification/06-blast-verification.md#reading-the-results) explains. `--format json` writes the full result, and `--result-dir` saves the verification in the classifier result folder, where the window restores it.
+`--reads` accepts 1 to 100, while the window's slider stops at 50. `--source` repeats, and each may be a plain or gzipped FASTQ or a `.lungfishfastq` bundle, which is read by the roles of its files. Give loose files in the order R1, R2, and then the files of merged or single reads, as the classification named them, and the first two are mates when Kraken 2 classified pairs. The Kraken 2 output may be plain or gzipped too. The window always includes reads assigned below the chosen taxon, so add `--include-children` to reproduce a window run. The command draws an unbiased random sample of the taxon's fragments, repeatable through `--seed` (default 0), and from each pair it sends the mate with more k-mer evidence for the taxon. The confidence word is set by supporting reads as a share of supporting plus contradicting reads, as [BLAST Verification](../06-classification/06-blast-verification.md#reading-the-results) explains. `--format json` writes the full result, and `--result-dir` saves the verification in the classifier result folder, where the window restores it.
 
 | Argument or flag | What it does |
 |---|---|
 | `--kreport <kreport>` | Kraken2 report file (`.kreport`). |
-| `--source <source>` | Source FASTQ file. |
+| `--source <source>` | Source FASTQ file or `.lungfishfastq` bundle. Repeatable. |
 | `--kraken-output <kraken-output>` | Kraken2 per-read output file (`.kraken`). |
 | `--taxid <taxid>` | Taxonomy ID to verify. |
 | `--reads <reads>` | Number of reads to submit. The default is `20`. |
@@ -2294,9 +2316,9 @@ Runs EsViritu viral detection on FASTQ files. Explained in [Running EsViritu](..
 lungfish-cli esviritu detect [<options>] --sample <sample>
 ```
 
-`--read-format` sets how the input is read. `auto` inspects the first 100,000 records of a single file. A file where every read is followed by its mate runs as `interleaved`, and pairs mixed with merged or orphan reads, a bundle recorded as merged, and single-end files run as `unpaired`. Two files run as `unpaired` unless you add `--paired`, and `--paired` cannot be combined with any `--read-format` other than `auto` or `paired`. `--format json` or `--format tsv` prints the run summary in that form.
+`--read-format` sets how the input is read. `auto` plans a single input, a file or a `.lungfishfastq` bundle, the way the EsViritu window does. A bundle with separate R1 and R2 files runs as a pair, and a file where every read is followed by its mate runs as `interleaved`, which `auto` decides from the first 100,000 records. Pairs mixed with merged or orphan reads, a bundle recorded as merged, and a bundle of several single-read files run as `unpaired` on one file that holds every read, and the output says why when mates run as single reads. Single-end files run as `unpaired`. Two files run as `unpaired` unless you add `--paired`, and `--paired` cannot be combined with any `--read-format` other than `auto` or `paired`. `--format json` or `--format tsv` prints the run summary in that form.
 
-`--input` also takes a `.lungfishfastq` bundle, as the EsViritu window runs it. Every file the bundle holds becomes its own EsViritu input, so a paired bundle with `--read-format paired` runs its R1 and R2 as a pair. A virtual bundle is first written out as a FASTQ file in `.lungfish-esviritu-inputs` inside the output folder, and the run's provenance names the bundle behind that file and the `lungfish-cli fastq materialize` command that rebuilds it. The command the Operations panel records for an EsViritu run names the database, output folder, thread count, quality filter, and extra arguments as well, so pasting it repeats the run.
+`--input` also takes a `.lungfishfastq` bundle, as the EsViritu window runs it. Under `auto` the bundle is planned as described above. With an explicit `--read-format`, every file the bundle holds becomes its own EsViritu input, so a paired bundle with `--read-format paired` runs its R1 and R2 as a pair. A virtual bundle is first written out as a FASTQ file in `.lungfish-esviritu-inputs` inside the output folder, and the run's provenance names the bundle behind that file and the `lungfish-cli fastq materialize` command that rebuilds it. The command the Operations panel records for an EsViritu run names the database, output folder, thread count, quality filter, and extra arguments as well, so pasting it repeats the run.
 
 | Argument or flag | What it does |
 |---|---|
@@ -2344,7 +2366,7 @@ A `--samplesheet` CSV needs exactly the header `sample,fastq_1,fastq_2,platform`
 
 | Argument or flag | What it does |
 |---|---|
-| `--input <input>` | Input FASTQ file (R1 or single-end), or a `.lungfishfastq` bundle. A bundle's interleaved pairs are split into R1 and R2 and run as pairs. |
+| `--input <input>` | Input FASTQ file (R1 or single-end), or a `.lungfishfastq` bundle, which is planned whole. A bundle of pairs runs as pairs, and a bundle that mixes pairs with merged or single reads, or holds several files of single reads, gives one single-end file of every read. A file inside a bundle is read as named, except the preview of a virtual bundle, which reads its bundle. `--input` and `--input2` that name every file of one bundle are read as that bundle. |
 | `--input2 <input2>` | Second FASTQ file (R2 for paired-end). |
 | `--recursive` | When `--input` is a directory, include eligible FASTQ files in subfolders. |
 | `--sample <sample>` | Sample identifier (required with `--input`). |
@@ -2663,20 +2685,20 @@ Assembles reads de novo, meaning with no reference to guide them, using SPAdes, 
 lungfish-cli assemble [<options>] <fastq-files> ...
 ```
 
-`--output` writes exactly where you point it, with no timestamped folder, and overwrites what is there. `--extra-arg` is repeatable and takes one argument each time, while `--extra-args` takes one string. Some flags are ignored by some assemblers. `--min-contig-length` has no effect on SPAdes, Flye, or hifiasm, `--memory-gb` none on Flye or hifiasm, and `--profile` none on SKESA, and MEGAHIT's `default` profile passes nothing. Flye and hifiasm refuse several inputs and exit with status 3.
+`--output` writes exactly where you point it, with no timestamped folder, and overwrites what is there. `--extra-arg` is repeatable and takes one argument each time, while `--extra-args` takes one string. Some flags are ignored by some assemblers. `--min-contig-length` has no effect on SPAdes, Flye, or hifiasm, `--memory-gb` none on Flye or hifiasm, and `--profile` none on SKESA, and MEGAHIT's `default` profile passes nothing. Flye and hifiasm refuse several inputs and exit with status 3. Without `--assembler`, the assembler follows the read type, SPAdes for short reads or when nothing is known, Flye for Nanopore or other long reads, and hifiasm for PacBio HiFi reads, and reads of unknown platform take the read type their lengths suggest. An assembler run on a read type it does not suit prints a warning on standard error and runs with its own read-type settings. Flye's mode follows the read type too, `--pacbio-hifi` for HiFi reads, `--pacbio-raw` for PacBio subreads, and the read-quality rule for Nanopore reads, unless `--profile` names one, and the recorded command names the profile that ran.
 
 | Argument or flag | What it does |
 |---|---|
 | `<fastq-files>` | Input sequence file(s). Provide two files with `--paired` for paired-end Illumina reads. |
-| `--assembler <assembler>` | Assembler to run, one of `spades`, `megahit`, `skesa`, `flye`, or `hifiasm`. The default is `spades`. |
+| `--assembler <assembler>` | Assembler to run, one of `spades`, `megahit`, `skesa`, `flye`, or `hifiasm`. The default follows the read type. |
 | `--read-type <read-type>` | Read class, one of `illumina-short-reads`, `ont-reads`, or `pacbio-hifi`. |
 | `-o, --output, --output-dir <output>` | Output directory. |
 | `--project-name, --name <project-name>` | Project name for the assembly. |
 | `--paired` | Treat the two input sequence files as paired-end mates. |
-| `--read-layout <read-layout>` | How the records of a single Illumina input file relate, one of `auto`, `single-end`, `interleaved` (every record is followed by its mate), or `mixed` (merged reads and interleaved pairs in one file). The default is `auto`, which reads the bundle's record and then the read names. SPAdes and MEGAHIT get an interleaved file as pairs with `--12` and SKESA with `--use_paired_ends`, and a mixed file runs as single reads. It cannot be combined with `--paired`. |
+| `--read-layout <read-layout>` | How the records of a single Illumina input file relate, one of `auto`, `single-end`, `interleaved` (every record is followed by its mate), or `mixed` (merged reads and interleaved pairs in one file). The default is `auto`, which reads the bundle's record and then the read names. SPAdes and MEGAHIT get an interleaved file as pairs with `--12` and SKESA with `--use_paired_ends`. Under `auto` or `mixed`, a file that mixes merged reads with pairs is split by fragment name, its pairs assembled as pairs and its merged and single reads beside them. It cannot be combined with `--paired`, and a bundle that keeps its mates in separate R1 and R2 files refuses it. |
 | `--memory-gb, --memory <memory-gb>` | Memory budget in GB when the selected assembler supports it. |
 | `--min-contig-length <min-contig-length>` | Minimum contig length when the selected assembler supports it. |
-| `--profile <profile>` | Curated assembler profile, such as meta-sensitive or nano-hq. |
+| `--profile <profile>` | Curated assembler profile, such as meta-sensitive, nano-hq, or pacbio-hifi. |
 | `--extra-args <extra-args>` | Additional assembler options, written exactly as they should be passed to the underlying tool. |
 | `--extra-arg <extra-arg>` | Additional assembler argument (repeatable). |
 | `--json-events` | Streams status and log events to standard error as one JSON object per line, for a script to follow. |
@@ -3430,7 +3452,7 @@ Runs amplicon genotyping on Oxford Nanopore or Illumina reads, matching reads ex
 lungfish-cli fastq genotype [<options>] <inputs> ... --output-dir <output-dir>
 ```
 
-`--mode` is the only way to override the platform the window infers from the reads. Passing `--reference` together with `--preset mcm-mhc-miseq` is an error. With a miSeq reference outside the project, `--project` imports it into the project first.
+`--mode` is the only way to override the platform the window infers from the reads. Each `.lungfishfastq` bundle is one sample named for the bundle, and every read it holds is genotyped. A paired bundle's mates go into the merge side by side, a merge or repair bundle adds its merged reads or orphans, and a virtual bundle is materialized first rather than read from its preview. In the sample-bundle modes, a bundle imported as several separate files is refused. Passing `--reference` together with `--preset mcm-mhc-miseq` is an error. With a miSeq reference outside the project, `--project` imports it into the project first.
 
 | Argument or flag | What it does |
 |---|---|
@@ -3942,7 +3964,7 @@ lungfish-cli workflow run [<options>] <workflow>
 | `--repeat-from <repeat-from>` | Validate an original local run bundle before starting a fresh attempt. |
 | `--results-dir <results-dir>` | Output directory for results. The default is `./results`. |
 | `--executor <executor>` | Execution profile for nf-core workflows. The default and only accepted value is `docker`. `conda` and `local` still parse but are refused. |
-| `--input <input>` | Input file selected for the workflow. Repeat for multiple inputs. For nf-core/viralrecon this is either one samplesheet CSV or one or more `.lungfishfastq` bundles or FASTQ files, from which the command builds the samplesheet the wizard would build. |
+| `--input <input>` | Input file selected for the workflow. Repeat for multiple inputs. For nf-core/viralrecon this is either one samplesheet CSV or one or more `.lungfishfastq` bundles or FASTQ files, from which the command builds the samplesheet the wizard would build. An Illumina samplesheet row may name a `.lungfishfastq` bundle, which the run plans and stages as gzip files, so a paired, merged, repaired, or virtual bundle gives every read. A sample that mixes merged reads with pairs runs single-end with a warning. |
 | `--expected-output <expected-output>` | Final output bundle or file path. Required for executed runs and repeatable for every scientific output that must receive provenance. |
 | `--bundle-root <bundle-root>` | Directory where the `.lungfishrun` bundle should be created. |
 | `--bundle-path <bundle-path>` | Exact `.lungfishrun` bundle path to create or update. |
