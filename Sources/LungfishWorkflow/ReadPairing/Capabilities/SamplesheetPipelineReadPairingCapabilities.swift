@@ -21,17 +21,20 @@ extension ReadPairingCapabilityRegistry {
             ReadPairingCapabilityDeclaration(
                 consumerID: "viralrecon.illumina",
                 capability: .pairsOnlyWhenAllPaired,
-                rationale: "viralrecon reads pairs only as samplesheet fastq_1 and fastq_2. \(allSingleWhenMixed)"
+                rationale: "viralrecon reads pairs only as samplesheet fastq_1 and fastq_2. \(allSingleWhenMixed)",
+                adopted: true
             ),
             ReadPairingCapabilityDeclaration(
                 consumerID: "genotype.illumina-mhc",
                 capability: .bothInOneRunAsNameInterleavedStream,
-                rationale: "IlluminaAmpliconPairMerger partitions one stream by fragment name, merges the pairs with bbmerge and passes the merged reads through."
+                rationale: "IlluminaAmpliconPairMerger partitions one stream by fragment name, merges the pairs with bbmerge and passes the merged reads through.",
+                adopted: true
             ),
             ReadPairingCapabilityDeclaration(
                 consumerID: "genotype.ont-mhc",
                 capability: .singleReadsOnly,
-                rationale: "Oxford Nanopore amplicons are long reads, mapped each on its own."
+                rationale: "Oxford Nanopore amplicons are long reads, mapped each on its own.",
+                adopted: true
             ),
         ]
     }
