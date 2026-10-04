@@ -53,16 +53,23 @@ extension ClassifierReadResolver {
             throw ClassifierExtractionError.zeroReadsExtracted
         }
 
-        var allProducedURLs: [URL] = []
         var provenanceSourceURLs = existingUniqueURLs([resultPath])
         // Samples whose sidecar or source FASTQ could not be resolved. These
         // used to be dropped silently, so the user saw a "success" that
         // omitted whole samples.
         var skippedSamples: [String] = []
-        // Whether every extracted sample came from one interleaved paired
-        // FASTQ. Extraction keeps both mates in source order, so such an
-        // output is itself interleaved and must be recorded that way.
-        var everySourceInterleaved = true
+        // The R1 and R2 reads of every pair of files, each R1 record followed
+        // by its R2 record, go into one file, and the reads of every other
+        // file follow it: all pairs first, then the single reads (D7d).
+        let pairsFile = tempDir.appendingPathComponent("kraken2-pairs.fastq")
+        FileManager.default.createFile(atPath: pairsFile.path, contents: nil)
+        let pairsHandle = try FileHandle(forWritingTo: pairsFile)
+        defer { try? pairsHandle.close() }
+        var pairCount = 0
+        var readURLs: [URL] = []
+        // Whether any sample's reads hold mates, so the output may too.
+        var sourcesHoldMates = false
+        var singleReadRole = ReadClassification.FileRole.unpaired
 
         for (jobIndex, job) in sampleJobs.enumerated() {
             try Task.checkCancellation()
@@ -89,12 +96,12 @@ extension ClassifierReadResolver {
 
             // Every read file of this sample (D7a, D7b). A trimmed or
             // oriented subset is materialized into the temp folder.
-            let sourceFASTQs: [URL]
+            let sources: KrakenResultReadSources
             do {
-                sourceFASTQs = try await KrakenResultReadSources.resolve(
+                sources = try await KrakenResultReadSources.resolve(
                     result: classResult,
                     materializationDirectory: tempDir.appendingPathComponent("sources-\(jobIndex)", isDirectory: true)
-                ).urls
+                )
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -104,9 +111,13 @@ extension ClassifierReadResolver {
                 skippedSamples.append(sampleLabel)
                 continue
             }
+            let sourceFASTQs = sources.urls
             provenanceSourceURLs.append(contentsOf: sourceFASTQs)
-            everySourceInterleaved = everySourceInterleaved
-                && Self.sourceHoldsInterleavedPairs(config: classResult.config, sourceFASTQs: sourceFASTQs)
+            sourcesHoldMates = sourcesHoldMates || sources.holdsMates
+                || Self.sourceHoldsInterleavedPairs(config: classResult.config, sourceFASTQs: sourceFASTQs)
+            if sources.files.contains(where: { $0.singleReadRole == .merged || $0.singleReadRole == .mergedOrOrphan }) {
+                singleReadRole = .merged
+            }
 
             // Build per-sample output paths in the shared temp dir.
             let stem = "\(jobIndex)_\(sampleLabel)"
@@ -132,7 +143,7 @@ extension ClassifierReadResolver {
             progress?(baseFraction * 0.8 + 0.1 * sampleWeight, "Extracting \(sampleLabel)…")
 
             let pipeline = TaxonomyExtractionPipeline()
-            let producedURLs = try await pipeline.extract(
+            let outputs = try await pipeline.extractEachSource(
                 config: config,
                 tree: classResult.tree,
                 progress: { fraction, message in
@@ -140,12 +151,24 @@ extension ClassifierReadResolver {
                 }
             )
 
+            var readOutputs: [URL] = []
+            for (index, file) in sources.files.enumerated() {
+                switch file.role {
+                case .r1:
+                    pairCount += try Self.interleaveMates(of: sources.files, at: index, outputs: outputs, into: pairsHandle)
+                case .r2:
+                    continue
+                case .adjacentMates, .reads:
+                    if let output = outputs[index] { readOutputs.append(output) }
+                }
+            }
             // Decompress .fastq.gz output from seqkit.
-            let decompressed = try await decompressGzippedFiles(producedURLs)
-            allProducedURLs.append(contentsOf: decompressed)
+            readURLs += try await decompressGzippedFiles(readOutputs)
         }
+        try pairsHandle.close()
 
-        guard !allProducedURLs.isEmpty else {
+        let producedURLs = (pairCount > 0 ? [pairsFile] : []) + readURLs
+        guard !producedURLs.isEmpty else {
             if !skippedSamples.isEmpty {
                 throw ClassifierExtractionError.allSamplesSkipped(skippedSamples)
             }
@@ -155,7 +178,7 @@ extension ClassifierReadResolver {
 
         // Concatenate all per-sample outputs into a single FASTQ.
         let concatenated = tempDir.appendingPathComponent("kraken2-concat.fastq")
-        try concatenateFiles(allProducedURLs, into: concatenated)
+        try concatenateFiles(producedURLs, into: concatenated)
         try Task.checkCancellation()
 
         let readCount = try await countFASTQRecords(in: concatenated)
@@ -164,10 +187,10 @@ extension ClassifierReadResolver {
         }
         try Task.checkCancellation()
 
-        let outputPairingMode: IngestionMetadata.PairingMode =
-            options.format == .fastq && everySourceInterleaved
-                ? Self.extractedPairingMode(ofInterleavedSourceOutput: concatenated)
-                : .singleEnd
+        let layout: (mode: IngestionMetadata.PairingMode, roles: ReadClassification?) =
+            options.format == .fastq && sourcesHoldMates
+                ? try Self.extractedLayout(of: concatenated, singleReadRole: singleReadRole)
+                : (.singleEnd, nil)
 
         // Format conversion.
         let finalFile: URL
@@ -187,7 +210,8 @@ extension ClassifierReadResolver {
             options: options,
             provenanceSourceURLs: existingUniqueURLs(provenanceSourceURLs),
             extractionStartedAt: startedAt,
-            outputPairingMode: outputPairingMode,
+            outputPairingMode: layout.mode,
+            outputRoles: layout.roles,
             progress: progress
         )
         if !skippedSamples.isEmpty {
@@ -197,6 +221,69 @@ extension ClassifierReadResolver {
             )
         }
         return outcome
+    }
+
+    /// Writes the reads extracted from the pair of files at `index` (R1)
+    /// and `index + 1` (R2), each R1 record followed by its R2 record, and
+    /// returns the number of pairs. The two outputs come from files whose
+    /// records correspond by position, filtered by one ID set, so they hold
+    /// the same fragments in the same order. Names are checked record by
+    /// record, and files out of step throw rather than mis-pair (D7d).
+    static func interleaveMates(
+        of files: [KrakenResultReadSources.File],
+        at index: Int,
+        outputs: [URL?],
+        into handle: FileHandle
+    ) throws -> Int {
+        guard index + 1 < files.count, files[index + 1].role == .r2 else {
+            throw ClassifierExtractionError.kraken2SourceMissing
+        }
+        let r1Source = files[index].url.lastPathComponent
+        let r2Source = files[index + 1].url.lastPathComponent
+        switch (outputs[index], outputs[index + 1]) {
+        case (nil, nil):
+            return 0
+        case (let r1?, let r2?):
+            do {
+                return try FASTQPairInterleaver.interleave(r1: r1, r2: r2, to: handle, requireMates: true).r1Records
+            } catch FASTQPairInterleaver.InterleaveError.mateNameMismatch(let record, _, let r1Name, _, let r2Name) {
+                throw FASTQPairInterleaver.InterleaveError.mateNameMismatch(
+                    recordNumber: record, r1File: r1Source, r1Name: r1Name, r2File: r2Source, r2Name: r2Name
+                )
+            } catch FASTQPairInterleaver.InterleaveError.mateCountMismatch(_, let r1Records, _, let r2Records) {
+                throw FASTQPairInterleaver.InterleaveError.mateCountMismatch(
+                    r1File: r1Source, r1Records: r1Records, r2File: r2Source, r2Records: r2Records
+                )
+            }
+        case (let r1?, nil):
+            throw FASTQPairInterleaver.InterleaveError.mateCountMismatch(
+                r1File: r1Source, r1Records: try FASTQPairInterleaver.countRecords(in: r1), r2File: r2Source, r2Records: 0
+            )
+        case (nil, let r2?):
+            throw FASTQPairInterleaver.InterleaveError.mateCountMismatch(
+                r1File: r1Source, r1Records: 0, r2File: r2Source, r2Records: try FASTQPairInterleaver.countRecords(in: r2)
+            )
+        }
+    }
+
+    /// How an extracted FASTQ pairs (D7d), counted over the whole file by
+    /// the layout scan's pairing rule: interleaved when it holds only pairs,
+    /// single-end with roles in the form a merge recipe records when it mixes
+    /// pairs with single reads, and single-end when it holds no pair.
+    static func extractedLayout(
+        of fastqURL: URL,
+        singleReadRole: ReadClassification.FileRole
+    ) throws -> (mode: IngestionMetadata.PairingMode, roles: ReadClassification?) {
+        let counts = try FASTQMixedLayoutHint.countPairsAndSingles(in: fastqURL)
+        guard counts.pairs > 0 else { return (.singleEnd, nil) }
+        guard counts.singles > 0 else { return (.interleaved, nil) }
+        let roles = FASTQMixedLayoutHint.classification(
+            pairs: counts.pairs,
+            singles: counts.singles,
+            singleRole: singleReadRole,
+            filename: fastqURL.lastPathComponent
+        )
+        return (.singleEnd, roles)
     }
 
     /// Whether a Kraken 2 sample's source is one FASTQ holding interleaved
@@ -214,35 +301,9 @@ extension ClassifierReadResolver {
         return FASTQReadLayoutClassifier.metadataHints(for: source).pairingMode == .interleaved
     }
 
-    /// The pairing to record for an extraction whose sources were all
-    /// interleaved pairs. Confirms from the output's own records that mates
-    /// are still adjacent; a selection that kept no adjacent mates is
-    /// recorded as single-end.
+    /// The pairing alone of an extracted FASTQ, from ``extractedLayout(of:singleReadRole:)``.
     static func extractedPairingMode(ofInterleavedSourceOutput fastqURL: URL) -> IngestionMetadata.PairingMode {
-        guard let scan = try? FASTQReadLayoutClassifier.readHeaders(from: fastqURL) else {
-            return .singleEnd
-        }
-        let classification = FASTQReadLayoutClassifier.classify(
-            headers: scan.headers,
-            scannedWholeFile: scan.scannedWholeFile,
-            metadata: FASTQPairingMetadataHints(pairingMode: .interleaved)
-        )
-        return classification.matePairs > 0 ? .interleaved : .singleEnd
-    }
-
-    /// Resolves the Kraken2 source FASTQ(s) for extraction.
-    ///
-    /// Tries (in order):
-    /// 1. `config.originalInputFiles` if non-nil (preserved before
-    ///    materialization). If the resulting URL is a bundle, uses the
-    ///    `FASTQBundle.resolvePrimaryFASTQURL` resolver.
-    /// 2. Walking up from `config.outputDirectory` to find the enclosing
-    ///    `.lungfishfastq` bundle.
-    /// 3. Falls back to `config.inputFiles` directly.
-    private func resolveKraken2SourceFASTQs(
-        classResult: ClassificationResult
-    ) throws -> [URL] {
-        try Self.resolveKraken2SourceFASTQs(classResult: classResult)
+        (try? extractedLayout(of: fastqURL, singleReadRole: .unpaired).mode) ?? .singleEnd
     }
 
     /// Shared implementation of Kraken2 source FASTQ resolution.

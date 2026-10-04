@@ -727,6 +727,7 @@ public actor ClassifierReadResolver {
         provenanceSourceURLs: [URL],
         extractionStartedAt: Date,
         outputPairingMode: IngestionMetadata.PairingMode = .singleEnd,
+        outputRoles: ReadClassification? = nil,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ExtractionOutcome {
         let fm = FileManager.default
@@ -767,16 +768,17 @@ public actor ClassifierReadResolver {
             let outputFormat = finalFile.pathExtension.lowercased() == "fasta" ? "fasta" : "fastq"
             let bundleMetadata = metadata.mergingParameters([
                 "classifierExtractionOutputLayout": "single_file",
-                "classifierExtractionOutputPairingMode": outputPairingMode.rawValue,
+                "classifierExtractionOutputPairingMode": outputRoles == nil ? outputPairingMode.rawValue : "mixed",
                 "classifierExtractionOutputFormat": outputFormat,
                 "classifierExtractionReadCountUnit": "reads",
             ])
             .recordingSourceURLs(provenanceSourceURLs)
             // Classifier extraction normalizes BAM-backed and Kraken2
             // selections into one output file before bundling, so the bundle
-            // is never split paired-end. It is single-end unless every source
-            // was one interleaved FASTQ and the output kept adjacent mates, in
-            // which case it is interleaved (`outputPairingMode`).
+            // is never split paired-end. A Kraken2 output of pairs only is
+            // interleaved (`outputPairingMode`). One that mixes pairs with
+            // single reads is single-end with its roles (`outputRoles`), as
+            // a merge recipe records them, so no tool pairs it by position.
             let result = ExtractionResult(
                 fastqURLs: [finalFile],
                 readCount: readCount,
@@ -790,6 +792,9 @@ public actor ClassifierReadResolver {
                 metadata: bundleMetadata,
                 in: try Self.bundleDestinationDirectory(projectRoot: projectRoot)
             )
+            if let outputRoles {
+                FASTQMixedLayoutHint.write(outputRoles, beside: bundleURL.appendingPathComponent(finalFile.lastPathComponent))
+            }
             progress?(1.0, "Created bundle \(bundleURL.lastPathComponent)")
             return .bundle(bundleURL, readCount: readCount)
 
