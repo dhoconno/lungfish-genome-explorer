@@ -11,10 +11,15 @@ import LungfishWorkflow
 extension ExtractReadsSubcommand {
     // MARK: - Classifier strategy
 
+    /// Runs the extraction into `outputURL`, and returns it with the read
+    /// roles a bundle of it records. The result carries the pairing the
+    /// app's bundle records for the same extraction: interleaved for pairs
+    /// only, and single-end with roles for pairs mixed with single reads
+    /// (D7d).
     func runByClassifier(
         formatter: TerminalFormatter,
         outputURL: URL
-    ) async throws -> ReadExtractionResult {
+    ) async throws -> (result: ReadExtractionResult, roles: ReadClassification?) {
         let fm = FileManager.default
 
         guard let toolRaw = classifierTool, let tool = ClassifierTool(rawValue: toolRaw) else {
@@ -70,7 +75,7 @@ extension ExtractReadsSubcommand {
 
         let resolver = ClassifierReadResolver()
         let quiet = globalOptions.quiet
-        let outcome = try await resolver.resolveAndExtract(
+        let (outcome, layout) = try await resolver.resolveAndExtractWithLayout(
             tool: tool,
             resultPath: resultPath,
             selections: selectors,
@@ -100,10 +105,14 @@ extension ExtractReadsSubcommand {
             print(formatter.error("Clipboard / share destinations are not supported from the CLI"))
             throw CLIExitCode.inputError.exitCode
         }
-        return ReadExtractionResult(
-            fastqURLs: [fastqURL],
-            readCount: outcome.readCount,
-            pairedEnd: false
+        return (
+            ReadExtractionResult(
+                fastqURLs: [fastqURL],
+                readCount: outcome.readCount,
+                pairedEnd: false,
+                pairingMode: layout.pairingMode
+            ),
+            layout.roles(namedFor: fastqURL)
         )
     }
 }

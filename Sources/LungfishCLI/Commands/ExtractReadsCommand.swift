@@ -341,6 +341,9 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             ? bamFile.flatMap { companionAlignmentIndex(for: URL(fileURLWithPath: $0)) }
             : nil
         let result: ReadExtractionResult
+        // The read roles of a classifier extraction that mixes pairs with
+        // single reads, which the wrapped bundle records as the app's does.
+        var outputRoles: ReadClassification?
 
         if byId {
             result = try await runByReadID(
@@ -366,10 +369,12 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             )
         } else {
             // byClassifier
-            result = try await runByClassifier(
+            let extraction = try await runByClassifier(
                 formatter: formatter,
                 outputURL: outputURL
             )
+            result = extraction.result
+            outputRoles = extraction.roles
         }
 
         // Bundle wrapping
@@ -389,6 +394,9 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 in: outputDir
             )
             bundleURL = createdBundleURL
+            if let outputRoles, let payload = result.fastqURLs.first {
+                FASTQMixedLayoutHint.write(outputRoles, beside: createdBundleURL.appendingPathComponent(payload.lastPathComponent))
+            }
 
             print("")
             print(formatter.success("Created bundle: \(createdBundleURL.lastPathComponent)"))

@@ -138,6 +138,29 @@ public actor ClassifierReadResolver {
         destination: ExtractionDestination,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ExtractionOutcome {
+        try await resolveAndExtractWithLayout(
+            tool: tool,
+            resultPath: resultPath,
+            selections: selections,
+            options: options,
+            destination: destination,
+            progress: progress
+        ).outcome
+    }
+
+    /// Runs an extraction like
+    /// ``resolveAndExtract(tool:resultPath:selections:options:destination:progress:)``
+    /// and also returns the layout its output records. `lungfish-cli extract
+    /// reads --by-classifier --bundle` wraps its file output into a bundle
+    /// itself, and records this layout, so its bundle matches the app's (D7d).
+    public func resolveAndExtractWithLayout(
+        tool: ClassifierTool,
+        resultPath: URL,
+        selections: [ClassifierRowSelector],
+        options: ExtractionOptions,
+        destination: ExtractionDestination,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> (outcome: ExtractionOutcome, layout: ClassifierExtractionLayout) {
         let startedAt = Date()
         let nonEmpty = selections.filter { !$0.isEmpty }
         guard !nonEmpty.isEmpty else {
@@ -147,7 +170,7 @@ public actor ClassifierReadResolver {
         progress?(0.0, "Preparing \(tool.displayName) extraction…")
 
         if tool.usesBAMDispatch {
-            return try await extractViaBAM(
+            let outcome = try await extractViaBAM(
                 tool: tool,
                 selections: nonEmpty,
                 resultPath: resultPath,
@@ -156,6 +179,7 @@ public actor ClassifierReadResolver {
                 startedAt: startedAt,
                 progress: progress
             )
+            return (outcome, .singleEnd)
         } else {
             return try await extractViaKraken2(
                 selections: nonEmpty,

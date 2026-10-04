@@ -9,6 +9,35 @@ import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.workflow", category: "ClassifierReadResolver")
 
+/// The layout an extraction's output records (D7d): interleaved when it
+/// holds only pairs, single-end with read roles in the form a merge recipe
+/// records when it mixes pairs with single reads, and single-end otherwise.
+/// The app's bundle destination records it, and so does `lungfish-cli
+/// extract reads --by-classifier --bundle`, which wraps a file output.
+public struct ClassifierExtractionLayout: Sendable, Equatable {
+    public let pairingMode: IngestionMetadata.PairingMode
+    public let roles: ReadClassification?
+
+    public init(pairingMode: IngestionMetadata.PairingMode, roles: ReadClassification?) {
+        self.pairingMode = pairingMode
+        self.roles = roles
+    }
+
+    /// Single-end with no roles, the layout of every output that holds no
+    /// mates.
+    public static let singleEnd = ClassifierExtractionLayout(pairingMode: .singleEnd, roles: nil)
+
+    /// The roles with every entry naming `payload`, the one file that holds
+    /// all of them.
+    public func roles(namedFor payload: URL) -> ReadClassification? {
+        roles.map { roles in
+            ReadClassification(files: roles.files.map {
+                .init(filename: payload.lastPathComponent, role: $0.role, readCount: $0.readCount)
+            })
+        }
+    }
+}
+
 extension ClassifierReadResolver {
     // MARK: - Kraken2 dispatch
 
@@ -19,7 +48,7 @@ extension ClassifierReadResolver {
         destination: ExtractionDestination,
         startedAt: Date,
         progress: (@Sendable (Double, String) -> Void)?
-    ) async throws -> ExtractionOutcome {
+    ) async throws -> (outcome: ExtractionOutcome, layout: ClassifierExtractionLayout) {
         let hasSingleSampleSelectors = selections.contains { $0.sampleId == nil }
         let hasBatchSampleSelectors = selections.contains { $0.sampleId != nil }
         guard !(hasSingleSampleSelectors && hasBatchSampleSelectors) else {
@@ -218,7 +247,7 @@ extension ClassifierReadResolver {
                 "Extracted \(readCount) reads. Skipped \(skippedSamples.count) sample(s) with unresolvable source data: \(skippedSamples.joined(separator: ", "))"
             )
         }
-        return outcome
+        return (outcome, ClassifierExtractionLayout(pairingMode: layout.mode, roles: layout.roles))
     }
 
     /// Whether a Kraken 2 sample's source is one FASTQ holding interleaved
