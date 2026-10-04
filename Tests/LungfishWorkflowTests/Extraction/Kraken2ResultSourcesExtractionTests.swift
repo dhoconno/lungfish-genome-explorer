@@ -155,6 +155,43 @@ final class Kraken2ResultSourcesExtractionTests: XCTestCase {
         XCTAssertEqual(outputs.count, 1, "one file per taxon")
         let names = try outputs.flatMap { try Self.recordNames(in: $0) }
         XCTAssertEqual(names, ["u1/1", "u1/2", "x1"])
+
+        let output = try XCTUnwrap(outputs.first)
+        XCTAssertEqual(output.lastPathComponent, "Target_virus_taxid100.fastq.gz", "the name a one-file extraction writes")
+        let roles = try XCTUnwrap(FASTQMetadataStore.load(for: output)?.readClassification, "a mix of pairs and merged reads records its roles")
+        XCTAssertEqual(roles.files.map(\.role), [.pairedR1, .pairedR2, .merged])
+        XCTAssertEqual(Set(roles.files.map(\.filename)), [output.lastPathComponent])
+        let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: output)))
+        XCTAssertEqual(envelope.options.explicit["extractedReads"], .integer(3), "the records of the one file")
+        XCTAssertEqual(Array(envelope.steps.first?.argv.prefix(2) ?? []), ["LungfishWorkflow", "extract-taxon-reads"])
+    }
+
+    /// A result of one loose file is extracted as before: one gzip file per
+    /// taxon, straight from seqkit.
+    func testBatchExtractionOfOneFileIsUnchanged() async throws {
+        let shapes = try Kraken2ResultShapes(in: root, names: .slash)
+        let file = shapes.fixtures.projectURL.appendingPathComponent("loose-single.fastq")
+        try ReadSetFixtures.fastq(["s1", "s2", "s3"]).write(to: file, atomically: true, encoding: .utf8)
+        let resultDirectory = try Kraken2ResultShapes.result(
+            "loose-single", in: shapes.analyses, inputs: [file], paired: false,
+            lines: [Kraken2ResultShapes.single("s1", 100), Kraken2ResultShapes.single("s2", 200), Kraken2ResultShapes.single("s3", 100)]
+        )
+        let result = try ClassificationResult.load(from: resultDirectory)
+        let collection = TaxaCollection(
+            id: "a3-batch-single", name: "A3 batch", description: "", sfSymbol: "circle",
+            taxa: [TaxonTarget(name: "Target virus", taxId: 100)]
+        )
+
+        let outputs = try await TaxonomyExtractionPipeline().extractBatch(
+            collection: collection,
+            classificationResult: result,
+            tree: result.tree,
+            outputDirectory: root.appendingPathComponent("batch-single", isDirectory: true)
+        )
+
+        XCTAssertEqual(outputs.map(\.lastPathComponent), ["Target_virus_taxid100.fastq.gz"])
+        XCTAssertEqual(try outputs.flatMap { try Self.recordNames(in: $0) }, ["s1", "s3"])
+        XCTAssertNil(FASTQMetadataStore.load(for: try XCTUnwrap(outputs.first)), "a one-file output gains no sidecar")
     }
 
     // MARK: - Helpers
