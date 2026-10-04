@@ -185,6 +185,51 @@ final class SamplesheetReadSetPlannerTests: XCTestCase {
         XCTAssertEqual(try names(readSet), [["r1/1", "r1/2", "r2/1", "r2/2"]])
     }
 
+    // MARK: - EsViritu configuration
+
+    private func esVirituConfig(for bundle: URL) -> EsVirituConfig {
+        EsVirituConfig(
+            inputFiles: [bundle],
+            isPairedEnd: false,
+            sampleName: "sample",
+            outputDirectory: root.appendingPathComponent("out", isDirectory: true),
+            databasePath: root.appendingPathComponent("db", isDirectory: true)
+        )
+    }
+
+    /// The configuration takes the files and the `-p` format of the plan and
+    /// keeps `isPairedEnd` in step with it. A mixed sample's summary says why
+    /// every read ran single-end, and a sample that needs nothing says nothing.
+    func testEsVirituAdoptsThePlanAndItsSummaryStatesTheReason() async throws {
+        var paired = esVirituConfig(for: fixtures.pairedDerivative)
+        let pairedPlan = try await plan(fixtures.pairedDerivative)
+        XCTAssertTrue(paired.apply(pairedPlan))
+        XCTAssertEqual(paired.readFormat, .paired)
+        XCTAssertTrue(paired.isPairedEnd)
+        XCTAssertEqual(paired.inputFiles.map(\.lastPathComponent), ["sample_R1.fastq", "sample_R2.fastq"])
+        XCTAssertEqual(paired.readFormatSummaryLines().count, 1, "a sample of pairs adds no reason")
+
+        var mixed = esVirituConfig(for: fixtures.mergeDerivative)
+        let mixedPlan = try await plan(fixtures.mergeDerivative)
+        XCTAssertTrue(mixed.apply(mixedPlan))
+        XCTAssertEqual(mixed.readFormat, .unpaired)
+        XCTAssertFalse(mixed.isPairedEnd)
+        XCTAssertEqual(mixed.inputFiles.count, 1)
+        XCTAssertEqual(mixed.inputLayout?.layout, .mixedInterleaved)
+        let lines = mixed.readFormatSummaryLines()
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertTrue(lines.last?.hasPrefix("  Read set: ") == true, "\(lines)")
+        XCTAssertTrue(lines.last?.contains("cannot pair part of a sample") == true, "\(lines)")
+
+        var single = esVirituConfig(for: fixtures.singleRoot)
+        let singlePlan = try await plan(fixtures.singleRoot)
+        XCTAssertFalse(single.apply(singlePlan), "single reads need no change")
+        XCTAssertEqual(single.inputFiles, [fixtures.singleRoot])
+        var interleaved = esVirituConfig(for: fixtures.interleavedRoot)
+        let interleavedPlan = try await plan(fixtures.interleavedRoot)
+        XCTAssertFalse(interleaved.apply(interleavedPlan), "one interleaved file needs no change")
+    }
+
     // MARK: - Progress
 
     /// The CLI reports the materialization of a virtual bundle itself, so the
