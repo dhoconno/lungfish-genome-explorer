@@ -81,8 +81,11 @@ extension BlastCommand {
         @Option(name: .customLong("kreport"), help: "Kraken2 report file (.kreport)")
         var kreportFile: String
 
+        // Repeatable. A .lungfishfastq bundle gives every read file by its
+        // role, and two loose files are R1 and R2 when kraken2 classified
+        // pairs (D8).
         @Option(name: .customLong("source"), help: "Source FASTQ file")
-        var sourceFile: String
+        var sourcePaths: [String]
 
         @Option(name: .customLong("kraken-output"), help: "Kraken2 per-read output file (.kraken)")
         var krakenOutput: String
@@ -134,6 +137,47 @@ extension BlastCommand {
             }
         }
 
+        // MARK: - Request
+
+        /// The read files of every `--source`, resolved as the app resolves
+        /// the inputs a Kraken2 result recorded: a `.lungfishfastq` bundle by
+        /// the roles of its files, and two loose files as R1 and R2 when
+        /// kraken2 classified pairs (D8). A trimmed or oriented subset is
+        /// materialized into `materializationDirectory`.
+        func readSources(materializationDirectory: URL) async throws -> KrakenResultReadSources {
+            try await KrakenResultReadSources.resolve(
+                inputs: sourcePaths.map { URL(fileURLWithPath: $0) },
+                classificationOutput: URL(fileURLWithPath: krakenOutput),
+                materializationDirectory: materializationDirectory
+            )
+        }
+
+        /// The request `run()` submits, built from `readFiles` without the
+        /// network. It samples the taxon's fragments, with its descendants
+        /// under `--include-children`. Hits are always judged against the
+        /// whole clade and its genus relatives, even when only reads assigned
+        /// directly to the taxon are sampled.
+        func verificationRequest(
+            tree: TaxonTree,
+            readFiles: KrakenResultReadSources,
+            service: BlastService
+        ) async throws -> BlastVerificationRequest {
+            let targetTaxIds = includeChildren
+                ? blastCollectDescendantTaxIds(Set([taxId]), tree: tree)
+                : Set([taxId])
+            return try await service.buildVerificationRequest(
+                taxonName: tree.node(taxId: taxId)?.name ?? "txid\(taxId)",
+                taxId: taxId,
+                targetTaxIds: targetTaxIds,
+                classificationOutputURL: URL(fileURLWithPath: krakenOutput),
+                sources: readFiles.blastReadSources,
+                readCount: readCount,
+                acceptedTaxonNames: targetTaxIds.compactMap { tree.node(taxId: $0)?.name }.sorted(),
+                taxonomyContext: tree.blastTaxonomyContext(for: taxId),
+                seed: seed
+            )
+        }
+
         // MARK: - Execution
 
         func run() async throws {
@@ -142,7 +186,6 @@ extension BlastCommand {
 
             // Resolve file paths
             let kreportURL = URL(fileURLWithPath: kreportFile)
-            let sourceURL = URL(fileURLWithPath: sourceFile)
             let krakenOutputURL = URL(fileURLWithPath: krakenOutput)
 
             // Verify files exist
@@ -150,8 +193,8 @@ extension BlastCommand {
                 print(formatter.error("Kreport file not found: \(kreportFile)"))
                 throw CLIExitCode.inputError.exitCode
             }
-            guard fm.fileExists(atPath: sourceURL.path) else {
-                print(formatter.error("Source FASTQ not found: \(sourceFile)"))
+            for sourcePath in sourcePaths where !fm.fileExists(atPath: URL(fileURLWithPath: sourcePath).path) {
+                print(formatter.error("Source FASTQ not found: \(sourcePath)"))
                 throw CLIExitCode.inputError.exitCode
             }
             guard fm.fileExists(atPath: krakenOutputURL.path) else {
@@ -172,56 +215,47 @@ extension BlastCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
+            // Every read file of the sources, each pair's R1 and R2, then the
+            // single reads (D8). A trimmed or oriented subset is materialized
+            // for this run only.
+            let scratch = try ProjectTempDirectory.createFromContext(prefix: "blast-sources-", contextURL: krakenOutputURL)
+            defer { try? fm.removeItem(at: scratch) }
+            let readFiles: KrakenResultReadSources
+            do {
+                readFiles = try await readSources(materializationDirectory: scratch)
+            } catch {
+                print(formatter.error("Could not read the source reads: \(error.localizedDescription)"))
+                throw CLIExitCode.inputError.exitCode
+            }
+
             if !globalOptions.quiet && globalOptions.outputFormat != .json {
                 print(formatter.keyValueTable([
                     ("Taxon", "\(targetNode.name) (txid\(taxId))"),
                     ("Rank", targetNode.rank.displayName),
                     ("Clade reads", "\(targetNode.readsClade)"),
-                    ("Source FASTQ", sourceURL.lastPathComponent),
+                    ("Source FASTQ", readFiles.urls.map(\.lastPathComponent).joined(separator: ", ")),
                     ("Reads to submit", "\(readCount)"),
                     ("Include children", includeChildren ? "yes" : "no"),
                 ]))
                 print("")
             }
 
-            // Phase 2: Collect target tax IDs
-            let targetTaxIds: Set<Int>
-            if includeChildren {
-                targetTaxIds = blastCollectDescendantTaxIds(Set([taxId]), tree: tree)
-            } else {
-                targetTaxIds = Set([taxId])
-            }
-
-            // Phase 3-5: Scan the Kraken output, draw an unbiased seeded
-            // sample of fragments, and for each paired fragment pick the mate
-            // whose k-mers carry the taxon's evidence. This is the same code
-            // path the app's BLAST Verify button uses.
+            // Phase 2-5: Collect the target taxa, scan the Kraken output,
+            // draw an unbiased seeded sample of fragments, and for each
+            // paired fragment pick the mate whose k-mers carry the taxon's
+            // evidence, reading every source file (D8). This is the same
+            // code path the app's BLAST Verify button uses.
             let jsonOutput = globalOptions.outputFormat == .json
             let chatty = !globalOptions.quiet && !jsonOutput
             if chatty {
                 print(formatter.info("Sampling \(readCount) fragments classified to the target taxa..."))
             }
 
-            let acceptedNames = targetTaxIds.compactMap { tree.node(taxId: $0)?.name }.sorted()
-            // Hits are always judged against the whole clade and its genus
-            // relatives, even when only reads assigned directly to the taxon
-            // are sampled.
-            let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
             let service = BlastService.shared
             let startedAt = Date()
             let built: BlastVerificationRequest
             do {
-                built = try await service.buildVerificationRequest(
-                    taxonName: targetNode.name,
-                    taxId: taxId,
-                    targetTaxIds: targetTaxIds,
-                    classificationOutputURL: krakenOutputURL,
-                    sourceURL: sourceURL,
-                    readCount: readCount,
-                    acceptedTaxonNames: acceptedNames,
-                    taxonomyContext: taxonomyContext,
-                    seed: seed
-                )
+                built = try await verificationRequest(tree: tree, readFiles: readFiles, service: service)
             } catch BlastServiceError.noSequences {
                 print(formatter.warning("No reads for taxon \(taxId) could be read from the classification output and source FASTQ"))
                 throw CLIExitCode.inputError.exitCode

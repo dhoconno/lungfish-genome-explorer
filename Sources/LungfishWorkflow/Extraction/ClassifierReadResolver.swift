@@ -138,6 +138,29 @@ public actor ClassifierReadResolver {
         destination: ExtractionDestination,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ExtractionOutcome {
+        try await resolveAndExtractWithLayout(
+            tool: tool,
+            resultPath: resultPath,
+            selections: selections,
+            options: options,
+            destination: destination,
+            progress: progress
+        ).outcome
+    }
+
+    /// Runs an extraction like
+    /// ``resolveAndExtract(tool:resultPath:selections:options:destination:progress:)``
+    /// and also returns the layout its output records. `lungfish-cli extract
+    /// reads --by-classifier --bundle` wraps its file output into a bundle
+    /// itself, and records this layout, so its bundle matches the app's (D7d).
+    public func resolveAndExtractWithLayout(
+        tool: ClassifierTool,
+        resultPath: URL,
+        selections: [ClassifierRowSelector],
+        options: ExtractionOptions,
+        destination: ExtractionDestination,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> (outcome: ExtractionOutcome, layout: ClassifierExtractionLayout) {
         let startedAt = Date()
         let nonEmpty = selections.filter { !$0.isEmpty }
         guard !nonEmpty.isEmpty else {
@@ -147,7 +170,7 @@ public actor ClassifierReadResolver {
         progress?(0.0, "Preparing \(tool.displayName) extraction…")
 
         if tool.usesBAMDispatch {
-            return try await extractViaBAM(
+            let outcome = try await extractViaBAM(
                 tool: tool,
                 selections: nonEmpty,
                 resultPath: resultPath,
@@ -156,6 +179,7 @@ public actor ClassifierReadResolver {
                 startedAt: startedAt,
                 progress: progress
             )
+            return (outcome, .singleEnd)
         } else {
             return try await extractViaKraken2(
                 selections: nonEmpty,
@@ -291,7 +315,7 @@ public actor ClassifierReadResolver {
     // MARK: - Private helpers
 
     /// Groups selectors by `sampleId`, treating `nil` as a single implicit sample.
-    private func groupBySample(
+    func groupBySample(
         _ selections: [ClassifierRowSelector]
     ) -> [(String?, [ClassifierRowSelector])] {
         var bySample: [String?: [ClassifierRowSelector]] = [:]
@@ -579,339 +603,9 @@ public actor ClassifierReadResolver {
         )
     }
 
-    // MARK: - Kraken2 dispatch
-
-    private func extractViaKraken2(
-        selections: [ClassifierRowSelector],
-        resultPath: URL,
-        options: ExtractionOptions,
-        destination: ExtractionDestination,
-        startedAt: Date,
-        progress: (@Sendable (Double, String) -> Void)?
-    ) async throws -> ExtractionOutcome {
-        let hasSingleSampleSelectors = selections.contains { $0.sampleId == nil }
-        let hasBatchSampleSelectors = selections.contains { $0.sampleId != nil }
-        guard !(hasSingleSampleSelectors && hasBatchSampleSelectors) else {
-            throw ClassifierExtractionError.mixedSampleSelectionModes
-        }
-
-        // Locate a writable temp directory under the enclosing project.
-        let projectRoot = Self.resolveProjectRoot(from: resultPath)
-        let tempDir = try ProjectTempDirectory.create(
-            prefix: "kraken2-extract-",
-            in: projectRoot
-        )
-        let cleanTempDir = tempDir  // capture for defer
-        defer { try? FileManager.default.removeItem(at: cleanTempDir) }
-
-        // Build the list of per-sample result paths to process.
-        // In batch mode, each selector carries a sampleId and the resultPath
-        // is the batch root directory containing per-sample subdirectories.
-        // In single-sample mode, sampleId is nil and resultPath points directly
-        // at the sample's classification output directory.
-        let sampleJobs: [(sampleId: String?, sampleResultPath: URL, taxIds: Set<Int>)] =
-            groupBySample(selections).compactMap { sampleId, group in
-                let taxIds = Set(group.flatMap(\.taxIds))
-                guard !taxIds.isEmpty else { return nil }
-                let sampleResultPath = sampleId.map {
-                    resultPath.appendingPathComponent($0, isDirectory: true)
-                } ?? resultPath
-                return (sampleId, sampleResultPath, taxIds)
-            }
-        guard !sampleJobs.isEmpty else {
-            throw ClassifierExtractionError.zeroReadsExtracted
-        }
-
-        var allProducedURLs: [URL] = []
-        var provenanceSourceURLs = existingUniqueURLs([resultPath])
-        // Samples whose sidecar or source FASTQ could not be resolved. These
-        // used to be dropped silently, so the user saw a "success" that
-        // omitted whole samples.
-        var skippedSamples: [String] = []
-        // Whether every extracted sample came from one interleaved paired
-        // FASTQ. Extraction keeps both mates in source order, so such an
-        // output is itself interleaved and must be recorded that way.
-        var everySourceInterleaved = true
-
-        for (jobIndex, job) in sampleJobs.enumerated() {
-            try Task.checkCancellation()
-
-            let sampleLabel = job.sampleId ?? "sample"
-            let baseFraction = Double(jobIndex) / Double(sampleJobs.count)
-            let sampleWeight = 1.0 / Double(sampleJobs.count)
-
-            progress?(baseFraction * 0.8, "Loading \(sampleLabel) classification…")
-
-            // Load this sample's ClassificationResult.
-            let classResult: ClassificationResult
-            do {
-                classResult = try ClassificationResult.load(from: job.sampleResultPath)
-            } catch {
-                logger.warning(
-                    "Skipping sample \(sampleLabel, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private(mask: .hash))"
-                )
-                skippedSamples.append(sampleLabel)
-                continue
-            }
-            provenanceSourceURLs.append(job.sampleResultPath)
-            provenanceSourceURLs.append(classResult.outputURL)
-
-            // Resolve the source FASTQ(s) for this sample.
-            let sourceFASTQs: [URL]
-            do {
-                sourceFASTQs = try resolveKraken2SourceFASTQs(classResult: classResult)
-            } catch {
-                logger.warning(
-                    "Skipping sample \(sampleLabel, privacy: .private(mask: .hash)) — source FASTQ not found: \(error.localizedDescription, privacy: .private(mask: .hash))"
-                )
-                skippedSamples.append(sampleLabel)
-                continue
-            }
-            provenanceSourceURLs.append(contentsOf: sourceFASTQs)
-            everySourceInterleaved = everySourceInterleaved
-                && Self.sourceHoldsInterleavedPairs(config: classResult.config, sourceFASTQs: sourceFASTQs)
-
-            // Build per-sample output paths in the shared temp dir.
-            let stem = "\(jobIndex)_\(sampleLabel)"
-            let outputFiles: [URL]
-            if sourceFASTQs.count == 1 {
-                outputFiles = [tempDir.appendingPathComponent("\(stem).fastq")]
-            } else {
-                outputFiles = sourceFASTQs.enumerated().map { idx, _ in
-                    tempDir.appendingPathComponent("\(stem)_R\(idx + 1).fastq")
-                }
-            }
-
-            let config = TaxonomyExtractionConfig(
-                taxIds: job.taxIds,
-                includeChildren: true,
-                sourceFiles: sourceFASTQs,
-                outputFiles: outputFiles,
-                classificationOutput: classResult.outputURL,
-                taxonomyReport: classResult.reportURL,
-                keepReadPairs: true
-            )
-
-            progress?(baseFraction * 0.8 + 0.1 * sampleWeight, "Extracting \(sampleLabel)…")
-
-            let pipeline = TaxonomyExtractionPipeline()
-            let producedURLs = try await pipeline.extract(
-                config: config,
-                tree: classResult.tree,
-                progress: { fraction, message in
-                    progress?(baseFraction * 0.8 + fraction * 0.7 * sampleWeight, "\(sampleLabel): \(message)")
-                }
-            )
-
-            // Decompress .fastq.gz output from seqkit.
-            let decompressed = try await decompressGzippedFiles(producedURLs)
-            allProducedURLs.append(contentsOf: decompressed)
-        }
-
-        guard !allProducedURLs.isEmpty else {
-            if !skippedSamples.isEmpty {
-                throw ClassifierExtractionError.allSamplesSkipped(skippedSamples)
-            }
-            throw ClassifierExtractionError.zeroReadsExtracted
-        }
-        try Task.checkCancellation()
-
-        // Concatenate all per-sample outputs into a single FASTQ.
-        let concatenated = tempDir.appendingPathComponent("kraken2-concat.fastq")
-        try concatenateFiles(allProducedURLs, into: concatenated)
-        try Task.checkCancellation()
-
-        let readCount = try await countFASTQRecords(in: concatenated)
-        if readCount == 0 {
-            throw ClassifierExtractionError.zeroReadsExtracted
-        }
-        try Task.checkCancellation()
-
-        let outputPairingMode: IngestionMetadata.PairingMode =
-            options.format == .fastq && everySourceInterleaved
-                ? Self.extractedPairingMode(ofInterleavedSourceOutput: concatenated)
-                : .singleEnd
-
-        // Format conversion.
-        let finalFile: URL
-        if options.format == .fasta {
-            finalFile = tempDir.appendingPathComponent("kraken2-concat.fasta")
-            try convertFASTQToFASTA(input: concatenated, output: finalFile)
-            try Task.checkCancellation()
-        } else {
-            finalFile = concatenated
-        }
-
-        progress?(0.9, "Routing to destination…")
-        let outcome = try await routeToDestination(
-            finalFile: finalFile,
-            readCount: readCount,
-            destination: destination,
-            options: options,
-            provenanceSourceURLs: existingUniqueURLs(provenanceSourceURLs),
-            extractionStartedAt: startedAt,
-            outputPairingMode: outputPairingMode,
-            progress: progress
-        )
-        if !skippedSamples.isEmpty {
-            progress?(
-                1.0,
-                "Extracted \(readCount) reads. Skipped \(skippedSamples.count) sample(s) with unresolvable source data: \(skippedSamples.joined(separator: ", "))"
-            )
-        }
-        return outcome
-    }
-
-    /// Whether a Kraken 2 sample's source is one FASTQ holding interleaved
-    /// mate pairs, from the layout the classification recorded or, failing
-    /// that, the source bundle's pairing metadata.
-    static func sourceHoldsInterleavedPairs(
-        config: ClassificationConfig,
-        sourceFASTQs: [URL]
-    ) -> Bool {
-        guard sourceFASTQs.count == 1, let source = sourceFASTQs.first else { return false }
-        if config.interleavedInput { return true }
-        if let layout = config.inputLayout?.layout {
-            return layout != .singleEnd
-        }
-        return FASTQReadLayoutClassifier.metadataHints(for: source).pairingMode == .interleaved
-    }
-
-    /// The pairing to record for an extraction whose sources were all
-    /// interleaved pairs. Confirms from the output's own records that mates
-    /// are still adjacent; a selection that kept no adjacent mates is
-    /// recorded as single-end.
-    static func extractedPairingMode(ofInterleavedSourceOutput fastqURL: URL) -> IngestionMetadata.PairingMode {
-        guard let scan = try? FASTQReadLayoutClassifier.readHeaders(from: fastqURL) else {
-            return .singleEnd
-        }
-        let classification = FASTQReadLayoutClassifier.classify(
-            headers: scan.headers,
-            scannedWholeFile: scan.scannedWholeFile,
-            metadata: FASTQPairingMetadataHints(pairingMode: .interleaved)
-        )
-        return classification.matePairs > 0 ? .interleaved : .singleEnd
-    }
-
-    /// Resolves the Kraken2 source FASTQ(s) for extraction.
-    ///
-    /// Tries (in order):
-    /// 1. `config.originalInputFiles` if non-nil (preserved before
-    ///    materialization). If the resulting URL is a bundle, uses the
-    ///    `FASTQBundle.resolvePrimaryFASTQURL` resolver.
-    /// 2. Walking up from `config.outputDirectory` to find the enclosing
-    ///    `.lungfishfastq` bundle.
-    /// 3. Falls back to `config.inputFiles` directly.
-    private func resolveKraken2SourceFASTQs(
-        classResult: ClassificationResult
-    ) throws -> [URL] {
-        try Self.resolveKraken2SourceFASTQs(classResult: classResult)
-    }
-
-    /// Shared implementation of Kraken2 source FASTQ resolution.
-    ///
-    /// Exposed as a static so non-extraction callers (notably the BLAST
-    /// verification handlers in the viewer, which previously used
-    /// `config.inputFiles.first` raw) resolve the same source file. Using
-    /// `inputFiles` directly breaks whenever the classification ran against a
-    /// materialized temp FASTQ that has since been deleted.
-    public static func resolveKraken2SourceFASTQs(
-        classResult: ClassificationResult
-    ) throws -> [URL] {
-        let fm = FileManager.default
-        let config = classResult.config
-
-        // 1. originalInputFiles
-        if let originals = config.originalInputFiles,
-           let first = originals.first,
-           fm.fileExists(atPath: first.path) {
-            if let resolved = resolveBundlePayloadIfNeeded(first) {
-                return [resolved]
-            }
-            return originals
-        }
-
-        // 2. Walk up from outputDirectory to find the enclosing bundle.
-        //    outputDirectory = bundle.lungfishfastq/derivatives/classification-xxx/
-        let derivativesDir = config.outputDirectory.deletingLastPathComponent()
-        let bundleDir = derivativesDir.deletingLastPathComponent()
-        if FASTQBundle.isBundleURL(bundleDir),
-           let resolved = FASTQBundle.resolvePrimarySequenceURL(for: bundleDir) {
-            return [resolved]
-        }
-
-        // 3. Fall back to config.inputFiles if they exist.
-        if let first = config.inputFiles.first, fm.fileExists(atPath: first.path) {
-            if let resolved = resolveBundlePayloadIfNeeded(first) {
-                return [resolved]
-            }
-            return config.inputFiles
-        }
-
-        throw ClassifierExtractionError.kraken2SourceMissing
-    }
-
-    /// When `url` names a `.lungfishfastq` bundle directory, resolves it to the
-    /// payload file inside. Returns `nil` when `url` is not a bundle (callers
-    /// then use the URL as-is).
-    private static func resolveBundlePayloadIfNeeded(_ url: URL) -> URL? {
-        guard FASTQBundle.isBundleURL(url) else { return nil }
-        return FASTQBundle.resolvePrimarySequenceURL(for: url)
-    }
-
-    /// Resolves the single primary source FASTQ (or FASTA) for a Kraken2
-    /// classification result.
-    ///
-    /// Convenience wrapper for callers that need exactly one file, such as
-    /// BLAST verification read extraction.
-    public static func resolveKraken2PrimarySource(
-        classResult: ClassificationResult
-    ) throws -> URL {
-        guard let first = try resolveKraken2SourceFASTQs(classResult: classResult).first else {
-            throw ClassifierExtractionError.kraken2SourceMissing
-        }
-        return first
-    }
-
     // MARK: - File helpers
 
-    /// Decompresses any `.gz` files in the list, returning URLs to uncompressed files.
-    /// Non-`.gz` files are passed through unchanged. Uses `pigz -d -c` (parallel
-    /// decompression to stdout) via `NativeToolRunner.runWithFileOutput`, matching
-    /// the pattern established in `FASTQBatchImporter`.
-    private func decompressGzippedFiles(_ urls: [URL]) async throws -> [URL] {
-        let fm = FileManager.default
-        var result: [URL] = []
-        for url in urls {
-            guard url.pathExtension == "gz" else {
-                result.append(url)
-                continue
-            }
-            let decompressed = url.deletingPathExtension() // strips .gz -> .fastq
-            // If the decompressed file already exists (e.g. from a prior run), use it.
-            if fm.fileExists(atPath: decompressed.path) {
-                result.append(decompressed)
-                continue
-            }
-            let pigzResult = try await toolRunner.runWithFileOutput(
-                .pigz,
-                arguments: ["-d", "-c", url.path],
-                outputFile: decompressed
-            )
-            guard pigzResult.isSuccess,
-                  fm.fileExists(atPath: decompressed.path) else {
-                logger.warning(
-                    "pigz decompression failed for \(url.lastPathComponent, privacy: .private(mask: .hash)): \(pigzResult.stderr.suffix(200), privacy: .private(mask: .hash))"
-                )
-                result.append(url)
-                continue
-            }
-            result.append(decompressed)
-        }
-        return result
-    }
-
-    private func concatenateFiles(_ sources: [URL], into destination: URL) throws {
+    func concatenateFiles(_ sources: [URL], into destination: URL) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: destination.path) {
             try fm.removeItem(at: destination)
@@ -930,7 +624,7 @@ public actor ClassifierReadResolver {
         }
     }
 
-    private func existingUniqueURLs(_ urls: [URL]) -> [URL] {
+    func existingUniqueURLs(_ urls: [URL]) -> [URL] {
         var seen: Set<String> = []
         var result: [URL] = []
         for url in urls {
@@ -952,7 +646,7 @@ public actor ClassifierReadResolver {
     /// newline (e.g. an upstream tool omits the final LF, or a partial/truncated write) --
     /// the last record is still fully present and usable, just not newline-terminated
     /// (R3-R3ML-10).
-    private func countFASTQRecords(in url: URL) async throws -> Int {
+    func countFASTQRecords(in url: URL) async throws -> Int {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var lineCount = 0
@@ -972,7 +666,7 @@ public actor ClassifierReadResolver {
     }
 
     /// FASTQ → FASTA line-by-line conversion. Drops quality lines.
-    private func convertFASTQToFASTA(input: URL, output: URL) throws {
+    func convertFASTQToFASTA(input: URL, output: URL) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: output.path) {
             try fm.removeItem(at: output)
@@ -1013,7 +707,7 @@ public actor ClassifierReadResolver {
 
     // MARK: - Destination routing
 
-    private func routeToDestination(
+    func routeToDestination(
         finalFile: URL,
         readCount: Int,
         destination: ExtractionDestination,
@@ -1021,6 +715,7 @@ public actor ClassifierReadResolver {
         provenanceSourceURLs: [URL],
         extractionStartedAt: Date,
         outputPairingMode: IngestionMetadata.PairingMode = .singleEnd,
+        outputRoles: ReadClassification? = nil,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ExtractionOutcome {
         let fm = FileManager.default
@@ -1061,16 +756,17 @@ public actor ClassifierReadResolver {
             let outputFormat = finalFile.pathExtension.lowercased() == "fasta" ? "fasta" : "fastq"
             let bundleMetadata = metadata.mergingParameters([
                 "classifierExtractionOutputLayout": "single_file",
-                "classifierExtractionOutputPairingMode": outputPairingMode.rawValue,
+                "classifierExtractionOutputPairingMode": outputRoles == nil ? outputPairingMode.rawValue : "mixed",
                 "classifierExtractionOutputFormat": outputFormat,
                 "classifierExtractionReadCountUnit": "reads",
             ])
             .recordingSourceURLs(provenanceSourceURLs)
             // Classifier extraction normalizes BAM-backed and Kraken2
             // selections into one output file before bundling, so the bundle
-            // is never split paired-end. It is single-end unless every source
-            // was one interleaved FASTQ and the output kept adjacent mates, in
-            // which case it is interleaved (`outputPairingMode`).
+            // is never split paired-end. A Kraken2 output of pairs only is
+            // interleaved (`outputPairingMode`). One that mixes pairs with
+            // single reads is single-end with its roles (`outputRoles`), as
+            // a merge recipe records them, so no tool pairs it by position.
             let result = ExtractionResult(
                 fastqURLs: [finalFile],
                 readCount: readCount,
@@ -1084,6 +780,9 @@ public actor ClassifierReadResolver {
                 metadata: bundleMetadata,
                 in: try Self.bundleDestinationDirectory(projectRoot: projectRoot)
             )
+            if let outputRoles {
+                FASTQMixedLayoutHint.write(outputRoles, beside: bundleURL.appendingPathComponent(finalFile.lastPathComponent))
+            }
             progress?(1.0, "Created bundle \(bundleURL.lastPathComponent)")
             return .bundle(bundleURL, readCount: readCount)
 

@@ -55,6 +55,7 @@ public actor ReadExtractionService {
     /// - Throws: ``ExtractionError`` on validation failure, tool errors, or empty output.
     public func extractByReadIDs(
         config: ReadIDExtractionConfig,
+        matching: ReadIDMatching = .firstWord,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ExtractionResult {
         // Validate inputs
@@ -101,8 +102,7 @@ public actor ReadExtractionService {
             let baseFraction = 0.1 + 0.7 * Double(index) / Double(totalSources)
             progress?(baseFraction, "Extracting reads from \(sourceURL.lastPathComponent)...")
 
-            let args = [
-                "grep",
+            let args = ["grep"] + matching.seqkitArguments + [
                 "-f", readIDFile.path,
                 sourceURL.path,
                 "-o", outputURL.path,

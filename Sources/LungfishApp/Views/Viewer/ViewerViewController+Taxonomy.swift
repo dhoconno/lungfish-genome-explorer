@@ -154,7 +154,9 @@ extension ViewerViewController {
 
         // Wire BLAST verification callback.
         // When user clicks "Run BLAST" in the config popover, submit to NCBI BLAST.
-        let capturedSource = try? ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result)
+        // The inputs the classification recorded. The row's command names
+        // each with one --source, and the run reads their files (D8).
+        let capturedInputs = (try? KrakenResultReadSources.recordedInputs(of: result)) ?? []
         let capturedOutputURL = result.outputURL
         let capturedTree = result.tree
         let capturedResultDirectory = result.config.outputDirectory
@@ -167,7 +169,7 @@ extension ViewerViewController {
             ViewerViewController.beginKraken2BlastVerificationOperation(
                 taxonName: node.name,
                 classResult: result,
-                sourceURL: capturedSource,
+                sourceInputs: capturedInputs,
                 taxId: node.taxId,
                 readCount: readCount,
                 resultDirectory: capturedResultDirectory
@@ -180,7 +182,7 @@ extension ViewerViewController {
 
                 let taxId = node.taxId
                 let taxonName = node.name
-                let resolvedSource = capturedSource
+                let sourceInputs = capturedInputs
                 let classificationOutput = capturedOutputURL
                 let tree = capturedTree
                 let resultDirectory = capturedResultDirectory
@@ -189,60 +191,16 @@ extension ViewerViewController {
 
                 let task = Task.detached {
                     do {
-                        // Guard: source FASTQ must exist for BLAST read extraction
-                        guard let sourceURL = resolvedSource else {
-                            taxonomyLogger.error("BLAST: could not resolve a source FASTQ for this classification")
-                            throw BlastServiceError.noSequences
-                        }
-                        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-                            taxonomyLogger.error("BLAST: source FASTQ not found at \(sourceURL.path, privacy: .public)")
-                            throw BlastServiceError.noSequences
-                        }
-
-                        // Build read ID set for this taxon using the indexed
-                        // sidecar when available (O(k) vs O(n) linear scan).
-                        // Clade (sampling targets and supporting hits) plus the
-                        // genus relatives the tree knows about.
-                        let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
-                        let targetTaxIds = taxonomyContext.cladeTaxIds
-                        let acceptedTaxonNames = taxonomyContext.cladeNames
-
                         let blastService = BlastService.shared
-                        let request: BlastVerificationRequest
-
-                        let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
-                        if let db = try? KrakenIndexDatabase(url: indexURL),
-                           db.canResolve(taxIds: targetTaxIds) {
-                            // Fast path: use indexed lookup
-                            let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
-                            db.close()
-                            taxonomyLogger.info("BLAST: indexed lookup found \(matchingReadIds.count, privacy: .public) reads for \(targetTaxIds.count, privacy: .public) taxIds")
-
-                            request = try await blastService.buildVerificationRequestFromReadIds(
-                                taxonName: taxonName,
-                                taxId: taxId,
-                                matchingReadIds: matchingReadIds,
-                                sourceURL: sourceURL,
-                                readCount: readCount,
-                                targetTaxIds: targetTaxIds,
-                                classificationOutputURL: classificationOutput,
-                                acceptedTaxonNames: acceptedTaxonNames,
-                                taxonomyContext: taxonomyContext
-                            )
-                        } else {
-                            // Slow path: linear scan (index will be built on next classification)
-                            taxonomyLogger.info("BLAST: no index available, using linear scan")
-                            request = try await blastService.buildVerificationRequest(
-                                taxonName: taxonName,
-                                taxId: taxId,
-                                targetTaxIds: targetTaxIds,
-                                classificationOutputURL: classificationOutput,
-                                sourceURL: sourceURL,
-                                readCount: readCount,
-                                acceptedTaxonNames: acceptedTaxonNames,
-                                taxonomyContext: taxonomyContext
-                            )
-                        }
+                        let request = try await kraken2BlastVerificationRequest(
+                            taxonName: taxonName,
+                            taxId: taxId,
+                            tree: tree,
+                            classificationOutput: classificationOutput,
+                            sourceInputs: sourceInputs,
+                            readCount: readCount,
+                            service: blastService
+                        )
 
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
@@ -284,7 +242,7 @@ extension ViewerViewController {
                             request: request,
                             resultDirectory: resultDirectory,
                             classResult: result,
-                            sourceURL: sourceURL,
+                            sourceInputs: sourceInputs,
                             readCount: readCount,
                             startedAt: startedAt
                         )
@@ -395,14 +353,12 @@ extension ViewerViewController {
                 return
             }
             let startedAt = Date()
-            let resolvedSource = try? ClassifierReadResolver.resolveKraken2PrimarySource(
-                classResult: sampleResult
-            )
+            let sourceInputs = (try? KrakenResultReadSources.recordedInputs(of: sampleResult)) ?? []
 
             ViewerViewController.beginKraken2BlastVerificationOperation(
                 taxonName: node.name,
                 classResult: sampleResult,
-                sourceURL: resolvedSource,
+                sourceInputs: sourceInputs,
                 taxId: node.taxId,
                 readCount: readCount,
                 resultDirectory: sampleDirectory
@@ -420,52 +376,16 @@ extension ViewerViewController {
 
                 let task = Task.detached {
                     do {
-                        guard let sourceURL = resolvedSource else {
-                            taxonomyLogger.error("BLAST: could not resolve a source FASTQ for the selected sample")
-                            throw BlastServiceError.noSequences
-                        }
-                        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-                            taxonomyLogger.error("BLAST: source FASTQ not found at \(sourceURL.path, privacy: .public)")
-                            throw BlastServiceError.noSequences
-                        }
-
-                        // Clade (sampling targets and supporting hits) plus the
-                        // genus relatives the tree knows about.
-                        let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
-                        let targetTaxIds = taxonomyContext.cladeTaxIds
-                        let acceptedTaxonNames = taxonomyContext.cladeNames
-
                         let blastService = BlastService.shared
-                        let request: BlastVerificationRequest
-
-                        let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
-                        if let db = try? KrakenIndexDatabase(url: indexURL),
-                           db.canResolve(taxIds: targetTaxIds) {
-                            let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
-                            db.close()
-                            request = try await blastService.buildVerificationRequestFromReadIds(
-                                taxonName: taxonName,
-                                taxId: taxId,
-                                matchingReadIds: matchingReadIds,
-                                sourceURL: sourceURL,
-                                readCount: readCount,
-                                targetTaxIds: targetTaxIds,
-                                classificationOutputURL: classificationOutput,
-                                acceptedTaxonNames: acceptedTaxonNames,
-                                taxonomyContext: taxonomyContext
-                            )
-                        } else {
-                            request = try await blastService.buildVerificationRequest(
-                                taxonName: taxonName,
-                                taxId: taxId,
-                                targetTaxIds: targetTaxIds,
-                                classificationOutputURL: classificationOutput,
-                                sourceURL: sourceURL,
-                                readCount: readCount,
-                                acceptedTaxonNames: acceptedTaxonNames,
-                                taxonomyContext: taxonomyContext
-                            )
-                        }
+                        let request = try await kraken2BlastVerificationRequest(
+                            taxonName: taxonName,
+                            taxId: taxId,
+                            tree: tree,
+                            classificationOutput: classificationOutput,
+                            sourceInputs: sourceInputs,
+                            readCount: readCount,
+                            service: blastService
+                        )
 
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
@@ -506,7 +426,7 @@ extension ViewerViewController {
                             request: request,
                             resultDirectory: sampleDirectory,
                             classResult: sampleResult,
-                            sourceURL: sourceURL,
+                            sourceInputs: sourceInputs,
                             readCount: readCount,
                             startedAt: startedAt
                         )
@@ -580,14 +500,14 @@ extension ViewerViewController {
 
     /// Registers the BLAST verification row for a Kraken2 taxon and, only
     /// when it starts, calls `launch` with the operation ID. The row records
-    /// the `lungfish-cli blast verify` command for the same inputs, including
-    /// the `--result-dir` the app saves the verification into. It locks no
-    /// bundle.
+    /// the `lungfish-cli blast verify` command for the same inputs, one
+    /// `--source` for each of `sourceInputs`, including the `--result-dir`
+    /// the app saves the verification into. It locks no bundle.
     @discardableResult
     static func beginKraken2BlastVerificationOperation(
         taxonName: String,
         classResult: ClassificationResult,
-        sourceURL: URL?,
+        sourceInputs: [URL],
         taxId: Int,
         readCount: Int,
         resultDirectory: URL,
@@ -602,7 +522,7 @@ extension ViewerViewController {
                 subcommand: "blast verify",
                 args: blastVerifyCLIArguments(
                     classResult: classResult,
-                    sourceURL: sourceURL,
+                    sourceInputs: sourceInputs,
                     taxId: taxId,
                     readCount: readCount,
                     resultDirectory: resultDirectory
@@ -660,10 +580,12 @@ private func showTaxonomyExtractionErrorAlert(_ errorDescription: String) {
 /// Arguments for the `lungfish-cli blast verify` command that reproduces an
 /// in-app BLAST verification. The app always includes descendant taxa, and
 /// it saves the verification under `<resultDirectory>/blast-verifications/`,
-/// which `--result-dir` reproduces.
+/// which `--result-dir` reproduces. Each input the classification recorded
+/// is one `--source`, which the CLI resolves to the read files the app reads
+/// (D8).
 func blastVerifyCLIArguments(
     classResult: ClassificationResult,
-    sourceURL: URL?,
+    sourceInputs: [URL],
     taxId: Int,
     readCount: Int,
     resultDirectory: URL
@@ -672,12 +594,89 @@ func blastVerifyCLIArguments(
         "--kreport", classResult.reportURL.path,
         "--kraken-output", classResult.outputURL.path,
     ]
-    if let sourceURL {
-        args += ["--source", sourceURL.path]
+    for input in sourceInputs {
+        args += ["--source", input.path]
     }
     args += ["--taxid", "\(taxId)", "--include-children", "--reads", "\(readCount)"]
     args += ["--result-dir", resultDirectory.path]
     return args
+}
+
+/// The BLAST verification request for a Kraken2 taxon, which both BLAST
+/// rows of the viewer submit. It finds the taxon's fragments through the
+/// result's read index when the index can resolve the clade, and by a scan
+/// of the per-read output otherwise.
+///
+/// It reads every read file of `sourceInputs`, each pair's R1 and R2, then
+/// the single reads, so a fragment whose evidence is on mate 2 is sent from
+/// the R2 file and a merged fragment is found (D8). `lungfish-cli blast
+/// verify` with one `--source` per input builds the same request.
+func kraken2BlastVerificationRequest(
+    taxonName: String,
+    taxId: Int,
+    tree: TaxonTree,
+    classificationOutput: URL,
+    sourceInputs: [URL],
+    readCount: Int,
+    service: BlastService = .shared
+) async throws -> BlastVerificationRequest {
+    // A trimmed or oriented subset is materialized for this request only.
+    let scratch = try ProjectTempDirectory.createFromContext(prefix: "blast-sources-", contextURL: classificationOutput)
+    defer { try? FileManager.default.removeItem(at: scratch) }
+    let sources: [BlastReadSource]
+    do {
+        sources = try await KrakenResultReadSources.resolve(
+            inputs: sourceInputs,
+            classificationOutput: classificationOutput,
+            materializationDirectory: scratch
+        ).blastReadSources
+    } catch is CancellationError {
+        throw CancellationError()
+    } catch {
+        taxonomyLogger.error("BLAST: could not resolve the source reads of this classification: \(error.localizedDescription, privacy: .public)")
+        throw BlastServiceError.noSequences
+    }
+
+    // Build read ID set for this taxon using the indexed
+    // sidecar when available (O(k) vs O(n) linear scan).
+    // Clade (sampling targets and supporting hits) plus the
+    // genus relatives the tree knows about.
+    let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
+    let targetTaxIds = taxonomyContext.cladeTaxIds
+    let acceptedTaxonNames = taxonomyContext.cladeNames
+
+    let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
+    if let db = try? KrakenIndexDatabase(url: indexURL),
+       db.canResolve(taxIds: targetTaxIds) {
+        // Fast path: use indexed lookup
+        let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
+        db.close()
+        taxonomyLogger.info("BLAST: indexed lookup found \(matchingReadIds.count, privacy: .public) reads for \(targetTaxIds.count, privacy: .public) taxIds")
+
+        return try await service.buildVerificationRequestFromReadIds(
+            taxonName: taxonName,
+            taxId: taxId,
+            matchingReadIds: matchingReadIds,
+            sources: sources,
+            readCount: readCount,
+            targetTaxIds: targetTaxIds,
+            classificationOutputURL: classificationOutput,
+            acceptedTaxonNames: acceptedTaxonNames,
+            taxonomyContext: taxonomyContext
+        )
+    }
+    // Slow path: linear scan (index will be built on next classification)
+    taxonomyLogger.info("BLAST: no index available, using linear scan")
+    return try await service.buildVerificationRequest(
+        taxonName: taxonName,
+        taxId: taxId,
+        targetTaxIds: targetTaxIds,
+        classificationOutputURL: classificationOutput,
+        sources: sources,
+        readCount: readCount,
+        acceptedTaxonNames: acceptedTaxonNames,
+        taxonomyContext: taxonomyContext
+    )
 }
 
 /// Operations-panel summary for a finished BLAST verification.
@@ -722,14 +721,14 @@ func saveBlastVerification(
     request: BlastVerificationRequest,
     resultDirectory: URL,
     classResult: ClassificationResult,
-    sourceURL: URL,
+    sourceInputs: [URL],
     readCount: Int,
     startedAt: Date
 ) {
     let argv = [CLICommandIdentity.executableName, "blast", "verify"]
         + blastVerifyCLIArguments(
             classResult: classResult,
-            sourceURL: sourceURL,
+            sourceInputs: sourceInputs,
             taxId: result.taxId,
             readCount: readCount,
             resultDirectory: resultDirectory

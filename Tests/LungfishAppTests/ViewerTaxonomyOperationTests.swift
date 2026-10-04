@@ -56,7 +56,7 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
         ViewerViewController.beginKraken2BlastVerificationOperation(
             taxonName: "Influenza A virus",
             classResult: result,
-            sourceURL: source,
+            sourceInputs: [source],
             taxId: 11320,
             readCount: 20,
             resultDirectory: sampleDirectory,
@@ -72,7 +72,7 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
         let command = try RecordedCLICommand.parse(item.cliCommand, as: BlastCommand.VerifySubcommand.self)
         XCTAssertEqual(command.kreportFile, result.reportURL.path)
         XCTAssertEqual(command.krakenOutput, result.outputURL.path)
-        XCTAssertEqual(command.sourceFile, source.path)
+        XCTAssertEqual(command.sourcePaths, [source.path])
         XCTAssertEqual(command.taxId, 11320)
         XCTAssertEqual(command.readCount, 20)
         XCTAssertTrue(command.includeChildren, "the app always includes descendant taxa")

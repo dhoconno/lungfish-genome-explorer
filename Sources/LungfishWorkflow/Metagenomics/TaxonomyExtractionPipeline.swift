@@ -89,7 +89,33 @@ public actor TaxonomyExtractionPipeline {
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> [URL] {
         let startTime = Date()
+        let extraction = try await extractEachSource(config: config, tree: tree, progress: progress)
+        let outputURLs = extraction.outputs.compactMap { $0 }
 
+        // Phase 4: Provenance recording (0.95 -- 1.00)
+        progress?(0.95, "Recording provenance...")
+
+        let runtime = Date().timeIntervalSince(startTime)
+        try await recordProvenance(
+            config: config,
+            resolvedTaxIds: extraction.taxIds,
+            outputURLs: outputURLs,
+            extractedCount: extraction.readCount,
+            runtime: runtime
+        )
+
+        progress?(1.0, "Extraction complete: \(extraction.readCount) reads")
+        return outputURLs
+    }
+
+    /// The extraction ``extract(config:tree:progress:)`` records: one output
+    /// per source file of `config`, in order, nil for a source that holds
+    /// none of the reads, with the tax IDs matched and the records written.
+    func extractEachSource(
+        config: TaxonomyExtractionConfig,
+        tree: TaxonTree,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> (outputs: [URL?], taxIds: Set<Int>, readCount: Int) {
         // Validate source/output count parity.
         guard config.sourceFiles.count == config.outputFiles.count else {
             throw TaxonomyExtractionError.sourceOutputCountMismatch(
@@ -144,43 +170,70 @@ public actor TaxonomyExtractionPipeline {
         // line-by-line Swift FASTQ parsing because it uses optimized C I/O and handles .gz natively.
         try Task.checkCancellation()
 
-        let outputDir = config.outputFile.deletingLastPathComponent()
-        let baseName = config.outputFile.deletingPathExtension().lastPathComponent
-
-        let extractionConfig = ReadIDExtractionConfig(
-            sourceFASTQs: config.sourceFiles,
-            readIDs: matchingReadIds,
+        let outputs = try await extractReadIDs(
+            matchingReadIds,
+            from: config.sourceFiles,
             keepReadPairs: config.keepReadPairs,
-            outputDirectory: outputDir,
-            outputBaseName: baseName
+            outputDirectory: config.outputFile.deletingLastPathComponent(),
+            baseName: config.outputFile.deletingPathExtension().lastPathComponent,
+            progress: progress
         )
+        return (outputs.urls, targetTaxIds, outputs.readCount)
+    }
 
+    /// Runs seqkit grep with the read IDs over each source file, one output
+    /// per source in order. One source runs as it always has. Several sources
+    /// run one at a time, and a source holding none of the reads gives nil,
+    /// so the R1 and R2 files of a taxon whose reads were all merged do not
+    /// fail its merged file (D7a).
+    private func extractReadIDs(
+        _ readIDs: Set<String>,
+        from sources: [URL],
+        keepReadPairs: Bool,
+        outputDirectory: URL,
+        baseName: String,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> (urls: [URL?], readCount: Int) {
         let service = ReadExtractionService(toolRunner: NativeToolRunner.shared)
-        let extractionResult = try await service.extractByReadIDs(
-            config: extractionConfig,
-            progress: { fraction, message in
+        // The IDs are fragment names when mates are kept together, so a mate
+        // named `X/1` must match `X` (D7c).
+        let matching: ReadIDMatching = keepReadPairs ? .fragmentName : .firstWord
+        func config(_ files: [URL], _ name: String) -> ReadIDExtractionConfig {
+            ReadIDExtractionConfig(
+                sourceFASTQs: files,
+                readIDs: readIDs,
+                keepReadPairs: keepReadPairs,
+                outputDirectory: outputDirectory,
+                outputBaseName: name
+            )
+        }
+        guard sources.count > 1 else {
+            let result = try await service.extractByReadIDs(config: config(sources, baseName), matching: matching) { fraction, message in
                 // Map service progress (0..1) into our pipeline range (0.30..0.95)
                 progress?(0.30 + fraction * 0.65, message)
             }
-        )
-
-        let totalExtracted = extractionResult.readCount
-        let outputURLs = extractionResult.fastqURLs
-
-        // Phase 4: Provenance recording (0.95 -- 1.00)
-        progress?(0.95, "Recording provenance...")
-
-        let runtime = Date().timeIntervalSince(startTime)
-        try await recordProvenance(
-            config: config,
-            resolvedTaxIds: targetTaxIds,
-            outputURLs: outputURLs,
-            extractedCount: totalExtracted,
-            runtime: runtime
-        )
-
-        progress?(1.0, "Extraction complete: \(totalExtracted) reads")
-        return outputURLs
+            return (result.fastqURLs, result.readCount)
+        }
+        var urls: [URL?] = []
+        var readCount = 0
+        let share = 0.65 / Double(sources.count)
+        for (index, source) in sources.enumerated() {
+            let name = "\(baseName)_R\(index + 1)"
+            do {
+                let result = try await service.extractByReadIDs(config: config([source], name), matching: matching) { fraction, message in
+                    progress?(0.30 + (Double(index) + fraction) * share, message)
+                }
+                urls.append(result.fastqURLs.first)
+                readCount += result.readCount
+            } catch ExtractionError.emptyExtraction {
+                // seqkit leaves an empty output behind.
+                let empty = outputDirectory.appendingPathComponent("\(ExtractionBundleNaming.sanitizeFilename(name)).fastq.gz")
+                try? FileManager.default.removeItem(at: empty)
+                urls.append(nil)
+            }
+        }
+        guard readCount > 0 else { throw ExtractionError.emptyExtraction }
+        return (urls, readCount)
     }
 
 
@@ -228,6 +281,15 @@ public actor TaxonomyExtractionPipeline {
 
         progress?(0.0, "Starting batch extraction: \(collection.name) (\(totalTargets) taxa)")
 
+        // Every read file of the result (D7e). A trimmed or oriented subset
+        // is materialized once into a scratch folder that goes at the end.
+        let scratch = outputDirectory.appendingPathComponent(".kraken2-sources-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: scratch) }
+        let sources = try await KrakenResultReadSources.resolve(
+            result: classificationResult,
+            materializationDirectory: scratch.appendingPathComponent("materialized", isDirectory: true)
+        )
+
         var outputURLs: [URL] = []
         var skippedCount = 0
 
@@ -258,31 +320,34 @@ public actor TaxonomyExtractionPipeline {
                 .replacingOccurrences(of: "/", with: "-")
             let outputFile = outputDirectory.appendingPathComponent("\(safeName)_taxid\(target.taxId).fastq")
 
-            // Build config for this single target.
-            // Prefer originalInputFiles (preserved before materialization) to avoid
-            // referencing a deleted temp file.
-            let sourceFile = classificationResult.config.originalInputFiles?.first
-                ?? classificationResult.config.inputFiles.first
-                ?? URL(fileURLWithPath: "/dev/null")
+            // Build config for this single target. One file of reads is
+            // extracted as before. Several give one file per taxon, pairs
+            // interleaved, then single reads (D7e).
             let config = TaxonomyExtractionConfig(
                 taxIds: Set([target.taxId]),
                 includeChildren: target.includeChildren,
-                sourceFile: sourceFile,
+                sourceFile: sources.urls[0],
                 outputFile: outputFile,
                 classificationOutput: classificationResult.outputURL,
                 taxonomyReport: target.includeChildren ? classificationResult.reportURL : nil
             )
+            let targetProgress: @Sendable (Double, String) -> Void = { fraction, message in
+                let mappedFraction = overallBase + overallStep * fraction
+                progress?(min(mappedFraction, overallBase + overallStep), message)
+            }
 
             do {
-                let urls = try await extract(
-                    config: config,
-                    tree: tree,
-                    progress: { fraction, message in
-                        let mappedFraction = overallBase + overallStep * fraction
-                        progress?(min(mappedFraction, overallBase + overallStep), message)
-                    }
-                )
-                outputURLs.append(contentsOf: urls)
+                if sources.files.count == 1 {
+                    outputURLs += try await extract(config: config, tree: tree, progress: targetProgress)
+                } else {
+                    outputURLs.append(try await extractIntoOneFile(
+                        config: config,
+                        files: sources.files,
+                        scratch: scratch.appendingPathComponent("\(index)", isDirectory: true),
+                        tree: tree,
+                        progress: targetProgress
+                    ))
+                }
             } catch TaxonomyExtractionError.noMatchingReads {
                 logger.info("No matching reads for \(target.displayName, privacy: .public), skipping")
                 skippedCount += 1
@@ -493,12 +558,13 @@ public actor TaxonomyExtractionPipeline {
     // MARK: - Provenance
 
     /// Records provenance for the extraction operation.
-    private func recordProvenance(
+    func recordProvenance(
         config: TaxonomyExtractionConfig,
         resolvedTaxIds: Set<Int>,
         outputURLs: [URL],
         extractedCount: Int,
-        runtime: TimeInterval
+        runtime: TimeInterval,
+        commandPrefix: [String]? = nil
     ) async throws {
         let recorder = ProvenanceRecorder.shared
         let runID = await recorder.beginRun(
@@ -527,7 +593,7 @@ public actor TaxonomyExtractionPipeline {
             runID: runID,
             toolName: "TaxonomyExtractionPipeline",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: extractionReplayCommand(config: config, resolvedTaxIds: resolvedTaxIds),
+            command: extractionReplayCommand(config: config, resolvedTaxIds: resolvedTaxIds, prefix: commandPrefix),
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
@@ -593,18 +659,18 @@ public actor TaxonomyExtractionPipeline {
 
     private func extractionReplayCommand(
         config: TaxonomyExtractionConfig,
-        resolvedTaxIds: Set<Int>
+        resolvedTaxIds: Set<Int>,
+        prefix: [String]? = nil
     ) -> [String] {
         // Legacy CLI replay for taxonomy-ID extraction. The supported
         // `extract reads --by-id` path needs a materialized read-ID file; until
         // this workflow writes one, provenance identifies the actor above.
+        // A taxon extracted from several files into one names the workflow
+        // step, since `conda extract` writes one output per file.
         let replayTaxIds = config.includeChildren && config.taxonomyReport == nil
             ? resolvedTaxIds
             : config.taxIds
-        var command = [
-            CLICommandIdentity.executableName,
-            "conda",
-            "extract",
+        var command = (prefix ?? [CLICommandIdentity.executableName, "conda", "extract"]) + [
             "--kraken-output",
             config.classificationOutput.path,
         ]

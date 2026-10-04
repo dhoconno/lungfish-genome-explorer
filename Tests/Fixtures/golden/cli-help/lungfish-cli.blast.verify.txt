@@ -5,7 +5,7 @@ BLAST and report how many are independently verified. Requires the
 kreport file (for tree building), the per-read Kraken2 output (for
 read ID extraction), and the source FASTQ (for sequence retrieval).
 
-USAGE: lungfish-cli blast verify [<options>] --kreport <kreport> --source <source> --kraken-output <kraken-output> --taxid <taxid>
+USAGE: lungfish-cli blast verify [<options>] --kreport <kreport> --source <source> ... --kraken-output <kraken-output> --taxid <taxid>
 
 OPTIONS:
   --kreport <kreport>     Kraken2 report file (.kreport)

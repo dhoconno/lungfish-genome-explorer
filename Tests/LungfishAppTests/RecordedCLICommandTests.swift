@@ -42,7 +42,7 @@ final class RecordedCLICommandTests: XCTestCase {
         let parsed = try RecordedCLICommand.parse(command, as: BlastCommand.VerifySubcommand.self)
 
         XCTAssertEqual(parsed.kreportFile, "/tmp/My Project.lungfish/classification.kreport")
-        XCTAssertEqual(parsed.sourceFile, "/tmp/My Project.lungfish/reads.fastq")
+        XCTAssertEqual(parsed.sourcePaths, ["/tmp/My Project.lungfish/reads.fastq"])
         XCTAssertEqual(parsed.taxId, 11320)
         XCTAssertEqual(parsed.readCount, 25)
         XCTAssertTrue(parsed.includeChildren)

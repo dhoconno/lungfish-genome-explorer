@@ -776,7 +776,16 @@ final class ClassifierReadResolverTests: XCTestCase {
         )
     }
 
-    func testResolveKraken2SourceResolvesBundleOriginalToItsPayload() throws {
+    /// Every read file a result's extraction and BLAST read, through
+    /// ``KrakenResultReadSources``, the one resolver the app and the CLI use.
+    private func kraken2SourceFiles(_ result: ClassificationResult, in root: URL) async throws -> [URL] {
+        try await KrakenResultReadSources.resolve(
+            result: result,
+            materializationDirectory: root.appendingPathComponent("materialized", isDirectory: true)
+        ).urls
+    }
+
+    func testResolveKraken2SourceResolvesBundleOriginalToItsPayload() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("k2src-bundle-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -797,15 +806,15 @@ final class ClassifierReadResolverTests: XCTestCase {
             outputDirectory: root
         )
 
-        let resolved = try ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result)
+        let resolved = try await kraken2SourceFiles(result, in: root)
         XCTAssertEqual(
-            resolved.standardizedFileURL,
-            payload.standardizedFileURL,
+            resolved,
+            [payload.standardizedFileURL],
             "A .lungfishfastq original must resolve to the payload file inside the bundle"
         )
     }
 
-    func testResolveKraken2SourcePrefersOriginalWhenInputFilesWereDeleted() throws {
+    func testResolveKraken2SourcePrefersOriginalWhenInputFilesWereDeleted() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("k2src-original-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -822,13 +831,11 @@ final class ClassifierReadResolverTests: XCTestCase {
             outputDirectory: root
         )
 
-        XCTAssertEqual(
-            try ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result).standardizedFileURL,
-            original.standardizedFileURL
-        )
+        let resolved = try await kraken2SourceFiles(result, in: root)
+        XCTAssertEqual(resolved, [original.standardizedFileURL])
     }
 
-    func testResolveKraken2SourceFallsBackToPlainInputFile() throws {
+    func testResolveKraken2SourceFallsBackToPlainInputFile() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("k2src-plain-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -844,13 +851,11 @@ final class ClassifierReadResolverTests: XCTestCase {
             outputDirectory: root
         )
 
-        XCTAssertEqual(
-            try ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result).standardizedFileURL,
-            plain.standardizedFileURL
-        )
+        let resolved = try await kraken2SourceFiles(result, in: root)
+        XCTAssertEqual(resolved, [plain.standardizedFileURL])
     }
 
-    func testResolveKraken2SourceThrowsWhenNothingIsResolvable() throws {
+    func testResolveKraken2SourceThrowsWhenNothingIsResolvable() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("k2src-none-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -863,9 +868,11 @@ final class ClassifierReadResolverTests: XCTestCase {
             outputDirectory: root
         )
 
-        XCTAssertThrowsError(
-            try ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result)
-        )
+        do {
+            _ = try await kraken2SourceFiles(result, in: root)
+            XCTFail("a result whose inputs are all gone has no source")
+        } catch ClassifierExtractionError.kraken2SourceMissing {
+        }
     }
 
     // MARK: - Bundle destination directory
