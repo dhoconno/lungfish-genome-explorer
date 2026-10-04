@@ -6,7 +6,9 @@
 // keeps its reads in an R1 file, an R2 file and a file of merged reads. The
 // viewer's BLAST rows read one of them, so a fragment whose evidence sits on
 // mate 2 was sent as mate 1, and a merged fragment could not be sent at all.
-// No test here touches the network.
+// The rows now read every file of the inputs the classification recorded,
+// and record one --source per input, from which lungfish-cli blast verify
+// builds the same request. No test here touches the network.
 
 import XCTest
 @testable import LungfishApp
@@ -49,19 +51,67 @@ final class Kraken2BlastVerificationSourcesTests: XCTestCase {
         }
     }
 
+    /// The row records one --source per input the classification recorded,
+    /// and `lungfish-cli blast verify` parsed from that command builds the
+    /// request the app builds. The app reads the result's read index, and
+    /// the CLI scans the per-read output.
+    func testTheRowRecordsEachInputAndTheCLIBuildsTheAppsRequest() async throws {
+        for shape in try Kraken2BlastShapes(in: root).all {
+            let result = shape.result
+            try KrakenIndexDatabase.build(from: result.outputURL, to: KrakenIndexDatabase.indexURL(for: result.outputURL))
+            let inputs = try KrakenResultReadSources.recordedInputs(of: result)
+            XCTAssertEqual(inputs, shape.inputs, "\(shape.name): the inputs the user named, never a split copy")
+
+            let recorded = await Self.recordedCommand(result, inputs: inputs)
+            let command = try RecordedCLICommand.parse(recorded, as: BlastCommand.VerifySubcommand.self)
+            XCTAssertEqual(command.sourcePaths, inputs.map(\.path), "\(shape.name): one --source per recorded input")
+            XCTAssertEqual(command.krakenOutput, result.outputURL.path)
+
+            let app = try await appRequest(result)
+            let readFiles = try await command.readSources(materializationDirectory: root.appendingPathComponent("scratch", isDirectory: true))
+            let cli = try await command.verificationRequest(
+                tree: try KreportParser.parse(url: URL(fileURLWithPath: command.kreportFile)),
+                readFiles: readFiles,
+                service: BlastService()
+            )
+            XCTAssertEqual(cli.sequences.map(\.id), app.sequences.map(\.id), shape.name)
+            XCTAssertEqual(cli.sequences.map(\.sequence), app.sequences.map(\.sequence), shape.name)
+            XCTAssertEqual(cli.sequenceMates, app.sequenceMates, shape.name)
+            XCTAssertEqual(cli.acceptedTaxIds, app.acceptedTaxIds, shape.name)
+            XCTAssertEqual(cli.sequences.count, 2, shape.name)
+        }
+    }
+
     // MARK: - Helpers
 
-    /// The request the viewer's BLAST row builds for taxon 100 of `result`.
+    /// The request the viewer's BLAST row builds for taxon 100 of `result`,
+    /// from the inputs the classification recorded.
     private func appRequest(_ result: ClassificationResult) async throws -> BlastVerificationRequest {
         try await kraken2BlastVerificationRequest(
             taxonName: "Target virus",
             taxId: Kraken2BlastShapes.target,
             tree: result.tree,
             classificationOutput: result.outputURL,
-            sourceURL: try ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result),
+            sourceInputs: try KrakenResultReadSources.recordedInputs(of: result),
             readCount: 20,
             service: BlastService()
         )
+    }
+
+    /// The command the viewer's BLAST row records for taxon 100 of `result`.
+    @MainActor
+    private static func recordedCommand(_ result: ClassificationResult, inputs: [URL]) -> String? {
+        let reporter = RecordingOperationReporter()
+        ViewerViewController.beginKraken2BlastVerificationOperation(
+            taxonName: "Target virus",
+            classResult: result,
+            sourceInputs: inputs,
+            taxId: Kraken2BlastShapes.target,
+            readCount: 20,
+            resultDirectory: result.config.outputDirectory,
+            reporter: reporter
+        ) { _ in }
+        return reporter.items.first?.cliCommand
     }
 
     static func sequence(of id: String, in request: BlastVerificationRequest) -> String? {
@@ -81,6 +131,8 @@ struct Kraken2BlastShapes {
     struct Shape {
         let name: String
         let result: ClassificationResult
+        /// The inputs the user named, which the row records.
+        let inputs: [URL]
         let pairID: String
         let mergedID: String
     }
@@ -119,8 +171,11 @@ struct Kraken2BlastShapes {
         )
 
         all = [
-            Shape(name: "merge derivative", result: mergeResult, pairID: "u1", mergedID: "x1"),
-            Shape(name: "loose pair with --unpaired", result: looseResult, pairID: "q1", mergedID: "y1"),
+            Shape(name: "merge derivative", result: mergeResult, inputs: [merge.standardizedFileURL], pairID: "u1", mergedID: "x1"),
+            Shape(
+                name: "loose pair with --unpaired", result: looseResult,
+                inputs: [r1, r2, merged].map(\.standardizedFileURL), pairID: "q1", mergedID: "y1"
+            ),
         ]
     }
 

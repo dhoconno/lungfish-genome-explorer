@@ -56,7 +56,7 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
         ViewerViewController.beginKraken2BlastVerificationOperation(
             taxonName: "Influenza A virus",
             classResult: result,
-            sourceURL: source,
+            sourceInputs: [source],
             taxId: 11320,
             readCount: 20,
             resultDirectory: sampleDirectory,
