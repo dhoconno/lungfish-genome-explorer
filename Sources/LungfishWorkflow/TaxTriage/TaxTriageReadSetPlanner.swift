@@ -18,15 +18,23 @@ public enum TaxTriageReadSetPlanner {
 
     /// The sample with its inputs resolved to the files TaxTriage reads.
     ///
-    /// - One `.lungfishfastq` bundle (`fastq2` nil) is planned by
-    ///   ``SamplesheetReadSetPlanner``. A sample of pairs only gives
-    ///   `fastq_1` and `fastq_2`, a strictly interleaved file stays one file
-    ///   for the pipeline to split, and a sample that mixes pairs and single
-    ///   reads, or holds several files of single reads, gives one single-end
-    ///   file that holds every read. A virtual bundle is materialized first.
-    /// - A sample that names two inputs as R1 and R2 reads each as one file,
-    ///   and refuses a bundle that is not one file of reads.
-    /// - A loose file is read as it is.
+    /// - A `.lungfishfastq` bundle path (`fastq2` nil) is the whole bundle,
+    ///   planned by ``SamplesheetReadSetPlanner``. A sample of pairs only
+    ///   gives `fastq_1` and `fastq_2`, a strictly interleaved file stays one
+    ///   file for the pipeline to split, and a sample that mixes pairs and
+    ///   single reads, or holds several files of single reads, gives one
+    ///   single-end file that holds every read. A virtual bundle is
+    ///   materialized first.
+    /// - A file the user names is that file, a chunk or a mate included, as
+    ///   `taxtriage run --input <file>` always read it. The one exception is
+    ///   the preview of a virtual bundle, which holds a few reads of the sample
+    ///   and not the sample, so it names its bundle.
+    /// - Two inputs that are every member file of one bundle collapse to that
+    ///   bundle and are planned as the bundle is (``SamplesheetReadSetPlanner/bundleNamedByEveryMemberFile(_:)``).
+    ///   Two chunks of one run are then one joined file, never `fastq_1` and
+    ///   `fastq_2`.
+    /// - Any other sample that names two inputs as R1 and R2 reads each as one
+    ///   file, and refuses a bundle that is not one file of reads.
     ///
     /// The returned sample carries its plan, which TaxTriage's provenance records.
     public static func resolve(
@@ -37,6 +45,17 @@ public enum TaxTriageReadSetPlanner {
     ) async throws -> TaxTriageSample {
         var resolved = sample
         if let fastq2 = sample.fastq2 {
+            if let bundleURL = await SamplesheetReadSetPlanner.bundleNamedByEveryMemberFile([sample.fastq1, fastq2]) {
+                var named = sample
+                named.fastq1 = bundleURL
+                named.fastq2 = nil
+                return try await resolve(
+                    named,
+                    materializationDirectory: materializationDirectory,
+                    materializer: materializer,
+                    progress: progress
+                )
+            }
             resolved.fastq1 = try await mateFile(
                 sample.fastq1,
                 materializationDirectory: materializationDirectory,
@@ -51,9 +70,9 @@ public enum TaxTriageReadSetPlanner {
             )
             return resolved
         }
-        guard SequenceInputResolver.enclosingFASTQBundleURL(for: sample.fastq1) != nil else { return sample }
+        guard let bundleURL = bundleToPlan(for: sample.fastq1, progress: progress) else { return sample }
         let readSet = try await SamplesheetReadSetPlanner.plan(
-            input: sample.fastq1,
+            input: bundleURL,
             consumerID: consumerID,
             materializationDirectory: materializationDirectory,
             materializer: materializer,
@@ -79,6 +98,22 @@ public enum TaxTriageReadSetPlanner {
         return resolved
     }
 
+    /// The bundle to plan for one named input, or nil when the input is read as
+    /// it is. A bundle path is the whole bundle. A file the user names is that
+    /// file, a chunk included, as the `fastq` subcommands read a file inside a
+    /// bundle in place. The only exception is the preview of a virtual bundle,
+    /// which names its bundle, with the note those subcommands print, because a
+    /// classifier never runs on a preview of the reads.
+    private static func bundleToPlan(for input: URL, progress: (@Sendable (String) -> Void)?) -> URL? {
+        if FASTQBundle.isBundleURL(input) { return input }
+        guard FASTQBundle.isFASTQFileURL(input),
+              let bundleURL = SequenceInputResolver.unmaterializedDerivedBundleURL(for: input) else {
+            return nil
+        }
+        progress?("\(input.lastPathComponent) is the preview of the virtual bundle \(bundleURL.lastPathComponent), not its reads. Reading the bundle instead.")
+        return bundleURL
+    }
+
     /// The one read file a sample's R1 or R2 input names. A file the user
     /// named is read as it is, and a `.lungfishfastq` bundle must hold exactly
     /// one file of reads (a virtual bundle is materialized to one).
@@ -88,9 +123,9 @@ public enum TaxTriageReadSetPlanner {
         materializer: any CLISequenceInputMaterializing & Sendable,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
-        guard FASTQBundle.isBundleURL(input) else { return input }
+        guard let bundleURL = bundleToPlan(for: input, progress: progress) else { return input }
         let readSet = try await SamplesheetReadSetPlanner.plan(
-            input: input,
+            input: bundleURL,
             consumerID: consumerID,
             materializationDirectory: materializationDirectory,
             materializer: materializer,

@@ -154,6 +154,39 @@ public enum SamplesheetReadSetPlanner {
         return url
     }
 
+    /// The bundle `inputURLs` name when they are every member file of one
+    /// `.lungfishfastq` bundle, or nil. `assemble` reads the files of one
+    /// bundle given separately as that bundle once, and a sample that names
+    /// every file a bundle holds has named the bundle. The inputs must be two
+    /// or more distinct files that all sit inside one bundle that stores its
+    /// reads, and together they must be exactly the files the bundle resolves
+    /// to (``FASTQSourceResolver``, the files ``ResolvedSequenceInputs`` reads).
+    /// A part of a bundle's files, files of two bundles, a bundle path and a
+    /// virtual bundle are not this case, so each file named is that file.
+    public static func bundleNamedByEveryMemberFile(_ inputURLs: [URL]) async -> URL? {
+        let files = inputURLs.map(\.standardizedFileURL)
+        guard files.count > 1,
+              Set(files.map(\.path)).count == files.count,
+              let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: files[0]),
+              files.allSatisfy({ file in
+                  file.path != bundleURL.path
+                      && SequenceInputResolver.enclosingFASTQBundleURL(for: file)?.path == bundleURL.path
+              }),
+              SequenceInputResolver.unmaterializedDerivedBundleURL(for: bundleURL) == nil else {
+            return nil
+        }
+        // A bundle that stores its reads resolves to its files without writing.
+        guard let members = try? await FASTQSourceResolver().resolve(
+            bundleURL: bundleURL,
+            tempDirectory: FileManager.default.temporaryDirectory,
+            progress: { _, _ in }
+        ) else {
+            return nil
+        }
+        func key(_ url: URL) -> String { url.resolvingSymlinksInPath().path }
+        return Set(files.map(key)) == Set(members.map(key)) ? bundleURL : nil
+    }
+
     /// The declared capability of `consumerID`.
     public static func capability(for consumerID: String) -> ReadPairingCapability {
         ReadPairingCapabilityRegistry.capability(for: consumerID) ?? .pairsOnlyWhenAllPaired
