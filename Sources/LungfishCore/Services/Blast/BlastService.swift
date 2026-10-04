@@ -129,6 +129,9 @@ public actor BlastService {
 
     /// Builds a BLAST verification request using pre-fetched read IDs.
     ///
+    /// Reads one source file. The `sources:` form reads every source file of
+    /// a result, R1, R2, then single reads.
+    ///
     /// Use this overload when read IDs have already been looked up via
     /// ``KrakenIndexDatabase`` for O(k) indexed access instead of O(n)
     /// linear scanning.
@@ -168,21 +171,13 @@ public actor BlastService {
         taxonomyContext: BlastTaxonomyContext? = nil,
         seed: UInt64 = 0
     ) async throws -> BlastVerificationRequest {
-        logger.info("buildVerificationRequestFromReadIds: taxon=\(taxonName, privacy: .public) taxId=\(taxId, privacy: .public) matchingReadIds=\(matchingReadIds.count, privacy: .public) readCount=\(readCount, privacy: .public)")
-        logger.info("buildVerificationRequestFromReadIds: sourceURL=\(sourceURL.path, privacy: .public)")
-
-        guard !matchingReadIds.isEmpty else {
-            logger.error("buildVerificationRequestFromReadIds: no matching read IDs provided")
-            throw BlastServiceError.noSequences
-        }
-
-        return try await extractSequencesAndBuild(
+        try await buildVerificationRequestFromReadIds(
             taxonName: taxonName,
             taxId: taxId,
-            matchingReadIds: Set(matchingReadIds.map { Self.normalizeFragmentId($0).id }),
-            sourceURL: sourceURL,
+            matchingReadIds: matchingReadIds,
+            sources: [BlastReadSource(url: sourceURL)],
             readCount: readCount,
-            targetTaxIds: targetTaxIds.isEmpty ? [taxId] : targetTaxIds,
+            targetTaxIds: targetTaxIds,
             classificationOutputURL: classificationOutputURL,
             acceptedTaxonNames: acceptedTaxonNames,
             taxonomyContext: taxonomyContext,
@@ -191,6 +186,9 @@ public actor BlastService {
     }
 
     /// Builds a BLAST verification request by subsampling reads from classification output.
+    ///
+    /// Reads one source file. The `sources:` form reads every source file of
+    /// a result, R1, R2, then single reads.
     ///
     /// This is a convenience method that handles:
     /// 1. Scanning the Kraken2 per-read output for matching fragment IDs
@@ -223,39 +221,13 @@ public actor BlastService {
         taxonomyContext: BlastTaxonomyContext? = nil,
         seed: UInt64 = 0
     ) async throws -> BlastVerificationRequest {
-        logger.info("buildVerificationRequest: taxon=\(taxonName, privacy: .public) taxId=\(taxId, privacy: .public) targetTaxIds=\(targetTaxIds.count, privacy: .public) readCount=\(readCount, privacy: .public)")
-        logger.info("buildVerificationRequest: classificationOutput=\(classificationOutputURL.path, privacy: .public)")
-        logger.info("buildVerificationRequest: sourceURL=\(sourceURL.path, privacy: .public)")
-
-        // Scan Kraken2 output for matching read IDs
-        var matchingReadIds = Set<String>()
-        let classificationExists = FileManager.default.fileExists(atPath: classificationOutputURL.path)
-        logger.info("buildVerificationRequest: classification file exists=\(classificationExists, privacy: .public)")
-
-        if classificationExists {
-            let scanResult = try scanKrakenClassificationOutput(
-                classificationOutputURL,
-                targetTaxIds: targetTaxIds
-            )
-            matchingReadIds = scanResult.matchingReadIds
-            logger.info("buildVerificationRequest: scanned \(scanResult.totalClassified, privacy: .public) classified reads, \(matchingReadIds.count, privacy: .public) match target taxIds")
-        } else {
-            logger.error("buildVerificationRequest: classification output file not found at \(classificationOutputURL.path, privacy: .public)")
-        }
-
-        guard !matchingReadIds.isEmpty else {
-            logger.error("buildVerificationRequest: no matching read IDs found — cannot proceed with BLAST")
-            throw BlastServiceError.noSequences
-        }
-
-        return try await extractSequencesAndBuild(
+        try await buildVerificationRequest(
             taxonName: taxonName,
             taxId: taxId,
-            matchingReadIds: matchingReadIds,
-            sourceURL: sourceURL,
-            readCount: readCount,
-            targetTaxIds: targetTaxIds.isEmpty ? [taxId] : targetTaxIds,
+            targetTaxIds: targetTaxIds,
             classificationOutputURL: classificationOutputURL,
+            sources: [BlastReadSource(url: sourceURL)],
+            readCount: readCount,
             acceptedTaxonNames: acceptedTaxonNames,
             taxonomyContext: taxonomyContext,
             seed: seed
