@@ -11,7 +11,8 @@ extension ReadPairingCapabilityRegistry {
             ReadPairingCapabilityDeclaration(
                 consumerID: "classify.esviritu",
                 capability: .pairsOnlyWhenAllPaired,
-                rationale: "EsViritu runs a sample paired or unpaired, never both. \(allSingleWhenMixed)"
+                rationale: "EsViritu runs a sample paired or unpaired, never both. \(allSingleWhenMixed)",
+                adopted: true
             ),
             ReadPairingCapabilityDeclaration(
                 consumerID: "classify.taxtriage",

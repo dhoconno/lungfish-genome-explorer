@@ -12,17 +12,40 @@ import LungfishKit
 /// Separate R1/R2 files run `paired`. A single file or bundle is classified
 /// by ``FASTQReadLayoutClassifier``: strictly interleaved input runs
 /// `interleaved`; mixed pairs plus merged reads and true single-end input
-/// run `unpaired`.
+/// run `unpaired`. A bundle that holds separate R1 and R2 files, mixes pairs
+/// with single reads or holds several files of single reads is decided by
+/// ``SamplesheetReadSetPlanner`` when the run starts, which the recorded
+/// command names with `--read-format auto` (`plansReadSet`).
 struct EsVirituSampleReadPlan: Equatable, Sendable {
     let format: EsVirituReadFormat
     let layout: FASTQReadLayoutClassification?
+    /// What the read-set planner will do for the sample's input.
+    var readSet: SamplesheetReadSetPreview = .singleReads
+
+    /// Whether the recorded command must plan the input (`--read-format auto`).
+    var plansReadSet: Bool { readSet.plansReadSet }
 
     var label: String {
-        EsVirituReadFormat.inputLabel(format: format, layout: layout?.layout)
+        switch readSet {
+        case .pairs(withSingleReads: true):
+            return EsVirituReadFormat.inputLabel(format: .unpaired, layout: .mixedInterleaved)
+        case .severalFiles:
+            return "Several read files (joined, run as single-end)"
+        case .decidedAtRunTime:
+            return "Read layout is decided when the run starts"
+        default:
+            return EsVirituReadFormat.inputLabel(format: format, layout: layout?.layout)
+        }
     }
 
     /// Compact tag for the batch sample list.
     var shortLabel: String {
+        switch readSet {
+        case .pairs(withSingleReads: true): return "mixed, run as SE"
+        case .severalFiles: return "joined, SE"
+        case .decidedAtRunTime: return "decided at run"
+        default: break
+        }
         switch format {
         case .paired: return "PE"
         case .interleaved: return "interleaved PE"
@@ -39,6 +62,24 @@ struct EsVirituSampleReadPlan: Equatable, Sendable {
         }
         let layout = classify(sample.fastq1)
         return EsVirituSampleReadPlan(format: .forSingleFile(layout.layout), layout: layout)
+    }
+
+    /// ``plan(for:classify:)`` with what the read-set planner will do for the
+    /// sample's bundle or file. Separate R1 and R2 files in a deinterleaved
+    /// bundle run `paired`. Any other input the planner decides keeps the
+    /// classified format, and the planner sets the files when the run starts.
+    static func planned(
+        for sample: MetagenomicsSampleInput,
+        classify: (URL) -> FASTQReadLayoutClassification = { FASTQReadLayoutClassifier.classify(inputURL: $0) },
+        preview: (URL) async -> SamplesheetReadSetPreview = { await SamplesheetReadSetPlanner.preview(input: $0) }
+    ) async -> EsVirituSampleReadPlan {
+        let classified = plan(for: sample, classify: classify)
+        guard !sample.isPairedEnd else { return classified }
+        let readSet = await preview(sample.fastq1)
+        if case .pairs(withSingleReads: false) = readSet {
+            return EsVirituSampleReadPlan(format: .paired, layout: nil, readSet: readSet)
+        }
+        return EsVirituSampleReadPlan(format: classified.format, layout: classified.layout, readSet: readSet)
     }
 }
 
@@ -334,7 +375,7 @@ struct EsVirituWizardSheet: View {
                 var plans: [String: EsVirituSampleReadPlan] = [:]
                 var advisories: [String: EsVirituReadLengthAdvisory] = [:]
                 for sample in samples {
-                    plans[sample.sampleId] = EsVirituSampleReadPlan.plan(for: sample)
+                    plans[sample.sampleId] = await EsVirituSampleReadPlan.planned(for: sample)
                     advisories[sample.sampleId] = EsVirituReadLengthAdvisory.evaluate(inputURLs: sample.inputFiles)
                 }
                 return (plans, advisories)
@@ -718,7 +759,7 @@ struct EsVirituWizardSheet: View {
             }
 
             let plan = plans[sample.sampleId] ?? EsVirituSampleReadPlan.plan(for: sample)
-            return EsVirituConfig(
+            var config = EsVirituConfig(
                 inputFiles: sample.inputFiles,
                 isPairedEnd: sample.isPairedEnd,
                 sampleName: isBatchMode ? sample.sampleId : (trimmedName.isEmpty ? sample.sampleId : trimmedName),
@@ -734,6 +775,8 @@ struct EsVirituWizardSheet: View {
                 readFormat: plan.format,
                 inputLayout: plan.layout
             )
+            config.plansReadSet = plan.plansReadSet
+            return config
         }
 
         onRun?(configs)

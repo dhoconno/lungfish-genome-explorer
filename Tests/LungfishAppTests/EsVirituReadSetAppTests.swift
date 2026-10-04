@@ -100,8 +100,8 @@ final class EsVirituReadSetAppTests: XCTestCase {
     /// the app's EsViritu launch and reads the arguments EsViritu is handed.
     private func launch(_ bundle: URL) async throws -> Launch {
         let sample = try XCTUnwrap(MetagenomicsSampleGrouper.group([bundle]).first)
-        let plan = EsVirituSampleReadPlan.plan(for: sample)
-        let config = EsVirituConfig(
+        let plan = await EsVirituSampleReadPlan.planned(for: sample)
+        var config = EsVirituConfig(
             inputFiles: sample.inputFiles,
             isPairedEnd: sample.isPairedEnd,
             sampleName: "sample",
@@ -110,6 +110,7 @@ final class EsVirituReadSetAppTests: XCTestCase {
             readFormat: plan.format,
             inputLayout: plan.layout
         )
+        config.plansReadSet = plan.plansReadSet
         let resolved = try await AppDelegate().resolvedEsVirituConfig(
             config,
             tempDirectory: root.appendingPathComponent("inputs-\(UUID().uuidString)", isDirectory: true)

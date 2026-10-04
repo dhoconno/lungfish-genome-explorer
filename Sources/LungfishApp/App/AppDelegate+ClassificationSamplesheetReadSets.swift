@@ -12,7 +12,13 @@ import LungfishWorkflow
 extension AppDelegate {
 
     /// The config an EsViritu sample runs with. Its inputs are resolved, with
-    /// a virtual bundle materialized into `tempDirectory`.
+    /// a virtual bundle materialized into `tempDirectory`. A sample whose
+    /// recorded command plans it (`plansReadSet`) gets its files and read
+    /// format from ``EsVirituConfig/readSet(for:materializedInputs:materializationDirectory:progress:)``,
+    /// the function `lungfish-cli esviritu detect --read-format auto` runs
+    /// (owner decision 1 of 2026-10-03, docs/contracts/READ-PAIRING.md).
+    /// Separate R1 and R2 files run as a pair, and every read of a mixed or
+    /// chunked sample runs in one file, with the reason logged.
     func resolvedEsVirituConfig(
         _ config: EsVirituConfig,
         tempDirectory: URL,
@@ -24,6 +30,19 @@ extension AppDelegate {
             tempDirectory: tempDirectory,
             progress: progress
         )
+        guard config.plansReadSet,
+              let input = SamplesheetReadSetPlanner.plannableInput(config.inputFiles) else {
+            return resolved
+        }
+        let readSet = try await EsVirituConfig.readSet(
+            for: input,
+            materializedInputs: resolved.inputFiles,
+            materializationDirectory: tempDirectory,
+            progress: progress
+        )
+        if resolved.apply(readSet), let reason = readSet.plan.singleReadReason {
+            progress?(reason)
+        }
         return resolved
     }
 

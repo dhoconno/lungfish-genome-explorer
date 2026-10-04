@@ -125,12 +125,16 @@ extension AppDelegate {
     /// them, and `esviritu detect` resolves a `.lungfishfastq` bundle as the
     /// run does. The read format the wizard chose is recorded explicitly so
     /// the copied command runs pairs as pairs and mixed input as single-end.
-    /// The database, output folder, thread count, quality filter and extra
-    /// arguments follow, so the CLI never falls back to defaults of its own.
+    /// An input the read-set planner decides (`plansReadSet`: separate R1 and
+    /// R2 files, a mix of pairs and single reads, or several files of single
+    /// reads) records `--read-format auto`, so the CLI plans the bundle and
+    /// runs the same files. The database, output folder, thread count, quality
+    /// filter and extra arguments follow, so the CLI never falls back to
+    /// defaults of its own.
     nonisolated static func esVirituDetectCLIArguments(for config: EsVirituConfig) -> [String] {
         var args = ["--input"] + config.inputFiles.map(\.path)
         args += ["--sample", config.sampleName]
-        args += ["--read-format", config.readFormat.rawValue]
+        args += ["--read-format", config.plansReadSet ? "auto" : config.readFormat.rawValue]
         args += ["--db", config.databasePath.path]
         args += ["--output", config.outputDirectory.path]
         args += ["--threads", String(config.threads)]

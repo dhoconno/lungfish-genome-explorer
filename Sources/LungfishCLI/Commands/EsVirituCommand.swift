@@ -325,10 +325,6 @@ extension EsVirituCommand {
                 throw CLIExitCode.inputError.exitCode
             }
             let executionInputURLs = resolvedInputs.executionInputURLs
-            if let message = Self.inputCountError(format: resolvedReadFormat.format, fileCount: executionInputURLs.count) {
-                print(formatter.error(message))
-                throw CLIExitCode.inputError.exitCode
-            }
 
             let effectiveThreads = globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount
 
@@ -354,6 +350,34 @@ extension EsVirituCommand {
             // given record nothing more.
             config.recordInputLineage(resolvedInputs)
 
+            // One bundle or file under `--read-format auto` is planned as the
+            // app's EsViritu launch plans it: separate R1 and R2 files run as
+            // a pair, and every read of a mixed or chunked sample runs in one
+            // file (docs/contracts/READ-PAIRING.md).
+            do {
+                _ = try await planReadSet(
+                    inputURLs: inputURLs,
+                    executionInputURLs: executionInputURLs,
+                    config: &config,
+                    materializationDirectory: outputDirectory.appendingPathComponent(
+                        Self.materializationDirectoryName,
+                        isDirectory: true
+                    ),
+                    progress: { message in
+                        if !globalOptions.quiet {
+                            print(formatter.info(message))
+                        }
+                    }
+                )
+            } catch {
+                print(formatter.error(error.localizedDescription))
+                throw CLIExitCode.inputError.exitCode
+            }
+            if let message = Self.inputCountError(format: config.readFormat, fileCount: config.inputFiles.count) {
+                print(formatter.error(message))
+                throw CLIExitCode.inputError.exitCode
+            }
+
             // Print configuration.
             print(formatter.header("EsViritu Viral Detection"))
             print("")
@@ -367,9 +391,13 @@ extension EsVirituCommand {
                 ("Output", outputDirectory.path),
             ]))
             print("")
+            if let reason = config.readSetPlan?.singleReadReason {
+                print(formatter.info(reason))
+                print("")
+            }
 
             // Same read-length gate as the EsViritu dialog: warn, never block.
-            if let advisory = EsVirituReadLengthAdvisory.evaluate(inputURLs: executionInputURLs) {
+            if let advisory = EsVirituReadLengthAdvisory.evaluate(inputURLs: config.inputFiles) {
                 print(formatter.warning(advisory.wizardMessage))
                 print("")
             }

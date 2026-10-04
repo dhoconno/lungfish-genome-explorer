@@ -340,6 +340,40 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertNoThrow(try cliConfig.validate())
     }
 
+    /// A bundle whose plan holds separate R1 and R2 files runs `-p paired`, and
+    /// one `--input` cannot carry `--paired`. The row records `--read-format
+    /// auto`, so the CLI plans the bundle and hands EsViritu the same pair.
+    func testEsVirituRowForABundleOfPairsRecordsReadFormatAutoAndNeverPaired() throws {
+        let bundle = importURL("Sample 1.lungfishfastq")
+        var config = EsVirituConfig(
+            inputFiles: [bundle],
+            isPairedEnd: true,
+            sampleName: "Sample 1",
+            outputDirectory: analysisURL("esviritu-2026-10-02/Sample 1"),
+            databasePath: URL(fileURLWithPath: "/tmp/lane 1a2/Databases/EsViritu"),
+            readFormat: .paired
+        )
+        config.plansReadSet = true
+        let reporter = RecordingOperationReporter()
+
+        AppDelegate.beginEsVirituOperation(config: config, routeContext: nil, reporter: reporter) { _ in }
+
+        let recorded = try XCTUnwrap(reporter.items.first?.cliCommand)
+        let command = try RecordedCLICommand.parse(recorded, as: EsVirituCommand.DetectSubcommand.self)
+        XCTAssertEqual(command.inputFiles, [bundle.path], "the row names the bundle the user chose")
+        XCTAssertEqual(command.readFormat, .auto)
+        XCTAssertFalse(command.pairedEnd, "--paired names two files only")
+        XCTAssertFalse(recorded.contains("--paired"))
+
+        // Without the planner the row would name `paired` for one input, which
+        // `esviritu detect` refuses, so a pasted command could not reproduce the run.
+        config.plansReadSet = false
+        let unplanned = AppDelegate.esVirituDetectCLIArguments(for: config)
+        let index = try XCTUnwrap(unplanned.firstIndex(of: "--read-format"))
+        XCTAssertEqual(unplanned[index + 1], "paired")
+        XCTAssertNotNil(EsVirituCommand.DetectSubcommand.inputCountError(format: .paired, fileCount: 1))
+    }
+
     func testEsVirituBatchRowPinsTodaysCommandAsAParityGap() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = makeRouteContext()

@@ -101,7 +101,7 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
     /// When `true`, ``inputFiles`` must contain exactly two elements and
     /// the `-p paired` flag is passed to EsViritu. Always equal to
     /// `readFormat == .paired`.
-    public let isPairedEnd: Bool
+    public private(set) var isPairedEnd: Bool
 
     /// The EsViritu `-p` read format.
     public private(set) var readFormat: EsVirituReadFormat
@@ -109,6 +109,19 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
     /// How LGE classified a single input file (for provenance and labels).
     /// Nil for separate R1/R2 files or when no classification ran.
     public var inputLayout: FASTQReadLayoutClassification?
+
+    /// The read-set plan this configuration was made from, when the input was
+    /// planned (docs/contracts/READ-PAIRING.md). It records the capability
+    /// used, the fragment counts by kind and the reason mates ran as single
+    /// reads. It is not encoded with the configuration, so a result sidecar
+    /// reads the same either way.
+    public var readSetPlan: ReadSetPlan?
+
+    /// Whether the recorded `lungfish-cli esviritu detect` command names this
+    /// input with `--read-format auto`, so the CLI plans the sample the way the
+    /// app does. Set by the app when its read plan says the planner must
+    /// decide. Not encoded.
+    public var plansReadSet: Bool = false
 
     /// Sample name used for output file naming.
     ///
@@ -402,6 +415,17 @@ public enum EsVirituConfigError: Error, LocalizedError, Sendable {
         case .outputDirectoryCreationFailed(let url, let error):
             return "Cannot create output directory at \(url.path): \(error.localizedDescription)"
         }
+    }
+}
+
+// MARK: - Read format
+
+extension EsVirituConfig {
+
+    /// Sets the read format and keeps ``isPairedEnd`` in step with it.
+    mutating func adoptReadFormat(_ format: EsVirituReadFormat) {
+        readFormat = format
+        isPairedEnd = format == .paired
     }
 }
 
