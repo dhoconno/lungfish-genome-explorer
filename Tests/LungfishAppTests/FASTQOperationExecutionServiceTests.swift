@@ -4702,10 +4702,6 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             plannedOutputFilename(for: .pairedEndMerge(strictness: .normal, minOverlap: 12), resolvedInput: gzInput),
             "pairedEndMerge.fastq"
         )
-        XCTAssertEqual(
-            plannedOutputFilename(for: .interleaveReformat(direction: .deinterleave), resolvedInput: gzInput),
-            "interleaveReformat.fastq"
-        )
     }
 
     func testPlannerKeepsFASTAOutputNameForTranslateWithGzipInput() throws {

@@ -10,7 +10,6 @@ import LungfishWorkflow
 import os.log
 
 extension FASTQDerivativeService {
-
     // MARK: - Materialization
 
     func materializeDatasetFASTQ(
@@ -24,61 +23,6 @@ extension FASTQDerivativeService {
             tempDirectory: tempDirectory,
             progress: progress
         )
-    }
-
-    func writeOrientedPreviewFASTQ(
-        fromSourceFASTQ sourceFASTQ: URL,
-        orientMapURL: URL,
-        outputFASTQ: URL,
-        readLimit: Int = 1_000
-    ) async throws {
-        let orientContent = try String(contentsOf: orientMapURL, encoding: .utf8)
-        var orderedReadIDs: [String] = []
-        var rcReadIDs: Set<String> = []
-
-        for line in orientContent.split(separator: "\n", omittingEmptySubsequences: true) {
-            let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
-            guard fields.count >= 2 else { continue }
-            let readID = String(fields[0])
-            orderedReadIDs.append(readID)
-            if fields[1] == "-" {
-                rcReadIDs.insert(readID)
-            }
-            if orderedReadIDs.count >= max(1, readLimit) {
-                break
-            }
-        }
-
-        guard !orderedReadIDs.isEmpty else { return }
-
-        let selectedReadIDs = Set(orderedReadIDs)
-        var previewRecords: [String: FASTQRecord] = [:]
-        let reader = FASTQReader(validateSequence: false)
-
-        for try await record in reader.records(from: sourceFASTQ) {
-            let readID = normalizedIdentifier(record.identifier)
-            guard selectedReadIDs.contains(readID) else { continue }
-
-            if rcReadIDs.contains(readID) {
-                previewRecords[readID] = record.reverseComplement()
-            } else {
-                previewRecords[readID] = record
-            }
-
-            if previewRecords.count == selectedReadIDs.count {
-                break
-            }
-        }
-
-        let writer = FASTQWriter(url: outputFASTQ)
-        try writer.open()
-        defer { try? writer.close() }
-
-        for readID in orderedReadIDs {
-            if let record = previewRecords[readID] {
-                try writer.write(record)
-            }
-        }
     }
 
     /// Detects mate number from FASTQ record header for PE-safe trim lookup.

@@ -123,7 +123,6 @@ final class FASTQOperationCompletionOutputsTests: XCTestCase {
         // launch-site file names the helper call instead.
         let launchMarkers = [
             "operationType: .fastqOperation",
-            "Self.beginFASTQDerivativeOperation(",
             "Self.beginFASTQLaunchRequestOperation(",
             "Self.beginONTImportRecipeOperation(",
         ]
@@ -149,6 +148,6 @@ final class FASTQOperationCompletionOutputsTests: XCTestCase {
                 }
             }
         }
-        XCTAssertGreaterThanOrEqual(launchCount, 4)
+        XCTAssertGreaterThanOrEqual(launchCount, 3)
     }
 }

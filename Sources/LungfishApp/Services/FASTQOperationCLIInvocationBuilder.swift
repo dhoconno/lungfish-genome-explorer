@@ -33,9 +33,8 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
     /// - Parameter pairingMetadataURL: the ORIGINAL input (bundle or the file
     ///   inside it) whose metadata describes the reads, used as hints when a
     ///   recorded `interleaved` pairing is verified against the records. Its
-    ///   bundle also holds the R1 and R2 files an interleave names and
-    ///   anchors a relative contaminant reference. When `nil`, the request's
-    ///   first input is the original.
+    ///   bundle also anchors a relative contaminant reference. When `nil`,
+    ///   the request's first input is the original.
     func buildInvocation(
         for request: FASTQOperationLaunchRequest,
         outputTargetPath: String,
@@ -110,31 +109,9 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         }
     }
 
-    /// The R1 and R2 files `fastq interleave` reads for an interleave
-    /// request, the two files of the `fullPaired` bundle the request names.
-    ///
-    /// The in-process interleave (`FASTQDerivativeService.runReformat`) runs
-    /// `reformat.sh in1=<R1> in2=<R2>` on the files
-    /// `FASTQBundle.pairedFASTQURLs(forDerivedBundle:)` returns for its
-    /// source bundle, and the command names the same two files. The request
-    /// carries no R2 of its own, so an input that is not such a bundle has no
-    /// command (findings R3 and R8). The command used to pass the literal
-    /// placeholder `<R2>`, which no run could read.
-    static func interleaveInputFiles(originalInputURL: URL?) throws -> (r1: URL, r2: URL) {
-        guard let bundleURL = fastqBundle(containing: originalInputURL),
-              let pairedFiles = FASTQBundle.pairedFASTQURLs(forDerivedBundle: bundleURL) else {
-            throw FASTQOperationCLIInvocationError.interleaveNeedsPairedBundle(
-                input: originalInputURL?.path ?? "the request"
-            )
-        }
-        return pairedFiles
-    }
-
-    /// The `--ref` path for a custom contaminant reference, the file the
-    /// in-process filter (`FASTQDerivativeService.runBBDukContaminantFilter`)
-    /// reads. An absolute path stays as given. A relative one names a file
-    /// in the input bundle, `bundle.appendingPathComponent(path)`, as the run
-    /// resolves it.
+    /// The `--ref` path for a custom contaminant reference. An absolute path
+    /// stays as given. A relative one names a file in the input bundle,
+    /// `bundle.appendingPathComponent(path)`, as the run resolves it.
     ///
     /// The command used to pass a relative path as given, and `lungfish-cli
     /// fastq contaminant-filter` resolves it against its own working
@@ -631,18 +608,6 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             return arguments
         case .errorCorrection(let kmerSize):
             return ["error-correct", inputURL.path, "--kmer", "\(kmerSize)", "-o", outputTarget]
-        case .interleaveReformat(let direction):
-            switch direction {
-            case .interleave:
-                let pairedFiles = try Self.interleaveInputFiles(originalInputURL: originalInputURL)
-                return ["interleave", "--in1", pairedFiles.r1.path, "--in2", pairedFiles.r2.path, "-o", outputTarget]
-            case .deinterleave:
-                return [
-                    "deinterleave", inputURL.path,
-                    "--out1", "\(outputTarget).R1.fastq",
-                    "--out2", "\(outputTarget).R2.fastq",
-                ]
-            }
         case .demultiplex(
             let kitID,
             let customCSVPath,
@@ -718,15 +683,11 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
 /// none, a CLI parity gap the tests pin, and a dialog run fails with the
 /// description before the CLI starts.
 enum FASTQOperationCLIInvocationError: Error, LocalizedError, Equatable {
-    /// An interleave whose input is not a bundle of separate R1 and R2 files.
-    case interleaveNeedsPairedBundle(input: String)
     /// A relative contaminant reference whose input is in no bundle to resolve it in.
     case contaminantReferenceNeedsBundle(reference: String)
 
     var errorDescription: String? {
         switch self {
-        case .interleaveNeedsPairedBundle(let input):
-            return "Interleave reads the R1 and R2 files of a paired .lungfishfastq bundle, and \(input) is not one."
         case .contaminantReferenceNeedsBundle(let reference):
             return "The contaminant reference \(reference) is a relative path, and the input is in no .lungfishfastq bundle to resolve it in. Choose the reference by its full path."
         }

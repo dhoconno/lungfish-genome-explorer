@@ -6,11 +6,11 @@
 // holds only a 1,000-read preview of its own. The exact-bare demultiplex
 // engine listed the bundle's files to read, found the preview, and assigned
 // the preview's reads instead of the materialized reads the caller resolved,
-// both from `lungfish-cli fastq demultiplex <bundle>` and from the dashboard's
-// in-process demultiplex. The pipeline now lists only a physical bundle's
-// files, so a derived bundle's reads come from the materialized input (R3,
-// lane 1x). The cutadapt engine always read the materialized input, and the
-// test with it skips when the managed cutadapt is not installed.
+// from `lungfish-cli fastq demultiplex <bundle>`. The pipeline now lists only a
+// physical bundle's files, so a derived bundle's reads come from the
+// materialized input (R3, lane 1x). The cutadapt engine always read the
+// materialized input, and the test with it skips when the managed cutadapt is
+// not installed.
 
 import ArgumentParser
 import Foundation
@@ -81,33 +81,6 @@ final class DemultiplexVirtualSourceReadsTests: XCTestCase {
         }
     }
 
-    private func dashboardRequest(engine: DemultiplexEngine) -> FASTQDerivativeRequest {
-        .demultiplex(
-            kitID: "custom",
-            customCSVPath: kitCSV.path,
-            location: "fiveprime",
-            symmetryMode: nil,
-            maxDistanceFrom5Prime: 0,
-            maxDistanceFrom3Prime: 0,
-            errorRate: 0.15,
-            engine: engine,
-            trimBarcodes: false,
-            sampleAssignments: nil,
-            kitOverride: nil
-        )
-    }
-
-    /// The demultiplex manifest the dashboard wrote for its first run, in the
-    /// `demux` folder inside the source bundle, or beside it.
-    private func dashboardManifest() throws -> DemultiplexManifest {
-        let folder = virtualSubset.appendingPathComponent(FASTQBundle.demultiplexOutputDirectoryName, isDirectory: true)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path), "the dashboard writes a demux folder inside the source bundle")
-        return try XCTUnwrap(
-            DemultiplexManifest.load(from: folder) ?? DemultiplexManifest.load(from: virtualSubset),
-            "a demux manifest in \(folder.path) or beside it"
-        )
-    }
-
     private func assertEveryReadAssigned(_ manifest: DemultiplexManifest, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(manifest.inputReadCount, Self.readCount, "every materialized read, not the \(Self.previewReadCount) of the preview", file: file, line: line)
         XCTAssertEqual(manifest.barcodes.first { $0.barcodeID == "BC01" }?.readCount, Self.readCount, file: file, line: line)
@@ -124,26 +97,20 @@ final class DemultiplexVirtualSourceReadsTests: XCTestCase {
         assertEveryReadAssigned(manifest)
     }
 
-    func testTheDashboardExactBareEngineDemultiplexesEveryReadOfAVirtualBundle() async throws {
-        try await requireSeqkit()
-        _ = try await FASTQDerivativeService.shared.createDerivative(
-            from: virtualSubset,
-            request: dashboardRequest(engine: .exactBareBarcode)
-        )
-        assertEveryReadAssigned(try dashboardManifest())
-    }
-
     /// The cutadapt engine always read the materialized input, so its count
     /// is the same before and after the exact-bare fix.
-    func testTheDashboardCutadaptEngineStillDemultiplexesEveryReadOfAVirtualBundle() async throws {
+    func testTheCLICutadaptEngineStillDemultiplexesEveryReadOfAVirtualBundle() async throws {
         try await requireSeqkit()
         guard await NativeToolRunner.shared.isToolAvailable(.cutadapt) else {
             try ToolAvailability.skipOrFail("managed cutadapt is not installed")
         }
-        _ = try await FASTQDerivativeService.shared.createDerivative(
-            from: virtualSubset,
-            request: dashboardRequest(engine: .cutadapt)
-        )
-        assertEveryReadAssigned(try dashboardManifest())
+        // The cutadapt engine joins its reads beside its output, which must sit in a project.
+        let output = root.appendingPathComponent("Project.lungfish/Analyses/cli-demux-cutadapt", isDirectory: true)
+        try await FastqDemultiplexSubcommand.parse([
+            virtualSubset.path, "--kit", kitCSV.path, "--output", output.path, "--engine", "cutadapt",
+            "--location", "5prime", "--no-trim",
+        ]).run()
+        let manifest = try XCTUnwrap(DemultiplexManifest.load(from: output))
+        assertEveryReadAssigned(manifest)
     }
 }

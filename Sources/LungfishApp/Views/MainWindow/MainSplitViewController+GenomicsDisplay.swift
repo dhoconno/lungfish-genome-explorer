@@ -515,10 +515,7 @@ extension MainSplitViewController {
                     )
                 },
                 fastqSourceURL: standardizedSourceURL,
-                fastqDerivativeManifest: derivedManifest,
-                onRunOperation: { [weak self] request in
-                    try await self?.runFASTQOperation(request, sourceURL: standardizedSourceURL)
-                }
+                fastqDerivativeManifest: derivedManifest
             )
             return
         }
@@ -554,10 +551,7 @@ extension MainSplitViewController {
                 enaReadRecord: displayMeta?.enaReadRecord,
                 ingestionMetadata: displayMeta?.ingestion,
                 fastqSourceURL: standardizedSourceURL,
-                fastqDerivativeManifest: derivedManifest,
-                onRunOperation: { [weak self] request in
-                    try await self?.runFASTQOperation(request, sourceURL: standardizedSourceURL)
-                }
+                fastqDerivativeManifest: derivedManifest
             )
             mainSplitLogger.info("loadFASTQDatasetInBackground: Displayed from cache without read table scan")
             return
@@ -616,10 +610,7 @@ extension MainSplitViewController {
                             enaReadRecord: enaReadRecord,
                             ingestionMetadata: ingestionMeta,
                             fastqSourceURL: standardizedSourceURL,
-                            fastqDerivativeManifest: derivedManifest,
-                            onRunOperation: { [weak self] request in
-                                try await self?.runFASTQOperation(request, sourceURL: standardizedSourceURL)
-                            }
+                            fastqDerivativeManifest: derivedManifest
                         )
                         mainSplitLogger.info("loadFASTQDatasetInBackground: Dashboard displayed with \(statistics.readCount) total reads")
                     }
@@ -647,163 +638,6 @@ extension MainSplitViewController {
                     }
                 }
             }
-        }
-    }
-
-    func runFASTQOperation(_ request: FASTQDerivativeRequest, sourceURL: URL) async throws {
-        guard canWriteProjectOutputs(workflowName: request.operationLabel) else {
-            throw CancellationError()
-        }
-        let inputURLs = selectedFASTQOperationSources(fallback: sourceURL)
-        let sourceBundleURLs = try inputURLs.map(resolveFASTQOperationSourceBundle(from:))
-
-        // Register with OperationCenter for visibility in the Operations panel.
-        // The row shows the lungfish-cli command for the first input bundle, and
-        // a refused begin throws before the derivative runs.
-        let startTime = Date()
-        let opID = try Self.beginFASTQDerivativeOperation(
-            request: request,
-            inputURL: sourceBundleURLs.first ?? sourceURL,
-            routeContext: operationRouteContext
-        ).requireStarted()
-        OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationLabel)")
-        if sourceBundleURLs.count > 1 {
-            OperationCenter.shared.log(
-                id: opID, level: .info,
-                message: "Batch mode: \(sourceBundleURLs.count) input bundles"
-            )
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                self?.viewerController.updateFASTQOperationStatus("Running FASTQ/FASTA operation...")
-            }
-        }
-
-        do {
-            let derivedURLs: [URL]
-            let failureCount: Int
-
-            if sourceBundleURLs.count > 1 {
-                let commonParentDirectory = sharedFASTQOperationParentDirectory(for: sourceBundleURLs)
-                let batchResult = try await FASTQDerivativeService.shared.createBatchDerivative(
-                    from: sourceBundleURLs,
-                    request: request,
-                    commonParentDirectory: commonParentDirectory,
-                    progress: { [weak self] fraction, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard let self else { return }
-                                self.viewerController.updateFASTQOperationStatus(message)
-                                _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                                OperationCenter.shared.log(id: opID, level: .info, message: message)
-                            }
-                        }
-                    }
-                )
-                derivedURLs = batchResult.outputBundleURLs
-                failureCount = batchResult.failures.count
-                if !batchResult.failures.isEmpty {
-                    for failure in batchResult.failures {
-                        OperationCenter.shared.log(
-                            id: opID, level: .warning,
-                            message: "Failed: \(failure.inputURL.lastPathComponent) - \(failure.error)"
-                        )
-                    }
-                }
-            } else if let sourceBundleURL = sourceBundleURLs.first {
-                let derivedURL = try await FASTQDerivativeService.shared.createDerivative(
-                    from: sourceBundleURL,
-                    request: request,
-                    progress: { [weak self] message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard let self else { return }
-                                self.viewerController.updateFASTQOperationStatus(message)
-                                _ = OperationCenter.shared.update(id: opID, progress: -1, detail: message)
-                                OperationCenter.shared.log(id: opID, level: .info, message: message)
-                            }
-                        }
-                    }
-                )
-                derivedURLs = [derivedURL]
-                failureCount = 0
-            } else {
-                derivedURLs = []
-                failureCount = 0
-            }
-
-            if derivedURLs.isEmpty && sourceBundleURLs.count > 1 && failureCount > 0 {
-                throw FASTQDerivativeError.emptyResult
-            }
-
-            let elapsed = Date().timeIntervalSince(startTime)
-            let doneDetail: String
-            if failureCount > 0 {
-                doneDetail = "Done (\(derivedURLs.count) produced, \(failureCount) failed) in \(String(format: "%.1f", elapsed))s"
-            } else {
-                doneDetail = "Done in \(String(format: "%.1f", elapsed))s"
-            }
-
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    OperationCenter.shared.log(
-                        id: opID, level: .info,
-                        message: "Completed in \(String(format: "%.1f", elapsed))s"
-                    )
-                    guard FASTQOperationCompletion.complete(
-                        id: opID,
-                        detail: doneDetail,
-                        outputURLs: derivedURLs
-                    ) else { return }
-                    if let last = derivedURLs.last {
-                        self.refreshSidebarAndSelectDerivedURL(last)
-                    } else {
-                        self.sidebarController.requestReloadFromFilesystem()
-                    }
-                    self.requestInspectorDocumentModeAfterDownload()
-                }
-            }
-        } catch is CancellationError {
-            let elapsed = Date().timeIntervalSince(startTime)
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    OperationCenter.shared.log(
-                        id: opID, level: .info,
-                        message: "Cancelled after \(String(format: "%.1f", elapsed))s"
-                    )
-                    _ = OperationCenter.shared.fail(
-                        id: opID,
-                        detail: "Cancelled by user"
-                    )
-                }
-            }
-            throw CancellationError()
-        } catch {
-            let elapsed = Date().timeIntervalSince(startTime)
-            let errorDesc = error.localizedDescription
-            let errorDetail: String
-            if let derivativeError = error as? FASTQDerivativeError {
-                errorDetail = derivativeError.errorDescription ?? "\(error)"
-            } else {
-                errorDetail = "\(error)"
-            }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    OperationCenter.shared.log(
-                        id: opID, level: .error,
-                        message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
-                    )
-                    _ = OperationCenter.shared.fail(
-                        id: opID,
-                        detail: "Failed after \(String(format: "%.1f", elapsed))s",
-                        errorMessage: errorDesc,
-                        errorDetail: errorDetail
-                    )
-                }
-            }
-            throw error
         }
     }
 
@@ -1220,6 +1054,8 @@ extension MainSplitViewController {
                     }
                     let elapsed = Date().timeIntervalSince(startTime)
                     let completionTarget = result.groupedContainerURL ?? result.importedURLs.last
+                    // The output paths are known now. This reads the imported manifests, so it stays off the main actor.
+                    let rowCommand = FASTQOperationRowCommand.refinement(for: result)
 
                     DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
@@ -1228,6 +1064,7 @@ extension MainSplitViewController {
                                 level: .info,
                                 message: "Completed in \(String(format: "%.1f", elapsed))s"
                             )
+                            FASTQOperationRowCommand.apply(rowCommand, to: opID)
                             let completionDetail = "Done in \(String(format: "%.1f", elapsed))s"
                             guard FASTQOperationCompletion.complete(
                                 id: opID,
@@ -1372,48 +1209,6 @@ extension MainSplitViewController {
         let projectPath = currentProjectURL.resolvingSymlinksInPath().path
         let outputPath = outputDirectory.resolvingSymlinksInPath().path
         return outputPath == projectPath || outputPath.hasPrefix(projectPath + "/")
-    }
-
-    func selectedFASTQOperationSources(fallback sourceURL: URL) -> [URL] {
-        let selected = sidebarController.selectedItems().compactMap { item -> URL? in
-            guard let url = item.url?.standardizedFileURL else { return nil }
-            if FASTQBundle.isBundleURL(url) { return url }
-            if FASTQBundle.resolvePrimaryFASTQURL(for: url) != nil { return url }
-            return nil
-        }
-        if selected.isEmpty {
-            return [sourceURL.standardizedFileURL]
-        }
-
-        var deduped: [URL] = []
-        var seen: Set<String> = []
-        for url in selected {
-            let key = url.path
-            guard seen.insert(key).inserted else { continue }
-            deduped.append(url)
-        }
-        return deduped
-    }
-
-    func resolveFASTQOperationSourceBundle(from url: URL) throws -> URL {
-        let standardizedSourceURL = url.standardizedFileURL
-        if FASTQBundle.isBundleURL(standardizedSourceURL) {
-            return standardizedSourceURL
-        }
-        if standardizedSourceURL.deletingLastPathComponent().pathExtension.lowercased() == FASTQBundle.directoryExtension {
-            return standardizedSourceURL.deletingLastPathComponent()
-        }
-        throw FASTQDerivativeError.sourceMustBeBundle
-    }
-
-    func sharedFASTQOperationParentDirectory(for bundleURLs: [URL]) -> URL? {
-        guard let firstParent = bundleURLs.first?.deletingLastPathComponent().standardizedFileURL else {
-            return nil
-        }
-        let allShareParent = bundleURLs.dropFirst().allSatisfy {
-            $0.deletingLastPathComponent().standardizedFileURL == firstParent
-        }
-        return allShareParent ? firstParent : nil
     }
 
     func uniqueFASTQOperationOutputDirectory(

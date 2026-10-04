@@ -9,53 +9,7 @@ import AppKit
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
-@MainActor
-private final class StubFASTQOperationAlertPresenter: FASTQOperationAlertPresenting {
-    var response: NSApplication.ModalResponse = .alertSecondButtonReturn
-    private(set) var messageText: String?
-
-    func present(_ alert: NSAlert, on window: NSWindow?) async -> NSApplication.ModalResponse {
-        messageText = alert.messageText
-        return response
-    }
-}
-
-private actor StubHumanScrubberInstaller: HumanScrubberDatabaseInstalling {
-    enum Mode {
-        case succeed
-        case fail(String)
-    }
-
-    var mode: Mode = .succeed
-    private(set) var installCallCount = 0
-    private(set) var installedDatabaseIDs: [String] = []
-
-    func install(databaseID: String, progress: (@Sendable (Double, String) -> Void)?) async throws {
-        installCallCount += 1
-        installedDatabaseIDs.append(databaseID)
-        switch mode {
-        case .succeed:
-            progress?(1.0, "Installed")
-        case .fail(let reason):
-            throw HumanScrubberDatabaseError.installationFailed(
-                databaseID: databaseID,
-                displayName: "Human Read Scrubber Database",
-                reason: reason
-            )
-        }
-    }
-
-    func currentInstallCallCount() -> Int {
-        installCallCount
-    }
-
-    func lastInstalledDatabaseID() -> String? {
-        installedDatabaseIDs.last
-    }
-}
-
 final class FASTQDashboardTests: XCTestCase {
-
     // MARK: - Helpers
 
     private func makeSampleStatistics(
@@ -703,93 +657,6 @@ final class FASTQDashboardTests: XCTestCase {
             resolved.isEmpty,
             "Workflow Operations must accept .lungfishfastq bundles from the sidebar, not arbitrary FASTQ files."
         )
-    }
-
-    @MainActor
-    func testHumanScrubberInstallPromptRetriesOperationAfterInstall() async throws {
-        let controller = FASTQDatasetViewController()
-        _ = controller.view
-
-        let alertPresenter = StubFASTQOperationAlertPresenter()
-        alertPresenter.response = .alertFirstButtonReturn
-        let installer = StubHumanScrubberInstaller()
-        controller.alertPresenter = alertPresenter
-        controller.humanScrubberInstaller = installer
-
-        var runCount = 0
-        let recovered = try await controller.handleHumanScrubberDatabaseRequirement(
-            .installRequired(databaseID: "deacon-panhuman", displayName: "Human Read Removal Data"),
-            request: .humanReadScrub(databaseID: "sra-human-scrubber", removeReads: true),
-            onRunOperation: { _ in
-                runCount += 1
-            }
-        )
-
-        XCTAssertTrue(recovered)
-        let installCallCount = await installer.currentInstallCallCount()
-        let lastInstalledDatabaseID = await installer.lastInstalledDatabaseID()
-        XCTAssertEqual(installCallCount, 1)
-        XCTAssertEqual(lastInstalledDatabaseID, "deacon-panhuman")
-        XCTAssertEqual(runCount, 1)
-        XCTAssertEqual(alertPresenter.messageText, "Human Read Scrubber Database Required")
-    }
-
-    @MainActor
-    func testHumanScrubberInstallPromptCancelLeavesOperationBlocked() async throws {
-        let controller = FASTQDatasetViewController()
-        _ = controller.view
-
-        let alertPresenter = StubFASTQOperationAlertPresenter()
-        alertPresenter.response = .alertSecondButtonReturn
-        let installer = StubHumanScrubberInstaller()
-        controller.alertPresenter = alertPresenter
-        controller.humanScrubberInstaller = installer
-
-        var runCount = 0
-        do {
-            _ = try await controller.handleHumanScrubberDatabaseRequirement(
-                .installRequired(databaseID: "deacon-panhuman", displayName: "Human Read Removal Data"),
-                request: .humanReadScrub(databaseID: "sra-human-scrubber", removeReads: true),
-                onRunOperation: { _ in
-                    runCount += 1
-                }
-            )
-            XCTFail("Expected cancellation to keep the operation blocked")
-        } catch let error as HumanScrubberDatabaseError {
-            switch error {
-            case .installationCancelled(let databaseID, let displayName):
-                XCTAssertEqual(databaseID, "deacon-panhuman")
-                XCTAssertEqual(displayName, "Human Read Removal Data")
-            default:
-                XCTFail("Expected installationCancelled, got \(error)")
-            }
-        }
-        let installCallCount = await installer.currentInstallCallCount()
-        XCTAssertEqual(installCallCount, 0)
-        XCTAssertEqual(runCount, 0)
-    }
-
-    @MainActor
-    func testHumanScrubberInstallPromptCanonicalizesLegacyDatabaseID() async throws {
-        let controller = FASTQDatasetViewController()
-        _ = controller.view
-
-        let alertPresenter = StubFASTQOperationAlertPresenter()
-        alertPresenter.response = .alertFirstButtonReturn
-        let installer = StubHumanScrubberInstaller()
-        controller.alertPresenter = alertPresenter
-        controller.humanScrubberInstaller = installer
-
-        _ = try await controller.handleHumanScrubberDatabaseRequirement(
-            .installRequired(databaseID: "sra-human-scrubber", displayName: "Human Read Scrubber Database"),
-            request: .humanReadScrub(databaseID: "sra-human-scrubber", removeReads: true),
-            onRunOperation: { _ in }
-        )
-
-        let installCallCount = await installer.currentInstallCallCount()
-        let lastInstalledDatabaseID = await installer.lastInstalledDatabaseID()
-        XCTAssertEqual(installCallCount, 1)
-        XCTAssertEqual(lastInstalledDatabaseID, "deacon-panhuman")
     }
 
     func testHumanReadScrubBatchParametersCanonicalizeManagedRemovalMetadata() {

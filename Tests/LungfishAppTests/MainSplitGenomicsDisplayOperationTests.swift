@@ -2,16 +2,16 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The genomics display launches register three kinds of Operations panel rows
-// through static begin helpers (R4). None of them declares a bundle lock, so a
+// The genomics display launches register two kinds of Operations panel rows
+// through static begin helpers (R4). Neither declares a bundle lock, so a
 // real center never refuses them, and a recording reporter that holds a lock
 // stands in for the refusal. The reference download has no lungfish-cli
-// equivalent, so its tests pin the missing command. The FASTQ derivative
-// row and the FASTQ operations dialog row record the `lungfish-cli fastq`
-// command FASTQOperationCLIInvocationBuilder builds for the same request
-// (R3), which the tests parse with the real CLI parser and compare with the
-// request's values. A request with a setting no lungfish-cli option
-// expresses records no command at either site, a pinned CLI parity gap.
+// equivalent, so its tests pin the missing command. The FASTQ operations
+// dialog row records the `lungfish-cli fastq` command
+// FASTQOperationCLIInvocationBuilder builds for the request (R3), which the
+// tests parse with the real CLI parser and compare with the request's values.
+// A request with a setting no lungfish-cli option expresses records no
+// command, a pinned CLI parity gap.
 
 import ArgumentParser
 import XCTest
@@ -79,114 +79,11 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         XCTAssertEqual(reporter.items.map(\.state), [.refused])
     }
 
-    // MARK: - FASTQ derivative from the dataset viewport (site 42)
-
-    /// Registers the derivative row on a recording reporter and checks what
-    /// every derivative row shares.
-    private func recordedDerivativeRow(
-        _ request: FASTQDerivativeRequest,
-        inputURL: URL? = nil
-    ) throws -> RecordingOperationReporter.Item {
-        let reporter = RecordingOperationReporter()
-        let operationID = try MainSplitViewController.beginFASTQDerivativeOperation(
-            request: request,
-            inputURL: inputURL ?? inputBundle,
-            routeContext: routeContext,
-            reporter: reporter
-        ).requireStarted()
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(reporter.items.count, 1)
-        XCTAssertEqual(item.id, operationID)
-        XCTAssertEqual(item.title, "FASTQ: \(request.operationLabel)")
-        XCTAssertEqual(item.initialDetail, "Preparing...")
-        XCTAssertEqual(item.operationType, .fastqOperation)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        XCTAssertEqual(item.routeContext, routeContext)
-        return item
-    }
-
-    func testFASTQDerivativeRowRecordsTheCommandForTheInputBundle() throws {
-        let item = try recordedDerivativeRow(.lengthFilter(min: 100, max: 5000))
-
-        XCTAssertEqual(item.title, "FASTQ: Length Filter")
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: FastqLengthFilterSubcommand.self)
-        XCTAssertEqual(command.input, inputBundle.path)
-        XCTAssertEqual(command.minLength, 100)
-        XCTAssertEqual(command.maxLength, 5000)
-        XCTAssertEqual(command.output.output, "<derived>")
-    }
-
-    func testFASTQDerivativeRowCarriesTheInputBundlesRecordedPairing() throws {
-        let directory = try TestTempDirectory.make(prefix: "genomics-display-operation")
-        defer { TestTempDirectory.cleanup(directory) }
-        let bundle = try InterleavedFASTQFixture.writeBundle(
-            named: "hg002", in: directory, pairCount: 2, naming: .identical, pairingMode: .interleaved
-        )
-
-        let item = try recordedDerivativeRow(.subsampleCount(10), inputURL: bundle.bundleURL)
-
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: FastqSubsampleSubcommand.self)
-        XCTAssertEqual(command.input, bundle.bundleURL.path)
-        XCTAssertEqual(command.pairing.pairing, .interleaved, "the row passes the pairing the bundle recorded")
-        XCTAssertEqual(command.count, 10)
-    }
-
-    func testFASTQDerivativeCommandsParseWithTheRequestsValues() throws {
-        for testCase in GenomicsDisplayDerivativeCases.bothSitesRecord() {
-            let item = try recordedDerivativeRow(testCase.request)
-            let parsed: any ParsableCommand
-            do {
-                parsed = try RecordedCLICommand.parse(item.cliCommand)
-            } catch {
-                XCTFail("\(testCase.name) recorded a command that does not parse: \(item.cliCommand ?? "nil") (\(error))")
-                continue
-            }
-            do {
-                try testCase.verify(parsed, inputBundle.path)
-            } catch {
-                XCTFail("\(testCase.name): \(error)")
-            }
-        }
-    }
-
-    func testFASTQDerivativeRowRecordsTheInvocationTheDialogRowRecordsForTheSameRequest() throws {
-        // One builder (R3). The dataset viewport row used to build its own
-        // string, which recorded seqkit, cutadapt, vsearch and deacon commands
-        // for five kinds and left values out of three more.
-        let requests = GenomicsDisplayDerivativeCases.bothSitesRecord().map(\.request)
-            + Self.requestsNoCLIOptionExpresses.map(\.1)
-        for request in requests {
-            let derivativeRow = try recordedDerivativeRow(request)
-            let dialogRow = try recordedLaunchRow(.derivative(
-                request: request, inputURLs: [inputBundle], outputMode: .perInput
-            ))
-            XCTAssertEqual(derivativeRow.cliCommand, dialogRow.cliCommand, request.operationLabel)
-        }
-    }
-
-    func testFASTQDerivativeRowCarriesTheInputBundlesPairingForTheLengthFilter() throws {
-        // The length filter row used to record no `--pairing`, unlike every
-        // other kind with the option, so the CLI fell back to its own detection.
-        let directory = try TestTempDirectory.make(prefix: "genomics-display-operation")
-        defer { TestTempDirectory.cleanup(directory) }
-        let bundle = try InterleavedFASTQFixture.writeBundle(
-            named: "hg002", in: directory, pairCount: 2, naming: .identical, pairingMode: .interleaved
-        )
-
-        let item = try recordedDerivativeRow(.lengthFilter(min: 50, max: 300), inputURL: bundle.bundleURL)
-
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: FastqLengthFilterSubcommand.self)
-        XCTAssertEqual(command.input, bundle.bundleURL.path)
-        XCTAssertEqual(command.minLength, 50)
-        XCTAssertEqual(command.maxLength, 300)
-        XCTAssertEqual(command.pairing.pairing, .interleaved, "the run passes the bundle's interleaved pairing")
-    }
+    // MARK: - Requests no lungfish-cli option expresses
 
     /// Requests that carry a setting no lungfish-cli option expresses. The
-    /// invocation builder refuses them, so neither FASTQ row records a
-    /// command, and the dialog run fails with the builder's error. The
-    /// dataset viewport runs them in process.
+    /// invocation builder refuses them, so the dialog row records no
+    /// command, and the dialog run fails with the builder's error.
     static let requestsNoCLIOptionExpresses: [(String, FASTQDerivativeRequest)] = [
         (
             "adapter trim from an adapter FASTA",
@@ -247,43 +144,6 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
             ))
         ),
     ]
-
-    func testFASTQDerivativeRequestsNoCLIOptionExpressesRecordNoCommandAsParityGaps() throws {
-        // CLI parity gap. `fastq adapter-trim` and `fastq trim` take no adapter
-        // FASTA or read 2 adapter, `fastq orient` cannot keep unoriented reads,
-        // `fastq demultiplex` has no symmetry mode, sample assignment or kit
-        // override option, and `fastq primer-remove` encodes only reference
-        // cutadapt-linked trimming and literal or reference bbduk trimming
-        // with the default read-mode flags. The adapter FASTA row used to
-        // record an `adapter-trim` command that auto-detected adapters. When
-        // the CLI gains an option, the builder encodes it and this pin becomes
-        // a parse test.
-        for (name, request) in Self.requestsNoCLIOptionExpresses {
-            let item = try recordedDerivativeRow(request)
-            XCTAssertNil(item.cliCommand, name)
-            assertCLIParityGap(item.cliCommand, id: "fastq-dashboard-derivative")
-        }
-    }
-
-    /// `runFASTQOperation` ends its begin call with `requireStarted()`, so a
-    /// refusal throws before the derivative service is called.
-    func testRefusedFASTQDerivativeBeginThrowsOperationRefusedErrorFromRequireStarted() {
-        let reporter = RecordingOperationReporter(lockHeldBy: "Importing BAM")
-
-        let result = MainSplitViewController.beginFASTQDerivativeOperation(
-            request: .lengthFilter(min: 100, max: nil),
-            inputURL: inputBundle,
-            routeContext: routeContext,
-            reporter: reporter
-        )
-
-        XCTAssertNil(result.startedID)
-        XCTAssertThrowsError(try result.requireStarted()) { error in
-            XCTAssertEqual((error as? OperationRefusedError)?.refusal.blockingOperationTitle, "Importing BAM")
-        }
-        XCTAssertEqual(reporter.items.map(\.state), [.refused])
-        XCTAssertTrue(reporter.items[0].logs.isEmpty, "a refused run reports nothing further")
-    }
 
     // MARK: - FASTQ operations dialog launch (site 43)
 
@@ -387,9 +247,9 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
     func testFASTQLaunchRequestsTheBuilderCannotEncodeRecordNoCommandAsParityGaps() throws {
         // CLI parity gap. The invocation builder throws for these requests, so
         // the row records no command, and the run fails with the builder's
-        // error because the execution service builds the same invocation. The
-        // dataset viewport runs the same settings in process. When the builder
-        // encodes one, the row records the command and its pin becomes a parse test.
+        // error because the execution service builds the same invocation. When
+        // the builder encodes one, the row records the command and its pin
+        // becomes a parse test.
         for (name, request) in Self.requestsNoCLIOptionExpresses {
             let item = try recordedLaunchRow(.derivative(
                 request: request, inputURLs: [inputBundle], outputMode: .perInput

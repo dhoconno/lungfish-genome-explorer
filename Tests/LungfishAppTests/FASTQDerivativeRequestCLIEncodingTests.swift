@@ -38,57 +38,6 @@ final class FASTQDerivativeRequestCLIEncodingTests: XCTestCase {
         XCTAssertTrue(command.contains("--regex"))
         XCTAssertFalse(command.contains("seqkit"))
     }
-
-    // MARK: - provenanceCLIArguments (recorded argv)
-
-    func testLengthFilterProvenanceUsesMinMaxNotMinLengthMaxLength() {
-        let request = FASTQDerivativeRequest.lengthFilter(min: 50, max: 500)
-        let args = request.provenanceCLIArguments
-
-        XCTAssertTrue(args.containsSequence(["--min", "50"]))
-        XCTAssertTrue(args.containsSequence(["--max", "500"]))
-        XCTAssertFalse(args.contains("--min-length"))
-        XCTAssertFalse(args.contains("--max-length"))
-    }
-
-    func testSearchTextProvenanceUsesBareRegexFlagNotBooleanString() {
-        let requestWithRegex = FASTQDerivativeRequest.searchText(query: "q", field: .id, regex: true)
-        XCTAssertTrue(requestWithRegex.provenanceCLIArguments.contains("--regex"))
-        XCTAssertFalse(requestWithRegex.provenanceCLIArguments.contains("true"))
-
-        let requestWithoutRegex = FASTQDerivativeRequest.searchText(query: "q", field: .id, regex: false)
-        XCTAssertFalse(requestWithoutRegex.provenanceCLIArguments.contains("--regex"))
-        XCTAssertFalse(requestWithoutRegex.provenanceCLIArguments.contains("false"))
-    }
-
-    func testDeduplicateProvenanceUsesSubsAndBareOpticalFlagMatchingExecutedArgv() {
-        let request = FASTQDerivativeRequest.deduplicate(
-            preset: .exactPCR,
-            substitutions: 2,
-            optical: true,
-            opticalDistance: 12000
-        )
-        let args = request.provenanceCLIArguments
-
-        XCTAssertTrue(args.containsSequence(["--subs", "2"]))
-        XCTAssertTrue(args.contains("--optical"))
-        XCTAssertTrue(args.containsSequence(["--dupedist", "12000"]))
-        XCTAssertFalse(args.contains("--substitutions"))
-        XCTAssertFalse(args.contains("--optical-distance"))
-    }
-
-    func testDeduplicateProvenanceOmitsOpticalFlagsWhenNotOptical() {
-        let request = FASTQDerivativeRequest.deduplicate(
-            preset: .exactPCR,
-            substitutions: 1,
-            optical: false,
-            opticalDistance: 40
-        )
-        let args = request.provenanceCLIArguments
-
-        XCTAssertFalse(args.contains("--optical"))
-        XCTAssertFalse(args.contains("--dupedist"))
-    }
 }
 
 private extension Array where Element == String {

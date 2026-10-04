@@ -47,7 +47,6 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         searchReverseComplement: Bool
     )
     case errorCorrection(kmerSize: Int)
-    case interleaveReformat(direction: FASTQInterleaveDirection)
     case reverseComplement
     case translate(frameOffset: Int)
 
@@ -102,7 +101,6 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .primerRemoval: return "PCR Primer Trimming"
         case .sequencePresenceFilter: return "Sequence Presence Filter"
         case .errorCorrection: return "Error Correction"
-        case .interleaveReformat: return "Interleave Reformat"
         case .reverseComplement: return "Reverse Complement"
         case .translate: return "Translate"
         case .demultiplex: return "Demultiplex"
@@ -112,57 +110,10 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         }
     }
 
-    /// Whether this request produces a trim derivative (vs subset).
-    var isTrimOperation: Bool {
-        switch self {
-        case .fastpTrim, .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval:
-            return true
-        case .subsampleProportion, .subsampleCount, .lengthFilter,
-             .searchText, .searchMotif, .deduplicate, .contaminantFilter,
-             .lowComplexityFilter,
-             .sequencePresenceFilter, .ribosomalRNAFilter:
-            return false
-        case .pairedEndMerge, .pairedEndRepair,
-             .errorCorrection, .interleaveReformat, .reverseComplement,
-             .translate, .demultiplex, .orient, .humanReadScrub:
-            return false
-        }
-    }
-
-    /// Whether this request produces a full materialized FASTQ (content-transforming).
-    var isFullOperation: Bool {
-        switch self {
-        case .pairedEndMerge, .pairedEndRepair,
-             .errorCorrection, .interleaveReformat, .demultiplex, .humanReadScrub,
-             .reverseComplement, .translate, .ribosomalRNAFilter:
-            return true
-        default:
-            return false
-        }
-    }
-
     /// Whether this request produces an orient-map derivative.
     var isOrientOperation: Bool {
         if case .orient = self { return true }
         return false
-    }
-
-    /// Whether this request produces paired R1/R2 output files.
-    var isFullPairedOperation: Bool {
-        if case .interleaveReformat(let dir) = self, dir == .deinterleave {
-            return true
-        }
-        return false
-    }
-
-    /// Whether this operation produces multiple classified output files (mixed read types).
-    var isMixedOutputOperation: Bool {
-        switch self {
-        case .pairedEndMerge, .pairedEndRepair:
-            return true
-        default:
-            return false
-        }
     }
 
     /// Human-readable label for batch operation records.
@@ -202,7 +153,6 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .primerRemoval: return "primerRemoval"
         case .sequencePresenceFilter: return "sequencePresenceFilter"
         case .errorCorrection: return "errorCorrection"
-        case .interleaveReformat: return "interleaveReformat"
         case .reverseComplement: return "reverseComplement"
         case .translate: return "translate"
         case .demultiplex: return "demultiplex"
@@ -298,8 +248,6 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             ]
         case .errorCorrection(let kmerSize):
             return ["kmerSize": "\(kmerSize)"]
-        case .interleaveReformat(let direction):
-            return ["direction": "\(direction)"]
         case .reverseComplement:
             return [:]
         case .translate(let frameOffset):
@@ -361,9 +309,9 @@ extension FASTQDerivativeRequest {
     ///
     /// `FASTQOperationCLIInvocationBuilder` builds it, the builder whose
     /// invocation the FASTQ operations dialog executes, so the command is the
-    /// one that runs (findings R3 and R8). The dataset viewport's Operations
-    /// row and the derivative manifests' `toolCommand` that FASTQDerivativeService
-    /// and `FASTQOperationOutputImporter` write all record it. This used to be a
+    /// one that runs (findings R3 and R8). The dialog's Operations row and the
+    /// derivative manifests' `toolCommand` that `FASTQOperationOutputImporter`
+    /// writes both record it. This used to be a
     /// second encoding that recorded native tool commands, such as `seqkit seq
     /// --reverse --complement` for a reverse complement that ran as
     /// `lungfish-cli fastq reverse-complement`, and that left out values the
@@ -402,373 +350,7 @@ extension FASTQDerivativeRequest {
     }
 }
 
-
 extension FASTQDerivativeRequest {
-    var provenanceCLIArguments: [String] {
-        switch self {
-        case .subsampleProportion(let proportion):
-            return ["--proportion", String(proportion)]
-        case .subsampleCount(let count):
-            return ["--count", String(count)]
-        case .lengthFilter(let min, let max):
-            // The executed command (FASTQOperationCLIInvocationBuilder
-            // .fastqArguments) spells these `--min`/`--max`; this provenance
-            // encoding used to spell them `--min-length`/`--max-length`, which
-            // is not valid CLI syntax and would not reproduce the run.
-            return optionalFlag("--min", min) + optionalFlag("--max", max)
-        case .searchText(let query, let field, let regex):
-            // The executed command passes bare `--regex` as a flag,
-            // not `--regex true`/`--regex false`.
-            var args = ["--query", query, "--field", field.rawValue]
-            if regex { args.append("--regex") }
-            return args
-        case .searchMotif(let pattern, let regex):
-            var args = ["--pattern", pattern]
-            if regex { args.append("--regex") }
-            return args
-        case .deduplicate(_, let substitutions, let optical, let opticalDistance):
-            // The executed command spells these `--subs` and bare
-            // `--optical --dupedist <n>` (FASTQOperationCLIInvocationBuilder
-            // .fastqArguments); `preset` is not passed to the CLI at all
-            // (silently dropped there too), so it is not recorded here either.
-            var args = ["--subs", String(substitutions)]
-            if optical { args += ["--optical", "--dupedist", String(opticalDistance)] }
-            return args
-        case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, let adapterSequence):
-            return [
-                "--threshold", String(threshold),
-                "--window-size", String(windowSize),
-                "--mode", mode.rawValue,
-                "--adapter-mode", adapterMode.rawValue,
-            ] + optionalFlag("--adapter-sequence", adapterSequence)
-        case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
-            var args = [
-                "--threshold", String(threshold),
-                "--window-size", String(windowSize),
-                "--mode", mode.rawValue,
-            ]
-            if !extraArguments.isEmpty {
-                args += ["--extra-arguments", AdvancedCommandLineOptions.join(extraArguments)]
-            }
-            return args
-        case .adapterTrim(let mode, let sequence, let sequenceR2, let fastaFilename):
-            return [
-                "--adapter-mode", mode.rawValue,
-            ] + optionalFlag("--adapter-sequence", sequence)
-                + optionalFlag("--adapter-sequence-r2", sequenceR2)
-                + optionalFlag("--adapter-fasta", fastaFilename)
-        case .fixedTrim(let from5Prime, let from3Prime):
-            return ["--from-5-prime", String(from5Prime), "--from-3-prime", String(from3Prime)]
-        case .contaminantFilter(let mode, let referenceFasta, let kmerSize, let hammingDistance):
-            return [
-                "--mode", mode.rawValue,
-                "--kmer-size", String(kmerSize),
-                "--hamming-distance", String(hammingDistance),
-            ] + optionalFlag("--reference-fasta", referenceFasta)
-        case .lowComplexityFilter(let entropy, let window, let kmer):
-            return [
-                "--entropy", FASTQDerivativeRequest.entropyArgument(entropy),
-                "--window", String(window),
-                "--kmer", String(kmer),
-            ]
-        case .pairedEndMerge(let strictness, let minOverlap):
-            return [
-                "--strictness", strictness.rawValue,
-                "--min-overlap", String(minOverlap),
-                "--count-duplicates", "true",
-            ]
-        case .pairedEndRepair:
-            return []
-        case .primerRemoval(let configuration):
-            return [
-                "--source", configuration.source.rawValue,
-                "--read-mode", configuration.readMode.rawValue,
-                "--mode", configuration.mode.rawValue,
-                "--minimum-overlap", String(configuration.minimumOverlap),
-                "--error-rate", String(configuration.errorRate),
-                "--allow-indels", String(configuration.allowIndels),
-                "--keep-untrimmed", String(configuration.keepUntrimmed),
-                "--search-reverse-complement", String(configuration.searchReverseComplement),
-                "--tool", configuration.tool.rawValue,
-            ] + optionalFlag("--forward-sequence", configuration.forwardSequence)
-                + optionalFlag("--reverse-sequence", configuration.reverseSequence)
-                + optionalFlag("--reference-fasta", configuration.referenceFasta)
-        case .sequencePresenceFilter(let sequence, let fastaPath, let searchEnd, let minOverlap, let errorRate, let keepMatched, let searchRC):
-            return [
-                "--search-end", searchEnd.rawValue,
-                "--min-overlap", String(minOverlap),
-                "--error-rate", String(errorRate),
-                "--keep-matched", String(keepMatched),
-                "--search-reverse-complement", String(searchRC),
-            ] + optionalFlag("--sequence", sequence)
-                + optionalFlag("--fasta-path", fastaPath)
-        case .errorCorrection(let kmerSize):
-            return ["--kmer-size", String(kmerSize)]
-        case .interleaveReformat(let direction):
-            return ["--direction", direction.rawValue]
-        case .reverseComplement:
-            return []
-        case .translate(let frameOffset):
-            return ["--frame-offset", String(frameOffset)]
-        case .demultiplex(let kitID, let customCSVPath, let location, let symmetryMode, let maxDistanceFrom5Prime, let maxDistanceFrom3Prime, let errorRate, let engine, let trimBarcodes, let sampleAssignments, let kitOverride):
-            if engine == .exactBareBarcode {
-                return [
-                    "--kit-id", kitID,
-                    "--engine", engine.rawValue,
-                    "--search-mode", "whole-read",
-                    "--search-reverse-complement", "true",
-                    "--trim-barcodes", "false",
-                    "--sample-assignment-count", String(sampleAssignments?.count ?? 0),
-                ] + optionalFlag("--custom-csv", customCSVPath)
-                    + optionalFlag("--symmetry-mode", symmetryMode?.rawValue)
-                    + optionalFlag("--kit-override-id", kitOverride?.id)
-            }
-            return [
-                "--kit-id", kitID,
-                "--location", location,
-                "--max-distance-from-5-prime", String(maxDistanceFrom5Prime),
-                "--max-distance-from-3-prime", String(maxDistanceFrom3Prime),
-                "--error-rate", String(errorRate),
-                "--engine", engine.rawValue,
-                "--trim-barcodes", String(trimBarcodes),
-                "--sample-assignment-count", String(sampleAssignments?.count ?? 0),
-            ] + optionalFlag("--custom-csv", customCSVPath)
-                + optionalFlag("--symmetry-mode", symmetryMode?.rawValue)
-                + optionalFlag("--kit-override-id", kitOverride?.id)
-        case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented, let extraArguments):
-            var args = [
-                "--reference", referenceURL.path,
-                "--word-length", String(wordLength),
-                "--db-mask", dbMask,
-                "--save-unoriented", String(saveUnoriented),
-            ]
-            if !extraArguments.isEmpty {
-                args += ["--extra-arguments", AdvancedCommandLineOptions.join(extraArguments)]
-            }
-            return args
-        case .humanReadScrub(let databaseID, let removeReads):
-            return ["--database-id", databaseID, "--remove-reads", String(removeReads)]
-        case .ribosomalRNAFilter(let retention, let ensure):
-            return ["--retention", retention.rawValue, "--ensure", ensure.rawValue]
-        }
-    }
-
-    var provenanceExplicitOptions: [String: ParameterValue] {
-        switch self {
-        case .subsampleProportion(let proportion):
-            return ["proportion": .number(proportion)]
-        case .subsampleCount(let count):
-            return ["count": .integer(count)]
-        case .lengthFilter(let min, let max):
-            return ["minLength": optionalInt(min), "maxLength": optionalInt(max)]
-        case .searchText(let query, let field, let regex):
-            return ["query": .string(query), "field": .string(field.rawValue), "regex": .boolean(regex)]
-        case .searchMotif(let pattern, let regex):
-            return ["pattern": .string(pattern), "regex": .boolean(regex)]
-        case .deduplicate(let preset, let substitutions, let optical, let opticalDistance):
-            return [
-                "preset": .string(preset.rawValue),
-                "substitutions": .integer(substitutions),
-                "optical": .boolean(optical),
-                "opticalDistance": .integer(opticalDistance),
-            ]
-        case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, let adapterSequence):
-            return [
-                "threshold": .integer(threshold),
-                "windowSize": .integer(windowSize),
-                "mode": .string(mode.rawValue),
-                "adapterMode": .string(adapterMode.rawValue),
-                "adapterSequence": optionalString(adapterSequence),
-            ]
-        case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
-            return [
-                "threshold": .integer(threshold),
-                "windowSize": .integer(windowSize),
-                "mode": .string(mode.rawValue),
-                "extraArguments": .array(extraArguments.map(ParameterValue.string)),
-            ]
-        case .adapterTrim(let mode, let sequence, let sequenceR2, let fastaFilename):
-            return [
-                "mode": .string(mode.rawValue),
-                "sequence": optionalString(sequence),
-                "sequenceR2": optionalString(sequenceR2),
-                "fastaFilename": optionalString(fastaFilename),
-            ]
-        case .fixedTrim(let from5Prime, let from3Prime):
-            return ["from5Prime": .integer(from5Prime), "from3Prime": .integer(from3Prime)]
-        case .contaminantFilter(let mode, let referenceFasta, let kmerSize, let hammingDistance):
-            return [
-                "mode": .string(mode.rawValue),
-                "referenceFasta": optionalString(referenceFasta),
-                "kmerSize": .integer(kmerSize),
-                "hammingDistance": .integer(hammingDistance),
-            ]
-        case .lowComplexityFilter(let entropy, let window, let kmer):
-            return [
-                "entropy": .number(entropy),
-                "entropyWindow": .integer(window),
-                "entropyKmer": .integer(kmer),
-            ]
-        case .pairedEndMerge(let strictness, let minOverlap):
-            return [
-                "strictness": .string(strictness.rawValue),
-                "minOverlap": .integer(minOverlap),
-                "countDuplicatesAfterMerge": .boolean(true),
-                "duplicateCountEncoding": .string("size=N"),
-            ]
-        case .pairedEndRepair:
-            return [:]
-        case .primerRemoval(let configuration):
-            return [
-                "source": .string(configuration.source.rawValue),
-                "readMode": .string(configuration.readMode.rawValue),
-                "mode": .string(configuration.mode.rawValue),
-                "forwardSequence": optionalString(configuration.forwardSequence),
-                "reverseSequence": optionalString(configuration.reverseSequence),
-                "referenceFasta": optionalString(configuration.referenceFasta),
-                "minimumOverlap": .integer(configuration.minimumOverlap),
-                "errorRate": .number(configuration.errorRate),
-                "allowIndels": .boolean(configuration.allowIndels),
-                "keepUntrimmed": .boolean(configuration.keepUntrimmed),
-                "searchReverseComplement": .boolean(configuration.searchReverseComplement),
-                "tool": .string(configuration.tool.rawValue),
-            ]
-        case .sequencePresenceFilter(let sequence, let fastaPath, let searchEnd, let minOverlap, let errorRate, let keepMatched, let searchRC):
-            return [
-                "sequence": optionalString(sequence),
-                "fastaPath": optionalString(fastaPath),
-                "searchEnd": .string(searchEnd.rawValue),
-                "minOverlap": .integer(minOverlap),
-                "errorRate": .number(errorRate),
-                "keepMatched": .boolean(keepMatched),
-                "searchReverseComplement": .boolean(searchRC),
-            ]
-        case .errorCorrection(let kmerSize):
-            return ["kmerSize": .integer(kmerSize)]
-        case .interleaveReformat(let direction):
-            return ["direction": .string(direction.rawValue)]
-        case .reverseComplement:
-            return [:]
-        case .translate(let frameOffset):
-            return ["frameOffset": .integer(frameOffset), "frame": .integer(frameOffset + 1)]
-        case .demultiplex(let kitID, let customCSVPath, let location, let symmetryMode, let maxDistanceFrom5Prime, let maxDistanceFrom3Prime, let errorRate, let engine, let trimBarcodes, let sampleAssignments, let kitOverride):
-            if engine == .exactBareBarcode {
-                return [
-                    "kitID": .string(kitID),
-                    "customCSVPath": optionalString(customCSVPath),
-                    "symmetryMode": optionalString(symmetryMode?.rawValue),
-                    "engine": .string(engine.rawValue),
-                    "searchMode": .string("whole-read"),
-                    "searchReverseComplement": .boolean(true),
-                    "trimBarcodes": .boolean(false),
-                    "sampleAssignmentCount": .integer(sampleAssignments?.count ?? 0),
-                    "kitOverrideID": optionalString(kitOverride?.id),
-                ]
-            }
-            return [
-                "kitID": .string(kitID),
-                "customCSVPath": optionalString(customCSVPath),
-                "location": .string(location),
-                "symmetryMode": optionalString(symmetryMode?.rawValue),
-                "maxDistanceFrom5Prime": .integer(maxDistanceFrom5Prime),
-                "maxDistanceFrom3Prime": .integer(maxDistanceFrom3Prime),
-                "errorRate": .number(errorRate),
-                "engine": .string(engine.rawValue),
-                "trimBarcodes": .boolean(trimBarcodes),
-                "sampleAssignmentCount": .integer(sampleAssignments?.count ?? 0),
-                "kitOverrideID": optionalString(kitOverride?.id),
-            ]
-        case .orient:
-            return [:]
-        case .humanReadScrub(let databaseID, let removeReads):
-            return ["databaseID": .string(databaseID), "removeReads": .boolean(removeReads)]
-        case .ribosomalRNAFilter(let retention, let ensure):
-            return ["retention": .string(retention.rawValue), "ensure": .string(ensure.rawValue)]
-        }
-    }
-
-    var provenanceDefaultOptions: [String: ParameterValue] {
-        switch self {
-        case .lengthFilter:
-            return ["minLength": .null, "maxLength": .null]
-        case .qualityTrim:
-            return [
-                "threshold": .integer(20),
-                "windowSize": .integer(4),
-                "mode": .string(FASTQQualityTrimMode.cutRight.rawValue),
-                "extraArguments": .array([]),
-            ]
-        case .fastpTrim:
-            return [
-                "threshold": .integer(20),
-                "windowSize": .integer(4),
-                "mode": .string(FASTQQualityTrimMode.cutRight.rawValue),
-                "adapterMode": .string(FASTQAdapterMode.autoDetect.rawValue),
-                "adapterSequence": .null,
-            ]
-        case .adapterTrim:
-            return [
-                "mode": .string(FASTQAdapterMode.autoDetect.rawValue),
-                "sequence": .null,
-                "sequenceR2": .null,
-                "fastaFilename": .null,
-            ]
-        case .fixedTrim:
-            return ["from5Prime": .integer(0), "from3Prime": .integer(0)]
-        case .pairedEndMerge:
-            return [
-                "strictness": .string(FASTQMergeStrictness.normal.rawValue),
-                "minOverlap": .integer(12),
-            ]
-        case .demultiplex:
-            return [
-                "customCSVPath": .null,
-                "symmetryMode": .null,
-                "maxDistanceFrom5Prime": .integer(0),
-                "maxDistanceFrom3Prime": .integer(0),
-                "errorRate": .number(0.0),
-                "trimBarcodes": .boolean(true),
-                "sampleAssignmentCount": .integer(0),
-                "kitOverrideID": .null,
-            ]
-        case .primerRemoval:
-            return [
-                "minimumOverlap": .integer(3),
-                "errorRate": .number(0.1),
-                "allowIndels": .boolean(true),
-                "keepUntrimmed": .boolean(false),
-                "searchReverseComplement": .boolean(false),
-            ]
-        case .sequencePresenceFilter:
-            return [
-                "minOverlap": .integer(3),
-                "errorRate": .number(0.1),
-                "keepMatched": .boolean(true),
-                "searchReverseComplement": .boolean(false),
-            ]
-        case .contaminantFilter:
-            return ["kmerSize": .integer(31), "hammingDistance": .integer(1), "referenceFasta": .null]
-        case .lowComplexityFilter:
-            return [
-                "entropy": .number(FASTQEntropyFilterDefaults.entropy),
-                "entropyWindow": .integer(FASTQEntropyFilterDefaults.window),
-                "entropyKmer": .integer(FASTQEntropyFilterDefaults.kmer),
-            ]
-        case .errorCorrection:
-            return ["kmerSize": .integer(50)]
-        case .interleaveReformat:
-            return ["direction": .string(FASTQInterleaveDirection.interleave.rawValue)]
-        case .translate:
-            return ["frameOffset": .integer(0), "frame": .integer(1)]
-        case .humanReadScrub:
-            return ["removeReads": .boolean(true)]
-        case .subsampleProportion, .subsampleCount, .searchText, .searchMotif,
-             .deduplicate, .pairedEndRepair, .reverseComplement, .orient,
-             .ribosomalRNAFilter:
-            return [:]
-        }
-    }
-
     /// Formats an entropy threshold for the command line.
     ///
     /// The entropy control steps by 0.05, so two decimals are always enough;
@@ -783,21 +365,5 @@ extension FASTQDerivativeRequest {
             text.removeLast(2)
         }
         return text
-    }
-
-    private func optionalString(_ value: String?) -> ParameterValue {
-        value.map(ParameterValue.string) ?? .null
-    }
-
-    private func optionalInt(_ value: Int?) -> ParameterValue {
-        value.map(ParameterValue.integer) ?? .null
-    }
-
-    private func optionalFlag(_ flag: String, _ value: String?) -> [String] {
-        value.map { [flag, $0] } ?? []
-    }
-
-    private func optionalFlag(_ flag: String, _ value: Int?) -> [String] {
-        value.map { [flag, String($0)] } ?? []
     }
 }

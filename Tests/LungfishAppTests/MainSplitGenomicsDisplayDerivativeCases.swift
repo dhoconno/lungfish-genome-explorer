@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The FASTQ derivative row (site 42) and the FASTQ operations dialog row
-// (site 43) in MainSplitViewController+GenomicsDisplay.swift record the
+// The FASTQ operations dialog row (site 43) in
+// MainSplitViewController+GenomicsDisplay.swift records the
 // `lungfish-cli fastq` command FASTQOperationCLIInvocationBuilder builds, and
 // FASTQOperationOutputImporter records the same invocation as derivative
 // provenance (R3, R8). MainSplitGenomicsDisplayOperationTests parses each
@@ -35,11 +35,10 @@ struct GenomicsDisplayDerivativeCase {
 }
 
 enum GenomicsDisplayDerivativeCases {
-    /// CLI parity gap. Neither row records a subsample's `--seed`. Both
-    /// register before the run draws its seed and the request carries none,
-    /// so the rows and the dialog's manifest leave it out. The CLI records the
-    /// seed it drew in its provenance envelope, and an in-process run records
-    /// it in the manifest. One seed drawn at launch would have to travel in
+    /// CLI parity gap. The dialog row does not record a subsample's `--seed`.
+    /// It registers before the run draws its seed and the request carries none,
+    /// so the row and the dialog's manifest leave it out. The CLI records the
+    /// seed it drew in its provenance envelope. One seed drawn at launch would have to travel in
     /// `FASTQDerivativeRequest.subsampleProportion` and `.subsampleCount` or
     /// in `FASTQOperationLaunchRequest.derivative`, the one value the row, the
     /// executed invocation and the manifest share, associated values that
@@ -47,10 +46,8 @@ enum GenomicsDisplayDerivativeCases {
     static let subsampleSeedGap = "the row registers before the run draws its seed"
 
     /// The derivative kinds whose recorded command is a lungfish-cli command
-    /// at both FASTQ launch sites. The dataset viewport row used to record the
-    /// last seven wrongly. Five were native tool commands, and two left out a
-    /// value the run uses (the cutadapt-linked engine and the distances from
-    /// the read ends). The length filter's pairing has a test of its own.
+    /// at the FASTQ operations dialog launch site. The length filter's pairing
+    /// has a test of its own.
     static func bothSitesRecord() -> [GenomicsDisplayDerivativeCase] {
         let primerLiteral = FASTQPrimerTrimConfiguration(
             source: .literal, forwardSequence: "ACGTACGTAC", tool: .bbduk,
@@ -212,14 +209,6 @@ enum GenomicsDisplayDerivativeCases {
                 XCTAssertEqual(command.input, input)
                 XCTAssertEqual(command.kmerSize, 40)
                 XCTAssertEqual(command.output.output, "<derived>")
-            },
-            // Interleave names the R1 and R2 files of a paired bundle, which
-            // the input here is not. FASTQInterleaveCommandTests covers it.
-            GenomicsDisplayDerivativeCase("deinterleave", .interleaveReformat(direction: .deinterleave)) { parsed, input in
-                let command = try XCTUnwrap(parsed as? FastqDeinterleaveSubcommand)
-                XCTAssertEqual(command.input, input)
-                XCTAssertEqual(command.out1, "<derived>.R1.fastq")
-                XCTAssertEqual(command.out2, "<derived>.R2.fastq")
             },
             GenomicsDisplayDerivativeCase(
                 "demultiplex with a kit",

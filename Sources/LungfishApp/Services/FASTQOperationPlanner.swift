@@ -1195,9 +1195,6 @@ extension FASTQDerivativeRequest {
     ///   which counts raw `0x0A` bytes and divides by 4. On gzip bytes that
     ///   count is meaningless, so every output would be judged empty, deleted,
     ///   and the run would then fail its `totalReadCount > 0` guard.
-    /// - `.interleaveReformat` -- the deinterleave transform step is a raw
-    ///   `FileManager.copyItem`, and its CLI invocation derives `--out1`/
-    ///   `--out2` by string-appending `.R1.fastq` to the output target.
     /// - `.orient` -- vsearch writes plain FASTQ regardless of the output
     ///   extension, and the materialization step uses `FASTQWriter`.
     /// - `.humanReadScrub` -- the in-process path writes uncompressed and has
@@ -1213,7 +1210,7 @@ extension FASTQDerivativeRequest {
              .contaminantFilter, .lowComplexityFilter,
              .primerRemoval, .sequencePresenceFilter, .errorCorrection:
             return true
-        case .pairedEndMerge, .pairedEndRepair, .interleaveReformat,
+        case .pairedEndMerge, .pairedEndRepair,
              .reverseComplement, .translate, .demultiplex, .orient,
              .humanReadScrub, .ribosomalRNAFilter:
             return false

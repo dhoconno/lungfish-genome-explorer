@@ -33,7 +33,6 @@ extension ReadPairingCapabilityRegistry {
             ("fastq.deacon-ribo", "The deacon R1 and R2 split"),
             ("fastq.ribodetector", "ribodetector_cpu -i R1 R2"),
             ("fastq.interleave", "fastq interleave"),
-            ("gui.fastq-derivative", "The in-process derivative path"),
             ("recipe.convert-interleaved-to-paired", "The recipe interleaved-to-paired step"),
         ]
         let perRecordTools: [(String, String)] = [

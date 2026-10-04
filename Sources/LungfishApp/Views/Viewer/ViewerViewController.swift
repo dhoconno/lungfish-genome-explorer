@@ -1378,8 +1378,7 @@ public class ViewerViewController: NSViewController {
         enaReadRecord: ENAReadRecord? = nil,
         ingestionMetadata: IngestionMetadata? = nil,
         fastqSourceURL: URL? = nil,
-        fastqDerivativeManifest: FASTQDerivedBundleManifest? = nil,
-        onRunOperation: ((FASTQDerivativeRequest) async throws -> Void)? = nil
+        fastqDerivativeManifest: FASTQDerivedBundleManifest? = nil
     ) {
         hideQuickLookPreview()
         hideFASTQDatasetView()
@@ -1418,7 +1417,6 @@ public class ViewerViewController: NSViewController {
             sourceURL: fastqSourceURL,
             derivativeManifest: fastqDerivativeManifest
         )
-        controller.onRunOperation = onRunOperation
         controller.onLaunchFASTQOperationCategory = { category in
             let preferredInputURLs = [fastqSourceURL ?? fastqURL].compactMap { $0 }
             AppDelegate.shared?.showFASTQOperationsDialog(

@@ -10,7 +10,6 @@ import LungfishWorkflow
 import os.log
 
 public enum FASTQDerivativeError: Error, LocalizedError {
-    case sourceMustBeBundle
     case sourceFASTQMissing
     case derivedManifestMissing
     case parentBundleMissing(String)
@@ -21,8 +20,6 @@ public enum FASTQDerivativeError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .sourceMustBeBundle:
-            return "Bundle-backed FASTQ/FASTA operations require a .lungfishfastq bundle."
         case .sourceFASTQMissing:
             return "The source FASTQ file is missing from the bundle."
         case .derivedManifestMissing:
