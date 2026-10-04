@@ -291,7 +291,7 @@ public actor ClassifierReadResolver {
     // MARK: - Private helpers
 
     /// Groups selectors by `sampleId`, treating `nil` as a single implicit sample.
-    private func groupBySample(
+    func groupBySample(
         _ selections: [ClassifierRowSelector]
     ) -> [(String?, [ClassifierRowSelector])] {
         var bySample: [String?: [ClassifierRowSelector]] = [:]
@@ -581,7 +581,7 @@ public actor ClassifierReadResolver {
 
     // MARK: - Kraken2 dispatch
 
-    private func extractViaKraken2(
+    func extractViaKraken2(
         selections: [ClassifierRowSelector],
         resultPath: URL,
         options: ExtractionOptions,
@@ -879,7 +879,7 @@ public actor ClassifierReadResolver {
     /// Non-`.gz` files are passed through unchanged. Uses `pigz -d -c` (parallel
     /// decompression to stdout) via `NativeToolRunner.runWithFileOutput`, matching
     /// the pattern established in `FASTQBatchImporter`.
-    private func decompressGzippedFiles(_ urls: [URL]) async throws -> [URL] {
+    func decompressGzippedFiles(_ urls: [URL]) async throws -> [URL] {
         let fm = FileManager.default
         var result: [URL] = []
         for url in urls {
@@ -911,7 +911,7 @@ public actor ClassifierReadResolver {
         return result
     }
 
-    private func concatenateFiles(_ sources: [URL], into destination: URL) throws {
+    func concatenateFiles(_ sources: [URL], into destination: URL) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: destination.path) {
             try fm.removeItem(at: destination)
@@ -930,7 +930,7 @@ public actor ClassifierReadResolver {
         }
     }
 
-    private func existingUniqueURLs(_ urls: [URL]) -> [URL] {
+    func existingUniqueURLs(_ urls: [URL]) -> [URL] {
         var seen: Set<String> = []
         var result: [URL] = []
         for url in urls {
@@ -952,7 +952,7 @@ public actor ClassifierReadResolver {
     /// newline (e.g. an upstream tool omits the final LF, or a partial/truncated write) --
     /// the last record is still fully present and usable, just not newline-terminated
     /// (R3-R3ML-10).
-    private func countFASTQRecords(in url: URL) async throws -> Int {
+    func countFASTQRecords(in url: URL) async throws -> Int {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var lineCount = 0
@@ -972,7 +972,7 @@ public actor ClassifierReadResolver {
     }
 
     /// FASTQ → FASTA line-by-line conversion. Drops quality lines.
-    private func convertFASTQToFASTA(input: URL, output: URL) throws {
+    func convertFASTQToFASTA(input: URL, output: URL) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: output.path) {
             try fm.removeItem(at: output)
@@ -1013,7 +1013,7 @@ public actor ClassifierReadResolver {
 
     // MARK: - Destination routing
 
-    private func routeToDestination(
+    func routeToDestination(
         finalFile: URL,
         readCount: Int,
         destination: ExtractionDestination,
