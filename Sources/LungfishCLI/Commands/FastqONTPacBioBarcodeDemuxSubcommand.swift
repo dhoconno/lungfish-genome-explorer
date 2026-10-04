@@ -97,11 +97,11 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
             cliArguments.append("--force")
         }
 
-        let resolvedInputFASTQs = (try? ONTBarcodeDemuxGenotypingPipeline.resolveInputFASTQURLs(for: inputURL)) ?? [inputURL]
+        let resolvedInputFASTQs = ONTBarcodeDemuxGenotypingPipeline.provenanceInputURLs(for: inputURL)
         let outputPayloads = result.outputBundleURLs
             .compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
         let inputs = resolvedInputFASTQs.map {
-            ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .fastq, role: .input)
         } + [
             ProvenanceRecorder.fileRecord(url: barcodeURL, format: .text, role: .input),
         ]

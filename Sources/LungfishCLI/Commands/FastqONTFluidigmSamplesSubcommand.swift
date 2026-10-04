@@ -102,7 +102,7 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
         } + outputPayloads.map {
             ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
         }
-        let resolvedInputFASTQs = (try? ONTBarcodeDemuxGenotypingPipeline.resolveInputFASTQURLs(for: inputURL)) ?? [inputURL]
+        let resolvedInputFASTQs = ONTBarcodeDemuxGenotypingPipeline.provenanceInputURLs(for: inputURL)
         let inputRecords = resolvedInputFASTQs.map {
             ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .fastq, role: .input)
         } + [

@@ -51,6 +51,20 @@ extension ONTBarcodeDemuxGenotypingPipeline {
         return FASTQBundle.resolveAllFASTQURLs(for: standardized)?.map(\.standardizedFileURL) ?? []
     }
 
+    /// The inputs a run's provenance records for `inputURL`. A paired, mixed
+    /// or virtual derivative is recorded as the bundle, because the file it
+    /// lists is R1, one role file or the preview, and the run read every
+    /// read. Any other input is recorded as the files it lists.
+    public static func provenanceInputURLs(for inputURL: URL) -> [URL] {
+        let standardized = inputURL.standardizedFileURL
+        switch FASTQBundle.loadDerivedManifest(in: standardized)?.payload {
+        case .fullPaired?, .fullMixed?, .subset?, .trim?, .orientMap?, .demuxedVirtual?:
+            return [standardized]
+        default:
+            return (try? resolveInputFASTQURLs(for: standardized)) ?? [standardized]
+        }
+    }
+
     static func urlIsDirectory(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
