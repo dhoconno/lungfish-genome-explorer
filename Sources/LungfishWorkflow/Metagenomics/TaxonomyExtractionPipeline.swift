@@ -156,8 +156,11 @@ public actor TaxonomyExtractionPipeline {
         )
 
         let service = ReadExtractionService(toolRunner: NativeToolRunner.shared)
+        // The IDs are fragment names when mates are kept together, so a mate
+        // named `X/1` must match `X` (D7c).
         let extractionResult = try await service.extractByReadIDs(
             config: extractionConfig,
+            matching: config.keepReadPairs ? .fragmentName : .firstWord,
             progress: { fraction, message in
                 // Map service progress (0..1) into our pipeline range (0.30..0.95)
                 progress?(0.30 + fraction * 0.65, message)
