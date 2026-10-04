@@ -60,7 +60,7 @@ public enum ManagedMappingPipelineError: Error, LocalizedError, Sendable {
     }
 }
 
-private struct PreparedMappingExecution: Sendable {
+struct PreparedMappingExecution: Sendable {
     let request: MappingRunRequest
     let referenceLocator: ReferenceLocator
     let cleanupURLs: [URL]
@@ -98,9 +98,12 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     ///     resolves it from the materialized inputs (`FASTQInputLayoutResolver`).
     ///   - inputLayoutReason: why a caller-supplied `inputLayout` was chosen,
     ///     recorded in provenance. Ignored when the pipeline resolves the layout.
+    ///   - readSetPlan: the plan whose split or interleave wrote the inputs
+    ///     (``MappingInputResolver``), recorded as provenance steps.
     public func run(
         request: MappingRunRequest,
         inputLayoutReason: String? = nil,
+        readSetPlan: ReadSetPlan? = nil,
         progress: ProgressHandler? = nil
     ) async throws -> MappingResult {
         let start = Date()
@@ -131,34 +134,15 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             mapperVersion: mapperVersion
         )
 
-        let rawAlignmentURL = MappingCommandBuilder.rawAlignmentURL(for: prepared.request)
-        let readLayoutPlan = prepared.request.readLayoutPlan
-        progress?(0.08, "Read layout: \(readLayoutPlan.layout.displayName), mapped \(readLayoutPlan.handling.displayName).")
-        progress?(0.1, "Running \(prepared.request.tool.displayName)...")
-        let mapperInputRecords = mapperExecutionInputRecords(
-            for: prepared.request,
-            referenceURL: prepared.referenceLocator.referenceURL
-        )
-        let mapperStep = try await executeMappingCommand(
-            command,
-            outputURL: rawAlignmentURL,
-            inputRecords: mapperInputRecords,
+        let mapped = try await mapAndNormalize(
+            prepared: prepared,
+            command: command,
+            readSetPlan: readSetPlan,
             mapperVersion: mapperVersion,
+            samtoolsVersion: samtoolsVersion,
             progress: progress
         )
-
-        progress?(0.7, "Normalizing sorted BAM...")
-        let normalized = try await normalizeAlignment(
-            rawAlignmentURL: rawAlignmentURL,
-            outputDirectory: prepared.request.outputDirectory,
-            sampleName: prepared.request.sampleName,
-            threads: prepared.request.threads,
-            minimumMappingQuality: prepared.request.minimumMappingQuality,
-            includeSecondary: prepared.request.includeSecondary,
-            includeSupplementary: prepared.request.includeSupplementary,
-            removeIntermediateRawSAMOnSuccess: true,
-            samtoolsVersion: samtoolsVersion
-        )
+        let normalized = mapped.normalized
 
         progress?(0.9, "Summarizing mapped contigs...")
         let contigs = try await summarizeMappedContigs(
@@ -192,8 +176,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             referenceURL: prepared.referenceLocator.referenceURL
         )
         let mapperArgv = [command.executable] + command.arguments
-        let materializationSteps = try mappingInputMaterializationSteps(for: prepared.request)
-        let steps = materializationSteps + indexSteps + [mapperStep] + normalized.steps
+        let materializationSteps = try readSetInputSteps(for: prepared.request, plan: readSetPlan)
+        let steps = materializationSteps + indexSteps + mapped.steps + normalized.steps
         let provenance = MappingProvenance.build(
             request: prepared.request,
             result: result,
@@ -203,7 +187,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 durableReplayArgv: mapperDurableReplayArgv(for: prepared.request, argv: mapperArgv)
             ),
             normalizationInvocations: MappingProvenance.normalizationInvocations(
-                rawAlignmentURL: rawAlignmentURL,
+                rawAlignmentURL: mapped.alignmentURL,
                 outputDirectory: prepared.request.outputDirectory,
                 sampleName: prepared.request.sampleName,
                 threads: prepared.request.threads,
@@ -591,7 +575,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         }
     }
 
-    private func executeMappingCommand(
+    func executeMappingCommand(
         _ command: ManagedMappingCommand,
         outputURL: URL,
         inputRecords: [FileRecord],
@@ -886,7 +870,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         return execution.step
     }
 
-    private func samtoolsSort(
+    func samtoolsSort(
         inputURL: URL,
         outputBAMURL: URL,
         threads: Int,
@@ -978,7 +962,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         return (Self.parseFlagstat(result.stdout), execution.step)
     }
 
-    private func runNativeToolStep(
+    func runNativeToolStep(
         tool: NativeTool,
         arguments: [String],
         workingDirectory: URL,
@@ -1033,7 +1017,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         ])
     }
 
-    private func mapperExecutionInputRecords(for request: MappingRunRequest, referenceURL: URL) -> [FileRecord] {
+    func mapperExecutionInputRecords(for request: MappingRunRequest, referenceURL: URL) -> [FileRecord] {
         let sequenceInputs = request.inputFASTQURLs.map {
             ProvenanceRecorder.fileRecord(url: $0, format: fileFormat(for: $0), role: .input)
         }
@@ -1042,7 +1026,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         ]
     }
 
-    private func mappingInputMaterializationSteps(for request: MappingRunRequest) throws -> [StepExecution] {
+    func mappingInputMaterializationSteps(for request: MappingRunRequest) throws -> [StepExecution] {
         var materializationInputs: [ProvenanceFileDescriptor] = []
         var materializationOutputs: [ProvenanceFileDescriptor] = []
         var materializationCommands: [[String]] = []
@@ -1290,7 +1274,7 @@ private final class ProcessDataCapture: @unchecked Sendable {
     var data = Data()
 }
 
-private struct MappingTimedNativeToolResult {
+struct MappingTimedNativeToolResult {
     let result: NativeToolResult
     let step: StepExecution
 }

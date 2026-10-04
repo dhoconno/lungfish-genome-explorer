@@ -166,9 +166,9 @@ final class MappingWizardSheetTests: XCTestCase {
     // pipeline (`AppDelegate+ToolsMenu.resolveFASTQOperationInputURL`), NOT
     // raw FASTQ files. `buildRunPlan` never resolves bundle contents or
     // infers R1/R2 pairing from these URLs -- see F1/F2 in the fix-round-1
-    // review. `pairedEnd` is always `false` in the plan; the correct value
-    // is only knowable post-resolve (`AppDelegate.resolvedPairedEnd(for:)`,
-    // covered separately in OperationRoutingTests / AppDelegateMapping*).
+    // review. `pairedEnd` is `false` for bundles in the plan; how a
+    // bundle's reads pair is decided post-resolve by
+    // `MappingInputResolver` (MappingInputResolverTests, MapReadSetStandInTests).
 
     private func bundleURL(_ name: String) -> URL {
         URL(fileURLWithPath: "/tmp/proj/\(name).lungfishfastq", isDirectory: true)
@@ -374,39 +374,5 @@ final class MappingWizardSheetTests: XCTestCase {
         XCTAssertEqual(plan.requests.count, 1)
         XCTAssertNil(plan.warning)
         XCTAssertEqual(plan.requests[0].sampleName, "SampleA")
-    }
-
-    // MARK: - Post-resolve pairedEnd derivation (F2)
-
-    /// F2 regression, at the resolver level: pooling two single-end
-    /// bundles that each resolve to exactly one file must NEVER be
-    /// mistaken for one paired-end sample just because the concatenated
-    /// resolved list happens to have 2 elements.
-    func testResolvedPairedEndIsFalseForTwoUnrelatedSingleEndFiles() {
-        let sampleA = URL(fileURLWithPath: "/tmp/proj/SampleA.fastq.gz")
-        let sampleB = URL(fileURLWithPath: "/tmp/proj/SampleB.fastq.gz")
-
-        XCTAssertFalse(AppDelegate.resolvedPairedEnd(for: [sampleA, sampleB]))
-    }
-
-    func testResolvedPairedEndIsTrueForARealR1R2Pair() {
-        let r1 = URL(fileURLWithPath: "/tmp/proj/Sample_R1.fastq.gz")
-        let r2 = URL(fileURLWithPath: "/tmp/proj/Sample_R2.fastq.gz")
-
-        XCTAssertTrue(AppDelegate.resolvedPairedEnd(for: [r1, r2]))
-    }
-
-    func testResolvedPairedEndIsFalseForASingleResolvedFile() {
-        let single = URL(fileURLWithPath: "/tmp/proj/Sample.fastq.gz")
-
-        XCTAssertFalse(AppDelegate.resolvedPairedEnd(for: [single]))
-    }
-
-    func testResolvedPairedEndIsFalseForThreeOrMoreResolvedFiles() {
-        let a = URL(fileURLWithPath: "/tmp/proj/A.fastq.gz")
-        let b = URL(fileURLWithPath: "/tmp/proj/B.fastq.gz")
-        let c = URL(fileURLWithPath: "/tmp/proj/C.fastq.gz")
-
-        XCTAssertFalse(AppDelegate.resolvedPairedEnd(for: [a, b, c]))
     }
 }

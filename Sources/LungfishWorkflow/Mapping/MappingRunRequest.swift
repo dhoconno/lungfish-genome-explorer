@@ -95,6 +95,11 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
     /// mapping viewer bundle (`--track-name`); `nil` means
     /// ``MappingResultLayoutService/defaultTrackName(for:)``.
     public let outputTrackName: String?
+    /// The mate pairs and single reads of a sample that holds both, for a
+    /// mapper that takes them as separate files (bowtie2 `-1 -2 -U`, BBMap
+    /// one run per read set). `nil` for every other run, so earlier requests
+    /// encode and decode unchanged.
+    public let readSetLayout: MappingReadSetLayout?
 
     public init(
         tool: MappingTool,
@@ -117,7 +122,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         advancedArguments: [String] = [],
         compatibilityReadClassOverride: MappingReadClass? = nil,
         inputLayout: FASTQInputLayout? = nil,
-        outputTrackName: String? = nil
+        outputTrackName: String? = nil,
+        readSetLayout: MappingReadSetLayout? = nil
     ) {
         self.tool = tool
         self.modeID = modeID
@@ -141,6 +147,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         self.inputLayout = inputLayout
         let trimmedTrackName = outputTrackName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.outputTrackName = trimmedTrackName.isEmpty ? nil : trimmedTrackName
+        self.readSetLayout = readSetLayout
     }
 
     public func withOutputTrackName(_ outputTrackName: String?) -> MappingRunRequest {
@@ -165,7 +172,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
-            outputTrackName: outputTrackName
+            outputTrackName: outputTrackName,
+            readSetLayout: readSetLayout
         )
     }
 
@@ -191,7 +199,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
-            outputTrackName: outputTrackName
+            outputTrackName: outputTrackName,
+            readSetLayout: readSetLayout
         )
     }
 
@@ -217,7 +226,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
-            outputTrackName: outputTrackName
+            outputTrackName: outputTrackName,
+            readSetLayout: readSetLayout
         )
     }
 
@@ -243,7 +253,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
-            outputTrackName: outputTrackName
+            outputTrackName: outputTrackName,
+            readSetLayout: readSetLayout
         )
     }
 
@@ -269,7 +280,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
-            outputTrackName: outputTrackName
+            outputTrackName: outputTrackName,
+            readSetLayout: readSetLayout
         )
     }
 
@@ -302,7 +314,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
-            outputTrackName: outputTrackName
+            outputTrackName: outputTrackName,
+            readSetLayout: readSetLayout
         )
     }
 
@@ -316,7 +329,41 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
     /// The layout decision for this run: the effective layout and the
     /// handling `tool` applies to it in `modeID`.
     public var readLayoutPlan: MappingReadLayoutPlan {
-        MappingReadLayoutPlan.resolve(tool: tool, modeID: modeID, layout: effectiveInputLayout)
+        MappingReadLayoutPlan.resolve(
+            tool: tool,
+            modeID: modeID,
+            layout: effectiveInputLayout,
+            pairsAsSeparateFiles: readSetLayout != nil
+        )
+    }
+
+    /// This request with the read sets of a sample that holds pairs and
+    /// single reads, handed to the mapper as separate files.
+    public func withReadSetLayout(_ readSetLayout: MappingReadSetLayout?) -> MappingRunRequest {
+        MappingRunRequest(
+            tool: tool,
+            modeID: modeID,
+            inputFASTQURLs: inputFASTQURLs,
+            originalInputFASTQURLs: originalInputFASTQURLs,
+            inputMaterializationStartedAt: inputMaterializationStartedAt,
+            inputMaterializationEndedAt: inputMaterializationEndedAt,
+            referenceFASTAURL: referenceFASTAURL,
+            sourceReferenceBundleURL: sourceReferenceBundleURL,
+            projectURL: projectURL,
+            outputDirectory: outputDirectory,
+            sampleName: sampleName,
+            readGroup: readGroup,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            includeSecondary: includeSecondary,
+            includeSupplementary: includeSupplementary,
+            minimumMappingQuality: minimumMappingQuality,
+            advancedArguments: advancedArguments,
+            compatibilityReadClassOverride: compatibilityReadClassOverride,
+            inputLayout: inputLayout,
+            outputTrackName: outputTrackName,
+            readSetLayout: readSetLayout
+        )
     }
 
     public func resolvedReadGroup(defaultPlatform: String? = nil) -> MappingReadGroup {
@@ -325,4 +372,24 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             defaultPlatform: defaultPlatform ?? MappingReadGroup.defaultPlatform(forModeID: modeID)
         )
     }
+}
+
+/// The mate pairs and single reads of one sample that holds both, for a
+/// mapper that takes them as separate files. ``ReadSetResolver`` decides
+/// them (docs/contracts/READ-PAIRING.md). R1 file `i` and R2 file `i` are one
+/// set of pairs whose records correspond by position.
+public struct MappingReadSetLayout: Sendable, Codable, Equatable {
+    public let r1Files: [URL]
+    public let r2Files: [URL]
+    /// Merged, orphan and other reads without a mate, one file each.
+    public let singleReadFiles: [URL]
+
+    public init(r1Files: [URL], r2Files: [URL], singleReadFiles: [URL]) {
+        self.r1Files = r1Files.map(\.standardizedFileURL)
+        self.r2Files = r2Files.map(\.standardizedFileURL)
+        self.singleReadFiles = singleReadFiles.map(\.standardizedFileURL)
+    }
+
+    /// Every file, R1 files first, then R2 files, then single reads.
+    public var allFiles: [URL] { r1Files + r2Files + singleReadFiles }
 }

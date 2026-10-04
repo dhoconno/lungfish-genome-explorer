@@ -60,7 +60,7 @@ public extension MappingTool {
                     .mixedMergedAndPairs: .asSingle,
                     .pairedFiles: .asPairs,
                 ],
-                mixedRationale: "`--interleaved` pairs records by position and mis-pairs a file that holds merged reads, so mixed input runs through `-U` as single reads."
+                mixedRationale: "`--interleaved` pairs records by position and mis-pairs a file that holds merged reads, so a mixed file handed over whole runs through `-U` as single reads. A mixed sample that ReadSetResolver plans arrives split by name and maps with `-1 -2 -U`."
             )
         case .bbmap:
             return FASTQConsumerDeclaration(
@@ -72,7 +72,7 @@ public extension MappingTool {
                     .mixedMergedAndPairs: .asSingle,
                     .pairedFiles: .asPairs,
                 ],
-                mixedRationale: "`interleaved=t` pairs records by position and mis-pairs a file that holds merged reads, so mixed input runs with `interleaved=f` as single reads."
+                mixedRationale: "`interleaved=t` pairs records by position and mis-pairs a file that holds merged reads, so a mixed file handed over whole runs with `interleaved=f` as single reads. A mixed sample that ReadSetResolver plans arrives split by name, and its pairs and single reads map in separate runs that samtools merge joins."
             )
         }
     }
@@ -94,8 +94,21 @@ public struct MappingReadLayoutPlan: Sendable, Equatable {
     /// minimap2 only pairs adjacent records in fragment mode, which the
     /// short-read preset enables; every other preset maps single reads, so
     /// the plan says so instead of claiming pairs the BAM will not have.
-    public static func resolve(tool: MappingTool, modeID: String, layout: FASTQInputLayout) -> MappingReadLayoutPlan {
+    ///
+    /// `pairsAsSeparateFiles` is true when a sample that holds pairs and
+    /// single reads reaches bowtie2 or BBMap as R1, R2 and single-read files
+    /// (``MappingReadSetLayout``), so the mates map as pairs even though a
+    /// mixed file handed to these mappers whole would map as single reads.
+    public static func resolve(
+        tool: MappingTool,
+        modeID: String,
+        layout: FASTQInputLayout,
+        pairsAsSeparateFiles: Bool = false
+    ) -> MappingReadLayoutPlan {
         var handling = tool.fastqConsumerDeclaration.handling(for: layout)
+        if pairsAsSeparateFiles, layout == .mixedMergedAndPairs {
+            handling = .asPairs
+        }
         if tool == .minimap2, modeID != MappingMode.defaultShortRead.id, layout != .pairedFiles {
             handling = .asSingle
         }
@@ -121,7 +134,7 @@ public struct MappingReadLayoutPlan: Sendable, Equatable {
         case (.mixedMergedAndPairs, .asSingle):
             return "No (mixed merged reads and pairs mapped as single-end)"
         case (.mixedMergedAndPairs, _):
-            return "Yes (interleaved; merged reads mapped as single reads)"
+            return "Yes (pairs; merged reads mapped as single reads)"
         case (.singleEnd, _):
             return "No"
         }
