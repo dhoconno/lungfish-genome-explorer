@@ -46,11 +46,28 @@ final class MapCommandResolutionTests: XCTestCase {
 
         let resolved = try await resolve([bundle])
 
-        XCTAssertEqual(resolved.executionInputURLs, [r1.standardizedFileURL, r2.standardizedFileURL])
-        XCTAssertTrue(MapCommand.effectivePairedEnd(flag: false, resolved: resolved))
-        let layout = MapCommand.layoutResolution(for: resolved, pairedEnd: true, explicit: nil)
-        XCTAssertEqual(layout.layout, .pairedFiles)
-        XCTAssertEqual(layout.source, .pairedFiles)
+        XCTAssertEqual(resolved.request.inputFASTQURLs, [r1.standardizedFileURL, r2.standardizedFileURL])
+        XCTAssertTrue(resolved.request.pairedEnd)
+        XCTAssertNil(resolved.readSetPlan, "a sample of only pairs keeps its command")
+        XCTAssertEqual(resolved.layoutResolution.layout, .pairedFiles)
+        XCTAssertEqual(resolved.layoutResolution.source, .pairedFiles)
+    }
+
+    /// `--read-layout` describes one file, so a bundle whose reads are R1
+    /// and R2 files, with or without single reads, refuses it.
+    func testReadLayoutIsRefusedForABundleOfMateFiles() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("read-sets", isDirectory: true))
+        for bundle in [fixtures.pairedDerivative, fixtures.mergeDerivative, fixtures.repairDerivative] {
+            await XCTAssertThrowsErrorAsync(try await resolve([bundle], explicitLayout: .singleEnd)) { error in
+                XCTAssertEqual(
+                    error as? MappingInputResolverError,
+                    .layoutForPairedBundle(name: bundle.lastPathComponent),
+                    bundle.lastPathComponent
+                )
+            }
+        }
+        let single = try await resolve([fixtures.singleRoot], explicitLayout: .singleEnd)
+        XCTAssertEqual(single.layoutResolution.source, .explicit)
     }
 
     func testAMultiFileBundleResolvesToOneConcatenatedFileMappedAsSingleReads() async throws {
@@ -67,19 +84,15 @@ final class MapCommandResolutionTests: XCTestCase {
 
         let resolved = try await resolve([bundle])
 
-        let executionURL = try XCTUnwrap(resolved.executionInputURLs.first)
-        XCTAssertEqual(resolved.executionInputURLs.count, 1)
+        let executionURL = try XCTUnwrap(resolved.request.inputFASTQURLs.first)
+        XCTAssertEqual(resolved.request.inputFASTQURLs.count, 1)
         XCTAssertEqual(executionURL.deletingLastPathComponent().standardizedFileURL, inputsDirectory.standardizedFileURL)
         XCTAssertEqual(try DerivedFASTQBundleFixture.readNames(in: executionURL), ["m1", "m2", "m3"])
-        XCTAssertFalse(MapCommand.effectivePairedEnd(flag: false, resolved: resolved))
-        let layout = MapCommand.layoutResolution(for: resolved, pairedEnd: false, explicit: nil)
-        XCTAssertEqual(layout.layout, .singleEnd)
-        XCTAssertEqual(layout.source, .pooledFiles)
-        XCTAssertEqual(
-            MapCommand.layoutResolution(for: resolved, pairedEnd: false, explicit: .strictlyInterleaved).layout,
-            .strictlyInterleaved,
-            "an explicit --read-layout still wins"
-        )
+        XCTAssertFalse(resolved.request.pairedEnd)
+        XCTAssertEqual(resolved.layoutResolution.layout, .singleEnd)
+        XCTAssertEqual(resolved.layoutResolution.source, .pooledFiles)
+        let explicit = try await resolve([bundle], explicitLayout: .strictlyInterleaved)
+        XCTAssertEqual(explicit.layoutResolution.layout, .strictlyInterleaved, "an explicit --read-layout still wins")
     }
 
     func testPairedFlagStillBindsTwoLooseFiles() async throws {
@@ -88,12 +101,13 @@ final class MapCommandResolutionTests: XCTestCase {
         try Self.fastq(["p1/1"]).write(to: r1, atomically: true, encoding: .utf8)
         try Self.fastq(["p1/2"]).write(to: r2, atomically: true, encoding: .utf8)
 
-        let resolved = try await resolve([r1, r2])
+        let unpaired = try await resolve([r1, r2])
+        let paired = try await resolve([r1, r2], pairedEnd: true)
 
-        XCTAssertEqual(resolved.executionInputURLs, [r1.standardizedFileURL, r2.standardizedFileURL])
-        XCTAssertFalse(resolved.resolvedAsMatePair, "two separate inputs are bound by --paired, not by the resolver")
-        XCTAssertTrue(MapCommand.effectivePairedEnd(flag: true, resolved: resolved))
-        XCTAssertFalse(MapCommand.effectivePairedEnd(flag: false, resolved: resolved))
+        XCTAssertEqual(unpaired.request.inputFASTQURLs, [r1.standardizedFileURL, r2.standardizedFileURL])
+        XCTAssertFalse(unpaired.request.pairedEnd, "two separate inputs are bound by --paired, not by their names")
+        XCTAssertTrue(paired.request.pairedEnd)
+        XCTAssertEqual(paired.layoutResolution.layout, .pairedFiles)
     }
 
     func testADemuxGroupBundleIsRefusedBeforeAnythingIsWritten() async throws {
@@ -128,10 +142,24 @@ final class MapCommandResolutionTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func resolve(_ inputURLs: [URL]) async throws -> ResolvedSequenceInputs {
-        try await MapCommand.resolveExecutionInputs(
-            for: inputURLs,
-            tempDirectory: inputsDirectory,
+    /// Resolves through the call `lungfish-cli map` and the Map Reads window make.
+    private func resolve(
+        _ inputURLs: [URL],
+        pairedEnd: Bool = false,
+        explicitLayout: FASTQInputLayout? = nil
+    ) async throws -> MappingResolvedInputs {
+        try await MappingInputResolver.resolve(
+            request: MappingRunRequest(
+                tool: .minimap2,
+                modeID: MappingMode.defaultShortRead.id,
+                inputFASTQURLs: inputURLs,
+                referenceFASTAURL: root.appendingPathComponent("reference.fa"),
+                outputDirectory: inputsDirectory.deletingLastPathComponent(),
+                sampleName: "sample",
+                pairedEnd: pairedEnd,
+                threads: 1
+            ),
+            explicitLayout: explicitLayout,
             materializer: FASTQCLIMaterializer(runner: .shared)
         )
     }
