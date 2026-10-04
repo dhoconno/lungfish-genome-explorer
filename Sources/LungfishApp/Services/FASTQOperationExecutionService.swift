@@ -308,11 +308,11 @@ struct FASTQOperationExecutionService {
             }
         }
 
+        // A demultiplex writes into the working directory, which `lungfish-cli fastq demultiplex`
+        // refuses while it holds an item, so the inputs of a demultiplex are staged beside it.
         let materializationDirectory = request.resolvesInputsBeforeCLI
-            ? workingDirectory.appendingPathComponent(
-                "materialized-inputs-\(UUID().uuidString)",
-                isDirectory: true
-            )
+            ? (planner.isDemultiplexRequest(request) ? workingDirectory.deletingLastPathComponent() : workingDirectory)
+                .appendingPathComponent("materialized-inputs-\(UUID().uuidString)", isDirectory: true)
             : nil
         let outputDirectory = planner.executionOutputDirectory(for: request, workingDirectory: workingDirectory)
 
