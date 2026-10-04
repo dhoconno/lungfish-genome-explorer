@@ -155,7 +155,7 @@ final class EsVirituCommandBundleInputTests: XCTestCase {
 /// A conda root whose stand-in micromamba runs a stand-in EsViritu: it keeps a
 /// copy of every read file passed after `-r`, notes the `-p` read format, and
 /// writes an empty detection table in the `-o` folder.
-private struct StandInEsViritu {
+struct StandInEsViritu {
     let condaManager: CondaManager
     let databaseURL: URL
     private let seenDirectory: URL
