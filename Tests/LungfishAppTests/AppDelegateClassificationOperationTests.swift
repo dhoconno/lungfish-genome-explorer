@@ -10,8 +10,8 @@
 // record a command that parses through the real CLI parser with the run's
 // values, and the Kraken2 batch row records one such command per sample. The
 // EsViritu batch row and the multi-sample TaxTriage row have no command that
-// reproduces the run, and their tests pin today's value as a parity gap, so a
-// change to the CLI or to the recorded string fails here and prompts a
+// reproduces the run, so each records nil, and its test pins the gap with
+// `assertCLIParityGap`. When a command lands, the pin fails and prompts a
 // deliberate test change.
 
 import XCTest
@@ -374,7 +374,7 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertNotNil(EsVirituCommand.DetectSubcommand.inputCountError(format: .paired, fileCount: 1))
     }
 
-    func testEsVirituBatchRowPinsTodaysCommandAsAParityGap() throws {
+    func testEsVirituBatchRowRecordsNoCommandAndPinsTheParityGap() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = makeRouteContext()
         let pairedInputs = [importURL("Sample 1_R1.fastq.gz"), importURL("Sample 1_R2.fastq.gz")]
@@ -412,31 +412,14 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
 
-        // CLI parity gap. The batch runs EsViritu once per sample, and no
-        // command does. The row records one `esviritu detect` with every input
-        // after `--input` and the first sample's name, which the CLI would run
-        // as a single unpaired sample. The closest reproduction is one
-        // `esviritu detect` per sample.
-        XCTAssertEqual(
-            item.cliCommand,
-            "lungfish-cli esviritu detect --input '/tmp/lane 1a2/Imports/Sample 1_R1.fastq.gz'"
-                + " '/tmp/lane 1a2/Imports/Sample 1_R2.fastq.gz'"
-                + " '/tmp/lane 1a2/Imports/Sample 2.fastq.gz' --sample 'Sample 1'"
-        )
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: EsVirituCommand.DetectSubcommand.self)
-        XCTAssertEqual(command.inputFiles, (pairedInputs + [singleInput]).map(\.path))
-        XCTAssertEqual(command.sampleName, "Sample 1")
-        XCTAssertEqual(command.readFormat, .auto)
-        XCTAssertEqual(
-            try command.resolveReadFormat(inputURLs: (pairedInputs + [singleInput]).map(\.standardizedFileURL)).format,
-            .unpaired,
-            "the CLI runs every input as one unpaired sample"
-        )
-        // The batch provenance records the same arguments as the row.
-        XCTAssertEqual(
-            try RecordedCLICommand.arguments(of: item.cliCommand),
-            ["esviritu", "detect"] + AppDelegate.esVirituBatchCLIArguments(for: [first, second])
-        )
+        // cli-parity-gap: esviritu-batch. The batch runs EsViritu once per
+        // sample with each sample's own read format, and no command does. The
+        // row used to record one `esviritu detect` with every input after
+        // `--input` and the first sample's name, which the CLI would run as a
+        // single unpaired sample. It records no command until a batch command
+        // lands. The closest reproduction is one `esviritu detect` per sample.
+        XCTAssertNil(item.cliCommand, "the row records no command it cannot reproduce")
+        assertCLIParityGap(item.cliCommand, id: "esviritu-batch")
     }
 
     func testEsVirituBatchArgumentsFallBackToABatchSampleName() {
@@ -610,7 +593,7 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         XCTAssertEqual(try AdvancedCommandLineOptions.parse(command.extraArgs), ["--remove_taxids", "2"])
     }
 
-    func testTaxTriageMultiSampleRowPinsTodaysCommandAsAParityGap() throws {
+    func testTaxTriageMultiSampleRowRecordsNoCommandAndPinsTheParityGap() throws {
         let reporter = RecordingOperationReporter()
         let config = TaxTriageConfig(
             samples: [
@@ -624,22 +607,18 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
 
         AppDelegate.beginTaxTriageOperation(config: config, routeContext: nil, reporter: reporter) { _ in }
 
-        // CLI parity gap. `taxtriage run` takes one `--input` or one
-        // `--samplesheet`, and the app runs several samples one after another
-        // through `TaxTriageSerialBatchRunner`. No single command reproduces
-        // that, so the row keeps the flat `--input` list it recorded before,
-        // and the CLI rejects it. The closest commands are `taxtriage run` once
-        // per sample, or `taxtriage run --samplesheet`. When a batch command
-        // exists, record it and replace this pin with a parse test.
+        // cli-parity-gap: taxtriage-multi-sample. `taxtriage run` takes one
+        // `--input` or one `--samplesheet`, and the app runs several samples
+        // one after another through `TaxTriageSerialBatchRunner`. No single
+        // command reproduces that. The row used to record a flat `--input`
+        // list that the CLI rejects. It records no command until a batch
+        // command lands. The closest reproduction is `taxtriage run` once per
+        // sample.
         let item = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(item.title, "TaxTriage (2 samples)")
-        XCTAssertEqual(
-            item.cliCommand,
-            "lungfish-cli taxtriage --input '/tmp/lane 1a2/Imports/Sample 1_R1.fastq.gz'"
-                + " '/tmp/lane 1a2/Imports/Sample 1_R2.fastq.gz'"
-                + " '/tmp/lane 1a2/Imports/Sample 2_R1.fastq.gz' --remove-taxids 9606"
-        )
-        XCTAssertThrowsError(try RecordedCLICommand.parse(item.cliCommand))
+        XCTAssertNil(item.cliCommand, "the row records no command it cannot reproduce")
+        assertCLIParityGap(item.cliCommand, id: "taxtriage-multi-sample")
+        XCTAssertNil(AppDelegate.taxTriageCLICommand(for: config))
     }
 
     // MARK: - Sites with no lock launch nothing when the begin is refused

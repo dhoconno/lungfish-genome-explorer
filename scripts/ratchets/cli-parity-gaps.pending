@@ -2,6 +2,4 @@
 # site carries no cli-parity-gap marker yet. They count toward the ratchet
 # value. The lane that closes a gap deletes its line.
 # Fields: gap ID, site (file:function), closing lane.
-esviritu-batch Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift:beginEsVirituBatchOperation L4
-taxtriage-multi-sample Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift:beginTaxTriageOperation L4
 fastq-ingest-in-place Sources/LungfishApp/Services/FASTQIngestionService+OperationBegin.swift:beginInPlaceIngestionOperation L9
