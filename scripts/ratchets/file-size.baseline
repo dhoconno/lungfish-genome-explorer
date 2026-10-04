@@ -11,12 +11,10 @@ Sources/LungfishApp/Services/AI/AIAssistantService.swift 901
 Sources/LungfishApp/Services/AI/AIToolRegistry.swift 951
 Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
 Sources/LungfishApp/Services/FASTQBundleMergeService.swift 861
-Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1689
-Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 803
 Sources/LungfishApp/Services/FASTQIngestionService.swift 1298
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 858
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1334
-Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1228
+Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1225
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
 Sources/LungfishApp/Services/ReferenceBundleMergeService.swift 1056
 Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift 981
@@ -41,7 +39,7 @@ Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 806
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1362
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1053
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1216
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1535
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1330
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 832
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1142
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1024
@@ -68,7 +66,7 @@ Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+TableView.swift 1089
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift 5759
 Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift 1160
 Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift 1293
-Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 3000
+Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2678
 Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift 2260
 Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4350
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1828
@@ -83,7 +81,7 @@ Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2844
 Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 901
 Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 871
 Sources/LungfishApp/Views/Viewer/ViewerViewController+Mapping.swift 956
-Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4424
+Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4422
 Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift 1827
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift 2042
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift 1077

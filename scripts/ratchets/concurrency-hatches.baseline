@@ -1,5 +1,5 @@
 # concurrency-hatches baseline: counts under Sources/. Counts may only fall.
-MainActor.assumeIsolated 389
+MainActor.assumeIsolated 381
 @unchecked Sendable 202
 nonisolated(unsafe) 51
 nonisolated(unsafe) static var 25
