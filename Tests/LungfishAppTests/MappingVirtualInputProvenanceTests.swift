@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
 @testable import LungfishIO
+import LungfishKit
 @testable import LungfishWorkflow
 import LungfishTestSupport
 
@@ -125,6 +126,90 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
 
         try await assertWindowAndCLIAgree(on: fixture.multiFileBundleURL, fixture: fixture)
         XCTAssertEqual(try fixture.readsSeenByMapper(), fixture.allReads)
+    }
+
+    // MARK: - Which inputs pair (READ-PAIRING.md, decision 1)
+
+    /// Two bundles pooled in the window's combined mode are never paired by
+    /// their names. Each was imported and reordered on its own, so their
+    /// records need not correspond by position. Before the read-set
+    /// contract the window paired `sample_R1` and `sample_R2` bundles while
+    /// the command it recorded mapped them unpaired (Phase 1 finding N5).
+    /// Now both map them pooled as single reads.
+    func testTwoPooledBundlesNamedAsMatesMapAsPooledSingleReads() async throws {
+        let root = try TestTempDirectory.make(prefix: "mapping-pooled-bundles")
+        defer { TestTempDirectory.cleanup(root) }
+        let imports = root.appendingPathComponent("Project.lungfish/Imports", isDirectory: true)
+        var bundles: [URL] = []
+        for (name, read) in [("sample_R1", "q1/1"), ("sample_R2", "q1/2")] {
+            let bundle = imports.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+            try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+            try ReadSetFixtures.fastq([read]).write(to: bundle.appendingPathComponent("\(name).fastq"), atomically: true, encoding: .utf8)
+            bundles.append(bundle)
+        }
+        let request = try XCTUnwrap(Self.plan(inputs: bundles, mode: .combined, root: root).requests.first)
+        XCTAssertFalse(request.pairedEnd)
+        XCTAssertFalse(MappingCLIInvocationBuilder.arguments(for: request).contains("--paired"))
+
+        let resolved = try await AppDelegate().resolveManagedMappingInputs(for: request, progress: { _ in })
+
+        XCTAssertFalse(resolved.request.pairedEnd, "two pooled bundles were paired by name")
+        XCTAssertEqual(resolved.request.inputLayout, .singleEnd)
+        XCTAssertEqual(resolved.layoutResolution.source, .pooledFiles)
+    }
+
+    /// Two loose files the window maps together, named as R1 and R2 of one
+    /// sample, are mapped as pairs, and the recorded command says `--paired`
+    /// so it maps them the same way. Two loose files not named as mates and
+    /// the same two files run one at a time stay single reads.
+    func testTwoLooseFilesNamedAsMatesAreMappedAndRecordedAsPairs() async throws {
+        let root = try TestTempDirectory.make(prefix: "mapping-loose-mates")
+        defer { TestTempDirectory.cleanup(root) }
+        let r1 = root.appendingPathComponent("sample_R1.fastq")
+        let r2 = root.appendingPathComponent("sample_R2.fastq")
+        let other = root.appendingPathComponent("other.fastq")
+        try ReadSetFixtures.fastq(["q1/1"]).write(to: r1, atomically: true, encoding: .utf8)
+        try ReadSetFixtures.fastq(["q1/2"]).write(to: r2, atomically: true, encoding: .utf8)
+        try ReadSetFixtures.fastq(["z1"]).write(to: other, atomically: true, encoding: .utf8)
+
+        let paired = try XCTUnwrap(Self.plan(inputs: [r1, r2], mode: .combined, root: root).requests.first)
+        XCTAssertTrue(paired.pairedEnd, "the window's request does not pair two loose mate files")
+        XCTAssertTrue(MappingCLIInvocationBuilder.arguments(for: paired).contains("--paired"))
+        let resolved = try await AppDelegate().resolveManagedMappingInputs(for: paired, progress: { _ in })
+        XCTAssertTrue(resolved.request.pairedEnd)
+        XCTAssertEqual(resolved.request.inputLayout, .pairedFiles)
+
+        let unrelated = try XCTUnwrap(Self.plan(inputs: [r1, other], mode: .combined, root: root).requests.first)
+        XCTAssertFalse(unrelated.pairedEnd)
+        XCTAssertFalse(MappingCLIInvocationBuilder.arguments(for: unrelated).contains("--paired"))
+
+        let oneAtATime = Self.plan(inputs: [r1, r2], mode: .perBundle, root: root).requests
+        XCTAssertEqual(oneAtATime.count, 2)
+        XCTAssertEqual(oneAtATime.map(\.pairedEnd), [false, false])
+    }
+
+    private static func plan(inputs: [URL], mode: MultiBundleRunMode, root: URL) -> MappingRunPlan {
+        MappingWizardSheet.buildRunPlan(
+            bundleURLs: inputs,
+            mode: mode,
+            tool: .bowtie2,
+            modeID: MappingMode.defaultShortRead.id,
+            referenceFASTAURL: root.appendingPathComponent("reference.fa"),
+            sourceReferenceBundleURL: nil,
+            projectURL: nil,
+            outputDirectory: root.appendingPathComponent("out", isDirectory: true),
+            runToken: "probe",
+            readGroupIDText: "",
+            readGroupSampleText: "",
+            readGroupLibraryText: "",
+            readGroupPlatformText: "",
+            readGroupPlatformUnitText: "",
+            threads: 2,
+            includeSecondary: false,
+            includeSupplementary: true,
+            minimumMappingQuality: 0,
+            advancedArguments: []
+        )
     }
 
     /// Runs the window composition and the CLI-shaped composition on
