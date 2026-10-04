@@ -47,7 +47,7 @@ struct ClassificationSampleReadPlan: Equatable, Sendable {
     /// The plan with the bundle's read set read from its metadata.
     static func planned(for sample: MetagenomicsSampleInput) async -> ClassificationSampleReadPlan {
         var plan = plan(for: sample)
-        guard let bundle = KrakenReadSetPlanner.plannableBundle(sample.inputFiles) else { return plan }
+        guard let bundle = KrakenReadSetPlanner.plannableInput(sample.inputFiles) else { return plan }
         plan.readSet = await KrakenReadSetPlanner.preview(bundle: bundle)
         return plan
     }

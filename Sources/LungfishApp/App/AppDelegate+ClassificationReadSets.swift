@@ -49,7 +49,7 @@ extension AppDelegate {
         materializedInputs: [URL]
     ) async throws -> ClassificationConfig {
         guard config.plansReadSet,
-              let bundle = KrakenReadSetPlanner.plannableBundle(config.originalInputFiles ?? []) else {
+              let bundle = KrakenReadSetPlanner.plannableInput(config.originalInputFiles ?? []) else {
             return config
         }
         let plan = try await KrakenReadSetPlanner.plan(

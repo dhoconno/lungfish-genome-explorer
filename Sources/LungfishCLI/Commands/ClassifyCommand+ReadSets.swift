@@ -63,34 +63,34 @@ extension ClassifyCommand {
     /// `config` from it.
     ///
     /// Two inputs given as pairs with `--unpaired` files run the pair and
-    /// the single reads together. One bundle under `--read-format auto` runs
-    /// its pairs as pairs and its merged or single reads beside them. Any
-    /// other input, and a bundle of single reads only, keeps today's config
-    /// and returns nil.
+    /// the single reads together. One bundle or file under `--read-format
+    /// auto` runs its pairs as pairs and its merged or single reads beside
+    /// them. Any other input, and one of single reads only or one interleaved
+    /// file, keeps today's config and returns nil.
     func planReadSet(
         inputURLs: [URL],
         executionInputURLs: [URL],
         config: inout ClassificationConfig,
         materializationDirectory: URL
     ) async throws -> PlannedReadSetInputs? {
-        let plan: ReadSetPlan
         if !unpaired.isEmpty, config.isPairedEnd, executionInputURLs.count == 2 {
-            plan = try KrakenReadSetPlanner.plan(
+            let plan = try KrakenReadSetPlanner.plan(
                 r1: executionInputURLs[0],
                 r2: executionInputURLs[1],
                 singleReads: unpaired.map { URL(fileURLWithPath: $0).standardizedFileURL },
                 materializationDirectory: materializationDirectory
             )
-        } else if readFormat == .auto, !pairedEnd, let bundle = KrakenReadSetPlanner.plannableBundle(inputURLs) {
-            plan = try await KrakenReadSetPlanner.plan(
-                bundle: bundle,
+            guard try KrakenReadSetPlanner.apply(plan, to: &config, recordedWithAuto: false) else { return nil }
+        } else if readFormat == .auto, !pairedEnd, let input = KrakenReadSetPlanner.plannableInput(inputURLs) {
+            let plan = try await KrakenReadSetPlanner.plan(
+                bundle: input,
                 materializedInputs: executionInputURLs,
                 materializationDirectory: materializationDirectory
             )
+            guard try KrakenReadSetPlanner.apply(plan, to: &config) else { return nil }
         } else {
             return nil
         }
-        guard try KrakenReadSetPlanner.apply(plan, to: &config) else { return nil }
         let executionURLs = config.inputFiles + config.singleReadFiles
         let originals = inputURLs.count == 1
             ? Array(repeating: inputURLs[0].standardizedFileURL, count: executionURLs.count)

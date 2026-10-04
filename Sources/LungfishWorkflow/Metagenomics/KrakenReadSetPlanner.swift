@@ -143,21 +143,21 @@ public enum KrakenReadSetPlanner {
     /// split and staged inputs.
     public static let inputsDirectoryName = ".lungfish-classify-inputs"
 
-    /// The bundle a sample names when it names exactly one `.lungfishfastq`
-    /// bundle, the only input `--read-format auto` plans.
-    public static func plannableBundle(_ inputURLs: [URL]) -> URL? {
-        guard inputURLs.count == 1, let url = inputURLs.first?.standardizedFileURL,
-              url.pathExtension.lowercased() == FASTQBundle.directoryExtension else { return nil }
+    /// The one input `--read-format auto` plans: a sample that names exactly
+    /// one `.lungfishfastq` bundle or one sequence file.
+    public static func plannableInput(_ inputURLs: [URL]) -> URL? {
+        guard inputURLs.count == 1, let url = inputURLs.first?.standardizedFileURL else { return nil }
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return nil
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return nil }
+        if isDirectory.boolValue {
+            return url.pathExtension.lowercased() == FASTQBundle.directoryExtension ? url : nil
         }
         return url
     }
 
-    /// The plan for one bundle. A virtual bundle is planned from the file
-    /// `materializedInputs` already holds, so nothing is materialized twice.
-    /// Splits are written into `materializationDirectory`.
+    /// The plan for one input, a bundle or a sequence file. A virtual bundle
+    /// is planned from the file `materializedInputs` already holds, so nothing
+    /// is materialized twice. Splits are written into `materializationDirectory`.
     public static func plan(
         bundle: URL,
         materializedInputs: [URL],
@@ -185,8 +185,14 @@ public enum KrakenReadSetPlanner {
 
     /// Sets `config`'s inputs from `plan`. A plan of single reads only leaves
     /// the config as it is. Returns whether the config changed.
+    /// `recordedWithAuto` is false for loose files named as a pair with
+    /// `--unpaired`, which the recorded command names as such.
     @discardableResult
-    public static func apply(_ plan: ReadSetPlan, to config: inout ClassificationConfig) throws -> Bool {
+    public static func apply(
+        _ plan: ReadSetPlan,
+        to config: inout ClassificationConfig,
+        recordedWithAuto: Bool = true
+    ) throws -> Bool {
         let pairs = plan.matePairs
         guard !pairs.isEmpty else { return false }
         guard pairs.count == 1, let pair = pairs.first else {
@@ -208,15 +214,15 @@ public enum KrakenReadSetPlanner {
             config.interleavedInput = false
             config.singleReadFiles = plan.singleReads.map(\.url)
             config.readSetPlan = plan
-            // A bundle is recorded with `auto`. Loose files keep `--paired`
-            // with each file of single reads as `--unpaired`.
-            config.plansReadSet = plannableBundle([plan.inputURL]) != nil
+            // One input is recorded with `auto`. Loose files named as a pair
+            // keep `--paired` with each file of single reads as `--unpaired`.
+            config.plansReadSet = recordedWithAuto
             return true
         }
     }
 
-    /// What `bundle` holds for Kraken2, from metadata and a bounded header
-    /// scan. Nothing is materialized or written.
+    /// What `bundle` (a bundle or a sequence file) holds for Kraken2, from
+    /// metadata and a bounded header scan. Nothing is materialized or written.
     public static func preview(bundle: URL) async -> KrakenReadSetPreview {
         let bundle = bundle.standardizedFileURL
         if isVirtual(bundle) {

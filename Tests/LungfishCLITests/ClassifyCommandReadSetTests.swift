@@ -112,6 +112,41 @@ final class ClassifyCommandReadSetTests: XCTestCase {
         XCTAssertEqual(replay.config.kraken2Arguments(), run.config.kraken2Arguments())
     }
 
+    func testALooseMixedFileIsSplitByNameThenStaged() async throws {
+        let mixed = try looseCopy(of: fixtures.mixedRoot.appendingPathComponent("reads.fastq"), into: "loose-mixed")
+        let (run, kraken2) = try await classify([mixed.path])
+        XCTAssertEqual(try kraken2.inputsSeen().map(ReadSetFixtures.readNames(in:)), [
+            ["p1/1", "p2/1"], ["p1/2", "p2/2"], ["m1", "m2", "m3"], ["m1", "m2", "m3"],
+        ])
+        XCTAssertTrue(try kraken2.argv().contains("--paired"))
+        // Recorded with auto, so the pasted command plans the file again.
+        let recorded = Array(ClassificationCLIInvocationBuilder.build(for: run.config).arguments.dropFirst(2))
+        XCTAssertTrue(recorded.contains("auto"))
+        XCTAssertFalse(recorded.contains("--paired"))
+        XCTAssertFalse(recorded.contains("--unpaired"))
+        XCTAssertEqual(recorded.last, mixed.path)
+        // Each run writes its split under a new name, so the replay is
+        // compared by flags and by the reads of each file kraken2 reads.
+        let replay = try await plan(recorded, database: run.config.databasePath, outputDirectory: run.config.outputDirectory)
+        XCTAssertEqual(flags(replay.config.kraken2Arguments()), flags(run.config.kraken2Arguments()))
+        XCTAssertEqual(
+            try (replay.config.inputFiles + replay.config.singleReadFiles).map(ReadSetFixtures.readNames(in:)),
+            try (run.config.inputFiles + run.config.singleReadFiles).map(ReadSetFixtures.readNames(in:))
+        )
+    }
+
+    func testLooseSingleEndAndInterleavedFilesKeepTodaysCommand() async throws {
+        let single = try looseCopy(of: fixtures.singleRoot.appendingPathComponent("single.fastq"), into: "loose-single")
+        let interleaved = try looseCopy(of: fixtures.interleavedRoot.appendingPathComponent("reads.fastq"), into: "loose-interleaved")
+        for file in [single, interleaved] {
+            let run = try await plan([file.path])
+            XCTAssertNil(run.planned, file.lastPathComponent)
+            XCTAssertEqual(run.config.kraken2Arguments(), run.unplanned.kraken2Arguments(), file.path)
+            XCTAssertEqual(run.config.inputFiles, run.unplanned.inputFiles, file.path)
+            XCTAssertFalse(run.config.plansReadSet, file.path)
+        }
+    }
+
     func testUnpairedNeedsAPairOfFiles() throws {
         let merged = fixtures.mergeDerivative.appendingPathComponent("merged.fastq")
         let command = try ClassifyCommand.parse([merged.path, "--unpaired", merged.path, "--db", "FixtureDB"])
@@ -133,6 +168,20 @@ final class ClassifyCommandReadSetTests: XCTestCase {
         let unplanned: ClassificationConfig
         let planned: ClassifyCommand.PlannedReadSetInputs?
         let inputsDirectory: URL
+    }
+
+    /// The kraken2 arguments that are not file paths.
+    private func flags(_ arguments: [String]) -> [String] {
+        arguments.filter { !$0.hasPrefix("/") }
+    }
+
+    /// A copy of `file` outside any bundle, with no sidecar.
+    private func looseCopy(of file: URL, into folder: String) throws -> URL {
+        let directory = root.appendingPathComponent(folder, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let copy = directory.appendingPathComponent(file.lastPathComponent).standardizedFileURL
+        try FileManager.default.copyItem(at: file, to: copy)
+        return copy
     }
 
     /// Resolves and plans the inputs the way `ClassifyCommand.run` does.
