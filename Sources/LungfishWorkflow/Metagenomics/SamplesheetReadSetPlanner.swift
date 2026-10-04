@@ -169,10 +169,31 @@ public enum SamplesheetReadSetPlanner {
         materializer: any CLISequenceInputMaterializing & Sendable,
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws -> SamplesheetReadSet {
+        try await plan(
+            input: input,
+            consumerID: consumerID,
+            materializationDirectory: materializationDirectory,
+            materializer: materializer,
+            resolverProgress: progress,
+            progress: progress
+        )
+    }
+
+    /// The plan with the resolver's own progress told apart from the join's,
+    /// so a caller whose virtual bundle is already materialized does not
+    /// report a second materialization.
+    private static func plan(
+        input: URL,
+        consumerID: String,
+        materializationDirectory: URL,
+        materializer: any CLISequenceInputMaterializing & Sendable,
+        resolverProgress: (@Sendable (String) -> Void)?,
+        progress: (@Sendable (String) -> Void)?
+    ) async throws -> SamplesheetReadSet {
         let input = input.standardizedFileURL
         let startedAt = Date()
         let resolver = ReadSetResolver(materializationDirectory: materializationDirectory, materializer: materializer)
-        let plan = try await resolver.plan(for: input, capability: capability(for: consumerID), progress: progress)
+        let plan = try await resolver.plan(for: input, capability: capability(for: consumerID), progress: resolverProgress)
         let singleReads = plan.singleReads
         switch (plan.matePairs.count, singleReads.count) {
         case (1, 0):
@@ -200,7 +221,8 @@ public enum SamplesheetReadSetPlanner {
     }
 
     /// The plan for one input whose virtual bundle was already materialized
-    /// into `materializedInputs`, so nothing is materialized twice.
+    /// into `materializedInputs`, so nothing is materialized twice and the
+    /// resolver reports no materialization. A join still reports its progress.
     public static func plan(
         input: URL,
         consumerID: String,
@@ -213,6 +235,7 @@ public enum SamplesheetReadSetPlanner {
             consumerID: consumerID,
             materializationDirectory: materializationDirectory,
             materializer: AlreadyMaterialized(files: materializedInputs),
+            resolverProgress: nil,
             progress: progress
         )
     }

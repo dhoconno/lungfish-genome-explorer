@@ -185,6 +185,59 @@ final class SamplesheetReadSetPlannerTests: XCTestCase {
         XCTAssertEqual(try names(readSet), [["r1/1", "r1/2", "r2/1", "r2/2"]])
     }
 
+    // MARK: - Progress
+
+    /// The CLI reports the materialization of a virtual bundle itself, so the
+    /// plan of the file it wrote says nothing more about it. A plan that
+    /// materializes says so, and a join says so.
+    func testAPlanOfAnAlreadyMaterializedBundleReportsNoSecondMaterialization() async throws {
+        let materialized = root.appendingPathComponent("materialized.fastq")
+        try ReadSetFixtures.fastq(["s1", "s3"]).write(to: materialized, atomically: true, encoding: .utf8)
+        let already = ProgressLog()
+        let readSet = try await SamplesheetReadSetPlanner.plan(
+            input: fixtures.subsetOfSingle,
+            consumerID: EsVirituConfig.readPairingConsumerID,
+            materializedInputs: [materialized],
+            materializationDirectory: scratch(),
+            progress: { already.add($0) }
+        )
+        XCTAssertEqual(try names(readSet), [["s1", "s3"]])
+        XCTAssertEqual(already.lines, [], "the file was already materialized")
+
+        let materializing = ProgressLog()
+        _ = try await SamplesheetReadSetPlanner.plan(
+            input: fixtures.subsetOfSingle,
+            consumerID: EsVirituConfig.readPairingConsumerID,
+            materializationDirectory: scratch(),
+            materializer: fixtures.materializer,
+            progress: { materializing.add($0) }
+        )
+        XCTAssertEqual(materializing.lines.count, 1)
+        XCTAssertTrue(materializing.lines.first?.hasPrefix("Materializing ") == true, "\(materializing.lines)")
+
+        let joining = ProgressLog()
+        _ = try await SamplesheetReadSetPlanner.plan(
+            input: fixtures.chunkedRoot,
+            consumerID: EsVirituConfig.readPairingConsumerID,
+            materializedInputs: [],
+            materializationDirectory: scratch(),
+            progress: { joining.add($0) }
+        )
+        XCTAssertEqual(joining.lines.count, 1)
+        XCTAssertTrue(joining.lines.first?.hasPrefix("Joining 2 files of chunked.lungfishfastq") == true, "\(joining.lines)")
+    }
+
+    private final class ProgressLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recorded: [String] = []
+
+        func add(_ line: String) {
+            lock.withLock { recorded.append(line) }
+        }
+
+        var lines: [String] { lock.withLock { recorded } }
+    }
+
     // MARK: - What the planner refuses
 
     /// A tool takes one pair per sample, so a bundle of two pairs of files
