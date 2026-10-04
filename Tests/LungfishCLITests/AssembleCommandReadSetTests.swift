@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import Foundation
 import XCTest
 @testable import LungfishCLI
@@ -79,6 +80,116 @@ final class AssembleCommandReadSetTests: XCTestCase {
         XCTAssertEqual(skesa.single, [["o1"]])
     }
 
+    /// Reads whose role the sidecar cannot tell are single reads, so SPAdes
+    /// takes them as `-s`. Only reads known to be merged are `--merged`.
+    func testReadsThatMayBeMergedOrOrphansAreAssembledAsSingleReads() async throws {
+        let bundle = fixtures.importsURL.appendingPathComponent("merged-and-orphans.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let file = bundle.appendingPathComponent("reads.fastq")
+        try ReadSetFixtures.fastq(["m1", "o1", "p1/1", "p1/2"]).write(to: file, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(
+                ingestion: IngestionMetadata(pairingMode: .interleaved, pairingSource: .detected),
+                readClassification: ReadClassification(files: [
+                    .init(filename: "reads.fastq", role: .merged, readCount: 1),
+                    .init(filename: "reads.fastq", role: .unpaired, readCount: 1),
+                    .init(filename: "reads.fastq", role: .pairedR1, readCount: 1),
+                    .init(filename: "reads.fastq", role: .pairedR2, readCount: 1),
+                ])
+            ),
+            for: file
+        )
+        let spades = try await assemble(bundle, tool: .spades)
+        XCTAssertEqual(spades.forward, ["p1/1"])
+        XCTAssertEqual(spades.reverse, ["p1/2"])
+        XCTAssertEqual(spades.merged, [])
+        XCTAssertEqual(spades.single, [["m1", "o1"]])
+    }
+
+    /// A project folder with a space in its name makes the pipeline stage the
+    /// inputs behind symbolic links. Every file keeps its role.
+    func testFilesStagedBehindLinksKeepTheirRoles() async throws {
+        let spaced = try ReadSetFixtures(in: root.appendingPathComponent("My Project", isDirectory: true))
+        let spades = try await assemble(spaced.mergeDerivative, tool: .spades, readSets: spaced)
+        XCTAssertEqual(spades.forward, ["u1/1"])
+        XCTAssertEqual(spades.reverse, ["u1/2"])
+        XCTAssertEqual(spades.merged, [["x1", "x2", "x3"]])
+        let skesa = try await assemble(spaced.mergeDerivative, tool: .skesa, readSets: spaced)
+        XCTAssertEqual(skesa.forward, ["u1/1"])
+        XCTAssertEqual(skesa.reverse, ["u1/2"])
+        XCTAssertEqual(skesa.single, [["x1", "x2", "x3"]])
+    }
+
+    // MARK: - An explicit layout
+
+    /// `--read-layout` states the layout of one file, so it is refused for a
+    /// bundle whose pairs and single reads are in several files, as it is for
+    /// a bundle that holds the R1 and R2 files of a mate pair.
+    func testReadLayoutIsRefusedForABundleThatHoldsPairsAndSingleReadsInSeveralFiles() async throws {
+        let output = root.appendingPathComponent("refused-assembly", isDirectory: true)
+        let command = try AssembleCommand.parse([
+            fixtures.mergeDerivative.path,
+            "--assembler", "spades",
+            "--read-type", "illumina-short-reads",
+            "--read-layout", "interleaved",
+            "--output", output.path,
+        ])
+
+        await XCTAssertThrowsErrorAsync(try await command.run()) { error in
+            XCTAssertEqual((error as? ExitCode)?.rawValue, CLIExitCode.inputError.rawValue)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "refused before anything is written")
+    }
+
+    // MARK: - Provenance
+
+    /// The split of a mixed file is a provenance step with its record counts,
+    /// the assembler's inputs name their bundle, and the run's options say
+    /// the pairs were assembled as pairs.
+    func testProvenanceRecordsTheSplitStepAndEachFileNamesItsBundle() async throws {
+        let bundle = try mixedRootBundle(mergedCount: 4, pairCount: 3)
+        let run = try await assembleThroughTheCLISteps(bundle, tool: .spades)
+        let envelope = try writeProvenance(for: run, inputs: [bundle])
+
+        let split = try XCTUnwrap(envelope.steps.first { $0.toolName == "Lungfish Read-Set Split" })
+        XCTAssertEqual(split.resolvedOptions["pairs"], .integer(3))
+        XCTAssertEqual(split.resolvedOptions["singleReads"], .integer(4))
+        XCTAssertEqual(split.outputs.count, 3)
+        let assembler = try XCTUnwrap(envelope.steps.first { $0.toolName == AssemblyTool.spades.rawValue })
+        XCTAssertEqual(assembler.inputs.count, 3)
+        XCTAssertTrue(assembler.inputs.allSatisfy { $0.originPath == bundle.standardizedFileURL.path })
+        XCTAssertEqual(assembler.inputs.map(\.path), run.request.inputURLs.map(\.path))
+        XCTAssertEqual(envelope.options.resolvedDefaults["readPairing"], .string(AssemblyReadPairing.pairedFilesWithSingleReads.rawValue))
+        XCTAssertEqual(envelope.options.resolvedDefaults["pairedEnd"], .boolean(true))
+        XCTAssertEqual(envelope.options.explicit["originalInputs"], .array([.file(bundle.standardizedFileURL)]))
+        guard case .dictionary(let plan)? = envelope.options.resolvedDefaults["readSetPlan"] else {
+            return XCTFail("the run parameters record the read-set plan")
+        }
+        XCTAssertEqual(plan["pairedFragments"], .integer(3))
+        XCTAssertEqual(plan["mergedReads"], .integer(4))
+    }
+
+    /// A virtual bundle is materialized and then split, so the provenance has
+    /// both steps in order, and the split reads the materialized file.
+    func testAVirtualBundleRecordsItsMaterializationBeforeItsSplit() async throws {
+        let run = try await assembleThroughTheCLISteps(fixtures.subsetOfMerge, tool: .spades)
+        let envelope = try writeProvenance(for: run, inputs: [fixtures.subsetOfMerge])
+        XCTAssertEqual(
+            envelope.steps.map(\.toolName),
+            [CLISequenceInputMaterialization.materializationToolName, "Lungfish Read-Set Split", AssemblyTool.spades.rawValue]
+        )
+        XCTAssertEqual(envelope.steps[0].outputs.map(\.path), envelope.steps[1].inputs.map(\.path))
+    }
+
+    /// A merge derivative's files are the bundle's own, so nothing is written
+    /// and only the plan is recorded.
+    func testABundleWithAFilePerRoleRecordsNoStepOfItsOwn() async throws {
+        let run = try await assembleThroughTheCLISteps(fixtures.mergeDerivative, tool: .spades)
+        let envelope = try writeProvenance(for: run, inputs: [fixtures.mergeDerivative])
+        XCTAssertEqual(envelope.steps.map(\.toolName), [AssemblyTool.spades.rawValue])
+        XCTAssertNotNil(envelope.options.resolvedDefaults["readSetPlan"])
+    }
+
     // MARK: - Unchanged
 
     func testASampleOfOnlySingleReadsOrOnlyPairsIsHandedOverAsItAlwaysWas() async throws {
@@ -110,42 +221,73 @@ final class AssembleCommandReadSetTests: XCTestCase {
     /// Assembles `bundle` the way `lungfish-cli assemble` does, with a
     /// stand-in assembler: the shared input resolution, the request it
     /// builds, and `ManagedAssemblyPipeline`.
-    private func assemble(_ bundle: URL, tool: AssemblyTool) async throws -> Seen {
+    private func assemble(_ bundle: URL, tool: AssemblyTool, readSets: ReadSetFixtures? = nil) async throws -> Seen {
+        let run = try await assembleThroughTheCLISteps(bundle, tool: tool, readSets: readSets)
+        return run.seen
+    }
+
+    /// The stand-in assembler's view of a run, with the request that was run
+    /// and the inputs it was resolved from.
+    private struct AssembleRun {
+        let seen: Seen
+        let request: AssemblyRunRequest
+        let result: AssemblyResult
+        let readSets: AssemblyResolvedInputs
+        let layout: FASTQInputLayoutResolution?
+    }
+
+    private func assembleThroughTheCLISteps(_ bundle: URL, tool: AssemblyTool, readSets: ReadSetFixtures? = nil) async throws -> AssembleRun {
         let runRoot = root.appendingPathComponent("run-\(UUID().uuidString)", isDirectory: true)
         let standIn = try StandInAssemblers(root: runRoot)
         let outputDirectory = runRoot.appendingPathComponent("assembly", isDirectory: true)
-        let request = try await assemblyRequest(for: bundle, tool: tool, outputDirectory: outputDirectory)
-        _ = try await ManagedAssemblyPipeline(condaManager: standIn.condaManager).run(request: request.normalizedForExecution())
-        return try standIn.seen(for: tool)
-    }
-
-    /// The request `lungfish-cli assemble <bundle> --assembler <tool>` runs.
-    private func assemblyRequest(for bundle: URL, tool: AssemblyTool, outputDirectory: URL) async throws -> AssemblyRunRequest {
-        let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
-            inputURLs: [bundle],
-            materializationDirectory: outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
-            materializer: fixtures.materializer
-        )
-        let pairedEnd = resolved.resolvedAsMatePair
-        let layout = AssemblyRunRequest.resolveInputLayout(
+        let resolved = try await resolveInputs(bundle, tool: tool, outputDirectory: outputDirectory, readSets: readSets)
+        let built = resolved.request(
             tool: tool,
             readType: .illuminaShortReads,
-            pairedEnd: pairedEnd,
-            explicit: nil,
-            originalInputURLs: resolved.originalInputURLs,
-            executionInputURLs: resolved.executionInputURLs,
-            pooled: resolved.pooledLayoutResolution
-        )
-        return AssemblyRunRequest(
-            tool: tool,
-            readType: .illuminaShortReads,
-            inputURLs: resolved.executionInputURLs,
             projectName: "fixture",
             outputDirectory: outputDirectory,
-            pairedEnd: pairedEnd,
-            threads: 2,
-            inputLayout: layout?.layout
+            pairedEnd: false,
+            explicitLayout: nil,
+            threads: 2
         )
+        let result = try await ManagedAssemblyPipeline(condaManager: standIn.condaManager).run(request: built.request.normalizedForExecution())
+        return AssembleRun(seen: try standIn.seen(for: tool), request: built.request, result: result, readSets: resolved, layout: built.layout)
+    }
+
+    /// The inputs `lungfish-cli assemble <bundle> --assembler <tool>` resolves.
+    private func resolveInputs(
+        _ bundle: URL,
+        tool: AssemblyTool,
+        outputDirectory: URL,
+        readSets: ReadSetFixtures? = nil
+    ) async throws -> AssemblyResolvedInputs {
+        try await AssemblyReadSetResolution.resolve(
+            inputURLs: [bundle],
+            tool: tool,
+            pairedEnd: false,
+            explicitLayout: nil,
+            materializationDirectory: outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
+            materializer: (readSets ?? fixtures).materializer
+        )
+    }
+
+    /// `AssembleCommand.run`'s provenance for a stand-in run, read back.
+    private func writeProvenance(for run: AssembleRun, inputs: [URL]) throws -> ProvenanceEnvelope {
+        let sidecarURL = try AssembleCommand.writeProvenance(
+            request: run.request.normalizedForExecution(),
+            result: run.result,
+            originalInputURLs: run.readSets.inputs.originalInputURLs,
+            executionInputURLs: run.readSets.inputs.executionInputURLs,
+            argv: ["lungfish-cli", "assemble"] + inputs.map(\.path) + ["--assembler", "spades"],
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 104),
+            materializationStartedAt: run.readSets.inputs.materializationStartedAt,
+            materializationEndedAt: run.readSets.inputs.materializationEndedAt,
+            layoutResolution: run.layout,
+            readSets: run.readSets,
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+        return try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: sidecarURL))
     }
 
     /// A root bundle whose one file holds `mergedCount` merged reads and then

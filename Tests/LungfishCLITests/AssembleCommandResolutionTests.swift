@@ -114,6 +114,7 @@ final class AssembleCommandResolutionTests: XCTestCase {
             materializationStartedAt: run.resolved.materializationStartedAt,
             materializationEndedAt: run.resolved.materializationEndedAt,
             layoutResolution: run.layout,
+            readSets: run.readSets,
             writer: ProvenanceWriter(signingProvider: nil)
         )
         let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: sidecarURL))
@@ -178,11 +179,13 @@ final class AssembleCommandResolutionTests: XCTestCase {
         XCTAssertEqual(pairedRun.spades.reverse, ["p1/2", "p2/2"])
         XCTAssertEqual(pairedRun.spades.singleFiles, [])
 
+        // The merged file names its whole bundle, which holds a pair and merged reads (decision 1
+        // of 2026-10-03), so the run is handed the pair and the merged reads in their roles.
         let merged = try await resolve([shapes.mixedFiles[0]])
-        XCTAssertEqual(merged.originalInputURLs, [shapes.mixed.standardizedFileURL])
+        XCTAssertEqual(merged.originalInputURLs, Array(repeating: shapes.mixed.standardizedFileURL, count: 3))
         XCTAssertEqual(
-            try BundleShapeFixtures.readNames(in: try XCTUnwrap(merged.executionInputURLs.first)),
-            ["x1", "x2", "x3", "u1/1", "u1/2"]
+            try merged.executionInputURLs.map(BundleShapeFixtures.readNames(in:)),
+            [["u1/1"], ["u1/2"], ["x1", "x2", "x3"]]
         )
 
         let twoBundles = try await resolve([shapes.single, shapes.full.appendingPathComponent("full.fastq")])
@@ -274,6 +277,7 @@ final class AssembleCommandResolutionTests: XCTestCase {
 
     private struct AssembleRun {
         let resolved: ResolvedSequenceInputs
+        let readSets: AssemblyResolvedInputs
         let layout: FASTQInputLayoutResolution?
         let request: AssemblyRunRequest
         let result: AssemblyResult
@@ -284,12 +288,16 @@ final class AssembleCommandResolutionTests: XCTestCase {
         try await resolve([bundle])
     }
 
+    /// The inputs `lungfish-cli assemble` resolves for SPAdes.
     private func resolve(_ inputs: [URL]) async throws -> ResolvedSequenceInputs {
-        try await ResolvedSequenceInputs.resolveForAssembly(
+        try await AssemblyReadSetResolution.resolve(
             inputURLs: inputs,
+            tool: .spades,
+            pairedEnd: false,
+            explicitLayout: nil,
             materializationDirectory: root.appendingPathComponent("resolve-\(UUID().uuidString)/.lungfish-assembly-inputs", isDirectory: true),
             materializer: FASTQCLIMaterializer(runner: .shared)
-        )
+        ).inputs
     }
 
     private func request(
@@ -321,33 +329,33 @@ final class AssembleCommandResolutionTests: XCTestCase {
         let runRoot = root.appendingPathComponent("run-\(UUID().uuidString)", isDirectory: true)
         let spades = try StandInSPAdes(root: runRoot)
         let outputDirectory = runRoot.appendingPathComponent("assembly", isDirectory: true)
-        let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+        let readSets = try await AssemblyReadSetResolution.resolve(
             inputURLs: inputs,
+            tool: .spades,
+            pairedEnd: pairedFlag,
+            explicitLayout: nil,
             materializationDirectory: outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
             materializer: FASTQCLIMaterializer(runner: .shared)
         )
-        let pairedEnd = pairedFlag || resolved.resolvedAsMatePair
-        let layout = AssemblyRunRequest.resolveInputLayout(
+        let built = readSets.request(
             tool: .spades,
             readType: .illuminaShortReads,
-            pairedEnd: pairedEnd,
-            explicit: nil,
-            originalInputURLs: resolved.originalInputURLs,
-            executionInputURLs: resolved.executionInputURLs,
-            pooled: resolved.pooledLayoutResolution
-        )
-        let request = AssemblyRunRequest(
-            tool: .spades,
-            readType: .illuminaShortReads,
-            inputURLs: resolved.executionInputURLs,
             projectName: "fixture",
             outputDirectory: outputDirectory,
-            pairedEnd: pairedEnd,
-            threads: 2,
-            inputLayout: layout?.layout
-        ).normalizedForExecution()
+            pairedEnd: pairedFlag,
+            explicitLayout: nil,
+            threads: 2
+        )
+        let request = built.request.normalizedForExecution()
         let result = try await ManagedAssemblyPipeline(condaManager: spades.condaManager).run(request: request)
-        return AssembleRun(resolved: resolved, layout: layout, request: request, result: result, spades: try spades.seen())
+        return AssembleRun(
+            resolved: readSets.inputs,
+            readSets: readSets,
+            layout: built.layout,
+            request: request,
+            result: result,
+            spades: try spades.seen()
+        )
     }
 }
 

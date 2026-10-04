@@ -184,12 +184,15 @@ struct AssembleCommand: AsyncParsableCommand {
             inputURLs: inputURLs
         )
 
-        let resolvedInputs: ResolvedSequenceInputs
+        let readSets: AssemblyResolvedInputs
         let resolvedReadType: AssemblyReadType
         let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true)
         do {
-            resolvedInputs = try await ResolvedSequenceInputs.resolveForAssembly(
+            readSets = try await AssemblyReadSetResolution.resolve(
                 inputURLs: inputURLs,
+                tool: tool,
+                pairedEnd: pairedEnd,
+                explicitLayout: readLayout.explicitLayout,
                 materializationDirectory: materializationDirectory,
                 materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
                 progress: { message in
@@ -201,8 +204,8 @@ struct AssembleCommand: AsyncParsableCommand {
             let decision = try preMaterialization ?? Self.readTypeDecision(
                     for: tool,
                     explicitReadType: readType,
-                    originalInputURLs: resolvedInputs.originalInputURLs,
-                    executionInputURLs: resolvedInputs.executionInputURLs
+                    originalInputURLs: readSets.inputs.originalInputURLs,
+                    executionInputURLs: readSets.inputs.executionInputURLs
                 )
             resolvedReadType = decision.readType ?? AssemblyCompatibility.defaultReadType(for: tool)
             for warning in decision.warnings {
@@ -214,17 +217,23 @@ struct AssembleCommand: AsyncParsableCommand {
             try? FileManager.default.removeItem(at: materializationDirectory)
             print(formatter.error(AssembleInputResolutionError.unreadableBundlePayload(path).localizedDescription))
             throw CLIExitCode.formatError.exitCode
+        } catch let error as AssemblyReadSetResolutionError {
+            try? FileManager.default.removeItem(at: materializationDirectory)
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.inputError.exitCode
         } catch {
             try? FileManager.default.removeItem(at: materializationDirectory)
             print(formatter.error(error.localizedDescription))
             throw CLIExitCode.workflowError.exitCode
         }
         // Every read a bundle holds, as `map` hands the mapper: one original
-        // per execution file, and a bundle that holds the R1 and R2 of a mate
-        // pair is assembled as pairs, as `map` and the app's per-bundle launch do.
+        // per execution file. A bundle that holds the R1 and R2 of a mate pair
+        // is assembled as pairs, as `map` and the app's per-bundle launch do,
+        // and so is a sample of pairs and single reads (`readSets`, decision 1
+        // of 2026-10-03).
+        let resolvedInputs = readSets.inputs
         let executionInputURLs = resolvedInputs.executionInputURLs
         let executionOriginalInputURLs = resolvedInputs.originalInputURLs
-        let effectivePairedEnd = pairedEnd || resolvedInputs.resolvedAsMatePair
         if readLayout != .auto, resolvedInputs.resolvedAsMatePair {
             print(formatter.error("--read-layout describes one input file; \(inputURLs[0].lastPathComponent) holds R1 and R2 files."))
             throw CLIExitCode.inputError.exitCode
@@ -238,33 +247,22 @@ struct AssembleCommand: AsyncParsableCommand {
             readType: resolvedReadType
         )
 
-        // Resolved on the materialized input with the ORIGINAL bundle's
-        // metadata as hints, the same way `map` does it, so a paired import
-        // stored as one interleaved file is assembled as pairs.
-        let layoutResolution = AssemblyRunRequest.resolveInputLayout(
+        // The layout of one file is resolved on the materialized input with
+        // the ORIGINAL bundle's metadata as hints, the same way `map` does it,
+        // so a paired import stored as one interleaved file is assembled as pairs.
+        let (request, layoutResolution) = readSets.request(
             tool: tool,
             readType: resolvedReadType,
-            pairedEnd: effectivePairedEnd,
-            explicit: readLayout.explicitLayout,
-            originalInputURLs: executionOriginalInputURLs,
-            executionInputURLs: executionInputURLs,
-            pooled: resolvedInputs.pooledLayoutResolution
-        )
-
-        let request = AssemblyRunRequest(
-            tool: tool,
-            readType: resolvedReadType,
-            inputURLs: executionInputURLs,
             projectName: projectName,
             outputDirectory: outputDirectory,
-            pairedEnd: effectivePairedEnd,
+            pairedEnd: pairedEnd,
+            explicitLayout: readLayout.explicitLayout,
             threads: globalOptions.effectiveThreads,
             memoryGB: memoryGB,
             minContigLength: minContigLength,
             selectedProfileID: resolvedProfile.profileID,
             extraArguments: advancedArguments,
-            profileSelectionBasis: resolvedProfile.basis,
-            inputLayout: layoutResolution?.layout
+            profileSelectionBasis: resolvedProfile.basis
         )
         let executionRequest = request.normalizedForExecution()
 
@@ -326,7 +324,8 @@ struct AssembleCommand: AsyncParsableCommand {
                 endedAt: Date(),
                 materializationStartedAt: resolvedInputs.materializationStartedAt,
                 materializationEndedAt: resolvedInputs.materializationEndedAt,
-                layoutResolution: layoutResolution
+                layoutResolution: layoutResolution,
+                readSets: readSets
             )
         } catch {
             events.emitFailed(error.localizedDescription)
@@ -499,7 +498,7 @@ struct AssembleCommand: AsyncParsableCommand {
     }
 
     /// One primary file per input, for inputs that need no materialization (a
-    /// test seam). `run` reads every file (`ResolvedSequenceInputs.resolveForAssembly`).
+    /// test seam). `run` reads every file (`AssemblyReadSetResolution.resolve`).
     static func resolveExecutionInputURLs(for inputURLs: [URL]) throws -> [URL] {
         try inputURLs.map { inputURL in
             if AssemblyInputMaterialization.requiresMaterialization(inputURL) {
@@ -527,9 +526,13 @@ struct AssembleCommand: AsyncParsableCommand {
         materializationEndedAt: Date? = nil,
         stderr: String? = nil,
         layoutResolution: FASTQInputLayoutResolution? = nil,
+        readSets: AssemblyResolvedInputs? = nil,
         writer: ProvenanceWriter = ProvenanceWriter()
     ) throws -> URL {
         let toolVersion = result.assemblerVersion ?? "unknown"
+        // A sample of pairs and single reads records the plan and the split
+        // steps that wrote its files (decision 1 of 2026-10-03).
+        let readSetOptions = readSets?.provenanceParameters ?? [:]
         var builder = ProvenanceRunBuilder(
             workflowName: "lungfish.assemble",
             workflowVersion: LungfishCLI.configuration.version,
@@ -543,14 +546,14 @@ struct AssembleCommand: AsyncParsableCommand {
                 originalInputURLs: originalInputURLs,
                 executionInputURLs: executionInputURLs,
                 layoutResolution: layoutResolution
-            ),
+            ).merging(readSetOptions) { _, plan in plan },
             defaults: assemblyDefaultOptions(),
             resolved: assemblyResolvedOptions(
                 for: request,
                 originalInputURLs: originalInputURLs,
                 executionInputURLs: executionInputURLs,
                 layoutResolution: layoutResolution
-            )
+            ).merging(readSetOptions) { _, plan in plan }
         )
         .runtime(
             ProvenanceRuntimeIdentity(
@@ -569,7 +572,8 @@ struct AssembleCommand: AsyncParsableCommand {
                 executionURL: executionURL
             )
         }
-        let materializedPairs = inputPairs.filter { originalURL, executionURL in
+        // The read-set steps record how a virtual bundle was materialized and split.
+        let materializedPairs = (readSets?.inputRoles == nil ? inputPairs : []).filter { originalURL, executionURL in
             AssemblyInputMaterialization.requiresMaterialization(originalURL)
                 && originalURL.standardizedFileURL != executionURL.standardizedFileURL
         }
@@ -629,6 +633,9 @@ struct AssembleCommand: AsyncParsableCommand {
             startedAt: materializationStartedAt ?? startedAt,
             endedAt: materializationEndedAt ?? materializationStartedAt ?? startedAt
         ) {
+            builder = builder.step(step)
+        }
+        for step in try readSets?.provenanceSteps(workflowVersion: LungfishCLI.configuration.version) ?? [] {
             builder = builder.step(step)
         }
 
