@@ -634,38 +634,6 @@ struct MapCommand: AsyncParsableCommand {
         }
     }
 
-    /// The file resolution ``MappingInputResolver`` runs for any input that
-    /// is not one bundle of pairs and single reads (``ResolvedSequenceInputs``):
-    /// every file of a bundle, a virtual bundle materialized and the unpaired
-    /// files of one bundle concatenated into `tempDirectory`. It decides no
-    /// pairing. `run()` resolves through ``MappingInputResolver``, the call
-    /// the Map Reads window makes. A loose file that is not a readable
-    /// sequence file and a container-only demux group are refused before
-    /// anything is written.
-    static func resolveExecutionInputs(
-        for inputURLs: [URL],
-        tempDirectory: URL,
-        materializer: any CLISequenceInputMaterializing & Sendable,
-        progress: (@Sendable (String) -> Void)? = nil
-    ) async throws -> ResolvedSequenceInputs {
-        for inputURL in inputURLs {
-            if let message = CLISequenceInputMaterialization.unsupportedSequenceInputMessage(for: inputURL, operationName: "mapping") {
-                throw CLISequenceInputMaterializationError.unsupportedSequenceInput(message)
-            }
-            if SequenceInputResolver.enclosingFASTQBundleURL(for: inputURL) == nil,
-               SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) == nil {
-                throw CLISequenceInputMaterializationError.unreadableSequenceInput(inputURL.standardizedFileURL.path)
-            }
-        }
-        return try await ResolvedSequenceInputs.resolve(
-            inputURLs: inputURLs,
-            materializationDirectory: tempDirectory,
-            materializer: materializer,
-            concatenateUnpairedFiles: true,
-            progress: progress
-        )
-    }
-
     private func resolveMode(tool: MappingTool, preset: String?) throws -> MappingMode {
         switch tool {
         case .minimap2:
