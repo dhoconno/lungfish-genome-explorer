@@ -32,20 +32,25 @@ final class AssembleCommandResolutionTests: XCTestCase {
     }
 
     func testSPAdesIsHandedEveryReadOfEachBundleShape() async throws {
-        let cases: [(shape: String, bundle: URL, single: [[String]], forward: [String], reverse: [String])] = [
-            ("root single", shapes.single, [["s1", "s2", "s3"]], [], []),
-            ("root multi-file", shapes.multiFile, [["m1", "m2", "m3", "m4", "m5"]], [], []),
-            ("virtual orientMap", shapes.oriented, [["s1", "s3"]], [], []),
-            ("derived fullPaired", shapes.paired, [], ["p1/1", "p2/1"], ["p1/2", "p2/2"]),
-            ("derived fullMixed", shapes.mixed, [["x1", "x2", "x3", "u1/1", "u1/2"]], [], []),
-            ("derived fullFASTA", shapes.fasta, [["f1", "f2"]], [], []),
-            ("derived full", shapes.full, [["g1", "g2"]], [], []),
+        // A fullMixed bundle holds a pair and merged reads. Before owner decision 1
+        // of 2026-10-03 (docs/contracts/READ-PAIRING.md) its three files were joined
+        // and assembled as five single reads. Now the pair is a pair and the merged
+        // reads are SPAdes `--merged` reads.
+        let cases: [(shape: String, bundle: URL, single: [[String]], forward: [String], reverse: [String], merged: [[String]])] = [
+            ("root single", shapes.single, [["s1", "s2", "s3"]], [], [], []),
+            ("root multi-file", shapes.multiFile, [["m1", "m2", "m3", "m4", "m5"]], [], [], []),
+            ("virtual orientMap", shapes.oriented, [["s1", "s3"]], [], [], []),
+            ("derived fullPaired", shapes.paired, [], ["p1/1", "p2/1"], ["p1/2", "p2/2"], []),
+            ("derived fullMixed", shapes.mixed, [], ["u1/1"], ["u1/2"], [["x1", "x2", "x3"]]),
+            ("derived fullFASTA", shapes.fasta, [["f1", "f2"]], [], [], []),
+            ("derived full", shapes.full, [["g1", "g2"]], [], [], []),
         ]
         for testCase in cases {
             let run = try await assemble(testCase.bundle, label: testCase.shape)
             XCTAssertEqual(run.spades.singleFiles, testCase.single, testCase.shape)
             XCTAssertEqual(run.spades.forward, testCase.forward, testCase.shape)
             XCTAssertEqual(run.spades.reverse, testCase.reverse, testCase.shape)
+            XCTAssertEqual(run.spades.mergedFiles, testCase.merged, testCase.shape)
         }
     }
 
@@ -109,6 +114,7 @@ final class AssembleCommandResolutionTests: XCTestCase {
             materializationStartedAt: run.resolved.materializationStartedAt,
             materializationEndedAt: run.resolved.materializationEndedAt,
             layoutResolution: run.layout,
+            readSets: run.readSets,
             writer: ProvenanceWriter(signingProvider: nil)
         )
         let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: sidecarURL))
@@ -173,11 +179,13 @@ final class AssembleCommandResolutionTests: XCTestCase {
         XCTAssertEqual(pairedRun.spades.reverse, ["p1/2", "p2/2"])
         XCTAssertEqual(pairedRun.spades.singleFiles, [])
 
+        // The merged file names its whole bundle, which holds a pair and merged reads (decision 1
+        // of 2026-10-03), so the run is handed the pair and the merged reads in their roles.
         let merged = try await resolve([shapes.mixedFiles[0]])
-        XCTAssertEqual(merged.originalInputURLs, [shapes.mixed.standardizedFileURL])
+        XCTAssertEqual(merged.originalInputURLs, Array(repeating: shapes.mixed.standardizedFileURL, count: 3))
         XCTAssertEqual(
-            try BundleShapeFixtures.readNames(in: try XCTUnwrap(merged.executionInputURLs.first)),
-            ["x1", "x2", "x3", "u1/1", "u1/2"]
+            try merged.executionInputURLs.map(BundleShapeFixtures.readNames(in:)),
+            [["u1/1"], ["u1/2"], ["x1", "x2", "x3"]]
         )
 
         let twoBundles = try await resolve([shapes.single, shapes.full.appendingPathComponent("full.fastq")])
@@ -269,6 +277,7 @@ final class AssembleCommandResolutionTests: XCTestCase {
 
     private struct AssembleRun {
         let resolved: ResolvedSequenceInputs
+        let readSets: AssemblyResolvedInputs
         let layout: FASTQInputLayoutResolution?
         let request: AssemblyRunRequest
         let result: AssemblyResult
@@ -279,12 +288,16 @@ final class AssembleCommandResolutionTests: XCTestCase {
         try await resolve([bundle])
     }
 
+    /// The inputs `lungfish-cli assemble` resolves for SPAdes.
     private func resolve(_ inputs: [URL]) async throws -> ResolvedSequenceInputs {
-        try await ResolvedSequenceInputs.resolveForAssembly(
+        try await AssemblyReadSetResolution.resolve(
             inputURLs: inputs,
+            tool: .spades,
+            pairedEnd: false,
+            explicitLayout: nil,
             materializationDirectory: root.appendingPathComponent("resolve-\(UUID().uuidString)/.lungfish-assembly-inputs", isDirectory: true),
             materializer: FASTQCLIMaterializer(runner: .shared)
-        )
+        ).inputs
     }
 
     private func request(
@@ -316,33 +329,33 @@ final class AssembleCommandResolutionTests: XCTestCase {
         let runRoot = root.appendingPathComponent("run-\(UUID().uuidString)", isDirectory: true)
         let spades = try StandInSPAdes(root: runRoot)
         let outputDirectory = runRoot.appendingPathComponent("assembly", isDirectory: true)
-        let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+        let readSets = try await AssemblyReadSetResolution.resolve(
             inputURLs: inputs,
+            tool: .spades,
+            pairedEnd: pairedFlag,
+            explicitLayout: nil,
             materializationDirectory: outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true),
             materializer: FASTQCLIMaterializer(runner: .shared)
         )
-        let pairedEnd = pairedFlag || resolved.resolvedAsMatePair
-        let layout = AssemblyRunRequest.resolveInputLayout(
+        let built = readSets.request(
             tool: .spades,
             readType: .illuminaShortReads,
-            pairedEnd: pairedEnd,
-            explicit: nil,
-            originalInputURLs: resolved.originalInputURLs,
-            executionInputURLs: resolved.executionInputURLs,
-            pooled: resolved.pooledLayoutResolution
-        )
-        let request = AssemblyRunRequest(
-            tool: .spades,
-            readType: .illuminaShortReads,
-            inputURLs: resolved.executionInputURLs,
             projectName: "fixture",
             outputDirectory: outputDirectory,
-            pairedEnd: pairedEnd,
-            threads: 2,
-            inputLayout: layout?.layout
-        ).normalizedForExecution()
+            pairedEnd: pairedFlag,
+            explicitLayout: nil,
+            threads: 2
+        )
+        let request = built.request.normalizedForExecution()
         let result = try await ManagedAssemblyPipeline(condaManager: spades.condaManager).run(request: request)
-        return AssembleRun(resolved: resolved, layout: layout, request: request, result: result, spades: try spades.seen())
+        return AssembleRun(
+            resolved: readSets.inputs,
+            readSets: readSets,
+            layout: built.layout,
+            request: request,
+            result: result,
+            spades: try spades.seen()
+        )
     }
 }
 
@@ -355,6 +368,8 @@ private struct StandInSPAdes {
         let singleFiles: [[String]]
         let forward: [String]
         let reverse: [String]
+        /// The record names of each `--merged` file, in argument order.
+        let mergedFiles: [[String]]
     }
 
     let condaManager: CondaManager
@@ -379,13 +394,16 @@ private struct StandInSPAdes {
         func reads(_ name: String) throws -> [String] {
             try BundleShapeFixtures.readNames(in: seenDirectory.appendingPathComponent(name))
         }
-        let single = names
-            .filter { $0.hasPrefix("single-") }
-            .sorted { (Int($0.dropFirst("single-".count)) ?? 0) < (Int($1.dropFirst("single-".count)) ?? 0) }
+        func numbered(_ prefix: String) -> [String] {
+            names
+                .filter { $0.hasPrefix("\(prefix)-") }
+                .sorted { (Int($0.dropFirst(prefix.count + 1)) ?? 0) < (Int($1.dropFirst(prefix.count + 1)) ?? 0) }
+        }
         return Seen(
-            singleFiles: try single.map(reads),
+            singleFiles: try numbered("single").map(reads),
             forward: names.contains("forward") ? try reads("forward") : [],
-            reverse: names.contains("reverse") ? try reads("reverse") : []
+            reverse: names.contains("reverse") ? try reads("reverse") : [],
+            mergedFiles: try numbered("merged").map(reads)
         )
     }
 
@@ -414,11 +432,17 @@ private struct StandInSPAdes {
         mkdir -p "$seen"
         outdir=""
         single=0
+        merged=0
         while [ "$#" -gt 0 ]; do
           case "$1" in
             -o)
               shift
               outdir="$1"
+              ;;
+            --merged)
+              shift
+              merged=$((merged + 1))
+              cp "$1" "$seen/merged-$merged"
               ;;
             -s)
               shift

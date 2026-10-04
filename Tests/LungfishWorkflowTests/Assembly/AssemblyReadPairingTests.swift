@@ -196,6 +196,107 @@ final class AssemblyReadPairingTests: XCTestCase {
         XCTAssertFalse(command.arguments.contains("--12"))
     }
 
+    // MARK: - Pairs and single reads (owner decision 1 of 2026-10-03)
+
+    private let readSetInputs = ["R1", "R2", "merged", "orphans"].map { URL(fileURLWithPath: "/tmp/\($0).fastq") }
+    private let readSetRoles: [AssemblyInputRole] = [.mateR1, .mateR2, .merged, .single]
+
+    private func readSetRequest(
+        tool: AssemblyTool = .spades,
+        roles: [AssemblyInputRole]? = nil,
+        inputURLs: [URL]? = nil
+    ) -> AssemblyRunRequest {
+        AssemblyRunRequest(
+            tool: tool,
+            readType: .illuminaShortReads,
+            inputURLs: inputURLs ?? readSetInputs,
+            projectName: "mixed",
+            outputDirectory: tempDir.appendingPathComponent("out-\(tool.rawValue)"),
+            threads: 4,
+            inputRoles: roles ?? readSetRoles
+        )
+    }
+
+    func testARequestWithInputRolesAssemblesPairsAndSingleReads() {
+        let request = readSetRequest()
+        XCTAssertEqual(request.readPairing, .pairedFilesWithSingleReads)
+        XCTAssertTrue(request.readPairing.assemblesPairs)
+        XCTAssertEqual(request.readPairing.displayName, "yes (R1/R2 files and single reads)")
+        XCTAssertEqual(request.readLayoutHandling, .asPairs)
+        XCTAssertEqual(request.effectiveInputLayout, .mixedMergedAndPairs)
+        XCTAssertEqual(
+            request.readSetFiles,
+            AssemblyReadSetFiles(
+                forward: readSetInputs[0],
+                reverse: readSetInputs[1],
+                singleReads: [
+                    .init(url: readSetInputs[2], isMerged: true),
+                    .init(url: readSetInputs[3], isMerged: false),
+                ]
+            )
+        )
+    }
+
+    func testInputRolesSurviveEveryRequestCopyAndDecodeWhenAbsent() throws {
+        let original = readSetRequest()
+        XCTAssertEqual(original.normalizedForExecution().inputRoles, readSetRoles)
+        XCTAssertEqual(original.withInputLayout(nil).inputRoles, readSetRoles)
+
+        let roundTripped = try JSONDecoder().decode(AssemblyRunRequest.self, from: JSONEncoder().encode(original))
+        XCTAssertEqual(roundTripped, original)
+
+        // A request persisted before `inputRoles` existed still decodes.
+        var legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any] ?? [:]
+        legacy.removeValue(forKey: "inputRoles")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacy)
+        XCTAssertNil(try JSONDecoder().decode(AssemblyRunRequest.self, from: legacyData).inputRoles)
+    }
+
+    func testRolesThatDoNotNameOnePairAreRefusedByEveryShortReadAssembler() {
+        let bad: [(label: String, roles: [AssemblyInputRole], inputs: [URL]?)] = [
+            ("too few roles", [.mateR1, .mateR2], nil),
+            ("two R1 files", [.mateR1, .mateR1, .mateR2, .single], nil),
+            ("no R2 file", [.mateR1, .merged, .single, .single], nil),
+        ]
+        for testCase in bad {
+            for tool in [AssemblyTool.spades, .megahit, .skesa] {
+                let request = readSetRequest(tool: tool, roles: testCase.roles, inputURLs: testCase.inputs)
+                XCTAssertNil(request.readSetFiles, testCase.label)
+                XCTAssertThrowsError(try ManagedAssemblyPipeline.buildCommand(for: request), "\(testCase.label) \(tool.rawValue)") { error in
+                    guard case ManagedAssemblyPipelineError.unsupportedInputTopology = error else {
+                        return XCTFail("\(error)")
+                    }
+                }
+            }
+        }
+    }
+
+    func testLongReadAssemblersRefuseASampleOfSeveralFiles() {
+        for tool in [AssemblyTool.flye, .hifiasm] {
+            XCTAssertThrowsError(try ManagedAssemblyPipeline.buildCommand(for: readSetRequest(tool: tool)), tool.rawValue)
+        }
+    }
+
+    func testEveryAssemblerCommandNamesTheRolesOfAPairWithSingleReads() throws {
+        let host = AssemblyExecutionHost(operatingSystem: .other, architecture: "x86_64")
+        let spades = try ManagedAssemblyPipeline.buildCommand(for: readSetRequest(tool: .spades), host: host).arguments
+        XCTAssertEqual(
+            Array(spades.prefix(9)),
+            ["--isolate", "-1", "/tmp/R1.fastq", "-2", "/tmp/R2.fastq", "--merged", "/tmp/merged.fastq", "-s", "/tmp/orphans.fastq"]
+        )
+        let megahit = try ManagedAssemblyPipeline.buildCommand(for: readSetRequest(tool: .megahit), host: host).arguments
+        XCTAssertEqual(
+            Array(megahit.prefix(6)),
+            ["-1", "/tmp/R1.fastq", "-2", "/tmp/R2.fastq", "-r", "/tmp/merged.fastq,/tmp/orphans.fastq"]
+        )
+        let skesa = try ManagedAssemblyPipeline.buildCommand(for: readSetRequest(tool: .skesa), host: host).arguments
+        XCTAssertEqual(
+            Array(skesa.prefix(6)),
+            ["--reads", "/tmp/R1.fastq,/tmp/R2.fastq", "--reads", "/tmp/merged.fastq", "--reads", "/tmp/orphans.fastq"]
+        )
+        XCTAssertFalse(skesa.contains("--use_paired_ends"))
+    }
+
     // MARK: - Registry
 
     func testShortReadAssemblersDeclareInterleavedInputAsPairs() throws {
