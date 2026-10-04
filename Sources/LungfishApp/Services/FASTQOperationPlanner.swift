@@ -1040,6 +1040,11 @@ extension FASTQOperationLaunchRequest {
         if case .ontPacBioBarcodeDemux = self {
             return false
         }
+        // `fastq genotype` plans each bundle itself (READ-PAIRING.md). Split
+        // into its files, a paired derivative ran as two samples.
+        if case .ontGenotyping = self {
+            return false
+        }
         return true
     }
 
