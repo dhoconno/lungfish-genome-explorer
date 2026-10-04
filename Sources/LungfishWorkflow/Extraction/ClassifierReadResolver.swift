@@ -581,42 +581,6 @@ public actor ClassifierReadResolver {
 
     // MARK: - File helpers
 
-    /// Decompresses any `.gz` files in the list, returning URLs to uncompressed files.
-    /// Non-`.gz` files are passed through unchanged. Uses `pigz -d -c` (parallel
-    /// decompression to stdout) via `NativeToolRunner.runWithFileOutput`, matching
-    /// the pattern established in `FASTQBatchImporter`.
-    func decompressGzippedFiles(_ urls: [URL]) async throws -> [URL] {
-        let fm = FileManager.default
-        var result: [URL] = []
-        for url in urls {
-            guard url.pathExtension == "gz" else {
-                result.append(url)
-                continue
-            }
-            let decompressed = url.deletingPathExtension() // strips .gz -> .fastq
-            // If the decompressed file already exists (e.g. from a prior run), use it.
-            if fm.fileExists(atPath: decompressed.path) {
-                result.append(decompressed)
-                continue
-            }
-            let pigzResult = try await toolRunner.runWithFileOutput(
-                .pigz,
-                arguments: ["-d", "-c", url.path],
-                outputFile: decompressed
-            )
-            guard pigzResult.isSuccess,
-                  fm.fileExists(atPath: decompressed.path) else {
-                logger.warning(
-                    "pigz decompression failed for \(url.lastPathComponent, privacy: .private(mask: .hash)): \(pigzResult.stderr.suffix(200), privacy: .private(mask: .hash))"
-                )
-                result.append(url)
-                continue
-            }
-            result.append(decompressed)
-        }
-        return result
-    }
-
     func concatenateFiles(_ sources: [URL], into destination: URL) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: destination.path) {
