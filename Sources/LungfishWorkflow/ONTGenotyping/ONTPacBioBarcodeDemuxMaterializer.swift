@@ -164,9 +164,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
         let inputScratch = request.outputDirectory.appendingPathComponent(".input-read-sets", isDirectory: true)
         defer { try? fileManager.removeItem(at: inputScratch) }
         let inputFASTQs = try await ONTBarcodeDemuxGenotypingPipeline.plannedInputReads(for: request.inputURL, readType: .ont, workDirectory: inputScratch).fastqURLs
-        guard !inputFASTQs.isEmpty else {
-            throw ONTPacBioBarcodeDemuxMaterializerError.noInputFASTQs(request.inputURL)
-        }
+        guard !inputFASTQs.isEmpty else { throw ONTPacBioBarcodeDemuxMaterializerError.noInputFASTQs(request.inputURL) }
 
         if !barcodeDefinitions.sampleAssignments.isEmpty {
             return try await runExactSampleSheetMaterialization(
