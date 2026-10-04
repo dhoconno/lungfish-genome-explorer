@@ -4,7 +4,8 @@
 //
 // docs/contracts/READ-PAIRING.md (decision 1) and CLI-EQUIVALENCE.md. A merge
 // derivative holds 23 unmerged pairs and 77 merged reads, made by bbmerge
-// from Tests/Fixtures/sarscov2/test_{1,2}. Each managed mapper maps it to the
+// from Tests/Fixtures/sarscov2/test_{1,2} (Tests/Fixtures/read-pairing/kraken2,
+// shared with the Kraken2 tests). Each managed mapper maps it to the
 // SARS-CoV-2 genome through the Map Reads window's path, and the BAM must
 // hold 123 primary reads of which 46 are paired in sequencing, so the 23
 // pairs mapped as pairs and the 77 merged reads as single reads. The command
@@ -157,9 +158,10 @@ final class MapReadSetReplayTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Fixtures", isDirectory: true)
-        let readPairing = fixtures.appendingPathComponent("read-pairing/mapping", isDirectory: true)
-        for (source, name) in [("merged.fq", "merged.fastq"), ("u1.fq", "unmerged_R1.fastq"), ("u2.fq", "unmerged_R2.fastq")] {
-            try fileManager.copyItem(at: readPairing.appendingPathComponent(source), to: bundle.appendingPathComponent(name))
+        // The fixture lane A2 committed for Kraken2 (its README says how bbmerge made it).
+        let readPairing = fixtures.appendingPathComponent("read-pairing/kraken2", isDirectory: true)
+        for name in ["merged.fastq", "unmerged_R1.fastq", "unmerged_R2.fastq"] {
+            try fileManager.copyItem(at: readPairing.appendingPathComponent(name), to: bundle.appendingPathComponent(name))
         }
         try fileManager.copyItem(
             at: fixtures.appendingPathComponent("sarscov2/genome.fasta"),
