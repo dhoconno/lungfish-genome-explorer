@@ -415,7 +415,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         tree = result.tree
         taxonomyTableView.resultIdentity = result.config.outputDirectory.standardizedFileURL.path
 
-        summaryBar.update(tree: result.tree)
+        summaryBar.update(result: result)
         sunburstView.tree = result.tree
         sunburstView.centerNode = nil
         sunburstView.selectedNode = nil

@@ -104,6 +104,34 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// The read-layout classification that chose ``readFormat``, for provenance.
     public var inputLayout: FASTQReadLayoutClassification?
 
+    /// Files of single reads (merged, orphan or single-end) classified in the
+    /// same kraken2 run as the pair in ``inputFiles`` (docs/contracts/READ-PAIRING.md).
+    ///
+    /// Each one runs as a pair whose second mate is a staged header-only file
+    /// (``emptyMateURL(for:)``), which gives every single read the call of a
+    /// single-end run. Empty for a run of pairs only or single reads only, and
+    /// then not written to the sidecar.
+    public var singleReadFiles: [URL] {
+        get { storedSingleReadFiles ?? [] }
+        set { storedSingleReadFiles = newValue.isEmpty ? nil : newValue }
+    }
+    private var storedSingleReadFiles: [URL]?
+
+    /// Whether `lungfish-cli conda classify --read-format auto` plans this
+    /// sample's read set from its bundle (``KrakenReadSetPlanner``), so the
+    /// recorded command names the bundle with `auto` and the CLI pairs it.
+    /// Written to the sidecar only when true.
+    public var plansReadSet: Bool {
+        get { storedPlansReadSet ?? false }
+        set { storedPlansReadSet = newValue ? true : nil }
+    }
+    private var storedPlansReadSet: Bool?
+
+    /// The read-set plan this run classifies, for the fragment guard, the
+    /// fragment composition and provenance. Set by ``KrakenReadSetPlanner``
+    /// for the run and never written to the sidecar.
+    public var readSetPlan: ReadSetPlan?
+
     /// How the configured inputs pair up (GUI/CLI parity with EsViritu).
     public enum ReadFormat: String, Sendable, Codable, CaseIterable {
         case unpaired
@@ -442,7 +470,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
             args.append("--quick")
         }
 
-        if isPairedEnd {
+        if isPairedEnd || !singleReadFiles.isEmpty {
             args.append("--paired")
         }
 
@@ -457,9 +485,13 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         args.append("--report-minimizer-data")
         args += extraArguments
 
-        // Input files (must be last)
+        // Input files (must be last). Each file of single reads follows the
+        // pair with its staged header-only mate.
         for file in inputFiles {
             args.append(file.path)
+        }
+        for file in singleReadFiles {
+            args += [file.path, emptyMateURL(for: file).path]
         }
 
         return args
@@ -530,6 +562,9 @@ public enum ClassificationConfigError: Error, LocalizedError, Sendable {
     /// An input path is a directory, not a FASTQ file.
     case inputPathIsDirectory(URL)
 
+    /// Files of single reads were given without the pair they run beside.
+    case singleReadFilesNeedAPair
+
     public var errorDescription: String? {
         switch self {
         case .noInputFiles:
@@ -544,6 +579,8 @@ public enum ClassificationConfigError: Error, LocalizedError, Sendable {
             return "Input file not found: \(url.lastPathComponent)"
         case .inputPathIsDirectory(let url):
             return "Input path is a directory, expected sequence file: \(url.lastPathComponent)"
+        case .singleReadFilesNeedAPair:
+            return "Files of single reads run beside an R1 and R2 pair, and this run has no pair"
         case .databaseNotFound(let url):
             return "Database directory not found: \(url.path)"
         case .databaseMissingFiles(let url, let missing):
@@ -583,6 +620,8 @@ extension ClassificationConfig {
         case quickMode
         case outputDirectory
         case extraArguments
+        case storedSingleReadFiles = "singleReadFiles"
+        case storedPlansReadSet = "plansReadSet"
     }
 
     public init(from decoder: Decoder) throws {
@@ -640,6 +679,8 @@ extension ClassificationConfig {
 
         sampleDisplayName = try container.decodeIfPresent(String.self, forKey: .sampleDisplayName)
         originalInputFiles = try container.decodeIfPresent([URL].self, forKey: .originalInputFiles)
+        storedSingleReadFiles = try container.decodeIfPresent([URL].self, forKey: .storedSingleReadFiles)
+        storedPlansReadSet = try container.decodeIfPresent(Bool.self, forKey: .storedPlansReadSet)
     }
 
     /// Validates this configuration, checking file existence and parameter ranges.
@@ -654,6 +695,9 @@ extension ClassificationConfig {
         if isPairedEnd && inputFiles.count != 2 {
             throw ClassificationConfigError.pairedEndRequiresTwoFiles(got: inputFiles.count)
         }
+        if !singleReadFiles.isEmpty && !isPairedEnd {
+            throw ClassificationConfigError.singleReadFilesNeedAPair
+        }
 
         if interleavedInput {
             if isPairedEnd {
@@ -665,7 +709,7 @@ extension ClassificationConfig {
         }
 
         let fm = FileManager.default
-        for file in inputFiles {
+        for file in inputFiles + singleReadFiles {
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: file.path, isDirectory: &isDirectory) else {
                 throw ClassificationConfigError.inputFileNotFound(file)

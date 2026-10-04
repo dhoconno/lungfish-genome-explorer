@@ -38,11 +38,21 @@ public enum ClassificationCLIInvocationBuilder {
         // The read format is always pinned so a pasted command reproduces
         // the run instead of re-detecting the layout (parity with
         // `lungfish esviritu detect --read-format`).
-        switch config.readFormat {
-        case .paired:
-            arguments.append("--paired")
-        case .interleaved, .unpaired:
-            arguments += ["--read-format", config.readFormat.rawValue]
+        // A bundle whose read set the CLI plans is recorded with `auto`, so
+        // `conda classify` pairs it itself (docs/contracts/READ-PAIRING.md).
+        // Loose files of single reads follow the pair as `--unpaired`.
+        if config.plansReadSet {
+            arguments += ["--read-format", "auto"]
+        } else {
+            switch config.readFormat {
+            case .paired:
+                arguments.append("--paired")
+            case .interleaved, .unpaired:
+                arguments += ["--read-format", config.readFormat.rawValue]
+            }
+            for file in config.singleReadFiles {
+                arguments += ["--unpaired", file.path]
+            }
         }
         if config.memoryMapping {
             arguments.append("--memory-mapping")

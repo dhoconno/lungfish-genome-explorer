@@ -52,35 +52,14 @@ struct ReadSetSource: Sendable, Equatable {
     /// The fragment counts by kind. A kind that is absent counts zero, and a
     /// kind that is present with no count makes its total nil.
     var composition: ReadSetComposition {
-        var composition = ReadSetComposition(
-            pairedFragments: 0,
-            mergedReads: 0,
-            orphanReads: 0,
-            singleEndReads: 0,
-            mergedOrOrphanReads: 0
-        )
-        func add(_ value: Int?, to keyPath: WritableKeyPath<ReadSetComposition, Int?>) {
-            guard let current = composition[keyPath: keyPath] else { return }
-            composition[keyPath: keyPath] = value.map { current + $0 }
-        }
-        func add(_ value: Int?, role: ReadSetReadRole) {
-            switch role {
-            case .merged: add(value, to: \.mergedReads)
-            case .orphan: add(value, to: \.orphanReads)
-            case .singleEnd, .pairsRunAsSingle: add(value, to: \.singleEndReads)
-            case .mergedOrOrphan: add(value, to: \.mergedOrOrphanReads)
-            }
-        }
-        for part in parts {
+        ReadSetComposition(counting: parts.flatMap { part -> [ReadSetComposition.Contribution] in
             switch part {
-            case .pair(let pair): add(pair.pairCount, to: \.pairedFragments)
-            case .single(let single): add(single.readCount, role: single.role)
+            case .pair(let pair): return [.pairs(pair.pairCount)]
+            case .single(let single): return [.singleReads(single.readCount, single.role)]
             case .mixed(let stream):
-                add(stream.pairCount, to: \.pairedFragments)
-                add(stream.singleReadCount, role: stream.singleReadRole)
+                return [.pairs(stream.pairCount), .singleReads(stream.singleReadCount, stream.singleReadRole)]
             }
-        }
-        return composition
+        })
     }
 
     /// The source with every missing count read from its files.
