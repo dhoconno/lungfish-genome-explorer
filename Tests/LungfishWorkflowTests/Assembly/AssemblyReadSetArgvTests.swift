@@ -60,6 +60,40 @@ final class AssemblyReadSetArgvTests: XCTestCase {
         ])
     }
 
+    /// Flye and hifiasm take every record as a single read, so a sample that
+    /// holds pairs and single reads is still one joined file for them, and a
+    /// sample of two R1 and R2 files is still refused.
+    func testLongReadAssemblersKeepTheirCommandOnEveryLayout() async throws {
+        let cases: [(label: String, bundle: URL, reads: String?)] = [
+            ("L1", fixtures.singleRoot, "{s1 s2 s3}"),
+            ("L2", fixtures.interleavedRoot, "{i1/1 i1/2 i2/1 i2/2}"),
+            ("L3", fixtures.mixedRoot, "{m1 m2 m3 p1/1 p1/2 p2/1 p2/2}"),
+            ("L4", fixtures.chunkedRoot, "{c1 c2 c3}"),
+            ("L5b", fixtures.pairedDerivative, nil),
+            ("L5c", fixtures.mergeDerivative, "{x1 x2 x3 u1/1 u1/2}"),
+            ("L5d", fixtures.repairDerivative, "{r1/1 r2/1 r1/2 r2/2 o1}"),
+            ("L6 merge subset", fixtures.subsetOfMerge, "{u1/1 u1/2 x1}"),
+        ]
+        for testCase in cases {
+            for tool in [AssemblyTool.flye, .hifiasm] {
+                let label = "\(testCase.label) \(tool.rawValue)"
+                let request = try await assemblyRequest(for: testCase.bundle, tool: tool, readType: .ontReads)
+                XCTAssertNil(request.inputRoles, label)
+                guard let reads = testCase.reads else {
+                    XCTAssertThrowsError(try ManagedAssemblyPipeline.buildCommand(for: request, host: host), label)
+                    continue
+                }
+                XCTAssertEqual(
+                    try describe(ManagedAssemblyPipeline.buildCommand(for: request, host: host).arguments, outputDirectory: request.outputDirectory),
+                    tool == .flye
+                        ? ["--nano-hq", reads, "--out-dir", "<out>", "--threads", "2"]
+                        : ["--ont", "-o", "<out>/fixture", "-t", "2", reads],
+                    label
+                )
+            }
+        }
+    }
+
     // MARK: - Pairs and single reads in one run (decision 1)
 
     /// L3, a root file of merged reads then pairs. Before the change the whole
@@ -130,7 +164,11 @@ final class AssemblyReadSetArgvTests: XCTestCase {
     }
 
     /// The request `lungfish-cli assemble <bundle> --assembler <tool>` builds.
-    private func assemblyRequest(for bundle: URL, tool: AssemblyTool) async throws -> AssemblyRunRequest {
+    private func assemblyRequest(
+        for bundle: URL,
+        tool: AssemblyTool,
+        readType: AssemblyReadType = .illuminaShortReads
+    ) async throws -> AssemblyRunRequest {
         let outputDirectory = root.appendingPathComponent("out-\(tool.rawValue)-\(UUID().uuidString)", isDirectory: true)
         let resolved = try await AssemblyReadSetResolution.resolve(
             inputURLs: [bundle],
@@ -142,7 +180,7 @@ final class AssemblyReadSetArgvTests: XCTestCase {
         )
         return resolved.request(
             tool: tool,
-            readType: .illuminaShortReads,
+            readType: readType,
             projectName: "fixture",
             outputDirectory: outputDirectory,
             pairedEnd: false,
