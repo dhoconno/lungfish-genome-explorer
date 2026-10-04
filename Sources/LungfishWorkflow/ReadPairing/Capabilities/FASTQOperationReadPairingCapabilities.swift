@@ -21,12 +21,12 @@ extension ReadPairingCapabilityRegistry {
             ("fastq.search-text", "fastq search-text"),
             ("fastq.search-motif", "fastq search-motif"),
             ("ingest.clumpify", "The import clumpify step"),
+            ("fastq.deduplicate", "clumpify dedupe through FASTQSplitByNameRunner"),
         ]
         let positionalTools: [(String, String)] = [
             ("fastq.subsample", "reformat interleaved=t"),
             ("fastq.contaminant-filter", "bbduk interleaved=t"),
             ("fastq.entropy-filter", "bbduk interleaved=t"),
-            ("fastq.deduplicate", "clumpify interleaved=t"),
             ("fastq.sequence-filter", "bbduk interleaved=t"),
             ("fastq.scrub-human", "The deacon R1 and R2 split"),
             ("fastq.deacon-ribo", "The deacon R1 and R2 split"),

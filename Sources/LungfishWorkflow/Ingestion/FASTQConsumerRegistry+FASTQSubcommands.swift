@@ -19,7 +19,6 @@ extension FASTQConsumerRegistry {
             ("fastq.subsample", "fastq subsample", "reformat interleaved=t", .asSingle),
             ("fastq.contaminant-filter", "fastq contaminant-filter", "bbduk interleaved=t", .asSingle),
             ("fastq.entropy-filter", "fastq entropy-filter", "bbduk interleaved=t", .asSingle),
-            ("fastq.deduplicate", "fastq deduplicate", "clumpify interleaved=t", .asSingle),
             ("fastq.sequence-filter", "fastq sequence-filter", "bbduk interleaved=t", .asSingle),
             ("fastq.scrub-human", "fastq scrub-human", "reformat interleaved=t split, deacon on R1/R2", .asSingle),
             ("fastq.deacon-ribo", "fastq deacon-ribo", "reformat interleaved=t split, deacon on R1/R2", .asPairs),
@@ -72,6 +71,31 @@ extension FASTQConsumerRegistry {
                     .pairedFiles: .asSingle,
                 ],
                 mixedRationale: "FastpPairedRunner scans the records by name (FASTQPairInterleaver.countMixed) and states the layout: a strictly interleaved file is partitioned by name into R1/R2 and runs fastp -i R1 -I R2 with two outputs that are interleaved again, so both mates are kept or dropped together and adapters are found by overlap analysis; a mixed file is partitioned the same way so its pairs run paired and its unpaired reads single-end; --pairing single runs every record on its own. fastp single-end mode discarded a read it trimmed to nothing even with --disable_length_filtering and kept its mate, which broke every later positional pair."
+            )
+        }
+
+        // Subcommands whose tool pairs by position and which partition a
+        // mixed file by NAME first (FASTQSplitByNameRunner): a strictly
+        // interleaved file runs the tool's paired mode, and a mixed file
+        // runs its pairs paired and its single reads single, then joins
+        // them, pairs first.
+        let splitByName: [(id: String, name: String, rationale: String)] = [
+            (
+                "fastq.deduplicate", "fastq deduplicate",
+                "clumpify dedupe compares whole pairs with interleaved=t on a strictly interleaved file. A mixed file is partitioned by name: its pairs are deduplicated as pairs with interleaved=t, its single reads with interleaved=f, and the two outputs are joined, pairs first. Run as single reads, clumpify reordered every record on its own, so no mate stayed next to its partner, and it dropped one mate of a pair whose other mate differed."
+            ),
+        ]
+        let byNameSplit = splitByName.map { entry in
+            FASTQConsumerDeclaration(
+                consumerID: entry.id,
+                displayName: entry.name,
+                handling: [
+                    .singleEnd: .asSingle,
+                    .strictlyInterleaved: .asPairs,
+                    .mixedMergedAndPairs: .asPairs,
+                    .pairedFiles: .asSingle,
+                ],
+                mixedRationale: entry.rationale
             )
         }
 
@@ -144,6 +168,6 @@ extension FASTQConsumerRegistry {
             ],
             mixedRationale: "Takes two R1/R2 files only."
         )
-        return positional + byName + fastp + single + [ribodetector, merge, deinterleave, interleave]
+        return positional + byName + fastp + byNameSplit + single + [ribodetector, merge, deinterleave, interleave]
     }
 }

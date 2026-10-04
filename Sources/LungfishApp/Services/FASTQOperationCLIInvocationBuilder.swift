@@ -448,7 +448,9 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             arguments += ["-o", outputTarget]
             return arguments
         case .deduplicate(let preset, let substitutions, let optical, let opticalDistance):
-            var arguments = ["deduplicate", inputURL.path, "--subs", "\(substitutions)"] + pairingArguments + ["-o", outputTarget]
+            // Deduplicate splits a mixed file by name and runs its pairs
+            // paired, so it takes the by-name pairing like the fastp trims.
+            var arguments = ["deduplicate", inputURL.path, "--subs", "\(substitutions)"] + byNamePairingArguments + ["-o", outputTarget]
             if optical { arguments += ["--optical", "--dupedist", "\(opticalDistance)"] }
             _ = preset
             return arguments
