@@ -52,11 +52,16 @@ final class ReadPairingCapabilityRegistryTests: XCTestCase {
         }
     }
 
-    /// A lane that moves a tool onto the resolver flips `adopted` for it and
-    /// adds its ID here. Lane A2 moved Kraken2 and lane A4 the four mappers.
+    /// Lane A2 moved Kraken2 onto the resolver, lane A5 the short-read
+    /// assemblers and lane A4 the four mappers. A lane that moves a tool onto
+    /// the resolver flips `adopted` for it and adds its ID here.
     func testAdoptedConsumersAreTheOnesMovedOntoTheResolver() {
         let adopted = Set(ReadPairingCapabilityRegistry.declarations.filter(\.adopted).map(\.consumerID))
-        XCTAssertEqual(adopted, ["classify.kraken2", "map.minimap2", "map.bwa-mem2", "map.bowtie2", "map.bbmap"])
+        XCTAssertEqual(adopted, [
+            "classify.kraken2",
+            "assemble.spades", "assemble.megahit", "assemble.skesa",
+            "map.minimap2", "map.bwa-mem2", "map.bowtie2", "map.bbmap",
+        ])
     }
 
     func testCapabilityKeepsSeparateFilesForKindsThatTakeOneForm() {
