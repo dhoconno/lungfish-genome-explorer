@@ -7,6 +7,7 @@
 // KrakenResultReadSources alone.
 
 import XCTest
+import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -152,6 +153,22 @@ final class KrakenResultReadSourcesTests: XCTestCase {
             XCTFail("a result whose only reads are a scratch split has no source")
         } catch ClassifierExtractionError.kraken2SourceMissing {
         }
+    }
+
+    // MARK: - BLAST
+
+    /// BLAST verification reads the same files in the same order, and takes
+    /// a record of the R2 file whose header names no mate as mate 2 (D8).
+    func testBlastReadsTheSameFilesAndTakesTheR2FileAsMate2() async throws {
+        let merge = try await sources(shapes.mergeDerivativeResult)
+        XCTAssertEqual(merge.blastReadSources.map(\.url), merge.urls)
+        XCTAssertEqual(merge.blastReadSources.map(\.unmarkedMate), [1, 2, nil])
+
+        let mixed = try Kraken2ResultShapes.result(
+            "mixed-blast", in: shapes.analyses, inputs: [shapes.fixtures.mixedRoot], paired: true, lines: []
+        )
+        let mixedSources = try await sources(mixed)
+        XCTAssertEqual(mixedSources.blastReadSources.map(\.unmarkedMate), [nil], "mates side by side are numbered in file order")
     }
 
     // MARK: - The recorded inputs resolve to the same files

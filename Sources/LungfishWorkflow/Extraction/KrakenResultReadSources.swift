@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 /// The read files a Kraken2 result classified, each with its role (D7 and
@@ -63,6 +64,20 @@ public struct KrakenResultReadSources: Sendable, Equatable {
     /// Whether any file holds mates, as a pair of files or side by side.
     public var holdsMates: Bool {
         files.contains { $0.role != .reads }
+    }
+
+    /// The files as a BLAST verification reads them, in the same order. A
+    /// record of an R1 file whose header names no mate is mate 1, and one of
+    /// an R2 file mate 2. Any other file numbers unmarked mates in the order
+    /// they appear, as an interleaved file stores a pair (D8).
+    public var blastReadSources: [BlastReadSource] {
+        files.map { file in
+            switch file.role {
+            case .r1: return BlastReadSource(url: file.url, unmarkedMate: 1)
+            case .r2: return BlastReadSource(url: file.url, unmarkedMate: 2)
+            case .adjacentMates, .reads: return BlastReadSource(url: file.url)
+            }
+        }
     }
 
     /// The sources of a result: the inputs it recorded, each resolved to its

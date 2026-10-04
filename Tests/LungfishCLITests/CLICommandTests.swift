@@ -1913,7 +1913,7 @@ final class BlastVerifyCommandTests: XCTestCase {
             "--taxid", "562",
         ])
         XCTAssertEqual(cmd.kreportFile, "/tmp/class.kreport")
-        XCTAssertEqual(cmd.sourceFile, "/tmp/reads.fastq")
+        XCTAssertEqual(cmd.sourcePaths, ["/tmp/reads.fastq"])
         XCTAssertEqual(cmd.krakenOutput, "/tmp/class.kraken")
         XCTAssertEqual(cmd.taxId, 562)
         XCTAssertEqual(cmd.readCount, 20, "Default read count should be 20")
