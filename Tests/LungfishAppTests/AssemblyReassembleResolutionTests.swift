@@ -40,7 +40,7 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
             ("root multi-file", [shapes.multiFile], false, [["m1", "m2", "m3", "m4", "m5"]], .single),
             ("virtual orientMap", [shapes.oriented], false, [["s1", "s3"]], .single),
             ("derived fullPaired", [shapes.paired], false, [["p1/1", "p2/1"], ["p1/2", "p2/2"]], .pairedFiles),
-            ("derived fullMixed", [shapes.mixed], false, [["x1", "x2", "x3", "u1/1", "u1/2"]], .single),
+            ("derived fullMixed", [shapes.mixed], false, [["u1/1"], ["u1/2"], ["x1", "x2", "x3"]], .pairedFiles),
             ("fullPaired R1 and R2 files", shapes.pairedFiles, true, [["p1/1", "p2/1"], ["p1/2", "p2/2"]], .pairedFiles),
         ]
         for testCase in cases {
@@ -49,6 +49,27 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
             XCTAssertEqual(recorded.reads, testCase.reads, "\(testCase.shape): the recorded command")
             XCTAssertEqual(recorded.pairing, testCase.pairing, "\(testCase.shape): the recorded command")
             XCTAssertEqual(try run.reads, recorded.reads, "\(testCase.shape): the in-process run reads the same files")
+            XCTAssertEqual(run.pairing, recorded.pairing, "\(testCase.shape): the in-process run pairs them the same way")
+        }
+    }
+
+    /// Owner decision 1 of 2026-10-03 (docs/contracts/READ-PAIRING.md): the
+    /// pairs of a merge or repair derivative are assembled as pairs, beside
+    /// its merged reads or its orphans. Reassemble and its recorded command
+    /// hand the assembler the same files in the same roles. Before the
+    /// change both joined the derivative's files into one single-read file.
+    func testReassembleAndItsRecordedCommandReadAMergeAndARepairDerivativeAsPairsPlusSingleReads() async throws {
+        let readSets = try ReadSetFixtures(in: root.appendingPathComponent("ReadSets", isDirectory: true))
+        let cases: [(shape: String, bundle: URL, reads: [[String]])] = [
+            ("merge derivative", readSets.mergeDerivative, [["u1/1"], ["u1/2"], ["x1", "x2", "x3"]]),
+            ("repair derivative", readSets.repairDerivative, [["r1/1", "r2/1"], ["r1/2", "r2/2"], ["o1"]]),
+        ]
+        for testCase in cases {
+            let run = try await inProcessRun([testCase.bundle], pairedEnd: false)
+            let recorded = try await recordedCommandRun(run.recordedCommand)
+            XCTAssertEqual(recorded.reads, testCase.reads, "\(testCase.shape): the recorded command")
+            XCTAssertEqual(try run.reads, testCase.reads, "\(testCase.shape): the in-process run")
+            XCTAssertTrue(recorded.pairing.assemblesPairs, "\(testCase.shape): the recorded command assembles the pairs as pairs")
             XCTAssertEqual(run.pairing, recorded.pairing, "\(testCase.shape): the in-process run pairs them the same way")
         }
     }

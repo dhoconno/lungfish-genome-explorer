@@ -32,20 +32,25 @@ final class AssembleCommandResolutionTests: XCTestCase {
     }
 
     func testSPAdesIsHandedEveryReadOfEachBundleShape() async throws {
-        let cases: [(shape: String, bundle: URL, single: [[String]], forward: [String], reverse: [String])] = [
-            ("root single", shapes.single, [["s1", "s2", "s3"]], [], []),
-            ("root multi-file", shapes.multiFile, [["m1", "m2", "m3", "m4", "m5"]], [], []),
-            ("virtual orientMap", shapes.oriented, [["s1", "s3"]], [], []),
-            ("derived fullPaired", shapes.paired, [], ["p1/1", "p2/1"], ["p1/2", "p2/2"]),
-            ("derived fullMixed", shapes.mixed, [["x1", "x2", "x3", "u1/1", "u1/2"]], [], []),
-            ("derived fullFASTA", shapes.fasta, [["f1", "f2"]], [], []),
-            ("derived full", shapes.full, [["g1", "g2"]], [], []),
+        // A fullMixed bundle holds a pair and merged reads. Before owner decision 1
+        // of 2026-10-03 (docs/contracts/READ-PAIRING.md) its three files were joined
+        // and assembled as five single reads. Now the pair is a pair and the merged
+        // reads are SPAdes `--merged` reads.
+        let cases: [(shape: String, bundle: URL, single: [[String]], forward: [String], reverse: [String], merged: [[String]])] = [
+            ("root single", shapes.single, [["s1", "s2", "s3"]], [], [], []),
+            ("root multi-file", shapes.multiFile, [["m1", "m2", "m3", "m4", "m5"]], [], [], []),
+            ("virtual orientMap", shapes.oriented, [["s1", "s3"]], [], [], []),
+            ("derived fullPaired", shapes.paired, [], ["p1/1", "p2/1"], ["p1/2", "p2/2"], []),
+            ("derived fullMixed", shapes.mixed, [], ["u1/1"], ["u1/2"], [["x1", "x2", "x3"]]),
+            ("derived fullFASTA", shapes.fasta, [["f1", "f2"]], [], [], []),
+            ("derived full", shapes.full, [["g1", "g2"]], [], [], []),
         ]
         for testCase in cases {
             let run = try await assemble(testCase.bundle, label: testCase.shape)
             XCTAssertEqual(run.spades.singleFiles, testCase.single, testCase.shape)
             XCTAssertEqual(run.spades.forward, testCase.forward, testCase.shape)
             XCTAssertEqual(run.spades.reverse, testCase.reverse, testCase.shape)
+            XCTAssertEqual(run.spades.mergedFiles, testCase.merged, testCase.shape)
         }
     }
 
@@ -355,6 +360,8 @@ private struct StandInSPAdes {
         let singleFiles: [[String]]
         let forward: [String]
         let reverse: [String]
+        /// The record names of each `--merged` file, in argument order.
+        let mergedFiles: [[String]]
     }
 
     let condaManager: CondaManager
@@ -379,13 +386,16 @@ private struct StandInSPAdes {
         func reads(_ name: String) throws -> [String] {
             try BundleShapeFixtures.readNames(in: seenDirectory.appendingPathComponent(name))
         }
-        let single = names
-            .filter { $0.hasPrefix("single-") }
-            .sorted { (Int($0.dropFirst("single-".count)) ?? 0) < (Int($1.dropFirst("single-".count)) ?? 0) }
+        func numbered(_ prefix: String) -> [String] {
+            names
+                .filter { $0.hasPrefix("\(prefix)-") }
+                .sorted { (Int($0.dropFirst(prefix.count + 1)) ?? 0) < (Int($1.dropFirst(prefix.count + 1)) ?? 0) }
+        }
         return Seen(
-            singleFiles: try single.map(reads),
+            singleFiles: try numbered("single").map(reads),
             forward: names.contains("forward") ? try reads("forward") : [],
-            reverse: names.contains("reverse") ? try reads("reverse") : []
+            reverse: names.contains("reverse") ? try reads("reverse") : [],
+            mergedFiles: try numbered("merged").map(reads)
         )
     }
 
@@ -414,11 +424,17 @@ private struct StandInSPAdes {
         mkdir -p "$seen"
         outdir=""
         single=0
+        merged=0
         while [ "$#" -gt 0 ]; do
           case "$1" in
             -o)
               shift
               outdir="$1"
+              ;;
+            --merged)
+              shift
+              merged=$((merged + 1))
+              cp "$1" "$seen/merged-$merged"
               ;;
             -s)
               shift
