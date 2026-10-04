@@ -84,6 +84,10 @@ extension FASTQConsumerRegistry {
                 "fastq.deduplicate", "fastq deduplicate",
                 "clumpify dedupe compares whole pairs with interleaved=t on a strictly interleaved file. A mixed file is partitioned by name: its pairs are deduplicated as pairs with interleaved=t, its single reads with interleaved=f, and the two outputs are joined, pairs first. Run as single reads, clumpify reordered every record on its own, so no mate stayed next to its partner, and it dropped one mate of a pair whose other mate differed."
             ),
+            (
+                "fastq.primer-remove", "fastq primer-remove",
+                "bbduk (ktrim=l rcomp=f with a restrictleft window) runs interleaved=t, and cutadapt linked trimming runs --interleaved -g -G --pair-filter any, on a strictly interleaved file, so a pair is kept or dropped whole. A mixed file is partitioned by name: its pairs run paired, its single reads per record, and the two outputs are joined, pairs first. Run per record, a mate the trim dropped orphaned its partner."
+            ),
         ]
         let byNameSplit = splitByName.map { entry in
             FASTQConsumerDeclaration(
@@ -101,7 +105,6 @@ extension FASTQConsumerRegistry {
 
         let perRecord: [(id: String, name: String, tool: String, pairedFiles: FASTQReadLayoutHandling)] = [
             ("fastq.length-filter", "fastq length-filter", "seqkit seq per record", .asSingle),
-            ("fastq.primer-remove", "fastq primer-remove", "bbduk interleaved=f or cutadapt per record", .asSingle),
             ("fastq.error-correct", "fastq error-correct", "tadpole interleaved=f", .asSingle),
         ]
         let single = perRecord.map { entry in

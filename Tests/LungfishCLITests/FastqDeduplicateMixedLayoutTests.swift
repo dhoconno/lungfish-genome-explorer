@@ -98,7 +98,7 @@ final class FastqDeduplicateMixedLayoutTests: XCTestCase {
             XCTAssertEqual(expected.singles.count, 5)
 
             // `--pairing interleaved` is what the dialog passes for a mixed
-            // input; auto is a bare CLI call on the same file.
+            // input, and auto is a bare CLI call on the same file.
             for pairing in [["--pairing", "interleaved"], []] {
                 let label = "\(naming.rawValue) \(pairing.joined(separator: " "))"
                 let outputURL = root.appendingPathComponent("dedup-\(naming.rawValue)-\(pairing.count).fastq")

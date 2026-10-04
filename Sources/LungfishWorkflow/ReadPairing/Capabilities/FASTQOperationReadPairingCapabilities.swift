@@ -22,6 +22,7 @@ extension ReadPairingCapabilityRegistry {
             ("fastq.search-motif", "fastq search-motif"),
             ("ingest.clumpify", "The import clumpify step"),
             ("fastq.deduplicate", "clumpify dedupe through FASTQSplitByNameRunner"),
+            ("fastq.primer-remove", "Primer removal through FASTQSplitByNameRunner"),
         ]
         let positionalTools: [(String, String)] = [
             ("fastq.subsample", "reformat interleaved=t"),
@@ -37,7 +38,6 @@ extension ReadPairingCapabilityRegistry {
         ]
         let perRecordTools: [(String, String)] = [
             ("fastq.length-filter", "seqkit seq"),
-            ("fastq.primer-remove", "Primer removal"),
             ("fastq.error-correct", "tadpole"),
         ]
 
