@@ -199,50 +199,16 @@ extension ViewerViewController {
                             throw BlastServiceError.noSequences
                         }
 
-                        // Build read ID set for this taxon using the indexed
-                        // sidecar when available (O(k) vs O(n) linear scan).
-                        // Clade (sampling targets and supporting hits) plus the
-                        // genus relatives the tree knows about.
-                        let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
-                        let targetTaxIds = taxonomyContext.cladeTaxIds
-                        let acceptedTaxonNames = taxonomyContext.cladeNames
-
                         let blastService = BlastService.shared
-                        let request: BlastVerificationRequest
-
-                        let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
-                        if let db = try? KrakenIndexDatabase(url: indexURL),
-                           db.canResolve(taxIds: targetTaxIds) {
-                            // Fast path: use indexed lookup
-                            let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
-                            db.close()
-                            taxonomyLogger.info("BLAST: indexed lookup found \(matchingReadIds.count, privacy: .public) reads for \(targetTaxIds.count, privacy: .public) taxIds")
-
-                            request = try await blastService.buildVerificationRequestFromReadIds(
-                                taxonName: taxonName,
-                                taxId: taxId,
-                                matchingReadIds: matchingReadIds,
-                                sourceURL: sourceURL,
-                                readCount: readCount,
-                                targetTaxIds: targetTaxIds,
-                                classificationOutputURL: classificationOutput,
-                                acceptedTaxonNames: acceptedTaxonNames,
-                                taxonomyContext: taxonomyContext
-                            )
-                        } else {
-                            // Slow path: linear scan (index will be built on next classification)
-                            taxonomyLogger.info("BLAST: no index available, using linear scan")
-                            request = try await blastService.buildVerificationRequest(
-                                taxonName: taxonName,
-                                taxId: taxId,
-                                targetTaxIds: targetTaxIds,
-                                classificationOutputURL: classificationOutput,
-                                sourceURL: sourceURL,
-                                readCount: readCount,
-                                acceptedTaxonNames: acceptedTaxonNames,
-                                taxonomyContext: taxonomyContext
-                            )
-                        }
+                        let request = try await kraken2BlastVerificationRequest(
+                            taxonName: taxonName,
+                            taxId: taxId,
+                            tree: tree,
+                            classificationOutput: classificationOutput,
+                            sourceURL: sourceURL,
+                            readCount: readCount,
+                            service: blastService
+                        )
 
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
@@ -429,43 +395,16 @@ extension ViewerViewController {
                             throw BlastServiceError.noSequences
                         }
 
-                        // Clade (sampling targets and supporting hits) plus the
-                        // genus relatives the tree knows about.
-                        let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
-                        let targetTaxIds = taxonomyContext.cladeTaxIds
-                        let acceptedTaxonNames = taxonomyContext.cladeNames
-
                         let blastService = BlastService.shared
-                        let request: BlastVerificationRequest
-
-                        let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
-                        if let db = try? KrakenIndexDatabase(url: indexURL),
-                           db.canResolve(taxIds: targetTaxIds) {
-                            let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
-                            db.close()
-                            request = try await blastService.buildVerificationRequestFromReadIds(
-                                taxonName: taxonName,
-                                taxId: taxId,
-                                matchingReadIds: matchingReadIds,
-                                sourceURL: sourceURL,
-                                readCount: readCount,
-                                targetTaxIds: targetTaxIds,
-                                classificationOutputURL: classificationOutput,
-                                acceptedTaxonNames: acceptedTaxonNames,
-                                taxonomyContext: taxonomyContext
-                            )
-                        } else {
-                            request = try await blastService.buildVerificationRequest(
-                                taxonName: taxonName,
-                                taxId: taxId,
-                                targetTaxIds: targetTaxIds,
-                                classificationOutputURL: classificationOutput,
-                                sourceURL: sourceURL,
-                                readCount: readCount,
-                                acceptedTaxonNames: acceptedTaxonNames,
-                                taxonomyContext: taxonomyContext
-                            )
-                        }
+                        let request = try await kraken2BlastVerificationRequest(
+                            taxonName: taxonName,
+                            taxId: taxId,
+                            tree: tree,
+                            classificationOutput: classificationOutput,
+                            sourceURL: sourceURL,
+                            readCount: readCount,
+                            service: blastService
+                        )
 
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
@@ -678,6 +617,61 @@ func blastVerifyCLIArguments(
     args += ["--taxid", "\(taxId)", "--include-children", "--reads", "\(readCount)"]
     args += ["--result-dir", resultDirectory.path]
     return args
+}
+
+/// The BLAST verification request for a Kraken2 taxon, which both BLAST
+/// rows of the viewer submit. It finds the taxon's fragments through the
+/// result's read index when the index can resolve the clade, and by a scan
+/// of the per-read output otherwise.
+func kraken2BlastVerificationRequest(
+    taxonName: String,
+    taxId: Int,
+    tree: TaxonTree,
+    classificationOutput: URL,
+    sourceURL: URL,
+    readCount: Int,
+    service: BlastService = .shared
+) async throws -> BlastVerificationRequest {
+    // Build read ID set for this taxon using the indexed
+    // sidecar when available (O(k) vs O(n) linear scan).
+    // Clade (sampling targets and supporting hits) plus the
+    // genus relatives the tree knows about.
+    let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
+    let targetTaxIds = taxonomyContext.cladeTaxIds
+    let acceptedTaxonNames = taxonomyContext.cladeNames
+
+    let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
+    if let db = try? KrakenIndexDatabase(url: indexURL),
+       db.canResolve(taxIds: targetTaxIds) {
+        // Fast path: use indexed lookup
+        let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
+        db.close()
+        taxonomyLogger.info("BLAST: indexed lookup found \(matchingReadIds.count, privacy: .public) reads for \(targetTaxIds.count, privacy: .public) taxIds")
+
+        return try await service.buildVerificationRequestFromReadIds(
+            taxonName: taxonName,
+            taxId: taxId,
+            matchingReadIds: matchingReadIds,
+            sourceURL: sourceURL,
+            readCount: readCount,
+            targetTaxIds: targetTaxIds,
+            classificationOutputURL: classificationOutput,
+            acceptedTaxonNames: acceptedTaxonNames,
+            taxonomyContext: taxonomyContext
+        )
+    }
+    // Slow path: linear scan (index will be built on next classification)
+    taxonomyLogger.info("BLAST: no index available, using linear scan")
+    return try await service.buildVerificationRequest(
+        taxonName: taxonName,
+        taxId: taxId,
+        targetTaxIds: targetTaxIds,
+        classificationOutputURL: classificationOutput,
+        sourceURL: sourceURL,
+        readCount: readCount,
+        acceptedTaxonNames: acceptedTaxonNames,
+        taxonomyContext: taxonomyContext
+    )
 }
 
 /// Operations-panel summary for a finished BLAST verification.
