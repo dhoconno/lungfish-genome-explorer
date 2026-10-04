@@ -88,6 +88,16 @@ public actor TaxonomyExtractionPipeline {
         tree: TaxonTree,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> [URL] {
+        try await extractEachSource(config: config, tree: tree, progress: progress).compactMap { $0 }
+    }
+
+    /// ``extract(config:tree:progress:)`` with one output per source file of
+    /// `config`, in order, nil for a source that holds none of the reads.
+    func extractEachSource(
+        config: TaxonomyExtractionConfig,
+        tree: TaxonTree,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> [URL?] {
         let startTime = Date()
 
         // Validate source/output count parity.
@@ -144,31 +154,16 @@ public actor TaxonomyExtractionPipeline {
         // line-by-line Swift FASTQ parsing because it uses optimized C I/O and handles .gz natively.
         try Task.checkCancellation()
 
-        let outputDir = config.outputFile.deletingLastPathComponent()
-        let baseName = config.outputFile.deletingPathExtension().lastPathComponent
-
-        let extractionConfig = ReadIDExtractionConfig(
-            sourceFASTQs: config.sourceFiles,
-            readIDs: matchingReadIds,
+        let outputs = try await extractReadIDs(
+            matchingReadIds,
+            from: config.sourceFiles,
             keepReadPairs: config.keepReadPairs,
-            outputDirectory: outputDir,
-            outputBaseName: baseName
+            outputDirectory: config.outputFile.deletingLastPathComponent(),
+            baseName: config.outputFile.deletingPathExtension().lastPathComponent,
+            progress: progress
         )
-
-        let service = ReadExtractionService(toolRunner: NativeToolRunner.shared)
-        // The IDs are fragment names when mates are kept together, so a mate
-        // named `X/1` must match `X` (D7c).
-        let extractionResult = try await service.extractByReadIDs(
-            config: extractionConfig,
-            matching: config.keepReadPairs ? .fragmentName : .firstWord,
-            progress: { fraction, message in
-                // Map service progress (0..1) into our pipeline range (0.30..0.95)
-                progress?(0.30 + fraction * 0.65, message)
-            }
-        )
-
-        let totalExtracted = extractionResult.readCount
-        let outputURLs = extractionResult.fastqURLs
+        let totalExtracted = outputs.readCount
+        let outputURLs = outputs.urls.compactMap { $0 }
 
         // Phase 4: Provenance recording (0.95 -- 1.00)
         progress?(0.95, "Recording provenance...")
@@ -183,7 +178,62 @@ public actor TaxonomyExtractionPipeline {
         )
 
         progress?(1.0, "Extraction complete: \(totalExtracted) reads")
-        return outputURLs
+        return outputs.urls
+    }
+
+    /// Runs seqkit grep with the read IDs over each source file, one output
+    /// per source in order. One source runs as it always has. Several sources
+    /// run one at a time, and a source holding none of the reads gives nil,
+    /// so the R1 and R2 files of a taxon whose reads were all merged do not
+    /// fail its merged file (D7a).
+    private func extractReadIDs(
+        _ readIDs: Set<String>,
+        from sources: [URL],
+        keepReadPairs: Bool,
+        outputDirectory: URL,
+        baseName: String,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> (urls: [URL?], readCount: Int) {
+        let service = ReadExtractionService(toolRunner: NativeToolRunner.shared)
+        // The IDs are fragment names when mates are kept together, so a mate
+        // named `X/1` must match `X` (D7c).
+        let matching: ReadIDMatching = keepReadPairs ? .fragmentName : .firstWord
+        func config(_ files: [URL], _ name: String) -> ReadIDExtractionConfig {
+            ReadIDExtractionConfig(
+                sourceFASTQs: files,
+                readIDs: readIDs,
+                keepReadPairs: keepReadPairs,
+                outputDirectory: outputDirectory,
+                outputBaseName: name
+            )
+        }
+        guard sources.count > 1 else {
+            let result = try await service.extractByReadIDs(config: config(sources, baseName), matching: matching) { fraction, message in
+                // Map service progress (0..1) into our pipeline range (0.30..0.95)
+                progress?(0.30 + fraction * 0.65, message)
+            }
+            return (result.fastqURLs, result.readCount)
+        }
+        var urls: [URL?] = []
+        var readCount = 0
+        let share = 0.65 / Double(sources.count)
+        for (index, source) in sources.enumerated() {
+            let name = "\(baseName)_R\(index + 1)"
+            do {
+                let result = try await service.extractByReadIDs(config: config([source], name), matching: matching) { fraction, message in
+                    progress?(0.30 + (Double(index) + fraction) * share, message)
+                }
+                urls.append(result.fastqURLs.first)
+                readCount += result.readCount
+            } catch ExtractionError.emptyExtraction {
+                // seqkit leaves an empty output behind.
+                let empty = outputDirectory.appendingPathComponent("\(ExtractionBundleNaming.sanitizeFilename(name)).fastq.gz")
+                try? FileManager.default.removeItem(at: empty)
+                urls.append(nil)
+            }
+        }
+        guard readCount > 0 else { throw ExtractionError.emptyExtraction }
+        return (urls, readCount)
     }
 
 

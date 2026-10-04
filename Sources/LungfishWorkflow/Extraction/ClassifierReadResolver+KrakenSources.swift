@@ -87,10 +87,16 @@ extension ClassifierReadResolver {
             provenanceSourceURLs.append(job.sampleResultPath)
             provenanceSourceURLs.append(classResult.outputURL)
 
-            // Resolve the source FASTQ(s) for this sample.
+            // Every read file of this sample (D7a, D7b). A trimmed or
+            // oriented subset is materialized into the temp folder.
             let sourceFASTQs: [URL]
             do {
-                sourceFASTQs = try resolveKraken2SourceFASTQs(classResult: classResult)
+                sourceFASTQs = try await KrakenResultReadSources.resolve(
+                    result: classResult,
+                    materializationDirectory: tempDir.appendingPathComponent("sources-\(jobIndex)", isDirectory: true)
+                ).urls
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 logger.warning(
                     "Skipping sample \(sampleLabel, privacy: .private(mask: .hash)) — source FASTQ not found: \(error.localizedDescription, privacy: .private(mask: .hash))"
