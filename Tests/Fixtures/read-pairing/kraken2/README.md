@@ -2,6 +2,8 @@
 
 These three files are the merged reads and the unmerged pairs of the 100 SARS-CoV-2 read pairs in `Tests/Fixtures/sarscov2/test_1.fastq.gz` and `test_2.fastq.gz`. `KrakenReadSetConformanceTests` classifies them with the managed kraken2 and the Viral database. It checks that a merged read staged beside an empty mate gets the call of a single-end run, and that one combined run counts 23 pairs and 77 merged reads.
 
+Three more suites read the same files as a merge bundle. `MapReadSetReplayTests` maps it with each managed mapper and checks that the BAM holds 123 primary reads, 46 of them paired, then replays the recorded command. `KrakenReadSetPipelineTests` and `Kraken2ResultSourcesExtractionTests` use it for the planner's counts and for extracting both mates and the merged reads.
+
 | File | Reads | What it holds |
 |---|---|---|
 | `merged.fastq` | 77 | Pairs that bbmerge joined into one read |
