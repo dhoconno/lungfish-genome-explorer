@@ -355,7 +355,7 @@ public actor BlastService {
         }
     }
 
-    private func scanKrakenClassificationOutput(
+    func scanKrakenClassificationOutput(
         _ classificationOutputURL: URL,
         targetTaxIds: Set<Int>
     ) throws -> (matchingReadIds: Set<String>, totalClassified: Int) {
@@ -375,7 +375,7 @@ public actor BlastService {
     }
 
     /// Reads the Kraken 2 hit strings (column 5) for the given fragment IDs.
-    private func lookupKrakenHitStrings(
+    func lookupKrakenHitStrings(
         _ classificationOutputURL: URL,
         fragmentIds: Set<String>
     ) throws -> [String: String] {
@@ -396,7 +396,7 @@ public actor BlastService {
     ///
     /// Sampling happens on fragment IDs before any sequence is read, so
     /// neither read length nor position in the FASTQ can bias it.
-    private func extractSequencesAndBuild(
+    func extractSequencesAndBuild(
         taxonName: String,
         taxId: Int,
         matchingReadIds: Set<String>,
@@ -684,7 +684,7 @@ public actor BlastService {
     ///   - isGzip: Whether the file is gzip-compressed
     /// - Returns: Every matching FASTQ record as (fragment id, declared mate
     ///   number if the header carries one, sequence), in file order.
-    private func extractMatchingSequences(
+    func extractMatchingSequences(
         from sourceURL: URL,
         matchingReadIds: Set<String>,
         isGzip: Bool
