@@ -36,4 +36,10 @@ final class FASTQSplitByNameDeclarationTests: XCTestCase {
     func testDeduplicateSplitsAMixedFileByName() throws {
         try assertSplitsByName("fastq.deduplicate")
     }
+
+    /// bbduk and cutadapt judged every record on their own, so a mate the
+    /// trim dropped orphaned its partner.
+    func testPrimerRemovalRunsPairedAndSplitsAMixedFileByName() throws {
+        try assertSplitsByName("fastq.primer-remove")
+    }
 }
