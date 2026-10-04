@@ -231,6 +231,49 @@ final class MapReadSetStandInTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(names.firstIndex(of: materialization.toolName)), try XCTUnwrap(names.firstIndex(of: split.toolName)))
     }
 
+    /// The mapper step of a sample of pairs and single reads records the
+    /// read-set plan as its options: the capability, the fragment counts by
+    /// kind and the number of runs (READ-PAIRING.md, Provenance). Each BBMap
+    /// run records it. A sample of only single reads records nothing new.
+    func testMapperStepRecordsTheReadSetPlan() async throws {
+        let streamDirectory = root.appendingPathComponent("plan-stream", isDirectory: true)
+        try await map(fixtures.mergeDerivative, tool: .minimap2, outputDirectory: streamDirectory)
+        let bbmapDirectory = root.appendingPathComponent("plan-bbmap", isDirectory: true)
+        try await map(fixtures.mergeDerivative, tool: .bbmap, outputDirectory: bbmapDirectory)
+        let singleDirectory = root.appendingPathComponent("plan-single", isDirectory: true)
+        try await map(fixtures.singleRoot, tool: .minimap2, outputDirectory: singleDirectory)
+        _ = try standIn.takeCalls()
+
+        let stream = try XCTUnwrap(MappingProvenance.load(from: streamDirectory))
+        let streamSteps = stream.steps.filter { $0.toolName == "minimap2" }
+        XCTAssertEqual(streamSteps.count, 1, "\(stream.steps.map(\.toolName))")
+        let streamPlan = Self.readSetPlan(of: streamSteps.first)
+        XCTAssertEqual(streamPlan?["capability"], .string("both_in_one_run/name_interleaved_stream"))
+        XCTAssertEqual(streamPlan?["pairedFragments"], .integer(1))
+        XCTAssertEqual(streamPlan?["mergedReads"], .integer(3))
+        XCTAssertEqual(streamPlan?["runs"], .integer(1))
+
+        let bbmap = try XCTUnwrap(MappingProvenance.load(from: bbmapDirectory))
+        let bbmapRuns = bbmap.steps.filter { $0.toolName == "bbmap.sh" }
+        XCTAssertEqual(bbmapRuns.count, 2, "\(bbmap.steps.map(\.toolName))")
+        for run in bbmapRuns {
+            let plan = Self.readSetPlan(of: run)
+            XCTAssertEqual(plan?["capability"], .string("pairs_or_singles_per_run"))
+            XCTAssertEqual(plan?["pairedFragments"], .integer(1))
+            XCTAssertEqual(plan?["mergedReads"], .integer(3))
+            XCTAssertEqual(plan?["runs"], .integer(2))
+        }
+
+        let single = try XCTUnwrap(MappingProvenance.load(from: singleDirectory))
+        let singleStep = try XCTUnwrap(single.steps.first { $0.toolName == "minimap2" })
+        XCTAssertNil(singleStep.resolvedOptions?["readSetPlan"], "a sample of only single reads records nothing new")
+    }
+
+    private static func readSetPlan(of step: StepExecution?) -> [String: ParameterValue]? {
+        guard case .dictionary(let plan)? = step?.resolvedOptions?["readSetPlan"] else { return nil }
+        return plan
+    }
+
     // MARK: - Helpers
 
     /// Maps `bundle` with every mapper and checks what each was handed, in
