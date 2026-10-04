@@ -58,7 +58,7 @@ struct RunSubcommand: AsyncParsableCommand {
         parsing: .singleValue,
         help: ArgumentHelp(
             "Input file selected for the workflow; repeat for multiple inputs",
-            discussion: "For nf-core/viralrecon: one samplesheet.csv, or one or more .lungfishfastq bundles or FASTQ files, from which the same samplesheet the app writes is built. A strictly interleaved Illumina bundle file is split into gzip R1/R2 inside the run so viralrecon gets fastq_1 and fastq_2; a file that mixes merged reads with pairs runs single-end with a warning."
+            discussion: "For nf-core/viralrecon, give one samplesheet.csv, or one or more .lungfishfastq bundles or FASTQ files, from which the same samplesheet the app writes is built. An Illumina samplesheet row may name a .lungfishfastq bundle, which the run plans and stages as gzip files, so a paired, merged, repaired or virtual bundle gives every read. A strictly interleaved Illumina file is split into gzip R1/R2 inside the run so viralrecon gets fastq_1 and fastq_2. A sample that mixes merged reads with pairs runs single-end with every read and a warning."
         )
     )
     var input: [String] = []

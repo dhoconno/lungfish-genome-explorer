@@ -63,10 +63,11 @@ public final class FASTQMetadataSectionViewModel {
         return AssemblyReadType.detect(fromInputURL: bundleURL)
     }
 
-    /// Human-readable compatibility summary for the current effective read type.
+    /// Human-readable summary of the assemblers that suit the current effective
+    /// read type. The read type sets defaults and warnings, never a block.
     var assemblyCompatibilitySummary: String {
         guard let readType = effectiveAssemblyReadType else {
-            return "No dataset read type is saved. Set one here to constrain assembly tools."
+            return "No dataset read type is saved. Set one here to choose assembly defaults."
         }
 
         let assemblers = AssemblyCompatibility.supportedTools(for: readType)
@@ -74,10 +75,10 @@ public final class FASTQMetadataSectionViewModel {
             .joined(separator: ", ")
 
         if assemblyReadType != nil {
-            return "Compatible assemblers: \(assemblers)."
+            return "Suited assemblers: \(assemblers). Others run with a warning."
         }
 
-        return "Auto-detected \(readType.displayName). Compatible assemblers: \(assemblers)."
+        return "Auto-detected \(readType.displayName). Suited assemblers: \(assemblers). Others run with a warning."
     }
 
     // MARK: - Internal State
