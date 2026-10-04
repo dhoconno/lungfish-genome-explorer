@@ -10,7 +10,8 @@ extension ReadPairingCapabilityRegistry {
             ReadPairingCapabilityDeclaration(
                 consumerID: "classify.kraken2",
                 capability: .bothInOneRunAsSeparateFiles,
-                rationale: "One kraken2 run classifies pairs with --paired and single reads as single reads. A header-only mate file is staged beside each single-read file, so kraken2 reads it as a pair whose second mate is empty, which gives each single read the call of a single-end run."
+                rationale: "One kraken2 run classifies pairs with --paired and single reads as single reads. A header-only mate file is staged beside each single-read file, so kraken2 reads it as a pair whose second mate is empty, which gives each single read the call of a single-end run.",
+                adopted: true
             ),
         ]
     }

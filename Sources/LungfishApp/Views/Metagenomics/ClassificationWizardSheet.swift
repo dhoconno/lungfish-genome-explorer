@@ -7,23 +7,25 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 
-/// The Kraken2 read format chosen for one grouped sample.
-///
-/// Separate R1/R2 files run `paired`. A single file or bundle is classified
-/// by ``FASTQReadLayoutClassifier``, exactly as ``EsVirituSampleReadPlan``
-/// does: strictly interleaved input runs `interleaved` (split into two mate
-/// files for `kraken2 --paired`); mixed pairs plus merged reads and true
-/// single-end input run `unpaired`.
+/// The Kraken2 read format chosen for one grouped sample. Separate R1/R2
+/// files run `paired`. A single file or bundle is classified by
+/// ``FASTQReadLayoutClassifier`` as ``EsVirituSampleReadPlan`` does. A bundle
+/// with separate pairs, merged or single reads gets its read set from
+/// ``KrakenReadSetPlanner`` at run time, as `conda classify` does (`readSet`).
 struct ClassificationSampleReadPlan: Equatable, Sendable {
     let format: ClassificationConfig.ReadFormat
     let layout: FASTQReadLayoutClassification?
+    var readSet: KrakenReadSetPreview? = nil
+
+    var plansReadSet: Bool { readSet?.plansReadSet ?? false }
 
     var label: String {
-        ClassificationConfig.ReadFormat.inputLabel(format: format, layout: layout?.layout)
+        readSet?.inputLabel ?? ClassificationConfig.ReadFormat.inputLabel(format: format, layout: layout?.layout)
     }
 
     /// Compact tag for the batch sample list.
     var shortLabel: String {
+        if plansReadSet { return readSet == .pairs(withSingleReads: false) ? "PE" : "PE + merged" }
         switch format {
         case .paired: return "PE"
         case .interleaved: return "interleaved PE"
@@ -40,6 +42,14 @@ struct ClassificationSampleReadPlan: Equatable, Sendable {
         }
         let layout = classify(sample.fastq1)
         return ClassificationSampleReadPlan(format: .forSingleFile(layout.layout), layout: layout)
+    }
+
+    /// The plan with the bundle's read set read from its metadata.
+    static func planned(for sample: MetagenomicsSampleInput) async -> ClassificationSampleReadPlan {
+        var plan = plan(for: sample)
+        guard let bundle = KrakenReadSetPlanner.plannableInput(sample.inputFiles) else { return plan }
+        plan.readSet = await KrakenReadSetPlanner.preview(bundle: bundle)
+        return plan
     }
 }
 
@@ -112,28 +122,14 @@ struct ClassificationWizardSheet: View {
     @State private var showAdvanced: Bool = false
     @State private var classificationMultiBundleRunMode: MultiBundleRunMode = .perBundle
 
-    /// Kraken2/Bracken classification already runs one classify+profile pass
-    /// per sample (MetagenomicsSampleGrouper groups the selected FASTQ
-    /// bundles into samples, and `performRun` maps each sample to its own
-    /// `ClassificationConfig` -- see the "Batch Samples" summary below).
-    /// There is no combined/pooled mode: pooling reads across samples before
-    /// classification would conflate per-sample abundance estimates, which
-    /// is scientifically wrong for this tool. Locked per-bundle (round-2
-    /// picker retrofit) purely to make that existing, already-correct batch
-    /// behavior visible via the same shared picker component MAFFT/Savont/
-    /// pbaa/ONT genotyping use, matching the honest-copy standard set by the
-    /// C6/commit 7a5041c6 review fix: the lockReason describes what
-    /// execution actually does today, not an aspirational combined mode.
-    ///
-    /// Round-3 revision (item 0): the earlier copy ("Each sample already
-    /// gets its own Kraken2/Bracken run") described only the per-sample
-    /// half of the truth and implied N independent runs. For N>1 samples,
-    /// `runClassificationBatch` (AppDelegate+Classification.swift) actually
-    /// registers exactly ONE OperationCenter entry and writes ONE merged
-    /// classification-batch-summary.tsv across all samples, while still
-    /// running one Kraken2/Bracken pass per sample inside that batch. The
-    /// lockReason now states both halves honestly.
-    /// Display-only -- `performRun`'s per-sample fan-out is unchanged.
+    /// Kraken2/Bracken runs one classify+profile pass per sample
+    /// (MetagenomicsSampleGrouper groups the selected bundles, and
+    /// `performRun` maps each sample to its own `ClassificationConfig`).
+    /// Pooling reads across samples would conflate per-sample abundance
+    /// estimates, so there is no combined mode. For N>1 samples
+    /// `runClassificationBatch` registers ONE OperationCenter entry and
+    /// writes ONE merged classification-batch-summary.tsv, which the
+    /// lockReason states. Display-only, the per-sample fan-out is unchanged.
     static let classificationMultiBundleRunPolicy = MultiBundleRunPolicy(
         allowedModes: [.perBundle],
         defaultMode: .perBundle,
@@ -319,9 +315,9 @@ struct ClassificationWizardSheet: View {
             let files = inputFiles
             let samples = groupedSamples
             let plans = await Task.detached(priority: .userInitiated) {
-                samples.reduce(into: [String: ClassificationSampleReadPlan]()) { result, sample in
-                    result[sample.sampleId] = ClassificationSampleReadPlan.plan(for: sample)
-                }
+                var result: [String: ClassificationSampleReadPlan] = [:]
+                for sample in samples { result[sample.sampleId] = await ClassificationSampleReadPlan.planned(for: sample) }
+                return result
             }.value
             guard !Task.isCancelled else { return }
             readPlans = plans
@@ -436,6 +432,9 @@ struct ClassificationWizardSheet: View {
             if isBatchMode {
                 sampleOverviewSection
                 Divider()
+            } else if let label = groupedSamples.first.flatMap({ readPlans[$0.sampleId]?.label }) {
+                Text("Reads: \(label)").font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("classification-read-set-label")
             }
 
             databasePicker
@@ -737,11 +736,8 @@ struct ClassificationWizardSheet: View {
     ) -> ClassificationConfig {
         // Without a plan (older callers and tests) separate files run paired
         // and a single file runs unpaired, the pre-2026-09-24 behaviour.
-        let plan = readPlan ?? ClassificationSampleReadPlan(
-            format: sample.isPairedEnd ? .paired : .unpaired,
-            layout: nil
-        )
-        return ClassificationConfig(
+        let plan = readPlan ?? ClassificationSampleReadPlan(format: sample.isPairedEnd ? .paired : .unpaired, layout: nil)
+        var config = ClassificationConfig(
             goal: .profile,
             inputFiles: sample.inputFiles,
             isPairedEnd: plan.format == .paired,
@@ -762,6 +758,8 @@ struct ClassificationWizardSheet: View {
             outputDirectory: outputDirectory,
             extraArguments: extraArguments
         )
+        config.plansReadSet = plan.plansReadSet
+        return config
     }
 
     // MARK: - Formatting

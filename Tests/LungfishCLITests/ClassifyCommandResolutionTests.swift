@@ -10,9 +10,12 @@ import XCTest
 import LungfishTestSupport
 
 /// A bundle argument to `lungfish-cli conda classify` hands kraken2 every file
-/// the bundle holds, each its own unpaired input, as the app's classification
-/// launch does, so the command the Operations panel records classifies the
-/// same reads. A stand-in kraken2 keeps a copy of every input it is handed.
+/// the bundle holds, as the app's classification launch does, so the command
+/// the Operations panel records classifies the same reads. A bundle of single
+/// reads runs each file unpaired. A paired or merge derivative runs its pair
+/// with `--paired` and its merged reads beside the pair, each with a staged
+/// empty mate (decision 1, lane A2). A stand-in kraken2 keeps a copy of every
+/// input it is handed.
 final class ClassifyCommandResolutionTests: XCTestCase {
 
     private var root: URL!
@@ -29,20 +32,21 @@ final class ClassifyCommandResolutionTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    func testKraken2IsHandedEveryFileOfEachBundleShapeUnpaired() async throws {
-        let cases: [(shape: String, bundle: URL, files: [[String]])] = [
-            ("root single", shapes.single, [["s1", "s2", "s3"]]),
-            ("root multi-file", shapes.multiFile, [["m1", "m2"], ["m3", "m4", "m5"]]),
-            ("virtual orientMap", shapes.oriented, [["s1", "s3"]]),
-            ("derived fullPaired", shapes.paired, [["p1/1", "p2/1"], ["p1/2", "p2/2"]]),
-            ("derived fullMixed", shapes.mixed, [["x1", "x2", "x3"], ["u1/1"], ["u1/2"]]),
-            ("derived fullFASTA", shapes.fasta, [["f1", "f2"]]),
-            ("derived full", shapes.full, [["g1", "g2"]]),
+    func testKraken2IsHandedEveryFileOfEachBundleShape() async throws {
+        let cases: [(shape: String, bundle: URL, files: [[String]], paired: Bool)] = [
+            ("root single", shapes.single, [["s1", "s2", "s3"]], false),
+            ("root multi-file", shapes.multiFile, [["m1", "m2"], ["m3", "m4", "m5"]], false),
+            ("virtual orientMap", shapes.oriented, [["s1", "s3"]], false),
+            ("derived fullPaired", shapes.paired, [["p1/1", "p2/1"], ["p1/2", "p2/2"]], true),
+            // The pair, then the merged reads and their staged empty mate.
+            ("derived fullMixed", shapes.mixed, [["u1/1"], ["u1/2"], ["x1", "x2", "x3"], ["x1", "x2", "x3"]], true),
+            ("derived fullFASTA", shapes.fasta, [["f1", "f2"]], false),
+            ("derived full", shapes.full, [["g1", "g2"]], false),
         ]
         for testCase in cases {
             let run = try await classify(testCase.bundle, label: testCase.shape)
             XCTAssertEqual(run.filesSeen, testCase.files, testCase.shape)
-            XCTAssertFalse(run.pairedFlag, "\(testCase.shape) runs unpaired, as the app runs it")
+            XCTAssertEqual(run.pairedFlag, testCase.paired, "\(testCase.shape) runs as the app runs it")
         }
     }
 
@@ -224,6 +228,12 @@ final class ClassifyCommandResolutionTests: XCTestCase {
         )
         config.inputFiles = resolved.executionInputURLs
         config.originalInputFiles = [bundle.standardizedFileURL]
+        _ = try await command.planReadSet(
+            inputURLs: [bundle.standardizedFileURL],
+            executionInputURLs: resolved.executionInputURLs,
+            config: &config,
+            materializationDirectory: outputDirectory.appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+        )
         let result = try await ClassificationPipeline(condaManager: kraken2.condaManager).classify(config: config)
         return ClassifyRun(
             resolved: resolved,
@@ -344,8 +354,22 @@ private struct StandInKraken2 {
         done
         mkdir -p "$(dirname "$report")" "$(dirname "$output")"
         printf '100.00\\t1\\t0\\tR\\t1\\troot\\n100.00\\t1\\t1\\tS\\t562\\t  Escherichia coli\\n' > "$report"
-        printf 'C\\tread1\\t562\\t4\\t0:4\\n' > "$output"
-        echo "processed 1 sequence" >&2
+        # One per-read line per fragment: a pair, or a file of single reads
+        # staged with its empty mate, counts once.
+        total=0
+        position=0
+        paired=0
+        [ -f "$seen/paired" ] && paired=1
+        for f in "$seen"/input-*; do
+          [ -f "$f" ] || continue
+          position=$((position + 1))
+          if [ "$paired" = 1 ] && [ $((position % 2)) = 0 ]; then continue; fi
+          total=$((total + $(awk 'END { print int(NR / 4) }' "$f")))
+        done
+        : > "$output"
+        i=0
+        while [ "$i" -lt "$total" ]; do printf 'C\\tread%s\\t562\\t4\\t0:4\\n' "$i" >> "$output"; i=$((i + 1)); done
+        echo "$total sequences (0.00 Mbp) processed in 0.001s" >&2
         exit 0
         """
     }

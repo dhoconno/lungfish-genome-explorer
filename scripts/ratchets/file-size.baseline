@@ -1,5 +1,5 @@
 # file-size baseline: Swift files over 800 lines (path, length). Lengths may only fall.
-Sources/LungfishApp/App/AppDelegate+Classification.swift 2572
+Sources/LungfishApp/App/AppDelegate+Classification.swift 2545
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3390
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
@@ -46,7 +46,7 @@ Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 832
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1142
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1028
 Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift 1039
-Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift 818
+Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift 816
 Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift 905
 Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerView.swift 806
 Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift 891
@@ -90,7 +90,7 @@ Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift 1077
 Sources/LungfishCLI/Commands/AssembleCommand.swift 841
 Sources/LungfishCLI/Commands/BAMCommand.swift 1350
 Sources/LungfishCLI/Commands/BuildDbCommand.swift 2173
-Sources/LungfishCLI/Commands/ClassifyCommand.swift 1712
+Sources/LungfishCLI/Commands/ClassifyCommand.swift 1686
 Sources/LungfishCLI/Commands/ExtractReadsCommand.swift 1196
 Sources/LungfishCLI/Commands/FetchCommand.swift 875
 Sources/LungfishCLI/Commands/GATKCommand.swift 1094
@@ -184,7 +184,7 @@ Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
 Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1301
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 915
 Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 1828
-Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2737
+Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2647
 Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline.swift 855
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift 1148
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2268

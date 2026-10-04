@@ -5,6 +5,7 @@
 import AppKit
 import LungfishKit
 import LungfishIO
+import LungfishWorkflow
 
 // MARK: - TaxonomySummaryBar
 
@@ -32,6 +33,16 @@ final class TaxonomySummaryBar: GenomicSummaryCardBar {
     private var shannonDiversity: Double = 0
     private var dominantSpeciesName: String = ""
 
+    /// The line under the count, set when the run held read pairs.
+    private(set) var fragmentLine: String?
+    /// Whether the count card counts fragments rather than reads.
+    private(set) var countsFragments = false
+    /// Whether an older result counted each mate as its own read.
+    private(set) var countedPerRead = false
+    /// Bumped by every update, so a late "counted per read" check for an
+    /// earlier result is dropped.
+    private var resultGeneration = 0
+
     // MARK: - Batch State
 
     private var isBatchMode: Bool = false
@@ -45,6 +56,10 @@ final class TaxonomySummaryBar: GenomicSummaryCardBar {
     ///
     /// - Parameter tree: The parsed taxonomy tree from a classification result.
     func update(tree: TaxonTree) {
+        resultGeneration += 1
+        fragmentLine = nil
+        countsFragments = false
+        countedPerRead = false
         isBatchMode = false
         totalReads = tree.totalReads
         classifiedPercent = tree.classifiedFraction * 100
@@ -59,6 +74,32 @@ final class TaxonomySummaryBar: GenomicSummaryCardBar {
         }
 
         cardsDidChange()
+    }
+
+    /// Recomputes the cards from a classification result. A run that held
+    /// read pairs counts fragments, and a line says how many came from pairs
+    /// and how many from merged or single reads. An older result made from
+    /// paired inputs without the read-pairing contract is labelled as
+    /// counted per read (manager ruling 3), once its inputs are checked off
+    /// the main actor.
+    func update(result: ClassificationResult) {
+        update(tree: result.tree)
+        let presentation = TaxonomyFragmentPresentation(result: result)
+        countsFragments = presentation.countsFragments
+        fragmentLine = presentation.fragmentLine
+        cardsDidChange()
+        guard presentation.mayHaveCountedPerRead else { return }
+        let generation = resultGeneration
+        let inputs = presentation.originalInputs
+        Task { [weak self] in
+            let holdsPairs = await Task.detached(priority: .utility) {
+                await KrakenReadSetPlanner.originalInputsHoldPairs(inputs)
+            }.value
+            guard let self, self.resultGeneration == generation,
+                  presentation.showsCountedPerRead(inputsHoldPairs: holdsPairs) else { return }
+            self.countedPerRead = true
+            self.cardsDidChange()
+        }
     }
 
     /// Updates the summary bar to show batch aggregation statistics.
@@ -88,8 +129,11 @@ final class TaxonomySummaryBar: GenomicSummaryCardBar {
                 Card(label: "Database", value: batchDatabaseName.isEmpty ? "\u{2014}" : batchDatabaseName),
             ]
         }
-        return [
-            Card(label: "Total Reads", value: GenomicSummaryCardBar.formatCount(totalReads)),
+        var cards = [
+            Card(
+                label: countsFragments ? "Fragments" : "Total Reads",
+                value: GenomicSummaryCardBar.formatCount(totalReads)
+            ),
             Card(
                 label: "Classified",
                 value: String(format: "%.1f%%", classifiedPercent)
@@ -105,6 +149,13 @@ final class TaxonomySummaryBar: GenomicSummaryCardBar {
             ),
             Card(label: "Dominant", value: dominantSpeciesName),
         ]
+        if let fragmentLine {
+            cards.append(Card(label: "Read Pairing", value: fragmentLine))
+        }
+        if countedPerRead {
+            cards.append(Card(label: "Counting", value: TaxonomyFragmentPresentation.countedPerReadLabel))
+        }
+        return cards
     }
 
     // MARK: - Abbreviations
@@ -112,6 +163,7 @@ final class TaxonomySummaryBar: GenomicSummaryCardBar {
     override func abbreviatedLabel(for label: String) -> String {
         switch label {
         case "Total Reads": return "Reads"
+        case "Read Pairing": return "Pairing"
         case "Classified": return "Classif."
         case "Unclassified": return "Unclass."
         case "Shannon H\u{2032}": return "H\u{2032}"
