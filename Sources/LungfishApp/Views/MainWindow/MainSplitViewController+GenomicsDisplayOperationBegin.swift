@@ -67,6 +67,15 @@ extension MainSplitViewController {
     /// builder cannot encode the request, such as an adapter FASTA or a
     /// demultiplex sample sheet. Those requests have no CLI equivalent yet,
     /// which is a parity gap pinned by MainSplitGenomicsDisplayOperationTests.
+    ///
+    /// The `<derived>` placeholder is replaced after a successful run. The
+    /// launch site in MainSplitViewController+GenomicsDisplay.swift asks
+    /// `FASTQOperationRowCommand` for the final command once the output paths
+    /// are known and applies it with `setCommand` before it completes the row.
+    /// A derivative row then shows the command its imported bundles' manifests
+    /// record, and a Savont row shows the executed command that names the
+    /// published FASTA. A grouped result and every other request keep the
+    /// command recorded here.
     @discardableResult
     static func beginFASTQLaunchRequestOperation(
         title: String,
