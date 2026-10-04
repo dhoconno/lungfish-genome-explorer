@@ -1,5 +1,5 @@
 # file-size baseline: Swift files over 800 lines (path, length). Lengths may only fall.
-Sources/LungfishApp/App/AppDelegate+Classification.swift 2545
+Sources/LungfishApp/App/AppDelegate+Classification.swift 2520
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3390
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
@@ -216,6 +216,6 @@ Sources/LungfishWorkflow/SequenceAnnotation/SequenceAnnotationTrackWorkflow.swif
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupExecutor.swift 2485
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupReceiptWriter.swift 1680
 Sources/LungfishWorkflow/Storage/ProjectStorageScanner.swift 1567
-Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift 1891
+Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift 1879
 Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow.swift 1186
 Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift 1716
