@@ -159,6 +159,29 @@ final class OutputEquivalenceTests: XCTestCase {
         )
     }
 
+    func testBundlesReportTwoNamesThatMaskToOne() throws {
+        let (a, b) = try makeRoots()
+        try write("first\n", to: a, "reports/2026-10-03.txt")
+        try write("second\n", to: a, "reports/2026-10-04.txt")
+        try write("first\n", to: b, "reports/2026-10-05.txt")
+        // The standard name masks keep dates, so a policy that also masks
+        // them in names can merge two names.
+        var masks = OutputEquivalence.MaskPolicy.standard
+        masks.names.append(OutputEquivalence.Masks.isoTimestamps)
+        XCTAssertEqual(
+            try OutputEquivalence.differences(a, b, kind: .bundle, masks: masks),
+            ["collides in A: reports/<TIMESTAMP>.txt names reports/2026-10-03.txt, reports/2026-10-04.txt"]
+        )
+        XCTAssertEqual(
+            try OutputEquivalence.differences(a, b, kind: .bundle),
+            [
+                "only in A: reports/2026-10-03.txt",
+                "only in A: reports/2026-10-04.txt",
+                "only in B: reports/2026-10-05.txt",
+            ]
+        )
+    }
+
     func testBundlesMatchWhicheverWayTheirChildUUIDsSort() throws {
         let (a, b) = try makeRoots()
         // Sample s1's child sorts first in A and last in B.

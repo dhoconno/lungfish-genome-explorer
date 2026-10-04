@@ -24,25 +24,25 @@ extension OutputEquivalence {
         }
     }
 
-    /// The comparable form of `url` for `kind`, with masks applied.
-    static func normalized(_ url: URL, kind: Kind, masks: [Mask], context: MaskContext) throws -> String {
+    /// The comparable form of `url` for `kind`, with the masks its role gets.
+    static func normalized(_ url: URL, kind: Kind, masks: MaskPolicy, context: MaskContext) throws -> String {
         switch kind {
         case .files:
             return try normalizedPayload(url, masks: masks, context: context, dumpDatabases: false)
         case .database:
-            return applying(masks, to: try sqliteDump(url), context: context)
+            return applying(masks.records, to: try sqliteDump(url), context: context)
         case .bundle:
             return try normalizedPayload(url, masks: masks, context: context, dumpDatabases: true)
         case .remoteRequest:
-            return try normalizedRequest(url, masks: masks, context: context)
+            return try normalizedRequest(url, masks: masks.payloads, context: context)
         case .managedPlan:
-            let text = applying(masks, to: try String(contentsOf: url, encoding: .utf8), context: context)
+            let text = applying(masks.payloads, to: try String(contentsOf: url, encoding: .utf8), context: context)
             return canonicalJSON(text) ?? text
         }
     }
 
     /// A file compared under its own extension.
-    static func normalizedPayload(_ url: URL, masks: [Mask], context: MaskContext, dumpDatabases: Bool) throws -> String {
+    static func normalizedPayload(_ url: URL, masks: MaskPolicy, context: MaskContext, dumpDatabases: Bool) throws -> String {
         let data = try Data(contentsOf: url)
         var name = url.lastPathComponent.lowercased()
         var bytes = data
@@ -53,13 +53,13 @@ extension OutputEquivalence {
             }
         }
         if name.hasSuffix(".bam") {
-            return try normalizedBAM(url, masks: masks, context: context)
+            return try normalizedBAM(url, masks: masks.payloads, context: context)
         }
         if indexExtensions.contains(where: name.hasSuffix) {
-            return try normalizedIndex(url, masks: masks, context: context)
+            return try normalizedIndex(url, masks: masks.payloads, context: context)
         }
         if dumpDatabases, isSQLite(bytes) {
-            return applying(masks, to: try sqliteDump(url), context: context)
+            return applying(masks.records, to: try sqliteDump(url), context: context)
         }
         guard let text = String(data: bytes, encoding: .utf8) else {
             return "binary sha256 " + sha256(bytes)
@@ -71,7 +71,7 @@ extension OutputEquivalence {
                 .filter { !isVolatileVCFHeaderLine($0) }
                 .joined(separator: "\n")
         }
-        let masked = applying(masks, to: lines, context: context)
+        let masked = applying(masks.masks(for: role(ofFileNamed: name)), to: lines, context: context)
         if name.hasSuffix(".json") {
             return canonicalJSON(masked) ?? masked
         }
@@ -137,6 +137,8 @@ extension OutputEquivalence {
 
     /// A request body and its parameters. JSON is compared with sorted keys.
     /// A form or query body is compared as a sorted set of `key=value` pairs.
+    /// Every parameter is compared as written, so `masks` is the roots mask
+    /// alone unless a caller says otherwise.
     static func normalizedRequest(_ url: URL, masks: [Mask], context: MaskContext) throws -> String {
         let text = applying(masks, to: try String(contentsOf: url, encoding: .utf8), context: context)
         if let json = canonicalJSON(text) { return json }
