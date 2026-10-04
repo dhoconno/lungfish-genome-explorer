@@ -158,6 +158,7 @@ public enum KrakenReadSetPlanner {
     /// The plan for one input, a bundle or a sequence file. A virtual bundle
     /// is planned from the file `materializedInputs` already holds, so nothing
     /// is materialized twice. Splits are written into `materializationDirectory`.
+    /// Only a plan that holds pairs is counted (``countedIfItHoldsPairs(_:)``).
     public static func plan(
         bundle: URL,
         materializedInputs: [URL],
@@ -165,10 +166,9 @@ public enum KrakenReadSetPlanner {
     ) async throws -> ReadSetPlan {
         let resolver = ReadSetResolver(
             materializationDirectory: materializationDirectory,
-            materializer: AlreadyMaterialized(files: materializedInputs),
-            countReads: true
+            materializer: AlreadyMaterialized(files: materializedInputs)
         )
-        return try await resolver.plan(for: bundle, capability: capability)
+        return try countedIfItHoldsPairs(try await resolver.plan(for: bundle, capability: capability))
     }
 
     /// The plan for loose files the user named: an R1 and R2 file and files
@@ -179,8 +179,97 @@ public enum KrakenReadSetPlanner {
         singleReads: [URL],
         materializationDirectory: URL
     ) throws -> ReadSetPlan {
-        let resolver = ReadSetResolver(materializationDirectory: materializationDirectory, countReads: true)
-        return try resolver.plan(r1: r1, r2: r2, singleReads: singleReads, capability: capability)
+        let resolver = ReadSetResolver(materializationDirectory: materializationDirectory)
+        return try countedIfItHoldsPairs(
+            try resolver.plan(r1: r1, r2: r2, singleReads: singleReads, capability: capability)
+        )
+    }
+
+    /// `plan` with every count it lacks read from its files, when it holds
+    /// pairs. Only then are the counts used, by the fragment guard and the
+    /// result's composition. A plan of single reads applies nothing, so its
+    /// files are not read a second time. Counts the plan already has are kept:
+    /// a split counts what it writes, a merge or repair derivative records its
+    /// roles' counts, and a materialization is counted whole when it is read.
+    static func countedIfItHoldsPairs(_ plan: ReadSetPlan) throws -> ReadSetPlan {
+        guard !plan.matePairs.isEmpty else { return plan }
+        let runs: [ReadSetRun]
+        do {
+            runs = try plan.runs.map { run in
+                ReadSetRun(
+                    matePairs: try run.matePairs.map { pair in
+                        guard pair.pairCount == nil else { return pair }
+                        let records = try FASTQPairInterleaver.countRecords(in: pair.urls[0])
+                        if case .interleaved = pair.files {
+                            return ReadSetMatePair(files: pair.files, pairCount: records / 2)
+                        }
+                        return ReadSetMatePair(files: pair.files, pairCount: records)
+                    },
+                    singleReads: try run.singleReads.map { single in
+                        guard single.readCount == nil, SequenceFormat.from(url: single.url) != .fasta else { return single }
+                        let records = try FASTQPairInterleaver.countRecords(in: single.url)
+                        return ReadSetSingleReads(url: single.url, role: single.role, readCount: records)
+                    },
+                    mixedStreams: try run.mixedStreams.map { stream in
+                        guard stream.pairCount == nil || stream.singleReadCount == nil else { return stream }
+                        let counts = try FASTQPairInterleaver.countMixed(interleaved: stream.url)
+                        return ReadSetMixedStream(
+                            url: stream.url,
+                            pairCount: counts.pairs,
+                            singleReadCount: counts.unpaired,
+                            singleReadRole: stream.singleReadRole
+                        )
+                    }
+                )
+            }
+        } catch {
+            // The files a split wrote for this plan go with it.
+            for url in plan.steps.flatMap(\.outputURLs) { try? FileManager.default.removeItem(at: url) }
+            throw error
+        }
+        return ReadSetPlan(
+            inputURL: plan.inputURL,
+            capability: plan.capability,
+            sourceLayout: plan.sourceLayout,
+            layoutReason: plan.layoutReason,
+            sequencingPlatform: plan.sequencingPlatform,
+            wasMaterialized: plan.wasMaterialized,
+            sampleHoldsPairsAndSingleReads: plan.sampleHoldsPairsAndSingleReads,
+            runs: runs,
+            steps: plan.steps,
+            singleReadReason: plan.singleReadReason,
+            composition: composition(of: runs)
+        )
+    }
+
+    /// The fragment counts of `runs` by kind, as ``ReadSetResolver`` counts
+    /// them. A kind that is absent counts zero, and a kind that is present
+    /// with no count makes its total nil.
+    static func composition(of runs: [ReadSetRun]) -> ReadSetComposition {
+        var composition = ReadSetComposition(
+            pairedFragments: 0, mergedReads: 0, orphanReads: 0, singleEndReads: 0, mergedOrOrphanReads: 0
+        )
+        func add(_ value: Int?, to keyPath: WritableKeyPath<ReadSetComposition, Int?>) {
+            guard let current = composition[keyPath: keyPath] else { return }
+            composition[keyPath: keyPath] = value.map { current + $0 }
+        }
+        func add(_ value: Int?, role: ReadSetReadRole) {
+            switch role {
+            case .merged: add(value, to: \.mergedReads)
+            case .orphan: add(value, to: \.orphanReads)
+            case .singleEnd, .pairsRunAsSingle: add(value, to: \.singleEndReads)
+            case .mergedOrOrphan: add(value, to: \.mergedOrOrphanReads)
+            }
+        }
+        for run in runs {
+            for pair in run.matePairs { add(pair.pairCount, to: \.pairedFragments) }
+            for single in run.singleReads { add(single.readCount, role: single.role) }
+            for stream in run.mixedStreams {
+                add(stream.pairCount, to: \.pairedFragments)
+                add(stream.singleReadCount, role: stream.singleReadRole)
+            }
+        }
+        return composition
     }
 
     /// Sets `config`'s inputs from `plan`. A plan of single reads only leaves

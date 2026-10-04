@@ -106,6 +106,74 @@ final class KrakenReadSetPipelineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: materialized.path), "the materialization is kept")
     }
 
+    /// Lead A F4. A plan of single reads applies nothing, so it never reads
+    /// its files a second time to count them. A plan that holds pairs counts
+    /// the files whose counts it lacks, exactly, for the guard and the result.
+    func testOnlyAPlanWithPairsIsCounted() async throws {
+        let loose = root.appendingPathComponent("loose-single.fastq")
+        try ReadSetFixtures.fastq(["a", "b", "c"]).write(to: loose, atomically: true, encoding: .utf8)
+        for input in [loose, fixtures.singleRoot, fixtures.chunkedRoot] {
+            let plan = try await KrakenReadSetPlanner.plan(
+                bundle: input, materializedInputs: [],
+                materializationDirectory: root.appendingPathComponent("inputs-\(UUID().uuidString)")
+            )
+            XCTAssertNil(plan.composition.singleEndReads, "\(input.lastPathComponent) is not counted")
+            XCTAssertTrue(plan.singleReads.allSatisfy { $0.readCount == nil }, input.lastPathComponent)
+        }
+
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/read-pairing/kraken2", isDirectory: true)
+        let r1 = fixture.appendingPathComponent("unmerged_R1.fastq")
+        let r2 = fixture.appendingPathComponent("unmerged_R2.fastq")
+        let merged = fixture.appendingPathComponent("merged.fastq")
+
+        // A paired derivative records no counts, so its pairs are counted.
+        let paired = fixtures.importsURL.appendingPathComponent("fixture-paired.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: paired, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: r1, to: paired.appendingPathComponent("unmerged_R1.fastq"))
+        try FileManager.default.copyItem(at: r2, to: paired.appendingPathComponent("unmerged_R2.fastq"))
+        let operation = FASTQDerivativeOperation(kind: .interleaveReformat)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: "fixture-paired", parentBundleRelativePath: ".", rootBundleRelativePath: ".",
+                rootFASTQFilename: "unmerged_R1.fastq",
+                payload: .fullPaired(r1Filename: "unmerged_R1.fastq", r2Filename: "unmerged_R2.fastq"),
+                lineage: [operation], operation: operation,
+                cachedStatistics: .placeholder(readCount: 46, baseCount: 1), pairingMode: .pairedEnd, sequenceFormat: .fastq
+            ),
+            in: paired
+        )
+        let pairedPlan = try await KrakenReadSetPlanner.plan(
+            bundle: paired, materializedInputs: [], materializationDirectory: root.appendingPathComponent("paired-inputs")
+        )
+        XCTAssertEqual(ClassificationFragmentComposition(pairedPlan.composition),
+                       ClassificationFragmentComposition(pairedFragments: 23, mergedReads: 0, orphanReads: 0, singleEndReads: 0))
+
+        // A loose file of the merged reads then the pairs, interleaved, is split and counted.
+        let mixed = root.appendingPathComponent("merged-then-pairs.fastq")
+        let mates = zip(try fastqRecords(r1), try fastqRecords(r2)).flatMap { [$0, $1] }
+        try (try fastqRecords(merged) + mates).joined().write(to: mixed, atomically: true, encoding: .utf8)
+        let mixedPlan = try await KrakenReadSetPlanner.plan(
+            bundle: mixed, materializedInputs: [], materializationDirectory: root.appendingPathComponent("mixed-inputs")
+        )
+        let composition = try XCTUnwrap(ClassificationFragmentComposition(mixedPlan.composition))
+        XCTAssertEqual(composition.pairedFragments, 23)
+        XCTAssertEqual(composition.singleReadFragments, 77)
+
+        // Loose files named as a pair with --unpaired are counted too.
+        let loosePlan = try KrakenReadSetPlanner.plan(
+            r1: r1, r2: r2, singleReads: [merged], materializationDirectory: root.appendingPathComponent("loose-inputs")
+        )
+        XCTAssertEqual(ClassificationFragmentComposition(loosePlan.composition)?.fragmentCount, 100)
+    }
+
+    /// The four-line records of a FASTQ file, each with its newlines.
+    private func fastqRecords(_ url: URL) throws -> [String] {
+        let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
+        return stride(from: 0, to: lines.count - 3, by: 4).map { lines[$0..<$0 + 4].joined(separator: "\n") + "\n" }
+    }
+
     func testPreviewReadsOnlyMetadata() async {
         let cases: [(URL, KrakenReadSetPreview)] = [
             (fixtures.singleRoot, .singleReads),
