@@ -1,8 +1,24 @@
 import Foundation
+import LungfishIO
 
 public enum ViralReconSamplesheetBuilder {
-    public enum ValidationError: Error, Sendable, Equatable {
+    public enum ValidationError: Error, LocalizedError, Sendable, Equatable {
         case unsupportedIlluminaFASTQ(URL)
+        /// A virtual bundle holds no FASTQ file to copy into `fastq_pass`.
+        case virtualNanoporeBundle(URL)
+
+        public var errorDescription: String? {
+            switch self {
+            case .unsupportedIlluminaFASTQ:
+                return nil
+            case .virtualNanoporeBundle(let url):
+                return """
+                    \(url.lastPathComponent) is a virtual bundle, so it holds no FASTQ file for viralrecon's \
+                    Nanopore mode to read, and its preview is only part of the sample. Write its reads first \
+                    with lungfish-cli fastq materialize "\(url.path)" -o <reads.fastq>, then run on that file.
+                    """
+            }
+        }
     }
 
     public struct NanoporeStagingResult: Sendable, Equatable {
@@ -13,8 +29,10 @@ public enum ViralReconSamplesheetBuilder {
     /// Writes `sample,fastq_1,fastq_2` rows: a sample's files are paired by
     /// position, so `[R1, R2]` becomes one paired row and `[single]` a
     /// single-end row. A strictly interleaved bundle file must be split into
-    /// R1/R2 first (``ViralReconReadPairing/prepareIlluminaSamples(_:splitRoot:progress:)``)
-    /// or its mates run single-end.
+    /// R1/R2 first (``ViralReconReadPairing/prepareIlluminaSamples(_:splitRoot:materializer:progress:)``)
+    /// or its mates run single-end. A row may name one `.lungfishfastq`
+    /// bundle, which the run plans and stages as gzip files before
+    /// viralrecon starts.
     public static func writeIlluminaSamplesheet(
         samples: [ViralReconSample],
         in directory: URL,
@@ -24,7 +42,7 @@ public enum ViralReconSamplesheetBuilder {
         let url = directory.appendingPathComponent(filename)
         var lines = ["sample,fastq_1,fastq_2"]
         for sample in samples {
-            for fastqURL in sample.fastqURLs {
+            for fastqURL in sample.fastqURLs where !ViralReconReadPairing.namesBundle(sample.fastqURLs) {
                 guard isCompressedFASTQ(fastqURL) else {
                     throw ValidationError.unsupportedIlluminaFASTQ(fastqURL)
                 }
@@ -39,10 +57,16 @@ public enum ViralReconSamplesheetBuilder {
         return url
     }
 
+    /// Copies each sample's FASTQ files into `fastq_pass/barcodeNN` and
+    /// writes the `sample,barcode` samplesheet. A virtual bundle is refused
+    /// before anything is written, because its listed file is its preview.
     public static func stageNanoporeInputs(
         samples: [ViralReconSample],
         in directory: URL
     ) throws -> NanoporeStagingResult {
+        if let virtual = samples.first(where: { ViralReconReadPairing.isVirtualBundle($0.sourceBundleURL) }) {
+            throw ValidationError.virtualNanoporeBundle(virtual.sourceBundleURL)
+        }
         let fastqPassDirectory = directory.appendingPathComponent("fastq_pass", isDirectory: true)
         try FileManager.default.createDirectory(at: fastqPassDirectory, withIntermediateDirectories: true)
 

@@ -4,6 +4,9 @@ import LungfishIO
 public struct ViralReconResolvedInput: Sendable, Equatable {
     public let bundleURL: URL
     public let sampleName: String
+    /// The sample's samplesheet entries: its FASTQ files, or for an Illumina
+    /// bundle the run plans (``ViralReconReadPairing/plansBundle(_:)``) the
+    /// bundle itself.
     public let fastqURLs: [URL]
     public let platform: ViralReconPlatform
     public let barcode: String?
@@ -86,10 +89,14 @@ public enum ViralReconInputResolver {
             throw ResolveError.unsupportedPlatform(url)
         }
 
+        // The files above only tell the platform. An Illumina bundle whose
+        // reads are not one file is named in the samplesheet as the bundle,
+        // and the run plans it (ViralReconReadPairing.prepareIlluminaSamples).
+        let plansBundle = platform == .illumina && ViralReconReadPairing.plansBundle(sourceURL)
         return ViralReconResolvedInput(
             bundleURL: sourceURL,
             sampleName: sampleName(for: sourceURL),
-            fastqURLs: fastqURLs,
+            fastqURLs: plansBundle ? [sourceURL] : fastqURLs,
             platform: platform,
             barcode: barcode(for: sourceURL),
             sequencingSummaryURL: sequencingSummaryURL(in: sourceURL)

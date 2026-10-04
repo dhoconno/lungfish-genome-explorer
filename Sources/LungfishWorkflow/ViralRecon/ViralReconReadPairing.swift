@@ -37,6 +37,9 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
     /// The temporary R1/R2 files a split produced; removed once the run ends.
     public let splitR1URL: URL?
     public let splitR2URL: URL?
+    /// How the run staged a row that names a bundle. Nil for a row of files,
+    /// and for a bundle row before the run plans it.
+    public let bundleStaging: BundleStaging?
 
     public init(
         sampleName: String,
@@ -46,7 +49,8 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
         reason: String,
         pairCount: Int? = nil,
         splitR1URL: URL? = nil,
-        splitR2URL: URL? = nil
+        splitR2URL: URL? = nil,
+        bundleStaging: BundleStaging? = nil
     ) {
         self.sampleName = sampleName
         self.sourceFASTQURLs = sourceFASTQURLs
@@ -56,13 +60,18 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
         self.pairCount = pairCount
         self.splitR1URL = splitR1URL
         self.splitR2URL = splitR2URL
+        self.bundleStaging = bundleStaging
     }
 
     /// Whether viralrecon sees this row as paired-end.
     public var runsPaired: Bool { handling != .asSingle }
 
-    /// Whether the row's reads must be split before the run.
-    public var needsSplit: Bool { handling == .splitToR1R2 }
+    /// Whether the run writes the row's reads before viralrecon starts: a
+    /// strictly interleaved file is split into R1 and R2, and a row that
+    /// names a bundle is planned and staged as gzip files.
+    public var needsSplit: Bool {
+        handling == .splitToR1R2 || ViralReconReadPairing.namesBundle(sourceFASTQURLs)
+    }
 
     /// One line for the run log and the run summary.
     public var summary: String {
@@ -81,6 +90,9 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
 
     /// A caution for a row whose mates could not be handed over as pairs.
     public var warning: String? {
+        if let reason = bundleStaging?.singleReadReason {
+            return "\(sampleName): \(reason)"
+        }
         switch layout {
         case .mixedMergedAndPairs:
             return "\(sampleName) mixes merged reads with pairs, so viralrecon runs it single-end; a positional split would mis-pair its mates."
@@ -101,6 +113,7 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
         if let pairCount { fields["pairs"] = .integer(pairCount) }
         if let splitR1URL { fields["splitR1"] = .file(splitR1URL) }
         if let splitR2URL { fields["splitR2"] = .file(splitR2URL) }
+        if let bundleStaging { fields["readSetPlan"] = bundleStaging.provenanceValue }
         return .dictionary(fields)
     }
 }
@@ -123,11 +136,14 @@ public enum ViralReconReadPairing {
     public enum PairingError: Error, LocalizedError, Equatable {
         case interleavedSplitFailed(sampleName: String, reason: String)
         case malformedSamplesheet(URL, reason: String)
+        case bundleStagingFailed(sampleName: String, reason: String)
 
         public var errorDescription: String? {
             switch self {
             case .interleavedSplitFailed(let sampleName, let reason):
                 return "Could not split the interleaved pairs of \(sampleName) into R1/R2 for viralrecon: \(reason)"
+            case .bundleStagingFailed(let sampleName, let reason):
+                return "Could not stage the reads of \(sampleName) for viralrecon: \(reason)"
             case .malformedSamplesheet(let url, let reason):
                 return "Cannot read the viralrecon samplesheet \(url.path): \(reason)"
             }
@@ -153,12 +169,17 @@ public enum ViralReconReadPairing {
     ///
     /// Two files are R1/R2. One file is resolved through
     /// ``FASTQInputLayoutResolver`` (bundle metadata, then a bounded scan of
-    /// the records). More than two files keep the builder's row pairing.
+    /// the records). More than two files keep the builder's row pairing. A
+    /// row that names a bundle gets the decision its manifest leads the run
+    /// to expect, and the run replaces it with the plan it makes.
     public static func decisions(for samples: [ViralReconSample]) -> [ViralReconReadPairingDecision] {
         samples.map(decision(for:))
     }
 
     public static func decision(for sample: ViralReconSample) -> ViralReconReadPairingDecision {
+        if namesBundle(sample.fastqURLs) {
+            return expectedDecision(forBundle: sample.fastqURLs[0], sampleName: sample.sampleName)
+        }
         switch sample.fastqURLs.count {
         case 1:
             let resolution = FASTQInputLayoutResolver.resolve(inputURLs: sample.fastqURLs)
@@ -209,6 +230,9 @@ public enum ViralReconReadPairing {
     /// Splits every strictly interleaved single-file sample into gzip R1/R2
     /// files under `splitRoot` and returns the samples viralrecon should see.
     ///
+    /// A sample that names a bundle is planned by ``ReadSetResolver`` and
+    /// staged as gzip files under `splitRoot`
+    /// (``stageBundle(of:bundleURL:into:materializer:progress:)``).
     /// Samples that are already R1/R2, single-end, or mixed are left alone.
     /// `splitRoot` must be whitespace-free (viralrecon's samplesheet schema
     /// rejects a FASTQ path with a space); the caller removes it once the run
@@ -216,6 +240,7 @@ public enum ViralReconReadPairing {
     public static func prepareIlluminaSamples(
         _ samples: [ViralReconSample],
         splitRoot: URL,
+        materializer: any CLISequenceInputMaterializing & Sendable = FASTQCLIMaterializer(runner: .shared),
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws -> ViralReconPreparedIlluminaSamples {
         var prepared = samples
@@ -224,6 +249,19 @@ public enum ViralReconReadPairing {
 
         for (index, sample) in samples.enumerated() {
             try Task.checkCancellation()
+            if namesBundle(sample.fastqURLs) {
+                let directoryName = uniqueDirectoryName(for: sample.sampleName, usedNames: &usedNames)
+                let staged = try await stageBundle(
+                    of: sample,
+                    bundleURL: sample.fastqURLs[0],
+                    into: splitRoot.appendingPathComponent(directoryName, isDirectory: true),
+                    materializer: materializer,
+                    progress: progress
+                )
+                prepared[index] = staged.sample
+                decisions.append(staged.decision)
+                continue
+            }
             let decision = decision(for: sample)
             guard decision.needsSplit, let source = sample.fastqURLs.first else {
                 decisions.append(decision)
@@ -445,7 +483,7 @@ public enum ViralReconReadPairing {
 /// The interleaver writes records into `writeHandle`; `finish()` closes the
 /// pipe, waits for gzip, and fails if it did. `abort()` tears everything
 /// down and removes the partial file.
-private final class GzipFileSink {
+final class GzipFileSink {
     let writeHandle: FileHandle
     private let destination: URL
     private let process: Process
