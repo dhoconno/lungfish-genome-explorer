@@ -25,8 +25,8 @@ public enum OutputEquivalence {
         /// SQLite files compared on a sorted dump of every table.
         case database
         /// Two bundles or analysis folders. The relative inventory is compared
-        /// after masks, and every payload is compared by its extension, with
-        /// SQLite files dumped and JSON compared after masks.
+        /// after the name masks, and every payload is compared by its
+        /// extension, with SQLite files dumped and JSON compared as values.
         case bundle
         /// Two recorded requests to a remote service. JSON is compared with
         /// sorted keys and a form or query body as a set of parameters.
@@ -36,27 +36,31 @@ public enum OutputEquivalence {
     }
 
     /// What a mask knows about one side of a comparison. Each side's text has
-    /// both roots replaced by `<ROOT>`. `runIDNumbers` numbers every run ID
-    /// in that side's tree by first appearance, file names first and then
-    /// file contents in path order, so the same run ID gets the same number
-    /// in a file name and in a manifest value. `contentComparedPaths` holds
-    /// this side's unmasked relative paths of the files that exist in both
-    /// trees and are compared by content rather than by bytes.
+    /// both roots replaced by `<ROOT>`. `runIDNumbers` and `uuidNumbers`
+    /// number every run ID and every UUID in that side's tree by first
+    /// appearance, so the same ID gets the same number in a file name and in
+    /// a manifest value, and two IDs never share one.
+    /// `contentComparedPaths` holds this side's unmasked relative paths of
+    /// the files that exist in both trees and are compared by content rather
+    /// than by bytes.
     public struct MaskContext: Sendable {
         public let rootA: URL
         public let rootB: URL
         public let runIDNumbers: [String: Int]
+        public let uuidNumbers: [String: Int]
         public let contentComparedPaths: Set<String>
 
         public init(
             rootA: URL,
             rootB: URL,
             runIDNumbers: [String: Int] = [:],
+            uuidNumbers: [String: Int] = [:],
             contentComparedPaths: Set<String> = []
         ) {
             self.rootA = rootA
             self.rootB = rootB
             self.runIDNumbers = runIDNumbers
+            self.uuidNumbers = uuidNumbers
             self.contentComparedPaths = contentComparedPaths
         }
     }
@@ -82,7 +86,7 @@ public enum OutputEquivalence {
         _ a: URL,
         _ b: URL,
         kind: Kind,
-        masks: [Mask] = .standard,
+        masks: MaskPolicy = .standard,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -106,7 +110,7 @@ public enum OutputEquivalence {
         _ a: URL,
         _ b: URL,
         kind: Kind,
-        masks: [Mask] = .standard
+        masks: MaskPolicy = .standard
     ) throws -> [String] {
         let rootA = comparisonRoot(a)
         let rootB = comparisonRoot(b)
@@ -116,16 +120,17 @@ public enum OutputEquivalence {
             filesA = filesA.filter { isSQLiteFile($0.value) }
             filesB = filesB.filter { isSQLiteFile($0.value) }
         }
-        let numbersA = runIDNumbers(in: filesA)
-        let numbersB = runIDNumbers(in: filesB)
+        let rootsOnly = MaskContext(rootA: rootA, rootB: rootB)
+        let numbersA = identifierNumbers(in: filesA, context: rootsOnly)
+        let numbersB = identifierNumbers(in: filesB, context: rootsOnly)
         let maskPaths = kind == .bundle
-        let keyedA = keyed(
-            filesA, maskPaths: maskPaths, masks: masks,
-            context: MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: numbersA)
+        let (keyedA, collisionsA) = keyed(
+            filesA, maskPaths: maskPaths, masks: masks.names,
+            context: MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: numbersA.runIDs, uuidNumbers: numbersA.uuids)
         )
-        let keyedB = keyed(
-            filesB, maskPaths: maskPaths, masks: masks,
-            context: MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: numbersB)
+        let (keyedB, collisionsB) = keyed(
+            filesB, maskPaths: maskPaths, masks: masks.names,
+            context: MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: numbersB.runIDs, uuidNumbers: numbersB.uuids)
         )
         // Files in both trees that are compared by content. Only a record
         // that names one of them has its stated checksum and size masked.
@@ -139,13 +144,21 @@ public enum OutputEquivalence {
             return Set(shared.compactMap { keyedFiles[$0].flatMap { nameByPath[$0.path] } })
         }
         let contextA = MaskContext(
-            rootA: rootA, rootB: rootB, runIDNumbers: numbersA, contentComparedPaths: rawNames(filesA, keyedA)
+            rootA: rootA, rootB: rootB, runIDNumbers: numbersA.runIDs, uuidNumbers: numbersA.uuids,
+            contentComparedPaths: rawNames(filesA, keyedA)
         )
         let contextB = MaskContext(
-            rootA: rootA, rootB: rootB, runIDNumbers: numbersB, contentComparedPaths: rawNames(filesB, keyedB)
+            rootA: rootA, rootB: rootB, runIDNumbers: numbersB.runIDs, uuidNumbers: numbersB.uuids,
+            contentComparedPaths: rawNames(filesB, keyedB)
         )
 
         var found: [String] = []
+        for collision in collisionsA {
+            found.append("collides in A: \(collision)")
+        }
+        for collision in collisionsB {
+            found.append("collides in B: \(collision)")
+        }
         for name in Set(keyedA.keys).subtracting(keyedB.keys).sorted() {
             found.append("only in A: \(name)")
         }
@@ -200,37 +213,80 @@ public enum OutputEquivalence {
         return files
     }
 
-    private static func keyed(_ files: [String: URL], maskPaths: Bool, masks: [Mask], context: MaskContext) -> [String: URL] {
-        guard maskPaths else { return files }
+    /// Each file under its masked name. Two files whose names mask to one
+    /// name are a collision, which the comparison reports, because one of
+    /// them would otherwise go unseen. The first raw name in sorted order
+    /// keeps the masked name.
+    private static func keyed(
+        _ files: [String: URL],
+        maskPaths: Bool,
+        masks: [Mask],
+        context: MaskContext
+    ) -> (files: [String: URL], collisions: [String]) {
+        guard maskPaths else { return (files, []) }
         var result: [String: URL] = [:]
-        for (name, url) in files {
-            result[applying(masks, to: name, context: context)] = url
+        var rawNames: [String: [String]] = [:]
+        for name in files.keys.sorted() {
+            let masked = applying(masks, to: name, context: context)
+            rawNames[masked, default: []].append(name)
+            if result[masked] == nil { result[masked] = files[name] }
         }
-        return result
+        let collisions = rawNames
+            .filter { $0.value.count > 1 }
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key) names \($0.value.joined(separator: ", "))" }
+        return (result, collisions)
     }
 
-    /// Numbers each run ID in one tree by first appearance, file names first,
-    /// then the contents of each text file in path order.
-    static func runIDNumbers(in files: [String: URL]) -> [String: Int] {
-        var numbers: [String: Int] = [:]
-        func record(_ text: String) {
+    /// Numbers each run ID and each UUID in one tree by first appearance.
+    /// File names come first, the names of provenance envelopes and manifests
+    /// before the others, then the text of each provenance envelope and
+    /// manifest. The files are taken in an order that ignores the IDs
+    /// themselves, by name and then by record text with every ID blanked and
+    /// both roots masked, so two children named by random UUIDs get the same
+    /// numbers in both trees whichever way their UUIDs sort. Only files that
+    /// tie on both keys, such as two children whose records are the same
+    /// apart from their IDs, fall back to the order of their raw names.
+    static func identifierNumbers(
+        in files: [String: URL],
+        context: MaskContext
+    ) -> (runIDs: [String: Int], uuids: [String: Int]) {
+        func blanked(_ text: String) -> String {
+            let withoutUUIDs = Masks.replace(Masks.uuidPattern, in: Masks.roots(text, context: context)) { _ in "<ID>" }
+            return Masks.replace(Masks.runIDPattern, in: withoutUUIDs) { _ in "<ID>" }
+        }
+        var recordTexts: [String: String] = [:]
+        var isRecord: Set<String> = []
+        for (name, url) in files where role(ofFileNamed: url.lastPathComponent) != .payload {
+            isRecord.insert(name)
+            guard let data = try? Data(contentsOf: url),
+                  !isGzip(data),
+                  let text = String(data: data, encoding: .utf8)
+            else { continue }
+            recordTexts[name] = text
+        }
+        let order = files.keys
+            .map { name in (name: name, key: [blanked(name), recordTexts[name].map(blanked) ?? ""]) }
+            .sorted { $0.key != $1.key ? $0.key.lexicographicallyPrecedes($1.key) : $0.name < $1.name }
+            .map(\.name)
+
+        var runIDs: [String: Int] = [:]
+        var uuids: [String: Int] = [:]
+        func number(_ pattern: NSRegularExpression, in text: String, into numbers: inout [String: Int]) {
             let source = text as NSString
-            for match in Masks.runIDPattern.matches(in: text, range: NSRange(location: 0, length: source.length)) {
+            for match in pattern.matches(in: text, range: NSRange(location: 0, length: source.length)) {
                 let value = source.substring(with: match.range).lowercased()
                 if numbers[value] == nil { numbers[value] = numbers.count + 1 }
             }
         }
-        let names = files.keys.sorted()
-        names.forEach(record)
-        for name in names {
-            guard let url = files[name],
-                  let data = try? Data(contentsOf: url),
-                  !isGzip(data),
-                  let text = String(data: data, encoding: .utf8)
-            else { continue }
-            record(text)
+        func record(_ text: String) {
+            number(Masks.runIDPattern, in: text, into: &runIDs)
+            number(Masks.uuidPattern, in: text, into: &uuids)
         }
-        return numbers
+        order.filter { isRecord.contains($0) }.forEach(record)
+        order.filter { !isRecord.contains($0) }.forEach(record)
+        order.compactMap { recordTexts[$0] }.forEach(record)
+        return (runIDs, uuids)
     }
 
     static func isSQLiteFile(_ url: URL) -> Bool {

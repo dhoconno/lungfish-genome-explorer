@@ -16,9 +16,12 @@ This script is a source scan with a test cross-check, so it needs no build.
    forwards its caller's value and is not a site, but the call to that
    forwarder is, so a wrapper such as DemoProjectsViewModel's
    `begin(title:detail:cliCommand:)` hides no row.
-2. The value is the number of distinct gap IDs in Sources plus the IDs listed
-   in cli-parity-gaps.pending (gaps whose site sits in a file another lane owns,
-   so it carries no marker yet). The value may not pass the baseline.
+2. The value counts gap sites. Each begin site counts once for every gap ID
+   it carries, so a shared helper that serves several operations counts each
+   of them, and a new nil site that reuses an existing ID still raises the
+   value. Each line of cli-parity-gaps.pending (a gap whose site sits in a
+   file another lane owns, so it carries no marker yet) counts once more. The
+   value may not pass the baseline.
 3. Every gap ID needs an `assertCLIParityGap(..., id: "<ID>")` pin in Tests,
    except a pending ID. Every pinned ID needs a marker or a pending line.
 4. A begin site that passes the literal `nil` as `cliCommand` needs a gap
@@ -399,7 +402,9 @@ def evaluate(root: Path):
     gap_ids = {key.split(":", 1)[1] for key in markers if key.startswith("gap:")}
     site_gap_ids = {gap for s in sites for gap in s.gaps}
     site_exempt = {reason for s in sites for reason in s.exempt}
-    value = len(gap_ids | set(pending))
+    # Gap sites, not distinct IDs (rule 2).
+    pending_lines = read_lines(root / "scripts" / "ratchets" / f"{NAME}.pending")
+    value = sum(len(s.gaps) for s in sites) + len(pending_lines)
 
     failures: list[str] = []
     for gap in sorted(gap_ids - site_gap_ids):
@@ -474,9 +479,10 @@ def main(argv: list[str], root: Path = REPO_ROOT) -> int:
                 file=sys.stderr,
             )
             return 1
+        # The list may only shrink, also once it is empty or missing.
         listed = read_lines(untested_path)
         added = sorted(set(untested) - set(listed))
-        if listed and added:
+        if added:
             print(f"{NAME}: refusing to add untested sites: {', '.join(added)}", file=sys.stderr)
             return 1
         baseline_path.write_text(f"{value}\n", encoding="utf-8")
