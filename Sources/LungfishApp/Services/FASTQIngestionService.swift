@@ -156,8 +156,6 @@ public enum FASTQIngestionService {
         // launches nothing, and the panel already shows the refused row.
         Self.beginInPlaceIngestionOperation(
             url: url,
-            pairingMode: pairingMode,
-            pairedFile: pairedFile,
             routeContext: routeContext
         ) { opID in
             let task = Task.detached {

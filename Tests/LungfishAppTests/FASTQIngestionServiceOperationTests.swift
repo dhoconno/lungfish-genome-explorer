@@ -51,18 +51,12 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
     // MARK: - In-place ingestion (site 24)
 
     private let downloadedURL = URL(fileURLWithPath: "/tmp/lane 1a2l3/Downloads/SRR1770413_1.fastq.gz")
-    private let downloadedMateURL = URL(fileURLWithPath: "/tmp/lane 1a2l3/Downloads/SRR1770413_2.fastq.gz")
 
-    private func recordedInPlaceRow(
-        pairingMode: FASTQIngestionConfig.PairingMode,
-        pairedFile: URL?
-    ) throws -> RecordingOperationReporter.Item {
+    private func recordedInPlaceRow() throws -> RecordingOperationReporter.Item {
         let reporter = RecordingOperationReporter()
         var launchedID: UUID?
         let result = FASTQIngestionService.beginInPlaceIngestionOperation(
             url: downloadedURL,
-            pairingMode: pairingMode,
-            pairedFile: pairedFile,
             routeContext: routeContext,
             reporter: reporter
         ) { launchedID = $0 }
@@ -77,7 +71,7 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
     }
 
     func testInPlaceIngestionRecordsAnIngestionRowNamedForTheFile() throws {
-        _ = try recordedInPlaceRow(pairingMode: .singleEnd, pairedFile: nil)
+        _ = try recordedInPlaceRow()
     }
 
     func testInPlaceIngestionRecordsNoCommandAndPinsTheParityGap() throws {
@@ -91,14 +85,9 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
         // `--binning none --delete-originals`, which runs the same pipeline and
         // leaves the sidecar unwritten. When a command covers the in-place run,
         // record it and replace this pin with a parse test and a replay test.
-        for (pairingMode, pairedFile) in [
-            (FASTQIngestionConfig.PairingMode.singleEnd, nil as URL?),
-            (.pairedEnd, downloadedMateURL),
-        ] {
-            let item = try recordedInPlaceRow(pairingMode: pairingMode, pairedFile: pairedFile)
-            XCTAssertNil(item.cliCommand, "\(pairingMode): the row records no command it cannot reproduce")
-            assertCLIParityGap(item.cliCommand, id: "fastq-ingest-in-place")
-        }
+        let item = try recordedInPlaceRow()
+        XCTAssertNil(item.cliCommand, "the row records no command it cannot reproduce")
+        assertCLIParityGap(item.cliCommand, id: "fastq-ingest-in-place")
     }
 
     func testRefusedInPlaceIngestionLaunchesNothing() {
@@ -107,8 +96,6 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
 
         let result = FASTQIngestionService.beginInPlaceIngestionOperation(
             url: downloadedURL,
-            pairingMode: .singleEnd,
-            pairedFile: nil,
             routeContext: routeContext,
             reporter: reporter
         ) { _ in launched = true }

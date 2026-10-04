@@ -26,22 +26,19 @@ extension FASTQIngestionService {
     /// Registers the in-place ingestion row and, only when it starts, calls
     /// `launch` with the operation ID. The row locks no bundle.
     ///
-    /// CLI parity gap. The run clumpifies and compresses the FASTQ file in
-    /// place with `FASTQIngestionPipeline`, deletes the original, writes the
-    /// FASTQ metadata sidecar and applies no quality binning. No `lungfish-cli`
-    /// command reproduces that. The closest is `lungfish-cli debug
-    /// fastq-ingest` with `--binning none --delete-originals`, which runs the
-    /// same pipeline but leaves the sidecar unwritten. The row keeps recording
-    /// the `lungfish-cli import fastq` command from
-    /// ``inPlaceIngestionCommandPreview(url:pairingMode:pairedFile:)``, which
-    /// would build a new bundle under `Imports` in the file's folder and bin
-    /// quality scores with `illumina4`. The row keeps that command until a
-    /// command covers the in-place run.
+    /// cli-parity-gap: fastq-ingest-in-place. The run clumpifies and
+    /// compresses the FASTQ file in place with `FASTQIngestionPipeline`,
+    /// deletes the original, writes the FASTQ metadata sidecar and applies no
+    /// quality binning. No `lungfish-cli` command reproduces that. The closest
+    /// is `lungfish-cli debug fastq-ingest` with `--binning none
+    /// --delete-originals`, which runs the same pipeline but leaves the
+    /// sidecar unwritten. The row used to record a `lungfish-cli import fastq`
+    /// command, which would build a new bundle under `Imports` in the file's
+    /// folder and bin quality scores with `illumina4`, a run that never
+    /// happened. It records no command until one covers the in-place run.
     @discardableResult
     static func beginInPlaceIngestionOperation(
         url: URL,
-        pairingMode: FASTQIngestionConfig.PairingMode,
-        pairedFile: URL?,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
@@ -50,11 +47,7 @@ extension FASTQIngestionService {
             title: "FASTQ Ingestion: \(FASTQIngestionPipeline.deriveBaseName(from: url))",
             detail: "Preparing...",
             operationType: .ingestion,
-            cliCommand: inPlaceIngestionCommandPreview(
-                url: url,
-                pairingMode: pairingMode,
-                pairedFile: pairedFile
-            ),
+            cliCommand: nil,
             routeContext: routeContext
         )
         switch result {
