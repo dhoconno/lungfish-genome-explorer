@@ -104,7 +104,9 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
         guard let matcher = BarcodeMatcher(entries: barcodeEntries) else {
             throw ONTFluidigmSampleMaterializerError.noBarcodeRows(request.barcodeDefinitionsURL)
         }
-        let inputFASTQs = try ONTBarcodeDemuxGenotypingPipeline.resolveInputFASTQURLs(for: request.inputURL)
+        let inputScratch = request.outputDirectory.appendingPathComponent(".input-read-sets", isDirectory: true)
+        defer { try? fm.removeItem(at: inputScratch) }
+        let inputFASTQs = try await ONTBarcodeDemuxGenotypingPipeline.plannedInputReads(for: request.inputURL, readType: .ont, workDirectory: inputScratch).fastqURLs
         guard !inputFASTQs.isEmpty else {
             throw ONTFluidigmSampleMaterializerError.noInputFASTQs(request.inputURL)
         }
