@@ -162,20 +162,93 @@ final class MapReadSetStandInTests: XCTestCase {
         XCTAssertEqual(leftovers, ["merge.sorted.bam"], "the intermediate BAMs are removed")
     }
 
+    // MARK: - Chunked roots are paired by name only for a short-read platform (D9)
+
+    /// A Nanopore import whose two chunks are named `x_1` and `x_2`, and a
+    /// chunked root that records no known platform, are pooled as single
+    /// reads like any chunked root. Before, the two chunks were handed over
+    /// as R1 and R2 of unequal length, so the mappers mis-paired them.
+    func testChunksNamedLikeMatesArePooledUnlessAShortReadPlatformIsRecorded() async throws {
+        try await assertInputs(fixtures.nanoporeChunkedRoot, [
+            .minimap2: ["[o-a,o-b,o-c]"],
+            .bwaMem2: ["[o-a,o-b,o-c]"],
+            .bowtie2: ["-U [o-a,o-b,o-c]"],
+            .bbmap: ["in=[o-a,o-b,o-c] interleaved=f"],
+        ])
+        try await assertInputs(fixtures.unknownPlatformChunkedRoot, [
+            .minimap2: ["[v1,v2]"],
+            .bwaMem2: ["[v1,v2]"],
+            .bowtie2: ["-U [v1,v2]"],
+            .bbmap: ["in=[v1,v2] interleaved=f"],
+        ])
+        // Illumina chunks named as R1 and R2 stay one mate pair.
+        try await assertInputs(fixtures.namedPairChunkedRoot, [
+            .minimap2: ["[q1/1] [q1/2]"],
+            .bwaMem2: ["[q1/1] [q1/2]"],
+            .bowtie2: ["-1 [q1/1] -2 [q1/2]"],
+            .bbmap: ["in=[q1/1] in2=[q1/2]"],
+        ])
+    }
+
+    // MARK: - Provenance records the files written for the mapper
+
+    /// The stream a stream mapper reads for a merge derivative is recorded
+    /// as an interleave step with its record counts.
+    func testInterleaveOfAMergeDerivativeIsAProvenanceStep() async throws {
+        let outputDirectory = root.appendingPathComponent("interleave-out", isDirectory: true)
+        try await map(fixtures.mergeDerivative, tool: .minimap2, outputDirectory: outputDirectory)
+        _ = try standIn.takeCalls()
+        let provenance = try XCTUnwrap(MappingProvenance.load(from: outputDirectory))
+        let step = try XCTUnwrap(
+            provenance.steps.first { $0.toolName == "Lungfish Read-Set Interleave" },
+            "\(provenance.steps.map(\.toolName))"
+        )
+        XCTAssertEqual(step.resolvedOptions?["pairs"], .integer(1))
+        XCTAssertEqual(step.resolvedOptions?["singleReads"], .integer(3))
+        XCTAssertEqual(
+            step.outputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path },
+            provenance.inputFASTQPaths.map { URL(fileURLWithPath: $0).standardizedFileURL.path },
+            "the mapper read the interleaved stream"
+        )
+    }
+
+    /// A split of a virtual bundle records the materialization that wrote
+    /// the split's input, then the split, never a materialization of the
+    /// split's outputs.
+    func testSplitOfAVirtualBundleRecordsItsMaterializationThenTheSplit() async throws {
+        let outputDirectory = root.appendingPathComponent("split-out", isDirectory: true)
+        try await map(fixtures.subsetOfMerge, tool: .bowtie2, outputDirectory: outputDirectory)
+        _ = try standIn.takeCalls()
+        let provenance = try XCTUnwrap(MappingProvenance.load(from: outputDirectory))
+        let names = provenance.steps.map(\.toolName)
+        let materialization = try XCTUnwrap(
+            provenance.steps.first { $0.toolName == CLISequenceInputMaterialization.materializationToolName },
+            "\(names)"
+        )
+        let split = try XCTUnwrap(provenance.steps.first { $0.toolName == "Lungfish Read-Set Split" }, "\(names)")
+        XCTAssertEqual(materialization.outputs.map(\.path), split.inputs.map(\.path), "the split reads the materialized file")
+        XCTAssertEqual(split.outputs.count, 3)
+        XCTAssertLessThan(try XCTUnwrap(names.firstIndex(of: materialization.toolName)), try XCTUnwrap(names.firstIndex(of: split.toolName)))
+    }
+
     // MARK: - Helpers
 
+    /// Maps `bundle` with every mapper and checks what each was handed, in
+    /// one comparison of the whole table, so every mismatch is reported.
     private func assertInputs(
         _ bundle: URL,
         _ expected: [MappingTool: [String]],
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
+        var actual: [String: [String]] = [:]
         for tool in MappingTool.allCases {
             let outputDirectory = root.appendingPathComponent("\(bundle.deletingPathExtension().lastPathComponent)-\(tool.rawValue)", isDirectory: true)
             try await map(bundle, tool: tool, outputDirectory: outputDirectory)
-            let inputs = try MapReadSetStandIn.mapperInputs(standIn.takeCalls())
-            XCTAssertEqual(inputs, expected[tool], "\(tool.rawValue) on \(bundle.lastPathComponent)", file: file, line: line)
+            actual[tool.rawValue] = try MapReadSetStandIn.mapperInputs(standIn.takeCalls())
         }
+        let wanted = Dictionary(uniqueKeysWithValues: expected.map { ($0.key.rawValue, $0.value) })
+        XCTAssertEqual(actual, wanted, "mapper inputs for \(bundle.lastPathComponent)", file: file, line: line)
     }
 
     /// Resolves `input` the way `lungfish-cli map` does and runs the pipeline.
