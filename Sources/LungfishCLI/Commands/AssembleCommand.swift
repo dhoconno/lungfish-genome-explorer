@@ -68,7 +68,7 @@ struct AssembleCommand: AsyncParsableCommand {
         name: .customLong("read-layout"),
         help: ArgumentHelp(
             "How the records of a single Illumina input file relate: auto, single-end, interleaved (every record is followed by its mate), or mixed (merged reads and interleaved pairs in one file) (default: auto)",
-            discussion: "auto reads the enclosing .lungfishfastq bundle's metadata, then scans read names (identical names, /1 /2, and Casava descriptions all count as mates). SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends; a mixed file is assembled as single reads because those flags pair records by position."
+            discussion: "auto reads the enclosing .lungfishfastq bundle's metadata, then scans read names (identical names, /1 /2, and Casava descriptions all count as mates). SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends. Under auto or mixed, a file that mixes merged reads with pairs is split by fragment name, its pairs are assembled as pairs, and its merged and single reads go in beside them in the same run. A bundle that keeps its mates in separate R1 and R2 files refuses --read-layout."
         )
     )
     var readLayout: AssembleReadLayoutArgument = .auto

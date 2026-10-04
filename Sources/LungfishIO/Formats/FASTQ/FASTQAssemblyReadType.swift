@@ -1,4 +1,4 @@
-// FASTQAssemblyReadType.swift - Explicit dataset-level read type used to constrain assembly tool
+// FASTQAssemblyReadType.swift - Explicit dataset-level read type that sets assembly defaults
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -8,7 +8,7 @@ import os.log
 
 // MARK: - Persisted Assembly Read Type
 
-/// Explicit dataset-level read type used to constrain assembly tool selection.
+/// Explicit dataset-level read type that sets assembly defaults and warnings.
 ///
 /// Stored in the FASTQ sidecar so the app can remember a user-confirmed assembly
 /// class independently of sample metadata CSV fields.

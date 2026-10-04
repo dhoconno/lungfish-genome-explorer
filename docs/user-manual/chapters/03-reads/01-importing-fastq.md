@@ -4,7 +4,7 @@ chapter_id: 03-reads/01-importing-fastq
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 01-foundations/06-the-lungfish-project]
 estimated_reading_min: 20
-task: Import FASTQ read files, or an unmapped Oxford Nanopore BAM, into a Lungfish Genome Explorer project.
+task: Import FASTQ read files, or an unmapped BAM, into a Lungfish Genome Explorer project.
 tags: [reads, fastq, bam, ont, import, paired-end, batch, sample-sheet]
 tools: []
 parameters_refs: [import.fastq, import.fastq-sample-sheet]
@@ -79,7 +79,7 @@ When an operation has left mates on their own, [Repairing a paired file whose ma
 
 Nothing in LGE works from a loose file on your desktop. Quality control, trimming, mapping, classification, assembly, and variant calling all take a bundle as input, and each has its own chapter later on.
 
-The bundle also records what a FASTQ file leaves out. A FASTQ file holds reads and nothing else. It does not say which instrument produced it, which specimen it came from, or whether a second file holds the other half of each pair. The bundle records the platform and the pairing, and it has room for the facts about the specimen that you type in yourself.
+The bundle also records what a FASTQ file leaves out. A FASTQ file holds reads and nothing else. It does not say which instrument produced it, which specimen it came from, or whether a second file holds the other half of each pair. The bundle records the platform and the pairing, and it has room for the facts about the specimen that you type in yourself. LGE works the platform out from the reads at import and keeps the evidence with the bundle, as [How LGE decides the platform](#how-lge-decides-the-platform) explains.
 
 This chapter works through the HG002 chromosome 20 slice. HG002 is a human genome from the Genome in a Bottle project whose true sequence is already known. The project publishes such reference samples so laboratories can check their methods. The fixture is a pair of Illumina files holding 45,574 read pairs, each read up to 250 bases long. The reads come from a 500,000-base stretch of chromosome 20, from 10.0 to 10.5 million bases along it, which is what `10.0-10.5Mb` in the filenames means.
 
@@ -129,6 +129,16 @@ A file whose mate is missing imports as [single-end](../../GLOSSARY.md#single-en
 
 When renaming is not an option, a [sample sheet](../../GLOSSARY.md#sample-sheet) pairs the files explicitly, and it overrides filename matching entirely. [Importing from a sample sheet](#importing-from-a-sample-sheet) walks through one.
 
+## How LGE decides the platform
+
+A FASTQ file does not name its instrument, but the header line of each read carries traces of it. Illumina instruments write names built from the instrument, run, flowcell, lane, tile, and position. Oxford Nanopore basecalling software adds keys such as the run and the flowcell, or SAM-style tags, to the name line. PacBio names begin with a movie name and a hole number. LGE reads the first 32 reads of each sample, or the first 256 kilobytes of text when that comes sooner, which is what bounds the sample for long reads. Each header votes for the platform whose form it matches, and LGE names a platform only when the votes agree. It reads plain files, gzip files, and BGZF files, the block-wise form of gzip that bioinformatics tools write. For an unmapped BAM, LGE reads the platform from the BAM header instead, meaning the read-group `PL` and `DS` fields and the names of the programs that wrote the file.
+
+Every decision comes with its evidence, a plain sentence such as the header form found and how many of the sampled reads show it, and a confidence of high, medium, low, or none. Only a high or medium confidence names a platform. The import sheet shows it, the command line prints it, and the bundle keeps it, so you can see later why a bundle carries the platform it does. LGE infers Illumina, Oxford Nanopore, PacBio, Element Biosciences, and MGI / DNBSEQ. It never infers Ultima Genomics, so choose that one yourself. Ion Torrent reads are recorded as Unknown, with Ion Torrent named in the evidence.
+
+Read length alone never names a platform. Reads whose headers match no known form, reads whose headers disagree with each other, and reads with short-read headers that run past 1,000 bases are recorded as Unknown. So are reads whose names were replaced before the files reached you, such as some files downloaded from an archive outside LGE. A download through LGE takes its platform from the archive record instead, as [Downloading from SRA](02-downloading-from-sra.md) explains. Unknown is never turned into Illumina. It says that the platform could not be told, and Optimize storage starts off for it.
+
+The platform and the read class it implies only choose defaults. Mapping preselects the minimap2 preset for the read class, assembly preselects the read type, and Viral Recon picks its pipeline mode. A tool that does not suit the reads shows an orange warning, Run stays available, and the tool uses the settings you chose. Reads of Unknown platform take their defaults from read length, the long-read defaults for long reads and the short-read defaults for short ones, with a note that these defaults are not tuned to a platform. [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) and [When to Assemble](../07-assembly/01-when-to-assemble.md) show where the warnings appear.
+
 ## Procedure
 
 This procedure imports the HG002 chromosome 20 pair through the Import Center. Dragging the two files onto the sidebar opens the same configuration sheet, so it skips straight to step 4.
@@ -145,7 +155,7 @@ This procedure imports the HG002 chromosome 20 pair through the Import Center. D
 
     <!-- SHOT: import-fastq-configuration-sheet -->
 
-5. Check that the summary lists R1 and R2 on separate lines, **Platform** reads Illumina, and **Quality Binning** reads None (preserve original), then click **Import**. [Settings](#settings) explains every control on the sheet. There is no sample-name field. The name comes from the shared filename stem, the part left once the mate suffix and the file ending are removed, which here is `HG002.chr20.10.0-10.5Mb`.
+5. Check that the summary lists R1 and R2 on separate lines, **Platform** reads Illumina, and **Quality Binning** reads None (preserve original), then click **Import**. A line under the summary says where Illumina came from, which is the read-name form LGE found and its confidence. Leave **Platform** alone and the import infers it again for every sample. [Settings](#settings) explains every control on the sheet. There is no sample-name field. The name comes from the shared filename stem, the part left once the mate suffix and the file ending are removed, which here is `HG002.chr20.10.0-10.5Mb`.
 
 Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The import runs the same way whether the panel is open or not. When it finishes, a bundle named `HG002.chr20.10.0-10.5Mb` appears under `Imports` in the [sidebar](../../GLOSSARY.md#sidebar), the list of project contents down the left of the window.
 
@@ -153,7 +163,7 @@ Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-projec
 
 ### Importing many samples at once
 
-Select a folder in step 3 instead of individual files, and LGE matches mates across everything in it and makes one bundle per sample. The configuration sheet then applies one set of settings to the whole batch. That is also its limit. A folder holding Illumina and Oxford Nanopore samples would get one Platform value for all of them, so import each instrument's files as a separate batch.
+Select a folder in step 3 instead of individual files, and LGE matches mates across everything in it and makes one bundle per sample. The configuration sheet then applies one set of settings to the whole batch. That is also its limit for most controls. The exception is **Platform**. When the samples in a folder look like different instruments, the control opens on **Detected per sample**, the line under the summary counts how many samples were found for each platform, and every sample is imported as its own platform. Pick a platform from the list instead and it applies to every sample in the batch.
 
 ### Importing from a sample sheet
 
@@ -166,15 +176,15 @@ HG002-chr20,HG002.chr20.10.0-10.5Mb_R1.fastq.gz,HG002.chr20.10.0-10.5Mb_R2.fastq
 
 To use one, click the **FASTQ Sample Sheet** card in step 3 instead, choose the CSV, and click **Open**. The same Import FASTQ sheet opens, and each bundle is named from its row's `sample` value instead of the filename stem.
 
-### Importing an unmapped Oxford Nanopore BAM
+### Importing an unmapped BAM
 
-An unmapped BAM goes through the same Sequencing Read Files card. Select the `.bam` file in step 3. A BAM input always imports as single-end, because it carries no `_R1` and `_R2` names to match on. Set Platform to Oxford Nanopore if LGE has not already detected it.
+An unmapped BAM goes through the same Sequencing Read Files card. Select the `.bam` file in step 3. A BAM is always one file per sample, because it carries no `_R1` and `_R2` names to match on. LGE converts it to FASTQ and reads the platform from the BAM header. A BAM from Oxford Nanopore software or an Illumina instrument is detected, and a paired Illumina BAM is imported as an interleaved file whose mates alternate. A BAM whose header names no platform imports as Unknown, and the line under the summary says so. Choose the platform yourself in that case. PacBio BAM files are the one input LGE refuses, with the message "PacBio BAM import is not supported yet". Convert such a file with `samtools fastq` and import the FASTQ.
 
 ## Settings
 
 These are the controls on the Import FASTQ sheet, which opens whether you came through a Sequencing Reads card or dragged reads onto the sidebar. Its settings apply to every sample in the batch, including every row of a sample sheet. The FASTQ Sample Sheet card has no settings of its own beyond the file panel. For a standard Illumina run the starting values are the right ones, and the R1 and R2 summary lines are the thing worth a glance, because a misnamed file shows up there as a single file.
 
-**Platform.** Records which sequencing instrument produced the reads, and it sets the starting value of Optimize storage and hides Pairing for Oxford Nanopore. It defaults to the platform detected from the read headers and offers Illumina, Oxford Nanopore, PacBio, Element Biosciences, Ultima Genomics, MGI / DNBSEQ, and Unknown / Other. Change it when the detected platform is wrong, which happens most often with reads that were renamed or reprocessed before they reached you. Element Biosciences, MGI / DNBSEQ, and Unknown / Other are recorded as Illumina. On the command line this is `--platform`.
+**Platform.** Records which sequencing instrument produced the reads, and it sets the starting value of Optimize storage and hides Pairing for Oxford Nanopore. It defaults to the platform detected from the read headers and offers Illumina, Oxford Nanopore, PacBio, Element Biosciences, Ultima Genomics, MGI / DNBSEQ, and Unknown / Other. When the batch holds samples of different platforms it also offers **Detected per sample** and opens on it. Change it when the detected platform is wrong, which happens most often with reads that were renamed or reprocessed before they reached you. A platform you choose is recorded as you chose it even when the reads suggest another. The import log notes the disagreement when the reads point elsewhere with high confidence. Element Biosciences and MGI / DNBSEQ are recorded as themselves and Unknown / Other as Unknown. The platform only sets defaults for later steps and never stops one. On the command line this is `--platform`, which takes `auto` by default.
 
 **Pairing.** Tells LGE whether each sample is one file, two mate files, or one file whose mates alternate, offering Single-end, Paired-end, and [Interleaved](../../GLOSSARY.md#interleaved-fastq). It defaults to Paired-end when a mate was matched. A single file whose first 2,000 reads alternate between mate 1 and mate 2 opens as Interleaved, and any other single file opens as Single-end. Choosing Oxford Nanopore hides it. Single-end imports every file as its own sample even when a mate was matched, naming each bundle after its file, and Interleaved imports each file whole as a paired bundle. On the command line this is `--pairing`, which takes `auto`, `single`, `paired`, or `interleaved`, and its default `auto` matches mates by file name as the sheet does and reads a single file's records to tell interleaved pairs from single-end reads. A choice you make yourself is recorded as yours, so later tools keep it even when the reads look otherwise.
 
@@ -220,9 +230,15 @@ A plain import always writes a bundle that holds its own reads. Only demultiplex
 
 The read count, lengths, and quality figures are measured from the file and cannot be edited. [Sample metadata](../../GLOSSARY.md#sample-metadata) is different. It is the facts about the specimen that no FASTQ file records, such as the collection date, the host, and where it was collected, so LGE lets you supply them.
 
-To edit one bundle, select it. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Its **Sample Metadata** section starts with Sample Name, set to the bundle name, and a **Template** popup offering Clinical, Wastewater, Air Sample, Environmental, and Custom. The template decides which fields follow. Every template shows a collection date, a start and an end for Air Sample, and Geographic Location, and Clinical, Wastewater, and Custom add Organism, and a details group below holds the rest, such as Host and Sample Type for Clinical. A **Read Type** popup, set to Auto, tells the assembly tools what kind of reads these are, and the grey line under it names the type LGE detected. Notes, Attachments, and Custom Fields sit at the bottom, and Custom Fields takes any key and value you add. Edits save on their own after a short pause, into a `metadata.csv` file inside the bundle. The menu at the section's top right offers Revert to Last Saved and Clear All Metadata.
+To edit one bundle, select it. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Its **Sample Metadata** section starts with Sample Name, set to the bundle name, and a **Template** popup offering Clinical, Wastewater, Air Sample, Environmental, and Custom. The template decides which fields follow. Every template shows a collection date, a start and an end for Air Sample, and Geographic Location, and Clinical, Wastewater, and Custom add Organism, and a details group below holds the rest, such as Host and Sample Type for Clinical. A **Read Type** popup, set to Auto, tells the assembly tools what kind of reads these are, and the grey line under it names the type LGE detected and the assemblers that suit it. The read type sets assembly defaults and never blocks a run, and a change runs through the Operations Panel, as [Correcting a platform label](#correcting-a-platform-label) explains. Notes, Attachments, and Custom Fields sit at the bottom, and Custom Fields takes any key and value you add. Edits save on their own after a short pause, into a `metadata.csv` file inside the bundle. The menu at the section's top right offers Revert to Last Saved and Clear All Metadata.
 
 To edit many bundles at once, right-click the sidebar folder that holds them, such as `Imports`, and choose **Edit Sample Metadata...**. A table opens with one row per bundle and columns for Sample Name, Role, Sample Type, Collection Date, Location, Host, Patient ID, Run ID, and Organism, and you edit a value by clicking its cell. **Import CSV...** fills the table from a spreadsheet saved as CSV, matching its `sample_name` column to the bundle names. **Export CSV...** writes the table out. **Save** stores the table as `samples.csv` in the folder and writes each row into its bundle.
+
+### Correcting a platform label
+
+The Inspector shows the platform and read type a bundle records. A bundle imported by an earlier release can carry a wrong label, most often Illumina on Oxford Nanopore or PacBio reads. When the read headers contradict the recorded label with high confidence, or a bundle recorded as short reads holds a read over 1,000 bases, the Inspector's **Sample Metadata** section shows an orange notice. It names the recorded read type and the reason. **Use** followed by a platform appears under it only when the reads name one, and it records that platform. **Keep** followed by the recorded platform leaves the label as it is and stops the notice from returning. Nothing changes until you choose. Element Biosciences or MGI / DNBSEQ reads recorded as Illumina are not flagged, because they take the same short-read processing. A bundle whose record says how its label was decided, whether inferred, given, corrected, or kept, is not questioned again.
+
+Both buttons run `lungfish-cli fastq platform` through the Operations Panel, so the change has a recorded command and a provenance record. Only the bundle's metadata file is rewritten and the reads are never touched. Analyses that already used the bundle chose their tools for the old label, and LGE does not redo them. The **Read Type** popup in the same section sends its choice through the same command, and Auto clears the recorded read type so detection decides.
 
 ## What good looks like
 
@@ -254,18 +270,23 @@ lungfish-cli import fastq \
   "$PROJECT/Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb_R2.fastq.gz" \
   --project "$MINE" --dry-run
 
-# Import the pair with the sheet's starting values.
+# Import the pair with the sheet's starting values. Platform auto infers it from the reads.
 lungfish-cli import fastq \
   "$PROJECT/Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb_R1.fastq.gz" \
   "$PROJECT/Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb_R2.fastq.gz" \
   --project "$MINE" \
-  --platform illumina --quality-binning none --compression balanced
+  --platform auto --quality-binning none --compression balanced
+
+# Show the platform LGE recorded and the evidence behind it.
+lungfish-cli fastq platform "$MINE/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq"
 
 # Import from a sample sheet instead of matching filenames.
 lungfish-cli import fastq --samplesheet "$HOME/Documents/samples.csv" --project "$MINE"
 ```
 
-Three things differ from the window. A sample that already has a bundle is skipped without a prompt and counted under Skipped in the summary, unless you add `--force` to replace it. `--platform` accepts only `illumina`, `ont`, `pacbio`, and `ultima`, and when you leave it off, reads whose headers LGE cannot identify are treated as Illumina. The `--quality-binning` values are `illumina4` for Illumina (7-level), `eightLevel` for Fine (~21-level), and `none`, which is the default, so the numbers in the value names do not match the level counts.
+Two things differ from the window. A sample that already has a bundle is skipped without a prompt and counted under Skipped in the summary, unless you add `--force` to replace it. The `--quality-binning` values are `illumina4` for Illumina (7-level), `eightLevel` for Fine (~21-level), and `none`, which is the default, so the numbers in the value names do not match the level counts.
+
+`--platform` takes `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, and `unknown`. Its default `auto` does what the sheet does when you leave Platform alone. It infers each sample from its own reads, prints the evidence, and records reads it cannot identify as Unknown and never as Illumina. `--dry-run` prints that inference for every sample without importing. A value you give is recorded as given. `lungfish-cli fastq platform` shows a bundle's recorded platform and the evidence, and [Correcting a platform label](#correcting-a-platform-label) covers changing it.
 
 ## Next
 

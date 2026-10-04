@@ -17,6 +17,8 @@ Every Operations panel row records a `lungfish-cli` command. The command parses 
 
 A command may be refined after `begin` with `setCommand`, only to a more specific command for the same run, such as one that names outputs resolved after `begin`. The final value obeys every requirement above.
 
+The FASTQ operations dialog row is the first to do this. Its output path is chosen during the run, so the row records `<derived>` as the output at `begin`. After a successful run, `FASTQOperationRowCommand` in `Sources/LungfishApp/Services/FASTQOperationRowCommand.swift` replaces it with the command each imported bundle's manifest records, one line per distinct command in import order. A Savont row takes its executed invocations instead, each naming the published FASTA in `--output`. The row is refined only when every imported bundle or published FASTA exists and every line starts with `lungfish-cli` and holds no `<derived>`. Otherwise the `begin` command stays and one log line says why. A grouped result, such as a demultiplex, keeps the placeholder until Phase 2. `FASTQOperationRowCommandTests` pins the rule, and `FASTQDialogRowCommandReplayTests` replays a refined command onto a second root and compares the payload files.
+
 ## Same result
 
 The kind of output decides what "same" means. Every comparison applies the masks in the last row and nothing else. `OutputEquivalence.Kind` in `Tests/Support/LungfishTestSupport/OutputEquivalence.swift` names each kind.
@@ -47,15 +49,9 @@ A row that does not meet the rule today is a gap. Each gap has an ID, and the be
 
 No new gap may be added. A new operation lands with its command.
 
-The gaps counted when this contract landed numbered 43. Forty carry a marker in `Sources/`. Three sit in files that other lanes were editing at the time, so they carry no marker yet and are listed in `scripts/ratchets/cli-parity-gaps.pending` instead.
+The gaps counted when this contract landed numbered 43. Three of them first sat in files that other lanes were editing, so they were listed in `scripts/ratchets/cli-parity-gaps.pending` until those lanes gave them markers. Deleting the unreachable FASTQ dashboard derivative path then closed `fastq-dashboard-derivative`. The count is now 42, and every gap carries a marker in `Sources/`, so the pending file holds no gap line.
 
-| Pending gap | Site | Closing lane |
-|---|---|---|
-| `esviritu-batch` | `beginEsVirituBatchOperation` in `Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift` | L4 |
-| `taxtriage-multi-sample` | `beginTaxTriageOperation` in `Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift` | L4 |
-| `fastq-ingest-in-place` | `beginInPlaceIngestionOperation` in `Sources/LungfishApp/Services/FASTQIngestionService+OperationBegin.swift` | L9 |
-
-A pending gap needs no pin while its line stays in the pending file. The lane that closes it deletes the line.
+A gap that a lane cannot mark in its own commit goes in the pending file as `ID file:function lane`. A pending gap needs no pin while its line stays there, and the lane that closes it deletes the line.
 
 ## Tests that enforce it
 

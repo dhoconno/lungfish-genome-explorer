@@ -124,6 +124,7 @@ features:
       - Sources/LungfishApp/App/AppDelegate+ToolsMenuOperationBegin.swift
       - Sources/LungfishWorkflow/Mapping/MappingViewerBundlePreparer.swift
       - Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift
+      - Sources/LungfishWorkflow/Mapping/MappingInputResolver.swift
       - Sources/LungfishWorkflow/Mapping/MappingResult.swift
       - Sources/LungfishWorkflow/Mapping/MappingProvenance.swift
     module: [LungfishWorkflow, LungfishCLI, LungfishApp]
@@ -365,15 +366,22 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet+Platform.swift
       - Sources/LungfishApp/Services/FASTQIngestionService+OperationBegin.swift
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImportOperationBegin.swift
       - Sources/LungfishCLI/Commands/ImportFastqCommand.swift
       - Sources/LungfishCLI/Commands/FastqMaterializeSubcommand.swift
-    module: [LungfishCLI, LungfishApp]
+      - Sources/LungfishIO/Formats/FASTQ/PlatformInference.swift
+      - Sources/LungfishWorkflow/Ingestion/ImportPlatformRequest.swift
+    module: [LungfishApp, LungfishCLI, LungfishIO, LungfishWorkflow]
     notes: >-
       Batch-imports paired-end or single-end FASTQ at any size with virtual
       previews that keep the UI responsive while operations run on the full
-      file.
+      file. The platform is inferred per sample from the read headers, or a
+      BAM's @RG PL, DS and @PG lines, and the sheet shows the evidence under
+      its summary. An untouched Platform popup imports with --platform auto,
+      and the sidecar's platformAssignment keeps the source, evidence and
+      confidence.
   viewport.fastq-dataset:
     title: FASTQ dataset dashboard
     entry_points:
@@ -391,6 +399,37 @@ features:
       Presents read counts, quality summaries, and sample metadata for a FASTQ
       dataset and launches the FASTQ operation dialogs. This dashboard is not
       one of the five genomic viewport classes.
+  fastq.platform-label:
+    title: Show, check, or correct a FASTQ bundle's platform label
+    entry_points:
+      - "Inspector > Sample Metadata > platform notice > Use or Keep"
+      - "Inspector > Sample Metadata > Read Type"
+      - "CLI: lungfish-cli fastq platform"
+    inputs: [fastq-dataset]
+    outputs: [fastq-sidecar]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/FastqPlatformSubcommand.swift
+      - Sources/LungfishWorkflow/Ingestion/FASTQPlatformLabelService.swift
+      - Sources/LungfishApp/Services/FASTQPlatformLabelOperation.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/FASTQPlatformNotice.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/FASTQMetadataSection.swift
+      - Sources/LungfishIO/Formats/FASTQ/PlatformLabelCheck.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow, LungfishIO]
+    cli:
+      - lungfish-cli fastq platform
+    operation_type: fastqOperation
+    provenance: a single-step provenance record beside the bundle's FASTQ sidecar
+    tests:
+      - Tests/LungfishCLITests/FastqPlatformCommandTests.swift
+      - Tests/LungfishAppTests/FASTQPlatformLabelOperationTests.swift
+    notes: >-
+      Shows the platform and read type a bundle records, how they were
+      decided and what the read headers show. --check exits 11 when a label
+      contradicts its reads. The Inspector's orange notice offers Use (only
+      when the reads name a platform) and Keep, and both, like the Read Type
+      popup, run lungfish-cli fastq platform through the Operations Panel.
+      Only the sidecar is rewritten, never the reads.
   fastq.qc-summary:
     title: FASTQ quality control and reporting
     entry_points:
@@ -795,7 +834,8 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
       - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
       - Sources/LungfishCLI/Commands/ClassifyCommand.swift
-    module: [LungfishApp, LungfishCLI]
+      - Sources/LungfishWorkflow/Metagenomics/KrakenReadSetPlanner.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     cli:
       - lungfish-cli conda classify
     operation_type: classification
@@ -805,7 +845,10 @@ features:
       - Tests/LungfishCLITests/ClassificationCLIInvocationRoundTripTests.swift
     notes: >-
       Runs Kraken2 taxonomic classification with Bracken abundance estimation on
-      FASTQ or FASTA inputs and opens the results in the taxonomy browser.
+      FASTQ or FASTA inputs and opens the results in the taxonomy browser. A
+      sample with separate R1 and R2 reads runs them with --paired and its
+      merged or single reads beside them in one kraken2 run, and such a result
+      counts fragments (the Fragments and Read Pairing cards).
   classify.esviritu:
     title: EsViritu viral detection
     entry_points:
@@ -819,7 +862,8 @@ features:
       - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
       - Sources/LungfishEsVirituUI/EsVirituResultViewController.swift
       - Sources/LungfishCLI/Commands/EsVirituCommand.swift
-    module: [LungfishApp, LungfishEsVirituUI, LungfishCLI]
+      - Sources/LungfishWorkflow/Metagenomics/SamplesheetReadSetPlanner.swift
+    module: [LungfishApp, LungfishEsVirituUI, LungfishCLI, LungfishWorkflow]
     cli:
       - lungfish-cli esviritu detect
     operation_type: classification
@@ -844,7 +888,8 @@ features:
       - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
       - Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift
       - Sources/LungfishCLI/Commands/TaxTriageCommand.swift
-    module: [LungfishApp, LungfishTaxTriageUI, LungfishCLI]
+      - Sources/LungfishWorkflow/TaxTriage/TaxTriageReadSetPlanner.swift
+    module: [LungfishApp, LungfishTaxTriageUI, LungfishCLI, LungfishWorkflow]
     cli:
       - lungfish-cli taxtriage run
     operation_type: classification
@@ -954,10 +999,13 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController+Blast.swift
       - Sources/LungfishKit/BlastResultsDrawerContainerView.swift
       - Sources/LungfishCLI/Commands/BlastCommand.swift
-    module: [LungfishApp, LungfishKit, LungfishCLI]
+      - Sources/LungfishWorkflow/Extraction/KrakenResultReadSources.swift
+    module: [LungfishApp, LungfishKit, LungfishCLI, LungfishWorkflow]
     notes: >-
       Verifies a classified sequence or taxon against NCBI BLAST and shows the
-      hits in a results drawer.
+      hits in a results drawer. Kraken2 verification reads R1, R2 and the
+      merged reads of the classified inputs, and blast verify takes one
+      repeatable --source per input, a bundle or a file.
   classify.extract-reads:
     title: Extract reads by taxon
     entry_points:
@@ -971,10 +1019,13 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction+OperationBegin.swift
       - Sources/LungfishApp/Views/Metagenomics/ClassifierExtractionDialog.swift
       - Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline.swift
+      - Sources/LungfishWorkflow/Extraction/KrakenResultReadSources.swift
     module: [LungfishApp, LungfishWorkflow]
     notes: >-
       Extracts reads assigned to any taxon back into a fresh FASTQ dataset for
-      downstream mapping or assembly.
+      downstream mapping or assembly. A Kraken2 extraction returns both mates,
+      merged reads and orphans, pairs first, and the bundle records an
+      interleaved or mixed layout.
 
   # --- Assembly (assembly viewport) ---
   assemble:
@@ -990,6 +1041,7 @@ features:
       - Sources/LungfishApp/Views/Assembly/AssemblyConfigurationViewController.swift
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplayOperationBegin.swift
       - Sources/LungfishCLI/Commands/AssembleCommand.swift
+      - Sources/LungfishCLI/Commands/AssembleCommand+ReadSets.swift
       - Sources/LungfishWorkflow/Assembly
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     notes: >-

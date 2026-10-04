@@ -1,12 +1,23 @@
 OVERVIEW: Remove primer sequences from FASTQ reads
 
+The bbduk engine trims a 5' primer and every base before it. It counts a match
+only when the match ends within the first (longest primer + 67) bases of a
+read, so a primer behind an untrimmed Nanopore adapter and barcode is found and
+a primer deeper in the read is not. It matches each primer only as written, so
+a primer that a read runs through at its 3' end stays. The cutadapt-linked
+engine keeps only reads that hold both primers of an amplicon, which suits
+full-length amplicon reads. Interleaved pairs run in the tool's paired mode, so
+a pair is kept or dropped whole. A file that mixes pairs with merged or single
+reads is split by name, and the outputs are joined, pairs first.
+
 USAGE: lungfish-cli fastq primer-remove <input> [--literal <literal>] [--ref <ref>] [--kmer <kmer>] [--mink <mink>] [--hdist <hdist>] [--engine <engine>] [--minimum-overlap <minimum-overlap>] [--error-rate <error-rate>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
-  --literal <literal>     Primer sequence (IUPAC nucleotides)
+  --literal <literal>     Primer sequence (bbduk refuses IUPAC ambiguity codes
+                          such as R and S)
   --ref <ref>             Primer reference FASTA file
   --kmer <kmer>           K-mer size (default: 23) (default: 23)
   --mink <mink>           Minimum k-mer size (default: 11) (default: 11)

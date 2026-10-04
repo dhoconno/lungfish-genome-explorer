@@ -109,7 +109,7 @@ struct MapCommand: AsyncParsableCommand {
         name: .customLong("read-layout"),
         help: ArgumentHelp(
             "How the records of a single input file relate: auto, single-end, interleaved (every record is followed by its mate), or mixed (merged reads and interleaved pairs in one file) (default: auto)",
-            discussion: "auto reads the enclosing .lungfishfastq bundle's metadata, then scans read names (identical names, /1 /2, and Casava descriptions all count as mates). Each mapper then applies its declared handling: bwa-mem2 and minimap2 pair mates in interleaved and mixed files; bowtie2 and BBMap pair mates only in a strictly interleaved file and map a mixed file as single reads."
+            discussion: "auto reads the enclosing .lungfishfastq bundle's metadata, then scans read names (identical names, /1 /2, and Casava descriptions all count as mates). A bundle that holds pairs and merged or single reads maps its pairs as pairs with every short-read mapper. bowtie2 reads its R1, R2 and single reads with -1, -2 and -U, and BBMap maps the pairs and the single reads in two runs and merges the BAMs. A file outside a bundle, and a file given an explicit layout, keep each mapper's declared handling. bwa-mem2 and minimap2 pair mates in interleaved and mixed files, and bowtie2 and BBMap pair mates only in a strictly interleaved file and map a mixed file as single reads. A bundle of R1 and R2 files refuses --read-layout."
         )
     )
     var readLayout: MapReadLayoutArgument = .auto

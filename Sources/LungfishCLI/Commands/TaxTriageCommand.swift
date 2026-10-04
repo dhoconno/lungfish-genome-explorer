@@ -65,7 +65,10 @@ extension TaxTriageCommand {
 
         @Option(
             name: .customLong("input"),
-            help: "Input FASTQ file (R1 or single-end)"
+            help: ArgumentHelp(
+                "Input FASTQ file (R1 or single-end) or .lungfishfastq bundle",
+                discussion: "A bundle is planned whole. A bundle of pairs runs as pairs, and a bundle that mixes pairs with merged or single reads, or holds several files of single reads, gives one single-end file of every read. A file inside a bundle is read as named, except the preview of a virtual bundle, which reads its bundle. --input and --input2 that name every file of one bundle are read as that bundle."
+            )
         )
         var input: String?
 

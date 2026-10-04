@@ -87,7 +87,7 @@ Kraken 2 has answered what is in the tube. It cannot say how much of the viral g
 
 1. Click the SRR36291587 bundle in the sidebar again and choose **Tools > Classification > EsViritu...**. The FASTQ/FASTA Operations dialog opens with EsViritu selected, and it follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 
-2. Read the grey line under the name field in the **Sample** section. It reads "Checking read layout…" while LGE inspects the file, and the Run button stays off until the check finishes. For the SRR36291587 bundle it should then read **Interleaved paired-end reads**. The line is a report rather than a control, and [How LGE picks the input line](#how-lge-picks-the-input-line) explains all four wordings. If it reads **Single-end reads** when you expected pairs, close the dialog and check the selection in the sidebar.
+2. Read the grey line under the name field in the **Sample** section. It reads "Checking read layout…" while LGE inspects the file, and the Run button stays off until the check finishes. For the SRR36291587 bundle it should then read **Interleaved paired-end reads**. The line is a report rather than a control, and [How LGE picks the input line](#how-lge-picks-the-input-line) explains all six wordings. If it reads **Single-end reads** when you expected pairs, close the dialog and check the selection in the sidebar.
 
     <!-- SHOT: esviritu-dialog -->
 
@@ -117,22 +117,24 @@ LGE looks inside the folder for EsViritu's detection table, the file named `<sam
 
 ### How LGE picks the input line
 
-LGE sorts every input into one of four wordings, and each one decides how EsViritu reads the file. The two [mates](../../GLOSSARY.md#mate) of a paired-end fragment usually sit in one [interleaved](../../GLOSSARY.md#interleaved-fastq) file, where each read is followed directly by its mate.
+LGE sorts every input into one of six wordings, and each one decides how EsViritu reads the file. The two [mates](../../GLOSSARY.md#mate) of a paired-end fragment usually sit in one [interleaved](../../GLOSSARY.md#interleaved-fastq) file, where each read is followed directly by its mate.
 
-When the input is two separate files, one per mate, LGE runs them as pairs. When it is one file, LGE reads the names of the first 100,000 reads and checks whether each read is followed by its mate. Two neighbouring reads count as mates when their names match and either carry first-read and second-read markers, such as `/1` and `/2` or Illumina's `1:N` and `2:N`, or are identical with no marker at all. LGE also reads the bundle's own records, which note whether an earlier step merged pairs. [Merging](../../GLOSSARY.md#read-merging) joins the two mates of a short fragment into one longer read wherever they overlap, so a merged read has no mate left.
+When the input is two separate files, one per mate, or a bundle that keeps its mates in separate R1 and R2 files, LGE runs them as pairs. When it is one file, LGE reads the names of the first 100,000 reads and checks whether each read is followed by its mate. Two neighbouring reads count as mates when their names match and either carry first-read and second-read markers, such as `/1` and `/2` or Illumina's `1:N` and `2:N`, or are identical with no marker at all. LGE also reads the bundle's own records, which note whether an earlier step merged pairs. [Merging](../../GLOSSARY.md#read-merging) joins the two mates of a short fragment into one longer read wherever they overlap, so a merged read has no mate left.
 
 | Input line | What LGE found | How EsViritu runs it |
 |---|---|---|
-| Paired-end reads | Two separate files, one for each mate | As pairs |
+| Paired-end reads | Two separate files, one for each mate, or a bundle that keeps them so | As pairs |
 | Interleaved paired-end reads | One file where every read is followed by its mate, and no record of merging | As pairs read from one file |
-| Mixed paired and merged reads (run as single-end) | One file holding pairs alongside merged reads or reads that lost their mate, or a bundle whose records say it was merged, or say it holds pairs when no read is followed by its mate | Every read on its own |
+| Mixed paired and merged reads (run as single-end) | One file holding pairs alongside merged reads or reads that lost their mate, a merge or repair bundle that keeps its pairs and single reads in separate files, or a bundle whose records say it was merged, or say it holds pairs when no read is followed by its mate | Every read on its own, from one file that holds them all |
 | Single-end reads | One file in which no read is followed by its mate, and no record of pairing | Every read on its own |
+| Several read files (joined, run as single-end) | A bundle whose reads were imported as several files of single reads | Every read on its own, from one joined file |
+| Read layout is decided when the run starts | A [virtual bundle](../../GLOSSARY.md#virtual-bundle) whose reads come from pairs or merged reads | As the reads turn out once LGE writes them out |
 
 The mixed case needs a word of explanation. EsViritu has three input modes, which are unpaired, paired, and interleaved, and no mode for a file that mixes pairs with single reads. Its interleaved mode pairs reads strictly by position, first with second and third with fourth, so one merged read in the wrong place would shift every later read onto the wrong partner. LGE avoids that by running a mixed file as unpaired. Merged reads are correct that way, and pairs still map, one mate at a time. A bundle made with the VSP2 import recipe, which merges overlapping pairs, lands here.
 
-Just before the run starts, LGE checks an interleaved file once more against the reads EsViritu will actually receive. If they no longer alternate strictly, it runs them as unpaired. Either way the run's [provenance](../../GLOSSARY.md#provenance) records the layout LGE found and why.
+Just before the run starts, LGE checks an interleaved file once more against the reads EsViritu will actually receive. If they no longer alternate strictly, it runs them as unpaired. Either way the run's [provenance](../../GLOSSARY.md#provenance) records the layout LGE found and why. When a sample's mates run as single reads, the run's log and the command's output also give the reason.
 
-When you select several samples at once, the Sample section becomes **Batch Samples** and lists up to eight of them, each tagged with a short form of the same answer. `PE` means two mate files, `interleaved PE` means one interleaved file, `mixed, run as SE` is the mixed case, and `SE` means single-end.
+When you select several samples at once, the Sample section becomes **Batch Samples** and lists up to eight of them, each tagged with a short form of the same answer. `PE` means two mate files, `interleaved PE` means one interleaved file, `mixed, run as SE` is the mixed case, `joined, SE` is several files of single reads, `decided at run` is a virtual bundle, and `SE` means single-end.
 
 ## Settings
 
@@ -140,7 +142,7 @@ The dialog carries five controls. **Run Mode** appears only when you select more
 
 **Sample.** Names the sample in the output files and in the result viewport. It arrives filled in with a name worked out from the file name, because that is usually the label you want. Change it when the file name is not the label you want to see in reports. On the command line this is `--sample`.
 
-**Run Mode.** Shows how several selected samples are handled, offering **Run separately per bundle (N results)** and a greyed-out **Combine all inputs, run once (1 result)**. The default, and the only choice, is one run per sample inside a single batch, because pooling reads across samples would mix up each sample's coverage and abundance figures. There is nothing to change, and the caption under the picker says each sample is classified separately within the batch. This setting has no command-line flag.
+**Run Mode.** Shows how several selected samples are handled, offering **Run separately per bundle (N results)** and a greyed-out **Combine all inputs, run once (1 result)**. The default, and the only choice, is one run per sample inside a single batch, because pooling reads across samples would mix up each sample's coverage and abundance figures. There is nothing to change, and the caption under the picker says each sample is classified separately within the batch. This setting has no command-line flag, and a batch's row in the Operations Panel records no command yet, so it does not offer Copy CLI Command.
 
 **Enable quality filtering (fastp).** Trims sequencing adapters and drops poor-quality bases with [fastp](../../GLOSSARY.md#fastp) before EsViritu sees the reads. It is ticked by default, because adapter sequence and low-quality read ends both produce false matches. Untick it only when an earlier step of your own already trimmed and filtered these exact reads, so they are not cleaned twice. On the command line this is `--no-qc`, which turns the filter off.
 
@@ -251,7 +253,7 @@ lungfish-cli import esviritu "/path/to/esviritu-output" \
   --output-dir "$PROJECT/Imports"
 ```
 
-Two differences from the dialog change results. The dialog pairs two mate files by their names, but the command runs two files as unpaired unless you pass `--paired` or `--read-format paired`. For a single file, `--read-format` takes `auto`, `unpaired`, `paired`, or `interleaved`, and its default `auto` makes the same choice the dialog's input line reports, so an interleaved file runs as pairs and a mixed or single-end file runs as unpaired. Without `--output`, results go to a new folder named `esviritu-` plus the sample name inside the current folder. In the import command, `/path/to/esviritu-output` stands for wherever the colleague's folder sits on your Mac.
+Two differences from the dialog change results. The dialog pairs two mate files by their names, but the command runs two files as unpaired unless you pass `--paired` or `--read-format paired`. For a single file or bundle, `--read-format` takes `auto`, `unpaired`, `paired`, or `interleaved`, and its default `auto` makes the same choice the dialog's input line reports. An interleaved file and a bundle with separate R1 and R2 files run as pairs, and a mixed, joined, or single-end input runs as unpaired. For a bundle that LGE plans this way, such as a merge bundle, the command that Copy CLI Command gives for a dialog run names the bundle with `--read-format auto`, so the command plans it the same way. Without `--output`, results go to a new folder named `esviritu-` plus the sample name inside the current folder. In the import command, `/path/to/esviritu-output` stands for wherever the colleague's folder sits on your Mac.
 
 ## Next
 
