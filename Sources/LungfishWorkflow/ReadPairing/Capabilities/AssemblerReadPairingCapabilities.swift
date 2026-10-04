@@ -10,17 +10,20 @@ extension ReadPairingCapabilityRegistry {
             ReadPairingCapabilityDeclaration(
                 consumerID: "assemble.spades",
                 capability: .bothInOneRunAsSeparateFiles,
-                rationale: "SPAdes takes -1 R1 -2 R2, --merged for merged reads and -s for other single reads in one run."
+                rationale: "SPAdes takes -1 R1 -2 R2, --merged for merged reads and -s for other single reads in one run.",
+                adopted: true
             ),
             ReadPairingCapabilityDeclaration(
                 consumerID: "assemble.megahit",
                 capability: .bothInOneRunAsSeparateFiles,
-                rationale: "MEGAHIT takes -1 R1 -2 R2 and -r for single reads in one run."
+                rationale: "MEGAHIT takes -1 R1 -2 R2 and -r for single reads in one run.",
+                adopted: true
             ),
             ReadPairingCapabilityDeclaration(
                 consumerID: "assemble.skesa",
                 capability: .bothInOneRunAsSeparateFiles,
-                rationale: "SKESA takes --reads R1,R2 for pairs and one more --reads per single-read file in one run."
+                rationale: "SKESA takes --reads R1,R2 for pairs and one more --reads per single-read file in one run.",
+                adopted: true
             ),
             ReadPairingCapabilityDeclaration(
                 consumerID: "assemble.flye",

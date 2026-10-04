@@ -45,6 +45,30 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// The bases a basecalled native-barcoded ONT read carries ahead of its
+    /// insert: the Y-adapter, the outer flank, the 24-base barcode and the
+    /// inner flank (`ONTNativeAdapterContext`), 67 bases in all.
+    static let leadingAdapterAndBarcodeLength = PlatformAdapters.ontYAdapterTop.count
+        + PlatformAdapters.ontNativeOuterFlank5.count
+        + 24
+        + PlatformAdapters.ontNativeBarcodeFlank5.count
+
+    /// The bbduk `restrictleft` window: a primer is trimmed only when a
+    /// matching k-mer ends within the leftmost this many bases.
+    ///
+    /// bbduk `ktrim=l` trims a match and every base to its left. Unlimited,
+    /// it also trims at a primer of another amplicon inside a read, which a
+    /// full-length read of a tiled scheme carries, and the read then loses
+    /// everything before it. The window holds the longest primer behind the
+    /// 67 bases of `leadingAdapterAndBarcodeLength`, so a primer at the start
+    /// of a read and one behind an untrimmed ONT adapter and barcode are both
+    /// found. The nearest internal primer of another amplicon in a
+    /// full-length read starts at 151 bases or later in every bundled scheme
+    /// except QIAseq DIRECT (lane A8 report).
+    static func primerSearchWindow(longestPrimer: Int) -> Int {
+        longestPrimer + leadingAdapterAndBarcodeLength
+    }
+
     func run() async throws {
         let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "primer-remove", output: output)
         defer { resolvedInput.cleanup() }
@@ -63,14 +87,60 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
 
         let startedAt = Date()
         let referenceURL = reference.map { URL(fileURLWithPath: $0) }
-        let execution = try await nativePrimerRemovalExecution(
+        // Holds the linked primers the cutadapt engine writes.
+        let stagingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-cutadapt-linked-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: stagingDirectory) }
+        let toolArguments = try await primerRemovalArguments(stagingDirectory: stagingDirectory)
+
+        // The command has no --pairing option, so it reads the layout from
+        // the records by name, with the bundle's metadata as hints. Run per
+        // record, a mate trimmed below the minimum length was dropped alone
+        // and orphaned its partner. A strictly interleaved file now runs in
+        // the tool's paired mode, so a pair is kept or dropped whole. A file
+        // that mixes pairs with single reads is partitioned by name, its
+        // pairs run paired and its single reads per record, and the two
+        // outputs are joined, pairs first (FASTQSplitByNameRunner).
+        let pairingDecision = FASTQPairingModeResolver.resolvePairing(
             inputURL: inputURL,
-            outputPath: output.output,
-            runner: runner
+            pairsByName: true,
+            metadataFrom: resolvedInput.pairingMetadataURL
         )
-        let result = execution.result
-        guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "\(execution.tool.rawValue) primer removal failed: \(result.stderr)")
+        let plan = try await Task.detached(priority: .utility) {
+            try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
+        }.value
+        let tool = toolArguments.tool
+        let environment: [String: String]? = tool == .bbduk ? await bbToolsEnvironment(runner: runner) : nil
+
+        let nativeArguments: [String]
+        let result: NativeToolResult
+        var splitOutcome: FASTQSplitByNameRunner.Outcome?
+        switch plan {
+        case .singleEnd, .interleaved:
+            nativeArguments = toolArguments.arguments(input: inputURL.path, output: output.output, paired: plan.isPaired)
+            result = try await runner.run(tool, arguments: nativeArguments, environment: environment, timeout: 1800)
+            guard result.isSuccess else {
+                throw CLIError.conversionFailed(reason: "\(tool.rawValue) primer removal failed: \(result.stderr)")
+            }
+        case .splitMixed(let pairs, let unpaired):
+            let outcome = try await FASTQSplitByNameRunner.run(
+                inputURL: inputURL,
+                outputPath: output.output,
+                counts: FASTQPairInterleaver.MixedCounts(pairs: pairs, unpaired: unpaired),
+                tool: tool,
+                toolVersion: await runner.getToolVersion(tool) ?? "unknown",
+                failureLabel: "\(tool.rawValue) primer removal",
+                stepNamePrefix: "lungfish fastq primer-remove"
+            ) { partInput, partOutput, paired in
+                let partArguments = toolArguments.arguments(input: partInput.path, output: partOutput.path, paired: paired)
+                return (
+                    try await runner.run(tool, arguments: partArguments, environment: environment, timeout: 1800),
+                    partArguments
+                )
+            }
+            nativeArguments = outcome.pairedRun.arguments
+            result = outcome.pairedRun.result
+            splitOutcome = outcome
         }
         var cliArguments = ["primer-remove", resolvedInput.originalURL.path]
         if let literalSequence {
@@ -105,28 +175,38 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
             cliArguments.append("--compress")
         }
         let outputURL = URL(fileURLWithPath: output.output)
+        var parameters: [String: ParameterValue] = [
+            "input": .file(resolvedInput.originalURL),
+            "output": .file(outputURL),
+            "literal": literalSequence.map(ParameterValue.string) ?? .null,
+            "reference": reference.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
+            "kmer": .integer(kmerSize),
+            "mink": .integer(minKmer),
+            "hdist": .integer(hammingDistance),
+            "engine": .string(engine.rawValue),
+            "minimumOverlap": .integer(minimumOverlap),
+            "errorRate": .number(errorRate),
+            "force": .boolean(output.force),
+            "compress": .boolean(output.compress)
+        ]
+        // A single-end run records the parameters it recorded before. A run
+        // that kept mates together also records how.
+        if plan.isPaired {
+            parameters["readLayout"] = plan.provenanceValue
+        }
+        if let splitOutcome {
+            parameters["pairs"] = .integer(splitOutcome.counts.pairs)
+            parameters["unpairedReads"] = .integer(splitOutcome.counts.unpaired)
+        }
         try await recordFASTQNativeToolProvenance(
             workflowName: "lungfish fastq primer-remove",
-            nativeTool: execution.tool,
+            nativeTool: tool,
             cliArguments: cliArguments,
-            nativeArguments: execution.arguments,
+            nativeArguments: nativeArguments,
             result: result,
             inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
-            parameters: [
-                "input": .file(resolvedInput.originalURL),
-                "output": .file(outputURL),
-                "literal": literalSequence.map(ParameterValue.string) ?? .null,
-                "reference": reference.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
-                "kmer": .integer(kmerSize),
-                "mink": .integer(minKmer),
-                "hdist": .integer(hammingDistance),
-                "engine": .string(engine.rawValue),
-                "minimumOverlap": .integer(minimumOverlap),
-                "errorRate": .number(errorRate),
-                "force": .boolean(output.force),
-                "compress": .boolean(output.compress)
-            ],
+            parameters: parameters,
             defaults: [
                 "literal": .null,
                 "reference": .null,
@@ -141,46 +221,108 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
             ],
             inputRecords: try resolvedInput.inputRecords()
                 + (referenceURL.map { provenanceRecords(for: $0, format: .fasta, role: .reference) } ?? []),
-            extraSteps: try resolvedInput.materializationSteps(),
+            stepID: splitOutcome?.stepID ?? UUID(),
+            stepInputs: splitOutcome?.stepInputs,
+            stepOutputs: splitOutcome?.stepOutputs,
+            extraSteps: (splitOutcome?.extraSteps ?? []) + (try resolvedInput.materializationSteps()),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Primer-trimmed reads written to \(output.output)\n".utf8))
     }
 
-    private func nativePrimerRemovalExecution(
-        inputURL: URL,
-        outputPath: String,
-        runner: NativeToolRunner
-    ) async throws -> (tool: NativeTool, arguments: [String], result: NativeToolResult) {
+    /// The argv of one run of the selected engine, for a single-read input
+    /// or a strictly interleaved one.
+    struct ToolArguments: Sendable {
+        enum Engine: Sendable {
+            /// bbduk with `literal=` or `ref=` already formed.
+            case bbduk(primers: String, kmerSize: Int, minKmer: Int, hammingDistance: Int, searchWindow: Int)
+            /// cutadapt with the linked-adapter FASTA it reads.
+            case cutadaptLinked(linkedPrimers: String, errorRate: Double, minimumOverlap: Int)
+        }
+
+        let engine: Engine
+
+        var tool: NativeTool {
+            switch engine {
+            case .bbduk: return .bbduk
+            case .cutadaptLinked: return .cutadapt
+            }
+        }
+
+        func arguments(input: String, output: String, paired: Bool) -> [String] {
+            switch engine {
+            case .bbduk(let primers, let kmerSize, let minKmer, let hammingDistance, let searchWindow):
+                // ktrim=l trims a 5' primer and the bases to its left, where
+                // bbduk's guide puts 5' adapters. rcomp=f matches a primer
+                // only as written: a 5' primer starts a read in its own
+                // orientation, and a reverse-complement match left-trimmed a
+                // read that ran through into the other end of its amplicon
+                // down to the bases after that primer. restrictleft keeps
+                // ktrim=l off a primer inside the read (primerSearchWindow).
+                // interleaved= is stated either way. Paired, bbduk keeps or
+                // drops both mates of a pair. Left to guess, it pairs /1 /2
+                // names by position and aborts on an odd record count.
+                return [
+                    "in=\(input)",
+                    "out=\(output)",
+                    "ktrim=l",
+                    "k=\(kmerSize)",
+                    "mink=\(minKmer)",
+                    "hdist=\(hammingDistance)",
+                    "rcomp=f",
+                    "restrictleft=\(searchWindow)",
+                    paired ? "interleaved=t" : "interleaved=f",
+                    primers,
+                ]
+            case .cutadaptLinked(let linkedPrimers, let errorRate, let minimumOverlap):
+                // Paired, the same linked primers are searched in both mates
+                // and --pair-filter any discards a pair when either mate lacks
+                // a whole linked primer, so a pair survives exactly when the
+                // per-record run kept both of its mates.
+                let pairedArguments = paired ? ["--interleaved", "--pair-filter", "any"] : []
+                let mateArguments = paired ? ["-G", "file:\(linkedPrimers)"] : []
+                return pairedArguments + [
+                    "-e", String(errorRate),
+                    "-O", String(minimumOverlap),
+                    "--discard-untrimmed",
+                    "-g", "file:\(linkedPrimers)",
+                ] + mateArguments + [
+                    "-o", output,
+                    input,
+                ]
+            }
+        }
+    }
+
+    /// Validates the primer inputs of the selected engine and returns the
+    /// arguments every run of it takes.
+    private func primerRemovalArguments(stagingDirectory: URL) async throws -> ToolArguments {
         switch engine {
         case .bbduk:
-            var args = [
-                "in=\(inputURL.path)",
-                "out=\(outputPath)",
-                "ktrim=r",
-                "k=\(kmerSize)",
-                "mink=\(minKmer)",
-                "hdist=\(hammingDistance)",
-                // Per record, as FASTQConsumerRegistry declares. Left to
-                // guess, bbduk pairs /1 /2 names by position and aborts
-                // ("corrupt or truncated") on an odd record count.
-                "interleaved=f",
-            ]
-
+            let primers: String
+            let longestPrimer: Int
             if let literalSequence {
-                args.append("literal=\(literalSequence)")
+                primers = "literal=\(literalSequence)"
+                // bbduk takes a comma-separated list of literals.
+                longestPrimer = literalSequence.split(separator: Character(",")).map(\.count).max() ?? 0
             } else if let reference {
                 guard FileManager.default.fileExists(atPath: reference) else {
                     throw CLIError.inputFileNotFound(path: reference)
                 }
-                args.append("ref=\(reference)")
+                primers = "ref=\(reference)"
+                longestPrimer = try await FASTAReader(url: URL(fileURLWithPath: reference)).readAll()
+                    .map { $0.asString().count }
+                    .max() ?? 0
             } else {
                 throw ValidationError("Specify --literal or --ref for primer sequence")
             }
-
-            let env = await bbToolsEnvironment(runner: runner)
-            let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
-            return (.bbduk, args, result)
+            return ToolArguments(engine: .bbduk(
+                primers: primers,
+                kmerSize: kmerSize,
+                minKmer: minKmer,
+                hammingDistance: hammingDistance,
+                searchWindow: Self.primerSearchWindow(longestPrimer: longestPrimer)
+            ))
 
         case .cutadaptLinked:
             guard literalSequence == nil else {
@@ -192,25 +334,16 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
             guard FileManager.default.fileExists(atPath: reference) else {
                 throw CLIError.inputFileNotFound(path: reference)
             }
-            let stagingDirectory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("lungfish-cutadapt-linked-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: stagingDirectory) }
-
             let linkedPrimerURL = try await writeLinkedPrimerAdapters(
                 from: URL(fileURLWithPath: reference),
                 to: stagingDirectory.appendingPathComponent("linked-primers.fasta")
             )
-            let args = [
-                "-e", String(errorRate),
-                "-O", String(minimumOverlap),
-                "--discard-untrimmed",
-                "-g", "file:\(linkedPrimerURL.path)",
-                "-o", outputPath,
-                inputURL.path,
-            ]
-            let result = try await runner.run(.cutadapt, arguments: args, timeout: 1800)
-            return (.cutadapt, args, result)
+            return ToolArguments(engine: .cutadaptLinked(
+                linkedPrimers: linkedPrimerURL.path,
+                errorRate: errorRate,
+                minimumOverlap: minimumOverlap
+            ))
         }
     }
 

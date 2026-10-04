@@ -221,6 +221,7 @@ public struct ManagedAssemblyPipeline: Sendable {
         ) {
             throw ManagedAssemblyPipelineError.incompatibleSelection(rejection)
         }
+        let readSet = try readSetFilesIfNeeded(for: request)
         let paired = try pairedReadsIfNeeded(for: request)
         var arguments: [String] = []
         switch request.selectedProfileID ?? "isolate" {
@@ -233,7 +234,17 @@ public struct ManagedAssemblyPipeline: Sendable {
         default:
             break
         }
-        if let paired {
+        if let readSet {
+            // The pair, then merged reads as --merged and every other
+            // single-read file as -s, in one run (decision 1 of 2026-10-03).
+            arguments += ["-1", readSet.forward.path, "-2", readSet.reverse.path]
+            for file in readSet.singleReads where file.isMerged {
+                arguments += ["--merged", file.url.path]
+            }
+            for file in readSet.singleReads where !file.isMerged {
+                arguments += ["-s", file.url.path]
+            }
+        } else if let paired {
             arguments += ["-1", paired.forward.path, "-2", paired.reverse.path]
         } else if let interleaved = interleavedReadsIfNeeded(for: request) {
             arguments += ["--12", interleaved.path]
@@ -260,9 +271,16 @@ public struct ManagedAssemblyPipeline: Sendable {
         for request: AssemblyRunRequest,
         host: AssemblyExecutionHost
     ) throws -> ManagedAssemblyCommand {
+        let readSet = try readSetFilesIfNeeded(for: request)
         let paired = try pairedReadsIfNeeded(for: request)
         var arguments: [String] = []
-        if let paired {
+        if let readSet {
+            // MEGAHIT has no merged role, so merged reads are single reads beside the pair.
+            arguments += ["-1", readSet.forward.path, "-2", readSet.reverse.path]
+            if !readSet.singleReads.isEmpty {
+                arguments += ["-r", readSet.singleReads.map(\.url.path).joined(separator: ",")]
+            }
+        } else if let paired {
             arguments += ["-1", paired.forward.path, "-2", paired.reverse.path]
         } else if let interleaved = interleavedReadsIfNeeded(for: request) {
             arguments += ["--12", interleaved.path]
@@ -298,12 +316,21 @@ public struct ManagedAssemblyPipeline: Sendable {
             at: request.outputDirectory,
             withIntermediateDirectories: true
         )
+        let readSet = try readSetFilesIfNeeded(for: request)
         let paired = try pairedReadsIfNeeded(for: request)
         // SKESA reads a comma-separated `--reads` value as the R1 and R2 files
         // of one pair, so each unpaired file is its own `--reads`, the form
-        // its usage gives for several runs (R3).
-        let readsArguments = paired.map { ["--reads", "\($0.forward.path),\($0.reverse.path)"] }
-            ?? request.inputURLs.flatMap { ["--reads", $0.path] }
+        // its usage gives for several runs (R3). A pair with single-read files
+        // beside it is the pair's `--reads` and one `--reads` per single file.
+        let readsArguments: [String]
+        if let readSet {
+            readsArguments = ["--reads", "\(readSet.forward.path),\(readSet.reverse.path)"]
+                + readSet.singleReads.flatMap { ["--reads", $0.url.path] }
+        } else if let paired {
+            readsArguments = ["--reads", "\(paired.forward.path),\(paired.reverse.path)"]
+        } else {
+            readsArguments = request.inputURLs.flatMap { ["--reads", $0.path] }
+        }
         var arguments: [String] = readsArguments + [
             "--contigs_out", request.outputDirectory.appendingPathComponent("contigs.fasta").path,
             "--cores", "\(request.threads)",
@@ -391,11 +418,27 @@ public struct ManagedAssemblyPipeline: Sendable {
         return (request.inputURLs[0], request.inputURLs[1])
     }
 
+    /// The pair and the single-read files of a request whose sample holds
+    /// both, or `nil` for a request that names no input roles. A request whose
+    /// roles do not name one R1 file and one R2 file for its inputs is
+    /// refused, so no assembler runs on part of a sample.
+    private static func readSetFilesIfNeeded(for request: AssemblyRunRequest) throws -> AssemblyReadSetFiles? {
+        guard request.inputRoles != nil else { return nil }
+        guard let readSet = request.readSetFiles else {
+            throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                "The input roles of an assembly request must name exactly one R1 file and one R2 file among its inputs."
+            )
+        }
+        return readSet
+    }
+
     /// The single interleaved file the assembler pairs on its own (SPAdes
     /// and MEGAHIT `--12`, SKESA `--use_paired_ends`), or `nil` when the
     /// request's records are assembled as single reads. A mixed file of
     /// merged reads and pairs never reaches this branch: every one of those
     /// flags pairs records by position, so `readPairing` keeps it single.
+    /// The resolver splits such a file by fragment name first
+    /// (``AssemblyReadSetResolution``), so its pairs are not lost.
     private static func interleavedReadsIfNeeded(for request: AssemblyRunRequest) -> URL? {
         guard request.readPairing == .interleaved, request.inputURLs.count == 1 else { return nil }
         return request.inputURLs[0]
@@ -607,25 +650,17 @@ public struct ManagedAssemblyPipeline: Sendable {
 }
 
 private extension AssemblyRunRequest {
+    /// The staged copy of the inputs, file for file, so each input keeps its role.
     func replacingInputURLs(with inputURLs: [URL]) -> AssemblyRunRequest {
-        AssemblyRunRequest(
-            tool: tool,
-            readType: readType,
-            inputURLs: inputURLs,
-            projectName: projectName,
-            outputDirectory: outputDirectory,
-            pairedEnd: pairedEnd,
-            threads: threads,
-            memoryGB: memoryGB,
-            minContigLength: minContigLength,
-            selectedProfileID: selectedProfileID,
-            extraArguments: extraArguments,
-            profileSelectionBasis: profileSelectionBasis,
-            inputLayout: inputLayout
-        )
+        replacing(inputURLs: inputURLs, outputDirectory: outputDirectory)
     }
 
     func replacingOutputDirectory(with outputDirectory: URL) -> AssemblyRunRequest {
+        replacing(inputURLs: inputURLs, outputDirectory: outputDirectory)
+    }
+
+    /// The one place the staging copies list every field of the request.
+    private func replacing(inputURLs: [URL], outputDirectory: URL) -> AssemblyRunRequest {
         AssemblyRunRequest(
             tool: tool,
             readType: readType,
@@ -639,7 +674,8 @@ private extension AssemblyRunRequest {
             selectedProfileID: selectedProfileID,
             extraArguments: extraArguments,
             profileSelectionBasis: profileSelectionBasis,
-            inputLayout: inputLayout
+            inputLayout: inputLayout,
+            inputRoles: inputRoles
         )
     }
 }

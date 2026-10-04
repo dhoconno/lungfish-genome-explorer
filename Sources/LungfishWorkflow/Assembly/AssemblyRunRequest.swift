@@ -67,6 +67,14 @@ public struct AssemblyRunRequest: Sendable, Codable, Equatable {
     /// field every such bundle assembled as single reads (SPAdes `-s`,
     /// MEGAHIT `-r`, SKESA `--reads` without `--use_paired_ends`).
     public let inputLayout: FASTQInputLayout?
+    /// What each of `inputURLs` is, when the sample holds mate pairs and
+    /// single reads together (a merge or repair derivative, a file of merged
+    /// reads followed by pairs, or a virtual subset of one). `nil` for every
+    /// other request. Otherwise it is as long as `inputURLs` and names one R1
+    /// file, one R2 file and the single-read files beside them
+    /// (``AssemblyReadSetResolution``), so the assembler is handed the pair as
+    /// a pair (owner decision 1 of 2026-10-03, docs/contracts/READ-PAIRING.md).
+    public let inputRoles: [AssemblyInputRole]?
 
     public init(
         tool: AssemblyTool,
@@ -81,7 +89,8 @@ public struct AssemblyRunRequest: Sendable, Codable, Equatable {
         selectedProfileID: String? = nil,
         extraArguments: [String] = [],
         profileSelectionBasis: String? = nil,
-        inputLayout: FASTQInputLayout? = nil
+        inputLayout: FASTQInputLayout? = nil,
+        inputRoles: [AssemblyInputRole]? = nil
     ) {
         self.tool = tool
         self.readType = readType
@@ -96,7 +105,37 @@ public struct AssemblyRunRequest: Sendable, Codable, Equatable {
         self.extraArguments = extraArguments
         self.profileSelectionBasis = profileSelectionBasis
         self.inputLayout = inputLayout
+        self.inputRoles = inputRoles
     }
+}
+
+/// What one file of an assembly request is, when the sample holds mate pairs
+/// and single reads together.
+public enum AssemblyInputRole: String, Sendable, Codable, Equatable {
+    /// The R1 file of the sample's one pair.
+    case mateR1 = "mate_r1"
+    /// The R2 file of the sample's one pair.
+    case mateR2 = "mate_r2"
+    /// Overlap-merged reads. SPAdes takes them as `--merged`, MEGAHIT and
+    /// SKESA as single reads.
+    case merged
+    /// Orphans, single-end reads, and reads that may be merged or orphans.
+    /// Every assembler takes them as single reads.
+    case single
+}
+
+/// The files of a request whose sample holds mate pairs and single reads.
+public struct AssemblyReadSetFiles: Sendable, Equatable {
+    /// One single-read file and whether its reads are overlap-merged.
+    public struct SingleReadFile: Sendable, Equatable {
+        public let url: URL
+        public let isMerged: Bool
+    }
+
+    public let forward: URL
+    public let reverse: URL
+    /// The single-read files in request order.
+    public let singleReads: [SingleReadFile]
 }
 
 /// How an assembler receives the mates of a run's reads.
@@ -107,6 +146,9 @@ public enum AssemblyReadPairing: String, Sendable, Codable, Equatable {
     case pairedFiles = "paired_files"
     /// One strictly interleaved file (`--12`, `--use_paired_ends`).
     case interleaved
+    /// One R1/R2 pair with single-read files beside it (SPAdes `-1 -2
+    /// --merged -s`, MEGAHIT `-1 -2 -r`, SKESA `--reads R1,R2 --reads S`).
+    case pairedFilesWithSingleReads = "paired_files_with_single_reads"
 
     /// Whether mates reach the assembler as pairs.
     public var assemblesPairs: Bool { self != .single }
@@ -117,6 +159,7 @@ public enum AssemblyReadPairing: String, Sendable, Codable, Equatable {
         case .single: return "no"
         case .pairedFiles: return "yes (R1/R2 files)"
         case .interleaved: return "yes (interleaved pairs)"
+        case .pairedFilesWithSingleReads: return "yes (R1/R2 files and single reads)"
         }
     }
 }
@@ -125,23 +168,46 @@ public extension AssemblyRunRequest {
     /// The layout the command builder acts on: the resolved `inputLayout`,
     /// else what the `pairedEnd` flag and file count already say.
     var effectiveInputLayout: FASTQInputLayout {
+        if readSetFiles != nil { return .mixedMergedAndPairs }
         if pairedEnd, inputURLs.count == 2 { return .pairedFiles }
         if let inputLayout, inputURLs.count == 1 { return inputLayout }
         return .singleEnd
+    }
+
+    /// The R1 file, R2 file and single-read files of a request whose sample
+    /// holds pairs and single reads, or `nil` when ``inputRoles`` is absent
+    /// or does not name exactly one R1 file and one R2 file among the inputs.
+    var readSetFiles: AssemblyReadSetFiles? {
+        guard let inputRoles, inputRoles.count == inputURLs.count else { return nil }
+        let files = Array(zip(inputURLs, inputRoles))
+        let forward = files.filter { $0.1 == .mateR1 }.map(\.0)
+        let reverse = files.filter { $0.1 == .mateR2 }.map(\.0)
+        guard forward.count == 1, reverse.count == 1 else { return nil }
+        let singleReads = files.compactMap { url, role -> AssemblyReadSetFiles.SingleReadFile? in
+            switch role {
+            case .merged: return .init(url: url, isMerged: true)
+            case .single: return .init(url: url, isMerged: false)
+            case .mateR1, .mateR2: return nil
+            }
+        }
+        return AssemblyReadSetFiles(forward: forward[0], reverse: reverse[0], singleReads: singleReads)
     }
 
     /// The handling `tool` declares for ``effectiveInputLayout``
     /// (``FASTQConsumerRegistry``): the short-read assemblers take strictly
     /// interleaved and R1/R2 input as pairs and everything else, including a
     /// mixed file of merged reads and pairs, as single reads; the long-read
-    /// assemblers never pair.
+    /// assemblers never pair. A sample already split into an R1 file, an R2
+    /// file and single-read files (``readSetFiles``) is handed over as pairs.
     var readLayoutHandling: FASTQReadLayoutHandling {
-        FASTQConsumerRegistry.declaration(for: "assemble.\(tool.rawValue)")?
+        if readSetFiles != nil { return .asPairs }
+        return FASTQConsumerRegistry.declaration(for: "assemble.\(tool.rawValue)")?
             .handling(for: effectiveInputLayout) ?? .asSingle
     }
 
     /// How the assembler receives mates for this request.
     var readPairing: AssemblyReadPairing {
+        if readSetFiles != nil { return .pairedFilesWithSingleReads }
         guard readLayoutHandling == .asPairs else { return .single }
         switch effectiveInputLayout {
         case .pairedFiles: return .pairedFiles
@@ -198,7 +264,8 @@ public extension AssemblyRunRequest {
             selectedProfileID: selectedProfileID,
             extraArguments: extraArguments,
             profileSelectionBasis: profileSelectionBasis,
-            inputLayout: inputLayout
+            inputLayout: inputLayout,
+            inputRoles: inputRoles
         )
     }
 
@@ -239,7 +306,8 @@ public extension AssemblyRunRequest {
                 : nil),
             extraArguments: extraArguments,
             profileSelectionBasis: profileSelectionBasis,
-            inputLayout: inputLayout
+            inputLayout: inputLayout,
+            inputRoles: inputRoles
         )
     }
 }

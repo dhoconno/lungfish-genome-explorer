@@ -3977,16 +3977,26 @@ final class MapCommandRegressionTests: XCTestCase {
         try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
 
         let materializer = RecordingCLISequenceMaterializer(materializedURL: materializedURL)
-        let resolved = try await MapCommand.resolveExecutionInputs(
-            for: [fixture.derivedBundleURL],
-            tempDirectory: materializedURL.deletingLastPathComponent(),
+        // The call `lungfish-cli map` and the Map Reads window make; the
+        // run's .lungfish-map-inputs is the folder the materializer writes.
+        let resolved = try await MappingInputResolver.resolve(
+            request: MappingRunRequest(
+                tool: .minimap2,
+                modeID: MappingMode.defaultShortRead.id,
+                inputFASTQURLs: [fixture.derivedBundleURL],
+                referenceFASTAURL: tempDir.appendingPathComponent("reference.fa"),
+                outputDirectory: tempDir,
+                sampleName: "sample",
+                threads: 1
+            ),
             materializer: materializer
         )
+        let executionURLs = resolved.request.inputFASTQURLs.map(\.standardizedFileURL)
 
-        XCTAssertEqual(resolved.executionInputURLs.map(\.standardizedFileURL), [materializedURL.standardizedFileURL])
-        XCTAssertEqual(resolved.originalInputURLs, [fixture.derivedBundleURL.standardizedFileURL])
-        XCTAssertEqual(materializer.bundleURLs, [fixture.derivedBundleURL.standardizedFileURL])
-        XCTAssertFalse(resolved.executionInputURLs.map(\.standardizedFileURL).contains(fixture.rootFASTQURL.standardizedFileURL))
+        XCTAssertEqual(executionURLs, [materializedURL.standardizedFileURL])
+        XCTAssertEqual(resolved.request.originalInputFASTQURLs, [fixture.derivedBundleURL.standardizedFileURL])
+        XCTAssertEqual(materializer.bundleURLs, [fixture.derivedBundleURL.standardizedFileURL], "materialized once")
+        XCTAssertFalse(executionURLs.contains(fixture.rootFASTQURL.standardizedFileURL))
     }
 
     func testMapProvenanceRecordsOriginalVirtualBundleAndMaterializedExecutionInput() throws {
@@ -4481,7 +4491,7 @@ private final class RecordingAssemblyMaterializer: CLISequenceInputMaterializing
     }
 }
 
-/// Sendable because `MapCommand.resolveExecutionInputs` and
+/// Sendable because `MappingInputResolver.resolve` and
 /// `ClassifyCommand.resolveExecutionInputs` hand the materializer to the
 /// shared resolver's `@Sendable` closure.
 private final class RecordingCLISequenceMaterializer: CLISequenceInputMaterializing, @unchecked Sendable {

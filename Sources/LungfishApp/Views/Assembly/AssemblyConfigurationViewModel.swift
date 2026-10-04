@@ -252,6 +252,9 @@ public enum AssemblyRunner {
         let originalInputURLs: [URL]
         let materializationStartedAt: Date?
         let materializationEndedAt: Date?
+        /// The sample's pairs and single reads when it holds both, with the
+        /// splits that wrote their files (`AssemblyReadSetResolution`).
+        var readSets: AssemblyResolvedInputs?
     }
 
     static func materializedManagedAssemblyRequest(
@@ -268,11 +271,13 @@ public enum AssemblyRunner {
 
     /// The request the managed pipeline runs, its inputs resolved the way
     /// `lungfish-cli assemble` resolves them (R3,
-    /// `ResolvedSequenceInputs.resolveForAssembly`): every read a bundle
-    /// holds, a virtual bundle materialized into `tempDirectory` by
-    /// `materialize`, the unpaired files of one bundle joined there, and the
-    /// R1 and R2 files of a mate pair kept apart and assembled as pairs. The
-    /// layout of a single file is resolved by the same rule as well
+    /// `AssemblyReadSetResolution.resolve`): every read a bundle holds, a
+    /// virtual bundle materialized into `tempDirectory` by `materialize`, the
+    /// unpaired files of one bundle joined there, and the R1 and R2 files of
+    /// a mate pair kept apart and assembled as pairs. A sample that holds
+    /// pairs and single reads is an R1 file, an R2 file and single-read
+    /// files with their roles (decision 1 of 2026-10-03). The layout of a
+    /// single file is resolved by the same rule as well
     /// (`AssemblyRunRequest.resolveInputLayout`): the request's own
     /// `inputLayout` (the recorded `--read-layout`) wins, otherwise the
     /// bundle metadata and then the records decide.
@@ -282,46 +287,40 @@ public enum AssemblyRunner {
         materialize: @escaping ManagedAssemblyMaterializer
     ) async throws -> ManagedAssemblyMaterializationResult {
         try validatePreMaterializationTopology(for: request)
-        let resolved = try await ResolvedSequenceInputs.resolveForAssembly(
+        let readSets = try await AssemblyReadSetResolution.resolve(
             inputURLs: request.inputURLs,
+            tool: request.tool,
+            pairedEnd: request.pairedEnd,
+            explicitLayout: request.inputLayout,
             materializationDirectory: tempDirectory,
             materializer: ClosureAssemblyInputMaterializer(body: materialize)
         )
+        let resolved = readSets.inputs
         if request.inputLayout != nil, resolved.resolvedAsMatePair {
             throw ManagedAssemblyPipelineError.unsupportedInputTopology(
                 "--read-layout describes one input file; \(request.inputURLs[0].lastPathComponent) holds R1 and R2 files."
             )
         }
-        let pairedEnd = request.pairedEnd || resolved.resolvedAsMatePair
-        let layout = AssemblyRunRequest.resolveInputLayout(
+        let executionRequest = readSets.request(
             tool: request.tool,
             readType: request.readType,
-            pairedEnd: pairedEnd,
-            explicit: request.inputLayout,
-            originalInputURLs: resolved.originalInputURLs,
-            executionInputURLs: resolved.executionInputURLs,
-            pooled: resolved.pooledLayoutResolution
-        )
-        let executionRequest = AssemblyRunRequest(
-            tool: request.tool,
-            readType: request.readType,
-            inputURLs: resolved.executionInputURLs,
             projectName: request.projectName,
             outputDirectory: request.outputDirectory,
-            pairedEnd: pairedEnd,
+            pairedEnd: request.pairedEnd,
+            explicitLayout: request.inputLayout,
             threads: request.threads,
             memoryGB: request.memoryGB,
             minContigLength: request.minContigLength,
             selectedProfileID: request.selectedProfileID,
             extraArguments: request.extraArguments,
-            profileSelectionBasis: request.profileSelectionBasis,
-            inputLayout: layout?.layout
-        )
+            profileSelectionBasis: request.profileSelectionBasis
+        ).request
         return ManagedAssemblyMaterializationResult(
             request: executionRequest,
             originalInputURLs: resolved.originalInputURLs,
             materializationStartedAt: resolved.materializationStartedAt,
-            materializationEndedAt: resolved.materializationEndedAt
+            materializationEndedAt: resolved.materializationEndedAt,
+            readSets: readSets
         )
     }
 
@@ -377,12 +376,18 @@ public enum AssemblyRunner {
         originalInputURLs: [URL],
         executionInputURLs: [URL],
         startedAt: Date?,
-        endedAt: Date?
+        endedAt: Date?,
+        readSets: AssemblyResolvedInputs? = nil
     ) async throws -> (records: [InputFileRecord], steps: [ProvenanceStep]) {
         let records = managedAssemblyInputRecords(
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs
         )
+        // A sample of pairs and single reads records the splits that wrote
+        // its files, as `lungfish-cli assemble` does.
+        if let readSets, readSets.inputRoles != nil {
+            return (records, try readSets.provenanceSteps(workflowVersion: WorkflowRun.currentAppVersion))
+        }
         let steps = try managedAssemblyMaterializationSteps(
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs,
@@ -448,7 +453,8 @@ public enum AssemblyRunner {
                 originalInputURLs: materializationResult.originalInputURLs,
                 executionInputURLs: executionRequest.inputURLs,
                 startedAt: materializationResult.materializationStartedAt,
-                endedAt: materializationResult.materializationEndedAt
+                endedAt: materializationResult.materializationEndedAt,
+                readSets: materializationResult.readSets
             )
             let provenance = ProvenanceBuilder.build(
                 request: executionRequest,

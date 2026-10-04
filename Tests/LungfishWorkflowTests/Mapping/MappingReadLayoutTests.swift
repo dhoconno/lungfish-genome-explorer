@@ -168,7 +168,7 @@ final class MappingReadLayoutTests: XCTestCase {
         XCTAssertEqual(MappingReadLayoutPlan(layout: .strictlyInterleaved, handling: .asPairs).pairedEndDescription, "Yes (interleaved)")
         XCTAssertEqual(
             MappingReadLayoutPlan(layout: .mixedMergedAndPairs, handling: .asPairs).pairedEndDescription,
-            "Yes (interleaved; merged reads mapped as single reads)"
+            "Yes (pairs; merged reads mapped as single reads)"
         )
         XCTAssertEqual(
             MappingReadLayoutPlan(layout: .mixedMergedAndPairs, handling: .asSingle).pairedEndDescription,

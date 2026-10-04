@@ -1126,19 +1126,21 @@ final class OperationRoutingTests: XCTestCase {
         let warningLog = try XCTUnwrap(single.range(of: "OperationCenter.shared.log(id: opID, level: .warning, message: warning)"))
         XCTAssertLessThan(opStart.lowerBound, warningLog.lowerBound)
         XCTAssertTrue(single.contains("if let warning {"))
-        // F2: pairedEnd must be recomputed from the resolved file list,
-        // never taken from the pre-resolve request as-is.
-        XCTAssertTrue(single.contains("Self.resolvedPairedEnd(for: resolvedFiles)"))
-        // The request the pipeline runs is rebuilt from the resolved files and the
-        // recomputed pairedEnd, then carries the resolved read layout so the manifest
-        // and provenance record how the mates were actually handled.
-        let resolvedRequest = try XCTUnwrap(single.range(of: "let resolvedRequest = request\n"))
-        let rebuilt = try XCTUnwrap(single.range(of: ".withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)"))
-        let withLayout = try XCTUnwrap(single.range(of: ".withInputLayout(layoutResolution.layout)"))
-        XCTAssertLessThan(resolvedRequest.lowerBound, rebuilt.lowerBound)
-        XCTAssertLessThan(rebuilt.lowerBound, withLayout.lowerBound)
-        XCTAssertTrue(single.contains("FASTQInputLayoutResolver.resolve(inputURLs: resolvedFiles, pairedFiles: resolvedPairedEnd)"))
-        XCTAssertTrue(single.contains("pipeline.run(\n                request: resolvedRequest,"))
+        // F2 and READ-PAIRING.md: pairing and the layout are decided after
+        // resolution by the shared MappingInputResolver, the call
+        // `lungfish-cli map` makes, never taken from the dialog's request
+        // as-is and never decided by file names in the app.
+        let resolveCall = try XCTUnwrap(single.range(of: "let resolved = try await resolveManagedMappingInputs(for: request)"))
+        XCTAssertTrue(single.contains("try await MappingInputResolver.resolve(request: request, materializer: materializer, progress: progress)"))
+        XCTAssertFalse(single.contains("resolvedPairedEnd"))
+        // The pipeline runs the resolved request, which carries the resolved
+        // files, pairing and read layout, and the read-set plan whose steps
+        // provenance records.
+        let resolvedRequest = try XCTUnwrap(single.range(of: "let resolvedRequest = resolved.request\n"))
+        let run = try XCTUnwrap(single.range(of: "pipeline.run(\n                request: resolvedRequest,"))
+        XCTAssertLessThan(resolveCall.lowerBound, resolvedRequest.lowerBound)
+        XCTAssertLessThan(resolvedRequest.lowerBound, run.lowerBound)
+        XCTAssertTrue(single.contains("inputLayoutReason: resolved.layoutResolution.reason,\n                readSetPlan: resolved.readSetPlan"))
     }
 
     /// Regression test for a round-2 fix: the F2 pairedEnd-resolution change

@@ -12,6 +12,7 @@ import Foundation
 import LungfishIO
 import LungfishTestSupport
 @testable import LungfishApp
+@testable import LungfishCLI
 import XCTest
 
 final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
@@ -270,6 +271,41 @@ final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
                 invocation.arguments.containsSequence(["--pairing", expected]),
                 "\(invocation.arguments.first ?? "?"): \(invocation.arguments)"
             )
+        }
+    }
+
+    /// `fastq deduplicate` splits a mixed file by name and deduplicates its
+    /// pairs as pairs, so a mixed bundle is told `interleaved`, which the CLI
+    /// verifies against the records. `single` used to run clumpify over every
+    /// record on its own, which separated every mate from its partner. A
+    /// strict bundle keeps `interleaved` and a single-end bundle keeps
+    /// `single` (decision 1, lane A8).
+    func testDeduplicateIsToldTheByNamePairingSoAMixedBundleIsDeduplicatedAsPairs() throws {
+        let request = FASTQDerivativeRequest.deduplicate(preset: .exactPCR, substitutions: 0, optical: false, opticalDistance: 40)
+        let mixed = try InterleavedFASTQFixture.writeMixedBundle(
+            named: "vsp2-dedup", in: root, pairCount: 6, mergedCount: 3, naming: .identical, pairingMode: .interleaved
+        )
+        let strict = try InterleavedFASTQFixture.writeBundle(
+            named: "strict-dedup", in: root, pairCount: 4, naming: .identical, pairingMode: .interleaved
+        )
+        let single = try InterleavedFASTQFixture.writeBundle(
+            named: "single-dedup", in: root, pairCount: 4, naming: .slashSuffix,
+            pairingMode: .singleEnd, pairingSource: .explicit
+        )
+        for (bundle, expected) in [(mixed, "interleaved"), (strict, "interleaved"), (single, "single")] {
+            let launch = FASTQOperationLaunchRequest.derivative(
+                request: request, inputURLs: [bundle.bundleURL], outputMode: .perInput
+            )
+            let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: launch, outputTargetPath: "/tmp/dedup.fastq")
+            XCTAssertTrue(
+                invocation.arguments.containsSequence(["--pairing", expected]),
+                "\(bundle.bundleURL.lastPathComponent): \(invocation.arguments)"
+            )
+            let recorded = FASTQOperationCLIInvocationBuilder.commandLine(for: invocation)
+            let parsed = try RecordedCLICommand.parse(recorded, as: FastqDeduplicateSubcommand.self)
+            XCTAssertEqual(parsed.pairing.pairing.rawValue, expected, recorded)
+            XCTAssertEqual(parsed.input, bundle.bundleURL.path)
+            XCTAssertEqual(parsed.substitutions, 0)
         }
     }
 
