@@ -138,14 +138,11 @@ func parseKraken2ProgressLine(
 /// mate is empty, so a kraken2 that handled empty mates differently would
 /// show here first.
 public enum KrakenFragmentGuardError: LocalizedError, Sendable, Equatable {
-    case processedCountMissing(expected: Int)
     case processedCountDiffers(expected: Int, reported: Int)
     case perReadLineCountDiffers(expected: Int, lines: Int)
 
     public var errorDescription: String? {
         switch self {
-        case .processedCountMissing(let expected):
-            return "kraken2 did not report how many sequences it processed, so the \(expected) fragments of the read set cannot be checked."
         case .processedCountDiffers(let expected, let reported):
             return "kraken2 reported \(reported) sequences processed, but the read set holds \(expected) fragments (pairs plus single reads)."
         case .perReadLineCountDiffers(let expected, let lines):
@@ -302,19 +299,22 @@ extension ClassificationPipeline {
     /// Checks that kraken2 classified exactly the fragments of the read set.
     /// Its "N sequences processed" count and the per-read output's line count
     /// must both equal pairs plus single reads. A run whose plan held no pairs
-    /// is not checked.
-    static func verifyFragmentCount(config: ClassificationConfig, kraken2Stderr: String) throws {
-        guard let expected = config.fragmentComposition?.fragmentCount else { return }
-        guard let reported = sequencesProcessed(in: kraken2Stderr) else {
-            throw KrakenFragmentGuardError.processedCountMissing(expected: expected)
-        }
-        guard reported == expected else {
+    /// is not checked. kraken2 run with `--quiet` prints no summary, and then
+    /// the line count is checked alone and the returned note says so.
+    @discardableResult
+    static func verifyFragmentCount(config: ClassificationConfig, kraken2Stderr: String) throws -> String? {
+        guard let expected = config.fragmentComposition?.fragmentCount else { return nil }
+        let reported = sequencesProcessed(in: kraken2Stderr)
+        if let reported, reported != expected {
             throw KrakenFragmentGuardError.processedCountDiffers(expected: expected, reported: reported)
         }
         let lines = try lineCount(of: config.outputURL)
         guard lines == expected else {
             throw KrakenFragmentGuardError.perReadLineCountDiffers(expected: expected, lines: lines)
         }
+        return reported == nil
+            ? "kraken2 printed no processed-sequence count, so only its \(lines) per-read lines were checked against the \(expected) fragments."
+            : nil
     }
 
     /// The count in kraken2's "N sequences (X Mbp) processed in ..." line.

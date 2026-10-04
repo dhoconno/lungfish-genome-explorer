@@ -236,6 +236,25 @@ final class KrakenReadSetPipelineTests: XCTestCase {
         }
     }
 
+    func testAQuietKraken2IsCheckedByItsPerReadLinesAlone() async throws {
+        // `--extra-args "--quiet"` suppresses the processed-count summary.
+        let kraken2 = try StandInKraken2(root: root.appendingPathComponent("quiet-run"), printsSummary: false)
+        var config = try await planned(fixtures.mergeDerivative, database: kraken2.databaseURL)
+        config.originalInputFiles = [fixtures.mergeDerivative]
+        let result = try await ClassificationPipeline(condaManager: kraken2.condaManager).classify(config: config)
+        XCTAssertEqual(result.fragmentComposition?.fragmentCount, 4)
+
+        let dropping = try StandInKraken2(root: root.appendingPathComponent("quiet-drop-run"), dropOneLine: true, printsSummary: false)
+        var dropped = try await planned(fixtures.mergeDerivative, database: dropping.databaseURL)
+        dropped.originalInputFiles = [fixtures.mergeDerivative]
+        do {
+            _ = try await ClassificationPipeline(condaManager: dropping.condaManager).classify(config: dropped)
+            XCTFail("the per-read line count is still checked")
+        } catch let error as KrakenFragmentGuardError {
+            XCTAssertEqual(error, .perReadLineCountDiffers(expected: 4, lines: 3))
+        }
+    }
+
     // MARK: - Codable
 
     func testEveryCommittedKraken2SidecarLoadsUnchanged() throws {
@@ -314,7 +333,7 @@ struct StandInKraken2 {
     let databaseURL: URL
     let seenDirectory: URL
 
-    init(root: URL, dropOneLine: Bool = false, misreportProcessed: Bool = false) throws {
+    init(root: URL, dropOneLine: Bool = false, misreportProcessed: Bool = false, printsSummary: Bool = true) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         databaseURL = root.appendingPathComponent("kraken-db", isDirectory: true)
@@ -324,7 +343,7 @@ struct StandInKraken2 {
         }
         seenDirectory = root.appendingPathComponent("kraken2-saw", isDirectory: true)
         let micromamba = root.appendingPathComponent("stand-in-micromamba")
-        try Self.script(seen: seenDirectory, drop: dropOneLine, misreport: misreportProcessed)
+        try Self.script(seen: seenDirectory, drop: dropOneLine, misreport: misreportProcessed, summary: printsSummary)
             .write(to: micromamba, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: micromamba.path)
         condaManager = CondaManager(
@@ -346,7 +365,7 @@ struct StandInKraken2 {
             .map { seenDirectory.appendingPathComponent($0) }
     }
 
-    private static func script(seen: URL, drop: Bool, misreport: Bool) -> String {
+    private static func script(seen: URL, drop: Bool, misreport: Bool, summary: Bool) -> String {
         """
         #!/bin/sh
         if [ "$1" = "--version" ]; then echo "micromamba 2.0.0"; exit 0; fi
@@ -386,7 +405,7 @@ struct StandInKraken2 {
         : > "$output"
         i=0
         while [ "$i" -lt "$lines" ]; do printf 'C\\tread%s\\t562\\t4\\t0:4\\n' "$i" >> "$output"; i=$((i + 1)); done
-        echo "$processed sequences (0.00 Mbp) processed in 0.001s (1.0 Kseq/m, 0.01 Mbp/m)." >&2
+        \(summary ? "" : ": ")echo "$processed sequences (0.00 Mbp) processed in 0.001s (1.0 Kseq/m, 0.01 Mbp/m)." >&2
         exit 0
         """
     }

@@ -770,7 +770,10 @@ public actor ClassificationPipeline {
         }
         Self.removeStagedMates(for: kraken2Config)
         do {
-            try Self.verifyFragmentCount(config: kraken2Config, kraken2Stderr: kraken2Result.stderr)
+            if let note = try Self.verifyFragmentCount(config: kraken2Config, kraken2Stderr: kraken2Result.stderr) {
+                logger.warning("\(note, privacy: .public)")
+                progress?(0.80, note)
+            }
         } catch {
             try await persistInterruptedClassificationRun(
                 provenanceRecorder: provenanceRecorder, runID: runID, requestedConfig: config,
