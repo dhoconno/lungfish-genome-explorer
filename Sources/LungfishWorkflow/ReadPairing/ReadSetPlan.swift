@@ -159,6 +159,52 @@ public struct ReadSetComposition: Sendable, Equatable {
     }
 }
 
+extension ReadSetComposition {
+
+    /// What one part of a sample adds to its composition.
+    enum Contribution {
+        /// Mate pairs, each one fragment.
+        case pairs(Int?)
+        /// Single reads of one role, each one fragment.
+        case singleReads(Int?, ReadSetReadRole)
+    }
+
+    /// The one rule that turns parts into fragment counts by kind. A kind
+    /// that is absent counts zero, and a kind that is present with no count
+    /// makes its total nil.
+    init(counting contributions: [Contribution]) {
+        self.init(pairedFragments: 0, mergedReads: 0, orphanReads: 0, singleEndReads: 0, mergedOrOrphanReads: 0)
+        for contribution in contributions {
+            let keyPath: WritableKeyPath<ReadSetComposition, Int?>
+            let value: Int?
+            switch contribution {
+            case .pairs(let count):
+                keyPath = \.pairedFragments
+                value = count
+            case .singleReads(let count, let role):
+                value = count
+                switch role {
+                case .merged: keyPath = \.mergedReads
+                case .orphan: keyPath = \.orphanReads
+                case .singleEnd, .pairsRunAsSingle: keyPath = \.singleEndReads
+                case .mergedOrOrphan: keyPath = \.mergedOrOrphanReads
+                }
+            }
+            guard let current = self[keyPath: keyPath] else { continue }
+            self[keyPath: keyPath] = value.map { current + $0 }
+        }
+    }
+
+    /// The fragment counts of the reads `runs` hand a tool.
+    init(runs: [ReadSetRun]) {
+        self.init(counting: runs.flatMap { run -> [Contribution] in
+            run.matePairs.map { .pairs($0.pairCount) }
+                + run.singleReads.map { .singleReads($0.readCount, $0.role) }
+                + run.mixedStreams.flatMap { [.pairs($0.pairCount), .singleReads($0.singleReadCount, $0.singleReadRole)] }
+        })
+    }
+}
+
 /// The reads of one sample, in the form one tool takes them.
 ///
 /// ``ReadSetResolver`` makes a plan from what the sample holds and the

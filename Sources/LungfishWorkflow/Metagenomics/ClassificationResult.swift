@@ -63,6 +63,19 @@ public struct ClassificationResult: Sendable {
     /// The provenance run ID, if provenance recording was enabled.
     public let provenanceId: UUID?
 
+    /// The fragments the run classified, by kind, when the run held read
+    /// pairs (docs/contracts/READ-PAIRING.md). Nil for a run of single reads
+    /// and for results made before read pairing.
+    public let fragmentComposition: ClassificationFragmentComposition?
+
+    /// The read-pairing contract version the run followed, written only when
+    /// the run held pairs. A result without it and without paired inputs may
+    /// have counted each mate as its own read (manager ruling 3).
+    public let readPairingContract: Int?
+
+    /// The contract version new runs with read pairs record.
+    public static let currentReadPairingContract = 1
+
     /// Creates a classification result.
     ///
     /// - Parameters:
@@ -83,8 +96,12 @@ public struct ClassificationResult: Sendable {
         profileOutcome: BrackenProfileOutcome = .notRequested,
         runtime: TimeInterval,
         toolVersion: String,
-        provenanceId: UUID?
+        provenanceId: UUID?,
+        fragmentComposition: ClassificationFragmentComposition? = nil,
+        readPairingContract: Int? = nil
     ) {
+        self.fragmentComposition = fragmentComposition
+        self.readPairingContract = readPairingContract
         self.config = config
         self.tree = tree
         self.reportURL = reportURL
@@ -188,7 +205,9 @@ extension ClassificationResult {
             runtime: runtime,
             toolVersion: toolVersion,
             provenanceId: provenanceId,
-            savedAt: Date()
+            savedAt: Date(),
+            fragmentComposition: fragmentComposition,
+            readPairingContract: readPairingContract
         )
 
         let encoder = JSONEncoder()
@@ -262,7 +281,9 @@ extension ClassificationResult {
             profileOutcome: profileOutcome,
             runtime: sidecar.runtime,
             toolVersion: sidecar.toolVersion,
-            provenanceId: sidecar.provenanceId
+            provenanceId: sidecar.provenanceId,
+            fragmentComposition: sidecar.fragmentComposition,
+            readPairingContract: sidecar.readPairingContract
         )
     }
 
@@ -296,6 +317,8 @@ extension ClassificationResult {
         resolved.originalInputFiles = config.originalInputFiles?.map {
             resolvePersistedURL($0, relativeTo: directory)
         }
+        resolved.singleReadFiles = config.singleReadFiles.map { resolvePersistedURL($0, relativeTo: directory) }
+        resolved.plansReadSet = config.plansReadSet
         return resolved
     }
 
@@ -441,6 +464,10 @@ struct PersistedClassificationResult: Codable, Sendable {
     let toolVersion: String
     let provenanceId: UUID?
     let savedAt: Date
+    /// Present only for a run that held read pairs.
+    var fragmentComposition: ClassificationFragmentComposition?
+    /// Present only for a run that held read pairs.
+    var readPairingContract: Int?
 }
 
 // MARK: - ClassificationResultLoadError

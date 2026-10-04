@@ -682,8 +682,10 @@ extension AppDelegate {
                         prefix: "classify-", contextURL: config.inputFiles.first ?? config.databasePath)
                     defer { try? FileManager.default.removeItem(at: materializeTempDir) }
 
-                    let resolvedFiles = try await self?.resolveInputFiles(
-                        config.inputFiles,
+                    // The resolved (materialized) inputs, paired by the read-set
+                    // plan `conda classify --read-format auto` runs too.
+                    let resolvedConfig = try await self?.resolvedKraken2Config(
+                        config,
                         tempDirectory: materializeTempDir,
                         progress: { message in
                             DispatchQueue.main.async {
@@ -694,25 +696,7 @@ extension AppDelegate {
                                 }
                             }
                         }
-                    ) ?? config.inputFiles
-
-                    // Build a config with resolved (materialized) input files
-                    var resolvedConfig = config
-                    // Preserve the original bundle display name before materialization
-                    // replaces inputFiles, so the taxonomy viewer shows the real sample
-                    // name instead of "materialized".
-                    if resolvedConfig.sampleDisplayName == nil {
-                        let bundleName = config.inputFiles.first?
-                            .deletingPathExtension().lastPathComponent
-                        resolvedConfig.sampleDisplayName = bundleName
-                    }
-                    // Preserve original input files before materialization replaces them,
-                    // so extraction can locate a valid source FASTQ after the materialized
-                    // temp file is deleted.
-                    if resolvedConfig.originalInputFiles == nil {
-                        resolvedConfig.originalInputFiles = config.inputFiles
-                    }
-                    resolvedConfig.inputFiles = resolvedFiles
+                    ) ?? config
 
                     let progressCallback: @Sendable (Double, String) -> Void = { progress, message in
                         DispatchQueue.main.async {
@@ -1269,8 +1253,8 @@ extension AppDelegate {
                     }
 
                     do {
-                        let resolvedFiles = try await self.resolveInputFiles(
-                            config.inputFiles,
+                        let resolvedConfig = try await self.resolvedKraken2Config(
+                            config,
                             tempDirectory: batchMaterializeTempDir,
                             progress: { message in
                                 let prefixed = "\(samplePrefix): \(message)"
@@ -1283,17 +1267,6 @@ extension AppDelegate {
                                 }
                             }
                         )
-
-                        var resolvedConfig = config
-                        if resolvedConfig.sampleDisplayName == nil {
-                            let bundleName = config.inputFiles.first?
-                                .deletingPathExtension().lastPathComponent
-                            resolvedConfig.sampleDisplayName = bundleName
-                        }
-                        if resolvedConfig.originalInputFiles == nil {
-                            resolvedConfig.originalInputFiles = config.inputFiles
-                        }
-                        resolvedConfig.inputFiles = resolvedFiles
 
                         let result: ClassificationResult
                         switch resolvedConfig.goal {

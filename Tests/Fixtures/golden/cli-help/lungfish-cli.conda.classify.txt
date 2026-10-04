@@ -29,6 +29,8 @@ OPTIONS:
         mate files for kraken2 --paired); interleaved pairs mixed with merged
         reads, and true single-end input, run unpaired. Two separate files need
         --paired.
+  --unpaired <unpaired>   A file of merged or single reads classified beside
+                          the --paired R1 and R2 files (repeatable)
   --recursive             When an input is a directory, include eligible
                           FASTQ/FASTA files in subfolders
   --profile               Run Bracken abundance profiling after classification
