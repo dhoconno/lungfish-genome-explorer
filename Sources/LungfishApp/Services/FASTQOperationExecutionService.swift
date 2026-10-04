@@ -655,8 +655,8 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
 
     /// The one file the `fastq` subcommand reads for an input: a bundle, or
     /// a file inside one, resolves through `FASTQCLIMaterializer`, the
-    /// resolution the dashboard's in-process derivative, `fastq materialize`
-    /// and a `fastq` subcommand given a bundle share. A single-file bundle is
+    /// resolution `fastq materialize` and a `fastq` subcommand given a bundle
+    /// share. A single-file bundle is
     /// its file in place, a bundle that holds several files is every file
     /// joined in `source-files.json` order, a `fullPaired` bundle is R1 and
     /// R2 interleaved, and a virtual derivative is materialized over every

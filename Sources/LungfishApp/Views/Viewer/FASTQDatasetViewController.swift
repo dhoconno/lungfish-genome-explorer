@@ -9,38 +9,6 @@ import LungfishWorkflow
 import LungfishKit
 import UniformTypeIdentifiers
 
-@MainActor
-protocol FASTQOperationAlertPresenting {
-    func present(_ alert: NSAlert, on window: NSWindow?) async -> NSApplication.ModalResponse
-}
-
-@MainActor
-struct DefaultFASTQOperationAlertPresenter: FASTQOperationAlertPresenting {
-    func present(_ alert: NSAlert, on window: NSWindow?) async -> NSApplication.ModalResponse {
-        guard let window else {
-            return .alertSecondButtonReturn
-        }
-
-        return await withCheckedContinuation { continuation in
-            alert.beginSheetModal(for: window) { response in
-                continuation.resume(returning: response)
-            }
-        }
-    }
-}
-
-protocol HumanScrubberDatabaseInstalling: Sendable {
-    func install(databaseID: String, progress: (@Sendable (Double, String) -> Void)?) async throws
-}
-
-actor DefaultHumanScrubberDatabaseInstaller: HumanScrubberDatabaseInstalling {
-    static let shared = DefaultHumanScrubberDatabaseInstaller()
-
-    func install(databaseID: String, progress: (@Sendable (Double, String) -> Void)?) async throws {
-        _ = try await DatabaseRegistry.shared.installManagedDatabase(databaseID, progress: progress)
-    }
-}
-
 /// Parsed FASTQ read record for the read preview table.
 private struct FASTQReadPreviewRecord {
     let index: Int
@@ -95,7 +63,6 @@ private func parseFASTQReadPreviewRecords(from fastqText: String) -> [FASTQReadP
 
 /// Errors raised while computing the FASTQ quality report.
 enum FASTQQualityReportError: Error, LocalizedError {
-
     /// seqkit stats could not be run or its output could not be parsed, so no
     /// statistics are available to display.
     case statisticsUnavailable(String)
@@ -110,7 +77,6 @@ enum FASTQQualityReportError: Error, LocalizedError {
 
 @MainActor
 public final class FASTQDatasetViewController: NSViewController {
-
     // MARK: - Layout Defaults
 
     private enum LayoutDefaults {
@@ -197,16 +163,11 @@ public final class FASTQDatasetViewController: NSViewController {
     private var derivativeManifest: FASTQDerivedBundleManifest?
     private var selectedOperation: OperationKind?
     private var qualityReportTask: Task<Void, Never>?
-    private var operationTask: Task<Void, Never>?
     private var fastaPreviewTask: Task<Void, Never>?
 
     public var onStatisticsUpdated: ((FASTQDatasetStatistics) -> Void)?
-    public var onRunOperation: ((FASTQDerivativeRequest) async throws -> Void)?
-    public var onInstallHumanScrubberDatabase: (() async throws -> Void)?
     var onLaunchFASTQOperationCategory: ((FASTQOperationCategoryID) -> Void)?
     var onLaunchFASTQOperationTool: ((FASTQOperationToolID) -> Void)?
-    var alertPresenter: FASTQOperationAlertPresenting = DefaultFASTQOperationAlertPresenter()
-    var humanScrubberInstaller: HumanScrubberDatabaseInstalling = DefaultHumanScrubberDatabaseInstaller.shared
 
     /// Callback to open/focus the Demux tab in the metadata drawer.
     public var onOpenDemuxDrawer: (() -> Void)?
@@ -343,8 +304,6 @@ public final class FASTQDatasetViewController: NSViewController {
     private func cancelBackgroundTasks() {
         qualityReportTask?.cancel()
         qualityReportTask = nil
-        operationTask?.cancel()
-        operationTask = nil
         fastaPreviewTask?.cancel()
         fastaPreviewTask = nil
         readPreviewTask?.cancel()
@@ -380,7 +339,6 @@ public final class FASTQDatasetViewController: NSViewController {
         }
     }
 
-
     // MARK: - Public API
 
     public func configure(
@@ -401,7 +359,6 @@ public final class FASTQDatasetViewController: NSViewController {
         readPreviewTask?.cancel()
         readPreviewTask = nil
 
-
         summaryBar.update(with: statistics)
         sparklineStrip.update(with: statistics)
         previewCanvas.update(operation: selectedOperation?.previewKind ?? .none, statistics: statistics)
@@ -413,7 +370,6 @@ public final class FASTQDatasetViewController: NSViewController {
             setStatus("Derived: \(derivativeManifest.operation.displaySummary)")
         }
     }
-
 
     public func updateOperationStatus(_ line: String) {
         setStatus(line)
@@ -757,7 +713,6 @@ public final class FASTQDatasetViewController: NSViewController {
             popup.action = #selector(parameterPopupChanged(_:))
         }
 
-
         regexCheckbox.translatesAutoresizingMaskIntoConstraints = false
         regexCheckbox.target = self
         regexCheckbox.action = #selector(parameterCheckboxChanged(_:))
@@ -789,17 +744,6 @@ public final class FASTQDatasetViewController: NSViewController {
             errorBannerDismissButton.widthAnchor.constraint(equalToConstant: 16),
             errorBannerDismissButton.heightAnchor.constraint(equalToConstant: 16),
         ])
-    }
-
-    private func showErrorBanner(_ message: String) {
-        errorBannerLabel.stringValue = message
-        errorBannerView.isHidden = false
-        // Auto-dismiss after 10 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-            MainActor.assumeIsolated {
-                self?.dismissErrorBanner()
-            }
-        }
     }
 
     @objc private func dismissErrorBanner() {
@@ -852,7 +796,6 @@ public final class FASTQDatasetViewController: NSViewController {
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
         cancelButton.isHidden = true
         runBar.addSubview(cancelButton)
-
 
         let statusToEstimate = statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: outputEstimateLabel.leadingAnchor, constant: -8)
         statusToEstimate.priority = .defaultHigh
@@ -909,7 +852,6 @@ public final class FASTQDatasetViewController: NSViewController {
 
         didApplyInitialSplitPositions = true
     }
-
 
     // MARK: - Parameter Bar Updates
 
@@ -1826,19 +1768,8 @@ public final class FASTQDatasetViewController: NSViewController {
             cancelButton.isHidden = true
             progressIndicator.stopAnimation(nil)
             setStatus("Quality report cancelled")
-            return
-        }
-        if let task = operationTask {
-            task.cancel()
-            operationTask = nil
-            updateRunButtonState()
-            cancelButton.isHidden = true
-            progressIndicator.stopAnimation(nil)
-            setStatus("Operation cancelled")
         }
     }
-
-
 
     @objc private func parameterPopupChanged(_ sender: NSPopUpButton) {
         if sender === contaminantModePopup {
@@ -1847,7 +1778,6 @@ public final class FASTQDatasetViewController: NSViewController {
         }
         updatePreview()
     }
-
 
     @objc private func parameterCheckboxChanged(_ sender: NSButton) {
         updatePreview()
@@ -1906,171 +1836,8 @@ public final class FASTQDatasetViewController: NSViewController {
             launchFASTQOperationCategory(.mapping)
             return
         }
-        // Demux requires a configuration from the drawer
-        if selectedOperation == .demultiplex
-            && currentDemuxConfig == nil {
-            setStatus("Configure demultiplexing in the Demux panel below")
-            shakeButton(runButton)
-            return
-        }
-        guard operationTask == nil else { return }
-        guard let request = buildOperationRequest() else {
-            shakeButton(runButton)
-            return
-        }
-        guard let onRunOperation else {
-            setStatus("No FASTQ source selected")
-            return
-        }
-
-        runButton.isEnabled = false
-        cancelButton.isHidden = false
-        progressIndicator.startAnimation(nil)
-        setStatus("Running: \(description(for: request))")
-
-        let startTime = Date()
-        let installHumanScrubberDatabase = onInstallHumanScrubberDatabase
-
-        operationTask = Task { [weak self, onRunOperation, installHumanScrubberDatabase] in
-            do {
-                try await self?.performFASTQOperation(
-                    request,
-                    onRunOperation: onRunOperation,
-                    installDatabase: installHumanScrubberDatabase
-                )
-                guard let self else { return }
-                let elapsed = Int(Date().timeIntervalSince(startTime))
-                self.operationTask = nil
-                self.updateRunButtonState()
-                self.cancelButton.isHidden = true
-                self.progressIndicator.stopAnimation(nil)
-                self.setStatus("Done: \(self.description(for: request)) (\(elapsed)s)")
-            } catch is CancellationError {
-                guard let self else { return }
-                let elapsed = Int(Date().timeIntervalSince(startTime))
-                self.operationTask = nil
-                self.updateRunButtonState()
-                self.cancelButton.isHidden = true
-                self.progressIndicator.stopAnimation(nil)
-                self.setStatus("Cancelled (\(elapsed)s)")
-            } catch let error as HumanScrubberDatabaseError {
-                guard let self else { return }
-                self.operationTask = nil
-                self.updateRunButtonState()
-                self.cancelButton.isHidden = true
-                self.progressIndicator.stopAnimation(nil)
-                self.setStatus(error.localizedDescription, isError: true)
-                self.showErrorBanner(error.localizedDescription)
-            } catch {
-                guard let self else { return }
-                let elapsed = Int(Date().timeIntervalSince(startTime))
-                self.operationTask = nil
-                self.updateRunButtonState()
-                self.cancelButton.isHidden = true
-                self.progressIndicator.stopAnimation(nil)
-                self.setStatus("Failed (\(elapsed)s) — see Operations Panel")
-                // Error details are in the Operations Panel — auto-open it
-                (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
-            }
-        }
+        // Every other FASTQ operation runs from the FASTQ operations dialog.
     }
-
-    private func performFASTQOperation(
-        _ request: FASTQDerivativeRequest,
-        onRunOperation: @escaping (FASTQDerivativeRequest) async throws -> Void,
-        installDatabase: (() async throws -> Void)? = nil
-    ) async throws {
-        var attemptedInstall = false
-
-        while true {
-            do {
-                try await onRunOperation(request)
-                return
-            } catch let error as HumanScrubberDatabaseError {
-                guard error.isInstallRequired,
-                      !attemptedInstall else {
-                    throw error
-                }
-                _ = try await handleHumanScrubberDatabaseRequirement(
-                    error,
-                    request: request,
-                    onRunOperation: onRunOperation,
-                    installDatabase: installDatabase
-                )
-                attemptedInstall = true
-                return
-            }
-        }
-    }
-
-    func handleHumanScrubberDatabaseRequirement(
-        _ requirement: HumanScrubberDatabaseError,
-        request: FASTQDerivativeRequest,
-        onRunOperation: @escaping (FASTQDerivativeRequest) async throws -> Void,
-        installDatabase: (() async throws -> Void)? = nil
-    ) async throws -> Bool {
-        guard case .installRequired(let databaseID, let displayName) = requirement else {
-            throw requirement
-        }
-        let canonicalDatabaseID = canonicalHumanReadRemovalDatabaseID(for: databaseID)
-
-        let response = await promptToInstallHumanScrubberDatabase(displayName: displayName)
-        guard response == .alertFirstButtonReturn else {
-            throw HumanScrubberDatabaseError.installationCancelled(
-                databaseID: canonicalDatabaseID,
-                displayName: displayName
-            )
-        }
-
-        setStatus("Installing \(displayName)…")
-        do {
-            if let installDatabase {
-                try await installDatabase()
-            } else {
-                try await humanScrubberInstaller.install(
-                    databaseID: canonicalDatabaseID,
-                    progress: { [weak self] _, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                self?.setStatus(message)
-                            }
-                        }
-                    }
-                )
-            }
-        } catch let error as HumanScrubberDatabaseError {
-            throw error
-        } catch {
-            throw HumanScrubberDatabaseError.installationFailed(
-                databaseID: canonicalDatabaseID,
-                displayName: displayName,
-                reason: error.localizedDescription
-            )
-        }
-
-        setStatus("Installed \(displayName). Retrying…")
-        try await onRunOperation(request)
-        return true
-    }
-
-    private func promptToInstallHumanScrubberDatabase(displayName: String) async -> NSApplication.ModalResponse {
-        let alert = NSAlert()
-        alert.messageText = "Human Read Scrubber Database Required"
-        alert.informativeText = "This operation needs \(displayName) before it can run. The download is about 1 GB and will be stored in managed database storage."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Install")
-        alert.addButton(withTitle: "Cancel")
-        return await alertPresenter.present(alert, on: view.window)
-    }
-
-    private func canonicalHumanReadRemovalDatabaseID(for requestedID: String) -> String {
-        let canonical = DatabaseRegistry.canonicalDatabaseID(for: requestedID)
-        if canonical == HumanScrubberDatabaseInstaller.databaseID {
-            return DeaconPanhumanDatabaseInstaller.databaseID
-        }
-        return canonical
-    }
-
 
     @objc private func openDemuxDrawerClicked(_ sender: Any) {
         onOpenDemuxDrawer?()
@@ -2167,7 +1934,6 @@ public final class FASTQDatasetViewController: NSViewController {
             self.updateRunButtonState()
         }
     }
-
 
     // MARK: - Sidebar Row Mapping
 
@@ -2536,84 +2302,6 @@ public final class FASTQDatasetViewController: NSViewController {
         }
     }
 
-    private func description(for request: FASTQDerivativeRequest) -> String {
-        switch request {
-        case .subsampleProportion(let p):
-            return "Subsample by proportion (\(String(format: "%.4f", p)))"
-        case .subsampleCount(let n):
-            return "Subsample by count (\(n))"
-        case .lengthFilter(let min, let max):
-            return "Length filter (min: \(min.map(String.init) ?? "-"), max: \(max.map(String.init) ?? "-"))"
-        case .searchText(let query, let field, let regex):
-            return "Search \(field.rawValue) = \(query)\(regex ? " (regex)" : "")"
-        case .searchMotif(let pattern, let regex):
-            return "Motif \(pattern)\(regex ? " (regex)" : "")"
-        case .deduplicate(let preset, let substitutions, let optical, let opticalDistance):
-            if optical {
-                return "Deduplicate optical (dist: \(opticalDistance), subs: \(substitutions))"
-            }
-            return "Deduplicate \(preset.rawValue) (subs: \(substitutions))"
-        case .qualityTrim(let threshold, let windowSize, let mode, _):
-            return "Quality trim Q\(threshold) w\(windowSize) (\(mode.rawValue))"
-        case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, _):
-            return "fastp adapter + quality trim Q\(threshold) w\(windowSize) (\(mode.rawValue), \(adapterMode.rawValue))"
-        case .adapterTrim(let mode, _, _, _):
-            return "Adapter trim (\(mode.rawValue))"
-        case .fixedTrim(let from5Prime, let from3Prime):
-            return "Fixed trim (5': \(from5Prime), 3': \(from3Prime))"
-        case .contaminantFilter(let mode, _, let kmerSize, let hammingDistance):
-            return "Contaminant filter (\(mode.rawValue), k=\(kmerSize), hdist=\(hammingDistance))"
-        case .lowComplexityFilter(let entropy, let window, let kmer):
-            let entropyText = String(format: "%.2f", entropy)
-            return "Low-complexity filter (entropy \(entropyText), window \(window), k=\(kmer))"
-        case .pairedEndMerge(let strictness, let minOverlap):
-            return "PE merge (\(strictness.rawValue), min overlap: \(minOverlap))"
-        case .pairedEndRepair:
-            return "PE read repair"
-        case .reverseComplement:
-            return "Reverse complement"
-        case .translate(let frameOffset):
-            return "Translate (frame \(frameOffset + 1))"
-        case .primerRemoval(let configuration):
-            let source = configuration.source == .literal
-                ? (configuration.forwardSequence ?? "literal")
-                : (configuration.referenceFasta ?? "reference")
-            return "PCR primer trim (\(configuration.mode.rawValue), \(configuration.readMode.rawValue), \(source))"
-        case .errorCorrection(let kmerSize):
-            return "Error correction (k=\(kmerSize))"
-        case .interleaveReformat(let direction):
-            return direction == .interleave ? "Interleave R1/R2" : "Deinterleave to R1/R2"
-        case .demultiplex(
-            let kitID,
-            _,
-            let location,
-            _,
-            let maxDistanceFrom5Prime,
-            let maxDistanceFrom3Prime,
-            let errorRate,
-            let engine,
-            _,
-            let sampleAssignments,
-            _
-        ):
-            let sampleCount = sampleAssignments?.count ?? 0
-            let source = sampleCount > 0 ? ", \(sampleCount) sample-pairs" : ""
-            return "Demultiplex (\(kitID), \(location), \(engine.rawValue), w5=\(maxDistanceFrom5Prime), w3=\(maxDistanceFrom3Prime), e=\(String(format: "%.2f", errorRate))\(source))"
-        case .sequencePresenceFilter(let sequence, _, let searchEnd, let minOverlap, let errorRate, let keepMatched, let searchRC):
-            let endLabel = searchEnd == .fivePrime ? "5'" : "3'"
-            let action = keepMatched ? "keep" : "discard"
-            let seq = sequence.map { String($0.prefix(20)) } ?? "FASTA"
-            let rcLabel = searchRC ? " +RC" : ""
-            return "Sequence filter (\(endLabel), \(action) matched, \(seq)\(rcLabel), ov=\(minOverlap), e=\(String(format: "%.2f", errorRate)))"
-        case .orient(let referenceURL, let wordLength, let dbMask, _, _):
-            return "Orient against \(referenceURL.lastPathComponent) (w=\(wordLength), mask=\(dbMask))"
-        case .humanReadScrub(let databaseID, _):
-            return "Human read removal (db: \(canonicalHumanReadRemovalDatabaseID(for: databaseID)))"
-        case .ribosomalRNAFilter(let retention, _):
-            return "Deacon rRNA filter (retain: \(retention.displayName))"
-        }
-    }
-
     // MARK: - Run Button State
 
     /// Centralizes Run button enable/disable logic based on the selected operation
@@ -2621,7 +2309,7 @@ public final class FASTQDatasetViewController: NSViewController {
     /// and whenever currentDemuxConfig changes.
     private func updateRunButtonState() {
         // Do not override state while an operation is in progress
-        guard operationTask == nil, qualityReportTask == nil else { return }
+        guard qualityReportTask == nil else { return }
 
         guard let kind = selectedOperation else {
             runButton.isEnabled = false
@@ -2665,7 +2353,6 @@ public final class FASTQDatasetViewController: NSViewController {
 
     // MARK: - Helpers
 
-
     private var hasQualityData: Bool {
         guard let stats = statistics else { return false }
         return !stats.perPositionQuality.isEmpty && !stats.qualityScoreHistogram.isEmpty
@@ -2680,14 +2367,6 @@ public final class FASTQDatasetViewController: NSViewController {
         } else {
             statusLabel.font = .systemFont(ofSize: 10)
         }
-    }
-
-    private func shakeButton(_ button: NSButton) {
-        let animation = CAKeyframeAnimation(keyPath: "transform.translation.x")
-        animation.timingFunction = CAMediaTimingFunction(name: .linear)
-        animation.duration = 0.4
-        animation.values = [-6, 6, -4, 4, -2, 2, 0]
-        button.layer?.add(animation, forKey: "shake")
     }
 
     private func formatCount(_ count: Int) -> String {
@@ -2730,7 +2409,6 @@ public final class FASTQDatasetViewController: NSViewController {
 // MARK: - NSTableViewDataSource & Delegate (Operation Sidebar + Read Preview)
 
 extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate {
-
     public func numberOfRows(in tableView: NSTableView) -> Int {
         if tableView === readPreviewTable {
             return readPreviewRecords.count

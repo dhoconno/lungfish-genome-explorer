@@ -1,4 +1,4 @@
-// FASTQConsumerRegistry+GUIAndRecipes.swift - The in-process GUI derivative, ingestion and recipe read-layout declarations
+// FASTQConsumerRegistry+GUIAndRecipes.swift - The ingestion and recipe read-layout declarations
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -7,21 +7,10 @@ import LungfishIO
 
 extension FASTQConsumerRegistry {
 
-    // MARK: - GUI in-process derivatives, ingestion, recipes
+    // MARK: - Ingestion and recipes
 
     static var guiAndRecipeDeclarations: [FASTQConsumerDeclaration] {
         [
-            FASTQConsumerDeclaration(
-                consumerID: "gui.fastq-derivative",
-                displayName: "FASTQ derivative (in-process GUI path)",
-                handling: [
-                    .singleEnd: .asSingle,
-                    .strictlyInterleaved: .asPairs,
-                    .mixedMergedAndPairs: .asSingle,
-                    .pairedFiles: .asSingle,
-                ],
-                mixedRationale: "FASTQDerivativeService.resolvedReadLayout scans the materialized reads with the bundle metadata as hints; fastp --interleaved_in, cutadapt --interleaved, BBTools interleaved=t and the deacon split (all positional) run only for a strictly interleaved file. Deinterleave and PE merge refuse a mixed file with a message; PE repair (by name) accepts it."
-            ),
             FASTQConsumerDeclaration(
                 consumerID: "ingest.clumpify",
                 displayName: "Import clumpify / Trim Galore",

@@ -81,24 +81,8 @@ final class DemultiplexMultiFileRootReadsTests: XCTestCase {
         }
     }
 
-    private func dashboardRequest(engine: DemultiplexEngine) -> FASTQDerivativeRequest {
-        .demultiplex(
-            kitID: "custom",
-            customCSVPath: kitCSV.path,
-            location: "fiveprime",
-            symmetryMode: nil,
-            maxDistanceFrom5Prime: 0,
-            maxDistanceFrom3Prime: 0,
-            errorRate: 0.15,
-            engine: engine,
-            trimBarcodes: false,
-            sampleAssignments: nil,
-            kitOverride: nil
-        )
-    }
-
     /// A virtual subset of every read of the multi-file root, recording the
-    /// root's first chunk as its root file, as the dashboard records it.
+    /// root's first chunk as its root file, as the dashboard recorded it.
     private func writeVirtualSubset() throws -> URL {
         let subset = multiFile.deletingLastPathComponent()
             .appendingPathComponent("multi-subset.lungfishfastq", isDirectory: true)
@@ -160,23 +144,37 @@ final class DemultiplexMultiFileRootReadsTests: XCTestCase {
         XCTAssertEqual(Set(previewIDs), Set(Self.allIDs), "the preview holds reads of every chunk", file: file, line: line)
     }
 
-    /// The dashboard's demultiplex of the multi-file bundle, its manifest
-    /// written in the `demux` folder inside the bundle.
-    private func runDashboardDemultiplex(engine: DemultiplexEngine) async throws {
-        _ = try await FASTQDerivativeService.shared.createDerivative(from: multiFile, request: dashboardRequest(engine: engine))
-        let folder = multiFile.appendingPathComponent(FASTQBundle.demultiplexOutputDirectoryName, isDirectory: true)
-        let manifest = try XCTUnwrap(DemultiplexManifest.load(from: folder), "a demux manifest in \(folder.path)")
-        try await assertCountsMatchTheReads(manifest: manifest, outputDirectory: folder)
+    /// `lungfish-cli fastq demultiplex <multi-file bundle>` with `engine`, the
+    /// command the FASTQ operations dialog runs.
+    private func runCLIDemultiplex(engine: String) async throws {
+        let output = root.appendingPathComponent("Project.lungfish/Analyses/cli-demux-\(engine)", isDirectory: true)
+        try await FastqDemultiplexSubcommand.parse([
+            multiFile.path, "--kit", kitCSV.path, "--output", output.path, "--engine", engine,
+            "--location", "5prime", "--no-trim",
+        ]).run()
+        let manifest = try XCTUnwrap(DemultiplexManifest.load(from: output), "a demux manifest in \(output.path)")
+
+        // A physical multi-file bundle gives physical barcode bundles, which
+        // hold the reads of every chunk themselves.
+        let bc01 = try XCTUnwrap(manifest.barcodes.first { $0.barcodeID == "BC01" })
+        let child = output.appendingPathComponent(bc01.bundleRelativePath, isDirectory: true)
+        let payload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: child), "the reads of \(child.lastPathComponent)")
+        let childReads = try await FASTQOperationTestHelper.loadFASTQRecords(from: payload)
+        XCTAssertEqual(Set(childReads.map(\.identifier)), Set(Self.allIDs), "the barcode bundle holds every chunk's reads")
+        XCTAssertEqual(manifest.inputReadCount, Self.allIDs.count, "the manifest's input count covers every chunk")
+        XCTAssertEqual(bc01.readCount, Self.allIDs.count, "the manifest counts the reads the barcode bundle holds")
+        XCTAssertEqual(bc01.baseCount, childReads.reduce(Int64(0)) { $0 + Int64($1.length) })
+        XCTAssertEqual(manifest.unassigned.readCount, 0)
     }
 
-    func testTheDashboardCutadaptEngineCountsTheReadsOfEveryFileOfAMultiFileBundle() async throws {
+    func testTheCLICutadaptEngineCountsTheReadsOfEveryFileOfAMultiFileBundle() async throws {
         try await requireTools(cutadapt: true)
-        try await runDashboardDemultiplex(engine: .cutadapt)
+        try await runCLIDemultiplex(engine: "cutadapt")
     }
 
-    func testTheDashboardExactBareEngineStillCountsTheReadsOfEveryFileOfAMultiFileBundle() async throws {
+    func testTheCLIExactBareEngineStillCountsTheReadsOfEveryFileOfAMultiFileBundle() async throws {
         try await requireTools(cutadapt: false)
-        try await runDashboardDemultiplex(engine: .exactBareBarcode)
+        try await runCLIDemultiplex(engine: "exact-bare")
     }
 
     /// `lungfish-cli fastq demultiplex <virtual subset over the multi-file

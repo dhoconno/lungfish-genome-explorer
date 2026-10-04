@@ -75,24 +75,6 @@ final class FASTQFastpTrimAdapterFASTATests: XCTestCase {
         )
     }
 
-    func testADerivativeWithAnAdapterFASTAFailsBeforeFastpRuns() async throws {
-        let bundle = root.appendingPathComponent("Sample.\(FASTQBundle.directoryExtension)", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        try writeReads(to: bundle.appendingPathComponent("reads.fastq"))
-
-        do {
-            _ = try await serviceWithoutTools().createDerivative(from: bundle, request: request)
-            XCTFail("the trim must not run without its adapters")
-        } catch {
-            assertRefusesTheAdapterFASTA(error)
-        }
-        let derivatives = (try? FileManager.default.contentsOfDirectory(
-            at: bundle.appendingPathComponent("derivatives", isDirectory: true),
-            includingPropertiesForKeys: nil
-        )) ?? []
-        XCTAssertTrue(derivatives.filter { $0.pathExtension == FASTQBundle.directoryExtension }.isEmpty)
-    }
-
     func testARecipeStepWithAnAdapterFASTAFailsBeforeFastpRuns() async throws {
         let reads = root.appendingPathComponent("reads.fastq")
         try writeReads(to: reads)

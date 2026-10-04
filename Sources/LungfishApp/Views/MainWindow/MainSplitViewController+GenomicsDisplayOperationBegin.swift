@@ -12,8 +12,8 @@ import LungfishWorkflow
 /// registers its row through `OperationReporting`, so a test can check the row,
 /// its lock and its command without touching `OperationCenter.shared`.
 ///
-/// None of the three launches declares a bundle lock, so `begin` cannot refuse
-/// them on a real `OperationCenter` today. Each launch still switches on the
+/// Neither launch declares a bundle lock, so `begin` cannot refuse either one
+/// on a real `OperationCenter` today. Each launch still switches on the
 /// result and runs nothing on a refusal, which keeps it correct if a lock is
 /// added later.
 extension MainSplitViewController {
@@ -57,44 +57,6 @@ extension MainSplitViewController {
     }
 
     // MARK: - FASTQ operations
-
-    /// Registers the row for a FASTQ derivative run from the FASTQ dataset
-    /// viewport and returns the result. The caller ends the call with
-    /// `requireStarted()`, so a refused begin throws `OperationRefusedError`
-    /// before the derivative runs, as `ReferenceBundleMergeService.merge`
-    /// does. `runFASTQOperation` is `async throws` and awaits its derivative
-    /// inline, so it has no separate launch closure. The row locks no bundle.
-    ///
-    /// `cliCommand` is `FASTQDerivativeRequest.cliCommand` for the first input
-    /// bundle, with the output shown as `<derived>` and the `--pairing` the
-    /// bundle recorded. That is the `lungfish-cli` invocation
-    /// `FASTQOperationCLIInvocationBuilder` builds, the one the FASTQ
-    /// operations dialog runs for the same request, so this row and the dialog
-    /// row record the same command. FASTQOperationOutputImporter and, with the
-    /// final output, FASTQDerivativeService record the same invocation in the
-    /// derivative's manifest.
-    ///
-    /// cli-parity-gap: fastq-dashboard-derivative. A request with a setting no
-    /// `lungfish-cli` option expresses records no command, which
-    /// MainSplitGenomicsDisplayOperationTests pins.
-    static func beginFASTQDerivativeOperation(
-        request: FASTQDerivativeRequest,
-        inputURL: URL,
-        routeContext: OperationRouteContext?,
-        reporter: any OperationReporting = OperationCenter.shared
-    ) -> OperationStartResult {
-        reporter.begin(
-            title: "FASTQ: \(request.operationLabel)",
-            detail: "Preparing...",
-            operationType: .fastqOperation,
-            cliCommand: request.cliCommand(
-                inputPath: inputURL.path,
-                outputPath: "<derived>",
-                pairingMode: FASTQPairingModeResolver.bundlePairingMode(for: inputURL)
-            ),
-            routeContext: routeContext
-        )
-    }
 
     /// Registers the row for a FASTQ operations dialog launch and, only when
     /// it starts, calls `launch` with the operation ID. The row locks no

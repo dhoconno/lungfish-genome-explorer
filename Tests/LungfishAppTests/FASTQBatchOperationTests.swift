@@ -3,7 +3,6 @@ import XCTest
 @testable import LungfishIO
 
 final class FASTQBatchOperationTests: XCTestCase {
-
     // MARK: - FASTQDerivativeRequest.batchLabel
 
     func testBatchLabelLengthFilter() {
@@ -105,24 +104,5 @@ final class FASTQBatchOperationTests: XCTestCase {
     func testBatchParametersErrorCorrection() {
         let request = FASTQDerivativeRequest.errorCorrection(kmerSize: 31)
         XCTAssertEqual(request.batchParameters["kmerSize"], "31")
-    }
-
-    // MARK: - Request Type Classification
-
-    func testIsTrimOperation() {
-        XCTAssertTrue(FASTQDerivativeRequest.qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight).isTrimOperation)
-        XCTAssertTrue(FASTQDerivativeRequest.fastpTrim(threshold: 20, windowSize: 4, mode: .cutRight, adapterMode: .autoDetect, adapterSequence: nil).isTrimOperation)
-        XCTAssertTrue(FASTQDerivativeRequest.fixedTrim(from5Prime: 10, from3Prime: 5).isTrimOperation)
-        XCTAssertFalse(FASTQDerivativeRequest.lengthFilter(min: 100, max: nil).isTrimOperation)
-        XCTAssertFalse(FASTQDerivativeRequest.subsampleCount(100).isTrimOperation)
-    }
-
-    func testIsFullOperation() {
-        XCTAssertTrue(FASTQDerivativeRequest.pairedEndRepair.isFullOperation)
-        XCTAssertTrue(FASTQDerivativeRequest.errorCorrection(kmerSize: 50).isFullOperation)
-        XCTAssertTrue(FASTQDerivativeRequest.reverseComplement.isFullOperation)
-        XCTAssertTrue(FASTQDerivativeRequest.translate(frameOffset: 0).isFullOperation)
-        XCTAssertFalse(FASTQDerivativeRequest.lengthFilter(min: 100, max: nil).isFullOperation)
-        XCTAssertFalse(FASTQDerivativeRequest.qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight).isFullOperation)
     }
 }
