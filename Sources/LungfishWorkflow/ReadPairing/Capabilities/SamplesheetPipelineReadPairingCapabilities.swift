@@ -11,12 +11,14 @@ extension ReadPairingCapabilityRegistry {
             ReadPairingCapabilityDeclaration(
                 consumerID: "classify.esviritu",
                 capability: .pairsOnlyWhenAllPaired,
-                rationale: "EsViritu runs a sample paired or unpaired, never both. \(allSingleWhenMixed)"
+                rationale: "EsViritu runs a sample paired or unpaired, never both. \(allSingleWhenMixed)",
+                adopted: true
             ),
             ReadPairingCapabilityDeclaration(
                 consumerID: "classify.taxtriage",
                 capability: .pairsOnlyWhenAllPaired,
-                rationale: "TaxTriage reads pairs only as samplesheet fastq_1 and fastq_2. \(allSingleWhenMixed)"
+                rationale: "TaxTriage reads pairs only as samplesheet fastq_1 and fastq_2. \(allSingleWhenMixed)",
+                adopted: true
             ),
             ReadPairingCapabilityDeclaration(
                 consumerID: "viralrecon.illumina",

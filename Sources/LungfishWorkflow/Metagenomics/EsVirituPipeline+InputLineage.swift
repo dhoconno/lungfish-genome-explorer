@@ -19,10 +19,12 @@ extension EsVirituPipeline {
     /// Run parameters that name the bundles behind the execution files. They
     /// are the inputs as given (`originalInputs`) and the `lungfish-cli fastq
     /// materialize` command that rebuilds each materialized file
-    /// (`inputMaterializationCommands`). A run on files as given gets none, so
-    /// it records exactly what it recorded before (R3).
+    /// (`inputMaterializationCommands`), or the `cat` command that joined
+    /// several files. A run on files as given gets none, so it records exactly
+    /// what it recorded before (R3). A planned run adds its read-set plan.
     static func inputLineageParameters(for config: EsVirituConfig) -> [String: ParameterValue] {
-        guard let originals = config.originalInputFiles else { return [:] }
+        let planParameters = config.readSetPlan?.provenanceParameters ?? [:]
+        guard let originals = config.originalInputFiles else { return planParameters }
         var uniqueOriginals: [URL] = []
         for url in originals where !uniqueOriginals.contains(url) {
             uniqueOriginals.append(url)
@@ -36,10 +38,10 @@ extension EsVirituPipeline {
                 executionURL: pair.executionURL
             ).map(shellEscape).joined(separator: " ")
         }
-        return [
+        return planParameters.merging([
             "originalInputs": .array(uniqueOriginals.map { .file($0) }),
             "inputMaterializationCommands": .array(commands.map { .string($0) }),
-        ]
+        ]) { current, _ in current }
     }
 
     /// The EsViritu step's input records with the bundle behind each file,

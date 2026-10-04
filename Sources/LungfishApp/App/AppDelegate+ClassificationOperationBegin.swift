@@ -125,12 +125,16 @@ extension AppDelegate {
     /// them, and `esviritu detect` resolves a `.lungfishfastq` bundle as the
     /// run does. The read format the wizard chose is recorded explicitly so
     /// the copied command runs pairs as pairs and mixed input as single-end.
-    /// The database, output folder, thread count, quality filter and extra
-    /// arguments follow, so the CLI never falls back to defaults of its own.
+    /// An input the read-set planner decides (`plansReadSet`: separate R1 and
+    /// R2 files, a mix of pairs and single reads, or several files of single
+    /// reads) records `--read-format auto`, so the CLI plans the bundle and
+    /// runs the same files. The database, output folder, thread count, quality
+    /// filter and extra arguments follow, so the CLI never falls back to
+    /// defaults of its own.
     nonisolated static func esVirituDetectCLIArguments(for config: EsVirituConfig) -> [String] {
         var args = ["--input"] + config.inputFiles.map(\.path)
         args += ["--sample", config.sampleName]
-        args += ["--read-format", config.readFormat.rawValue]
+        args += ["--read-format", config.plansReadSet ? "auto" : config.readFormat.rawValue]
         args += ["--db", config.databasePath.path]
         args += ["--output", config.outputDirectory.path]
         args += ["--threads", String(config.threads)]
@@ -174,11 +178,13 @@ extension AppDelegate {
         return result
     }
 
-    /// Arguments after `lungfish-cli esviritu detect` recorded for a batch run.
+    /// Arguments after `lungfish-cli esviritu detect` the batch provenance
+    /// records for a batch run.
     ///
     /// Every sample's inputs follow one `--input`, and `--sample` names the
-    /// first sample. The batch row and the batch provenance both start from
-    /// this list.
+    /// first sample. No command runs a batch, so the batch row records none
+    /// (`cli-parity-gap` `esviritu-batch` on ``beginEsVirituBatchOperation(configs:routeContext:reporter:launch:)``).
+    /// Only the batch provenance still starts from this list.
     nonisolated static func esVirituBatchCLIArguments(for configs: [EsVirituConfig]) -> [String] {
         var args = ["--input"]
         for config in configs {
@@ -191,12 +197,13 @@ extension AppDelegate {
     /// Registers the EsViritu batch row and calls `launch` with the operation
     /// ID only when the row started. The row locks no bundle.
     ///
-    /// CLI parity gap. The row records one `lungfish-cli esviritu detect`
-    /// command that lists every input of every sample after `--input` and
-    /// names the first sample. The batch runs EsViritu once per sample, and
-    /// the pasted command would fold every input into one unpaired sample. It
-    /// shares the bundle refusal that `beginEsVirituOperation` describes. The
-    /// closest reproduction is `esviritu detect` once per sample.
+    /// cli-parity-gap: esviritu-batch. The batch runs EsViritu once per
+    /// sample, each with its own read format, and no command does. The row
+    /// used to record one `lungfish-cli esviritu detect` that lists every
+    /// input of every sample after `--input`, which would fold the samples
+    /// into one run of one sample. The row records no command until a batch
+    /// command lands. The closest reproduction is `esviritu detect` once per
+    /// sample.
     @discardableResult
     static func beginEsVirituBatchOperation(
         configs: [EsVirituConfig],
@@ -209,10 +216,7 @@ extension AppDelegate {
             title: "EsViritu Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting EsViritu batch\u{2026}",
             operationType: .classification,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "esviritu detect",
-                args: esVirituBatchCLIArguments(for: configs)
-            ),
+            cliCommand: nil,
             routeContext: routeContext
         )
         switch result {
@@ -226,65 +230,55 @@ extension AppDelegate {
 
     // MARK: - TaxTriage
 
-    /// The command a TaxTriage row records for `config`.
+    /// The command a TaxTriage row records for `config`, or nil for a run of
+    /// several samples.
     ///
-    /// A one-sample run records `lungfish-cli taxtriage --input <fastq>
-    /// --sample <id>` with every setting the run uses. `taxtriage run` builds
-    /// the same Nextflow arguments from it, which a test compares. The app's
+    /// A one-sample run records `lungfish-cli taxtriage --input <input>
+    /// --sample <id>` with every setting the run uses. The input is the one
+    /// the user chose, a `.lungfishfastq` bundle or a loose file, and never a
+    /// scratch file the run deletes. `taxtriage run` plans a bundle itself,
+    /// through the same ``TaxTriageReadSetPlanner`` the launch uses, so the
+    /// pasted command hands TaxTriage the files the run read. It builds the
+    /// same Nextflow arguments from the rest, which a test compares. The app's
     /// own result grouping has no option. That covers `sourceBundleURLs`, the
     /// negative control flags and the sample metadata, and none of them
-    /// reaches Nextflow. A `.lungfishfastq` input works in `taxtriage run`
-    /// only when the bundle holds one physical FASTQ file, because only the
-    /// app materializes a virtual bundle.
+    /// reaches Nextflow.
     ///
-    /// CLI parity gap for several samples. `taxtriage run` takes one `--input`
-    /// or one `--samplesheet`, and the app runs the samples one after another
-    /// through `TaxTriageSerialBatchRunner`, which `taxtriage run` does not
-    /// use. No single command reproduces that, so a batch keeps the flat
-    /// `--input` list the row recorded before, which the CLI rejects. The
-    /// closest commands are `taxtriage run` once per sample, or `taxtriage run
-    /// --samplesheet`, which runs every sample in one Nextflow pass and writes
-    /// no batch result manifest.
-    nonisolated static func taxTriageCLICommand(for config: TaxTriageConfig) -> String {
-        if config.samples.count == 1, let sample = config.samples.first {
-            var args = ["--input", sample.fastq1.path]
-            if let fastq2 = sample.fastq2 {
-                args += ["--input2", fastq2.path]
-            }
-            args += ["--sample", sample.sampleId]
-            args += ["--output", config.outputDirectory.path]
-            if let databasePath = config.kraken2DatabasePath {
-                args += ["--db", databasePath.path]
-            }
-            args += ["--platform", sample.platform.rawValue.lowercased()]
-            args += ["--confidence", String(config.k2Confidence)]
-            args += ["--top-hits", String(config.topHitsCount)]
-            args += ["--rank", config.rank]
-            if !config.skipAssembly {
-                args.append("--no-skip-assembly")
-            }
-            if config.skipKrona {
-                args.append("--skip-krona")
-            }
-            if let removeTaxids = config.effectiveRemoveTaxids {
-                args += ["--remove-taxids", removeTaxids]
-            }
-            args += ["--max-memory", config.maxMemory]
-            args += ["--max-cpus", String(config.maxCpus)]
-            args += ["--nf-profile", config.profile]
-            args += ["--revision", config.revision]
-            if !config.extraArguments.isEmpty {
-                args += ["--extra-args", AdvancedCommandLineOptions.join(config.extraArguments)]
-            }
-            return OperationCenter.buildCLICommand(subcommand: "taxtriage", args: args)
+    /// Several samples record nil. `taxtriage run` takes one `--input` or one
+    /// `--samplesheet`, and the app runs the samples one after another through
+    /// `TaxTriageSerialBatchRunner`, which `taxtriage run` does not use. No
+    /// single command reproduces that, and the flat `--input` list the row
+    /// used to record is one the CLI rejects.
+    nonisolated static func taxTriageCLICommand(for config: TaxTriageConfig) -> String? {
+        guard config.samples.count == 1, let sample = config.samples.first else { return nil }
+        var args = ["--input", sample.fastq1.path]
+        if let fastq2 = sample.fastq2 {
+            args += ["--input2", fastq2.path]
         }
-        var args = ["--input"]
-        for sample in config.samples {
-            args.append(sample.fastq1.path)
-            if let fastq2 = sample.fastq2 { args.append(fastq2.path) }
+        args += ["--sample", sample.sampleId]
+        args += ["--output", config.outputDirectory.path]
+        if let databasePath = config.kraken2DatabasePath {
+            args += ["--db", databasePath.path]
+        }
+        args += ["--platform", sample.platform.rawValue.lowercased()]
+        args += ["--confidence", String(config.k2Confidence)]
+        args += ["--top-hits", String(config.topHitsCount)]
+        args += ["--rank", config.rank]
+        if !config.skipAssembly {
+            args.append("--no-skip-assembly")
+        }
+        if config.skipKrona {
+            args.append("--skip-krona")
         }
         if let removeTaxids = config.effectiveRemoveTaxids {
             args += ["--remove-taxids", removeTaxids]
+        }
+        args += ["--max-memory", config.maxMemory]
+        args += ["--max-cpus", String(config.maxCpus)]
+        args += ["--nf-profile", config.profile]
+        args += ["--revision", config.revision]
+        if !config.extraArguments.isEmpty {
+            args += ["--extra-args", AdvancedCommandLineOptions.join(config.extraArguments)]
         }
         return OperationCenter.buildCLICommand(subcommand: "taxtriage", args: args)
     }
@@ -292,6 +286,12 @@ extension AppDelegate {
     /// Registers the TaxTriage row and calls `launch` with the operation ID
     /// only when the row started. The row locks no bundle and records the
     /// command that `taxTriageCLICommand(for:)` builds.
+    ///
+    /// cli-parity-gap: taxtriage-multi-sample. A run of several samples
+    /// records no command, because the app runs the samples one after another
+    /// and no `taxtriage run` command does. The row used to record a flat
+    /// `--input` list the CLI rejects. The closest reproduction is
+    /// `taxtriage run` once per sample.
     @discardableResult
     static func beginTaxTriageOperation(
         config: TaxTriageConfig,

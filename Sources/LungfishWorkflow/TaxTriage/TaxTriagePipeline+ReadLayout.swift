@@ -113,6 +113,67 @@ extension TaxTriagePipeline {
         return ReadLayoutPreparedConfig(config: prepared, splits: splits)
     }
 
+    /// Run parameters that record each planned sample's read-set plan, by
+    /// sample ID: the capability used, the fragment counts by kind and the
+    /// reason mates ran as single reads. A sample whose plan records nothing
+    /// new (single reads only, or pairs only) adds nothing, so a run on such a
+    /// sample records what it recorded before.
+    nonisolated static func readSetProvenanceParameters(for config: TaxTriageConfig) -> [String: ParameterValue] {
+        var plans: [String: ParameterValue] = [:]
+        for sample in config.samples {
+            if case .dictionary(let plan)? = sample.readSetPlan?.provenanceParameters["readSetPlan"] {
+                plans[sample.sampleId] = .dictionary(plan)
+            }
+        }
+        return plans.isEmpty ? [:] : ["read_set_plans": .dictionary(plans)]
+    }
+
+    /// Records the steps that made the files the run reads: the split of each
+    /// interleaved file into R1 and R2, and the `cat` that joined several files
+    /// of one bundle into the one single-end file of a sample
+    /// (``SequenceInputConcatenation``).
+    static func recordReadSetSteps(
+        runID: UUID,
+        config: TaxTriageConfig,
+        splits: [InterleavedSampleSplit]
+    ) async {
+        for split in splits {
+            _ = await ProvenanceRecorder.shared.recordStep(
+                runID: runID,
+                toolName: "Lungfish TaxTriage Interleaved Split",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "deinterleave-fastq", split.source.path, split.r1.deletingLastPathComponent().path],
+                resolvedOptions: [
+                    "sample": .string(split.sampleId),
+                    "readLayout": .string(FASTQInputLayout.strictlyInterleaved.rawValue),
+                    "pairs": .integer(split.pairCount),
+                ],
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                inputs: [ProvenanceRecorder.fileRecord(url: split.source, format: .fastq, role: .input)],
+                outputs: [],
+                exitCode: 0,
+                wallTime: split.wallTime
+            )
+        }
+        for sample in config.samples {
+            guard let concatenation = SequenceInputConcatenation.load(for: sample.fastq1) else { continue }
+            _ = await ProvenanceRecorder.shared.recordStep(
+                runID: runID,
+                toolName: SequenceInputConcatenation.toolName,
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: concatenation.command,
+                durableReplayArgv: concatenation.command,
+                resolvedOptions: ["sample": .string(sample.sampleId)],
+                inputs: concatenation.memberURLs.map {
+                    ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
+                },
+                outputs: [ProvenanceRecorder.fileRecord(url: concatenation.outputURL, format: .fastq, role: .output)],
+                exitCode: 0,
+                wallTime: 0
+            )
+        }
+    }
+
     /// The samplesheet rows for a config: fastq_2 is filled whenever a sample
     /// has a second file (R1/R2 input or split interleaved pairs).
     static func samplesheetEntries(for config: TaxTriageConfig) -> [TaxTriageSampleEntry] {

@@ -59,31 +59,50 @@ final class TaxTriageRunOptionsTests: XCTestCase {
         XCTAssertThrowsError(try parse(["--remove-taxids", "human"]))
     }
 
-    func testBundleInputResolvesToItsInterleavedPayload() throws {
+    func testBundleInputResolvesToItsInterleavedPayload() async throws {
         let bundle = tempDir.appendingPathComponent("Patient.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         let payload = bundle.appendingPathComponent("reads.fastq")
         let records = (1...4).map { "@r\($0)/1\nAAAA\n+\nIIII\n@r\($0)/2\nCCCC\n+\nIIII\n" }.joined()
         try records.write(to: payload, atomically: true, encoding: .utf8)
 
-        let resolved = try TaxTriageCommand.RunSubcommand.resolveReadsFile(for: bundle)
-        XCTAssertEqual(resolved.standardizedFileURL, payload.standardizedFileURL)
+        let scratch = tempDir.appendingPathComponent("inputs", isDirectory: true)
+        let resolvedSamples = try await TaxTriageCommand.RunSubcommand.resolveSamples(
+            [TaxTriageSample(sampleId: "Patient", fastq1: bundle)],
+            materializationDirectory: scratch,
+            materializer: FASTQCLIMaterializer(runner: .shared)
+        )
+        let resolved = try XCTUnwrap(resolvedSamples.first)
+        XCTAssertEqual(resolved.fastq1.standardizedFileURL, payload.standardizedFileURL)
+        XCTAssertNil(resolved.fastq2)
         XCTAssertEqual(
             TaxTriageCommand.RunSubcommand.sampleID(for: bundle, explicitSampleID: nil, totalSampleCount: 1),
             "Patient"
         )
-        XCTAssertTrue(TaxTriagePipeline.shouldSplitInterleaved(
-            TaxTriageSample(sampleId: "Patient", fastq1: resolved)
-        ), "the CLI hands TaxTriagePipeline a strictly interleaved file, which it splits into R1/R2")
+        XCTAssertTrue(TaxTriagePipeline.shouldSplitInterleaved(resolved),
+                      "the CLI hands TaxTriagePipeline a strictly interleaved file, which it splits into R1/R2")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scratch.path), "a bundle read in place writes nothing")
 
         let plainFile = tempDir.appendingPathComponent("plain.fastq")
-        XCTAssertEqual(try TaxTriageCommand.RunSubcommand.resolveReadsFile(for: plainFile), plainFile)
+        let plain = try await TaxTriageCommand.RunSubcommand.resolveSamples(
+            [TaxTriageSample(sampleId: "plain", fastq1: plainFile)],
+            materializationDirectory: scratch,
+            materializer: FASTQCLIMaterializer(runner: .shared)
+        )
+        XCTAssertEqual(plain.first?.fastq1, plainFile)
     }
 
-    func testEmptyBundleIsRejectedWithAReason() throws {
+    func testEmptyBundleIsRejectedWithAReason() async throws {
         let bundle = tempDir.appendingPathComponent("Empty.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        XCTAssertThrowsError(try TaxTriageCommand.RunSubcommand.resolveReadsFile(for: bundle)) { error in
+        do {
+            _ = try await TaxTriageCommand.RunSubcommand.resolveSamples(
+                [TaxTriageSample(sampleId: "Empty", fastq1: bundle)],
+                materializationDirectory: tempDir.appendingPathComponent("inputs", isDirectory: true),
+                materializer: FASTQCLIMaterializer(runner: .shared)
+            )
+            XCTFail("a bundle with no reads must be refused")
+        } catch {
             XCTAssertTrue(error.localizedDescription.contains("Empty.lungfishfastq"), error.localizedDescription)
         }
     }

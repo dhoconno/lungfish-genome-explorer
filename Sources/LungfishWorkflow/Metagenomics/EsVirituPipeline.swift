@@ -164,7 +164,7 @@ public struct EsVirituResult: Sendable {
         lines.append("  Viruses detected: \(virusCount)")
         lines.append("  Quality filter: \(config.qualityFilter ? "yes" : "no")")
         lines.append("  Paired-end: \(config.isPairedEnd ? "yes" : "no")")
-        lines.append("  Read format: \(config.readFormat.rawValue) (\(EsVirituReadFormat.inputLabel(format: config.readFormat, layout: config.inputLayout?.layout)))")
+        lines += config.readFormatSummaryLines()
 
         let runtimeStr = String(format: "%.1f", runtime)
         lines.append("  Runtime: \(runtimeStr)s")
