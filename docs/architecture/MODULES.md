@@ -11,9 +11,9 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 1 | 300 | 1 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 592 | 232205 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 592 | 232206 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1996 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishCLI | library | Sources/LungfishCLI | 208 | 61705 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishCLI | library | Sources/LungfishCLI | 208 | 61730 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 128 | 36510 | 279 | none |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | 5588 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -84,7 +84,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 592, lines 232205
+- Swift files. 592, lines 232206
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -101,7 +101,7 @@ None.
 | Support | 2 | 94 |
 | UITestSupport | 4 | 485 |
 | ViewModels | 4 | 2397 |
-| Views | 379 | 171043 |
+| Views | 379 | 171044 |
 | Views/AI | 1 | 1011 |
 | Views/Assembly | 5 | 2077 |
 | Views/BAM | 12 | 1580 |
@@ -113,7 +113,7 @@ None.
 | Views/FASTQ | 9 | 5258 |
 | Views/Help | 1 | 576 |
 | Views/ImportCenter | 6 | 1769 |
-| Views/Inspector | 57 | 23685 |
+| Views/Inspector | 57 | 23686 |
 | Views/Layout | 3 | 293 |
 | Views/MainWindow | 21 | 9951 |
 | Views/Mapping | 4 | 2205 |
@@ -210,7 +210,7 @@ None.
 - `FASTQIngestionService` enum, `Sources/LungfishApp/Services/FASTQIngestionService.swift:111`
 - `FASTQMetadataDrawerView` class, `Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift:116`
 - `FASTQMetadataDrawerViewDelegate` protocol, `Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift:19`
-- `FASTQMetadataSection` struct, `Sources/LungfishApp/Views/Inspector/Sections/FASTQMetadataSection.swift:357`
+- `FASTQMetadataSection` struct, `Sources/LungfishApp/Views/Inspector/Sections/FASTQMetadataSection.swift:358`
 - `FASTQMetadataSectionViewModel` class, `Sources/LungfishApp/Views/Inspector/Sections/FASTQMetadataSection.swift:19`
 - `FASTQPBAAArtifactRow` struct, `Sources/LungfishApp/Views/Inspector/Sections/FASTQPBAAArtifactsSection.swift:9`
 - `FASTQPBAAArtifactsSection` struct, `Sources/LungfishApp/Views/Inspector/Sections/FASTQPBAAArtifactsSection.swift:78`
@@ -362,7 +362,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishCLI
-- Swift files. 208, lines 61705
+- Swift files. 208, lines 61730
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. ArgumentParser (swift-argument-parser)
 - Used by. LungfishCLIExecutable
@@ -372,7 +372,7 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| Commands | 195 | 58536 |
+| Commands | 195 | 58561 |
 | Options | 2 | 487 |
 | Output | 2 | 550 |
 | Support | 8 | 1826 |
