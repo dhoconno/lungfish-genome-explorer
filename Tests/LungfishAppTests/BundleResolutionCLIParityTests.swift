@@ -106,9 +106,11 @@ final class BundleResolutionCLIParityTests: XCTestCase {
             appConfig.inputFiles = appResolved
             appConfig = try await AppDelegate.planKraken2ReadSet(appConfig, materializedInputs: appResolved)
 
-            // The command the Operations panel records, run as `conda classify` runs it.
-            let recorded = Array(ClassificationCLIInvocationBuilder.build(for: wizardConfig).arguments.dropFirst(2))
-            let command = try ClassifyCommand.parse(recorded)
+            // The command the Operations panel records, parsed by the shipped
+            // root parser and run as `conda classify` runs it.
+            let recordedLine = AppDelegate.classificationCLICommand(for: wizardConfig)
+            let recorded = try RecordedCLICommand.arguments(of: recordedLine)
+            let command = try RecordedCLICommand.parse(recordedLine, as: ClassifyCommand.self)
             let inputs = command.fastqFiles.map { URL(fileURLWithPath: $0).standardizedFileURL }
             let cliInputsDirectory = outputDirectory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName, isDirectory: true)
             let cliResolved = try await ClassifyCommand.resolveExecutionInputs(
@@ -143,6 +145,32 @@ final class BundleResolutionCLIParityTests: XCTestCase {
                 XCTAssertFalse(recorded.contains("--paired"), "\(shape): --paired names two files only")
             }
         }
+    }
+
+    /// A Kraken2 batch records one `conda classify` line per sample, each
+    /// with the read layout its own plan needs.
+    func testAKraken2BatchRecordsOneParsableLinePerSample() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("batch-read-sets", isDirectory: true))
+        let databasePath = root.appendingPathComponent("kraken-db", isDirectory: true)
+        let database = MetagenomicsDatabaseInfo(
+            name: "Viral", tool: "kraken2", version: "1", sizeBytes: 1, catalogID: "kraken2-viral",
+            installationRecipe: nil, payloadDigest: nil, description: "", path: databasePath,
+            status: .ready, recommendedRAM: 1
+        )
+        var configs: [ClassificationConfig] = []
+        for bundle in [fixtures.mergeDerivative, fixtures.singleRoot] {
+            let sample = try XCTUnwrap(MetagenomicsSampleGrouper.group([bundle]).first)
+            configs.append(ClassificationWizardSheet.makeProfileConfig(
+                sample: sample, readPlan: await ClassificationSampleReadPlan.planned(for: sample), database: database,
+                databasePath: databasePath, outputDirectory: root.appendingPathComponent(sample.sampleId, isDirectory: true),
+                confidence: 0.2, minimumHitGroups: 2, threads: 4, memoryMapping: false, extraArguments: []
+            ))
+        }
+        let commands = try RecordedCLICommand.parseScript(AppDelegate.classificationBatchCLICommand(for: configs))
+        let parsed = try commands.map { try XCTUnwrap($0 as? ClassifyCommand) }
+        XCTAssertEqual(parsed.map(\.readFormat), [.auto, .unpaired])
+        XCTAssertEqual(parsed.map(\.fastqFiles), [[fixtures.mergeDerivative.path], [fixtures.singleRoot.path]])
+        XCTAssertEqual(parsed.map(\.pairedEnd), [false, false])
     }
 
     /// The kraken2 arguments that are not file paths.
