@@ -474,9 +474,12 @@ final class FastqPairAwareOperationsTests: XCTestCase {
         XCTAssertEqual(records.map(\.identifier), input.map(\.identifier).filter { $0 != "frag0/1" && $0 != "merged1" }, "input order is kept")
     }
 
-    func testDeduplicateOnAMixedFileCollapsesRecordsNotPositionalPairs() async throws {
+    func testDeduplicateOnAMixedFileCollapsesPairsAsPairsAndKeepsMatesAdjacent() async throws {
         try await requireNativeTool(.clumpify)
         // Merged read 2 duplicates merged read 0; pair 5 duplicates pair 1.
+        // The pairs are deduplicated as pairs and the merged reads as single
+        // reads, so every surviving mate stays next to its partner. Run as
+        // single reads, clumpify's reordering separated them (lane A8).
         let inputURL = root.appendingPathComponent("mixed-dedup.fastq")
         try InterleavedFASTQFixture.writeMixed(
             pairCount: 8, mergedCount: 4, naming: .identical,
@@ -493,6 +496,7 @@ final class FastqPairAwareOperationsTests: XCTestCase {
         let records = try await InterleavedFASTQFixture.readRecords(at: outputURL)
         XCTAssertEqual(Set(records.map(\.sequence)), Set(input.map(\.sequence)), "every distinct sequence survives")
         XCTAssertEqual(records.count, Set(input.map(\.sequence)).count, "exactly one copy of each sequence remains")
+        InterleavedFASTQFixture.assertMixedIntegrity(records, "every surviving pair keeps both mates next to each other")
     }
 
     func testSearchMotifOnAMixedFileReturnsWholePairsAndLoneMergedReads() async throws {

@@ -13,7 +13,7 @@ Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
 Sources/LungfishApp/Services/FASTQBundleMergeService.swift 861
 Sources/LungfishApp/Services/FASTQDerivativeService+MixedOutput.swift 1689
 Sources/LungfishApp/Services/FASTQDerivativeServiceModels.swift 803
-Sources/LungfishApp/Services/FASTQIngestionService.swift 1338
+Sources/LungfishApp/Services/FASTQIngestionService.swift 1298
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 858
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1334
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1232
