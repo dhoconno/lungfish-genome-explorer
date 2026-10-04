@@ -851,24 +851,6 @@ extension AppDelegate {
         taskBox.task = task
     }
 
-    /// Derives the correct `pairedEnd` value for a mapping request from its
-    /// ACTUALLY-RESOLVED file list (never from the raw file count -- see
-    /// F2 in the C2 fix-round-1 review: pooling two single-end bundles that
-    /// each resolve to exactly one file would otherwise fabricate a mate
-    /// pair between two unrelated samples).
-    ///
-    /// Reuses `MetagenomicsSampleGrouper`, which infers R1/R2 roles from the
-    /// filename convention (`_R1`/`_R2`, `_1`/`_2` and so on), never from
-    /// position or count: true only when the two files group into one sample
-    /// with both roles. Every other shape (one file, no matching stems, three
-    /// or more files) is false and maps single-end rather than inventing a pair.
-    static func resolvedPairedEnd(for resolvedFiles: [URL]) -> Bool {
-        guard resolvedFiles.count == 2 else { return false }
-        let grouped = MetagenomicsSampleGrouper.group(resolvedFiles)
-        guard grouped.count == 1, let sample = grouped.first else { return false }
-        return sample.isPairedEnd
-    }
-
     /// Precomputes the on-disk output layout for a mapping fan-out batch
     /// (BG3, batch-results-grouping spec §2/§3).
     ///
@@ -1178,7 +1160,8 @@ extension AppDelegate {
             let pipeline = ManagedMappingPipeline()
             let result = try await pipeline.run(
                 request: resolvedRequest,
-                inputLayoutReason: resolved.layoutResolution.reason
+                inputLayoutReason: resolved.layoutResolution.reason,
+                readSetPlan: resolved.readSetPlan
             ) { fraction, message in
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
@@ -1202,8 +1185,7 @@ extension AppDelegate {
             // has no enclosing .lungfishfastq bundle). But summaryParameters()
             // must come from resolvedRequest -- the request actually run
             // through the pipeline -- so the persisted manifest records the
-            // true isPairedEnd (and other resolved fields), not the
-            // wizard's pre-resolve pairedEnd:false placeholder.
+            // resolved isPairedEnd and layout, not the dialog's request.
             let capturedRequest = request
             guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
                 discardOwnedAnalysisDirectory()
@@ -1247,34 +1229,17 @@ extension AppDelegate {
     }
 
     /// Turns the request the Map Reads dialog built (inputs are the bundles
-    /// the user chose) into the request the pipeline runs: bundles resolved
-    /// to their files, virtual bundles materialized into the run's
-    /// `.lungfish-map-inputs` as `lungfish-cli map` does, `pairedEnd` and the
-    /// layout recomputed from the resolved files (F2), lineage carried (R3).
+    /// the user chose) into the request the pipeline runs, through the call
+    /// `lungfish-cli map` makes: bundles resolved to their files, virtual
+    /// bundles materialized into the run's `.lungfish-map-inputs`, pairing
+    /// and layout from the read-set plan (READ-PAIRING.md), lineage carried
+    /// (R3). The resolution runs off the main actor.
     func resolveManagedMappingInputs(
         for request: MappingRunRequest,
+        materializer: any CLISequenceInputMaterializing & Sendable = FASTQCLIMaterializer(runner: .shared),
         progress: @escaping @Sendable (String) -> Void
-    ) async throws -> (request: MappingRunRequest, layoutResolution: FASTQInputLayoutResolution) {
-        let resolved = try await ResolvedSequenceInputs.resolve(
-            inputURLs: request.inputFASTQURLs,
-            materializationDirectory: MappingResultLayoutService.inputMaterializationDirectory(in: request.outputDirectory),
-            materializer: FASTQCLIMaterializer(runner: .shared),
-            concatenateUnpairedFiles: true,
-            progress: progress
-        )
-        let resolvedFiles = resolved.executionInputURLs
-        // F2: pairedEnd and the layout come from the resolved files, never the pre-resolve URL count; the scan runs off the main actor.
-        let resolvedPairedEnd = Self.resolvedPairedEnd(for: resolvedFiles)
-        let layoutResolution = if let pooled = resolved.pooledLayoutResolution { pooled } else {
-            await Task.detached {
-                FASTQInputLayoutResolver.resolve(inputURLs: resolvedFiles, pairedFiles: resolvedPairedEnd)
-            }.value
-        }
-        let resolvedRequest = request
-            .withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)
-            .withInputLineage(resolved)
-            .withInputLayout(layoutResolution.layout)
-        return (resolvedRequest, layoutResolution)
+    ) async throws -> MappingResolvedInputs {
+        try await MappingInputResolver.resolve(request: request, materializer: materializer, progress: progress)
     }
 
     private func runMAFFTAlignment(

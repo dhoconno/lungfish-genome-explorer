@@ -280,12 +280,30 @@ struct MapCommand: AsyncParsableCommand {
             throw CLIExitCode.inputError.exitCode
         }
 
-        let resolvedInputs: ResolvedSequenceInputs
-        let materializationDirectory = MappingResultLayoutService.inputMaterializationDirectory(in: outputDirectory)
+        // The window and this command resolve the inputs through one call,
+        // so a recorded command pairs, splits and interleaves a sample
+        // exactly as the window did (READ-PAIRING.md).
+        let resolution: MappingResolvedInputs
         do {
-            resolvedInputs = try await Self.resolveExecutionInputs(
-                for: inputURLs,
-                tempDirectory: materializationDirectory,
+            resolution = try await MappingInputResolver.resolve(
+                request: MappingRunRequest(
+                    tool: selectedTool,
+                    modeID: selectedMode.id,
+                    inputFASTQURLs: inputURLs,
+                    referenceFASTAURL: referenceURL,
+                    projectURL: projectURL,
+                    outputDirectory: outputDirectory,
+                    sampleName: effectiveSampleName,
+                    readGroup: resolvedReadGroup,
+                    pairedEnd: pairedEnd,
+                    threads: threadCount,
+                    includeSecondary: secondary,
+                    includeSupplementary: !noSupplementary,
+                    minimumMappingQuality: minMapQ,
+                    advancedArguments: advancedArguments,
+                    outputTrackName: trackName
+                ),
+                explicitLayout: readLayout.explicitLayout,
                 materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
                 progress: { message in
                     if !globalOptions.quiet {
@@ -300,9 +318,13 @@ struct MapCommand: AsyncParsableCommand {
             case .unsupportedSequenceInput(let message):
                 throw CLIError.workflowFailed(reason: message)
             }
+        } catch let error as MappingInputResolverError {
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.inputError.exitCode
         } catch {
             throw CLIError.wrapping(error)
         }
+        let resolvedInputs = resolution.sequenceInputs
         let executionInputURLs = resolvedInputs.executionInputURLs
         let originalInputURLs = resolvedInputs.originalInputURLs
         // One raw argument per execution file, so the replay command can
@@ -339,41 +361,9 @@ struct MapCommand: AsyncParsableCommand {
             }
         }
 
-        // A bundle that holds the R1 and R2 files of one mate pair maps them
-        // as pairs, as the window does; --paired binds two loose files.
-        let effectivePairedEnd = Self.effectivePairedEnd(flag: pairedEnd, resolved: resolvedInputs)
-        if readLayout != .auto, resolvedInputs.resolvedAsMatePair {
-            print(formatter.error("--read-layout describes one input file; \(inputURLs[0].lastPathComponent) holds R1 and R2 files."))
-            throw CLIExitCode.inputError.exitCode
-        }
-        // Resolved here, on the materialized inputs, the same way the GUI
-        // pipeline does it, so the table below and provenance agree.
-        let layoutResolution = Self.layoutResolution(
-            for: resolvedInputs,
-            pairedEnd: effectivePairedEnd,
-            explicit: readLayout.explicitLayout
-        )
-        let request = MappingRunRequest(
-            tool: selectedTool,
-            modeID: selectedMode.id,
-            inputFASTQURLs: executionInputURLs,
-            originalInputFASTQURLs: originalInputURLs,
-            inputMaterializationStartedAt: resolvedInputs.materializationStartedAt,
-            inputMaterializationEndedAt: resolvedInputs.materializationEndedAt,
-            referenceFASTAURL: referenceURL,
-            projectURL: projectURL,
-            outputDirectory: outputDirectory,
-            sampleName: effectiveSampleName,
-            readGroup: resolvedReadGroup,
-            pairedEnd: effectivePairedEnd,
-            threads: threadCount,
-            includeSecondary: secondary,
-            includeSupplementary: !noSupplementary,
-            minimumMappingQuality: minMapQ,
-            advancedArguments: advancedArguments,
-            inputLayout: layoutResolution.layout,
-            outputTrackName: trackName
-        )
+        let request = resolution.request
+        let layoutResolution = resolution.layoutResolution
+        let effectivePairedEnd = request.pairedEnd
         let readLayoutPlan = request.readLayoutPlan
         Self.printCompatibilityWarnings(for: request)
         // `--format json` prints one JSON document at the end; the text
@@ -413,7 +403,11 @@ struct MapCommand: AsyncParsableCommand {
         let pipeline = ManagedMappingPipeline()
         let pipelineResult: MappingResult
         do {
-            pipelineResult = try await pipeline.run(request: request, inputLayoutReason: layoutResolution.reason) { _, message in
+            pipelineResult = try await pipeline.run(
+                request: request,
+                inputLayoutReason: layoutResolution.reason,
+                readSetPlan: resolution.readSetPlan
+            ) { _, message in
                 if showsProgress {
                     print(MapProgressLine.render(formatter.info(message), isTerminal: isatty(STDOUT_FILENO) == 1), terminator: "")
                     fflush(stdout)
@@ -640,13 +634,14 @@ struct MapCommand: AsyncParsableCommand {
         }
     }
 
-    /// Resolves the inputs the way the Map Reads window does
-    /// (``ResolvedSequenceInputs``): every file of a bundle, a virtual bundle
-    /// materialized and the unpaired files of one bundle concatenated into
-    /// `tempDirectory`, so a bundle maps the same reads through the window
-    /// and through the command the Operations panel records. A loose file
-    /// that is not a readable sequence file and a container-only demux group
-    /// are refused before anything is written.
+    /// The file resolution ``MappingInputResolver`` runs for any input that
+    /// is not one bundle of pairs and single reads (``ResolvedSequenceInputs``):
+    /// every file of a bundle, a virtual bundle materialized and the unpaired
+    /// files of one bundle concatenated into `tempDirectory`. It decides no
+    /// pairing. `run()` resolves through ``MappingInputResolver``, the call
+    /// the Map Reads window makes. A loose file that is not a readable
+    /// sequence file and a container-only demux group are refused before
+    /// anything is written.
     static func resolveExecutionInputs(
         for inputURLs: [URL],
         tempDirectory: URL,
@@ -668,30 +663,6 @@ struct MapCommand: AsyncParsableCommand {
             materializer: materializer,
             concatenateUnpairedFiles: true,
             progress: progress
-        )
-    }
-
-    /// `--paired`, or one bundle that resolved to the R1 and R2 files of a
-    /// mate pair, which the window maps as pairs too.
-    static func effectivePairedEnd(flag: Bool, resolved: ResolvedSequenceInputs) -> Bool {
-        flag || resolved.resolvedAsMatePair
-    }
-
-    /// The layout the run records: an explicit `--read-layout` first, else
-    /// the pooled single-read layout a concatenated input keeps, else the
-    /// shared resolver's answer on the execution files.
-    static func layoutResolution(
-        for resolved: ResolvedSequenceInputs,
-        pairedEnd: Bool,
-        explicit: FASTQInputLayout?
-    ) -> FASTQInputLayoutResolution {
-        if explicit == nil, let pooled = resolved.pooledLayoutResolution {
-            return pooled
-        }
-        return FASTQInputLayoutResolver.resolve(
-            inputURLs: resolved.executionInputURLs,
-            pairedFiles: pairedEnd,
-            explicit: explicit
         )
     }
 

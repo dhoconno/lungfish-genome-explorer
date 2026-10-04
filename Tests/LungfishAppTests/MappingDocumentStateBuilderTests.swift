@@ -263,7 +263,7 @@ final class MappingDocumentStateBuilderTests: XCTestCase {
         let minimapState = MappingDocumentStateBuilder.build(result: minimapResult, provenance: minimapProvenance, projectURL: nil)
         XCTAssertEqual(
             minimapState.contextRows.first { $0.0 == "Paired End" }?.1,
-            "Yes (interleaved; merged reads mapped as single reads)"
+            "Yes (pairs; merged reads mapped as single reads)"
         )
     }
 

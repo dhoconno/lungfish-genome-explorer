@@ -116,7 +116,8 @@ final class MapReadSetReplayTests: XCTestCase {
         let resolved = try await AppDelegate().resolveManagedMappingInputs(for: request, progress: { _ in })
         let result = try await ManagedMappingPipeline().run(
             request: resolved.request,
-            inputLayoutReason: resolved.layoutResolution.reason
+            inputLayoutReason: resolved.layoutResolution.reason,
+            readSetPlan: resolved.readSetPlan
         )
 
         let flagstat = try Self.flagstatCounts(samtools(["flagstat", result.bamURL.path]))

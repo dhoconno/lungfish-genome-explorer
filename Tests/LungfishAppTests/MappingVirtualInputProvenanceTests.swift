@@ -41,7 +41,8 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
         let resolved = try await AppDelegate().resolveManagedMappingInputs(for: request, progress: { _ in })
         _ = try await fixture.pipeline.run(
             request: resolved.request,
-            inputLayoutReason: resolved.layoutResolution.reason
+            inputLayoutReason: resolved.layoutResolution.reason,
+            readSetPlan: resolved.readSetPlan
         )
 
         try fixture.assertMapperReadMaterializedVirtualReads()
@@ -84,7 +85,8 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
         let resolved = try await AppDelegate().resolveManagedMappingInputs(for: request, progress: { _ in })
         _ = try await fixture.pipeline.run(
             request: resolved.request,
-            inputLayoutReason: resolved.layoutResolution.reason
+            inputLayoutReason: resolved.layoutResolution.reason,
+            readSetPlan: resolved.readSetPlan
         )
 
         XCTAssertEqual(resolved.request.inputFASTQURLs.count, 1, "the mapper receives one file")
@@ -188,12 +190,107 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
         XCTAssertEqual(oneAtATime.map(\.pairedEnd), [false, false])
     }
 
-    private static func plan(inputs: [URL], mode: MultiBundleRunMode, root: URL) -> MappingRunPlan {
+    /// For every bundle layout and every mapper, the window's resolution and
+    /// the resolution of the command the window records hand the mapper the
+    /// same reads, paired the same way, with the same arguments and the same
+    /// read-set steps (READ-PAIRING.md, CLI-EQUIVALENCE.md).
+    func testWindowAndItsRecordedCommandResolveEveryLayoutAlike() async throws {
+        let root = try TestTempDirectory.make(prefix: "mapping-layout-parity")
+        defer { TestTempDirectory.cleanup(root) }
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let layouts = [
+            fixtures.singleRoot, fixtures.interleavedRoot, fixtures.mixedRoot, fixtures.chunkedRoot,
+            fixtures.nanoporeChunkedRoot, fixtures.namedPairChunkedRoot, fixtures.fullMergeOutput,
+            fixtures.pairedDerivative, fixtures.mergeDerivative, fixtures.repairDerivative,
+            fixtures.subsetOfSingle, fixtures.subsetOfInterleaved, fixtures.subsetOfMerge, fixtures.subsetOfRepair,
+        ]
+        for bundle in layouts {
+            for tool in MappingTool.allCases {
+                let label = "\(tool.rawValue) on \(bundle.lastPathComponent)"
+                let modeID = tool == .bbmap ? MappingMode.bbmapStandard.id : MappingMode.defaultShortRead.id
+                let windowDirectory = root.appendingPathComponent("window-\(UUID().uuidString)", isDirectory: true)
+                let windowRequest = try XCTUnwrap(
+                    Self.plan(inputs: [bundle], mode: .perBundle, root: root, tool: tool, modeID: modeID).requests.first
+                ).withOutputDirectory(windowDirectory)
+                let window = try await AppDelegate().resolveManagedMappingInputs(
+                    for: windowRequest,
+                    materializer: fixtures.materializer,
+                    progress: { _ in }
+                )
+
+                // The recorded command, parsed, resolved through the call
+                // `MapCommand.run` makes.
+                let command = try MapCommand.parse(MappingCLIInvocationBuilder.arguments(for: windowRequest))
+                let cliDirectory = root.appendingPathComponent("cli-\(UUID().uuidString)", isDirectory: true)
+                let cli = try await MappingInputResolver.resolve(
+                    request: MappingRunRequest(
+                        tool: try XCTUnwrap(MappingTool(rawValue: command.mapper)),
+                        modeID: modeID,
+                        inputFASTQURLs: command.fastqFiles.map { URL(fileURLWithPath: $0) },
+                        referenceFASTAURL: URL(fileURLWithPath: command.reference),
+                        outputDirectory: cliDirectory,
+                        sampleName: try XCTUnwrap(command.sampleName),
+                        readGroup: windowRequest.readGroup,
+                        pairedEnd: command.pairedEnd,
+                        threads: windowRequest.threads
+                    ),
+                    explicitLayout: command.readLayout.explicitLayout,
+                    materializer: fixtures.materializer
+                )
+
+                XCTAssertEqual(
+                    try Self.comparable(window, outputDirectory: windowDirectory),
+                    try Self.comparable(cli, outputDirectory: cliDirectory),
+                    label
+                )
+            }
+        }
+    }
+
+    /// What a resolution hands the mapper, with each file shown by the reads
+    /// it holds and the run's own directory masked.
+    private static func comparable(_ resolved: MappingResolvedInputs, outputDirectory: URL) throws -> [String] {
+        let request = resolved.request
+        func show(_ argument: String) throws -> String {
+            let paths = argument.split(separator: ",").map(String.init)
+            if !paths.isEmpty, paths.allSatisfy({ FileManager.default.fileExists(atPath: $0) && $0.hasSuffix(".fastq") }) {
+                return "[" + (try paths.flatMap { try ReadSetFixtures.readNames(in: URL(fileURLWithPath: $0)) }).joined(separator: ",") + "]"
+            }
+            if let equals = argument.firstIndex(of: "="), argument.hasPrefix("in") {
+                return String(argument[...equals]) + (try show(String(argument[argument.index(after: equals)...])))
+            }
+            return argument.replacingOccurrences(of: outputDirectory.standardizedFileURL.path, with: "<out>")
+        }
+        let locator = ReferenceLocator(
+            referenceURL: URL(fileURLWithPath: "/reference.fa"),
+            indexPrefixURL: URL(fileURLWithPath: "/index")
+        )
+        var commands = try MappingCommandBuilder.buildBBMapReadSetRuns(for: request, referenceLocator: locator).map(\.command)
+        if commands.isEmpty {
+            commands = [try MappingCommandBuilder.buildCommand(for: request, referenceLocator: locator)]
+        }
+        let argv = try commands.map { try ([$0.executable] + $0.arguments).map(show).joined(separator: " ") }
+        return [
+            "files \(try request.inputFASTQURLs.map { try show($0.path) })",
+            "pairedEnd \(request.pairedEnd)",
+            "layout \(String(describing: request.inputLayout)) \(request.readLayoutPlan.handling)",
+            "readSets \(request.readSetLayout != nil)",
+            "steps \(resolved.readSetPlan?.steps.map { "\($0.kind) \($0.pairCount) \($0.singleReadCount)" } ?? [])",
+        ] + argv
+    }
+
+    private static func plan(
+        inputs: [URL],
+        mode: MultiBundleRunMode,
+        root: URL,
+        tool: MappingTool = .bowtie2,
+        modeID: String = MappingMode.defaultShortRead.id
+    ) -> MappingRunPlan {
         MappingWizardSheet.buildRunPlan(
             bundleURLs: inputs,
             mode: mode,
-            tool: .bowtie2,
-            modeID: MappingMode.defaultShortRead.id,
+            tool: tool,
+            modeID: modeID,
             referenceFASTAURL: root.appendingPathComponent("reference.fa"),
             sourceReferenceBundleURL: nil,
             projectURL: nil,
@@ -227,7 +324,8 @@ final class MappingVirtualInputProvenanceTests: XCTestCase {
         let resolved = try await AppDelegate().resolveManagedMappingInputs(for: windowRequest, progress: { _ in })
         _ = try await fixture.pipeline.run(
             request: resolved.request,
-            inputLayoutReason: resolved.layoutResolution.reason
+            inputLayoutReason: resolved.layoutResolution.reason,
+            readSetPlan: resolved.readSetPlan
         )
         let windowReads = try fixture.readsSeenByMapper()
 
@@ -494,35 +592,26 @@ private struct StandInMappingFixture {
         return request.withOutputDirectory(outputDirectory)
     }
 
-    /// The request `lungfish-cli map <bundle>` builds: inputs resolved
-    /// through `MapCommand`'s own resolution into the run's
-    /// `.lungfish-map-inputs`, pairing and layout derived as the command
-    /// derives them, and the lineage carried as `originalInputFASTQURLs`.
+    /// The request `lungfish-cli map <bundle>` builds: the inputs as named,
+    /// resolved through `MappingInputResolver` into the run's
+    /// `.lungfish-map-inputs`, with pairing, layout and lineage as the
+    /// command derives them.
     func cliShapedRequest(bundleURL: URL? = nil, outputDirectory: URL) async throws -> CLIShapedRequest {
         let inputURL = bundleURL ?? virtualBundleURL
-        let resolvedInputs = try await MapCommand.resolveExecutionInputs(
-            for: [inputURL],
-            tempDirectory: MappingResultLayoutService.inputMaterializationDirectory(in: outputDirectory),
+        let resolved = try await MappingInputResolver.resolve(
+            request: MappingRunRequest(
+                tool: .minimap2,
+                modeID: MappingMode.defaultShortRead.id,
+                inputFASTQURLs: [inputURL],
+                referenceFASTAURL: referenceURL,
+                projectURL: projectURL,
+                outputDirectory: outputDirectory,
+                sampleName: inputURL.deletingPathExtension().lastPathComponent,
+                threads: 2
+            ),
             materializer: FASTQCLIMaterializer(runner: .shared)
         )
-        let pairedEnd = MapCommand.effectivePairedEnd(flag: false, resolved: resolvedInputs)
-        let layoutResolution = MapCommand.layoutResolution(for: resolvedInputs, pairedEnd: pairedEnd, explicit: nil)
-        let request = MappingRunRequest(
-            tool: .minimap2,
-            modeID: MappingMode.defaultShortRead.id,
-            inputFASTQURLs: resolvedInputs.executionInputURLs,
-            originalInputFASTQURLs: resolvedInputs.originalInputURLs,
-            inputMaterializationStartedAt: resolvedInputs.materializationStartedAt,
-            inputMaterializationEndedAt: resolvedInputs.materializationEndedAt,
-            referenceFASTAURL: referenceURL,
-            projectURL: projectURL,
-            outputDirectory: outputDirectory,
-            sampleName: inputURL.deletingPathExtension().lastPathComponent,
-            pairedEnd: pairedEnd,
-            threads: 2,
-            inputLayout: layoutResolution.layout
-        )
-        return CLIShapedRequest(request: request, layoutReason: layoutResolution.reason)
+        return CLIShapedRequest(request: resolved.request, layoutReason: resolved.layoutResolution.reason)
     }
 
     /// The read names and bases the stand-in mapper was handed, in order.

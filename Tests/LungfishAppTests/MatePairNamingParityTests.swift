@@ -7,11 +7,11 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
 
-/// `AppDelegate.resolvedPairedEnd(for:)` pairs the window's resolved files
-/// through `MetagenomicsSampleGrouper`, which lives in the app and the CLI
-/// cannot see. `MatePairFileNaming` in LungfishWorkflow carries the same
-/// convention for `lungfish-cli map`, so a bundle that resolves to two files
-/// is paired the same way on both paths. This pins the two to one answer.
+/// The classifier wizard groups files into samples through
+/// `MetagenomicsSampleGrouper`, which lives in the app and the CLI cannot
+/// see. `MatePairFileNaming` in LungfishWorkflow carries the same convention
+/// for the CLI and for `MappingInputResolver`, so two files named as mates
+/// pair the same way on every path. This pins the two to one answer.
 @MainActor
 final class MatePairNamingParityTests: XCTestCase {
 
@@ -36,10 +36,16 @@ final class MatePairNamingParityTests: XCTestCase {
         for (first, second) in cases {
             let files = [URL(fileURLWithPath: "/data/\(first)"), URL(fileURLWithPath: "/data/\(second)")]
             XCTAssertEqual(
-                AppDelegate.resolvedPairedEnd(for: files),
+                Self.groupsAsOnePairedSample(files),
                 MatePairFileNaming.matePair(in: files) != nil,
                 "the window and the CLI disagree on \(first) + \(second)"
             )
         }
+    }
+
+    /// Whether the grouper puts two files into one sample with both mates.
+    private static func groupsAsOnePairedSample(_ files: [URL]) -> Bool {
+        let grouped = MetagenomicsSampleGrouper.group(files)
+        return grouped.count == 1 && grouped[0].isPairedEnd
     }
 }

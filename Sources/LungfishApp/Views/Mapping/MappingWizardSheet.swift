@@ -268,14 +268,12 @@ struct MappingWizardSheet: View {
     /// avoid collisions across repeated combined runs) and a non-nil warning
     /// describing the pooling for the operation history.
     ///
-    /// IMPORTANT: `pairedEnd` is intentionally left `false` on every request
-    /// this function returns -- it CANNOT be correctly determined from
-    /// unresolved bundle URLs, only from the files a bundle actually
-    /// resolves to. `AppDelegate.runSingleManagedMappingAwaitingCompletion`
-    /// recomputes it after `resolveInputFiles`, using
-    /// `AppDelegate.resolvedPairedEnd(for:)` (backed by
-    /// `MetagenomicsSampleGrouper`) on the actually-resolved file list --
-    /// see F2 in the C2 fix-round-1 review.
+    /// `pairedEnd` is the explicit pairing `--paired` records. It is true only
+    /// for exactly two loose files named as the mates of one sample
+    /// (`MappingInputResolver.looseMatePair`), which are then ordered R1 first.
+    /// How a bundle's reads pair is decided after resolution by the read-set
+    /// plan, in `MappingInputResolver`, the call `lungfish-cli map` makes too.
+    /// Two bundles pooled here are never paired with each other.
     static func buildRunPlan(
         bundleURLs: [URL],
         mode: MultiBundleRunMode,
@@ -304,20 +302,18 @@ struct MappingWizardSheet: View {
             readGroup: MappingReadGroup,
             outputDirectory: URL
         ) -> MappingRunRequest {
-            MappingRunRequest(
+            let looseMates = MappingInputResolver.looseMatePair(in: inputFASTQURLs)
+            return MappingRunRequest(
                 tool: tool,
                 modeID: modeID,
-                inputFASTQURLs: inputFASTQURLs,
+                inputFASTQURLs: looseMates.map { [$0.r1, $0.r2] } ?? inputFASTQURLs,
                 referenceFASTAURL: referenceFASTAURL,
                 sourceReferenceBundleURL: sourceReferenceBundleURL,
                 projectURL: projectURL,
                 outputDirectory: outputDirectory,
                 sampleName: sampleName,
                 readGroup: readGroup,
-                // Placeholder; AppDelegate.
-                // runSingleManagedMappingAwaitingCompletion recomputes this
-                // from the resolved file list before mapping runs.
-                pairedEnd: false,
+                pairedEnd: looseMates != nil,
                 threads: threads,
                 includeSecondary: includeSecondary,
                 includeSupplementary: includeSupplementary,

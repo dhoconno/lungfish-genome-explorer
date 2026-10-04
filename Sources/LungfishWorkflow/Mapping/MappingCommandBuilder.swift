@@ -58,11 +58,53 @@ public enum MappingCommandBuilder {
                 indexPrefixURL: resolvedReference.indexPrefixURL
             )
         case .bbmap:
+            // A sample of pairs and single reads maps in several runs. The
+            // first run, its pairs, stands for the mapper invocation.
+            if let firstRun = try buildBBMapReadSetRuns(for: request, referenceLocator: resolvedReference).first {
+                return firstRun.command
+            }
             return try buildBBMapCommand(
                 for: request,
                 rawAlignmentURL: rawAlignmentURL,
                 referenceURL: resolvedReference.referenceURL
             )
+        }
+    }
+
+    /// One BBMap run of a sample that holds pairs and single reads: the
+    /// command, the SAM it writes and the reads it maps.
+    public struct BBMapReadSetRun: Sendable, Equatable {
+        public let command: ManagedMappingCommand
+        public let rawAlignmentURL: URL
+        public let inputURLs: [URL]
+    }
+
+    /// BBMap takes one kind of read per run, so a sample of pairs and single
+    /// reads maps in one run per set of pairs and one per single-read file.
+    /// Every run carries the request's read group, so `samtools merge -c -p`
+    /// joins them into one BAM. Empty unless the request carries a
+    /// ``MappingReadSetLayout``.
+    public static func buildBBMapReadSetRuns(
+        for request: MappingRunRequest,
+        referenceLocator: ReferenceLocator? = nil
+    ) throws -> [BBMapReadSetRun] {
+        guard request.tool == .bbmap, let readSet = request.readSetLayout else { return [] }
+        let referenceURL = (referenceLocator ?? .live(for: request)).referenceURL
+        let pairRuns = zip(readSet.r1Files, readSet.r2Files).map { [$0.0, $0.1] }
+        let singleRuns = readSet.singleReadFiles.map { [$0] }
+        return try (pairRuns + singleRuns).enumerated().map { index, inputURLs in
+            let rawAlignmentURL = request.outputDirectory
+                .appendingPathComponent("\(request.sampleName).run\(index + 1).raw.sam")
+            let inputArguments = inputURLs.count == 2
+                ? ["in=\(inputURLs[0].path)", "in2=\(inputURLs[1].path)"]
+                : ["in=\(inputURLs[0].path)", "interleaved=f"]
+            let command = try buildBBMapCommand(
+                for: request,
+                rawAlignmentURL: rawAlignmentURL,
+                referenceURL: referenceURL,
+                inputArguments: inputArguments
+            )
+            return BBMapReadSetRun(command: command, rawAlignmentURL: rawAlignmentURL, inputURLs: inputURLs)
         }
     }
 
@@ -151,7 +193,18 @@ public enum MappingCommandBuilder {
         }
         arguments += request.advancedArguments
         arguments += ["-S", rawAlignmentURL.path]
-        if request.pairedEnd && request.inputFASTQURLs.count == 2 {
+        if let readSet = request.readSetLayout {
+            // Pairs and single reads of one sample in one run (READ-PAIRING.md).
+            if !readSet.r1Files.isEmpty {
+                arguments += [
+                    "-1", readSet.r1Files.map(\.path).joined(separator: ","),
+                    "-2", readSet.r2Files.map(\.path).joined(separator: ","),
+                ]
+            }
+            if !readSet.singleReadFiles.isEmpty {
+                arguments += ["-U", readSet.singleReadFiles.map(\.path).joined(separator: ",")]
+            }
+        } else if request.pairedEnd && request.inputFASTQURLs.count == 2 {
             arguments += ["-1", request.inputFASTQURLs[0].path, "-2", request.inputFASTQURLs[1].path]
         } else if request.inputFASTQURLs.count == 1, request.readLayoutPlan.handling == .asPairs {
             // `--interleaved` pairs records by position, so only a strictly
@@ -173,7 +226,8 @@ public enum MappingCommandBuilder {
     private static func buildBBMapCommand(
         for request: MappingRunRequest,
         rawAlignmentURL: URL,
-        referenceURL: URL
+        referenceURL: URL,
+        inputArguments: [String]? = nil
     ) throws -> ManagedMappingCommand {
         let mode = try mode(for: request)
         let nativeTool: NativeTool = mode == .bbmapPacBio ? .mapPacBio : .bbmap
@@ -193,7 +247,9 @@ public enum MappingCommandBuilder {
             "rgpl=\(readGroup.platform)",
             "rgpu=\(readGroup.platformUnit)",
         ]
-        if request.pairedEnd && request.inputFASTQURLs.count == 2 {
+        if let inputArguments {
+            arguments += inputArguments
+        } else if request.pairedEnd && request.inputFASTQURLs.count == 2 {
             arguments += [
                 "in=\(request.inputFASTQURLs[0].path)",
                 "in2=\(request.inputFASTQURLs[1].path)",

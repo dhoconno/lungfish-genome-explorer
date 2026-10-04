@@ -254,25 +254,23 @@ final class MapReadSetStandInTests: XCTestCase {
     /// Resolves `input` the way `lungfish-cli map` does and runs the pipeline.
     private func map(_ input: URL, tool: MappingTool, outputDirectory: URL) async throws {
         let modeID = tool == .bbmap ? MappingMode.bbmapStandard.id : MappingMode.defaultShortRead.id
-        let resolvedInputs = try await MapCommand.resolveExecutionInputs(
-            for: [input],
-            tempDirectory: MappingResultLayoutService.inputMaterializationDirectory(in: outputDirectory),
+        let resolved = try await MappingInputResolver.resolve(
+            request: MappingRunRequest(
+                tool: tool,
+                modeID: modeID,
+                inputFASTQURLs: [input],
+                referenceFASTAURL: standIn.referenceURL,
+                outputDirectory: outputDirectory,
+                sampleName: input.deletingPathExtension().lastPathComponent,
+                threads: 2,
+                compatibilityReadClassOverride: .illuminaShortReads
+            ),
             materializer: fixtures.materializer
         )
-        let pairedEnd = MapCommand.effectivePairedEnd(flag: false, resolved: resolvedInputs)
-        let layout = MapCommand.layoutResolution(for: resolvedInputs, pairedEnd: pairedEnd, explicit: nil)
-        let request = MappingRunRequest(
-            tool: tool,
-            modeID: modeID,
-            inputFASTQURLs: resolvedInputs.executionInputURLs,
-            referenceFASTAURL: standIn.referenceURL,
-            outputDirectory: outputDirectory,
-            sampleName: input.deletingPathExtension().lastPathComponent,
-            pairedEnd: pairedEnd,
-            threads: 2,
-            compatibilityReadClassOverride: .illuminaShortReads,
-            inputLayout: layout.layout
-        ).withInputLineage(resolvedInputs)
-        _ = try await standIn.pipeline.run(request: request, inputLayoutReason: layout.reason)
+        _ = try await standIn.pipeline.run(
+            request: resolved.request,
+            inputLayoutReason: resolved.layoutResolution.reason,
+            readSetPlan: resolved.readSetPlan
+        )
     }
 }
