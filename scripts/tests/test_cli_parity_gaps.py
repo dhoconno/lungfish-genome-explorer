@@ -378,6 +378,119 @@ def test_update_refuses_to_grow_the_untested_list(tmp_path):
     assert "refusing to add untested sites" in result.stderr
 
 
+def test_update_refuses_untested_sites_when_the_list_is_empty(tmp_path):
+    # Once every listed site is tested, the list may not grow again.
+    script = make_repo(
+        tmp_path,
+        {"Import.swift": PARSING_SITE},
+        {"Other.swift": "// nothing\n"},
+        baseline=0,
+        untested="# Begin sites whose function no App test names beside a command parse.\n",
+    )
+    result = run(script, "--update")
+    assert result.returncode == 1
+    assert "refusing to add untested sites: Sources/LungfishApp/Import.swift:beginImportOperation" in result.stderr
+    untested = (tmp_path / "scripts/ratchets/cli-parity-gaps.untested").read_text()
+    assert "beginImportOperation" not in untested
+
+
+def test_update_refuses_untested_sites_when_the_list_is_missing(tmp_path):
+    script = make_repo(tmp_path, {"Import.swift": PARSING_SITE}, {"Other.swift": "// nothing\n"}, baseline=0)
+    result = run(script, "--update")
+    assert result.returncode == 1
+    assert "refusing to add untested sites" in result.stderr
+    assert not (tmp_path / "scripts/ratchets/cli-parity-gaps.untested").exists()
+
+
+SPLIT_SITE_REUSING_THE_MERGE_GAP = '''
+extension Thing {
+    /// Records no command.
+    ///
+    /// cli-parity-gap: thing-merge. No command splits things.
+    static func beginSplitOperation(reporter: any OperationReporting) -> OperationStartResult {
+        reporter.begin(title: "Split", detail: "", operationType: .bundleBuild, cliCommand: nil)
+    }
+}
+'''
+
+SPLIT_TEST = GAP_TEST.replace("Merge", "Split")
+
+
+def test_a_new_site_that_reuses_a_gap_id_raises_the_value(tmp_path):
+    # Each gap site counts, so a new nil row cannot hide behind an existing
+    # marker ID.
+    script = make_repo(
+        tmp_path,
+        {"Merge.swift": GAP_SITE, "Split.swift": SPLIT_SITE_REUSING_THE_MERGE_GAP},
+        {"MergeTests.swift": GAP_TEST, "SplitTests.swift": SPLIT_TEST},
+        baseline=1,
+    )
+    result = run(script)
+    assert result.returncode == 1
+    assert "2 CLI parity gaps, up from the baseline of 1" in result.stderr
+    assert "TOTAL 2" in run(script, "--print").stdout
+    result = run(script, "--update")
+    assert result.returncode == 1
+    assert "refusing to raise the baseline from 1 to 2" in result.stderr
+
+
+SHARED_HELPER_SITE = '''
+extension Thing {
+    /// Records no command for either download kind.
+    ///
+    /// cli-parity-gap: thing-download-a. No command downloads kind A.
+    /// cli-parity-gap: thing-download-b. No command downloads kind B.
+    static func beginDownloadOperation(reporter: any OperationReporting) -> OperationStartResult {
+        reporter.begin(title: "Download", detail: "", operationType: .download, cliCommand: nil)
+    }
+}
+'''
+
+SHARED_HELPER_TEST = '''
+final class DownloadTests: XCTestCase {
+    func testDownload() {
+        Thing.beginDownloadOperation(reporter: reporter)
+        assertCLIParityGap(item.cliCommand, id: "thing-download-a")
+        assertCLIParityGap(item.cliCommand, id: "thing-download-b")
+    }
+}
+'''
+
+
+def test_a_shared_helper_counts_each_gap_it_carries(tmp_path):
+    # One begin helper that serves two operations is two gaps, not one site.
+    script = make_repo(
+        tmp_path,
+        {"Download.swift": SHARED_HELPER_SITE},
+        {"DownloadTests.swift": SHARED_HELPER_TEST},
+        baseline=2,
+    )
+    result = run(script)
+    assert result.returncode == 0, result.stderr
+    assert "2 gaps, at the baseline" in result.stdout
+    printed = run(script, "--print").stdout
+    assert "beginDownloadOperation gap thing-download-a,thing-download-b" in printed
+    assert "SITES 1" in printed
+    assert "TOTAL 2" in printed
+
+
+def test_each_pending_line_counts(tmp_path):
+    pending = (
+        "import-batch Sources/LungfishApp/Import.swift:beginImportOperation L9\n"
+        "import-batch Sources/LungfishApp/Import.swift:beginOtherImportOperation L9\n"
+    )
+    script = make_repo(
+        tmp_path,
+        {"Import.swift": PARSING_SITE},
+        {"ImportTests.swift": PARSE_TEST},
+        baseline=1,
+        pending=pending,
+    )
+    result = run(script)
+    assert result.returncode == 1
+    assert "2 CLI parity gaps, up from the baseline of 1" in result.stderr
+
+
 def test_print_lists_each_site_with_its_status(tmp_path):
     script = make_repo(
         tmp_path,
