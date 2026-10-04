@@ -881,8 +881,8 @@ extension AppDelegate {
                         prefix: "esviritu-", contextURL: config.inputFiles.first ?? config.outputDirectory)
                     defer { try? FileManager.default.removeItem(at: materializeTempDir) }
 
-                    let resolvedFiles = try await self?.resolveInputFiles(
-                        config.inputFiles,
+                    let resolvedConfig = try await self?.resolvedEsVirituConfig(
+                        config,
                         tempDirectory: materializeTempDir,
                         progress: { message in
                             DispatchQueue.main.async {
@@ -893,10 +893,7 @@ extension AppDelegate {
                                 }
                             }
                         }
-                    ) ?? config.inputFiles
-
-                    var resolvedConfig = config
-                    resolvedConfig.inputFiles = resolvedFiles
+                    ) ?? config
 
                     let pipeline = EsVirituPipeline()
                     let result = try await pipeline.detect(
@@ -1651,8 +1648,8 @@ extension AppDelegate {
                     let samplePrefix = "Sample \(index + 1)/\(sampleCount) (\(sampleID))"
 
                     do {
-                        let resolvedFiles = try await self.resolveInputFiles(
-                            config.inputFiles,
+                        let resolvedConfig = try await self.resolvedEsVirituConfig(
+                            config,
                             tempDirectory: batchMaterializeTempDir,
                             progress: { message in
                                 let prefixed = "\(samplePrefix): \(message)"
@@ -1665,9 +1662,6 @@ extension AppDelegate {
                                 }
                             }
                         )
-
-                        var resolvedConfig = config
-                        resolvedConfig.inputFiles = resolvedFiles
 
                         let pipelineResult = try await pipeline.detect(
                             config: resolvedConfig,
@@ -1982,38 +1976,19 @@ extension AppDelegate {
                         prefix: "taxtriage-", contextURL: config.samples.first?.fastq1 ?? config.outputDirectory)
                     defer { try? FileManager.default.removeItem(at: materializeTempDir) }
 
-                    var resolvedConfig = config
-                    for (i, sample) in resolvedConfig.samples.enumerated() {
-                        let allFiles = [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])
-                        let resolved = try await self?.resolveInputFiles(
-                            allFiles,
-                            tempDirectory: materializeTempDir,
-                            progress: { message in
-                                DispatchQueue.main.async {
-                                    MainActor.assumeIsolated {
-                                        viewerController.showProgress(message)
-                                        _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
-                                        OperationCenter.shared.log(id: opID, level: .info, message: message)
-                                    }
+                    let resolvedConfig = try await self?.resolvedTaxTriageConfig(
+                        config,
+                        tempDirectory: materializeTempDir,
+                        progress: { message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    viewerController.showProgress(message)
+                                    _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                    OperationCenter.shared.log(id: opID, level: .info, message: message)
                                 }
                             }
-                        ) ?? allFiles
-                        resolvedConfig.samples[i].fastq1 = resolved[0]
-                        if resolved.count > 1 {
-                            resolvedConfig.samples[i].fastq2 = resolved[1]
-                        } else if sample.fastq2 == nil,
-                                  resolved[0].standardizedFileURL != sample.fastq1.standardizedFileURL {
-                            // A materialized scratch copy carries no bundle sidecar,
-                            // so resolve its layout now with the bundle's metadata as
-                            // hints (a VSP2 merge in the lineage demotes strict to
-                            // mixed). TaxTriagePipeline splits a strictly interleaved
-                            // file into R1/R2 and runs it as pairs.
-                            resolvedConfig.samples[i].readLayout = FASTQInputLayoutResolver.resolve(
-                                fastqURL: resolved[0],
-                                metadataFrom: sample.fastq1
-                            ).layout
                         }
-                    }
+                    ) ?? config
 
                     let runner = TaxTriageSerialBatchRunner()
                     let result = try await runner.run(
