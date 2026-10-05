@@ -1,0 +1,47 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css">
+<title>Cover</title>
+<style>
+  html, body { margin: 0; padding: 0; background: var(--canvas); }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; background: var(--canvas); }
+  .band { position: absolute; left: 0; top: 0; }
+  .b-creamsicle { fill: var(--creamsicle); }
+  .b-peach { fill: var(--peach); }
+  .b-ink { fill: var(--ink); }
+  .b-grey { fill: var(--warm-grey); }
+  .blk { rx: var(--radius-24); ry: var(--radius-24); }
+  .disc { fill: var(--canvas); r: var(--space-8); }
+  .name { position: absolute; left: 48px; top: 150px; margin: 0; font: 700 64px/0.95 var(--font-display); letter-spacing: -0.01em; color: var(--ink); white-space: nowrap; }
+  .tag { position: absolute; left: 48px; top: 228px; margin: 0; font: 400 14px/1.4 var(--font-sans); color: var(--text-secondary); max-width: 440px; }
+</style>
+</head>
+<body>
+<div class="cover">
+  <!--
+    blocks: creamsicle 440w, peach 112w, ink 232w, warm-grey 176w (bleeds right); all 136 tall bleeding 24 off the top so 112 shows; gaps space-8; corners radius-24.
+    arrangement: top-band skeleton (name too wide for the 440 zone at 64px), a strip of unequal bands weighted by identity, Creamsicle largest.
+    pattern: literal motif row, the wave line through the lungfish logo, as eight canvas discs cut out of the Creamsicle block, alternating up and down by space-12.
+    scales: disc radius space-8, disc pitch space-48, wave amplitude space-12, block gap space-8, corners radius-24.
+  -->
+  <svg class="band" width="960" height="120" viewBox="0 0 960 120" aria-hidden="true">
+    <rect class="b-creamsicle blk" x="-24" y="-24" width="464" height="136"/>
+    <rect class="b-peach blk" x="448" y="-24" width="112" height="136"/>
+    <rect class="b-ink blk" x="568" y="-24" width="232" height="136"/>
+    <rect class="b-grey blk" x="808" y="-24" width="176" height="136"/>
+    <circle class="disc" cx="48" cy="44"/>
+    <circle class="disc" cx="96" cy="68"/>
+    <circle class="disc" cx="144" cy="44"/>
+    <circle class="disc" cx="192" cy="68"/>
+    <circle class="disc" cx="240" cy="44"/>
+    <circle class="disc" cx="288" cy="68"/>
+    <circle class="disc" cx="336" cy="44"/>
+    <circle class="disc" cx="384" cy="68"/>
+  </svg>
+  <h1 class="name">Lungfish Design System</h1>
+  <p class="tag">Seeing the invisible. Informing action.</p>
+</div>
+</body>
+</html>

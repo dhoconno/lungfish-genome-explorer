@@ -1,0 +1,107 @@
+/* Generated from tokens.json by scripts/design/generate-tokens-css.py. Do not edit by hand. */
+:root, [data-theme="light"] {
+  --creamsicle: #ee8b4f;
+  --peach: #f6b088;
+  --deep-ink: #1f1a17;
+  --cream: #faf4ea;
+  --warm-grey: #8a847a;
+  --ink: #1f1a17;
+  --canvas: #faf4ea;
+  --card: #ffffff;
+  --sidebar: #f8d7c1;
+  --stroke: rgba(138, 132, 122, 0.22);
+  --text-secondary: #8a847a;
+  --rule: #e6dccb;
+  --code-fill: #f2eada;
+  --lungfish-orange: #d47b3a;
+  --teal: #00a0b0;
+  --teal-dark: #007a8c;
+  --teal-light: #00c4d9;
+  --sage: #7a9364;
+  --danger: #a65f3a;
+  --selection-fill: rgba(238, 139, 79, 0.15);
+  --attention-fill: rgba(238, 139, 79, 0.14);
+  --success-fill: rgba(122, 147, 100, 0.14);
+  --danger-fill: rgba(166, 95, 58, 0.16);
+  --muted-fill: rgba(246, 176, 136, 0.16);
+  --icon-well: rgba(246, 176, 136, 0.24);
+  --base-a: #00a000;
+  --base-t: #ff0000;
+  --base-g: #ffd700;
+  --base-c: #0000ff;
+  --base-n: #808080;
+}
+[data-theme="dark"] {
+  --ink: #faf4ea;
+  --canvas: #282320;
+  --card: #3a3533;
+  --sidebar: #413229;
+  --stroke: rgba(255, 255, 255, 0.10);
+  --text-secondary: rgba(250, 244, 234, 0.78);
+  --lungfish-orange: #e8a06a;
+  --teal: #00c4d9;
+  --teal-dark: #00a0b0;
+  --teal-light: #4dd9e6;
+  --sage: #93ab7d;
+  --danger: #d08a64;
+  --selection-fill: rgba(238, 139, 79, 0.22);
+  --attention-fill: rgba(238, 139, 79, 0.22);
+  --success-fill: rgba(147, 171, 125, 0.24);
+  --danger-fill: rgba(208, 138, 100, 0.24);
+  --muted-fill: rgba(246, 176, 136, 0.12);
+  --icon-well: rgba(246, 176, 136, 0.14);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: #faf4ea;
+    --canvas: #282320;
+    --card: #3a3533;
+    --sidebar: #413229;
+    --stroke: rgba(255, 255, 255, 0.10);
+    --text-secondary: rgba(250, 244, 234, 0.78);
+    --lungfish-orange: #e8a06a;
+    --teal: #00c4d9;
+    --teal-dark: #00a0b0;
+    --teal-light: #4dd9e6;
+    --sage: #93ab7d;
+    --danger: #d08a64;
+    --selection-fill: rgba(238, 139, 79, 0.22);
+    --attention-fill: rgba(238, 139, 79, 0.22);
+    --success-fill: rgba(147, 171, 125, 0.24);
+    --danger-fill: rgba(208, 138, 100, 0.24);
+    --muted-fill: rgba(246, 176, 136, 0.12);
+    --icon-well: rgba(246, 176, 136, 0.14);
+  }
+}
+:root {
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-18: 18px;
+  --space-20: 20px;
+  --space-22: 22px;
+  --space-28: 28px;
+  --space-48: 48px;
+  --radius-4: 4px;
+  --radius-6: 6px;
+  --radius-8: 8px;
+  --radius-14: 14px;
+  --radius-16: 16px;
+  --radius-18: 18px;
+  --radius-20: 20px;
+  --radius-24: 24px;
+  --radius-30: 30px;
+  --radius-pill: 9999px;
+  --accent-bar-height: 5px;
+  --accent-bar-width: 96px;
+  --callout-edge: 4px;
+  --opacity-disabled: 0.55;
+  --opacity-hover-stroke: 0.35;
+  --font-display: "Space Grotesk", Arial, sans-serif;
+  --font-sans: Inter, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", Consolas, monospace;
+  --font-system: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-system-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
