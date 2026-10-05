@@ -77,6 +77,35 @@ final class Kraken2ResultSourcesExtractionTests: XCTestCase {
         }
     }
 
+    /// Final review S3. `conda classify --read-format auto` naming the merged
+    /// file of a merge derivative classifies the whole derivative, since the
+    /// resolver plans the bundle that holds a named file. Extraction reads the
+    /// same reads, the pair u1 and the merged x1, not the named file alone.
+    func testAFileNamedInsideAMergeDerivativeIsReadAsItsBundle() async throws {
+        let shapes = try Kraken2ResultShapes(in: root, names: .slash)
+        let merged = shapes.fixtures.mergeDerivative.appendingPathComponent("merged.fastq").standardizedFileURL
+        let directory = shapes.analyses.appendingPathComponent("kraken2-named-file", isDirectory: true)
+        var config = Kraken2ResultShapes.config(inputs: [merged], paired: false, in: directory)
+        let plan = try await KrakenReadSetPlanner.plan(
+            bundle: merged, materializedInputs: [merged],
+            materializationDirectory: directory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName)
+        )
+        XCTAssertTrue(try KrakenReadSetPlanner.apply(plan, to: &config))
+        XCTAssertEqual(config.originalInputFiles, [merged], "the recorded command names the file")
+        let (t, o) = (Kraken2ResultShapes.target, Kraken2ResultShapes.other)
+        let result = try Kraken2ResultShapes.result("named-file", in: shapes.analyses, config: config, lines: [
+            Kraken2ResultShapes.pair("u1", t), Kraken2ResultShapes.staged("x1", t),
+            Kraken2ResultShapes.staged("x2", o), Kraken2ResultShapes.staged("x3", o),
+        ])
+
+        let extracted = await extractedNames(result)
+        XCTAssertEqual(extracted, ["u1/1", "u1/2", "x1"])
+        XCTAssertEqual(
+            try KrakenResultReadSources.recordedInputs(of: ClassificationResult.load(from: result)),
+            [shapes.fixtures.mergeDerivative.standardizedFileURL]
+        )
+    }
+
     /// A single-end result whose read names end in /1 used to extract nothing.
     func testSingleEndReadsNamedWithAMateSuffixAreFound() async throws {
         let shapes = try Kraken2ResultShapes(in: root, names: .slash)
