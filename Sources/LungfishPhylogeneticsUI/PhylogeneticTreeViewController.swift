@@ -241,6 +241,9 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             let extending = NSApp.currentEvent?.modifierFlags.contains(.shift) == true
             self?.selectNode(id: nodeID, center: false, extendingSelection: extending)
         }
+        treeCanvasView.accessibilityActionsProvider = { [weak self] nodeID in
+            self?.canvasAccessibilityActions(forNodeID: nodeID) ?? []
+        }
 
         treeScrollView.hasVerticalScroller = true
         treeScrollView.hasHorizontalScroller = true
@@ -895,17 +898,53 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         return menu
     }
 
+    /// One item of Selection > Tree Node: the title and responder-chain selector the
+    /// menu bar uses, shared with the context menu and the accessibility actions.
+    public struct NodeMenuBarCommand {
+        public let title: String
+        public let selector: Selector
+        public let identifierSlug: String
+    }
+
+    /// The Selection > Tree Node items in display order, one array per section.
+    /// Collapse Clade becomes Expand Clade through validation when the selected
+    /// clade is collapsed.
+    public static var nodeMenuBarSections: [[NodeMenuBarCommand]] {
+        func command(_ action: NodeAction, _ slug: String) -> NodeMenuBarCommand {
+            NodeMenuBarCommand(title: action.title, selector: action.selector, identifierSlug: slug)
+        }
+        return [
+            [command(.command(.showInInspector), "show-in-inspector")],
+            [command(.command(.copyName), "copy-name"), command(.copySubtreeNewick, "copy-subtree-newick"),
+             command(.copySelectedTipNames, "copy-selected-tip-names")],
+            [command(.rootOnSelectedBranch, "root-on-selected-branch"),
+             command(.toggleClade(collapsed: false), "toggle-clade"),
+             command(.centerNode, "center-node")],
+            [command(.extractSubtree, "extract-subtree"), command(.exportSubtree, "export-subtree")],
+            [command(.revealProvenance, "reveal-provenance")],
+        ]
+    }
+
+    private var canvasHasKeyboardFocus: Bool {
+        guard let responder = treeCanvasView.window?.firstResponder as? NSView else { return false }
+        return responder === treeCanvasView || responder.isDescendant(of: treeCanvasView)
+    }
+
     /// The context menu follows the selected node (or the clicked node row).
-    /// The menu-bar items under Selection > Table Row are enabled only while
-    /// the node table has keyboard focus.
+    /// The menu-bar items under Selection > Table Row and Tree Node are enabled
+    /// only while the node table or the canvas has keyboard focus, and the Tree
+    /// Node items also need a selected node.
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = NodeAction.action(for: menuItem.action) else { return true }
         if case .command(let command) = action, ![.showInInspector, .copyName].contains(command) { return false }
         let inContextMenu = ResultRowMenuValidation.isContextMenuItem(
             menuItem, in: [nodeTableView.menu, treeCanvasView.menu]
         )
-        guard inContextMenu || ResultRowMenuValidation.tableHasKeyboardFocus(nodeTableView) else { return false }
+        guard inContextMenu
+                || ResultRowMenuValidation.tableHasKeyboardFocus(nodeTableView)
+                || canvasHasKeyboardFocus else { return false }
         let id = targetNodeID(sender: menuItem)
+        if !inContextMenu, id == nil { return false }
         let tipCount = id == selectedNodeID ? selectedTipLabels().count : (id.flatMap { nodesByID[$0]?.isTip } == true ? 1 : 0)
         let available = availableNodeActions(forNodeID: id, selectedTipCount: tipCount)
         if case .toggleClade = action, let available = available.first(where: { $0.matches(action) }) {
@@ -928,6 +967,19 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
                       let current = AccessibilityCellActions.currentRow(of: cellView),
                       self.nodes.indices.contains(current) else { return }
                 self.selectNode(id: self.nodes[current].id, center: false)
+                _ = NSApp.sendAction(action.selector, to: self, from: nil)
+            }
+        }
+    }
+
+    /// The accessibility custom actions of a canvas node: the same commands and
+    /// titles as its row in the node table. Each handler selects the node first.
+    private func canvasAccessibilityActions(forNodeID nodeID: String) -> [NSAccessibilityCustomAction] {
+        guard let node = nodesByID[nodeID] else { return [] }
+        return availableNodeActions(forNodeID: nodeID, selectedTipCount: node.isTip ? 1 : 0).map { action in
+            AccessibilityCellActions.makeAction(name: action.title) { [weak self] in
+                guard let self else { return }
+                self.selectNode(id: nodeID, center: false)
                 _ = NSApp.sendAction(action.selector, to: self, from: nil)
             }
         }
@@ -1351,6 +1403,13 @@ public extension PhylogeneticTreeViewController {
         nodes.filter(\.isTip).map(\.displayLabel).sorted()
     }
 
+    /// The canvas node accessibility elements, for tests.
+    var testingCanvasAccessibilityElements: [NSAccessibilityElement] {
+        (treeCanvasView.accessibilityChildren() as? [NSAccessibilityElement]) ?? []
+    }
+
+    var testingCanvasView: NSView { treeCanvasView }
+
     var testingCanvasCommandTitles: [String] {
         [fitButton.title, resetButton.title]
     }
@@ -1555,8 +1614,20 @@ private struct PhylogeneticTreeCanvasNodeLayout {
     let point: NSPoint
 }
 
+/// A canvas node's accessibility element. Press selects the node.
+private final class PhylogeneticTreeNodeAccessibilityElement: NSAccessibilityElement {
+    var onPress: (() -> Void)?
+
+    override func accessibilityPerformPress() -> Bool {
+        onPress?()
+        return onPress != nil
+    }
+}
+
 private final class PhylogeneticTreeCanvasView: NSView {
     var onNodeSelected: ((String) -> Void)?
+    /// The accessibility custom actions of one node, supplied by the controller.
+    var accessibilityActionsProvider: ((String) -> [NSAccessibilityCustomAction])?
     var selectedNodeID: String? {
         get { selectedNodeIDs.first }
         set {
@@ -1655,14 +1726,36 @@ private final class PhylogeneticTreeCanvasView: NSView {
     override func accessibilityChildren() -> [Any]? {
         nodes.compactMap { node in
             guard let rect = rectForNode(id: node.id) else { return nil }
-            let element = NSAccessibilityElement()
+            let element = PhylogeneticTreeNodeAccessibilityElement()
             element.setAccessibilityParent(self)
-            element.setAccessibilityRole(.group)
+            element.setAccessibilityRole(.button)
             element.setAccessibilityIdentifier("phylogenetic-tree-node-\(sanitizedAccessibilityComponent(node.displayLabel))")
-            element.setAccessibilityLabel("\(node.displayLabel), \(node.isTip ? "tip" : "internal node")")
+            element.setAccessibilityLabel(Self.accessibilityLabel(for: node))
             element.setAccessibilityFrameInParentSpace(rect.insetBy(dx: -6, dy: -6))
+            let nodeID = node.id
+            element.onPress = { [weak self] in self?.onNodeSelected?(nodeID) }
+            element.setAccessibilityCustomActions(accessibilityActionsProvider?(nodeID) ?? [])
             return element
         }
+    }
+
+    /// The spoken label of a node: "Homo sapiens, tip, branch length 0.0123" for a tip and
+    /// "internal node, 4 tips, support 99.9/100" for an internal node.
+    static func accessibilityLabel(for node: PhylogeneticTreeNormalizedNode) -> String {
+        var parts: [String]
+        if node.isTip {
+            parts = [node.displayLabel, "tip"]
+        } else {
+            let tips = node.descendantTipCount
+            parts = ["internal node", "\(tips) \(tips == 1 ? "tip" : "tips")"]
+        }
+        if let branchLength = node.branchLength {
+            parts.append("branch length \(String(format: "%.6g", branchLength))")
+        }
+        if let support = node.support {
+            parts.append("support \(support.rawValue)")
+        }
+        return parts.joined(separator: ", ")
     }
 
     func configure(nodes: [PhylogeneticTreeNormalizedNode], collapsedNodeIDs: Set<String>) {
@@ -1740,7 +1833,12 @@ private final class PhylogeneticTreeCanvasView: NSView {
         drawScaleBar()
     }
 
+    /// The canvas takes keyboard focus on a click so the Selection > Tree Node
+    /// menu-bar items validate against it.
+    override var acceptsFirstResponder: Bool { true }
+
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard let nodeID = nodeID(at: point) else { return }
         onNodeSelected?(nodeID)

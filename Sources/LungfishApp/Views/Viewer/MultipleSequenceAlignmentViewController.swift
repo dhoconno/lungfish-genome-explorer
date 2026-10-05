@@ -477,6 +477,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         inspectionPrimerTrack = nil
         bundleURL = url
         bundle = loaded
+        refreshTreeAccessibilityActions()
         alignmentRows = parsedRows
         rowIDsByIndex = loaded.rows.map(\.id)
         columnSummaries = Self.computeColumnSummaries(for: parsedRows)
@@ -523,6 +524,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         inspectionPrimerTrack = nil
         bundleURL = nil
         bundle = nil
+        refreshTreeAccessibilityActions()
         onAddAnnotationRequested = nil
         onProjectAnnotationRequested = nil
         onInferTreeRequested = nil
@@ -1820,7 +1822,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             keyEquivalent: ""
         )
         treeItem.target = self
-        treeItem.isEnabled = bundleURL != nil && selectedRowIndices.count >= 2
+        treeItem.isEnabled = bundleURL != nil
         menu.addItem(treeItem)
         menu.addItem(.separator())
         let addAnnotationItem = NSMenuItem(
@@ -1894,6 +1896,35 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
                 totalRowCount: alignmentRows.count
             )
         )
+    }
+
+    /// K5: the accessibility twin of the context-menu "Build Tree with IQ-TREE…" item, present
+    /// on the matrix and the row gutter whenever a bundle is loaded.
+    private func refreshTreeAccessibilityActions() {
+        let actions: [NSAccessibilityCustomAction]
+        if bundleURL != nil {
+            actions = [
+                NSAccessibilityCustomAction(name: "Build Tree with IQ-TREE…") { [weak self] in
+                    MainActor.assumeIsolated { self?.inferTreeFromAlignment() }
+                    return true
+                }
+            ]
+        } else {
+            actions = []
+        }
+        alignmentMatrixView.setAccessibilityCustomActions(actions)
+        rowGutterView.setAccessibilityCustomActions(actions)
+    }
+
+    var testingTreeAccessibilityActionNames: (matrix: [String], gutter: [String]) {
+        (
+            alignmentMatrixView.accessibilityCustomActions()?.map(\.name) ?? [],
+            rowGutterView.accessibilityCustomActions()?.map(\.name) ?? []
+        )
+    }
+
+    func testingPerformMatrixTreeAccessibilityAction() -> Bool {
+        alignmentMatrixView.accessibilityCustomActions()?.first?.handler?() ?? false
     }
 
     @objc private func inferTreeFromMenu(_ sender: Any?) {
@@ -2022,7 +2053,15 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func inferTreeFromAlignment() {
-        guard let bundleURL, selectedRowIndices.count >= 2 else { return }
+        guard let request = treeInferenceRequest() else { return }
+        onInferTreeRequested?(request)
+    }
+
+    /// The tree-inference request for the loaded alignment, carrying the current row and
+    /// column selection. The IQ-TREE dialog validates the scope, so no selection size is
+    /// required here. `nil` only when no bundle is loaded.
+    func treeInferenceRequest() -> MultipleSequenceAlignmentTreeInferenceRequest? {
+        guard let bundleURL else { return nil }
         let displayName = bundle?.manifest.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? bundle?.manifest.name ?? bundleURL.deletingPathExtension().lastPathComponent
             : bundleURL.deletingPathExtension().lastPathComponent
@@ -2034,14 +2073,12 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             selectedRows = nil
         }
         let selectedColumns = selectedExportColumns
-        onInferTreeRequested?(
-            MultipleSequenceAlignmentTreeInferenceRequest(
-                bundleURL: bundleURL,
-                rows: selectedRows,
-                columns: selectedColumns,
-                suggestedName: "\(displayName).lungfishtree",
-                displayName: displayName
-            )
+        return MultipleSequenceAlignmentTreeInferenceRequest(
+            bundleURL: bundleURL,
+            rows: selectedRows,
+            columns: selectedColumns,
+            suggestedName: "\(displayName).lungfishtree",
+            displayName: displayName
         )
     }
 
@@ -2576,6 +2613,10 @@ extension MultipleSequenceAlignmentViewController {
     func testingInvokeReferenceActions() {
         useSelectedRowAsReference(nil)
         useConsensusAsReference(nil)
+    }
+
+    var testingBuildTreeContextItemEnabled: Bool {
+        selectionContextMenu().items.first { $0.title == "Build Tree with IQ-TREE\u{2026}" }?.isEnabled ?? false
     }
 
     var testingSelectionContextMenuTitles: [String] {
