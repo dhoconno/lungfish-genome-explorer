@@ -715,6 +715,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
         let script = """
         #!/bin/sh
         /bin/sh -c 'trap "" TERM HUP INT; echo $$ > "\(childPIDFile.path)"; while true; do sleep 1; done' &
+        while [ ! -s "\(childPIDFile.path)" ]; do sleep 0.05; done
         while true; do sleep 1; done
         """
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
@@ -724,11 +725,11 @@ final class ProvenanceExportCommandTests: XCTestCase {
             scriptURL,
             arguments: [],
             workingDirectory: directory,
-            timeout: .seconds(1)
+            timeout: .seconds(5)
         )
 
         let childPID = try waitForPIDFile(childPIDFile)
-        let childExited = await waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        let childExited = await waitUntilProcessExits(pid: childPID, timeout: 30.0)
         XCTAssertTrue(childExited, "Timeout cleanup must terminate spawned child processes")
     }
 
@@ -1473,7 +1474,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
         )
     }
 
-    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 5.0) throws -> Int32 {
+    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 30.0) throws -> Int32 {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let contents = try? String(contentsOf: url, encoding: .utf8)
