@@ -576,7 +576,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
             }
 
             // Not a search filter: where the window downloads the runs from.
-            SRADownloadSourcePicker()
+            SRADownloadSourcePicker(store: viewModel.sraDownloadDefaults)
         }
     }
 

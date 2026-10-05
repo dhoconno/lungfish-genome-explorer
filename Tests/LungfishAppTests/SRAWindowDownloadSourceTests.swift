@@ -235,6 +235,20 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
         XCTAssertEqual(statuses.values.map(\.level), [.info], "the chosen route is logged as information, not a warning")
     }
 
+    /// Review nit: the popup writes the same defaults the window's downloads
+    /// read, so a view model built with a suite never reads another store.
+    @MainActor
+    func testThePopupAndTheDownloadShareTheWindowsDefaults() throws {
+        let suite = "sra-window-shared-defaults-\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let viewModel = DatabaseBrowserViewModel(source: .ena, sraDownloadSuiteName: suite)
+        XCTAssertEqual(viewModel.sraDownloadPreference(), .ena)
+        let storage = SRADownloadSourcePicker.storage(in: viewModel.sraDownloadDefaults)
+        storage.wrappedValue = .ncbi
+        XCTAssertEqual(viewModel.sraDownloadPreference(), .ncbi)
+        XCTAssertEqual(SRADownloadSourcePreference.stored(in: try XCTUnwrap(UserDefaults(suiteName: suite))), .ncbi)
+    }
+
     /// ENA can be slow, so under Prefer NCBI the toolkit starts while ENA's
     /// lookup is still running, and the bundle still gets ENA's record.
     func testPreferNCBIStartsTheToolkitBeforeASlowENALookupAnswers() async throws {
@@ -246,8 +260,11 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
             preference: .ncbi,
             in: root.appendingPathComponent("batch", isDirectory: true),
             lookUpRoute: {
-                // Answers only once the toolkit has started.
-                while !toolkitStarted.isSet { try await Task.sleep(for: .milliseconds(10)) }
+                // Answers only once the toolkit has started, with a ceiling,
+                // so a regression fails here instead of hanging the suite.
+                guard await waitUntil(timeout: .seconds(30), { toolkitStarted.isSet }) else {
+                    throw CeilingExceeded()
+                }
                 events.append("lookup answered")
                 return .enaMirror(try Self.pairedRecord())
             },
@@ -333,22 +350,25 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
         let ncbiRun = try JSONDecoder().decode(SRARunInfo.self, from: Data("""
         {"accession": "\(Self.run)", "platform": "ILLUMINA", "libraryLayout": "PAIRED"}
         """.utf8))
-        let staged = try await SRAWindowRunDownload.stage(
-            accession: Self.run,
-            preference: .ncbi,
-            ncbiRun: ncbiRun,
-            in: root.appendingPathComponent("batch", isDirectory: true),
-            lookUpRoute: {
-                try await Task.sleep(for: .seconds(600))
-                return .enaMirror(try Self.pairedRecord())
-            },
-            enaRecordWait: .milliseconds(200),
-            mirrorFile: { _, _, _ in Self.gzipStream },
-            toolkit: { _, folder in
-                try await SRAService(toolkitRunner: runner).downloadFASTQ(accession: Self.run, outputDir: folder)
-            },
-            log: { lines.append($0) }
-        )
+        let batch = root.appendingPathComponent("batch", isDirectory: true)
+        let staged = try await withinCeiling {
+            try await SRAWindowRunDownload.stage(
+                accession: Self.run,
+                preference: .ncbi,
+                ncbiRun: ncbiRun,
+                in: batch,
+                lookUpRoute: {
+                    try await Task.sleep(for: .seconds(600))
+                    return .enaMirror(try Self.pairedRecord())
+                },
+                enaRecordWait: .milliseconds(200),
+                mirrorFile: { _, _, _ in Self.gzipStream },
+                toolkit: { _, folder in
+                    try await SRAService(toolkitRunner: runner).downloadFASTQ(accession: Self.run, outputDir: folder)
+                },
+                log: { lines.append($0) }
+            )
+        }
         defer { staged.removeFolder() }
         XCTAssertNil(staged.download.enaRecord)
         XCTAssertEqual(staged.ncbiRun?.platform, "ILLUMINA", "NCBI's record reaches the bundle's metadata")
@@ -373,6 +393,189 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
         defer { staged.removeFolder() }
         XCTAssertEqual(staged.download.source, .enaAfterMissingToolkit)
         XCTAssertNotNil(staged.download.enaRecord)
+    }
+
+    // MARK: - Cancellation (review finding S3-2)
+
+    /// A cancel while the toolkit has failed and the download waits on ENA's
+    /// lookup reaches the lookup, so the run stops at once with no import.
+    func testACancelWhileWaitingOnTheLookupAfterAToolkitFailureEndsPromptly() async throws {
+        let lookupStarted = Flag()
+        let toolkitFailed = Flag()
+        let lookupCancelled = Flag()
+        let outcome = try await cancelStage(once: { lookupStarted.isSet && toolkitFailed.isSet }, lookUpRoute: {
+            lookupStarted.set()
+            do {
+                try await Task.sleep(for: .seconds(600))
+            } catch {
+                lookupCancelled.set()
+                throw error
+            }
+            return .enaMirror(try Self.pairedRecord())
+        }, toolkit: { _, _ in
+            toolkitFailed.set()
+            throw SRAError.toolkitNotFound
+        })
+        XCTAssertTrue(outcome.cancelled, "the run stops with a cancellation, got \(outcome.result)")
+        XCTAssertTrue(lookupCancelled.isSet, "the cancel reaches ENA's lookup")
+    }
+
+    /// A cancel during the wait for ENA's record after the toolkit finished
+    /// stops the run. It must not read as "ENA did not answer" and import.
+    func testACancelDuringTheWaitForENAsRecordEndsPromptlyWithNoImport() async throws {
+        let runner = recorded.runner
+        let toolkitDone = Flag()
+        let lines = Lines()
+        let outcome = try await cancelStage(once: { toolkitDone.isSet }, lookUpRoute: {
+            try await Task.sleep(for: .seconds(600))
+            return .enaMirror(try Self.pairedRecord())
+        }, toolkit: { _, folder in
+            let files = try await SRAService(toolkitRunner: runner).downloadFASTQ(accession: Self.run, outputDir: folder)
+            toolkitDone.set()
+            return files
+        }, lines: lines)
+        XCTAssertTrue(outcome.cancelled, "the run stops with a cancellation, got \(outcome.result)")
+        XCTAssertFalse(lines.values.contains { $0.contains("missing") }, "a cancel is not ENA failing to answer: \(lines.values)")
+    }
+
+    /// A cancelled toolkit stops the run and cancels ENA's lookup.
+    func testACancelledToolkitEndsPromptlyAndCancelsTheLookup() async throws {
+        let lookupCancelled = Flag()
+        let toolkitStarted = Flag()
+        let outcome = try await cancelStage(once: { toolkitStarted.isSet }, lookUpRoute: {
+            do {
+                try await Task.sleep(for: .seconds(600))
+            } catch {
+                lookupCancelled.set()
+                throw error
+            }
+            return .enaMirror(try Self.pairedRecord())
+        }, toolkit: { _, _ in
+            toolkitStarted.set()
+            try await Task.sleep(for: .seconds(600))
+            return []
+        })
+        XCTAssertTrue(outcome.cancelled, "the run stops with a cancellation, got \(outcome.result)")
+        let reached = await waitUntil(timeout: .seconds(10), { lookupCancelled.isSet })
+        XCTAssertTrue(reached, "the cancel reaches ENA's lookup")
+    }
+
+    /// Review nit: the window names both failures when the toolkit fails and
+    /// ENA cannot serve the run, with ENA's own one-line reason, and the row
+    /// says the toolkit failed before the download waits on ENA.
+    func testPreferNCBIFailsWithBothReasonsWhenENAListsNoFiles() async throws {
+        let lines = Lines()
+        do {
+            let staged = try await SRAWindowRunDownload.stage(
+                accession: Self.run,
+                preference: .ncbi,
+                in: root.appendingPathComponent("batch", isDirectory: true),
+                lookUpRoute: { .sraToolkit(enaRecord: nil, reason: "ENA lists no FASTQ files for \(Self.run)") },
+                mirrorFile: { _, _, _ in
+                    XCTFail("ENA lists no files, so the mirror is not asked")
+                    return Self.gzipStream
+                },
+                toolkit: { _, _ in throw SRAError.toolkitNotFound },
+                log: { lines.append($0) }
+            )
+            staged.removeFolder()
+            XCTFail("both sources failed, so the run must fail")
+        } catch let error as SRAError {
+            guard case .downloadFailed(let message) = error else {
+                return XCTFail("expected downloadFailed, got \(error)")
+            }
+            XCTAssertTrue(message.hasPrefix("Toolkit: "), message)
+            XCTAssertTrue(message.hasSuffix("ENA: ENA lists no FASTQ files for \(Self.run)"), message)
+        }
+        XCTAssertTrue(lines.values.contains { $0.contains("not installed") }, "\(lines.values)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("batch/\(Self.run)").path))
+    }
+
+    /// Review nit: a mirror transfer that fails after a toolkit failure names
+    /// ENA's own one-line reason, as Core does.
+    func testPreferNCBIBothFailedUsesENAsOwnReason() async throws {
+        do {
+            let staged = try await SRAWindowRunDownload.stage(
+                accession: Self.run,
+                preference: .ncbi,
+                in: root.appendingPathComponent("batch", isDirectory: true),
+                lookUpRoute: { .enaMirror(try Self.pairedRecord()) },
+                mirrorFile: { _, _, _ in
+                    throw ENAFASTQDownloadFailure(fallbackSource: .sraToolkitAfterFailedTransfer, message: "mirror said 503")
+                },
+                toolkit: { _, _ in throw SRAError.toolkitNotFound }
+            )
+            staged.removeFolder()
+            XCTFail("both sources failed, so the run must fail")
+        } catch let error as SRAError {
+            guard case .downloadFailed(let message) = error else {
+                return XCTFail("expected downloadFailed, got \(error)")
+            }
+            XCTAssertTrue(message.hasSuffix("ENA: mirror said 503"), message)
+        }
+    }
+
+    private struct CancelOutcome {
+        let result: String
+        let cancelled: Bool
+    }
+
+    /// Stages the run under Prefer NCBI in a task, cancels it once `once`
+    /// holds, and reports how it ended. Each wait has a ceiling, so a
+    /// regression fails instead of hanging.
+    private func cancelStage(
+        once: @escaping @Sendable () -> Bool,
+        lookUpRoute: @escaping @Sendable () async throws -> SRAFASTQDownloadRoute,
+        toolkit: @escaping @Sendable (SRAWindowToolkitStatus, URL) async throws -> [URL],
+        lines: Lines = Lines()
+    ) async throws -> CancelOutcome {
+        let batch = root.appendingPathComponent("batch", isDirectory: true)
+        let finished = Flag()
+        let task = Task { () -> String in
+            defer { finished.set() }
+            do {
+                let staged = try await SRAWindowRunDownload.stage(
+                    accession: Self.run, preference: .ncbi, in: batch,
+                    lookUpRoute: lookUpRoute, enaRecordWait: .seconds(600),
+                    mirrorFile: { _, _, _ in Self.gzipStream },
+                    toolkit: toolkit, log: { lines.append($0) }
+                )
+                staged.removeFolder()
+                return "staged"
+            } catch is CancellationError {
+                return "cancelled"
+            } catch {
+                return "failed: \(error)"
+            }
+        }
+        let reached = await waitUntil(timeout: .seconds(30), { once() })
+        task.cancel()
+        XCTAssertTrue(reached, "the run reached the point to cancel at")
+        let ended = await waitUntil(timeout: .seconds(10), { finished.isSet })
+        XCTAssertTrue(ended, "the run ends promptly after a cancel")
+        guard ended else { return CancelOutcome(result: "still running", cancelled: false) }
+        let result = await task.value
+        XCTAssertFalse(FileManager.default.fileExists(atPath: batch.appendingPathComponent(Self.run).path), "no staged files are left")
+        return CancelOutcome(result: result, cancelled: result == "cancelled")
+    }
+
+    /// Runs `body`, failing with `CeilingExceeded` after `ceiling`.
+    private func withinCeiling<T: Sendable>(
+        _ ceiling: Duration = .seconds(30),
+        _ body: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T?.self) { group in
+            group.addTask { try await body() }
+            group.addTask {
+                try await Task.sleep(for: ceiling)
+                return nil
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next(), let value = first else {
+                throw CeilingExceeded()
+            }
+            return value
+        }
     }
 
     private static func pairedRecord() throws -> ENAReadRecord {
@@ -465,6 +668,8 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
         )
     }
 }
+
+private struct CeilingExceeded: Error {}
 
 private final class Counter: @unchecked Sendable {
     private let lock = NSLock()

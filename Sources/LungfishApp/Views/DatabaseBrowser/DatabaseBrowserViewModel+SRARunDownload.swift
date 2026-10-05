@@ -7,14 +7,28 @@ import LungfishCore
 import LungfishIO
 
 extension DatabaseBrowserViewModel {
+    /// The defaults the window's "Download source" popup writes and its
+    /// downloads read, the suite `sraDownloadSuiteName` names or the
+    /// standard defaults.
+    nonisolated var sraDownloadDefaults: UserDefaults {
+        sraDownloadSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+    }
+
+    /// The window's "Download source" setting as stored now.
+    nonisolated func sraDownloadPreference() -> SRADownloadSourcePreference {
+        .stored(in: sraDownloadDefaults)
+    }
+
     /// Downloads one run of the window's SRA batch into its own folder of
-    /// `batchDir`, with the window's "Download source" setting read from
-    /// the defaults suite `sraDownloadSuiteName` names.
+    /// `batchDir`. `preference` is the batch's snapshot of the "Download
+    /// source" setting, so a change mid-batch does not split the batch. Nil
+    /// reads the setting now.
     ///
     /// `startENADownloadTask` calls this for every run. `mirrorFile` also
     /// gets the bytes ENA lists for the whole run, for the row's progress.
     nonisolated func stageSRARun(
         accession: String,
+        preference: SRADownloadSourcePreference? = nil,
         ncbiRun: SRARunInfo?,
         in batchDir: URL,
         lookUpRoute: @escaping @Sendable () async throws -> SRAFASTQDownloadRoute,
@@ -26,7 +40,7 @@ extension DatabaseBrowserViewModel {
         let answered = SRAWindowRouteBox()
         return try await SRAWindowRunDownload.stage(
             accession: accession,
-            preference: .stored(in: sraDownloadSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard),
+            preference: preference ?? sraDownloadPreference(),
             ncbiRun: ncbiRun,
             in: batchDir,
             lookUpRoute: {
