@@ -357,14 +357,14 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     var onProjectAnnotationRequested: ((MultipleSequenceAlignmentAnnotationProjectionRequest) -> Void)?
     var onSelectionStateChanged: ((MultipleSequenceAlignmentSelectionState?) -> Void)?
 
-    private var alignmentRows: [MSAAlignmentSequence] = []
+    private(set) var alignmentRows: [MSAAlignmentSequence] = []
     private var rowIDsByIndex: [String] = []
     private var columnSummaries: [MSAColumnSummary] = []
     private var displayedColumns: [Int] = []
     private var coordinateMapsByRowID: [String: MultipleSequenceAlignmentBundle.RowCoordinateMap] = [:]
-    private var annotationStore = MultipleSequenceAlignmentBundle.AnnotationStore()
+    private(set) var annotationStore = MultipleSequenceAlignmentBundle.AnnotationStore()
     private var annotationTracks: [MSAAlignmentAnnotationTrack] = []
-    private var drawerAnnotationByResultID: [UUID: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] = [:]
+    var drawerAnnotationByResultID: [UUID: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] = [:]
     private var selectedRowIndex: Int?
     private var selectedAlignmentColumn: Int?
     private var selectedRowIndices = IndexSet()
@@ -417,8 +417,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         action: nil
     )
     private let alignmentScrollView = NSScrollView()
-    private let annotationDrawer = AnnotationTableDrawerView()
-    private var annotationDrawerHeightConstraint: NSLayoutConstraint?
+    let annotationDrawer = AnnotationTableDrawerView()
+    var annotationDrawerHeightConstraint: NSLayoutConstraint?
 
     // MARK: - Resizable name gutter
 
@@ -1601,7 +1601,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         String(lhs).uppercased() == String(rhs).uppercased()
     }
 
-    private func refreshAnnotationDrawer() {
+    func refreshAnnotationDrawer() {
         let rows = annotationDrawerRows()
         drawerAnnotationByResultID = Dictionary(uniqueKeysWithValues: rows.map { ($0.result.id, $0.annotation) })
         annotationDrawer.setAnnotations(rows.map(\.result))
@@ -1656,7 +1656,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         return attributes
     }
 
-    private func coordinateText(
+    func coordinateText(
         sequenceName: String,
         intervals: [AnnotationInterval]
     ) -> String {
@@ -1664,7 +1664,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         return spans.isEmpty ? sequenceName : "\(sequenceName):\(spans)"
     }
 
-    private func intervalText(
+    func intervalText(
         _ intervals: [AnnotationInterval],
         oneBased: Bool
     ) -> String {
@@ -1725,7 +1725,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         selectAnnotation(annotation, zoom: true)
     }
 
-    private func selectAnnotation(
+    func selectAnnotation(
         _ annotation: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord,
         zoom: Bool
     ) {
@@ -2073,7 +2073,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         )
     }
 
-    private static func fastaRecord(name: String, sequence: String) -> String {
+    static func fastaRecord(name: String, sequence: String) -> String {
         ">\(name)\n\(sequence)\n"
     }
 
