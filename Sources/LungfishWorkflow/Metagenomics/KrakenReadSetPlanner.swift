@@ -376,18 +376,58 @@ extension ClassificationConfig {
 
     /// The header-only mate staged for a file of single reads, inside the
     /// run's `.lungfish-classify-inputs` folder. It repeats each header of
-    /// `singleReadFile` with an empty sequence and an empty quality line.
+    /// `singleReadFile` with an empty sequence and an empty quality line, and
+    /// it is gzip-compressed when R1 is (``kraken2SingleReadURL(for:)``).
     public func emptyMateURL(for singleReadFile: URL) -> URL {
-        var stem = singleReadFile.lastPathComponent
-        for suffix in [".gz", ".fastq", ".fq"] where stem.lowercased().hasSuffix(suffix) {
-            stem = String(stem.dropLast(suffix.count))
+        stagedInputURL(for: singleReadFile, kind: "emptymate")
+    }
+
+    /// The file kraken2 reads for `singleReadFile`. The kraken2 wrapper reads
+    /// every input in the compression of its first, R1, so a file of single
+    /// reads in the other compression is read from a staged copy
+    /// (final review S1).
+    func kraken2SingleReadURL(for singleReadFile: URL) -> URL {
+        stagedSingleReadCopyURL(for: singleReadFile) ?? singleReadFile
+    }
+
+    /// The copy of `singleReadFile` staged in the compression of R1, or nil
+    /// when the file has that compression and is read as it is.
+    func stagedSingleReadCopyURL(for singleReadFile: URL) -> URL? {
+        Self.isGzipCompressed(singleReadFile) == r1IsGzipCompressed
+            ? nil
+            : stagedInputURL(for: singleReadFile, kind: "staged")
+    }
+
+    /// Whether R1 starts with the gzip magic bytes, the test the kraken2
+    /// wrapper makes of its first input.
+    var r1IsGzipCompressed: Bool {
+        inputFiles.first.map(Self.isGzipCompressed) ?? false
+    }
+
+    static func isGzipCompressed(_ url: URL) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: url.path) else { return false }
+        defer { try? handle.close() }
+        return (try? handle.read(upToCount: 2)) == Data([0x1F, 0x8B])
+    }
+
+    /// `<stem>.<kind>.fastq` in the run's inputs folder, with `.gz` when R1
+    /// is gzip. Files of single reads whose stems match, ignoring case, are
+    /// numbered, so `merged.fastq` and `merged.fastq.gz` stage apart.
+    private func stagedInputURL(for singleReadFile: URL, kind: String) -> URL {
+        func stem(_ url: URL) -> String {
+            var stem = url.lastPathComponent
+            for suffix in [".gz", ".fastq", ".fq"] where stem.lowercased().hasSuffix(suffix) {
+                stem = String(stem.dropLast(suffix.count))
+            }
+            return stem
         }
+        let name = stem(singleReadFile)
         let position = singleReadFiles.firstIndex(of: singleReadFile) ?? 0
-        let clashes = singleReadFiles.filter { $0.lastPathComponent == singleReadFile.lastPathComponent }.count > 1
-        let name = clashes ? "\(position + 1)-\(stem).emptymate.fastq" : "\(stem).emptymate.fastq"
+        let clashes = singleReadFiles.filter { stem($0).lowercased() == name.lowercased() }.count > 1
+        let filename = (clashes ? "\(position + 1)-\(name)" : name) + ".\(kind).fastq" + (r1IsGzipCompressed ? ".gz" : "")
         return outputDirectory
             .appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName, isDirectory: true)
-            .appendingPathComponent(name)
+            .appendingPathComponent(filename)
     }
 
     /// The input label the CLI prints and the wizard shows for this run.
