@@ -68,7 +68,7 @@ final class MSABottomPaneView: NSView {
     var onOpenStateChanged: ((Bool) -> Void)?
 
     private(set) var isOpen = false
-    private(set) var selectedTab: Tab = .annotations
+    private(set) var selectedTab: Tab = .distances
     private(set) var lastAnimationDuration: TimeInterval = 0
     private(set) lazy var heightConstraint: NSLayoutConstraint = heightAnchor.constraint(equalToConstant: 0)
 
@@ -271,10 +271,14 @@ final class MSABottomPaneView: NSView {
     /// Reads the open state, tab and height from the defaults, without animation.
     func restorePersistedState() {
         let storedTab = defaults.string(forKey: DefaultsKey.tab).flatMap(Tab.init(defaultsValue:))
-        selectedTab = storedTab ?? .annotations
+        // With no stored choice the pane opens on the Distances tab.
+        selectedTab = storedTab ?? .distances
         tabControl.selectedSegment = selectedTab.rawValue
         showContent()
-        applyOpen(defaults.bool(forKey: DefaultsKey.isOpen), animated: false, persist: false)
+        // With no stored choice the pane starts open. An explicit hide or tab
+        // pick is stored and wins on later opens.
+        let storedOpen = defaults.object(forKey: DefaultsKey.isOpen) as? Bool
+        applyOpen(storedOpen ?? true, animated: false, persist: false)
     }
 
     /// The height the pane opens to, from the defaults.

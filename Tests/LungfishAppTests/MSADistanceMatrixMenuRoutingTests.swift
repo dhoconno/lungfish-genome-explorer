@@ -18,6 +18,8 @@ final class MSADistanceMatrixMenuRoutingTests: XCTestCase {
     override func setUpWithError() throws {
         suiteName = "lungfish-test-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
+        // These tests start from a hidden pane. The default-open behaviour is in MSABottomPaneDefaultOpenTests.
+        defaults.set(false, forKey: MSABottomPaneView.DefaultsKey.isOpen)
         temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
     }
@@ -78,6 +80,8 @@ final class MSADistanceMatrixMenuRoutingTests: XCTestCase {
         let viewer = try XCTUnwrap(split.viewerController)
         try await viewer.displayMultipleSequenceAlignmentBundle(at: bundleURL)
         let msa = try XCTUnwrap(viewer.multipleSequenceAlignmentViewController)
+        // A stored Annotations choice, so Show Drawer opens on the tab Show Distance Matrix then switches.
+        defaults.set("annotations", forKey: MSABottomPaneView.DefaultsKey.tab)
         msa.bottomPane.defaults = defaults
         msa.bottomPane.reduceMotion = { true }
         XCTAssertFalse(msa.isBottomPaneOpen)

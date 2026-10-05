@@ -18,6 +18,8 @@ final class MSABottomPaneReReviewFixTests: XCTestCase {
     override func setUpWithError() throws {
         suiteName = "lungfish-test-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
+        // These tests start from a hidden pane. The default-open behaviour is in MSABottomPaneDefaultOpenTests.
+        defaults.set(false, forKey: MSABottomPaneView.DefaultsKey.isOpen)
         temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
     }
