@@ -18,6 +18,8 @@ final class MSABottomPaneTests: XCTestCase {
     override func setUpWithError() throws {
         suiteName = "lungfish-test-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
+        // These tests start from a hidden pane. The default-open behaviour is in MSABottomPaneDefaultOpenTests.
+        defaults.set(false, forKey: MSABottomPaneView.DefaultsKey.isOpen)
         temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
     }
@@ -61,10 +63,10 @@ final class MSABottomPaneTests: XCTestCase {
 
     // MARK: Pane state
 
-    func testPaneStartsClosedWithOneDividerAndTheDrawerHandleHidden() async throws {
+    func testHiddenPaneKeepsOneDividerAndTheDrawerHandleHidden() async throws {
         let controller = try await controller()
         let pane = controller.bottomPane
-        XCTAssertFalse(pane.isOpen, "default closed")
+        XCTAssertFalse(pane.isOpen, "a stored hide stays closed")
         XCTAssertTrue(pane.isHidden)
         XCTAssertEqual(pane.heightConstraint.constant, 0)
         XCTAssertFalse(pane.annotationDrawer.showsDragHandle, "the embedded drawer loses its own handle")
@@ -84,6 +86,7 @@ final class MSABottomPaneTests: XCTestCase {
         XCTAssertTrue(pane.isOpen)
         XCTAssertFalse(pane.isHidden)
         XCTAssertEqual(pane.heightConstraint.constant, MSABottomPaneView.defaultHeight)
+        pane.select(.annotations)
         pane.select(.distances)
         pane.resize(by: 40)
         XCTAssertEqual(defaults.bool(forKey: MSABottomPaneView.DefaultsKey.isOpen), true)

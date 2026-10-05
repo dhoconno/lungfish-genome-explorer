@@ -1570,6 +1570,8 @@ final class ViewerBundleRoutingTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         controller.gutterWidthDefaults = defaults
+        // A stored hide, so the canvas and drawer assertions below see a closed pane.
+        defaults.set(false, forKey: MSABottomPaneView.DefaultsKey.isOpen)
         controller.view.frame = NSRect(x: 0, y: 0, width: 1_200, height: 720)
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
