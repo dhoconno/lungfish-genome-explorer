@@ -274,9 +274,20 @@ public enum FASTQReadLayoutClassifier {
     }
 
     /// Gathers pairing and merge evidence from bundle and sidecar metadata.
+    ///
+    /// A merge in a derivative's lineage, or merged or unpaired reads in a
+    /// manifest, only say that single reads may be in the file. The file's own
+    /// sidecar can say more. A read classification that names this file and
+    /// counts only paired reads, no merged and no unpaired read, is an exact
+    /// count of what the file holds, so it outranks that evidence and the
+    /// hints carry no merge evidence. The FASTQ operations dialog's import
+    /// records such a count for an output of a merge bundle that kept only the
+    /// unmerged pairs, and a merge recipe that left no merged read records it
+    /// too (Phase 1.5 lane F6, coordinator ruling on re-review SHOULD-FIX 2).
     public static func metadataHints(for inputURL: URL) -> FASTQPairingMetadataHints {
         var hints = FASTQPairingMetadataHints()
         var evidence: [String] = []
+        var countedPairsOnly = false
 
         let bundleURL: URL? = FASTQBundle.isBundleURL(inputURL)
             ? inputURL
@@ -316,9 +327,16 @@ public enum FASTQReadLayoutClassifier {
             if let ingestion = sidecar.ingestion, ingestion.pairingMode == hints.pairingMode {
                 hints.pairingSource = ingestion.pairingSource
             }
-            if let classification = sidecar.readClassification,
-               classification.mergedReadCount > 0 || classification.unpairedReadCount > 0 {
-                evidence.append("sidecar: \(classification.compositionLabel)")
+            if let classification = sidecar.readClassification {
+                if classification.mergedReadCount > 0 || classification.unpairedReadCount > 0 {
+                    evidence.append("sidecar: \(classification.compositionLabel)")
+                } else if classification.pairedReadCount > 0,
+                          classification.files.allSatisfy({ $0.filename == fastqURL.lastPathComponent }) {
+                    // The file's own counts say it holds pairs and no read
+                    // without a mate, which outranks the merge evidence of
+                    // its lineage and manifests.
+                    countedPairsOnly = true
+                }
             }
             if let recipe = sidecar.ingestion?.recipeApplied,
                recipe.stepResults.contains(where: { $0.stepName.lowercased().contains("merge") }) {
@@ -326,7 +344,7 @@ public enum FASTQReadLayoutClassifier {
             }
         }
 
-        if !evidence.isEmpty {
+        if !evidence.isEmpty, !countedPairsOnly {
             hints.hasMergedOrUnpairedReads = true
             hints.mergeEvidence = evidence.joined(separator: "; ")
         }

@@ -496,10 +496,11 @@ final class FASTQOperationOutputImporterToolCommandTests: XCTestCase {
             root: root
         )
 
-        // The premise. The output inherits the merge, so the scan reads mates beside it as mixed.
+        // The premise. The output inherits the merge, which alone makes the scan read mates
+        // beside it as mixed. Its own counts outrank the merge, so the scan reads it as pairs.
         let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundleURL))
         XCTAssertTrue(manifest.lineage.contains { $0.kind == .pairedEndMerge }, "the output inherits the merge")
-        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: bundleURL).layout, .mixedInterleaved)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: bundleURL).layout, .strictlyInterleaved)
 
         // The import records the pairs and no single role, every role naming the file.
         let payload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
