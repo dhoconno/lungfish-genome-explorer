@@ -85,8 +85,26 @@ final class MSABottomPaneReviewFixTests: XCTestCase {
 
     // MARK: S3 key view loop
 
+    private func host(_ controller: MultipleSequenceAlignmentViewController) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 700),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = controller.view
+        return window
+    }
+
     func testKeyViewLoopRunsThroughThePaneAndOut() async throws {
         let controller = try await controller()
+        let previous = NSButton(title: "Before", target: nil, action: nil)
+        let next = NSButton(title: "After", target: nil, action: nil)
+        previous.nextKeyView = controller.alignmentKeyView
+        controller.alignmentKeyView.nextKeyView = next
+        let window = host(controller)
+        defer { window.close() }
         let pane = controller.bottomPane
         let distances = pane.distancePane
         XCTAssertTrue(controller.alignmentKeyView.nextKeyView === pane.divider)
@@ -103,7 +121,30 @@ final class MSABottomPaneReviewFixTests: XCTestCase {
         XCTAssertTrue(view === distances.gridView, "the header controls lead to the grid")
         let afterGrid = try XCTUnwrap(distances.gridView.nextKeyView)
         XCTAssertFalse(afterGrid.isDescendant(of: pane), "Tab from the grid leaves the pane")
-        XCTAssertTrue(afterGrid === controller.alignmentKeyView)
+        XCTAssertTrue(afterGrid === next, "the pane sits between the alignment and its original next view")
+        XCTAssertTrue(next.previousKeyView === distances.gridView)
+        XCTAssertTrue(controller.alignmentKeyView.previousKeyView === previous, "the alignment keeps its previous view")
+    }
+
+    /// Re-review SF2: with no original next view the grid hands Tab back to
+    /// the window's loop instead of cycling to the alignment.
+    func testKeyViewLoopWithoutANextViewLeavesTheAlignmentAlone() async throws {
+        let controller = try await controller()
+        let previous = NSButton(title: "Before", target: nil, action: nil)
+        previous.nextKeyView = controller.alignmentKeyView
+        controller.alignmentKeyView.nextKeyView = nil
+        let window = host(controller)
+        defer { window.close() }
+        let pane = controller.bottomPane
+        XCTAssertTrue(controller.alignmentKeyView.nextKeyView === pane.divider)
+        XCTAssertNil(pane.distancePane.gridView.nextKeyView)
+        XCTAssertTrue(controller.alignmentKeyView.previousKeyView === previous)
+
+        // Moving to another window does not splice the pane in twice.
+        let other = host(controller)
+        defer { other.close() }
+        XCTAssertTrue(controller.alignmentKeyView.nextKeyView === pane.divider)
+        XCTAssertNil(pane.distancePane.gridView.nextKeyView)
     }
 
     // MARK: S5 reverse sync on first show

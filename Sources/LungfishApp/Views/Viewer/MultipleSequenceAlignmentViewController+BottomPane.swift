@@ -203,7 +203,7 @@ extension MultipleSequenceAlignmentViewController {
         }
         bottomPane.onOpenStateChanged = { [weak self] _ in self?.bottomPaneStateDidChange() }
         bottomPane.onTabChanged = { [weak self] _ in self?.bottomPaneStateDidChange() }
-        bottomPane.linkKeyViewLoop(after: alignmentKeyView, before: alignmentKeyView.nextKeyView ?? alignmentKeyView)
+        bottomPane.insertIntoKeyViewLoop(after: alignmentKeyView)
     }
 
     /// True while a matrix click or key drives the alignment selection, so
