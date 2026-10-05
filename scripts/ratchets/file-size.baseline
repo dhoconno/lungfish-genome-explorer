@@ -5,7 +5,7 @@ Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
 Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1480
 Sources/LungfishApp/App/AppDelegate.swift 2712
-Sources/LungfishApp/App/MainMenu.swift 1670
+Sources/LungfishApp/App/MainMenu.swift 1623
 Sources/LungfishApp/App/VCFImportHelper.swift 1147
 Sources/LungfishApp/Services/AI/AIAssistantService.swift 901
 Sources/LungfishApp/Services/AI/AIToolRegistry.swift 951
@@ -29,7 +29,7 @@ Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
 Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 1025
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 887
 Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1072
-Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 1032
+Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 1027
 Sources/LungfishApp/Views/Inspector/InspectorViewController+TrimDuplicateWorkflows.swift 903
 Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1446
 Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1907
@@ -37,11 +37,11 @@ Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
 Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1586
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 806
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1362
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1053
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1051
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1216
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1330
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 832
-Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1142
+Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1123
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1024
 Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift 1039
 Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift 816
@@ -63,12 +63,12 @@ Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift 2655
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Columns.swift 1245
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Filtering.swift 2228
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+TableView.swift 1089
-Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift 5759
+Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift 5657
 Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift 1160
 Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift 1293
 Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2678
 Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift 2260
-Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4350
+Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4225
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1828
 Sources/LungfishApp/Views/Viewer/ReadTrackRenderer.swift 2432
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Alignment.swift 1412
@@ -94,7 +94,7 @@ Sources/LungfishCLI/Commands/GATKCommand.swift 1094
 Sources/LungfishCLI/Commands/GenotypeAIHaplotypingSubcommand.swift 1017
 Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift 999
 Sources/LungfishCLI/Commands/ImportCommand.swift 2527
-Sources/LungfishCLI/Commands/MSACommand.swift 2958
+Sources/LungfishCLI/Commands/MSACommand.swift 2811
 Sources/LungfishCLI/Commands/MarkdupCommand.swift 1132
 Sources/LungfishCLI/Commands/RunSubcommand.swift 1004
 Sources/LungfishCLI/Commands/TreeCommand.swift 1359
