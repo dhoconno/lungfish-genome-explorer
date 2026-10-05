@@ -14,10 +14,13 @@ OPTIONS:
                           Read layout: auto, unpaired, paired, or interleaved.
                           (values: auto, unpaired, paired, interleaved;
                           default: auto)
-        auto (default) checks a single input file: strictly alternating R1/R2
-        records run as interleaved; interleaved pairs mixed with merged or
-        orphan reads, and single-end files, run as unpaired. Two files run as
-        unpaired unless --paired is given.
+        auto (default) plans a single input, a file or a .lungfishfastq bundle.
+        Separate R1 and R2 files run as a pair, strictly alternating R1/R2
+        records run as interleaved, and single-end reads run as unpaired. A
+        sample that mixes pairs with merged or orphan reads runs as unpaired on
+        one file that holds every read, and the output says why. Several files
+        of single reads are joined into one file. Two files run as unpaired
+        unless --paired is given.
   --recursive             When an input is a directory, include eligible FASTQ
                           files in subfolders
   --no-qc                 Skip quality filtering (fastp)

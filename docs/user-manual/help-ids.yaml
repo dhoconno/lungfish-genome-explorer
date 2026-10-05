@@ -246,7 +246,7 @@ dialog.FASTQImportConfigSheet:
   chapter: 03-reads/01-importing-fastq
   anchor: procedure
   scope: dialog
-  description: FASTQ import configuration including pairing and metadata.
+  description: FASTQ import configuration including the inferred platform, pairing, and metadata.
 
 dialog.ImportONTRun:
   chapter: 03-reads/07-ont-runs

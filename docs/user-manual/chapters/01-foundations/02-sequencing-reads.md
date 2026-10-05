@@ -205,7 +205,7 @@ Every Choosing a tool section in this manual starts from a few facts about your 
 | Haploid or diploid | One genome copy, as in a virus or bacterium, or two, as in a person or macaque | Decides whether a genotype-based or a frequency-based variant caller fits |
 | A reference for the organism | A finished genome such as GRCh38 for human or Mmul_10 for the rhesus macaque, or none | With a good reference you map, and without one you assemble |
 
-**Platform and read length.** The header of one record settles the platform, since an Illumina header names a flow cell and a nanopore header is a random identifier, as the records above show. Reads that all sit near one length of 300 bases or less are short reads, and lengths in the thousands mean nanopore or PacBio.
+**Platform and read length.** The header of one record settles the platform, since an Illumina header names a flow cell and a nanopore header is a random identifier, as the records above show. Reads that all sit near one length of 300 bases or less are short reads, and lengths in the thousands mean nanopore or PacBio. LGE reads the same header traces itself when you import a file, and it never names a platform from read length alone, as [How LGE decides the platform](../03-reads/01-importing-fastq.md#how-lge-decides-the-platform) explains.
 
 **Single, paired, or merged.** A paired run arrives as two files or one interleaved file, as [Paired-end reads](#paired-end-reads) explains. [Merged reads](../../GLOSSARY.md#read-merging) are pairs already joined into one longer read where the mates overlapped, so a merged set holds no pairs, or holds merged reads and leftover pairs together.
 

@@ -42,11 +42,12 @@ The resolver turns each sample into a `ReadSetPlan` for one tool. A plan holds t
 | L5e | `fullFASTA` derivative | Single records |
 | L6 | Virtual derivative | Materialized first, then read whole once and scanned with the merge evidence of every bundle it derives from. A truncated or unreadable materialization stops the plan. When the whole file holds pairs and single reads, it is mixed even if the bounded scan saw only pairs. |
 
-Three more rules decide the edge cases.
+Four more rules decide the edge cases.
 
 - A bundle whose recorded platform is Oxford Nanopore or PacBio is never paired, by file name or by content. `MatePairFileNaming.matePair(in:sequencingPlatform:)` applies the same rule. A chunked root that records `unknown` or no platform is not paired by file name either, since no importer writes a paired chunked root.
 - A virtual child of a repair derivative carries only `repair` in its lineage. The resolver reads the parent's roles, so the child is planned as mixed and never as strict pairs.
 - The platform is the `sequencingPlatform` field the FASTQ sidecar stores, read from the bundle or from the bundle it derives from.
+- For TaxTriage, a file the user names is read as that file, even a chunk or one mate of a bundle, except the preview of a virtual bundle, which stands for its bundle. Two or more inputs that are every member file of one bundle are that bundle (`SamplesheetReadSetPlanner.bundleNamedByEveryMemberFile`), the rule `assemble` follows through `AssemblyInputSamples`.
 
 ## Tool capabilities
 
@@ -62,22 +63,39 @@ Each tool declares one capability in `ReadPairingCapabilityRegistry`, and the re
 
 A sample that holds only single reads or only pairs reaches every tool as it is found. The plan makes no step, so a tool that moves onto the resolver keeps its command byte for byte for such a sample.
 
+## Which tools use the resolver
+
+A consumer whose declaration sets `adopted` resolves its inputs through `ReadSetResolver`, in shared code the app and the CLI both run. The others keep the handling their `FASTQConsumerDeclaration` records.
+
+| Consumer | Adopted | Where it plans |
+|---|---|---|
+| `map.minimap2`, `map.bwa-mem2`, `map.bowtie2`, `map.bbmap` | Yes | `MappingInputResolver` |
+| `assemble.spades`, `assemble.megahit`, `assemble.skesa` | Yes | `AssemblyReadSetResolution` |
+| `classify.kraken2` | Yes | `KrakenReadSetPlanner` |
+| `classify.esviritu`, `classify.taxtriage` | Yes | `SamplesheetReadSetPlanner`, and `TaxTriageReadSetPlanner` for TaxTriage |
+| `viralrecon.illumina` | Yes | `ViralReconReadPairing.prepareIlluminaSamples` |
+| `genotype.illumina-mhc`, `genotype.ont-mhc` | Yes | `plannedInputReads` in `GenotypingInputFiles` |
+| `assemble.flye`, `assemble.hifiasm` | No | `ResolvedSequenceInputs.resolveForAssembly`, every read on its own |
+| The FASTQ operations, `ingest.clumpify` and `recipe.convert-interleaved-to-paired` | No | Each command. `fastq deduplicate` and `fastq primer-remove` split a mixed file by name through `FASTQSplitByNameRunner`, and the fastp trims through `FastpPairedRunner` |
+| `twelve-s.amplicon-matching` | No | 12S matching, open for Phase 2 |
+
 ## Combining
 
 | Tool kind | How one sample gives one result |
 |---|---|
 | Mapping | The output is one sorted, indexed BAM. A one-run tool writes it directly. BBMap maps the pairs and the single reads in two runs, `samtools merge` joins the two sorted BAMs with one read group, and flagstat is computed on the merged BAM. |
-| Assembly | One assembler run takes every read set at once with the flags in the capability table. One assembly results. |
+| Assembly | One assembler run takes every read set at once with the flags in the capability table. One assembly results. `assemble` and Reassemble plan one sample through `AssemblyReadSetResolution`, and only a sample that still holds pairs and single reads after the split runs from the plan, so a subset that holds only one kind keeps its old resolution. `--read-layout` is refused for a bundle with a file per role, and a sample that names two sets of mate files is refused. |
 | Kraken2 | One kraken2 run classifies pairs with `--paired` and single reads as single reads. A header-only mate file is staged beside each single-read file, so kraken2 reads it as a pair whose second mate is empty. That gives each single read exactly the call of a single-end run. The per-read output and the report are kraken2's own, and Bracken runs on that report. |
-| Samplesheet pipelines | A sample holding only pairs is written as `fastq_1` and `fastq_2`. A sample that mixes merged reads and pairs goes to EsViritu, TaxTriage and Viral Recon with every read single-end. The result states that, and no read is dropped. `ReadSetPlan.singleReadReason` carries the statement. |
+| Samplesheet pipelines | A sample holding only pairs is written as `fastq_1` and `fastq_2`. A sample that mixes merged reads and pairs goes to EsViritu, TaxTriage and Viral Recon with every read single-end. The result states that, and no read is dropped. `ReadSetPlan.singleReadReason` carries the statement, which the EsViritu summary lines, the Operations Panel log and the command's output show. EsViritu and TaxTriage take their files from `SamplesheetReadSetPlanner`, which joins several files of single reads into one, and `esviritu detect --read-format auto` and `taxtriage run` plan a bundle the way the app does. A Viral Recon samplesheet row may name a bundle, which the run plans with `viralrecon.illumina` and stages as gzip files. |
 
 ## Provenance
 
 | Item | Rule |
 |---|---|
 | Recorded command | `lungfish-cli <tool> <inputs> <options>` with the inputs the user chose |
-| Steps | Each split and interleave is a provenance step with its inputs, outputs and record counts, from `ReadSetStep.stepExecution(toolVersion:)` |
-| Run parameters | `ReadSetPlan.provenanceParameters` records the capability used, the fragment counts by kind and the reason mates ran as single reads |
+| Steps | Each split and interleave is a provenance step with its inputs, outputs and record counts, from `ReadSetStep.stepExecution(toolVersion:)`. An assembly from a split also records `readPairing` as `paired_files_with_single_reads` |
+| Joins | Several files of single reads joined for EsViritu or TaxTriage are a `cat` step, recorded through the `.sources.json` sidecar of `SequenceInputConcatenation` |
+| Run parameters | `ReadSetPlan.provenanceParameters` records the capability used, the fragment counts by kind and the reason mates ran as single reads, under `readSetPlan`. TaxTriage records one plan per sample under `read_set_plans` |
 | Earlier runs | A plan holding only single reads or only pairs records nothing new (`recordsNothingNew`), so earlier runs compare byte for byte |
 
 Kraken2 results made before this contract counted each mate of a paired derivative as its own read. They stay as they are on disk. The result viewer labels them as counted per read, and the Kraken2 lane (A2) implements that label.

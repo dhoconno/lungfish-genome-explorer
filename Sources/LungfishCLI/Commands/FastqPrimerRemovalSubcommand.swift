@@ -13,13 +13,25 @@ import LungfishWorkflow
 struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "primer-remove",
-        abstract: "Remove primer sequences from FASTQ reads"
+        abstract: "Remove primer sequences from FASTQ reads",
+        discussion: """
+        The bbduk engine trims a 5' primer and every base before it. It counts \
+        a match only when the match ends within the first (longest primer + 67) \
+        bases of a read, so a primer behind an untrimmed Nanopore adapter and \
+        barcode is found and a primer deeper in the read is not. It matches \
+        each primer only as written, so a primer that a read runs through at \
+        its 3' end stays. The cutadapt-linked engine keeps only reads that hold \
+        both primers of an amplicon, which suits full-length amplicon reads. \
+        Interleaved pairs run in the tool's paired mode, so a pair is kept or \
+        dropped whole. A file that mixes pairs with merged or single reads is \
+        split by name, and the outputs are joined, pairs first.
+        """
     )
 
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("literal"), help: "Primer sequence (IUPAC nucleotides)")
+    @Option(name: .customLong("literal"), help: "Primer sequence (bbduk refuses IUPAC ambiguity codes such as R and S)")
     var literalSequence: String?
 
     @Option(name: .customLong("ref"), help: "Primer reference FASTA file")

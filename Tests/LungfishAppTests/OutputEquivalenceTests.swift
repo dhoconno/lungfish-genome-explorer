@@ -28,7 +28,12 @@ final class OutputEquivalenceTests: XCTestCase {
     func testFilesMatchAfterMasksAndDecompression() throws {
         let (a, b) = try makeRoots()
         for (root, uuid, date) in [(a, UUID(), "2026-10-03T09:00:00Z"), (b, UUID(), "2026-10-04T11:30:15Z")] {
-            try write("run \(uuid.uuidString) at \(date) wrote \(root.path)/out/reads.fastq\n", to: root, "log.txt")
+            try write("wrote \(root.path)/out/reads.fastq\n", to: root, "log.txt")
+            try write(
+                #"{"runID":""# + uuid.uuidString + #"","startedAt":""# + date + #"","output":""# + root.path + #"/out/reads.fasta"}"#,
+                to: root,
+                "out/reads.fasta.lungfish-provenance.json"
+            )
             try write(">seq1\nACGT\n", to: root, "out/reads.fasta")
             try write(
                 "##fileformat=VCFv4.2\n##fileDate=\(date.prefix(10))\n##bcftools_callCommand=call -o \(root.path)/x.vcf\n"
@@ -62,6 +67,31 @@ final class OutputEquivalenceTests: XCTestCase {
         XCTAssertTrue(found.contains { $0.hasPrefix("differs: reads.fasta") }, "\(found)")
         XCTAssertTrue(found.contains { $0.hasPrefix("differs: reads.fastq.gz") }, "\(found)")
         XCTAssertTrue(found.contains("only in A: only-a.txt"), "\(found)")
+    }
+
+    func testPayloadsDifferWhenOnlyADateAHostOrAReadIDDiffers() throws {
+        for kind in [OutputEquivalence.Kind.files, .bundle] {
+            let (a, b) = try makeRoots()
+            // A quality string that reads like a date.
+            try write("@r1\nACGTACGTAC\n+\n2024-01-01\n", to: a, "reads.fastq")
+            try write("@r1\nACGTACGTAC\n+\n2025-01-01\n", to: b, "reads.fastq")
+            // Two nanopore reads, whose IDs are UUIDs.
+            try write("@\(UUID().uuidString.lowercased())\nACGT\n+\nIIII\n", to: a, "nanopore.fastq")
+            try write("@\(UUID().uuidString.lowercased())\nACGT\n+\nIIII\n", to: b, "nanopore.fastq")
+            let header = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+            try write(header + "chr1\t5\t.\tA\tG\t50\tPASS\tDATE=2024-01-01\n", to: a, "calls.vcf")
+            try write(header + "chr1\t5\t.\tA\tG\t50\tPASS\tDATE=2025-01-01\n", to: b, "calls.vcf")
+            // Sample metadata is a payload, so its host is data.
+            try write(#"{"sample":"s1","host":"Homo sapiens","collected":"2024-01-01"}"#, to: a, "samples.json")
+            try write(#"{"sample":"s1","host":"Macaca mulatta","collected":"2024-01-01"}"#, to: b, "samples.json")
+            let found = try OutputEquivalence.differences(a, b, kind: kind)
+            for name in ["reads.fastq", "nanopore.fastq", "calls.vcf", "samples.json"] {
+                XCTAssertTrue(found.contains { $0.hasPrefix("differs: \(name)") }, "\(kind) \(name): \(found)")
+            }
+            XCTAssertEqual(found.count, 4, "\(kind): \(found)")
+            try FileManager.default.removeItem(at: a)
+            try FileManager.default.removeItem(at: b)
+        }
     }
 
     func testVCFKeepsItsRecordsAndOtherHeaderLines() throws {
@@ -117,7 +147,82 @@ final class OutputEquivalenceTests: XCTestCase {
         XCTAssertEqual(found, ["only in A: alignments/<RUN-ID-1>.cram.crai"])
     }
 
+    func testBundlesReportAnExtraUUIDNamedChild() throws {
+        let (a, b) = try makeRoots()
+        for root in [a, a, b] {
+            let id = UUID().uuidString
+            try write(#"{"id":""# + id + #""}"#, to: root, "children/\(id).lungfishfastq/manifest.json")
+        }
+        XCTAssertEqual(
+            try OutputEquivalence.differences(a, b, kind: .bundle),
+            ["only in A: children/<UUID-2>.lungfishfastq/manifest.json"]
+        )
+    }
+
+    func testBundlesReportTwoNamesThatMaskToOne() throws {
+        let (a, b) = try makeRoots()
+        try write("first\n", to: a, "reports/2026-10-03.txt")
+        try write("second\n", to: a, "reports/2026-10-04.txt")
+        try write("first\n", to: b, "reports/2026-10-05.txt")
+        // The standard name masks keep dates, so a policy that also masks
+        // them in names can merge two names.
+        var masks = OutputEquivalence.MaskPolicy.standard
+        masks.names.append(OutputEquivalence.Masks.isoTimestamps)
+        XCTAssertEqual(
+            try OutputEquivalence.differences(a, b, kind: .bundle, masks: masks),
+            ["collides in A: reports/<TIMESTAMP>.txt names reports/2026-10-03.txt, reports/2026-10-04.txt"]
+        )
+        XCTAssertEqual(
+            try OutputEquivalence.differences(a, b, kind: .bundle),
+            [
+                "only in A: reports/2026-10-03.txt",
+                "only in A: reports/2026-10-04.txt",
+                "only in B: reports/2026-10-05.txt",
+            ]
+        )
+    }
+
+    func testBundlesMatchWhicheverWayTheirChildUUIDsSort() throws {
+        let (a, b) = try makeRoots()
+        // Sample s1's child sorts first in A and last in B.
+        let childIDs = [
+            (a, ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]),
+            (b, ["44444444-4444-4444-8444-444444444444", "33333333-3333-4333-8333-333333333333"]),
+        ]
+        for (root, ids) in childIDs {
+            let children = zip(ids, ["s1", "s2"]).map { #"{"id":""# + $0 + #"","sample":""# + $1 + #""}"# }
+            for (id, child) in zip(ids, children) {
+                try write(child, to: root, "children/\(id).lungfishfastq/manifest.json")
+            }
+            try write(#"{"children":["# + children.joined(separator: ",") + "]}", to: root, "manifest.json")
+        }
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
+
+        // B's manifest links s1 to the child that holds s2.
+        try write(
+            #"{"children":[{"id":"33333333-3333-4333-8333-333333333333","sample":"s1"},"#
+                + #"{"id":"44444444-4444-4444-8444-444444444444","sample":"s2"}]}"#,
+            to: b,
+            "manifest.json"
+        )
+        let found = try OutputEquivalence.differences(a, b, kind: .bundle)
+        XCTAssertEqual(found.count, 1, "\(found)")
+        XCTAssertTrue(found.first?.hasPrefix("differs: manifest.json") == true, "\(found)")
+    }
+
     // MARK: - remote request
+
+    func testRemoteRequestsDifferWhenOnlyAHostOrADateDiffers() throws {
+        let (a, b) = try makeRoots()
+        try write(#"{"database":"virus","host":"Homo sapiens"}"#, to: a, "request.json")
+        try write(#"{"database":"virus","host":"Macaca mulatta"}"#, to: b, "request.json")
+        try write("database=virus&releasedSince=2024-01-01", to: a, "form.txt")
+        try write("database=virus&releasedSince=2025-01-01", to: b, "form.txt")
+        let found = try OutputEquivalence.differences(a, b, kind: .remoteRequest)
+        XCTAssertEqual(found.count, 2, "\(found)")
+        XCTAssertTrue(found.contains { $0.hasPrefix("differs: request.json") && $0.contains("Macaca mulatta") }, "\(found)")
+        XCTAssertTrue(found.contains { $0.hasPrefix("differs: form.txt") && $0.contains("2025-01-01") }, "\(found)")
+    }
 
     func testRemoteRequestsMatchWhateverTheKeyAndParameterOrder() throws {
         let (a, b) = try makeRoots()
@@ -142,7 +247,7 @@ final class OutputEquivalenceTests: XCTestCase {
     func testManagedPlansMatchAsJSONValues() throws {
         let (a, b) = try makeRoots()
         try write(#"{"items":[{"tool":"samtools","version":"1.21"}],"createdAt":"2026-10-03T09:00:00Z"}"#, to: a, "plan.json")
-        try write(#"{"createdAt":"2026-10-04T10:00:00Z","items":[{"version":"1.21","tool":"samtools"}]}"#, to: b, "plan.json")
+        try write(#"{"createdAt":"2026-10-03T09:00:00Z","items":[{"version":"1.21","tool":"samtools"}]}"#, to: b, "plan.json")
         XCTAssertEqual(
             try OutputEquivalence.differences(
                 a.appendingPathComponent("plan.json"),
@@ -157,6 +262,13 @@ final class OutputEquivalenceTests: XCTestCase {
         let (a, b) = try makeRoots()
         try write(#"{"items":[{"tool":"samtools","version":"1.21"}]}"#, to: a, "plan.json")
         try write(#"{"items":[{"tool":"samtools","version":"1.22"}]}"#, to: b, "plan.json")
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .managedPlan).count, 1)
+    }
+
+    func testManagedPlansDifferWhenOnlyADatabaseReleaseDateDiffers() throws {
+        let (a, b) = try makeRoots()
+        try write(#"{"items":[{"database":"kraken2-standard","released":"2024-01-12"}]}"#, to: a, "plan.json")
+        try write(#"{"items":[{"database":"kraken2-standard","released":"2025-06-05"}]}"#, to: b, "plan.json")
         XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .managedPlan).count, 1)
     }
 

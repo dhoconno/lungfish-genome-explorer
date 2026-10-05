@@ -79,7 +79,7 @@ Flye borrows from both families. It joins rough overlaps into draft pieces, buil
 
 **Does a reference fit my sample?** Judge this on the reads from your target organism, not the whole run, which may be mostly host. Take the reads Kraken 2 assigns to your target, as [Running Kraken 2](../06-classification/02-running-kraken2.md) shows, and map them in a trial run of [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md), which reports the share that aligned. A [BLAST](../../GLOSSARY.md#blast) search of a few of them reports [percent identity](../../GLOSSARY.md#percent-identity), the share of matching positions, to the nearest genomes. If most target reads align closely, map, and otherwise assemble.
 
-**Are my reads short or long?** This is a hard constraint. Illumina reads, tens to a few hundred bases long, go to SPAdes, MEGAHIT, or SKESA. Oxford Nanopore reads, thousands to tens of thousands of bases, go to Flye or hifiasm, and PacBio HiFi reads, long and unusually accurate, go to hifiasm. Illumina and HiFi make well under one error per hundred bases. Nanopore reads make a few per hundred on older flow cells, the consumable chip the reads come from, and about one per hundred on current R10.4.1 flow cells. The MinKNOW run report names the flow cell, and recent basecallers write a model name such as `dna_r10.4.1` into each read's header. LGE takes one read type per run, so it offers no hybrid assembly, though outside LGE polishing a nanopore assembly with short reads of the same sample is standard practice.
+**Are my reads short or long?** This decides which assemblers suit the reads. Illumina reads, tens to a few hundred bases long, go to SPAdes, MEGAHIT, or SKESA. Oxford Nanopore reads, thousands to tens of thousands of bases, go to Flye or hifiasm, and PacBio HiFi reads, long and unusually accurate, go to hifiasm or Flye. LGE does not stop you from choosing another assembler. It shows a warning, and the assembler runs with its own read-type settings. Illumina and HiFi make well under one error per hundred bases. Nanopore reads make a few per hundred on older flow cells, the consumable chip the reads come from, and about one per hundred on current R10.4.1 flow cells. The MinKNOW run report names the flow cell, and recent basecallers write a model name such as `dna_r10.4.1` into each read's header. LGE takes one read type per run, so it offers no hybrid assembly, though outside LGE polishing a nanopore assembly with short reads of the same sample is standard practice.
 
 **Is my sample one organism or many?** An isolate, grown from a single organism, sequences its genome to about even depth. A [metagenome](../../GLOSSARY.md#metagenomics), a sample holding many organisms, sequences some deeply and others barely. An isolate assembler discards thinly covered sequence as error, which throws away rare organisms, so use a community mode for a metagenome. A virus population inside one host counts as one organism, and the assembler writes out its majority sequence.
 
@@ -91,7 +91,7 @@ Flye borrows from both families. It joins rough overlaps into draft pieces, buil
 
 **SKESA** is NCBI's isolate assembler for the genomes SPAdes suits. It stops a contig whenever the next step is uncertain, which gives more contigs and fewer wrong joins.
 
-**Flye** is built for Nanopore reads, including older noisy ones. It scales to mammal-sized genomes, though its documentation reports hundreds of gigabytes of memory for a human genome. LGE preselects Nano Raw below a mean quality of Q10 and Nano HQ at Q10 or above. Flye documents Nano HQ for reads under 5 percent error, about Q13, so reads between Q10 and Q13 may do better on Nano Raw. Flye merges the two haplotypes of a diploid genome into one sequence.
+**Flye** is built for Nanopore reads, including older noisy ones. It scales to mammal-sized genomes, though its documentation reports hundreds of gigabytes of memory for a human genome. LGE preselects Nano Raw below a mean quality of Q10 and Nano HQ at Q10 or above. Flye also has a mode for PacBio HiFi reads, which LGE uses for HiFi reads, and one for older PacBio CLR reads, the long and noisier reads PacBio made before HiFi. Flye documents Nano HQ for reads under 5 percent error, about Q13, so reads between Q10 and Q13 may do better on Nano Raw. Flye merges the two haplotypes of a diploid genome into one sequence.
 
 **Hifiasm** was built for PacBio HiFi reads, and recent versions, including the 0.25.0 LGE installs, also accept Nanopore reads. That mode was developed on R10.4.1 reads, so older Nanopore data probably suits Flye better. Its Diploid profile keeps the two haplotypes apart and removes duplicate copies of one stretch, and its Haploid/Viral profile expects one copy and skips that duplicate removal.
 
@@ -100,7 +100,7 @@ Flye borrows from both families. It joins rough overlaps into draft pieces, buil
 | SPAdes | Illumina reads, with Meta and Plasmid modes | You have short reads from a virus, bacterium, or mitochondrion | The reads are long, or memory runs out |
 | MEGAHIT | Illumina reads from large metagenomes | A community is too big for SPAdes Meta | The sample is one organism, or the run stops with no contigs |
 | SKESA | Illumina reads from isolates | You prefer fewer wrong joins to fewer contigs | The sample is a community |
-| Flye | Nanopore reads, old or current | You have Nanopore reads from a bacterium, a virus, or a community | You need a diploid's two haplotypes kept apart |
+| Flye | Nanopore reads, old or current, and PacBio HiFi reads | You have Nanopore reads from a bacterium, a virus, or a community | You need a diploid's two haplotypes kept apart |
 | Hifiasm | HiFi and current Nanopore reads | You have HiFi reads, or both haplotypes matter | The reads are older Nanopore |
 
 ### Choices for some common samples
@@ -129,17 +129,17 @@ LGE puts each assembler under **Tools > Assembly** as its own item, SPAdes..., M
 
 <!-- SHOT: assembly-submenu -->
 
-The sheet works out which class of instrument produced the reads and offers only the assemblers that accept that class, as this table shows. How it detects the class, and what to do when it cannot, is covered in [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](02-running-spades.md#settings).
+The sheet works out which class of instrument produced the reads and preselects that read type. The table shows which assemblers suit each class. Choosing one that does not suit the reads shows a warning, and Run stays available. How it detects the class, and what to do when it cannot, is covered in [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](02-running-spades.md#settings).
 
-| Read class | Assemblers offered |
+| Read class | Assemblers that suit it |
 |---|---|
 | Illumina short reads | SPAdes, MEGAHIT, SKESA |
 | Oxford Nanopore reads | Flye, hifiasm |
-| PacBio HiFi reads | hifiasm |
+| PacBio HiFi reads | hifiasm, Flye |
 
 <!-- SHOT: assembly-sheet-assembler-picker -->
 
-The sheet takes one read class per run, so it refuses a selection that mixes short and long reads. [Choosing a tool](#choosing-a-tool) explains how to pick among the assemblers it offers.
+The sheet takes one read class per run, since LGE offers no hybrid assembly. A selection that mixes short and long reads shows a warning and asks you to choose the read class that every input is assembled as. [Choosing a tool](#choosing-a-tool) explains how to pick among the assemblers it offers.
 
 ## Two assemblers on the same human reads
 

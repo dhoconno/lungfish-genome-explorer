@@ -7,24 +7,77 @@
 
 import Foundation
 
-extension Array where Element == OutputEquivalence.Mask {
-    /// The contract's masks. Wall-clock times, run and operation UUIDs, the
-    /// two run roots, and the executable path, host, process ID and wall time
-    /// inside provenance envelopes.
-    public static var standard: [OutputEquivalence.Mask] {
-        [
-            OutputEquivalence.Masks.contentComparedDigests,
-            OutputEquivalence.Masks.roots,
-            OutputEquivalence.Masks.uuids,
-            OutputEquivalence.Masks.runIDs,
-            OutputEquivalence.Masks.isoTimestamps,
-            OutputEquivalence.Masks.epochValues,
-            OutputEquivalence.Masks.provenanceRuntime,
-        ]
-    }
-}
-
 extension OutputEquivalence {
+    /// The masks each kind of text in a tree gets. A mask hides a difference,
+    /// so each one applies only where the contract names it.
+    public struct MaskPolicy: Sendable {
+        /// A provenance envelope, a JSON file whose name contains
+        /// `provenance`.
+        public var provenance: [Mask]
+        /// A record a run keeps of its outputs, a JSON file whose name
+        /// contains `manifest` or a SQLite database, compared on its dump.
+        public var records: [Mask]
+        /// The relative name of a file inside a bundle.
+        public var names: [Mask]
+        /// Every other text. That is payload text, a BAM header, an index
+        /// listing, a remote request body and a managed plan.
+        public var payloads: [Mask]
+
+        public init(provenance: [Mask], records: [Mask], names: [Mask], payloads: [Mask]) {
+            self.provenance = provenance
+            self.records = records
+            self.names = names
+            self.payloads = payloads
+        }
+
+        /// The contract's masks. A provenance envelope gets all of them. A
+        /// record gets all but the executable path, host, process ID and wall
+        /// time, which the contract masks in provenance alone. A file name
+        /// gets the UUID and run ID masks. Payload text, request bodies and
+        /// plans get the roots mask alone, so a date, a host or a read ID in
+        /// data is compared as written.
+        public static var standard: MaskPolicy {
+            let records = [
+                Masks.contentComparedDigests,
+                Masks.roots,
+                Masks.uuids,
+                Masks.runIDs,
+                Masks.isoTimestamps,
+                Masks.epochValues,
+            ]
+            return MaskPolicy(
+                provenance: records + [Masks.provenanceRuntime],
+                records: records,
+                names: [Masks.uuids, Masks.runIDs],
+                payloads: [Masks.roots]
+            )
+        }
+
+        func masks(for role: TextRole) -> [Mask] {
+            switch role {
+            case .provenance: return provenance
+            case .record: return records
+            case .payload: return payloads
+            }
+        }
+    }
+
+    /// What a text file is to a comparison, which decides its masks.
+    enum TextRole {
+        case provenance
+        case record
+        case payload
+    }
+
+    /// The role of a text file, from its name without a compression suffix.
+    static func role(ofFileNamed name: String) -> TextRole {
+        let lowered = name.lowercased()
+        guard lowered.hasSuffix(".json") else { return .payload }
+        if lowered.contains("provenance") { return .provenance }
+        if lowered.contains("manifest") { return .record }
+        return .payload
+    }
+
     public enum Masks {
         public static let rootToken = "<ROOT>"
 
@@ -38,14 +91,17 @@ extension OutputEquivalence {
             return result
         }
 
-        /// Replaces each distinct UUID with `<UUID-n>`, numbered by first
-        /// appearance, so links inside one file survive the mask.
-        public static let uuids = Mask(name: "uuids") { text, _ in
-            var seen: [String: Int] = [:]
+        /// Replaces each distinct UUID with `<UUID-n>`. The number comes from
+        /// the side's `uuidNumbers`, so a child bundle named by a UUID and a
+        /// manifest that links it carry the same number, and two children
+        /// never share one.
+        public static let uuids = Mask(name: "uuids") { text, context in
+            var extra: [String: Int] = [:]
             return replace(uuidPattern, in: text) { match in
                 let value = match.lowercased()
-                if seen[value] == nil { seen[value] = seen.count + 1 }
-                return "<UUID-\(seen[value]!)>"
+                if let number = context.uuidNumbers[value] { return "<UUID-\(number)>" }
+                if extra[value] == nil { extra[value] = context.uuidNumbers.count + extra.count + 1 }
+                return "<UUID-\(extra[value]!)>"
             }
         }
 

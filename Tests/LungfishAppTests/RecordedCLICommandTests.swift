@@ -69,4 +69,31 @@ final class RecordedCLICommandTests: XCTestCase {
         )
         XCTAssertThrowsError(try RecordedCLICommand.parse(command))
     }
+
+    /// A gap row records nil, never a descriptive text
+    /// (docs/contracts/CLI-EQUIVALENCE.md, "Gaps until they close"). The ID
+    /// is passed through a variable, so scripts/ratchets/cli-parity-gaps.sh
+    /// does not read these calls as pins.
+    func testAGapPinPassesOnlyForNil() {
+        let id = "pin-self-test"
+        assertCLIParityGap(nil, id: id)
+        XCTExpectFailure("a gap row that records descriptive text fails its pin") {
+            assertCLIParityGap("# No command merges these bundles yet.", id: id)
+        }
+        XCTExpectFailure("a gap row whose command now parses fails its pin") {
+            assertCLIParityGap(
+                OperationCenter.buildCLICommand(
+                    subcommand: "blast verify",
+                    args: [
+                        "--kreport", "/tmp/a.kreport",
+                        "--kraken-output", "/tmp/a.kraken",
+                        "--source", "/tmp/reads.fastq",
+                        "--taxid", "11320",
+                        "--result-dir", "/tmp/kraken2",
+                    ]
+                ),
+                id: id
+            )
+        }
+    }
 }

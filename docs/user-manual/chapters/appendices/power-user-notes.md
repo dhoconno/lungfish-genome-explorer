@@ -152,7 +152,7 @@ bowtie2 -x index-prefix -p 8 --rg-id ... --rg SM:... --rg LB:... --rg PL:... --r
 bbmap.sh ref=reference.fasta out=out.sam threads=8 nodisk=t overwrite=t secondary=f rgid=... rgsm=... rglb=... rgpl=... rgpu=... in=r1.fastq in2=r2.fastq
 ```
 
-The `\t` and `...` stand for a tab and the sample's own identifiers, which LGE fills in. Three things hold across the mappers. The minimap2 `-x` preset follows the read type you choose and defaults to `sr`, for short reads. A [read group](../../GLOSSARY.md#read-group), the `@RG` header naming the sample, library, and platform, is always written. And [secondary alignments](../../GLOSSARY.md#secondary-alignment), extra lower-scoring placements of one read, are off unless you ask for them. Asking adds `-k 10` on bowtie2.
+The `\t` and `...` stand for a tab and the sample's own identifiers, which LGE fills in. Three things hold across the mappers. The minimap2 `-x` preset follows the read class of the reads, `sr` for short reads, `map-ont` for Nanopore reads, `map-hifi` for PacBio HiFi reads, and `map-pb` for other PacBio reads, and a preset you choose always wins. A [read group](../../GLOSSARY.md#read-group), the `@RG` header naming the sample, library, and platform, is always written. And [secondary alignments](../../GLOSSARY.md#secondary-alignment), extra lower-scoring placements of one read, are off unless you ask for them. Asking adds `-k 10` on bowtie2.
 
 Your extra arguments land in different places. On minimap2, bwa-mem2, and bowtie2 they come after LGE's options and before the output and input files, so your value wins on a flag you both set. On BBMap they come first, so LGE's value wins.
 
@@ -189,7 +189,7 @@ hifiasm -o out/prefix -t 8 reads.fastq
 
 The `--memory`, `--min-contig-len`, and similar values are examples. They appear only when a memory limit or minimum contig length is set. The window sets a memory limit of three quarters of the Mac's memory, capped at 32 GB, and passes MEGAHIT its limit in bytes. The command line sets neither unless you ask.
 
-SPAdes opens with `--isolate` for one cultured organism, `--meta` for a mixed sample, or `--plasmid`, defaulting to `--isolate`. Flye's read mode becomes the flag itself, so the `nano-hq` profile gives `flye --nano-hq`. hifiasm gets `--ont` at the front when the reads are Nanopore.
+SPAdes opens with `--isolate` for one cultured organism, `--meta` for a mixed sample, or `--plasmid`, defaulting to `--isolate`. Flye's read mode becomes the flag itself, so the `nano-hq` profile gives `flye --nano-hq`. HiFi reads run `--pacbio-hifi` and PacBio subreads `--pacbio-raw` unless you choose a profile. hifiasm gets `--ont` at the front when the reads are Nanopore.
 
 Two are LGE's own choices. On Apple Silicon Macs, where LGE also caps MEGAHIT's threads, MEGAHIT gets `--no-hw-accel`, which turns off processor-specific fast instructions, unless your extra arguments already set it. SKESA is pinned to `--min_count 2`, its documented default, because leaving it automatic can produce no contigs at all on a small input. Your extra arguments come after LGE's on all five.
 

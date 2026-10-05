@@ -95,10 +95,10 @@ struct ClassifyCommand: AsyncParsableCommand {
         help: ArgumentHelp(
             "Read layout: auto, unpaired, paired, or interleaved.",
             discussion: """
-            auto (default) scans a single input: a file or bundle of strictly alternating \
-            R1/R2 records runs as interleaved pairs (split into two mate files for \
-            kraken2 --paired); interleaved pairs mixed with merged reads, and true \
-            single-end input, run unpaired. Two separate files need --paired.
+            auto (default) plans a single input, a file or a .lungfishfastq bundle. Its read \
+            pairs run as pairs with kraken2 --paired, and its merged or single reads run beside \
+            them in the same kraken2 run. A strictly interleaved file is split into two mate \
+            files. unpaired classifies every read on its own. Two separate files need --paired.
             """
         )
     )

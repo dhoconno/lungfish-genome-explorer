@@ -83,7 +83,7 @@ Check what the host is and whether the library is amplicon or shotgun, as [Know 
 
 A [PCR duplicate](../../GLOSSARY.md#pcr-duplicate) is a copy of one original fragment made during amplification, and counting copies as separate reads overstates the evidence at a position.
 
-**Clumpify**, behind Remove Duplicates, works on the FASTQ file before any mapping. It collapses reads whose sequences match exactly, or within the one or two mismatches a preset allows, and needs no reference. Exact copies are rare among nanopore reads, whose errors differ from copy to copy.
+**Clumpify**, behind Remove Duplicates, works on the FASTQ file before any mapping. It collapses reads whose sequences match exactly, or within the one or two mismatches a preset allows, and needs no reference. On paired reads it compares whole pairs, so a pair is kept or removed as one. In a bundle that mixes pairs with merged reads, the pairs are deduplicated as pairs and the merged reads on their own, and the two parts are joined again with the pairs first. Exact copies are rare among nanopore reads, whose errors differ from copy to copy.
 
 **samtools markdup**, behind Mark Duplicates in the Inspector once reads are mapped, calls two pairs duplicates when their mates map to the same positions on the same strands, whatever their sequence. It flags the extra copies rather than deleting them, as [Alignment Quality](../04-alignments/04-alignment-quality.md#mark-duplicates) shows.
 
@@ -270,7 +270,7 @@ lungfish-cli fastq deduplicate "$READS" \
   --subs 0 --output "$HOME/Desktop/dedup.fastq"
 ```
 
-Each command reads the pairing the bundle records, so given the file inside a paired bundle it keeps the mates together as the window does. `--pairing` overrides that choice. It takes `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and no tool can pair such a file by position. Every command checks the records before it pairs anything, so on a mixed file it treats each record as a single read, says so on standard error, and records the layout it found in provenance. `deacon-ribo` also accepts the two original mate files, R1 then R2, and writes a filtered file for each into the directory you name.
+Each command reads the pairing the bundle records, so given the file inside a paired bundle it keeps the mates together as the window does. `--pairing` overrides that choice. It takes `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and no tool can pair such a file by position. Every command checks the records before it pairs anything. On such a mixed file `deduplicate` splits the records by name and deduplicates the pairs as pairs and the merged reads on their own. The other commands treat each record as a single read, say so on standard error, and record the layout they found in provenance. `deacon-ribo` also accepts the two original mate files, R1 then R2, and writes a filtered file for each into the directory you name.
 
 ## Next
 

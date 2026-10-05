@@ -3,13 +3,18 @@ OVERVIEW: Verify a taxon classification via NCBI BLAST
 Submit a subsample of reads classified to the target taxon to NCBI
 BLAST and report how many are independently verified. Requires the
 kreport file (for tree building), the per-read Kraken2 output (for
-read ID extraction), and the source FASTQ (for sequence retrieval).
+read ID extraction), and the source reads (for sequence retrieval),
+given as FASTQ files or a .lungfishfastq bundle.
 
 USAGE: lungfish-cli blast verify [<options>] --kreport <kreport> --source <source> ... --kraken-output <kraken-output> --taxid <taxid>
 
 OPTIONS:
   --kreport <kreport>     Kraken2 report file (.kreport)
-  --source <source>       Source FASTQ file
+  --source <source>       Source FASTQ file or .lungfishfastq bundle
+                          (repeatable)
+        A bundle is read by the roles of its files. Loose files go R1, then R2,
+        then the files of single reads, and the first two are mates when
+        kraken2 classified pairs.
   --kraken-output <kraken-output>
                           Kraken2 per-read output file (.kraken)
   --taxid <taxid>         Taxonomy ID to verify

@@ -72,7 +72,8 @@ extension BlastCommand {
             Submit a subsample of reads classified to the target taxon to NCBI
             BLAST and report how many are independently verified. Requires the
             kreport file (for tree building), the per-read Kraken2 output (for
-            read ID extraction), and the source FASTQ (for sequence retrieval).
+            read ID extraction), and the source reads (for sequence retrieval),
+            given as FASTQ files or a .lungfishfastq bundle.
             """
         )
 
@@ -84,7 +85,13 @@ extension BlastCommand {
         // Repeatable. A .lungfishfastq bundle gives every read file by its
         // role, and two loose files are R1 and R2 when kraken2 classified
         // pairs (D8).
-        @Option(name: .customLong("source"), help: "Source FASTQ file")
+        @Option(
+            name: .customLong("source"),
+            help: ArgumentHelp(
+                "Source FASTQ file or .lungfishfastq bundle (repeatable)",
+                discussion: "A bundle is read by the roles of its files. Loose files go R1, then R2, then the files of single reads, and the first two are mates when kraken2 classified pairs."
+            )
+        )
         var sourcePaths: [String]
 
         @Option(name: .customLong("kraken-output"), help: "Kraken2 per-read output file (.kraken)")

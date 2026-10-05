@@ -17,6 +17,8 @@ Every Operations panel row records a `lungfish-cli` command. The command parses 
 
 A command may be refined after `begin` with `setCommand`, only to a more specific command for the same run, such as one that names outputs resolved after `begin`. The final value obeys every requirement above.
 
+The FASTQ operations dialog row is the first to do this. Its output path is chosen during the run, so the row records `<derived>` as the output at `begin`. After a successful run, `FASTQOperationRowCommand` in `Sources/LungfishApp/Services/FASTQOperationRowCommand.swift` replaces it with the command each imported bundle's manifest records, one line per distinct command in import order. A Savont row takes its executed invocations instead, each naming the published FASTA in `--output`. The row is refined only when every imported bundle or published FASTA exists and every line starts with `lungfish-cli` and holds no `<derived>`. Otherwise the `begin` command stays and one log line says why. A grouped result, such as a demultiplex, keeps the placeholder until Phase 2. `FASTQOperationRowCommandTests` pins the rule, and `FASTQDialogRowCommandReplayTests` replays a refined command onto a second root and compares the payload files.
+
 ## Same result
 
 The kind of output decides what "same" means. Every comparison applies the masks in the last row and nothing else. `OutputEquivalence.Kind` in `Tests/Support/LungfishTestSupport/OutputEquivalence.swift` names each kind.
@@ -29,7 +31,7 @@ The kind of output decides what "same" means. Every comparison applies the masks
 | Edits a bundle in place (`.bundle`) | Starting from identical copies of the bundle, the bundle after the GUI run and after the CLI run are the same bundle. | add, update and delete annotations, delete variants, attach a track, remove a track |
 | Calls a remote service (`.remoteRequest`) | The same request. The submitted sequences and every request parameter are byte for byte identical. With the service replaced by a recorded response, the parsed records are the same. A live result may differ, because the remote database changes. | BLAST submission, NCBI, ENA and SRA fetch, AI haplotyping |
 | Changes managed tools or databases (`.managedPlan`) | The same plan and the same receipt entries. `--plan` output from the CLI equals the plan the GUI applied. | plugin install, tools update, database update |
-| Masks | Wall-clock times, run and operation UUIDs, identifiers derived from a UUID, such as `aln_` plus 8 hex digits, numbered by first appearance, the two run roots (replaced by `<ROOT>`), the executable path, host, process ID and wall time in provenance, and the checksum and size a manifest or provenance record states for a file that exists in both trees and is itself compared by content rather than by bytes. So does a record for a run's scratch intermediate, a BAM, index, gzip, SQLite or JSON file under the system temporary folder that the run deleted. A record that names any other file, such as an input outside the trees, keeps its checksum. A mask is added only by a reviewed change to this table. | |
+| Masks | Wall-clock times, run and operation UUIDs, identifiers derived from a UUID, such as `aln_` plus 8 hex digits, numbered by first appearance, the two run roots (replaced by `<ROOT>`), the executable path, host, process ID and wall time in provenance, and the checksum and size a manifest or provenance record states for a file that exists in both trees and is itself compared by content rather than by bytes. So does a record for a run's scratch intermediate, a BAM, index, gzip, SQLite or JSON file under the system temporary folder that the run deleted. A record that names any other file, such as an input outside the trees, keeps its checksum. The record masks apply only to provenance envelopes, manifests and database dumps. Payload text and remote request bodies keep the roots mask alone. UUIDs are numbered per tree, and two files whose masked names collide are reported as a difference. A mask is added only by a reviewed change to this table. | |
 
 ## Narrow exceptions
 
@@ -43,19 +45,13 @@ A user confirmation inside a run, for example accepting a low-depth consensus, i
 
 ## Gaps until they close
 
-A row that does not meet the rule today is a gap. Each gap has an ID, and the begin helper's doc comment carries the marker `cli-parity-gap: <ID>` with the closest command and why it falls short. An inline begin call may carry the marker in a comment between the start of its function and the end of the call. The row records nil, never a descriptive text. A test pins it with `assertCLIParityGap(_:id:)`, which asserts that the recorded command fails `RecordedCLICommand.parseScript`. When a command lands, that test fails, and the change replaces it with a parse test and a replay test and removes the marker.
+A row that does not meet the rule today is a gap. Each gap has an ID, and the begin helper's doc comment carries the marker `cli-parity-gap: <ID>` with the closest command and why it falls short. An inline begin call may carry the marker in a comment between the start of its function and the end of the call. The row records nil, never a descriptive text. A test pins it with `assertCLIParityGap(_:id:)`, which asserts that the row records nil. When a command lands, that test fails, and the change replaces it with a parse test and a replay test and removes the marker.
 
 No new gap may be added. A new operation lands with its command.
 
-The gaps counted when this contract landed numbered 43. Forty carry a marker in `Sources/`. Three sit in files that other lanes were editing at the time, so they carry no marker yet and are listed in `scripts/ratchets/cli-parity-gaps.pending` instead.
+The gaps counted when this contract landed numbered 43. Three of them first sat in files that other lanes were editing, so they were listed in `scripts/ratchets/cli-parity-gaps.pending` until those lanes gave them markers. Deleting the unreachable FASTQ dashboard derivative path then closed `fastq-dashboard-derivative`. The count is now 42, and every gap carries a marker in `Sources/`, so the pending file holds no gap line.
 
-| Pending gap | Site | Closing lane |
-|---|---|---|
-| `esviritu-batch` | `beginEsVirituBatchOperation` in `Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift` | L4 |
-| `taxtriage-multi-sample` | `beginTaxTriageOperation` in `Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift` | L4 |
-| `fastq-ingest-in-place` | `beginInPlaceIngestionOperation` in `Sources/LungfishApp/Services/FASTQIngestionService+OperationBegin.swift` | L9 |
-
-A pending gap needs no pin while its line stays in the pending file. The lane that closes it deletes the line.
+A gap that a lane cannot mark in its own commit goes in the pending file as `ID file:function lane`. A pending gap needs no pin while its line stays there, and the lane that closes it deletes the line.
 
 ## Tests that enforce it
 
@@ -73,9 +69,9 @@ A replay that needs an external tool runs in the integration tier, which takes e
 `scripts/ratchets/cli-parity-gaps.sh` runs in the pre-push hook. It is a source scan with a test cross-check, and it needs no build.
 
 1. It finds every Operations panel `begin` call, which is a call whose argument list names `cliCommand:`. A call inside a function that is itself named `begin` forwards its caller's command and is skipped, and the call to that forwarder counts instead.
-2. Its value is the number of distinct `cli-parity-gap: <ID>` markers in `Sources/` plus the lines in `cli-parity-gaps.pending`. The value must not exceed `scripts/ratchets/cli-parity-gaps.baseline`, and `--update` may only lower the baseline.
+2. Its value counts one for each begin site and gap ID that a `cli-parity-gap: <ID>` marker in `Sources/` names, plus the lines in `cli-parity-gaps.pending`. A shared helper that carries several IDs counts each of them. The value must not exceed `scripts/ratchets/cli-parity-gaps.baseline`, and `--update` may only lower the baseline.
 3. It fails when a marker ID has no `assertCLIParityGap` call with the same ID in `Tests/`, or when a test pins an ID that no marker or pending line carries.
 4. It fails when a `begin` call passes the literal `nil` as `cliCommand` and its function carries neither a gap marker nor an exemption marker, and when a marker belongs to no `begin` call.
-5. It fails when the function that holds a `begin` call is named in no test under `Tests/LungfishAppTests` that calls `RecordedCLICommand.parse`, `parseScript` or `assertCLIParityGap` and also names the type that holds the call or the stem of its source file. The sites that failed this when the ratchet landed are listed in `cli-parity-gaps.untested`, and that list may only shrink.
+5. It fails when the function that holds a `begin` call is named in no test under `Tests/LungfishAppTests` that calls `RecordedCLICommand.parse`, `parseScript` or `assertCLIParityGap` and also names the type that holds the call or the stem of its source file. The sites that failed this when the ratchet landed are listed in `cli-parity-gaps.untested`. That list may only shrink, and `--update` never adds a site to it.
 
 `--print` lists every site with its status. Exempt rows are listed and are not counted. The value falls to 0 as the gaps close.

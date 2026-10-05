@@ -385,14 +385,14 @@ operations:
         control: radio
         default: Literal Sequence
         allowed: Literal Sequence, Reference FASTA
-        effect: Chooses whether you type one primer sequence or point at a FASTA file holding a whole primer set. Reference FASTA asks for the file in the Inputs section.
-        when_to_change: Pick Reference FASTA for tiled amplicon schemes, which have dozens of primers.
+        effect: Chooses whether you type one primer sequence or point at a FASTA file holding a whole primer set. Reference FASTA asks for the file in the Inputs section, and it keeps only reads that hold both primers of an amplicon.
+        when_to_change: Pick Reference FASTA for tiled amplicon schemes, which have dozens of primers, when each read spans a whole amplicon.
         cli_flag: --literal, or --ref with --engine cutadapt-linked
       - label: Primer Sequence
         control: text
         default: ""
-        allowed: A, C, G, T and IUPAC ambiguity codes
-        effect: The primer sequence bbduk removes from the reads. It is used only when Primer Source is Literal Sequence.
+        allowed: A, C, G, and T. bbduk refuses IUPAC ambiguity codes such as R and S
+        effect: The primer sequence bbduk trims from the 5' start of each read, with every base before it, when the match ends within the primer's length plus 67 bases. It is used only when Primer Source is Literal Sequence.
         when_to_change: Type the primer your PCR used, exactly as the order sheet gives it.
         cli_flag: --literal
       - label: k
@@ -406,7 +406,7 @@ operations:
         control: number
         default: 11
         allowed: integers above 0
-        effect: The shortest word bbduk will still match when only part of the primer sits at the very end of a read. It catches primers that run off the edge.
+        effect: The shortest word bbduk will still match when only part of the primer sits at the edge of a read. It catches primers that run off the edge.
         when_to_change: Lower it when partial primers survive at read ends.
         cli_flag: --mink
       - label: hdist
@@ -1431,8 +1431,8 @@ operations:
       - label: Platform
         control: popup
         default: the platform detected from the read headers
-        allowed: Illumina, Oxford Nanopore, PacBio, Element Biosciences, Ultima Genomics, MGI / DNBSEQ, Unknown / Other
-        effect: Records which sequencing instrument produced the reads. The choice drives the starting value of Optimize storage, and it is written into the bundle.
+        allowed: Illumina, Oxford Nanopore, PacBio, Element Biosciences, Ultima Genomics, MGI / DNBSEQ, Unknown / Other, and Detected per sample when the batch's samples look like different platforms
+        effect: Records which sequencing instrument produced the reads. Left on the detected item, the import infers each sample's platform from its own reads, with the command line's --platform auto. The choice drives the starting value of Optimize storage, and it is written into the bundle as given or inferred, with the evidence.
         when_to_change: Change it when the detected platform is wrong, which happens most often with reads that were renamed or reprocessed before you got them.
         cli_flag: --platform
       - label: Pairing
@@ -4462,7 +4462,10 @@ operations:
         effect: Treats the two input files as read 1 and read 2 of the same fragments.
       - flag: --read-format
         default: auto
-        effect: Sets the read layout, one of auto, unpaired, paired, or interleaved. auto scans a single input, and a file or bundle whose records strictly alternate read 1 and read 2 runs as pairs, split into two temporary mate files for Kraken2's --paired mode. Pairs mixed with merged reads, and true single-end input, run unpaired. Two separate files still need --paired. The wizard makes the same choice for each sample.
+        effect: Sets the read layout, one of auto, unpaired, paired, or interleaved. auto plans a single input, a file or a bundle. Its read pairs run as pairs with Kraken2's --paired mode, and its merged or single reads run beside them in the same run. A file whose records strictly alternate read 1 and read 2 is split into two temporary mate files. unpaired classifies every read on its own. Two separate files still need --paired. The wizard makes the same choice for each sample.
+      - flag: --unpaired
+        default: none
+        effect: Names a file of merged or single reads to classify beside the --paired R1 and R2 files, in the same run. Repeat it for each file.
       - flag: --recursive
         default: "false"
         effect: When an input is a folder, also picks up eligible FASTQ or FASTA files inside its subfolders.
@@ -4693,7 +4696,7 @@ operations:
     entry_points:
       - "Taxonomy viewport action bar > BLAST Verify"
       - "Right-click a taxon in the taxonomy viewport > BLAST Matching Reads..."
-      - "CLI: lungfish-cli blast verify --kreport <kreport> --source <fastq> --kraken-output <kraken> --taxid <taxid>"
+      - "CLI: lungfish-cli blast verify --kreport <kreport> --source <fastq-or-bundle> ... --kraken-output <kraken> --taxid <taxid>"
     gating: []
     sources:
       - Sources/LungfishKit/BlastConfigPopoverView.swift
@@ -5171,7 +5174,7 @@ operations:
     cli_only:
       - flag: --read-layout
         default: auto
-        effect: Says how the records of a single input file relate, auto, single-end, interleaved, or mixed. auto reads the enclosing .lungfishfastq bundle's metadata, then the read names. SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends, and a mixed file is assembled as single reads. The sheet passes a paired bundle as interleaved pairs, and the result summary then reports the input as interleaved pairs.
+        effect: Says how the records of a single input file relate, auto, single-end, interleaved, or mixed. auto reads the enclosing .lungfishfastq bundle's metadata, then the read names. SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends. Under auto or mixed, a file that mixes merged reads with pairs is split by fragment name, its pairs assembled as pairs and its merged and single reads beside them. The sheet passes a paired bundle as interleaved pairs, and the result summary then reports the input as interleaved pairs.
       - flag: --paired
         default: "false"
         effect: Treats the two input files as the forward and reverse mates of one library. The sheet works this out from the file names instead.
@@ -5280,7 +5283,7 @@ operations:
     cli_only:
       - flag: --read-layout
         default: auto
-        effect: Says how the records of a single input file relate, auto, single-end, interleaved, or mixed. auto reads the enclosing .lungfishfastq bundle's metadata, then the read names. SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends, and a mixed file is assembled as single reads. The sheet passes a paired bundle as interleaved pairs, and the result summary then reports the input as interleaved pairs.
+        effect: Says how the records of a single input file relate, auto, single-end, interleaved, or mixed. auto reads the enclosing .lungfishfastq bundle's metadata, then the read names. SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends. Under auto or mixed, a file that mixes merged reads with pairs is split by fragment name, its pairs assembled as pairs and its merged and single reads beside them. The sheet passes a paired bundle as interleaved pairs, and the result summary then reports the input as interleaved pairs.
       - flag: --paired
         default: "false"
         effect: Treats the two input files as the forward and reverse mates of one library.
@@ -5375,7 +5378,7 @@ operations:
     cli_only:
       - flag: --read-layout
         default: auto
-        effect: Says how the records of a single input file relate, auto, single-end, interleaved, or mixed. auto reads the enclosing .lungfishfastq bundle's metadata, then the read names. SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends, and a mixed file is assembled as single reads. The sheet passes a paired bundle as interleaved pairs, and the result summary then reports the input as interleaved pairs.
+        effect: Says how the records of a single input file relate, auto, single-end, interleaved, or mixed. auto reads the enclosing .lungfishfastq bundle's metadata, then the read names. SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends. Under auto or mixed, a file that mixes merged reads with pairs is split by fragment name, its pairs assembled as pairs and its merged and single reads beside them. The sheet passes a paired bundle as interleaved pairs, and the result summary then reports the input as interleaved pairs.
       - flag: --paired
         default: "false"
         effect: Treats the two input files as the forward and reverse mates of one library.
