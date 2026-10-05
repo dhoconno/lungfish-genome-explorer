@@ -373,7 +373,7 @@ public actor SRAService {
 
         progress?(0.5)
 
-        // Step 2: Convert to FASTQ with fasterq-dump
+        // Step 2: fasterq-dump --split-3 writes mates to <run>_1 and <run>_2, reads without a mate to <run>.fastq
         let fasterqTempDirectory = try Self.createFasterqTempDirectory(for: outputDirectory)
         defer { try? FileManager.default.removeItem(at: fasterqTempDirectory) }
 
@@ -381,7 +381,7 @@ public actor SRAService {
             sraFile.path,
             "-O", outputDirectory.path,
             "-t", fasterqTempDirectory.path,
-            "--split-files",
+            "--split-3",
             "--threads", "4"
         ]
         let fasterqStartedAt = Date()
@@ -625,7 +625,7 @@ public actor SRAService {
             guard let source = SRAFASTQDownloadSource.toolkitFallback(after: enaError) else {
                 throw enaError
             }
-            onFallback?("Falling back to SRA Toolkit (prefetch + fasterq-dump)…")
+            onFallback?(SRAFASTQDownloadSource.toolkitFallbackMessage(accession: accession, after: enaError))
             do {
                 let toolkitFiles = try await toolkit(accession, outputDir)
                 onSource?(source)
