@@ -260,6 +260,7 @@ public final class MainMenu {
             action: #selector(TwelveSResultMenuActions.exportTwelveSResult(_:)),
             keyEquivalent: ""
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.exportTwelveSResult)
+        exportMenu.addItem(distanceMatrixExportItem())
 
         exportMenu.addItem(.separator())
 
@@ -531,6 +532,7 @@ public final class MainMenu {
             action: #selector(ViewMenuActions.makeDrawerShorter(_:)),
             keyEquivalent: ""
         )
+        addDistanceMatrixItems(to: viewMenu)
 
         viewMenu.addItem(.separator())
 

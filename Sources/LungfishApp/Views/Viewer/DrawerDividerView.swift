@@ -7,9 +7,19 @@ import AppKit
 // MARK: - DrawerDividerView
 
 /// Drag handle at the top of the annotation drawer for resizing.
+///
+/// A host other than `AnnotationTableDrawerView`, such as the MSA bottom pane,
+/// sets `onResize`, `onFinishResize` and `currentHeight` instead of relying on
+/// the drawer delegate.
 final class DrawerDividerView: NSView {
     weak var drawerDelegate: AnnotationTableDrawerDelegate?
     var dragStartY: CGFloat = 0
+    /// Applies a height change. When set, it replaces the drawer delegate route.
+    var onResize: ((CGFloat) -> Void)?
+    /// Called when a drag or a keyboard step ends.
+    var onFinishResize: (() -> Void)?
+    /// The host's current height, read for the accessibility value.
+    var currentHeight: (() -> CGFloat)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -55,6 +65,7 @@ final class DrawerDividerView: NSView {
     }
 
     override func accessibilityValue() -> Any? {
+        if let currentHeight { return "\(Int(currentHeight().rounded())) points tall" }
         guard let drawer = superview as? AnnotationTableDrawerView else { return nil }
         return "\(Int(drawer.frame.height.rounded())) points tall"
     }
@@ -64,6 +75,12 @@ final class DrawerDividerView: NSView {
 
     /// Resizes through the same path a mouse drag takes, then saves the height.
     func resize(by delta: CGFloat) {
+        if let onResize {
+            onResize(delta)
+            onFinishResize?()
+            NSAccessibility.post(element: self, notification: .valueChanged)
+            return
+        }
         guard let drawer = superview as? AnnotationTableDrawerView else { return }
         drawer.delegate?.annotationDrawerDidDragDivider(drawer, deltaY: delta)
         drawer.delegate?.annotationDrawerDidFinishDraggingDivider(drawer)
@@ -94,13 +111,17 @@ final class DrawerDividerView: NSView {
         let currentY = NSEvent.mouseLocation.y
         let delta = currentY - dragStartY
         dragStartY = currentY
-        if let drawer = superview as? AnnotationTableDrawerView {
+        if let onResize {
+            onResize(delta)
+        } else if let drawer = superview as? AnnotationTableDrawerView {
             drawer.delegate?.annotationDrawerDidDragDivider(drawer, deltaY: delta)
         }
     }
 
     override func mouseUp(with event: NSEvent) {
-        if let drawer = superview as? AnnotationTableDrawerView {
+        if let onFinishResize {
+            onFinishResize()
+        } else if let drawer = superview as? AnnotationTableDrawerView {
             drawer.delegate?.annotationDrawerDidFinishDraggingDivider(drawer)
         }
     }

@@ -62,7 +62,7 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
     private var lastInspectorToggleEventNumber: Int?
 
     /// Bottom drawer toolbar button — highlighted when drawer is open.
-    private weak var drawerToolbarButton: NSButton?
+    private(set) weak var drawerToolbarButton: NSButton?
 
     /// Current viewport content mode for toolbar adaptation.
     private var currentContentMode: ViewportContentMode = .empty
@@ -471,17 +471,7 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
         vc?.toggleAnnotationDrawer()
 
         // Update toolbar button highlight based on drawer state
-        let isOpen: Bool
-        if let taxTriageVC = vc?.taxTriageViewController {
-            isOpen = taxTriageVC.isBlastDrawerOpen
-        } else if let taxVC = vc?.taxonomyViewController {
-            isOpen = taxVC.isTaxaCollectionsDrawerOpen
-        } else if vc?.isDisplayingFASTQDataset == true {
-            isOpen = vc?.isFASTQMetadataDrawerOpen ?? false
-        } else {
-            isOpen = vc?.isAnnotationDrawerOpen ?? false
-        }
-        drawerToolbarButton?.state = isOpen ? .on : .off
+        drawerToolbarButton?.state = vc?.isActiveDrawerOpen == true ? .on : .off
     }
 
     @objc public func makeDrawerTaller(_ sender: Any?) {
@@ -495,7 +485,7 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
     private func resizeAnnotationDrawer(by delta: CGFloat) {
         guard let vc = mainSplitViewController.viewerController, vc.offersResizableAnnotationDrawer else { return }
         vc.adjustAnnotationDrawerHeight(by: delta)
-        drawerToolbarButton?.state = vc.isAnnotationDrawerOpen ? .on : .off
+        drawerToolbarButton?.state = vc.isActiveDrawerOpen ? .on : .off
     }
 
     /// Opens the Operations Panel via AppDelegate's action handler.
@@ -562,19 +552,10 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
     /// enabled with no display open and do nothing.
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
+        if let distanceMatrixResult = validateDistanceMatrixMenuItem(menuItem) { return distanceMatrixResult }
         if action == #selector(toggleAnnotationDrawer(_:)) {
             let vc = mainSplitViewController?.viewerController
-            let isOpen: Bool
-            if let taxTriageVC = vc?.taxTriageViewController {
-                isOpen = taxTriageVC.isBlastDrawerOpen
-            } else if let taxVC = vc?.taxonomyViewController {
-                isOpen = taxVC.isTaxaCollectionsDrawerOpen
-            } else if vc?.isDisplayingFASTQDataset == true {
-                isOpen = vc?.isFASTQMetadataDrawerOpen ?? false
-            } else {
-                isOpen = vc?.isAnnotationDrawerOpen ?? false
-            }
-            menuItem.title = isOpen ? "Hide Drawer" : "Show Drawer"
+            menuItem.title = vc?.isActiveDrawerOpen == true ? "Hide Drawer" : "Show Drawer"
             return vc != nil
         }
         if action == #selector(makeDrawerTaller(_:)) || action == #selector(makeDrawerShorter(_:)) {

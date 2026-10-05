@@ -75,9 +75,9 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         }
 
         // A native bundle viewport has no annotations for the parent drawer to
-        // show, and the MSA carries its own.
+        // show. The MSA toggles its own bottom pane instead (ruling U2).
         if isNativeBundleViewportInstalled {
-            return
+            return multipleSequenceAlignmentViewController?.toggleBottomPane() ?? ()
         }
 
         if annotationDrawerView == nil {
@@ -720,16 +720,16 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         viewerView.codingFeatureText(chromosome: result.chromosome, position: result.start, referenceLength: result.ref?.count ?? 1)
     }
 
-    /// Whether the annotation table drawer applies to what is shown: not the
-    /// classifier, FASTQ or native-bundle viewports, which have their own drawers.
+    /// Whether View > Make Drawer Taller / Shorter apply: the annotation drawer or the MSA bottom pane.
     var offersResizableAnnotationDrawer: Bool {
-        !isDisplayingFASTQDataset && taxonomyViewController == nil
-            && taxTriageViewController == nil && !isNativeBundleViewportInstalled
+        multipleSequenceAlignmentViewController != nil || (!isDisplayingFASTQDataset && taxonomyViewController == nil
+            && taxTriageViewController == nil && !isNativeBundleViewportInstalled)
     }
 
     /// Makes the drawer taller or shorter by one keyboard step, opening it first
     /// when it is closed. Backs View > Make Drawer Taller and Make Drawer Shorter.
     public func adjustAnnotationDrawerHeight(by delta: CGFloat) {
+        if let msa = multipleSequenceAlignmentViewController { return msa.adjustBottomPaneHeight(by: delta) }
         if annotationDrawerView == nil { configureAnnotationDrawer() }
         guard let drawer = annotationDrawerView else { return }
         if !isAnnotationDrawerOpen {

@@ -113,6 +113,9 @@ extension ViewerViewController {
         controller.onProjectAnnotationRequested = { [weak self, weak controller] request in
             self?.projectMSAAnnotationViaCLI(request, refreshing: controller)
         }
+        controller.onExportDistanceMatrixRequested = { [weak self] bundleURL, options in
+            self?.exportMSADistanceMatrixViaCLI(bundleURL: bundleURL, options: options)
+        }
 
         multipleSequenceAlignmentViewController = controller
         contentMode = .genomics

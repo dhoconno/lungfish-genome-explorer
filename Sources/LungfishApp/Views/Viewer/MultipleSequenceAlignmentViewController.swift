@@ -103,7 +103,7 @@ enum MultipleSequenceAlignmentColorScheme: Int, CaseIterable {
     }
 }
 
-private struct MSAAlignmentSequence: Equatable {
+struct MSAAlignmentSequence: Equatable {
     let name: String
     let sequence: [Character]
 
@@ -356,6 +356,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     var onAddAnnotationRequested: ((MultipleSequenceAlignmentAnnotationAddRequest) -> Void)?
     var onProjectAnnotationRequested: ((MultipleSequenceAlignmentAnnotationProjectionRequest) -> Void)?
     var onSelectionStateChanged: ((MultipleSequenceAlignmentSelectionState?) -> Void)?
+    var onExportDistanceMatrixRequested: ((URL, MSADistanceOptions) -> Void)?
+    var onFocusedDistancePairChanged: ((MSAFocusedDistancePair?) -> Void)?
 
     private(set) var alignmentRows: [MSAAlignmentSequence] = []
     private var rowIDsByIndex: [String] = []
@@ -418,7 +420,9 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     )
     private let alignmentScrollView = NSScrollView()
     let annotationDrawer = AnnotationTableDrawerView()
-    var annotationDrawerHeightConstraint: NSLayoutConstraint?
+    /// Bottom pane [Annotations | Distances]; reads its state from `gutterWidthDefaults`.
+    lazy var bottomPane = MSABottomPaneView(annotationDrawer: annotationDrawer, defaults: gutterWidthDefaults)
+    lazy var distanceMatrixToggleButton = makeDistanceMatrixToggleButton()
 
     // MARK: - Resizable name gutter
 
@@ -501,6 +505,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         configureCanvasViews()
         zoomToFit()
         refreshAnnotationDrawer()
+        prepareDistanceMatrix(bundleURL: url, rows: parsedRows)
         scrollSelectionIntoView()
         notifySelectionStateIfAvailable()
         return true
@@ -547,6 +552,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         configureCanvasViews()
         zoomToFit()
         refreshAnnotationDrawer()
+        prepareDistanceMatrix(bundleURL: nil, rows: parsedRows)
         updateVariableSiteButtonAvailability()
     }
 
@@ -733,24 +739,22 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
         view.addSubview(toolbar)
         view.addSubview(canvasContainer)
-        view.addSubview(annotationDrawer)
-        let drawerHeightConstraint = annotationDrawer.heightAnchor.constraint(equalToConstant: 0)
-        annotationDrawerHeightConstraint = drawerHeightConstraint
+        view.addSubview(bottomPane)
+        bottomPane.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             toolbar.heightAnchor.constraint(equalToConstant: 44),
 
-            annotationDrawer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            annotationDrawer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            annotationDrawer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            drawerHeightConstraint,
+            bottomPane.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomPane.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomPane.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             canvasContainer.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             canvasContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             canvasContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            canvasContainer.bottomAnchor.constraint(equalTo: annotationDrawer.topAnchor),
+            canvasContainer.bottomAnchor.constraint(equalTo: bottomPane.topAnchor),
         ])
     }
 
@@ -842,6 +846,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             nextVariableButton,
             colorSchemeControl,
             discriminatingLegendLabel,
+            distanceMatrixToggleButton,
         ])
         toolbar.orientation = .horizontal
         toolbar.alignment = .centerY
@@ -859,6 +864,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         for (index, view) in detachOrder.enumerated() {
             toolbar.setVisibilityPriority(NSStackView.VisibilityPriority(rawValue: Float(100 + 100 * index)), for: view)
         }
+        toolbar.setVisibilityPriority(NSStackView.VisibilityPriority(rawValue: 600), for: distanceMatrixToggleButton)
         return toolbar
     }
 
@@ -1109,7 +1115,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func configureAnnotationDrawer() {
-        annotationDrawer.isHidden = true
+        configureBottomPane()
         annotationDrawer.translatesAutoresizingMaskIntoConstraints = false
         annotationDrawer.delegate = self
         annotationDrawer.allowsAnnotationEditing = false
@@ -1407,6 +1413,33 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
     func notifySelectionStateIfAvailable() {
         onSelectionStateChanged?(selectionState())
+        syncDistanceMatrixSelection(selectedRowIndices)
+    }
+
+    /// Whole-row selection driven by the distance matrix pane (ruling U7). Rows
+    /// are alignment row indices, which equal the pane's record indices because
+    /// both come from the same parse of primary.aligned.fasta. The alignment
+    /// scrolls only when `reveal` is true, and never animates.
+    func focusAlignment() { view.window?.makeFirstResponder(alignmentMatrixView) }
+
+    func applyDistanceMatrixRowSelection(_ rows: IndexSet, reveal: Bool) {
+        let valid = rows.filteredIndexSet { alignmentRows.indices.contains($0) }
+        guard let first = valid.first else { return }
+        selectedRowIndices = valid
+        selectedRowIndex = first
+        rowSelectionAnchor = first
+        isWholeRowSelection = true
+        selectedAlignmentColumn = selectedAlignmentColumn ?? displayedColumns.first
+        selectedAlignmentColumnRange = nil
+        selectionAnchor = nil
+        applySelectionToCanvasViews()
+        if reveal, let last = valid.last, let column = selectedAlignmentColumn,
+           let top = alignmentMatrixView.rectFor(row: first, alignmentColumn: column),
+           let bottom = alignmentMatrixView.rectFor(row: last, alignmentColumn: column) {
+            alignmentMatrixView.scrollToVisible(top.union(bottom).insetBy(dx: -40, dy: -16))
+        }
+        refreshAnnotationDrawer()
+        notifySelectionStateIfAvailable()
     }
 
     private func selectionState() -> MultipleSequenceAlignmentSelectionState? {
