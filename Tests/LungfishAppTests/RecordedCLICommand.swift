@@ -166,11 +166,11 @@ extension RecordedCLICommand {
     }
 }
 
-/// Pins a CLI parity gap. The row's recorded command must fail
-/// `RecordedCLICommand.parseScript`, and `id` names the marker
-/// `cli-parity-gap: <id>` on the begin helper. When a command lands, this
-/// assertion fails, and the change replaces it with a parse test and a replay
-/// test and removes the marker (docs/contracts/CLI-EQUIVALENCE.md).
+/// Pins a CLI parity gap. The row records nil, never a descriptive text, and
+/// `id` names the marker `cli-parity-gap: <id>` on the begin helper. When a
+/// command lands, this assertion fails, and the change replaces it with a
+/// parse test and a replay test and removes the marker
+/// (docs/contracts/CLI-EQUIVALENCE.md).
 /// `scripts/ratchets/cli-parity-gaps.sh` matches each `id` with a marker.
 func assertCLIParityGap(
     _ command: String?,
@@ -178,11 +178,20 @@ func assertCLIParityGap(
     file: StaticString = #filePath,
     line: UInt = #line
 ) {
-    XCTAssertThrowsError(
-        try RecordedCLICommand.parseScript(command),
-        "CLI parity gap \(id) now records a command that parses: \(command ?? "nil"). "
-            + "Replace this pin with a parse test and a replay test, and remove the cli-parity-gap marker.",
-        file: file,
-        line: line
-    )
+    guard let command else { return }
+    if (try? RecordedCLICommand.parseScript(command)) != nil {
+        XCTFail(
+            "CLI parity gap \(id) now records a command that parses: \(command). "
+                + "Replace this pin with a parse test and a replay test, and remove the cli-parity-gap marker.",
+            file: file,
+            line: line
+        )
+    } else {
+        XCTFail(
+            "CLI parity gap \(id) records text instead of nil: \(command). "
+                + "A gap row records nil until its command lands.",
+            file: file,
+            line: line
+        )
+    }
 }
