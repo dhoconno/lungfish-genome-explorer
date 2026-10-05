@@ -189,8 +189,8 @@ extension MultipleSequenceAlignmentViewController {
             guard let self, let bundleURL = self.bundleURL else { return }
             self.onExportDistanceMatrixRequested?(bundleURL, options)
         }
-        pane.onFocusedPairChanged = { [weak self] detail, rowName, columnName in
-            guard let self else { return }
+        pane.onFocusedPairChanged = { [weak self, weak pane] detail, rowName, columnName in
+            guard let self, let pane else { return }
             let focus = detail.map {
                 MSAFocusedDistancePair(
                     rowName: rowName,
