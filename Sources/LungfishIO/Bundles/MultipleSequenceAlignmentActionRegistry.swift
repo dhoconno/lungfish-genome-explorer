@@ -585,7 +585,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish-cli tree infer iqtree <bundle.lungfishmsa> --project <project> --output <path.lungfishtree> [--rows <rows>] [--columns <ranges>] [--name <name>] [--model MFP] [--bootstrap <n>] [--seed <n>] [--iqtree-path <path>] --format json",
+                command: "lungfish-cli tree infer iqtree <bundle.lungfishmsa> --project <project> --output <path.lungfishtree> [--rows <rows>] [--columns <ranges>] [--name <name>] [--model MFP] [--sequence-type <type>] [--bootstrap <n>] [--alrt <n>] [--seed <n>] [--threads <n>] [--outgroup <rows>] [--iqtree-path <path>] --format json",
                 outputContract: "Creates a native .lungfishtree bundle, preserves IQ-TREE outputs under artifacts/iqtree, and writes final .lungfish-provenance.json with wrapper argv, external IQ-TREE argv/version, input alignment checksum, output checksums, runtime identity, exit status, wall time, and stderr.",
                 requiredPluginPackIDs: ["phylogenetics"]
             ),

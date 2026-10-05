@@ -37,6 +37,10 @@ final class TreeCommandTests: XCTestCase {
         ACGT
         >B
         ACGA
+        >C
+        ACTA
+        >D
+        TCGT
 
         """.write(to: msaSourceURL, atomically: true, encoding: .utf8)
         let msaBundleURL = projectURL.appendingPathComponent("Input.lungfishmsa", isDirectory: true)
@@ -65,7 +69,7 @@ final class TreeCommandTests: XCTestCase {
 
         let bundle = try PhylogeneticTreeBundle.load(from: outputURL)
         XCTAssertEqual(bundle.manifest.name, "Test Tree")
-        XCTAssertEqual(Set(bundle.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)), ["A", "B"])
+        XCTAssertEqual(Set(bundle.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)), ["A", "B", "C", "D"])
         XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.appendingPathComponent("artifacts/iqtree/run.iqtree").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.appendingPathComponent("artifacts/iqtree/run.log").path))
 
@@ -131,6 +135,10 @@ final class TreeCommandTests: XCTestCase {
         ACGT
         >B
         ACGA
+        >C
+        ACTA
+        >D
+        TCGT
 
         """.write(to: msaSourceURL, atomically: true, encoding: .utf8)
         let msaBundleURL = projectURL.appendingPathComponent("Input.lungfishmsa", isDirectory: true)
@@ -177,6 +185,10 @@ final class TreeCommandTests: XCTestCase {
         ACGT
         >B
         ACGA
+        >C
+        ACTA
+        >D
+        TCGT
 
         """.write(to: msaSourceURL, atomically: true, encoding: .utf8)
         let msaBundleURL = projectURL.appendingPathComponent("Input.lungfishmsa", isDirectory: true)
@@ -237,6 +249,10 @@ final class TreeCommandTests: XCTestCase {
         ACGT
         >B
         ACGA
+        >C
+        ACTA
+        >D
+        TCGT
 
         """.write(to: msaSourceURL, atomically: true, encoding: .utf8)
         let msaBundleURL = projectURL.appendingPathComponent("Input.lungfishmsa", isDirectory: true)
@@ -326,6 +342,8 @@ final class TreeCommandTests: XCTestCase {
         ACGA
         >C
         TTGG
+        >D
+        TCGA
 
         """.write(to: msaSourceURL, atomically: true, encoding: .utf8)
         let msaBundleURL = projectURL.appendingPathComponent("Input.lungfishmsa", isDirectory: true)
@@ -342,7 +360,7 @@ final class TreeCommandTests: XCTestCase {
             "--project", projectURL.path,
             "--output", outputURL.path,
             "--name", "Selected Tree",
-            "--rows", "A,C",
+            "--rows", "A,C,D",
             "--columns", "2-3",
             "--iqtree-path", fakeIQTreeURL.path,
             "--format", "json",
@@ -353,16 +371,18 @@ final class TreeCommandTests: XCTestCase {
 
         let storedInputURL = outputURL.appendingPathComponent("artifacts/iqtree/input.aligned.fasta")
         XCTAssertEqual(try String(contentsOf: storedInputURL, encoding: .utf8), """
-        >A
+        >t0001
         CG
-        >C
+        >t0002
         TG
+        >t0003
+        CG
         """ + "\n")
 
         let provenance = try String(contentsOf: outputURL.appendingPathComponent(".lungfish-provenance.json"), encoding: .utf8)
-        XCTAssertTrue(provenance.contains(#""rows" : "A,C""#))
+        XCTAssertTrue(provenance.contains(#""rows" : "A,C,D""#))
         XCTAssertTrue(provenance.contains(#""columns" : "2-3""#))
-        XCTAssertTrue(provenance.contains(#""selectedRowCount" : "2""#))
+        XCTAssertTrue(provenance.contains(#""selectedRowCount" : "3""#))
         XCTAssertTrue(provenance.contains(#""selectedAlignedLength" : "2""#))
         XCTAssertFalse(provenance.contains("/.tmp/"))
         XCTAssertFalse(provenance.contains("\\/.tmp\\/"))
@@ -383,6 +403,10 @@ final class TreeCommandTests: XCTestCase {
         ACGT
         >B
         ACGA
+        >C
+        ACTA
+        >D
+        TCGT
 
         """.write(to: msaSourceURL, atomically: true, encoding: .utf8)
         let msaBundleURL = projectURL.appendingPathComponent("Input.lungfishmsa", isDirectory: true)
@@ -426,13 +450,14 @@ final class TreeCommandTests: XCTestCase {
 
         let externalTool = try XCTUnwrap(provenanceJSON["externalTool"] as? [String: Any])
         let externalArguments = try XCTUnwrap(externalTool["arguments"] as? [String])
-        XCTAssertTrue(externalArguments.contains("-st"))
+        XCTAssertTrue(externalArguments.contains("--seqtype"))
         XCTAssertTrue(externalArguments.contains("DNA"))
         XCTAssertTrue(externalArguments.contains("-B"))
         XCTAssertTrue(externalArguments.contains("1000"))
-        XCTAssertTrue(externalArguments.contains("-alrt"))
-        XCTAssertTrue(externalArguments.contains("-safe"))
-        XCTAssertTrue(externalArguments.contains("-keep-ident"))
+        XCTAssertTrue(externalArguments.contains("--alrt"))
+        XCTAssertTrue(externalArguments.contains("--safe"))
+        XCTAssertTrue(externalArguments.contains("--keep-ident"))
+        XCTAssertEqual(externalArguments.firstIndex(of: "-T").map { externalArguments[$0 + 1] }, "2")
         XCTAssertTrue(externalArguments.contains("-bnni"))
         XCTAssertTrue(externalArguments.contains("--pathogen"))
     }
@@ -602,7 +627,8 @@ final class TreeCommandTests: XCTestCase {
         \(expectedInputCheck)
         printf "fake iqtree stdout\\n"
         printf "fake iqtree stderr\\n" >&2
-        printf "(A:0.1,B:0.2);\\n" > "$prefix.treefile"
+        tips=$(grep '^>' "$input" | sed -e 's/^>//' -e 's/$/:0.1/' | paste -sd, -)
+        printf "(%s);\\n" "$tips" > "$prefix.treefile"
         printf "IQ-TREE report\\n" > "$prefix.iqtree"
         printf "IQ-TREE log\\n" > "$prefix.log"
         exit 0
