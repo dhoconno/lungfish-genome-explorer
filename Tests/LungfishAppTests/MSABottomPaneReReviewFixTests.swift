@@ -138,6 +138,22 @@ final class MSABottomPaneReReviewFixTests: XCTestCase {
         XCTAssertEqual(controller.bottomPane.heightConstraint.constant, 500, accuracy: 0.5)
     }
 
+    // MARK: GUI walk: the export sheet opens in the project's Analyses folder
+
+    func testExportSheetOpensInTheProjectsAnalysesFolder() throws {
+        let project = temporaryDirectory.appendingPathComponent("walk.lungfish", isDirectory: true)
+        let bundleURL = project.appendingPathComponent("Alignments/primates.lungfishmsa", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let directory = try XCTUnwrap(MSADistanceMatrixExportCoordinator.suggestedDirectory(bundleURL: bundleURL))
+        XCTAssertEqual(
+            directory.standardizedFileURL.path,
+            project.appendingPathComponent("Analyses", isDirectory: true).standardizedFileURL.path
+        )
+        let loose = temporaryDirectory.appendingPathComponent("loose.lungfishmsa", isDirectory: true)
+        try FileManager.default.createDirectory(at: loose, withIntermediateDirectories: true)
+        XCTAssertNil(MSADistanceMatrixExportCoordinator.suggestedDirectory(bundleURL: loose))
+    }
+
     // MARK: SF-A Tab from the grid leaves the pane
 
     func testTabFromTheGridLeavesThePaneInTheRealHierarchy() async throws {
