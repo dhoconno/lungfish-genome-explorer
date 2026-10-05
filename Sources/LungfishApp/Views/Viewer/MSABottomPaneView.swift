@@ -153,12 +153,14 @@ final class MSABottomPaneView: NSView {
     /// to the visible one.
     private func routeKeyViewLoopToVisibleTab() {
         guard let exit = keyViewExit else { return }
-        let table: NSView = annotationDrawer.tableView
+        // Annotations: filter field, visible header controls, table (re-review S4).
+        let annotations = annotationDrawer.linkEmbeddedKeyViewChain()
+        let table = annotations.last
         let grid = distancePane.lastKeyView
         let showsTable = visibleTab == .annotations
         (showsTable ? grid : table).nextKeyView = exit
         (showsTable ? table : grid).nextKeyView = exit
-        tabControl.nextKeyView = showsTable ? table : distancePane.firstKeyView
+        tabControl.nextKeyView = showsTable ? annotations.first : distancePane.firstKeyView
         if let anchorPrevious = anchorPreviousKeyView, anchorPrevious.nextKeyView === exit {
             // Re-linking gives the exit back its own previous view.
             anchorPrevious.nextKeyView = nil
@@ -299,11 +301,23 @@ final class MSABottomPaneView: NSView {
         return AnnotationDrawerSizing.dividerHeight + Self.headerHeight + fit
     }
 
+    /// True from an open or a switch to the Distances tab until the tab has
+    /// grown once to fit. A recompute never grows the pane again, so a
+    /// height the user dragged stays (re-review S2).
+    private(set) var isDistancesGrowPending = false
+    /// True while the open animation runs. A grow waits for it to land,
+    /// since the running animator would end on its own target (re-review S1).
+    private(set) var isAnimatingOpen = false
+    private var openAnimationGeneration = 0
+
     /// Grows an open Distances tab that is too short for its column header
-    /// and rows. A taller height, stored or dragged, stays. The grown height
-    /// is not stored, so it never overrides the user's own choice.
+    /// and rows, once per open and per switch to the tab. A taller height,
+    /// stored or dragged, stays. The grown height is not stored, so it never
+    /// overrides the user's own choice.
     func growToFitDistances() {
-        guard isOpen, visibleTab == .distances, let fit = distancesFittingHeight else { return }
+        guard isDistancesGrowPending, !isAnimatingOpen, isOpen, visibleTab == .distances,
+              let fit = distancesFittingHeight else { return }
+        isDistancesGrowPending = false
         let target = Self.clampedHeight(fit, hostHeight: hostHeight)
         guard heightConstraint.constant < target else { return }
         heightConstraint.constant = target
@@ -336,6 +350,7 @@ final class MSABottomPaneView: NSView {
             showContent()
             return
         }
+        if tab == .distances { isDistancesGrowPending = true }
         selectedTab = tab
         tabControl.selectedSegment = tab.rawValue
         defaults.set(tab.defaultsValue, forKey: DefaultsKey.tab)
@@ -360,6 +375,9 @@ final class MSABottomPaneView: NSView {
     private func applyOpen(_ open: Bool, animated: Bool, persist: Bool) {
         let changed = open != isOpen
         isOpen = open
+        if open && changed { isDistancesGrowPending = true }
+        openAnimationGeneration += 1
+        let generation = openAnimationGeneration
         if persist { defaults.set(open, forKey: DefaultsKey.isOpen) }
         var openHeight = preferredOpenHeight
         if visibleTab == .distances, let fit = distancesFittingHeight { openHeight = max(openHeight, fit) }
@@ -368,10 +386,13 @@ final class MSABottomPaneView: NSView {
         let duration = animated && !reduceMotion() ? Self.animationDuration : 0
         lastAnimationDuration = duration
         if duration == 0 || window == nil {
+            isAnimatingOpen = false
             heightConstraint.constant = target
             superview?.layoutSubtreeIfNeeded()
             isHidden = !open
+            if open { growToFitDistances() }
         } else {
+            isAnimatingOpen = open
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -380,8 +401,14 @@ final class MSABottomPaneView: NSView {
                 superview?.layoutSubtreeIfNeeded()
             } completionHandler: { [weak self] in
                 Task { @MainActor [weak self] in
-                    guard let self, !self.isOpen else { return }
-                    self.isHidden = true
+                    guard let self, generation == self.openAnimationGeneration else { return }
+                    self.isAnimatingOpen = false
+                    if self.isOpen {
+                        // A matrix that arrived mid-animation grows the pane now.
+                        self.growToFitDistances()
+                    } else {
+                        self.isHidden = true
+                    }
                 }
             }
         }

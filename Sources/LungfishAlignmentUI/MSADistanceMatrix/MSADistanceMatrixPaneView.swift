@@ -287,6 +287,9 @@ public final class MSADistanceMatrixPaneView: NSView {
             // Comparing in record space against the alignment's own selection
             // keeps a reveal or an alignment click from hiding the change.
             guard records != self.alignmentSelection || !self.alignmentSelectionIsFromMatrix else { return }
+            // Escape on an empty grid with nothing selected in the alignment
+            // changes nothing, so the alignment hears nothing (re-review N1).
+            guard !(records.isEmpty && self.alignmentSelection.isEmpty) else { return }
             self.alignmentSelection = records
             self.alignmentSelectionIsFromMatrix = true
             self.onSequencesSelected?(records)
@@ -299,6 +302,9 @@ public final class MSADistanceMatrixPaneView: NSView {
             // The reveal selects both rows in the alignment (review N1).
             self.alignmentSelection = IndexSet([first, second])
             self.alignmentSelectionIsFromMatrix = true
+            // The grid selects the revealed cell too, so the grid and the
+            // alignment agree (re-review N2). The alignment hears the reveal.
+            self.gridView.updateSelection({ $0.click(cell) }, notify: false)
             self.onRevealPair?(first, second)
         }
         gridView.onCopyMatrix = { [weak self] in self?.copyMatrixPressed(nil) }

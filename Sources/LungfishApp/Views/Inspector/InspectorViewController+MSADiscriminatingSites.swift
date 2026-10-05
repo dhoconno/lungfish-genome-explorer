@@ -119,8 +119,7 @@ extension InspectorViewController {
         let stem = "\(model.bundleURL.deletingPathExtension().lastPathComponent)-discriminating-sites"
         let panel = NSSavePanel()
         panel.canCreateDirectories = true
-        panel.directoryURL = ProjectTempDirectory.findProjectRoot(model.bundleURL)?
-            .appendingPathComponent("Analyses", isDirectory: true)
+        panel.directoryURL = MSADistanceMatrixExportCoordinator.suggestedDirectory(bundleURL: model.bundleURL)
         switch format {
         case .tsv:
             panel.title = "Export Discriminating Sites TSV"

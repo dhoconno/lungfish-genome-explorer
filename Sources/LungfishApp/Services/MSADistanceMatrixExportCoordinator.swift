@@ -20,10 +20,13 @@ enum MSADistanceMatrixExportCoordinator {
         "\(bundleURL.deletingPathExtension().lastPathComponent)-\(options.model.rawValue).tsv"
     }
 
-    /// The folder the save sheet opens in: the project's Analyses folder, as
-    /// the Discriminating Sites export does. Nil outside a project.
+    /// The folder an MSA export save sheet opens in: the project's Analyses
+    /// folder, created when a fresh project has none, else the project root
+    /// when it cannot be created. Nil outside a project. The Discriminating
+    /// Sites export uses it too (re-review S3).
     static func suggestedDirectory(bundleURL: URL) -> URL? {
-        ProjectTempDirectory.findProjectRoot(bundleURL)?.appendingPathComponent("Analyses", isDirectory: true)
+        guard let projectRoot = ProjectTempDirectory.findProjectRoot(bundleURL) else { return nil }
+        return (try? AnalysesFolder.url(for: projectRoot)) ?? projectRoot
     }
 
     /// Shows the save sheet on `window`, then starts the export.
