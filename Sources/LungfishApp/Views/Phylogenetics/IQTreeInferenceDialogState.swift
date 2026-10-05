@@ -355,10 +355,35 @@ final class IQTreeInferenceDialogState {
 
     /// MF, TESTONLY and any preset ending in ONLY select a model and build no
     /// tree, so they are rejected in the Custom field (D2).
+    /// The base is the part before the first "+", as the CLI reads it (C5).
     static func isModelSelectionOnly(_ model: String) -> Bool {
-        let upper = model.uppercased()
-        return upper == "MF" || upper.hasSuffix("ONLY")
+        let base = model.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "+", maxSplits: 1)
+            .first
+            .map { $0.uppercased() } ?? ""
+        return base == "MF" || base.hasSuffix("ONLY")
     }
+
+    /// IQ-TREE flags a curated control already sets, mapped to that control's
+    /// dialog name. The CLI rejects them in the extra arguments (C6).
+    static let reservedAdvancedFlags: [String: String] = [
+        "-s": "the alignment",
+        "--prefix": "Output name",
+        "-pre": "Output name",
+        "-m": "Model",
+        "-T": "Threads",
+        "-nt": "Threads",
+        "--seed": "Seed",
+        "-seed": "Seed",
+        "-B": "UFBoot",
+        "-bb": "UFBoot",
+        "--ufboot": "UFBoot",
+        "--alrt": "SH-aLRT",
+        "-alrt": "SH-aLRT",
+        "-o": "Outgroup",
+        "-st": "Sequence type",
+        "--seqtype": "Sequence type",
+    ]
 
     // MARK: - Branch support steppers
 
@@ -469,10 +494,17 @@ final class IQTreeInferenceDialogState {
         guard let threads = Self.wholeNumber(threadsText), threads >= 1 else {
             return "Threads must be a whole number."
         }
+        let advanced: [String]
         do {
-            _ = try AdvancedCommandLineOptions.parse(extraIQTreeOptions)
+            advanced = try AdvancedCommandLineOptions.parse(extraIQTreeOptions)
         } catch {
             return error.localizedDescription
+        }
+        for argument in advanced {
+            let flag = String(argument.split(separator: "=", maxSplits: 1).first ?? "")
+            if let control = Self.reservedAdvancedFlags[flag] {
+                return "Remove \(flag) from the additional parameters. Use \(control) instead."
+            }
         }
         return nil
     }
