@@ -81,6 +81,61 @@ final class KrakenReadSetConformanceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: config.emptyMateURL(for: merged.standardizedFileURL).path))
     }
 
+    /// Final review S1. `conda classify --paired R1 R2 --unpaired S` reads the
+    /// same reads whether the files are plain, gzip or a mix. The kraken2
+    /// wrapper takes the compression of R1 for every input, so each file of
+    /// single reads and its staged mate are given that compression. Every run
+    /// counts 23 pairs and 77 merged reads, passes the fragment guard and
+    /// writes the report and the calls of the plain run.
+    func testGzipAndMixedLooseFilesClassifyAsThePlainFilesDo() async throws {
+        let database = try await requireKraken2AndViralDatabase()
+        let fixture = ConformanceFixtures.fixture("read-pairing/kraken2")
+        let plain = ["unmerged_R1.fastq", "unmerged_R2.fastq", "merged.fastq"].map { fixture.appendingPathComponent($0) }
+        let gzipped = try plain.map { file -> URL in
+            let copy = work.appendingPathComponent(file.lastPathComponent + ".gz")
+            _ = try gzipCompressFASTQ(sourceURL: file, outputURL: copy, failureDescription: "the test copy of")
+            return copy
+        }
+        let runs: [(name: String, files: [URL])] = [
+            ("plain", plain),
+            ("gzip", gzipped),
+            ("gzip-pair", [gzipped[0], gzipped[1], plain[2]]),
+            ("gzip-single-reads", [plain[0], plain[1], gzipped[2]]),
+        ]
+
+        var reports: [String: Data] = [:]
+        var calls: [String: [String]] = [:]
+        for run in runs {
+            var config = ClassificationConfig(
+                inputFiles: Array(run.files.prefix(2)), isPairedEnd: true, databaseName: "Viral", databasePath: database,
+                confidence: 0.2, minimumHitGroups: 2, outputDirectory: work.appendingPathComponent(run.name, isDirectory: true)
+            )
+            config.originalInputFiles = Array(run.files.prefix(2))
+            let plan = try KrakenReadSetPlanner.plan(
+                r1: run.files[0], r2: run.files[1], singleReads: [run.files[2]],
+                materializationDirectory: config.outputDirectory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName)
+            )
+            XCTAssertTrue(try KrakenReadSetPlanner.apply(plan, to: &config, recordedWithAuto: false), run.name)
+            let result: ClassificationResult
+            do {
+                result = try await ClassificationPipeline.shared.profile(config: config)
+            } catch {
+                XCTFail("\(run.name): \(error.localizedDescription)")
+                continue
+            }
+            XCTAssertEqual(result.fragmentComposition?.pairedFragments, 23, run.name)
+            XCTAssertEqual(result.fragmentComposition?.singleReadFragments, 77, run.name)
+            XCTAssertEqual(try ClassificationPipeline.lineCount(of: result.outputURL), 100, run.name)
+            reports[run.name] = try Data(contentsOf: result.reportURL)
+            calls[run.name] = try perReadCalls(result.outputURL)
+        }
+        for run in runs.dropFirst() {
+            XCTAssertNotNil(reports[run.name], run.name)
+            XCTAssertEqual(reports[run.name], reports["plain"], "\(run.name) writes the report of the plain run")
+            XCTAssertEqual(calls[run.name], calls["plain"], "\(run.name) makes the calls of the plain run")
+        }
+    }
+
     // MARK: - Helpers
 
     private func requireKraken2AndViralDatabase() async throws -> URL {
