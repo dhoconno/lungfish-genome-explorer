@@ -239,7 +239,7 @@ extension MultipleSequenceAlignmentViewController {
             bottomPaneStateDidChange()
             return
         }
-        bottomPane.isDistancesAvailable = true
+        // The input is in place before availability can open the pane.
         bottomPane.setDistanceInput {
             // The CLI reads the same manifest field and fails the same way,
             // so a missing alphabet is an error, never a nucleotide guess.
@@ -251,6 +251,7 @@ extension MultipleSequenceAlignmentViewController {
             }
             return (rows.map { MSAAlignedRecord(name: $0.name, sequence: $0.sequenceString) }, alphabet)
         }
+        bottomPane.isDistancesAvailable = true
         bottomPaneStateDidChange()
     }
 
