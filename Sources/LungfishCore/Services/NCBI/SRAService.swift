@@ -100,6 +100,8 @@ public actor SRAService {
 
     private let enaDownloader: DownloadStrategy?
     private let toolkitDownloader: DownloadStrategy?
+    /// Runs `prefetch` and `fasterq-dump`, or nil for the managed sra-tools environment's.
+    private let toolkitRunner: SRAToolkitRunner?
 
     // MARK: - Initialization
 
@@ -108,13 +110,16 @@ public actor SRAService {
     /// - Parameters:
     ///   - ncbiService: NCBI service for E-utilities access
     ///   - httpClient: HTTP client for direct API calls
+    ///   - toolkitRunner: Runs the SRA Toolkit in place of the managed
+    ///     sra-tools environment, so a test spawns no tool.
     public init(
         ncbiService: NCBIService = NCBIService(),
         httpClient: HTTPClient = URLSessionHTTPClient(),
         homeDirectoryProvider: @escaping @Sendable () -> URL = {
             FileManager.default.homeDirectoryForCurrentUser
         },
-        appIdentity: LungfishAppIdentity = .current
+        appIdentity: LungfishAppIdentity = .current,
+        toolkitRunner: SRAToolkitRunner? = nil
     ) {
         self.ncbiService = ncbiService
         self.httpClient = httpClient
@@ -122,6 +127,7 @@ public actor SRAService {
         self.appIdentity = appIdentity
         self.enaDownloader = nil
         self.toolkitDownloader = nil
+        self.toolkitRunner = toolkitRunner
     }
 
     /// Creates a new SRA service with injectable download strategies.
@@ -142,6 +148,7 @@ public actor SRAService {
         self.appIdentity = .current
         self.enaDownloader = enaDownloader
         self.toolkitDownloader = toolkitDownloader
+        self.toolkitRunner = nil
     }
 
     /// Creates a service that performs the real ENA download through the given
@@ -165,6 +172,7 @@ public actor SRAService {
         self.appIdentity = .current
         self.enaDownloader = nil
         self.toolkitDownloader = toolkitDownloader
+        self.toolkitRunner = nil
     }
 
     // MARK: - Search
@@ -315,7 +323,7 @@ public actor SRAService {
         progress: (@Sendable (Double) -> Void)? = nil,
         trace: DownloadTraceHandler? = nil
     ) async throws -> [URL] {
-        guard let toolkit = resolvedSRAToolkitExecutables() else {
+        guard let toolkit = toolkitRunner ?? managedToolkitRunner() else {
             throw SRAError.toolkitNotFound
         }
 
@@ -337,10 +345,7 @@ public actor SRAService {
         // Step 1: Prefetch the SRA file
         progress?(0.1)
         let prefetchStartedAt = Date()
-        let prefetchResult = try await runCommand(
-            toolkit.prefetch.path,
-            arguments: [accession, "-O", outputDirectory.path]
-        )
+        let prefetchResult = try await toolkit.run(toolkit.prefetch, [accession, "-O", outputDirectory.path])
         let prefetchCompletedAt = Date()
         trace?(
             FASTQDownloadStepTrace(
@@ -376,10 +381,7 @@ public actor SRAService {
             "--threads", "4"
         ]
         let fasterqStartedAt = Date()
-        let fasterqResult = try await runCommand(
-            toolkit.fasterqDump.path,
-            arguments: fasterqArguments
-        )
+        let fasterqResult = try await toolkit.run(toolkit.fasterqDump, fasterqArguments)
         let fasterqCompletedAt = Date()
 
         // Shared trace fields for both the failure and success paths; only `outputs` differs.
@@ -698,7 +700,7 @@ public actor SRAService {
         }
     }
 
-    private func resolvedSRAToolkitExecutables() -> (prefetch: URL, fasterqDump: URL)? {
+    private func managedToolkitRunner() -> SRAToolkitRunner? {
         let homeDirectory = homeDirectoryProvider()
         let prefetchURL = Self.managedExecutableURL(
             executableName: "prefetch",
@@ -718,21 +720,17 @@ public actor SRAService {
             return nil
         }
 
-        return (prefetch: prefetchURL, fasterqDump: fasterqDumpURL)
+        return SRAToolkitRunner(prefetch: prefetchURL, fasterqDump: fasterqDumpURL) { executable, arguments in
+            try await self.runCommand(executable.path, arguments: arguments)
+        }
     }
 
     /// Checks if SRA Toolkit is available.
     public var isSRAToolkitAvailable: Bool {
-        resolvedSRAToolkitExecutables() != nil
+        toolkitRunner != nil || managedToolkitRunner() != nil
     }
 
     // MARK: - Process Execution
-
-    private struct CommandResult {
-        let stdout: String
-        let stderr: String
-        let exitCode: Int32
-    }
 
     private final class PipeDataBox: @unchecked Sendable {
         private let lock = NSLock()
@@ -893,7 +891,7 @@ public actor SRAService {
         }
     }
 
-    private func runCommand(_ path: String, arguments: [String]) async throws -> CommandResult {
+    private func runCommand(_ path: String, arguments: [String]) async throws -> SRAToolkitRunner.Result {
         let cancellationState = CommandCancellationState()
 
         return try await withTaskCancellationHandler {
@@ -937,10 +935,10 @@ public actor SRAService {
                             return
                         }
 
-                        let result = CommandResult(
+                        let result = SRAToolkitRunner.Result(
+                            exitCode: process.terminationStatus,
                             stdout: stdoutData.stringValue(),
-                            stderr: stderrData.stringValue(),
-                            exitCode: process.terminationStatus
+                            stderr: stderrData.stringValue()
                         )
 
                         continuation.resume(returning: result)
