@@ -166,6 +166,46 @@ final class FASTQBatchImporterPlatformTests: XCTestCase {
 
     // MARK: - Request parsing and BAM input
 
+    /// Unknown reads are not reordered for storage by default, as long reads
+    /// are not, but an explicit request is honoured. SRA spot names make
+    /// Illumina short reads Unknown. `optimizeStorage: true` and a clumping
+    /// tool (the import sheet passes `--clumping-tool bbtools`) both ask.
+    /// Long reads stay in order even when asked. Before the fix every request
+    /// was ignored for Unknown.
+    func testAnExplicitStorageRequestIsHonouredForUnknownReads() {
+        let spots = SamplePair(sampleName: "spots", r1: PlatformHeaderFixtures.url("sra-renamed-short.fastq"), r2: nil)
+        func resolved(
+            _ request: ImportPlatformRequest, optimizeStorage: Bool? = nil, clumpingTool: ClumpingTool? = nil
+        ) -> FASTQBatchImporter.ImportConfig {
+            FASTQBatchImporter.ImportConfig(
+                projectDirectory: project, platform: request,
+                optimizeStorage: optimizeStorage, clumpingTool: clumpingTool
+            ).resolved(with: FASTQBatchImporter.resolvePlatform(for: spots, request: request))
+        }
+
+        let byDefault = resolved(.auto)
+        XCTAssertEqual(byDefault.sequencingPlatform, .unknown)
+        XCTAssertFalse(byDefault.optimizeStorage)
+        XCTAssertEqual(byDefault.clumpingTool, ClumpingTool.none)
+
+        let asked = resolved(.auto, optimizeStorage: true)
+        XCTAssertTrue(asked.optimizeStorage)
+        XCTAssertEqual(asked.clumpingTool, .auto)
+        let sheet = resolved(.given(.unknown), clumpingTool: .bbtools)
+        XCTAssertTrue(sheet.optimizeStorage)
+        XCTAssertEqual(sheet.clumpingTool, .bbtools)
+        // Trim Galore trims and filters, so it runs only when chosen, and then it runs.
+        XCTAssertEqual(resolved(.auto, clumpingTool: .trimGalore).clumpingTool, .trimGalore)
+        XCTAssertFalse(resolved(.auto, optimizeStorage: false).optimizeStorage)
+        XCTAssertFalse(resolved(.given(.unknown), clumpingTool: ClumpingTool.none).optimizeStorage)
+
+        for longReads in [LungfishIO.SequencingPlatform.oxfordNanopore, .pacbio] {
+            XCTAssertFalse(resolved(.given(longReads), optimizeStorage: true).optimizeStorage, longReads.rawValue)
+            XCTAssertFalse(resolved(.given(longReads), clumpingTool: .bbtools).optimizeStorage, longReads.rawValue)
+        }
+        XCTAssertTrue(resolved(.given(.illumina)).optimizeStorage)
+    }
+
     func testPlatformRequestVocabulary() {
         XCTAssertEqual(ImportPlatformRequest(cliValue: "auto"), .auto)
         XCTAssertEqual(ImportPlatformRequest(cliValue: "ont"), .given(.oxfordNanopore))

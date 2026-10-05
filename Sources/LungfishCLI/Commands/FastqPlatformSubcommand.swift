@@ -192,7 +192,12 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
                 try await recordProvenance(change: change, inputs: inputRecords, startedAt: startedAt)
             }
         } catch {
-            try snapshot.restore()
+            // When the first change fails nothing was written, since each
+            // metadata file is replaced atomically. Restoring would only
+            // rewrite the same files, and a locked one would hide the reason.
+            if !changes.isEmpty {
+                try snapshot.restore()
+            }
             if globalOptions.outputFormat == .json {
                 events.emitFailed(error.localizedDescription)
             } else {

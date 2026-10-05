@@ -149,14 +149,7 @@ public final class FASTQMetadataSectionViewModel {
 
         lastSavedMetadata = metadata
         primaryFASTQURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)
-        if let sidecar = primaryFASTQURL.flatMap({ FASTQMetadataStore.load(for: $0) }) {
-            assemblyReadType = sidecar.assemblyReadType
-                ?? sidecar.sequencingPlatform.flatMap(FASTQAssemblyReadType.init(sequencingPlatform:))
-        } else {
-            assemblyReadType = nil
-        }
-        lastSavedAssemblyReadType = assemblyReadType
-        assemblyReadTypeChangedSinceLastSave = false
+        showRecordedReadType()
         platformLabelCheck = PlatformLabelCheck.check(inputURL: bundleURL)
         attachmentManager = BundleAttachmentManager(bundleURL: bundleURL)
         attachmentFilenames = attachmentManager?.listAttachments() ?? []
@@ -312,10 +305,28 @@ public final class FASTQMetadataSectionViewModel {
     func cancelEditing() { revertToLastSaved() }
 
     /// Sends the read-type choice to `lungfish-cli fastq platform --read-type`
-    /// for every selected bundle. "Auto" clears the recorded read type.
+    /// for every selected bundle. "Auto" clears the recorded read type. When
+    /// the run is refused or fails, the popup shows what the sidecar holds.
     private func persistAssemblyReadTypeToTargets() {
         let targets = Self.normalizedReadTypeTargets(readTypeTargetBundleURLs, fallback: bundleURL)
-        platformLabelChanger(.setReadType(assemblyReadType), targets, nil)
+        let displayedBundleURL = bundleURL
+        platformLabelChanger(.setReadType(assemblyReadType), targets) { [weak self] succeeded in
+            guard !succeeded, let self, self.bundleURL == displayedBundleURL else { return }
+            self.showRecordedReadType()
+        }
+    }
+
+    /// Shows the read type the displayed bundle's sidecar holds, or the one
+    /// its recorded platform implies.
+    private func showRecordedReadType() {
+        if let sidecar = primaryFASTQURL.flatMap({ FASTQMetadataStore.load(for: $0) }) {
+            assemblyReadType = sidecar.assemblyReadType
+                ?? sidecar.sequencingPlatform.flatMap(FASTQAssemblyReadType.init(sequencingPlatform:))
+        } else {
+            assemblyReadType = nil
+        }
+        lastSavedAssemblyReadType = assemblyReadType
+        assemblyReadTypeChangedSinceLastSave = false
     }
 
     /// Records the platform the reads show ("Use <platform>" in the notice).

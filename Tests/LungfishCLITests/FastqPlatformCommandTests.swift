@@ -94,6 +94,79 @@ final class FastqPlatformCommandTests: XCTestCase {
         XCTAssertEqual(metadata.platformAssignment?.source, .userCorrected)
     }
 
+    /// Backups the change snapshot made of a locked sidecar keep the lock, so
+    /// the snapshot cannot discard them. Unlocks and removes the ones made
+    /// since `existing` was listed.
+    private func removeLockedSnapshotBackups(in folder: URL, except existing: Set<String>) {
+        let fileManager = FileManager.default
+        let names = (try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? []
+        for name in names where name.hasPrefix("lungfish-fastq-platform-") && !existing.contains(name) {
+            let backup = folder.appendingPathComponent(name, isDirectory: true)
+            for file in (try? fileManager.contentsOfDirectory(atPath: backup.path)) ?? [] {
+                try? fileManager.setAttributes([.immutable: false], ofItemAtPath: backup.appendingPathComponent(file).path)
+            }
+            try? fileManager.removeItem(at: backup)
+        }
+    }
+
+    /// A sidecar the command cannot replace (a locked file in a writable
+    /// folder) fails the change with a non-zero exit, so the Operations row
+    /// fails too, and no provenance names a label that was never written.
+    /// Before the fix the write failed silently and the command exited 0.
+    func testASidecarThatCannotBeWrittenFailsTheChange() async throws {
+        let bundle = try makeLegacyMislabelledBundle()
+        let fastq = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
+        let sidecar = FASTQMetadataStore.metadataURL(for: fastq)
+        let before = try Data(contentsOf: sidecar)
+        let temporary = FileManager.default.temporaryDirectory
+        let existingBackups = Set((try? FileManager.default.contentsOfDirectory(atPath: temporary.path)) ?? [])
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: sidecar.path)
+        defer {
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: sidecar.path)
+            removeLockedSnapshotBackups(in: temporary, except: existingBackups)
+        }
+
+        do {
+            try await FastqPlatformSubcommand.parse([bundle.path, "--set", "ont", "--quiet"]).run()
+            XCTFail("A change whose metadata file was not written must fail")
+        } catch let exit as ExitCode {
+            XCTAssertEqual(exit.rawValue, CLIExitCode.outputError.rawValue)
+        }
+        XCTAssertEqual(try Data(contentsOf: sidecar), before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: sidecar).path))
+        XCTAssertThrowsError(try FASTQPlatformLabelService.apply(
+            toBundle: bundle, platform: .oxfordNanopore, readType: nil, source: .userCorrected
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.contains("could not be written"), error.localizedDescription)
+        }
+    }
+
+    /// A sidecar that cannot be decoded is never replaced by a record that
+    /// holds only the platform, which would drop its pairing record and read
+    /// classification. The change is refused with a message and the file is
+    /// kept as it was. Before the fix it was rewritten from scratch.
+    func testAnUnreadableSidecarIsRefusedAndKept() async throws {
+        let bundle = try makeLegacyMislabelledBundle()
+        let fastq = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
+        let sidecar = FASTQMetadataStore.metadataURL(for: fastq)
+        let unreadable = Data(#"{"sequencingPlatform" : "illumina", "ingestion" : {"pairingMode" : "#.utf8)
+        try unreadable.write(to: sidecar)
+
+        do {
+            try await FastqPlatformSubcommand.parse([bundle.path, "--set", "ont", "--quiet"]).run()
+            XCTFail("A change to an unreadable metadata file must be refused")
+        } catch let exit as ExitCode {
+            XCTAssertEqual(exit.rawValue, CLIExitCode.outputError.rawValue)
+        }
+        XCTAssertEqual(try Data(contentsOf: sidecar), unreadable)
+        XCTAssertThrowsError(try FASTQPlatformLabelService.apply(
+            toBundle: bundle, platform: .oxfordNanopore, readType: nil, source: .userCorrected
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.contains("could not be read"), error.localizedDescription)
+        }
+        XCTAssertEqual(try Data(contentsOf: sidecar), unreadable)
+    }
+
     func testValidation() {
         XCTAssertThrowsError(try FastqPlatformSubcommand.parse(["a.lungfishfastq", "--set", "sanger"]))
         XCTAssertThrowsError(try FastqPlatformSubcommand.parse(["a.lungfishfastq", "--set", "ont", "--confirm"]))

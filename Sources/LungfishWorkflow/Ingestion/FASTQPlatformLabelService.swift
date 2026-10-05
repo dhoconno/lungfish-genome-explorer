@@ -15,6 +15,8 @@ public enum FASTQPlatformLabelService {
     public enum LabelError: Error, LocalizedError, Equatable {
         case notAFASTQBundle(String)
         case noPrimaryFASTQ(String)
+        case unreadableMetadata(path: String, reason: String)
+        case metadataNotWritten(path: String, reason: String)
 
         public var errorDescription: String? {
             switch self {
@@ -22,6 +24,10 @@ public enum FASTQPlatformLabelService {
                 return "Not a .lungfishfastq bundle: \(path)"
             case .noPrimaryFASTQ(let path):
                 return "The bundle holds no FASTQ file whose label can be read: \(path)"
+            case .unreadableMetadata(let path, let reason):
+                return "The label was not changed because the metadata file could not be read. The file is left as it is: \(path) (\(reason))"
+            case .metadataNotWritten(let path, let reason):
+                return "The label was not recorded because the metadata file could not be written: \(path) (\(reason))"
             }
         }
     }
@@ -104,6 +110,10 @@ public enum FASTQPlatformLabelService {
     /// `readType` nil takes the read type the platform implies (or keeps the
     /// recorded one when no platform is given). `clearReadType` removes the
     /// recorded read type, so detection decides.
+    ///
+    /// Throws when the metadata file exists but cannot be read, so it is
+    /// never replaced by a record that holds only the label, and throws when
+    /// the new label could not be written.
     @discardableResult
     public static func apply(
         toBundle bundleURL: URL,
@@ -114,7 +124,13 @@ public enum FASTQPlatformLabelService {
         now: Date = Date()
     ) throws -> Change {
         let fastqURL = try labelledFASTQURL(forBundle: bundleURL)
-        var metadata = FASTQMetadataStore.load(for: fastqURL) ?? PersistedFASTQMetadata()
+        let sidecarURL = FASTQMetadataStore.metadataURL(for: fastqURL)
+        var metadata: PersistedFASTQMetadata
+        do {
+            metadata = try FASTQMetadataStore.loadIfPresent(for: fastqURL) ?? PersistedFASTQMetadata()
+        } catch {
+            throw LabelError.unreadableMetadata(path: sidecarURL.path, reason: error.localizedDescription)
+        }
         let previousPlatform = metadata.sequencingPlatform
         let previousReadType = metadata.assemblyReadType
         let newPlatform = platform ?? previousPlatform
@@ -144,10 +160,14 @@ public enum FASTQPlatformLabelService {
             detectorVersion: PlatformInference.detectorVersion,
             recordedAt: now
         )
-        FASTQMetadataStore.save(metadata, for: fastqURL)
+        do {
+            try FASTQMetadataStore.write(metadata, for: fastqURL)
+        } catch {
+            throw LabelError.metadataNotWritten(path: sidecarURL.path, reason: error.localizedDescription)
+        }
         return Change(
             bundleURL: bundleURL,
-            sidecarURL: FASTQMetadataStore.metadataURL(for: fastqURL),
+            sidecarURL: sidecarURL,
             previousPlatform: previousPlatform,
             previousReadType: previousReadType,
             platform: newPlatform,
