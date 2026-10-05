@@ -110,7 +110,7 @@ Sources/LungfishCore/Storage/PortablePath.swift 1014
 Sources/LungfishCore/Storage/ProjectStore.swift 1587
 Sources/LungfishEsVirituUI/EsVirituResultViewController.swift 2272
 Sources/LungfishEsVirituUI/ViralDetectionTableView.swift 2101
-Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift 2906
+Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift 2853
 Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift 1605
 Sources/LungfishGenotypeUI/GenotypeCandidateAlleleDetailView.swift 1142
 Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift 9386
