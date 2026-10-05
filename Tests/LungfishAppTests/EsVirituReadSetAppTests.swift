@@ -101,6 +101,12 @@ final class EsVirituReadSetAppTests: XCTestCase {
         XCTAssertEqual(run.files, [["u1/1", "u1/2"]])
         XCTAssertFalse(run.summary.contains("Mixed"), run.summary)
         XCTAssertTrue(run.summary.contains("Interleaved paired-end reads"), run.summary)
+
+        // The wizard says nothing mixed about the sample either, before or after the run.
+        let sample = try XCTUnwrap(MetagenomicsSampleGrouper.group([fixtures.subsetOfMerge]).first)
+        let wizard = await EsVirituSampleReadPlan.planned(for: sample)
+        XCTAssertFalse(wizard.label.localizedCaseInsensitiveContains("mixed"), wizard.label)
+        XCTAssertFalse(wizard.shortLabel.localizedCaseInsensitiveContains("mixed"), wizard.shortLabel)
     }
 
     // MARK: - Helpers
