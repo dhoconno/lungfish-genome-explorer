@@ -152,7 +152,7 @@ LGE prefers ENA and falls back to NCBI's SRA Toolkit. The two paths produce equi
 | What you get | FASTQ files already converted and compressed, over HTTPS | A `.sra` archive file, converted to FASTQ on your Mac |
 | Programs involved | A direct download, recorded as a `curl` command | `prefetch`, then `fasterq-dump` |
 | Typical speed | Usually limited by your network | Usually slower, because the conversion adds time |
-| When it fires in the window | First attempt for every run | ENA lists no FASTQ files for the run, or a file ENA sends fails LGE's check |
+| When it fires in the window | First attempt for every run | LGE cannot fetch ENA's record of the run, the record lists no FASTQ files, or a file ENA sends fails LGE's check |
 | When it fires on the command line | First attempt unless `--use-toolkit` is given | Any ENA failure, or `--use-toolkit` |
 | What the record says | `downloadSource` reads `ENA` | `downloadSource` reads `SRA Toolkit`, or `SRA Toolkit (ENA mirror incomplete)` |
 
@@ -201,7 +201,7 @@ lungfish-cli import fastq \
   --project "$PROJECT" --platform illumina
 ```
 
-Three differences change what you get. `fetch sra download` writes loose files, `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`, plus one provenance sidecar named `.lungfish-provenance.json` in the output folder, and only `import fastq` turns them into a bundle. It also falls back to the SRA Toolkit after any ENA failure, where the window falls back only when ENA's files are missing or fail the check. And `--limit` defaults to 20 where the window's Max Results defaults to 50. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The command it copies covers the download only, so add the `import fastq` step yourself.
+Three differences change what you get. `fetch sra download` writes loose files, `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`, plus one provenance sidecar named `.lungfish-provenance.json` in the output folder, and only `import fastq` turns them into a bundle. It also falls back to the SRA Toolkit after any ENA failure, where the window falls back only when it cannot fetch ENA's record of the run, the record lists no files, or a file fails the check. And `--limit` defaults to 20 where the window's Max Results defaults to 50. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The command it copies covers the download only, so add the `import fastq` step yourself.
 
 ## Next
 

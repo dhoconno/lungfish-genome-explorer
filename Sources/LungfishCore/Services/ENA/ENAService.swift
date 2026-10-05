@@ -650,8 +650,11 @@ public struct ENAReadRecord: Codable, Sendable {
     }
 
     /// HTTPS URLs for FASTQ download (converted from FTP).
+    ///
+    /// ENA reports a run it holds no FASTQ files for with an empty field,
+    /// which yields no URLs rather than a bare "https://".
     public var fastqHTTPURLs: [URL] {
-        guard let ftpPaths = fastqFTP else { return [] }
+        guard let ftpPaths = fastqFTP, !ftpPaths.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
         return ftpPaths.components(separatedBy: ";").compactMap { ftpPath in
             let httpPath = "https://\(ftpPath)"
             return URL(string: httpPath)

@@ -2513,25 +2513,24 @@ public class DatabaseBrowserViewModel: ObservableObject {
             if currentSource == .ena {
                 isDownloading = true  // prevent double-click while fetching metadata
                 Task {
-                    // Quick fetch of the first record to detect platform / pairing
+                    // Quick fetch of the first record to detect platform / pairing.
+                    // ENA's record wins, and NCBI's covers a run ENA lacks or an ENA
+                    // outage, so the platform is still inferred. The lookup logs failures.
                     let firstAccession = recordsToDownload[0].accession
                     var detectedPlatform: LungfishIO.SequencingPlatform = .unknown
                     var isPaired = false
                     var firstRunBytes: Int64?
-                    do {
-                        let readRecords = try await ena.searchReads(term: firstAccession, limit: 1)
-                        if let readRecord = readRecords.first {
-                            // ELEMENT, BGISEQ and DNBSEQ map too, ION_TORRENT stays unknown.
-                            detectedPlatform = LungfishIO.SequencingPlatform(vendor: readRecord.instrumentPlatform ?? "")
-                            isPaired = readRecord.libraryLayout?.uppercased() == "PAIRED"
-                            firstRunBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
-                        } else if let runInfo = try await ncbiService.sraEFetchRunInfo(ids: [firstAccession]).first {
-                            detectedPlatform = LungfishIO.SequencingPlatform(vendor: runInfo.platform ?? "")
-                            isPaired = runInfo.libraryLayout?.uppercased() == "PAIRED"
-                            firstRunBytes = runInfo.size.map { Int64($0) * 1_000_000 }
-                        }
-                    } catch {
-                        logger.warning("Failed to fetch ENA metadata for config sheet, using defaults: \(error.localizedDescription, privacy: .public)")
+                    let firstRun = try? await SRARunMetadataLookup(ena: ena, ncbi: ncbi)
+                        .lookUpRuns([firstAccession]).runs.first
+                    if let readRecord = firstRun?.enaRecord {
+                        // ELEMENT, BGISEQ and DNBSEQ map too, ION_TORRENT stays unknown.
+                        detectedPlatform = LungfishIO.SequencingPlatform(vendor: readRecord.instrumentPlatform ?? "")
+                        isPaired = readRecord.libraryLayout?.uppercased() == "PAIRED"
+                        firstRunBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
+                    } else if let runInfo = firstRun?.ncbiRun {
+                        detectedPlatform = LungfishIO.SequencingPlatform(vendor: runInfo.platform ?? "")
+                        isPaired = runInfo.libraryLayout?.uppercased() == "PAIRED"
+                        firstRunBytes = runInfo.size.map { Int64($0) * 1_000_000 }
                     }
 
                     // Build placeholder pairs for the config sheet display
@@ -2985,7 +2984,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         )
                     }
 
-                    let readRecord = try await ena.searchReads(term: record.accession, limit: 1).first
+                    // An ENA error, a run ENA lacks or a record without FASTQ links
+                    // takes the SRA Toolkit route, which fetches the run from NCBI.
+                    let route = try await ena.fastqDownloadRoute(forRun: record.accession)
+                    let readRecord = route.enaRecord
 
                     // 2. Download each FASTQ file to the batch directory
                     var downloadedFASTQFiles: [URL] = []
@@ -2995,10 +2997,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     func downloadViaToolkit(statusDetail: String) async throws -> [URL] {
                         performOnMainRunLoop {
-                            _ = DownloadCenter.shared.update(
+                            // Logged, so the row's history keeps why ENA was skipped.
+                            _ = DownloadCenter.shared.updateWithLog(
                                 id: downloadCenterTaskID,
                                 progress: progressFraction,
-                                detail: statusDetail
+                                detail: statusDetail,
+                                level: .warning
                             )
                         }
                         return try await sra.downloadFASTQ(
@@ -3022,7 +3026,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         )
                     }
 
-                    if let readRecord, !readRecord.fastqHTTPURLs.isEmpty {
+                    switch route {
+                    case .enaMirror(let readRecord):
                         let fastqURLs = readRecord.fastqHTTPURLs
                         let totalExpectedBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
                         let perFileSizes = ENAFASTQDownloadValidator.expectedByteCounts(for: readRecord)
@@ -3113,9 +3118,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             )
                             downloadSource = "SRA Toolkit (ENA mirror incomplete)"
                         }
-                    } else {
+                    case .sraToolkit(_, let reason):
                         downloadedFASTQFiles = try await downloadViaToolkit(
-                            statusDetail: "ENA FASTQ unavailable for \(record.accession); using SRA Toolkit..."
+                            statusDetail: "\(reason); using SRA Toolkit..."
                         )
                         downloadSource = "SRA Toolkit"
                     }

@@ -432,7 +432,9 @@ public actor SRAService {
     /// Downloads FASTQ via ENA (alternative to SRA Toolkit).
     ///
     /// This method downloads directly from ENA's FTP/HTTP servers,
-    /// which doesn't require the SRA Toolkit.
+    /// which doesn't require the SRA Toolkit. It downloads only the files
+    /// ENA's portal lists, and throws when ENA fails or lists none, which
+    /// sends `downloadFASTQWithFallback` to the SRA Toolkit.
     ///
     /// - Parameters:
     ///   - accession: SRA/ENA run accession
@@ -453,44 +455,19 @@ public actor SRAService {
             withIntermediateDirectories: true
         )
 
-        // Prefer ENA Portal-reported FASTQ URLs (authoritative for run layout/path).
-        var candidateURLs: [URL] = []
+        // ENA's portal lists the run's FASTQ files and their sizes, which fix
+        // the run's layout. When ENA fails or lists none, the run takes the SRA
+        // Toolkit route that `ENAService.fastqDownloadRoute(forRun:)` names for
+        // the window's download too. Paths guessed on ENA's mirror carry no
+        // sizes, so a mirror missing one mate could hand over half a pair.
+        let route = try await ENAService(httpClient: httpClient).fastqDownloadRoute(forRun: accession)
+        guard case .enaMirror(let record) = route else {
+            throw SRAError.downloadFailed(route.toolkitReason ?? "ENA lists no FASTQ files for \(accession)")
+        }
+        let candidateURLs = record.fastqHTTPURLs
         // Per-file sizes advertised by the portal, aligned with candidateURLs.
-        // Empty when the URLs were constructed heuristically.
-        var expectedByteCounts: [Int64?] = []
-        var resolvedViaPortal = false
-        do {
-            let enaService = ENAService(httpClient: httpClient)
-            let records = try await enaService.searchReads(term: accession, limit: 1)
-            if let record = records.first {
-                let portalURLs = await enaService.fastqHTTPURLs(for: record)
-                if !portalURLs.isEmpty {
-                    candidateURLs = portalURLs
-                    expectedByteCounts = ENAFASTQDownloadValidator.expectedByteCounts(for: record)
-                    resolvedViaPortal = true
-                    logger.info("Resolved \(portalURLs.count, privacy: .public) FASTQ URL(s) for \(accession, privacy: .public) via ENA portal")
-                }
-            }
-        } catch {
-            if Self.isCancellation(error) {
-                throw error
-            }
-            logger.warning("ENA portal URL resolution failed for \(accession, privacy: .public): \(error.localizedDescription, privacy: .public)")
-        }
-
-        // Fallback: construct known ENA FTP path variants.
-        if candidateURLs.isEmpty {
-            // Format examples:
-            // - SRR11140748 -> /vol1/fastq/SRR111/048/SRR11140748/SRR11140748_1.fastq.gz
-            // - SRR390728   -> /vol1/fastq/SRR390/SRR390728/SRR390728.fastq.gz
-            let prefix = String(accession.prefix(6))
-            let middle = accession.count > 9 ? "/\(String(accession.suffix(3)))" : ""
-            let baseURL = "https://ftp.sra.ebi.ac.uk/vol1/fastq/\(prefix)\(middle)/\(accession)"
-            candidateURLs = ["_1.fastq.gz", "_2.fastq.gz", ".fastq.gz"].compactMap {
-                URL(string: "\(baseURL)/\(accession)\($0)")
-            }
-            logger.warning("Falling back to heuristic ENA URL construction for \(accession, privacy: .public)")
-        }
+        let expectedByteCounts = ENAFASTQDownloadValidator.expectedByteCounts(for: record)
+        logger.info("Resolved \(candidateURLs.count, privacy: .public) FASTQ URL(s) for \(accession, privacy: .public) via ENA portal")
 
         var downloadedFiles: [URL] = []
         var attemptedURLs: [String] = []
@@ -582,7 +559,7 @@ public actor SRAService {
         // Portal URLs are authoritative: a PAIRED run that yields one mate is a
         // failed download, not a single-end run. Leave nothing behind so the
         // toolkit fallback starts from a clean directory.
-        if resolvedViaPortal, downloadedFiles.count < candidateURLs.count {
+        if downloadedFiles.count < candidateURLs.count {
             for file in downloadedFiles {
                 try? FileManager.default.removeItem(at: file)
             }
