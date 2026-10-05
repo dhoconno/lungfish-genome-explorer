@@ -1767,14 +1767,35 @@ extension MSACommand {
     struct DistanceSubcommand: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "distance",
-            abstract: "Compute identity or p-distance matrices from a .lungfishmsa bundle"
+            abstract: "Compute identity or distance matrices from a .lungfishmsa bundle",
+            discussion: """
+            Gaps and ambiguous characters are missing data. A nucleotide site compares only \
+            when both characters are A, C, G, T or U. A protein site skips X, B, Z, J, ? and *. \
+            The alphabet comes from the bundle manifest. A cell with no comparable sites is \
+            written as nan, and a saturated corrected distance is written as inf.
+            """
         )
 
         @Argument(help: "Input .lungfishmsa bundle")
         var bundlePath: String
 
-        @Option(name: .customLong("model"), help: "Distance model: identity or p-distance")
+        @Option(
+            name: .customLong("model"),
+            help: "Distance model: identity, p-distance, jc69 or k2p for nucleotides, identity, p-distance or poisson for protein"
+        )
         var model: String = "identity"
+
+        @Option(
+            name: .customLong("gaps"),
+            help: "Gap and ambiguity deletion: pairwise (each pair skips its own missing sites) or complete (skip every column with a missing site in any selected row)"
+        )
+        var gaps: String = MSAGapPolicy.pairwise.rawValue
+
+        @Option(
+            name: .customLong("order"),
+            help: "Row and column order: alignment or average-linkage (UPGMA leaf order on p-distance)"
+        )
+        var order: String = MSADistanceOrder.alignment.rawValue
 
         @Option(name: .customLong("output"), help: "Output TSV matrix path")
         var outputPath: String
@@ -1807,8 +1828,14 @@ extension MSACommand {
             emitter.emitStart(actionID: actionID, message: "Starting MSA distance matrix.")
 
             do {
-                guard supportedMSADistanceModels.contains(model) else {
-                    throw ValidationError("Unsupported MSA distance model '\(model)'. Supported values: \(supportedMSADistanceModels.sorted().joined(separator: ", ")).")
+                guard let distanceModel = MSADistanceModel(rawValue: model) else {
+                    throw ValidationError("Unsupported MSA distance model '\(model)'. Supported values: \(supportedMSADistanceModels.joined(separator: ", ")).")
+                }
+                guard let gapPolicy = MSAGapPolicy(rawValue: gaps) else {
+                    throw ValidationError("Unsupported --gaps value '\(gaps)'. Supported values: \(MSAGapPolicy.allCases.map(\.rawValue).joined(separator: ", ")).")
+                }
+                guard let distanceOrder = MSADistanceOrder(rawValue: order) else {
+                    throw ValidationError("Unsupported --order value '\(order)'. Supported values: \(MSADistanceOrder.allCases.map(\.rawValue).joined(separator: ", ")).")
                 }
                 if FileManager.default.fileExists(atPath: outputURL.path), force == false {
                     throw ValidationError("Output file already exists: \(outputURL.path). Use --force to overwrite.")
@@ -1826,8 +1853,26 @@ extension MSACommand {
                 )
                 try validateRectangular(records)
 
+                let alphabet = MSASequenceAlphabet(manifestAlphabet: bundle.manifest.alphabet)
+                guard distanceModel.isValid(for: alphabet) else {
+                    throw ValidationError(
+                        MSADistanceMatrixError.modelNotValidForAlphabet(distanceModel, alphabet).localizedDescription
+                    )
+                }
+                let options = MSADistanceOptions(
+                    model: distanceModel,
+                    gaps: gapPolicy,
+                    order: distanceOrder,
+                    alphabet: alphabet
+                )
+
                 emitter.emitProgress(actionID: actionID, progress: 0.55, message: "Computing pairwise \(model) matrix.")
-                let output = try formatDistanceMatrix(records: records, model: model)
+                let matrix = try formatDistanceMatrix(records: records, options: options)
+                let output = matrix.tsv
+                let warnings = distanceMatrixWarnings(for: matrix)
+                for warning in warnings {
+                    emitter.emitWarning(actionID: actionID, message: warning, warningCount: warnings.count)
+                }
                 let argv = canonicalDistanceArgv(bundleURL: bundleURL, outputURL: outputURL)
                 let snapshot = try msaStandaloneFilePublicationSnapshot(
                     for: outputURL,
@@ -1865,11 +1910,17 @@ extension MSACommand {
                                 outputKind: "distance-matrix",
                                 name: nil,
                                 threshold: nil,
-                                gapPolicy: "pairwise-delete",
-                                distanceModel: model
+                                gapPolicy: gapPolicy.provenanceValue,
+                                distanceModel: model,
+                                order: distanceOrder.rawValue,
+                                alphabet: alphabet.rawValue,
+                                ambiguityPolicy: "skip",
+                                undefinedPairCount: matrix.undefinedPairCount,
+                                saturatedPairCount: matrix.saturatedPairCount
                             ),
                             exitStatus: 0,
-                            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
+                            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
+                            warnings: warnings
                         ),
                         to: outputURL.appendingPathExtension("lungfish-provenance.json")
                     )
@@ -1878,9 +1929,12 @@ extension MSACommand {
                     throw error
                 }
 
-                emitter.emitComplete(actionID: actionID, output: outputURL.path, warningCount: 0)
+                emitter.emitComplete(actionID: actionID, output: outputURL.path, warningCount: warnings.count)
                 if globalOptions.outputFormat != .json && !globalOptions.quiet {
                     emit("Wrote \(model) matrix \(outputURL.path)")
+                    for warning in warnings {
+                        emit("Warning: \(warning)")
+                    }
                 }
             } catch {
                 emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
@@ -1896,9 +1950,14 @@ extension MSACommand {
                 bundleURL.path,
                 "--model",
                 model,
-                "--output",
-                outputURL.path,
             ]
+            if gaps != MSAGapPolicy.pairwise.rawValue {
+                argv += ["--gaps", gaps]
+            }
+            if order != MSADistanceOrder.alignment.rawValue {
+                argv += ["--order", order]
+            }
+            argv += ["--output", outputURL.path]
             if let rows {
                 argv += ["--rows", rows]
             }
@@ -2083,9 +2142,9 @@ private let supportedAlignmentExportFormats: Set<String> = [
     "a3m",
 ]
 
-/// The `--model` spellings accepted by `msa distance`; the computation itself lives in
-/// `MSADistanceMatrix` (LungfishIO) so the MSA Inspector shows the same numbers.
-private let supportedMSADistanceModels: Set<String> = Set(MSADistanceModel.allCases.map(\.rawValue))
+/// The `--model` spellings accepted by `msa distance`, in declaration order. The computation
+/// itself lives in `MSADistanceMatrix` (LungfishIO) so the GUI shows the same numbers.
+private let supportedMSADistanceModels: [String] = MSADistanceModel.allCases.map(\.rawValue)
 
 private struct MSAFileExportProvenance: Codable, Equatable {
     struct RuntimeIdentity: Codable, Equatable {
@@ -2114,6 +2173,13 @@ private struct MSAFileExportProvenance: Codable, Equatable {
         let gapPolicy: String?
         let distanceModel: String?
         let sequenceLayout: String?
+        // Distance-matrix fields. Optional so sidecars written before they existed still decode,
+        // and a sidecar without ambiguityPolicy is recognisable as the old literal comparison.
+        let order: String?
+        let alphabet: String?
+        let ambiguityPolicy: String?
+        let undefinedPairCount: Int?
+        let saturatedPairCount: Int?
 
         init(
             outputFormat: String,
@@ -2126,8 +2192,18 @@ private struct MSAFileExportProvenance: Codable, Equatable {
             threshold: Double?,
             gapPolicy: String?,
             distanceModel: String?,
-            sequenceLayout: String? = nil
+            sequenceLayout: String? = nil,
+            order: String? = nil,
+            alphabet: String? = nil,
+            ambiguityPolicy: String? = nil,
+            undefinedPairCount: Int? = nil,
+            saturatedPairCount: Int? = nil
         ) {
+            self.order = order
+            self.alphabet = alphabet
+            self.ambiguityPolicy = ambiguityPolicy
+            self.undefinedPairCount = undefinedPairCount
+            self.saturatedPairCount = saturatedPairCount
             self.outputFormat = outputFormat
             self.rows = rows
             self.columns = columns
@@ -2481,19 +2557,31 @@ private func ungappedRecords(_ records: [AlignedFASTARecord]) -> [AlignedFASTARe
     }
 }
 
-/// Delegates to the shared `MSADistanceMatrix` so the CLI TSV and the MSA Inspector's
-/// pairwise table are computed by one implementation.
-private func formatDistanceMatrix(records: [AlignedFASTARecord], model: String) throws -> String {
+/// Delegates to the shared `MSADistanceMatrix` so the CLI TSV and the GUI matrix are computed
+/// by one implementation. Matrix errors surface as validation errors with their own wording.
+private func formatDistanceMatrix(records: [AlignedFASTARecord], options: MSADistanceOptions) throws -> MSADistanceMatrix {
     try validateRectangular(records)
-    guard let distanceModel = MSADistanceModel(rawValue: model) else {
-        throw ValidationError("Unsupported MSA distance model '\(model)'.")
-    }
     let alignedRecords = records.map { MSAAlignedRecord(name: $0.name, sequence: $0.sequence) }
     do {
-        return try MSADistanceMatrix(records: alignedRecords, model: distanceModel).tsv
+        return try MSADistanceMatrix(records: alignedRecords, options: options)
     } catch let error as MSADistanceMatrixError {
         throw ValidationError(error.localizedDescription)
     }
+}
+
+/// One warning per kind of non-value in the matrix, so a reader of the TSV knows why a cell
+/// reads nan or inf.
+private func distanceMatrixWarnings(for matrix: MSADistanceMatrix) -> [String] {
+    var warnings: [String] = []
+    if matrix.undefinedPairCount > 0 {
+        let pairs = matrix.undefinedPairCount == 1 ? "1 pair has" : "\(matrix.undefinedPairCount) pairs have"
+        warnings.append("\(pairs) no comparable sites and \(matrix.undefinedPairCount == 1 ? "is" : "are") written as nan.")
+    }
+    if matrix.saturatedPairCount > 0 {
+        let pairs = matrix.saturatedPairCount == 1 ? "1 pair is" : "\(matrix.saturatedPairCount) pairs are"
+        warnings.append("\(pairs) saturated under \(matrix.model.rawValue), so the distance is not estimable and is written as inf.")
+    }
+    return warnings
 }
 
 private func validateRectangular(_ records: [AlignedFASTARecord]) throws {

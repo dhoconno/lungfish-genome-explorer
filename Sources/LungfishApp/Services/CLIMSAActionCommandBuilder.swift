@@ -226,11 +226,14 @@ enum CLIMSAActionCommandBuilder {
         return args
     }
 
-    /// `msa distance` arguments for the Inspector's pairwise identity export. Rows and columns
-    /// are never restricted here: the Inspector table always shows the whole alignment.
+    /// `msa distance` arguments for exporting the distance matrix. `--model` is always passed.
+    /// `--gaps` and `--order` are passed only when they differ from the CLI defaults, matching
+    /// the CLI's own canonical argv. The alphabet is never passed because the CLI reads it from
+    /// the bundle manifest. Rows and columns are never restricted, so the export covers the
+    /// whole alignment.
     static func buildDistanceArguments(
         bundleURL: URL,
-        model: MSADistanceModel,
+        options: MSADistanceOptions,
         outputURL: URL,
         force: Bool = true
     ) -> [String] {
@@ -239,10 +242,15 @@ enum CLIMSAActionCommandBuilder {
             "distance",
             bundleURL.path,
             "--model",
-            model.rawValue,
-            "--output",
-            outputURL.path,
+            options.model.rawValue,
         ]
+        if options.gaps != .pairwise {
+            args += ["--gaps", options.gaps.rawValue]
+        }
+        if options.order != .alignment {
+            args += ["--order", options.order.rawValue]
+        }
+        args += ["--output", outputURL.path]
         if force {
             args.append("--force")
         }
