@@ -451,8 +451,8 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
                 }
 
                 let offered = inspectorWidth - 32
-                let controller = NSHostingController(rootView: MSADiscriminatingSitesSection(
-                    model: model, isExpanded: .constant(true)))
+                model.isExpanded = true
+                let controller = NSHostingController(rootView: MSADiscriminatingSitesSection(model: model))
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: offered, height: 900),
                                       styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
