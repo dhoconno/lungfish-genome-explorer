@@ -43,6 +43,12 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
             // tadpole pairs /1 /2 names by position and aborts on an odd
             // record count.
             "interleaved=f",
+            // In input order. tadpole drops no read, but it wrote its chunks
+            // of reads as its threads finished them, so a pair that
+            // straddled two chunks of a file mixing pairs with single reads
+            // lost its adjacency (final review A, N7). The records written
+            // are the same either way.
+            "ordered=t",
         ]
 
         let env = await bbToolsEnvironment(runner: runner)

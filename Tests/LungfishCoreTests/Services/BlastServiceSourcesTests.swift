@@ -71,6 +71,32 @@ final class BlastServiceSourcesTests: XCTestCase {
         }
     }
 
+    /// Final review N1. In a paired run, and so for a merged read staged
+    /// beside an empty mate, the pinned kraken2 drops only a final /1 or /2
+    /// from a read's name (KrakenReadSetConformanceTests pins it). It writes
+    /// the merged M.5 as M.5 and the merged A/1 as A. The verification finds
+    /// both, and M.15 beside them is never taken for M.5.
+    func testAPairedRunsMergedReadsAreFoundByTheNamesKraken2Wrote() async throws {
+        var files = try writeSources(merged: false)
+        let mergedFile = directory.appendingPathComponent("merged-names.fastq")
+        let slashSequence = String(repeating: "T", count: 30)
+        try (record("M.15", String(repeating: "G", count: 30)) + record("M.5", mergedSequence) + record("A/1", slashSequence))
+            .write(to: mergedFile, atomically: true, encoding: .utf8)
+        files.append(BlastReadSource(url: mergedFile))
+        let kraken = try writeKraken([
+            "C\tf1\t\(taxId)\t20|20\t0:16 |:| \(taxId):16",
+            "C\tM.15\t999\t30|0\t999:26 |:| ",
+            "C\tM.5\t\(taxId)\t30|0\t\(taxId):26 |:| ",
+            "C\tA\t\(taxId)\t30|0\t\(taxId):26 |:| ",
+        ])
+
+        for request in try await bothRequests(ids: ["f1", "M.5", "A"], sources: files, kraken: kraken) {
+            XCTAssertEqual(request.sequences.map(\.id).sorted(), ["A", "M.5", "f1"])
+            XCTAssertEqual(sequence(of: "M.5", in: request), mergedSequence, "M.5 is never taken for M.15")
+            XCTAssertEqual(sequence(of: "A", in: request), slashSequence)
+        }
+    }
+
     // MARK: - Helpers
 
     /// The request from the Kraken2 scan and from pre-fetched read IDs, the

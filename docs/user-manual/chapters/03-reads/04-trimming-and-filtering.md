@@ -227,7 +227,7 @@ While both are 0 the readiness line reads "Enter at least one fixed trim amount.
 
 **Max Length.** Sets the longest read kept, in bases. It starts empty, meaning no upper bound, which is right for Illumina data because the instrument already caps read length. Set it on long-read data when reads far above the expected size appear, which are usually concatemers, several copies of one fragment joined end to end, or [chimeras](../../GLOSSARY.md#chimera), two unrelated fragments joined into one read. [Oxford Nanopore Runs](07-ont-runs.md#after-import) uses it that way. On the command line this is `--max`.
 
-A minimum larger than the maximum makes the readiness line read "Minimum read length cannot exceed maximum read length." On a paired bundle the filter drops both mates of a pair when either one falls outside the bounds, so the output stays paired. The command-line `fastq length-filter` runs the same bbduk command and does the same.
+A minimum larger than the maximum makes the readiness line read "Minimum read length cannot exceed maximum read length." On a paired bundle the filter drops both mates of a pair when either one falls outside the bounds, so the output stays paired. A bundle that holds merged reads beside its pairs is split by read name first, so its pairs are kept or dropped whole and each merged read is judged on its own. The command-line `fastq length-filter` runs the same commands and does the same.
 
 ### Shared settings
 

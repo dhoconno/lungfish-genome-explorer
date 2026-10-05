@@ -89,6 +89,42 @@ struct ReadSetSource: Sendable, Equatable {
                 return part
             }
         }
+        return copy.resolvingStreamsByTheirCounts()
+    }
+
+    /// The source with each mixed stream whose counts show one kind of
+    /// record read as that kind. A file is mixed only when it holds pairs and
+    /// single reads, whatever merge or repair its lineage records, so a
+    /// stream with no single read is an interleaved pair and a stream with no
+    /// pair is single reads of the stream's role (final review A, S4). A
+    /// stream whose counts are unknown stays as it is.
+    func resolvingStreamsByTheirCounts() -> ReadSetSource {
+        var notes: [String] = []
+        let resolvedParts = parts.map { part -> Part in
+            guard case .mixed(let stream) = part,
+                  let pairs = stream.pairCount,
+                  let singles = stream.singleReadCount else { return part }
+            if singles == 0, pairs > 0 {
+                notes.append("The file holds \(pairs) adjacent mate pairs and no read without a mate, so it is read as pairs.")
+                return .pair(ReadSetMatePair(files: .interleaved(stream.url), pairCount: pairs))
+            }
+            if pairs == 0 {
+                notes.append("The file holds \(singles) reads and no adjacent mate pair, so it is read as single reads.")
+                return .single(ReadSetSingleReads(url: stream.url, role: stream.singleReadRole, readCount: singles))
+            }
+            return part
+        }
+        guard !notes.isEmpty else { return self }
+        var copy = self
+        copy.parts = resolvedParts
+        if layout == .mixedFile, resolvedParts.count == 1 {
+            switch resolvedParts[0] {
+            case .pair: copy.layout = .interleavedFile
+            case .single: copy.layout = .singleEndFile
+            case .mixed: break
+            }
+        }
+        copy.reason = (notes + [reason]).joined(separator: " ")
         return copy
     }
 }

@@ -97,6 +97,30 @@ final class KrakenReadSetPipelineTests: XCTestCase {
         XCTAssertFalse(config.plansReadSet)
     }
 
+    /// Final review N3. kraken2 splits an interleaved file by position and
+    /// reads it alone, so no file of single reads can run beside it. A plan
+    /// that ever held both stops the run rather than leave the single reads out.
+    func testAnInterleavedPairWithSingleReadsStopsRatherThanDropThem() throws {
+        let interleaved = fixtures.interleavedRoot.appendingPathComponent("reads.fastq").standardizedFileURL
+        let merged = fixtures.mergeDerivative.appendingPathComponent("merged.fastq").standardizedFileURL
+        let runs = [ReadSetRun(
+            matePairs: [ReadSetMatePair(files: .interleaved(interleaved), pairCount: 2)],
+            singleReads: [ReadSetSingleReads(url: merged, role: .merged, readCount: 3)]
+        )]
+        let plan = ReadSetPlan(
+            inputURL: interleaved, capability: KrakenReadSetPlanner.capability,
+            sourceLayout: .pairedFilesWithSingleReads, layoutReason: "An interleaved pair beside merged reads.",
+            sequencingPlatform: nil, wasMaterialized: false, sampleHoldsPairsAndSingleReads: true,
+            runs: runs, steps: [], singleReadReason: nil, composition: ReadSetComposition(runs: runs)
+        )
+        var config = makeConfig(inputFiles: [interleaved])
+        let before = config
+        XCTAssertThrowsError(try KrakenReadSetPlanner.apply(plan, to: &config)) { error in
+            XCTAssertEqual(error as? KrakenReadSetPlannerError, .singleReadsBesideAnInterleavedPair(count: 1))
+        }
+        XCTAssertEqual(config, before, "the config is left as it was")
+    }
+
     func testVirtualSubsetIsPlannedFromItsMaterializedFile() async throws {
         let materialized = root.appendingPathComponent("materialized.fastq")
         try ReadSetFixtures.fastq(["u1/1", "u1/2", "x1"]).write(to: materialized, atomically: true, encoding: .utf8)
@@ -252,6 +276,97 @@ final class KrakenReadSetPipelineTests: XCTestCase {
         XCTAssertEqual(reloaded.config.singleReadFiles, [merged])
     }
 
+    /// Final review S1. The kraken2 wrapper takes the compression of its
+    /// first input, R1, for every input. Loose files named with `--paired`
+    /// and `--unpaired` reach kraken2 with each file of single reads and its
+    /// staged mate in that compression, whether the files are gzip, plain or
+    /// a mix, and every staged file is removed after the run.
+    func testLooseGzipAndPlainFilesRunTheirSingleReadsInTheCompressionOfR1() async throws {
+        let loose = root.appendingPathComponent("loose", isDirectory: true)
+        try FileManager.default.createDirectory(at: loose, withIntermediateDirectories: true)
+        let plainR1 = loose.appendingPathComponent("s_R1.fastq")
+        let plainR2 = loose.appendingPathComponent("s_R2.fastq")
+        let plainMerged = loose.appendingPathComponent("s_merged.fastq")
+        try ReadSetFixtures.fastq(["q1/1", "q2/1"]).write(to: plainR1, atomically: true, encoding: .utf8)
+        try ReadSetFixtures.fastq(["q1/2", "q2/2"]).write(to: plainR2, atomically: true, encoding: .utf8)
+        try ReadSetFixtures.fastq(["y1", "y2", "y3"]).write(to: plainMerged, atomically: true, encoding: .utf8)
+        let gzipR1 = try gzipCopy(of: plainR1)
+        let gzipR2 = try gzipCopy(of: plainR2)
+        let gzipMerged = try gzipCopy(of: plainMerged)
+
+        for (pairIsGzip, singlesAreGzip) in [(true, true), (true, false), (false, true)] {
+            let label = "pair \(pairIsGzip ? "gzip" : "plain"), single reads \(singlesAreGzip ? "gzip" : "plain")"
+            let kraken2 = try StandInKraken2(root: root.appendingPathComponent("run-\(pairIsGzip)-\(singlesAreGzip)"))
+            let r1 = pairIsGzip ? gzipR1 : plainR1
+            let r2 = pairIsGzip ? gzipR2 : plainR2
+            let merged = singlesAreGzip ? gzipMerged : plainMerged
+            var config = makeConfig(inputFiles: [r1, r2], database: kraken2.databaseURL)
+            config.isPairedEnd = true
+            config.originalInputFiles = [r1, r2]
+            let plan = try KrakenReadSetPlanner.plan(
+                r1: r1, r2: r2, singleReads: [merged],
+                materializationDirectory: config.outputDirectory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName)
+            )
+            XCTAssertTrue(try KrakenReadSetPlanner.apply(plan, to: &config, recordedWithAuto: false), label)
+
+            let result: ClassificationResult
+            do {
+                result = try await ClassificationPipeline(condaManager: kraken2.condaManager).classify(config: config)
+            } catch {
+                XCTFail("\(label): \(error.localizedDescription)")
+                continue
+            }
+            XCTAssertEqual(result.fragmentComposition?.fragmentCount, 5, label)
+            let seen = try kraken2.inputsSeen()
+            XCTAssertEqual(seen.map(Self.isGzip), Array(repeating: pairIsGzip, count: 4), "\(label): every input in the compression of R1")
+            XCTAssertEqual(try Self.plainText(of: seen[2]), ReadSetFixtures.fastq(["y1", "y2", "y3"]), "\(label): the single reads unchanged")
+            XCTAssertEqual(try Self.plainText(of: seen[3]), "@y1\n\n+\n\n@y2\n\n+\n\n@y3\n\n+\n\n", "\(label): the header-only mate")
+            let staged = (try? FileManager.default.contentsOfDirectory(
+                atPath: config.outputDirectory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName).path
+            )) ?? []
+            XCTAssertEqual(staged, [], "\(label): every staged file is removed")
+        }
+    }
+
+    /// Final review S1. Two files of single reads whose names differ only in
+    /// a .gz suffix or in case would share one staged mate. Each gets its own.
+    func testSingleReadFilesThatShareAStemGetTheirOwnMates() async throws {
+        let loose = root.appendingPathComponent("stems", isDirectory: true)
+        try FileManager.default.createDirectory(at: loose, withIntermediateDirectories: true)
+        let r1 = loose.appendingPathComponent("s_R1.fastq")
+        let r2 = loose.appendingPathComponent("s_R2.fastq")
+        try ReadSetFixtures.fastq(["q1/1"]).write(to: r1, atomically: true, encoding: .utf8)
+        try ReadSetFixtures.fastq(["q1/2"]).write(to: r2, atomically: true, encoding: .utf8)
+        let merged = loose.appendingPathComponent("merged.fastq")
+        try ReadSetFixtures.fastq(["y1", "y2"]).write(to: merged, atomically: true, encoding: .utf8)
+        let otherMerged = loose.appendingPathComponent("more", isDirectory: true).appendingPathComponent("merged.fastq")
+        try FileManager.default.createDirectory(at: otherMerged.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try ReadSetFixtures.fastq(["z1"]).write(to: otherMerged, atomically: true, encoding: .utf8)
+        let gzipped = try gzipCopy(of: otherMerged, to: loose.appendingPathComponent("merged.fastq.gz"))
+        let upperCase = loose.appendingPathComponent("more", isDirectory: true).appendingPathComponent("MERGED.fq")
+        try ReadSetFixtures.fastq(["w1", "w2", "w3"]).write(to: upperCase, atomically: true, encoding: .utf8)
+
+        let kraken2 = try StandInKraken2(root: root.appendingPathComponent("stems-run"))
+        var config = makeConfig(inputFiles: [r1, r2], database: kraken2.databaseURL)
+        config.isPairedEnd = true
+        let plan = try KrakenReadSetPlanner.plan(
+            r1: r1, r2: r2, singleReads: [merged, gzipped, upperCase],
+            materializationDirectory: config.outputDirectory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName)
+        )
+        XCTAssertTrue(try KrakenReadSetPlanner.apply(plan, to: &config, recordedWithAuto: false))
+        let mates = config.singleReadFiles.map { config.emptyMateURL(for: $0).lastPathComponent.lowercased() }
+        XCTAssertEqual(Set(mates).count, 3, "one mate per file: \(mates)")
+
+        let result = try await ClassificationPipeline(condaManager: kraken2.condaManager).classify(config: config)
+        XCTAssertEqual(result.fragmentComposition?.fragmentCount, 7)
+        let seen = try kraken2.inputsSeen().map(Self.plainText(of:))
+        XCTAssertEqual(Array(seen.dropFirst(2)), [
+            ReadSetFixtures.fastq(["y1", "y2"]), "@y1\n\n+\n\n@y2\n\n+\n\n",
+            ReadSetFixtures.fastq(["z1"]), "@z1\n\n+\n\n",
+            ReadSetFixtures.fastq(["w1", "w2", "w3"]), "@w1\n\n+\n\n@w2\n\n+\n\n@w3\n\n+\n\n",
+        ])
+    }
+
     func testPairedDerivativeRunsPairedWithNoStaging() async throws {
         let kraken2 = try StandInKraken2(root: root.appendingPathComponent("paired-run"))
         var config = try await planned(fixtures.pairedDerivative, database: kraken2.databaseURL)
@@ -374,6 +489,35 @@ final class KrakenReadSetPipelineTests: XCTestCase {
         )
     }
 
+    /// A gzip copy of `file`, at `destination` or beside it with `.gz` added.
+    private func gzipCopy(of file: URL, to destination: URL? = nil) throws -> URL {
+        let output = destination ?? URL(fileURLWithPath: file.path + ".gz")
+        _ = try gzipCompressFASTQ(sourceURL: file, outputURL: output, failureDescription: "the test copy of")
+        return output
+    }
+
+    /// Whether `url` starts with the gzip magic bytes, the test the kraken2
+    /// wrapper makes of its first input.
+    static func isGzip(_ url: URL) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: url.path) else { return false }
+        defer { try? handle.close() }
+        return (try? handle.read(upToCount: 2)) == Data([0x1F, 0x8B])
+    }
+
+    /// The text of `url`, decompressed when it is gzip.
+    static func plainText(of url: URL) throws -> String {
+        guard isGzip(url) else { return try String(contentsOf: url, encoding: .utf8) }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-dc", url.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(decoding: data, as: UTF8.self)
+    }
+
     /// A config for `bundle` from its read-set plan, as the CLI and the app make it.
     private func planned(
         _ bundle: URL,
@@ -459,11 +603,26 @@ struct StandInKraken2 {
           esac
           shift
         done
-        total=0; position=0
+        # The real wrapper takes the compression of its first input for every
+        # input: when that one is gzip, each input is read through gzip -dc,
+        # so a plain file reads as empty. A pair is read in step and ends with
+        # its shorter file.
+        first=""; for f in $files; do first="$f"; break; done
+        gzipped=0
+        [ "$(head -c 2 "$first" | od -An -tx1 | tr -d ' \\n')" = "1f8b" ] && gzipped=1
+        records() {
+          if [ "$gzipped" = 1 ]; then gzip -dc "$1" 2>/dev/null | awk 'END { print int(NR / 4) }'
+          else awk 'END { print int(NR / 4) }' "$1"; fi
+        }
+        total=0; position=0; mate1=0
         for f in $files; do
           position=$((position + 1))
-          if [ "$paired" = 1 ] && [ $((position % 2)) = 0 ]; then continue; fi
-          n=$(awk 'END { print int(NR / 4) }' "$f")
+          n=$(records "$f")
+          if [ "$paired" = 1 ]; then
+            if [ $((position % 2)) = 1 ]; then mate1=$n; continue; fi
+            [ "$n" -lt "$mate1" ] && mate1=$n
+            n=$mate1
+          fi
           total=$((total + n))
         done
         lines=\(drop ? "$((total - 1))" : "$total")

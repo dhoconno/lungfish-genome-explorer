@@ -486,12 +486,12 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         args += extraArguments
 
         // Input files (must be last). Each file of single reads follows the
-        // pair with its staged header-only mate.
+        // pair with its staged header-only mate, both in the compression of R1.
         for file in inputFiles {
             args.append(file.path)
         }
         for file in singleReadFiles {
-            args += [file.path, emptyMateURL(for: file).path]
+            args += [kraken2SingleReadURL(for: file).path, emptyMateURL(for: file).path]
         }
 
         return args

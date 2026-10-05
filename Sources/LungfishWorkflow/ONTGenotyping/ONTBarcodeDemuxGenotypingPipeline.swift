@@ -1955,7 +1955,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 resolvedFASTQs = [url]
             } else if FASTQBundle.isBundleURL(url) {
                 let readSetsDirectory = stagingDirectory.appendingPathComponent("read-sets", isDirectory: true)
-                planned = try await Self.plannedInputReads(for: url, readType: readType, workDirectory: readSetsDirectory)
+                planned = try await Self.plannedInputReads(for: url, readType: readType, workDirectory: readSetsDirectory, joinsChunks: readType == .ont)
                 resolvedFASTQs = planned?.fastqURLs ?? []
             } else if rawDirectoryInput {
                 resolvedFASTQs = Self.resolveRawFASTQDirectoryURLs(for: url)
@@ -2127,9 +2127,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     /// disambiguation behavior can be exercised in isolation.
     static func resolveIlluminaSampleInputsForTesting(
         from urls: [URL],
-        stagingDirectory: URL
+        stagingDirectory: URL, readType: AmpliconGenotypingReadType = .illumina
     ) async throws -> [IlluminaSampleInput] {
-        try await resolveIlluminaSampleInputs(from: urls, stagingDirectory: stagingDirectory)
+        try await resolveIlluminaSampleInputs(from: urls, stagingDirectory: stagingDirectory, readType: readType)
     }
 
     private static func countWeightedFASTQRecords(in sourceURL: URL) async throws -> Int {

@@ -24,6 +24,14 @@ public struct PlatformInference: Sendable, Equatable, Codable {
         case medium
         case low
         case none
+
+        /// An unrecognised raw value decodes as `.none` instead of failing the
+        /// whole sidecar, as ``SequencingPlatform`` does. Evidence of unknown
+        /// strength is never acted on.
+        public init(from decoder: any Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Confidence(rawValue: raw) ?? Confidence.none
+        }
     }
 
     /// The read-length shape of the sampled reads.

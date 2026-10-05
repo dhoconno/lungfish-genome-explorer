@@ -60,8 +60,9 @@ extension LungfishIO.SequencingPlatform {
         }
     }
 
-    /// Whether imports of this platform may reorder reads with clumpify for
-    /// storage. Short-read platforms only. Unknown stays off, as long reads do.
+    /// Whether imports of this platform reorder reads with clumpify for
+    /// storage by default. Short-read platforms only. Unknown reorders only
+    /// when the import asks, and long reads never do.
     public var supportsStorageClumping: Bool {
         switch self {
         case .illumina, .element, .mgi, .ultima: return true

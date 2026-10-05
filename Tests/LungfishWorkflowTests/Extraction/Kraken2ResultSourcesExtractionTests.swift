@@ -77,6 +77,62 @@ final class Kraken2ResultSourcesExtractionTests: XCTestCase {
         }
     }
 
+    /// Final review S3. `conda classify --read-format auto` naming the merged
+    /// file of a merge derivative classifies the whole derivative, since the
+    /// resolver plans the bundle that holds a named file. Extraction reads the
+    /// same reads, the pair u1 and the merged x1, not the named file alone.
+    func testAFileNamedInsideAMergeDerivativeIsReadAsItsBundle() async throws {
+        let shapes = try Kraken2ResultShapes(in: root, names: .slash)
+        let merged = shapes.fixtures.mergeDerivative.appendingPathComponent("merged.fastq").standardizedFileURL
+        let directory = shapes.analyses.appendingPathComponent("kraken2-named-file", isDirectory: true)
+        var config = Kraken2ResultShapes.config(inputs: [merged], paired: false, in: directory)
+        let plan = try await KrakenReadSetPlanner.plan(
+            bundle: merged, materializedInputs: [merged],
+            materializationDirectory: directory.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName)
+        )
+        XCTAssertTrue(try KrakenReadSetPlanner.apply(plan, to: &config))
+        XCTAssertEqual(config.originalInputFiles, [merged], "the recorded command names the file")
+        let (t, o) = (Kraken2ResultShapes.target, Kraken2ResultShapes.other)
+        let result = try Kraken2ResultShapes.result("named-file", in: shapes.analyses, config: config, lines: [
+            Kraken2ResultShapes.pair("u1", t), Kraken2ResultShapes.staged("x1", t),
+            Kraken2ResultShapes.staged("x2", o), Kraken2ResultShapes.staged("x3", o),
+        ])
+
+        let extracted = await extractedNames(result)
+        XCTAssertEqual(extracted, ["u1/1", "u1/2", "x1"])
+        XCTAssertEqual(
+            try KrakenResultReadSources.recordedInputs(of: ClassificationResult.load(from: result)),
+            [shapes.fixtures.mergeDerivative.standardizedFileURL]
+        )
+    }
+
+    /// Final review N1. In a paired run, and so for every merged read staged
+    /// beside an empty mate, the pinned kraken2 drops only a final /1 or /2
+    /// from a read's name, as KrakenReadSetConformanceTests pins. It keeps the
+    /// merged M.5 and the SRA mates named P.7 whole, and it writes H#0/1 and
+    /// H#0/2 as H#0. Extraction finds each by the name kraken2 wrote, and
+    /// M.15 and P.17, of another taxon, are never taken for M.5 or P.7.
+    func testAPairedRunsReadsAreFoundByTheNamesKraken2Wrote() async throws {
+        let shapes = try Kraken2ResultShapes(in: root, names: .slash)
+        let loose = root.appendingPathComponent("paired-run-names", isDirectory: true)
+        try FileManager.default.createDirectory(at: loose, withIntermediateDirectories: true)
+        let r1 = loose.appendingPathComponent("sample_R1.fastq")
+        let r2 = loose.appendingPathComponent("sample_R2.fastq")
+        let merged = loose.appendingPathComponent("merged.fastq")
+        try ReadSetFixtures.fastq(["P.7", "P.17", "H#0/1"]).write(to: r1, atomically: true, encoding: .utf8)
+        try ReadSetFixtures.fastq(["P.7", "P.17", "H#0/2"]).write(to: r2, atomically: true, encoding: .utf8)
+        try ReadSetFixtures.fastq(["M.15", "M.5"]).write(to: merged, atomically: true, encoding: .utf8)
+        let (t, o) = (Kraken2ResultShapes.target, Kraken2ResultShapes.other)
+        let result = try Kraken2ResultShapes.result(
+            "paired-run-names", in: shapes.analyses, inputs: [r1, r2], paired: true, singleReadFiles: [merged],
+            lines: [Kraken2ResultShapes.pair("P.7", t), Kraken2ResultShapes.pair("P.17", o), Kraken2ResultShapes.pair("H#0", t),
+                    Kraken2ResultShapes.staged("M.15", o), Kraken2ResultShapes.staged("M.5", t)]
+        )
+
+        let extracted = await extractedNames(result)
+        XCTAssertEqual(extracted, ["P.7", "P.7", "H#0/1", "H#0/2", "M.5"])
+    }
+
     /// A single-end result whose read names end in /1 used to extract nothing.
     func testSingleEndReadsNamedWithAMateSuffixAreFound() async throws {
         let shapes = try Kraken2ResultShapes(in: root, names: .slash)

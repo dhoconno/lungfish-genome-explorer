@@ -142,6 +142,38 @@ final class FASTQMetadataSectionViewModelTests: XCTestCase {
         XCTAssertEqual(changes.first?.1, [firstBundle.standardizedFileURL, secondBundle.standardizedFileURL])
     }
 
+    /// A read type change the CLI refused (a running operation holds the
+    /// bundle) or that failed leaves the sidecar as it was, so the popup goes
+    /// back to the value the sidecar holds. Before the fix the popup kept the
+    /// choice that was never recorded.
+    func testAReadTypeChangeThatDidNotLandShowsTheRecordedValue() throws {
+        let bundleDir = tmpDir.appendingPathComponent("Refused.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+        let fastqURL = bundleDir.appendingPathComponent("reads.fastq")
+        try "@read1\nACGT\n+\nIIII\n".write(to: fastqURL, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(PersistedFASTQMetadata(assemblyReadType: .ontReads), for: fastqURL)
+
+        let vm = FASTQMetadataSectionViewModel()
+        var finishes: [@MainActor (Bool) -> Void] = []
+        vm.platformLabelChanger = { _, _, onFinish in
+            if let onFinish { finishes.append(onFinish) }
+        }
+        vm.load(from: bundleDir)
+
+        vm.setAssemblyReadType(.pacBioHiFi)
+        vm.performSave()
+        XCTAssertEqual(finishes.count, 1, "The popup must hear how the run ended")
+        finishes.last?(false)
+        XCTAssertEqual(vm.assemblyReadType, .ontReads)
+        XCTAssertFalse(vm.hasUnsavedChanges)
+
+        // A run that lands keeps the choice.
+        vm.setAssemblyReadType(.illuminaShortReads)
+        vm.performSave()
+        finishes.last?(true)
+        XCTAssertEqual(vm.assemblyReadType, .illuminaShortReads)
+    }
+
     func testLoadReadsPersistedAssemblyReadTypeFromSidecar() throws {
         let bundleDir = tmpDir.appendingPathComponent("ReadType.lungfishfastq")
         try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)

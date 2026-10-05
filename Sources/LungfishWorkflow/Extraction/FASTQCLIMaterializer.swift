@@ -133,7 +133,7 @@ public final class FASTQCLIMaterializer: Sendable {
                   FileManager.default.fileExists(atPath: r2URL.path) else {
                 throw FASTQCLIMaterializerError.sourceFASTQMissing
             }
-            try interleaveMates(r1URL: r1URL, r2URL: r2URL, outputURL: outputURL)
+            try interleaveMates(r1URL: r1URL, r2URL: r2URL, outputURL: outputURL, progress: progress)
             return outputURL
 
         case .fullMixed(let classification):
@@ -141,7 +141,8 @@ public final class FASTQCLIMaterializer: Sendable {
                 classification: classification,
                 bundleURL: bundleURL,
                 tempDirectory: tempDirectory,
-                outputURL: outputURL
+                outputURL: outputURL,
+                progress: progress
             )
             writeMixedLayoutHint(beside: outputURL, roles: classification)
             return outputURL

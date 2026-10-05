@@ -77,6 +77,48 @@ final class FASTQDialogGenotypingInputTests: XCTestCase {
         }
     }
 
+    /// Final review A, S2. Two ONT barcode bundles that were each imported
+    /// from several files reach `fastq genotype --mode ont-sample-bundles` as
+    /// the bundles, and the CLI genotypes each one as one sample of every
+    /// chunk, joined in import order. The run used to stop with a message
+    /// about Illumina inputs.
+    func testTwoONTChunkedBundlesGenotypeOneSampleEachOfEveryChunk() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("ont-chunks", isDirectory: true))
+        let reference = root.appendingPathComponent("reference.fa")
+        try ">allele1\nACGTACGTAC\n".write(to: reference, atomically: true, encoding: .utf8)
+        let bundles = [fixtures.nanoporeChunkedRoot, fixtures.chunkedRoot]
+        let request = FASTQOperationLaunchRequest.ontGenotyping(request: ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: bundles,
+            referenceSourceURL: reference,
+            outputDirectory: root.appendingPathComponent("ont.lungfishgenotype", isDirectory: true),
+            outputName: "ont",
+            analysisName: "ont",
+            threads: 1,
+            minSupport: 1,
+            mode: .ontSampleBundles,
+            readType: .ont
+        ))
+        let spy = GenotypeInvocationSpy()
+        let service = FASTQOperationExecutionService(commandRunner: spy)
+        let work = root.appendingPathComponent("work-ont", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        _ = try? await service.execute(request: request, workingDirectory: work)
+
+        let run = try Self.genotypeCommand(try XCTUnwrap(spy.invocations.first))
+        XCTAssertEqual(run.inputs, bundles.map(\.path), "the run hands the CLI the bundles")
+        XCTAssertEqual(run.mode, "ont-sample-bundles")
+
+        let staging = root.appendingPathComponent("staging-ont", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let samples = try await ONTBarcodeDemuxGenotypingPipeline.resolveIlluminaSampleInputsForTesting(
+            from: run.inputs.map { URL(fileURLWithPath: $0) },
+            stagingDirectory: staging,
+            readType: .ont
+        )
+        XCTAssertEqual(samples.map { $0.sampleID }, ["nanopore", "chunked"])
+        XCTAssertEqual(try samples.map { try ReadSetFixtures.readNames(in: $0.fastqURL) }, [["o-a", "o-b", "o-c"], ["c1", "c2", "c3"]])
+    }
+
     /// `invocation` parsed by the shipped `lungfish-cli fastq genotype` parser.
     private static func genotypeCommand(_ invocation: FASTQCLIInvocation) throws -> FastqGenotypingSubcommand {
         XCTAssertEqual(invocation.subcommand, "fastq")

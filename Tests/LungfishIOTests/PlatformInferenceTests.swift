@@ -215,6 +215,51 @@ final class PlatformInferenceTests: XCTestCase {
         XCTAssertNil(legacy.platformAssignment)
     }
 
+    /// A later release may record a decision source or a confidence this
+    /// release does not know. The sidecar still loads, with its pairing and
+    /// read classification, and the assignment keeps the bundle decided.
+    func testAnUnknownAssignmentSourceOrConfidenceKeepsTheSidecar() throws {
+        let root = try TestTempDirectory.make(prefix: "platform-assignment-future")
+        defer { TestTempDirectory.cleanup(root) }
+        let fastq = try PlatformHeaderFixtures.copy("illumina-novaseq6000.fastq", to: root)
+        let classification = ReadClassification(files: [
+            .init(filename: fastq.lastPathComponent, role: .pairedR1, readCount: 2),
+            .init(filename: fastq.lastPathComponent, role: .pairedR2, readCount: 2),
+        ])
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(
+                ingestion: IngestionMetadata(pairingMode: .interleaved, pairingSource: .detected),
+                readClassification: classification,
+                sequencingPlatform: .illumina,
+                assemblyReadType: .illuminaShortReads,
+                platformAssignment: PlatformAssignment(
+                    source: .inferred, platform: .illumina, readClass: .illuminaShortReads, confidence: .high
+                )
+            ),
+            for: fastq
+        )
+        let sidecar = FASTQMetadataStore.metadataURL(for: fastq)
+        let written = try String(contentsOf: sidecar, encoding: .utf8)
+        let future = written
+            .replacingOccurrences(of: #""source" : "inferred""#, with: #""source" : "runInfoSheet""#)
+            .replacingOccurrences(of: #""confidence" : "high""#, with: #""confidence" : "certain""#)
+        XCTAssertNotEqual(future, written, "The test must rewrite both values")
+        try future.write(to: sidecar, atomically: true, encoding: .utf8)
+
+        let loaded = try XCTUnwrap(FASTQMetadataStore.load(for: fastq), "An unknown case must not drop the sidecar")
+        XCTAssertEqual(loaded.ingestion?.pairingMode, .interleaved)
+        XCTAssertEqual(loaded.readClassification, classification)
+        XCTAssertEqual(loaded.sequencingPlatform, .illumina)
+        XCTAssertEqual(loaded.platformAssignment?.source, .unknown)
+        XCTAssertEqual(loaded.platformAssignment?.confidence, PlatformInference.Confidence.none)
+        XCTAssertEqual(PlatformLabelCheck.check(fastqURL: fastq, metadata: loaded).verdict, .decided)
+
+        // Known values still decode as themselves.
+        let decoder = JSONDecoder()
+        XCTAssertEqual(try decoder.decode([PlatformAssignment.Source].self, from: Data(#"["userConfirmed","given"]"#.utf8)), [.userConfirmed, .given])
+        XCTAssertEqual(try decoder.decode([PlatformInference.Confidence].self, from: Data(#"["medium","none"]"#.utf8)), [.medium, .none])
+    }
+
     // MARK: - Suspect labels
 
     func testLegacyIlluminaLabelOnNanoporeReadsIsSuspect() throws {
