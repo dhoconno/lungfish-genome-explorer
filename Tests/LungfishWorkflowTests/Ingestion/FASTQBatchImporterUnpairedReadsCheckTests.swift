@@ -27,7 +27,9 @@ private final class ImportEventCollector: @unchecked Sendable {
 /// cannot store it without leaving reads out, and failed deep in the
 /// pipeline with a message that named neither the run nor the file (F9-N2).
 /// The per-sample log and the `sampleStart` event named only the pair
-/// (F9-N3).
+/// (F9-N3). An interleaved copy of the pair that starts at another pair
+/// still joined (F10-N1), and the warning promised that the pair imports
+/// even when the reason was the pair's own file (F10-N2).
 final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
 
     private var root: URL!
@@ -48,6 +50,8 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
     func testAThirdFileJoinsWhenThePairsFirstReadsAreMatesAndItsFirstReadIsAnotherSpot() throws {
         // fasterq-dump names both mates of a spot alike, ENA writes /1 and /2
         // after the spot number, and Illumina writes 1:N: and 2:N: comments.
+        // The third file holds one read of each of two other spots, so its
+        // first two reads are compared and are not mates.
         let styles: [(folder: String, ext: String, name: (Int, Int) -> String)] = [
             ("identical", ".fastq", { spot, _ in "SRR1.\(spot) \(spot) length=8" }),
             ("identical-gzip", ".fastq.gz", { spot, _ in "SRR1.\(spot) \(spot) length=8" }),
@@ -59,7 +63,7 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
             let files = try writeFiles(style.folder, [
                 "SRR1_1\(style.ext)": Self.fastq([style.name(1, 1), style.name(2, 1)]),
                 "SRR1_2\(style.ext)": Self.fastq([style.name(1, 2), style.name(2, 2)]),
-                "SRR1\(style.ext)": Self.fastq([style.name(3, 1)]),
+                "SRR1\(style.ext)": Self.fastq([style.name(3, 1), style.name(6, 2)]),
             ])
             let detected = FASTQBatchImporter.detectPairs(from: files)
 
@@ -93,11 +97,13 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
             return XCTFail("expected a notice, got \(check.warnings)")
         }
         XCTAssertEqual(sample, "SRR2")
+        // The reason is about the pair's files, so the warning does not
+        // promise that the pair imports (F10-N2).
         XCTAssertEqual(
             message,
             "SRR2.fastq was not joined to SRR2_1.fastq and SRR2_2.fastq as reads whose mate is missing, because the "
-                + "names of their first reads, SRR2.1.1 and SRR2.1.2, do not mark the two as mates. The pair imports "
-                + "without it, and SRR2.fastq is a separate sample named SRR2."
+                + "names of their first reads, SRR2.1.1 and SRR2.1.2, do not mark the two as mates. The pair and "
+                + "SRR2.fastq are imported as separate samples, as they were before the join."
         )
     }
 
@@ -158,9 +164,13 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
                 XCTFail("expected a notice for case \(index)")
                 continue
             }
-            XCTAssertTrue(
-                message.hasPrefix("\(item.name) was not joined to SRR3_1.fastq and SRR3_2.fastq as reads whose mate is missing, because \(item.reason)."),
-                message
+            // The reason is about the third file, so the pair imports, and
+            // the warning says the third file's own sample is skipped (F10-N2).
+            XCTAssertEqual(
+                message,
+                "\(item.name) was not joined to SRR3_1.fastq and SRR3_2.fastq as reads whose mate is missing, because "
+                    + "\(item.reason). The pair imports without it, and \(item.name) is a separate sample named SRR3, "
+                    + "which the import skips once the pair's bundle exists."
             )
         }
     }
@@ -178,7 +188,99 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
         guard case .notice(_, let message)? = check.warnings.first else {
             return XCTFail("expected a notice")
         }
-        XCTAssertTrue(message.contains("as reads whose mate is missing, because SRR4_1.fastq holds no reads."), message)
+        // An empty SRR4_1.fastq fails the pair as well, and SRR4.fastq then
+        // imports as SRR4, so the warning promises neither (F10-N2).
+        XCTAssertEqual(
+            message,
+            "SRR4.fastq was not joined to SRR4_1.fastq and SRR4_2.fastq as reads whose mate is missing, because "
+                + "SRR4_1.fastq holds no reads. The pair and SRR4.fastq are imported as separate samples, as they "
+                + "were before the join."
+        )
+    }
+
+    // MARK: - A copy of the pair in another order (F10-N1)
+
+    func testAnInterleavedCopyOfThePairThatStartsAtAnotherPairIsNotJoined() throws {
+        // The pair holds fragments 1 to 4. Each copy starts at another
+        // fragment, as a copy does that a filter started at another spot or
+        // that clumpify wrote in its own order, so its first read is not of
+        // the pair's first fragment. A file of reads whose mate is missing
+        // holds one read of each spot, so its first two reads are never
+        // mates, while an interleaved copy starts with both reads of one
+        // fragment, in either order.
+        let styles: [(folder: String, ext: String, name: (Int, Int) -> String)] = [
+            ("slash", ".fastq", { spot, mate in "S.\(spot)/\(mate)" }),
+            ("identical-gzip", ".fastq.gz", { spot, _ in "S.\(spot) \(spot) length=8" }),
+            ("ena-gzip", ".fastq.gz", { spot, mate in "S.\(spot) \(spot)/\(mate)" }),
+            ("illumina", ".fastq", { spot, mate in "A00123:8:H5:1:1101:\(spot):1000 \(mate):N:0:ACGT" }),
+        ]
+        let orders: [(name: String, reads: [(spot: Int, mate: Int)])] = [
+            ("from-the-second-pair", [(2, 1), (2, 2), (3, 1), (3, 2), (4, 1), (4, 2)]),
+            ("from-the-last-pair", [(4, 1), (4, 2), (1, 1), (1, 2), (2, 1), (2, 2), (3, 1), (3, 2)]),
+            ("shuffled-pairs", [(3, 1), (3, 2), (1, 1), (1, 2), (4, 1), (4, 2), (2, 1), (2, 2)]),
+            ("second-mate-first", [(2, 2), (2, 1), (1, 2), (1, 1), (3, 2), (3, 1), (4, 2), (4, 1)]),
+        ]
+        for style in styles {
+            for order in orders {
+                let label = "\(style.folder) \(order.name)"
+                let files = try writeFiles("\(style.folder)-\(order.name)", [
+                    "S_1\(style.ext)": Self.fastq((1...4).map { style.name($0, 1) }),
+                    "S_2\(style.ext)": Self.fastq((1...4).map { style.name($0, 2) }),
+                    "S\(style.ext)": Self.fastq(order.reads.map { style.name($0.spot, $0.mate) }),
+                ])
+
+                let check = FASTQBatchImporter.checkingUnpairedReads(FASTQBatchImporter.detectPairs(from: files))
+
+                XCTAssertEqual(
+                    check.samples.map { $0.inputFiles.map(\.lastPathComponent) },
+                    [["S_1\(style.ext)", "S_2\(style.ext)"], ["S\(style.ext)"]],
+                    label
+                )
+                XCTAssertNil(check.samples.first?.unpaired, label)
+                guard case .notice(let sample, let message)? = check.warnings.first else {
+                    XCTFail("expected a notice for \(label)")
+                    continue
+                }
+                let firstTwo = order.reads.prefix(2).map { style.name($0.spot, $0.mate).prefix { $0 != " " } }
+                XCTAssertEqual(sample, "S", label)
+                XCTAssertEqual(
+                    message,
+                    "S\(style.ext) was not joined to S_1\(style.ext) and S_2\(style.ext) as reads whose mate is "
+                        + "missing, because its first two reads, \(firstTwo[0]) and \(firstTwo[1]), belong to one "
+                        + "fragment, so the file looks like a copy of the pair. The pair imports without it, and "
+                        + "S\(style.ext) is a separate sample named S, which the import skips once the pair's bundle "
+                        + "exists.",
+                    label
+                )
+            }
+        }
+    }
+
+    func testAThirdFileOfOneWholeRecordStillJoins() throws {
+        // A run with one spot whose mate is missing has a third file of one
+        // record, with no second read to compare. A second record that is
+        // not whole does not stop the join either, even when its header is
+        // the first read's mate. Only whole records are compared, and the
+        // import then fails the sample and names the damaged file.
+        let cases: [(folder: String, ext: String, text: String)] = [
+            ("one-record", ".fastq", Self.fastq(["SRR7.3 3 length=8"])),
+            ("one-record-gzip", ".fastq.gz", Self.fastq(["SRR7.3 3 length=8"])),
+            ("cut-second-record", ".fastq", Self.fastq(["SRR7.3 3 length=8"]) + "@SRR7.3 3 length=8\nACGT\n"),
+        ]
+        for item in cases {
+            let files = try writeFiles(item.folder, [
+                "SRR7_1\(item.ext)": Self.fastq(["SRR7.1 1 length=8", "SRR7.2 2 length=8"]),
+                "SRR7_2\(item.ext)": Self.fastq(["SRR7.1 1 length=8", "SRR7.2 2 length=8"]),
+                "SRR7\(item.ext)": item.text,
+            ])
+            let detected = FASTQBatchImporter.detectPairs(from: files)
+
+            let check = FASTQBatchImporter.checkingUnpairedReads(detected)
+
+            XCTAssertEqual(check.samples.map(\.inputFiles), detected.map(\.inputFiles), item.folder)
+            XCTAssertEqual(check.samples.map { $0.unpaired?.lastPathComponent }, ["SRR7\(item.ext)"], item.folder)
+            XCTAssertTrue(check.warnings.isEmpty, "\(item.folder): \(check.warnings)")
+        }
     }
 
     func testTheCheckReadsOnlyJoinedSamplesAndKeepsEachSamplesPlaceAndFolder() throws {
