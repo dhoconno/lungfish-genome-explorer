@@ -97,6 +97,28 @@ final class KrakenReadSetPipelineTests: XCTestCase {
         XCTAssertFalse(config.plansReadSet)
     }
 
+    /// Final review N3. kraken2 splits an interleaved file by position and
+    /// reads it alone, so no file of single reads can run beside it. A plan
+    /// that ever held both stops the run rather than leave the single reads out.
+    func testAnInterleavedPairWithSingleReadsStopsRatherThanDropThem() throws {
+        let interleaved = fixtures.interleavedRoot.appendingPathComponent("reads.fastq").standardizedFileURL
+        let merged = fixtures.mergeDerivative.appendingPathComponent("merged.fastq").standardizedFileURL
+        let runs = [ReadSetRun(
+            matePairs: [ReadSetMatePair(files: .interleaved(interleaved), pairCount: 2)],
+            singleReads: [ReadSetSingleReads(url: merged, role: .merged, readCount: 3)]
+        )]
+        let plan = ReadSetPlan(
+            inputURL: interleaved, capability: KrakenReadSetPlanner.capability,
+            sourceLayout: .pairedFilesWithSingleReads, layoutReason: "An interleaved pair beside merged reads.",
+            sequencingPlatform: nil, wasMaterialized: false, sampleHoldsPairsAndSingleReads: true,
+            runs: runs, steps: [], singleReadReason: nil, composition: ReadSetComposition(runs: runs)
+        )
+        var config = makeConfig(inputFiles: [interleaved])
+        let before = config
+        XCTAssertThrowsError(try KrakenReadSetPlanner.apply(plan, to: &config), "the single reads would be left out")
+        XCTAssertEqual(config, before, "the config is left as it was")
+    }
+
     func testVirtualSubsetIsPlannedFromItsMaterializedFile() async throws {
         let materialized = root.appendingPathComponent("materialized.fastq")
         try ReadSetFixtures.fastq(["u1/1", "u1/2", "x1"]).write(to: materialized, atomically: true, encoding: .utf8)
