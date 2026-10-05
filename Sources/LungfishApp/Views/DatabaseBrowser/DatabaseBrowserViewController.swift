@@ -168,7 +168,9 @@ private func performOnMainRunLoopAsync<T: Sendable>(_ block: @escaping @MainActo
     }
 }
 
-private func writeGUISRAFASTQImportProvenance(
+/// Writes the provenance of one SRA run the window downloaded and imported.
+/// Internal, not private, so tests can read what it records.
+func writeGUISRAFASTQImportProvenance(
     accession: String,
     readRecord: ENAReadRecord?,
     downloadSource: String,
@@ -244,7 +246,10 @@ private func writeGUISRAFASTQImportProvenance(
         "optimizeStorage": .boolean(optimizeStorage),
         "compression": .string(compressionLevel),
         "containerRuntime": .string("none"),
-        "condaEnvironment": .string(downloadSource == "SRA Toolkit" ? "managed sra-tools" : "none"),
+        // Every SRA Toolkit source ran in the managed sra-tools environment.
+        "condaEnvironment": .string(
+            SRAFASTQDownloadSource(rawValue: downloadSource)?.usesSRAToolkit == true ? "managed sra-tools" : "none"
+        ),
         "stagingInputs": .array(stagedFASTQFiles.map { .string($0.standardizedFileURL.path) }),
         "finalBundlePath": .string(bundleURL.standardizedFileURL.path),
         "finalFASTQPath": .string(finalFASTQURL.standardizedFileURL.path)
@@ -1687,6 +1692,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 }
 
                 var searchResults: SearchResults
+                // One line saying an archive failed while the other answered.
+                var searchNotice: String?
 
                 switch currentSource {
                 case .ncbi:
@@ -1925,70 +1932,36 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         }
                     }
 
-                    let records: [SearchResultRecord]
+                    // ENA adds the FASTQ links and NCBI the organism and dates. Either
+                    // archive may fail, and the search fails only when both do.
+                    let runLookup = SRARunMetadataLookup(ena: ena, ncbi: ncbi)
+                    let reportENAProgress: @Sendable (Int, Int) -> Void = { [weak self] completed, total in
+                        performOnMainRunLoop { [weak self] in
+                            guard let self = self else { return }
+                            self.applySearchUpdate(for: searchToken) {
+                                self.searchPhase = .loadingAllResults(loaded: completed, total: total)
+                            }
+                        }
+                    }
+                    let lookup: SRARunMetadataLookup.Outcome
 
                     // Detect multi-accession input (paste or CSV import)
                     // Check for imported accession list first (from CSV import)
                     let parsedAccessions = !capturedImportedAccessions.isEmpty
                         ? capturedImportedAccessions
                         : SRAAccessionParser.parseAccessionList(query.term)
-                    if parsedAccessions.count >= 2 {
-                        // Batch mode: multiple accessions pasted or imported
-                        logger.info("performSearch: Batch mode with \(parsedAccessions.count) accessions")
+                    let singleAccession = query.term.trimmingCharacters(in: .whitespaces)
+                    if parsedAccessions.count >= 2 || SRAAccessionParser.accessionType(singleAccession) == .run {
+                        // An accession list, or one run: look each up in ENA and NCBI at once.
+                        let accessions = parsedAccessions.count >= 2 ? parsedAccessions : [singleAccession]
+                        logger.info("performSearch: Looking up \(accessions.count) accession(s) in ENA and NCBI")
                         performOnMainRunLoop { [weak self] in
                             guard let self = self else { return }
                             self.applySearchUpdate(for: searchToken) {
                                 self.searchPhase = .loadingDetails
                             }
                         }
-
-                        let readRecords = try await ena.searchReadsBatch(
-                            accessions: parsedAccessions,
-                            concurrency: 10,
-                            progress: { [weak self] completed, total in
-                                performOnMainRunLoop { [weak self] in
-                                    guard let self = self else { return }
-                                    self.applySearchUpdate(for: searchToken) {
-                                        self.searchPhase = .loadingAllResults(loaded: completed, total: total)
-                                    }
-                                }
-                            }
-                        )
-                        let enaByAccession = Dictionary(uniqueKeysWithValues: readRecords.map { ($0.runAccession, $0) })
-                        let ncbiRuns = try await ncbi.sraEFetchRunInfo(ids: parsedAccessions)
-                        let ncbiByAccession = Dictionary(uniqueKeysWithValues: ncbiRuns.map { ($0.accession, $0) })
-                        records = parsedAccessions.compactMap { accession in
-                            mergedSRASearchResultRecord(
-                                accession: accession,
-                                enaRecord: enaByAccession[accession],
-                                ncbiRun: ncbiByAccession[accession]
-                            )
-                        }
-
-                    } else if SRAAccessionParser.accessionType(query.term.trimmingCharacters(in: .whitespaces)) == .run {
-                        // Single accession: direct ENA filereport (fast path)
-                        logger.info("performSearch: Direct ENA lookup for single accession")
-                        performOnMainRunLoop { [weak self] in
-                            guard let self = self else { return }
-                            self.applySearchUpdate(for: searchToken) {
-                                self.searchPhase = .loadingDetails
-                            }
-                        }
-                        let accession = query.term.trimmingCharacters(in: .whitespaces)
-                        async let readRecordsTask = ena.searchReads(term: accession, limit: query.limit, offset: query.offset)
-                        async let ncbiRunsTask = ncbi.sraEFetchRunInfo(ids: [accession])
-
-                        let readRecords = try await readRecordsTask
-                        let readRecord = readRecords.first { $0.runAccession == accession } ?? readRecords.first
-                        let ncbiRuns = try await ncbiRunsTask
-                        let ncbiRun = ncbiRuns.first { $0.accession == accession } ?? ncbiRuns.first
-                        records = [
-                            mergedSRASearchResultRecord(
-                                accession: accession,
-                                enaRecord: readRecord,
-                                ncbiRun: ncbiRun
-                            )
-                        ].compactMap { $0 }
+                        lookup = try await runLookup.lookUpRuns(accessions, progress: reportENAProgress)
 
                     } else {
                         // Non-accession query (title, organism, bioproject, author, free text)
@@ -2072,30 +2045,17 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                         try Task.checkCancellation()
 
-                        // Step 3: Batch ENA lookup for FASTQ metadata
-                        let runAccessions = ncbiRuns.map(\.accession)
-                        let readRecords = try await ena.searchReadsBatch(
-                            accessions: runAccessions,
-                            concurrency: 10,
-                            progress: { [weak self] completed, total in
-                                performOnMainRunLoop { [weak self] in
-                                    guard let self = self else { return }
-                                    self.applySearchUpdate(for: searchToken) {
-                                        self.searchPhase = .loadingAllResults(loaded: completed, total: total)
-                                    }
-                                }
-                            }
-                        )
-                        let enaByAccession = Dictionary(uniqueKeysWithValues: readRecords.map { ($0.runAccession, $0) })
-                        records = ncbiRuns.compactMap { run in
-                            mergedSRASearchResultRecord(
-                                accession: run.accession,
-                                enaRecord: enaByAccession[run.accession],
-                                ncbiRun: run
-                            )
-                        }
+                        // Step 3: Batch ENA lookup for FASTQ metadata. ENA failures keep NCBI's rows.
+                        lookup = try await runLookup.addingENARecords(to: ncbiRuns, progress: reportENAProgress)
                     }
 
+                    let records = lookup.runs.compactMap { run in
+                        mergedSRASearchResultRecord(accession: run.accession, enaRecord: run.enaRecord, ncbiRun: run.ncbiRun)
+                    }
+                    searchNotice = lookup.notice
+                    if let searchNotice {
+                        logger.warning("performSearch: \(searchNotice, privacy: .public)")
+                    }
                     searchResults = SearchResults(
                         totalCount: records.count,
                         records: records,
@@ -2265,9 +2225,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 try Task.checkCancellation()
 
                 // Update UI with results via RunLoop for modal compatibility
-                performOnMainRunLoop { [weak self] in
+                performOnMainRunLoop { [weak self, searchNotice] in
                     guard let self = self else { return }
                     self.applySearchUpdate(for: searchToken) {
+                        self.errorMessage = searchNotice
                         self.results = searchResults.records
                         self.totalResultCount = searchResults.totalCount
                         self.hasMoreResults = searchResults.hasMore
@@ -2557,25 +2518,24 @@ public class DatabaseBrowserViewModel: ObservableObject {
             if currentSource == .ena {
                 isDownloading = true  // prevent double-click while fetching metadata
                 Task {
-                    // Quick fetch of the first record to detect platform / pairing
+                    // Quick fetch of the first record to detect platform / pairing.
+                    // ENA's record wins, and NCBI's covers a run ENA lacks or an ENA
+                    // outage, so the platform is still inferred. The lookup logs failures.
                     let firstAccession = recordsToDownload[0].accession
                     var detectedPlatform: LungfishIO.SequencingPlatform = .unknown
                     var isPaired = false
                     var firstRunBytes: Int64?
-                    do {
-                        let readRecords = try await ena.searchReads(term: firstAccession, limit: 1)
-                        if let readRecord = readRecords.first {
-                            // ELEMENT, BGISEQ and DNBSEQ map too, ION_TORRENT stays unknown.
-                            detectedPlatform = LungfishIO.SequencingPlatform(vendor: readRecord.instrumentPlatform ?? "")
-                            isPaired = readRecord.libraryLayout?.uppercased() == "PAIRED"
-                            firstRunBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
-                        } else if let runInfo = try await ncbiService.sraEFetchRunInfo(ids: [firstAccession]).first {
-                            detectedPlatform = LungfishIO.SequencingPlatform(vendor: runInfo.platform ?? "")
-                            isPaired = runInfo.libraryLayout?.uppercased() == "PAIRED"
-                            firstRunBytes = runInfo.size.map { Int64($0) * 1_000_000 }
-                        }
-                    } catch {
-                        logger.warning("Failed to fetch ENA metadata for config sheet, using defaults: \(error.localizedDescription, privacy: .public)")
+                    let firstRun = try? await SRARunMetadataLookup(ena: ena, ncbi: ncbi)
+                        .lookUpRuns([firstAccession]).runs.first
+                    if let readRecord = firstRun?.enaRecord {
+                        // ELEMENT, BGISEQ and DNBSEQ map too, ION_TORRENT stays unknown.
+                        detectedPlatform = LungfishIO.SequencingPlatform(vendor: readRecord.instrumentPlatform ?? "")
+                        isPaired = readRecord.libraryLayout?.uppercased() == "PAIRED"
+                        firstRunBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
+                    } else if let runInfo = firstRun?.ncbiRun {
+                        detectedPlatform = LungfishIO.SequencingPlatform(vendor: runInfo.platform ?? "")
+                        isPaired = runInfo.libraryLayout?.uppercased() == "PAIRED"
+                        firstRunBytes = runInfo.size.map { Int64($0) * 1_000_000 }
                     }
 
                     // Build placeholder pairs for the config sheet display
@@ -3029,20 +2989,21 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         )
                     }
 
-                    let readRecord = try await ena.searchReads(term: record.accession, limit: 1).first
+                    // An ENA error, a run ENA lacks or a record without FASTQ links
+                    // takes the SRA Toolkit route, which fetches the run from NCBI.
+                    let route = try await ena.fastqDownloadRoute(forRun: record.accession)
+                    let readRecord = route.enaRecord
 
-                    // 2. Download each FASTQ file to the batch directory
-                    var downloadedFASTQFiles: [URL] = []
-                    var enaDownloadSteps: [StepExecution] = []
                     let toolkitTraceCollector = SRAGUIDownloadTraceCollector()
-                    var downloadSource = "ENA"
 
                     func downloadViaToolkit(statusDetail: String) async throws -> [URL] {
                         performOnMainRunLoop {
-                            _ = DownloadCenter.shared.update(
+                            // Logged, so the row's history keeps why ENA was skipped.
+                            _ = DownloadCenter.shared.updateWithLog(
                                 id: downloadCenterTaskID,
                                 progress: progressFraction,
-                                detail: statusDetail
+                                detail: statusDetail,
+                                level: .warning
                             )
                         }
                         return try await sra.downloadFASTQ(
@@ -3066,103 +3027,35 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         )
                     }
 
-                    if let readRecord, !readRecord.fastqHTTPURLs.isEmpty {
-                        let fastqURLs = readRecord.fastqHTTPURLs
-                        let totalExpectedBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
-                        let perFileSizes = ENAFASTQDownloadValidator.expectedByteCounts(for: readRecord)
-
-                        var priorBytesDownloaded: Int64 = 0
-
-                        do {
-                            for (fileIdx, fastqURL) in fastqURLs.enumerated() {
-                                let filename = fastqURL.lastPathComponent
-                                let localPath = batchDir.appendingPathComponent(filename)
-                                let fileExpectedBytes = fileIdx < perFileSizes.count ? perFileSizes[fileIdx] : nil
-
-                                logger.info("startENADownloadTask: Downloading \(fastqURL.absoluteString, privacy: .public)")
-
-                                let capturedPrior = priorBytesDownloaded
-                                let capturedTotal = totalExpectedBytes
-
-                                let downloadStartedAt = Date()
-                                let data = try await streamingDownload(
-                                    url: fastqURL,
-                                    totalBytes: fileExpectedBytes,
-                                    progressHandler: { bytesWritten, _ in
-                                        let totalSoFar = capturedPrior + bytesWritten
-                                        performOnMainRunLoop {
-                                            DownloadCenter.shared.updateBytes(
-                                                id: downloadCenterTaskID,
-                                                bytesDownloaded: totalSoFar,
-                                                totalBytes: capturedTotal
-                                            )
-                                        }
+                    // 2. Download each FASTQ file to the batch directory
+                    let totalExpectedBytes = readRecord?.totalFileSizeBytes.map { Int64($0) }
+                    let runDownload = try await SRAWindowRunDownload.download(
+                        accession: record.accession,
+                        route: route,
+                        into: batchDir,
+                        mirrorFile: { fastqURL, fileExpectedBytes, priorBytes in
+                            try await streamingDownload(
+                                url: fastqURL,
+                                totalBytes: fileExpectedBytes,
+                                progressHandler: { bytesWritten, _ in
+                                    let totalSoFar = priorBytes + bytesWritten
+                                    performOnMainRunLoop {
+                                        DownloadCenter.shared.updateBytes(
+                                            id: downloadCenterTaskID,
+                                            bytesDownloaded: totalSoFar,
+                                            totalBytes: totalExpectedBytes
+                                        )
                                     }
-                                )
-
-                                try data.write(to: localPath)
-                                // ENA's mirror answers a missing mate with a 200 HTML
-                                // directory listing. Catch it here rather than in fastp.
-                                try ENAFASTQDownloadValidator.validate(
-                                    fileURL: localPath,
-                                    expectedBytes: fileExpectedBytes
-                                )
-                                let downloadCompletedAt = Date()
-                                enaDownloadSteps.append(
-                                    StepExecution(
-                                        toolName: "https-download",
-                                        toolVersion: "URLSession",
-                                        command: [
-                                            "curl",
-                                            "-L",
-                                            "--fail",
-                                            "--user-agent", "Lungfish Genome Explorer",
-                                            fastqURL.absoluteString,
-                                            "-o", localPath.path
-                                        ],
-                                        inputs: [
-                                            FileRecord(
-                                                path: fastqURL.absoluteString,
-                                                format: .fastq,
-                                                role: .input
-                                            )
-                                        ],
-                                        outputs: [
-                                            ProvenanceRecorder.fileRecord(url: localPath, format: .fastq, role: .output)
-                                        ],
-                                        exitCode: 0,
-                                        wallTime: downloadCompletedAt.timeIntervalSince(downloadStartedAt),
-                                        stderr: nil,
-                                        startTime: downloadStartedAt,
-                                        endTime: downloadCompletedAt
-                                    )
-                                )
-                                logger.info("startENADownloadTask: Saved \(filename) (\(data.count) bytes)")
-                                downloadedFASTQFiles.append(localPath)
-                                priorBytesDownloaded += fileExpectedBytes ?? Int64(data.count)
-                            }
-                            downloadSource = "ENA"
-                        } catch let mirrorFailure as ENAFASTQDownloadValidator.Failure {
-                            // The portal advertised a file the mirror does not
-                            // hold. Discard the partial pair and fetch the run
-                            // from NCBI via the SRA Toolkit instead.
-                            logger.warning("startENADownloadTask: ENA mirror incomplete for \(record.accession, privacy: .public): \(mirrorFailure.localizedDescription, privacy: .public); falling back to SRA Toolkit")
-                            for stagedURL in fastqURLs {
-                                try? FileManager.default.removeItem(at: batchDir.appendingPathComponent(stagedURL.lastPathComponent))
-                            }
-                            downloadedFASTQFiles = []
-                            enaDownloadSteps = []
-                            downloadedFASTQFiles = try await downloadViaToolkit(
-                                statusDetail: "ENA mirror is missing files for \(record.accession); using SRA Toolkit..."
+                                }
                             )
-                            downloadSource = "SRA Toolkit (ENA mirror incomplete)"
+                        },
+                        toolkit: { statusDetail in
+                            try await downloadViaToolkit(statusDetail: statusDetail)
                         }
-                    } else {
-                        downloadedFASTQFiles = try await downloadViaToolkit(
-                            statusDetail: "ENA FASTQ unavailable for \(record.accession); using SRA Toolkit..."
-                        )
-                        downloadSource = "SRA Toolkit"
-                    }
+                    )
+                    let downloadedFASTQFiles = runDownload.fastqFiles
+                    let enaDownloadSteps = runDownload.enaSteps
+                    let downloadSource = runDownload.source.rawValue
 
                     guard !downloadedFASTQFiles.isEmpty else {
                         throw DatabaseServiceError.invalidQuery(

@@ -36,7 +36,10 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
     func run() async throws {
         let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
-        let trace = SRADownloadTraceCapture(selectedStrategy: useToolkit ? "sra-toolkit" : "ena-direct")
+        let trace = SRADownloadTraceCapture(
+            selectedStrategy: useToolkit ? "sra-toolkit" : "ena-direct",
+            downloadSource: useToolkit ? .sraToolkit : .ena
+        )
 
         let outputURL = URL(fileURLWithPath: outputDir)
 
@@ -86,6 +89,9 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                             let formatter = TerminalFormatter(useColors: useColors)
                             print(formatter.info(message))
                         }
+                    },
+                    onSource: { source in
+                        trace.recordSource(source)
                     },
                     trace: { step in
                         trace.recordStep(step)
@@ -149,6 +155,8 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
             "outputDir": .string(URL(fileURLWithPath: outputDir).standardizedFileURL.path),
             "requestedStrategy": .string(useToolkit ? "sra-toolkit" : "ena-direct"),
             "selectedStrategy": .string(trace.selectedStrategy),
+            // The window's SRA import records the same names.
+            "downloadSource": .string(trace.downloadSource.rawValue),
             "fallbackMessage": trace.fallbackMessage.map { .string($0) } ?? .null,
             "sourceInputs": .array(trace.sourceInputs.map { .string($0) }),
             "executedStepCount": .integer(trace.steps.count),
@@ -240,17 +248,25 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
 private final class SRADownloadTraceCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var _selectedStrategy: String
+    private var _downloadSource: SRAFASTQDownloadSource
     private var _fallbackMessage: String?
     private var _steps: [SRAService.FASTQDownloadStepTrace] = []
 
-    init(selectedStrategy: String) {
+    init(selectedStrategy: String, downloadSource: SRAFASTQDownloadSource) {
         self._selectedStrategy = selectedStrategy
+        self._downloadSource = downloadSource
     }
 
     var selectedStrategy: String {
         lock.lock()
         defer { lock.unlock() }
         return _selectedStrategy
+    }
+
+    var downloadSource: SRAFASTQDownloadSource {
+        lock.lock()
+        defer { lock.unlock() }
+        return _downloadSource
     }
 
     var fallbackMessage: String? {
@@ -276,6 +292,12 @@ private final class SRADownloadTraceCapture: @unchecked Sendable {
         lock.lock()
         _selectedStrategy = "sra-toolkit-fallback"
         _fallbackMessage = message
+        lock.unlock()
+    }
+
+    func recordSource(_ source: SRAFASTQDownloadSource) {
+        lock.lock()
+        _downloadSource = source
         lock.unlock()
     }
 

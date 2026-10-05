@@ -5,6 +5,9 @@
 // Owner: ENA Integration Specialist (Role 13)
 
 import Foundation
+import os.log
+
+private let logger = Logger(subsystem: LogSubsystem.core, category: "ENAService")
 
 // MARK: - ENA Service
 
@@ -295,6 +298,7 @@ public actor ENAService: DatabaseService {
     ///
     /// Failed individual lookups are logged and skipped — they don't abort the batch.
     /// Results are returned in the same order as the input accessions.
+    /// `searchReadsBatchReportingFailures` also says which lookups failed.
     ///
     /// - Parameters:
     ///   - accessions: Array of SRR/ERR/DRR accessions to look up
@@ -306,37 +310,49 @@ public actor ENAService: DatabaseService {
         concurrency: Int = 10,
         progress: @Sendable (Int, Int) -> Void
     ) async throws -> [ENAReadRecord] {
-        guard !accessions.isEmpty else { return [] }
+        try await searchReadsBatchReportingFailures(
+            accessions: accessions,
+            concurrency: concurrency,
+            progress: progress
+        ).records
+    }
+
+    /// Looks up multiple SRA accessions in parallel and reports the lookups
+    /// that failed, so a caller can say that ENA failed instead of showing
+    /// fewer records without a word. A failed lookup is logged and never
+    /// aborts the batch. Only cancellation throws.
+    public func searchReadsBatchReportingFailures(
+        accessions: [String],
+        concurrency: Int = 10,
+        progress: @Sendable (Int, Int) -> Void
+    ) async throws -> ENAReadRunBatch {
+        guard !accessions.isEmpty else {
+            return ENAReadRunBatch(records: [], failedAccessions: [], failure: nil)
+        }
 
         let total = accessions.count
         let counter = BatchCounter()
 
-        return try await withThrowingTaskGroup(of: (Int, [ENAReadRecord]).self) { group in
-            var results = Array<[ENAReadRecord]?>(repeating: nil, count: total)
+        return try await withThrowingTaskGroup(of: (Int, Result<[ENAReadRecord], any Error>).self) { group in
+            var results = Array<[ENAReadRecord]>(repeating: [], count: total)
+            var failures: [Int: any Error] = [:]
             var launched = 0
 
             // Launch initial batch up to concurrency limit
-            for i in 0..<min(concurrency, total) {
-                let accession = accessions[i]
-                let index = i
-                group.addTask {
-                    try Task.checkCancellation()
-                    do {
-                        let records = try await self.searchReads(term: accession, limit: 100)
-                        return (index, records)
-                    } catch {
-                        if Self.isCancellation(error) {
-                            throw error
-                        }
-                        return (index, [])
-                    }
-                }
+            for index in 0..<min(concurrency, total) {
+                let accession = accessions[index]
+                group.addTask { (index, try await self.batchLookup(accession)) }
                 launched += 1
             }
 
             // Collect results and launch more as slots open
-            for try await (index, records) in group {
-                results[index] = records
+            for try await (index, outcome) in group {
+                switch outcome {
+                case .success(let records):
+                    results[index] = records
+                case .failure(let error):
+                    failures[index] = error
+                }
                 let completedCount = await counter.increment()
                 progress(completedCount, total)
 
@@ -344,23 +360,35 @@ public actor ENAService: DatabaseService {
                 if launched < total {
                     let accession = accessions[launched]
                     let nextIndex = launched
-                    group.addTask {
-                        try Task.checkCancellation()
-                        do {
-                            let records = try await self.searchReads(term: accession, limit: 100)
-                            return (nextIndex, records)
-                        } catch {
-                            if Self.isCancellation(error) {
-                                throw error
-                            }
-                            return (nextIndex, [])
-                        }
-                    }
+                    group.addTask { (nextIndex, try await self.batchLookup(accession)) }
                     launched += 1
                 }
             }
 
-            return results.compactMap { $0 }.flatMap { $0 }
+            let failedIndices = failures.keys.sorted()
+            return ENAReadRunBatch(
+                records: results.flatMap { $0 },
+                failedAccessions: failedIndices.map { accessions[$0] },
+                failure: failedIndices.first.flatMap { failures[$0] }.map {
+                    ArchiveRequestFailure(archive: "ENA", error: $0)
+                }
+            )
+        }
+    }
+
+    /// One lookup of a batch. A failure comes back as a value, so the batch
+    /// goes on, and only cancellation throws.
+    private func batchLookup(_ accession: String) async throws -> Result<[ENAReadRecord], any Error> {
+        try Task.checkCancellation()
+        do {
+            return .success(try await searchReads(term: accession, limit: 100))
+        } catch {
+            if Self.isCancellation(error) {
+                throw error
+            }
+            let failure = ArchiveRequestFailure(archive: "ENA", error: error)
+            logger.warning("ENA lookup for \(accession, privacy: .public) failed: \(failure.message, privacy: .public)")
+            return .failure(error)
         }
     }
 
@@ -414,20 +442,43 @@ public actor ENAService: DatabaseService {
         case 200...299:
             return data
         case 400:
-            let body = String(data: data, encoding: .utf8) ?? ""
-            let detail = body.isEmpty ? url.absoluteString : "\(body.prefix(200)) (URL: \(url.absoluteString))"
-            throw DatabaseServiceError.invalidQuery(reason: detail)
+            let excerpt = Self.loggedErrorBodyExcerpt(data, statusCode: 400, url: url)
+            throw DatabaseServiceError.invalidQuery(reason: excerpt.isEmpty ? "HTTP 400" : "HTTP 400: \(excerpt)")
         case 404:
             throw DatabaseServiceError.notFound(accession: url.lastPathComponent)
         case 429:
             throw DatabaseServiceError.rateLimitExceeded
         case 500...599:
-            let body = String(data: data, encoding: .utf8) ?? ""
-            let detail = body.isEmpty ? "HTTP \(httpResponse.statusCode)" : "HTTP \(httpResponse.statusCode): \(body.prefix(200))"
-            throw DatabaseServiceError.serverError(message: detail)
+            let status = httpResponse.statusCode
+            let excerpt = Self.loggedErrorBodyExcerpt(data, statusCode: status, url: url)
+            throw DatabaseServiceError.serverError(message: excerpt.isEmpty ? "HTTP \(status)" : "HTTP \(status): \(excerpt)")
         default:
             throw DatabaseServiceError.invalidResponse(statusCode: httpResponse.statusCode)
         }
+    }
+
+    /// Logs the whole body of an error response and returns the part of it
+    /// that fits a one-line message, which is empty for an HTML page.
+    ///
+    /// ENA's portal API answered every request with an HTML error page on
+    /// 2026-10-04, and the page reached the SRA Runs pane as its error. The
+    /// body now goes to the log, in parts short enough for the unified log to
+    /// keep whole, and the error keeps the status and at most one line.
+    private static func loggedErrorBodyExcerpt(_ data: Data, statusCode: Int, url: URL) -> String {
+        let body = String(decoding: data, as: UTF8.self)
+        let partLength = 800
+        let maxParts = 256
+        let partCount = max(1, (body.count + partLength - 1) / partLength)
+        var remaining = Substring(body)
+        for part in 1...min(partCount, maxParts) {
+            let piece = remaining.prefix(partLength)
+            remaining = remaining.dropFirst(piece.count)
+            logger.error("ENA answered HTTP \(statusCode, privacy: .public) for \(url.absoluteString, privacy: .public), body part \(part, privacy: .public) of \(partCount, privacy: .public): \(String(piece), privacy: .public)")
+        }
+        if partCount > maxParts {
+            logger.error("ENA answered HTTP \(statusCode, privacy: .public) for \(url.absoluteString, privacy: .public), \(partCount - maxParts, privacy: .public) more body part(s) not logged")
+        }
+        return ArchiveRequestFailure.displayLine(body)
     }
 }
 
@@ -599,13 +650,28 @@ public struct ENAReadRecord: Codable, Sendable {
     }
 
     /// HTTPS URLs for FASTQ download (converted from FTP).
+    ///
+    /// ENA reports a run it holds no FASTQ files for with an empty field,
+    /// which yields no URLs rather than a bare "https://".
     public var fastqHTTPURLs: [URL] {
-        guard let ftpPaths = fastqFTP else { return [] }
+        guard let ftpPaths = fastqFTP, !ftpPaths.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
         return ftpPaths.components(separatedBy: ";").compactMap { ftpPath in
             let httpPath = "https://\(ftpPath)"
             return URL(string: httpPath)
         }
     }
+}
+
+// MARK: - ENA Read Run Batch
+
+/// ENA's answers to a batch of read run lookups.
+public struct ENAReadRunBatch: Sendable {
+    /// The records ENA returned, in the order of the accessions asked for.
+    public let records: [ENAReadRecord]
+    /// The accessions whose lookup failed, in the order asked for.
+    public let failedAccessions: [String]
+    /// The first of those failures, or nil when every lookup answered.
+    public let failure: ArchiveRequestFailure?
 }
 
 // MARK: - Batch Counter
