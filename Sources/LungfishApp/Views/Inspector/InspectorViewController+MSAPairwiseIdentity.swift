@@ -34,7 +34,10 @@ extension InspectorViewController {
     private func runMSAPairwiseIdentityExport(bundleURL: URL, model: MSADistanceModel, outputURL: URL) {
         let arguments = CLIMSAActionCommandBuilder.buildDistanceArguments(
             bundleURL: bundleURL,
-            model: model,
+            options: MSADistanceOptions(
+                model: model,
+                alphabet: (try? MSASequenceAlphabet.load(fromBundle: bundleURL)) ?? .nucleotide
+            ),
             outputURL: outputURL
         )
         let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: arguments)
