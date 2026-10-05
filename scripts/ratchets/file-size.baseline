@@ -22,7 +22,7 @@ Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift 1162
 Sources/LungfishApp/ViewModels/SequenceExtractionPipeline.swift 833
 Sources/LungfishApp/Views/AI/AIAssistantPanel.swift 1011
 Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift 1114
-Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 3501
+Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 3392
 Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift 1069
 Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2343
 Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
@@ -175,7 +175,7 @@ Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 954
 Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1155
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
-Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2967
+Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2952
 Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 1487
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
 Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1285
