@@ -59,18 +59,33 @@ final class MSADistanceAXCellActions: NSObject {
     }
 }
 
+/// A matrix row. AppKit hit-tests the grid's rows by their frames, and a
+/// plain element stops there, so this one passes the point on to the cell
+/// under it (review S2). It reads only its own AX children, never grid state,
+/// so it needs no main-actor access.
+final class MSADistanceAXRowElement: NSAccessibilityElement {
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        for case let cell as NSAccessibilityElement in accessibilityChildren() ?? []
+        where NSPointInRect(point, cell.accessibilityFrame()) {
+            return cell
+        }
+        return self
+    }
+}
+
 extension MSADistanceMatrixGridView {
     /// The row element and, with it, every cell of that row.
     func axRowElement(for row: Int) -> NSAccessibilityElement {
         if let cached = axCache.rows[row] { return cached }
         let count = matrix?.displayCount ?? 0
-        let element = NSAccessibilityElement()
+        let element = MSADistanceAXRowElement()
         element.setAccessibilityParent(self)
         element.setAccessibilityRole(.row)
         element.setAccessibilityIndex(row)
         element.setAccessibilityLabel(axRowLabel(row))
+        // AX parent space is unflipped, so row 0 sits at the top edge.
         element.setAccessibilityFrameInParentSpace(
-            NSRect(x: 0, y: CGFloat(row) * cellSide, width: CGFloat(count) * cellSide, height: cellSide)
+            NSRect(x: 0, y: CGFloat(count - 1 - row) * cellSide, width: CGFloat(count) * cellSide, height: cellSide)
         )
         axCache.rows[row] = element
         var children: [Any] = []
@@ -194,6 +209,22 @@ extension MSADistanceMatrixGridView {
 
     public override func accessibilityRowHeaderUIElements() -> [Any]? {
         rowHeaderView?.headerElements
+    }
+
+    /// Whether an assistive client is reading the table. Building a row of
+    /// cell elements per focus move costs time, so it happens only for a
+    /// client (review N4). Tests override it.
+    var hasAccessibilityClient: Bool {
+        accessibilityClientOverride ?? (NSWorkspace.shared.isVoiceOverEnabled || !axCache.rows.isEmpty)
+    }
+
+    /// Tells VoiceOver the focused cell moved. Without a client no cell
+    /// element is built, and the table still posts its selection change.
+    func postFocusedCellChanged() {
+        guard let focus = selection.focus else { return }
+        if hasAccessibilityClient {
+            NSAccessibility.post(element: axCellElement(for: focus), notification: .focusedUIElementChanged)
+        }
     }
 
     public override func accessibilityValue() -> Any? {

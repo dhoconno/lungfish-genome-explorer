@@ -358,6 +358,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     var onSelectionStateChanged: ((MultipleSequenceAlignmentSelectionState?) -> Void)?
     var onExportDistanceMatrixRequested: ((URL, MSADistanceOptions) -> Void)?
     var onFocusedDistancePairChanged: ((MSAFocusedDistancePair?) -> Void)?
+    var onBottomPaneStateChanged: (() -> Void)?
 
     private(set) var alignmentRows: [MSAAlignmentSequence] = []
     private var rowIDsByIndex: [String] = []
@@ -1416,29 +1417,28 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         syncDistanceMatrixSelection(selectedRowIndices)
     }
 
+    func focusAlignment() { view.window?.makeFirstResponder(alignmentMatrixView) }
+    var alignmentKeyView: NSView { alignmentMatrixView }
+
     /// Whole-row selection driven by the distance matrix pane (ruling U7). Rows
     /// are alignment row indices, which equal the pane's record indices because
-    /// both come from the same parse of primary.aligned.fasta. The alignment
-    /// scrolls only when `reveal` is true, and never animates.
-    func focusAlignment() { view.window?.makeFirstResponder(alignmentMatrixView) }
-
+    /// both come from the same parse of primary.aligned.fasta. An empty set
+    /// clears the selection. The alignment scrolls only when `reveal` is true.
     func applyDistanceMatrixRowSelection(_ rows: IndexSet, reveal: Bool) {
         let valid = rows.filteredIndexSet { alignmentRows.indices.contains($0) }
-        guard let first = valid.first else { return }
         selectedRowIndices = valid
-        selectedRowIndex = first
-        rowSelectionAnchor = first
+        selectedRowIndex = valid.first
+        rowSelectionAnchor = valid.first
         isWholeRowSelection = true
         selectedAlignmentColumn = selectedAlignmentColumn ?? displayedColumns.first
         selectedAlignmentColumnRange = nil
         selectionAnchor = nil
         applySelectionToCanvasViews()
-        if reveal, let last = valid.last, let column = selectedAlignmentColumn,
+        if reveal, let first = valid.first, let last = valid.last, let column = selectedAlignmentColumn,
            let top = alignmentMatrixView.rectFor(row: first, alignmentColumn: column),
            let bottom = alignmentMatrixView.rectFor(row: last, alignmentColumn: column) {
             alignmentMatrixView.scrollToVisible(top.union(bottom).insetBy(dx: -40, dy: -16))
         }
-        refreshAnnotationDrawer()
         notifySelectionStateIfAvailable()
     }
 

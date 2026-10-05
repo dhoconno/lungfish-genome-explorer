@@ -81,19 +81,23 @@ struct MSAPairwiseDistanceSection: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    ForEach(Array(model.breakdownRows.enumerated()), id: \.offset) { _, row in
-                        HStack(alignment: .top) {
-                            Text(row.label)
-                                .font(LungfishInspectorStyle.controlFont)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 112, alignment: .trailing)
-                            Text(row.value)
-                                .font(LungfishInspectorStyle.controlFont)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                    // A grid sizes the label column to its widest label, so it
+                    // grows with the text size instead of a fixed width (review N9).
+                    Grid(alignment: .topLeading, horizontalSpacing: 8, verticalSpacing: 4) {
+                        ForEach(Array(model.breakdownRows.enumerated()), id: \.offset) { _, row in
+                            GridRow {
+                                Text(row.label)
+                                    .font(LungfishInspectorStyle.controlFont)
+                                    .foregroundStyle(.secondary)
+                                    .gridColumnAlignment(.trailing)
+                                Text(row.value)
+                                    .font(LungfishInspectorStyle.controlFont)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .accessibilityElement(children: .combine)
                         }
-                        .accessibilityElement(children: .combine)
                     }
                 }
             }

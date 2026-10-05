@@ -48,8 +48,15 @@ final class MSABottomPaneTests: XCTestCase {
         return controller
     }
 
-    private func waitForMatrix(_ controller: MultipleSequenceAlignmentViewController) async {
-        await LungfishTestSupport.waitUntil(timeout: .seconds(20)) { controller.bottomPane.distancePane.model.status == .ready }
+    private func waitForMatrix(
+        _ controller: MultipleSequenceAlignmentViewController,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let ready = await LungfishTestSupport.waitUntil(timeout: .seconds(20)) {
+            controller.bottomPane.distancePane.model.status == .ready
+        }
+        XCTAssertTrue(ready, "the distance matrix never became ready", file: file, line: line)
     }
 
     // MARK: Pane state
@@ -186,7 +193,7 @@ final class MSABottomPaneTests: XCTestCase {
         controller.showDistanceMatrix()
         await waitForMatrix(controller)
         let grid = controller.bottomPane.distancePane.gridView
-        // Click the cell (row 0, column 3) through the grid's own keyboard route.
+        // Select every cell through the grid's own Select All route.
         grid.selectAll(nil)
         XCTAssertEqual(controller.testingSelectedRowIndices, IndexSet(integersIn: 0...3))
         XCTAssertTrue(grid.selection.cells.count == 16, "the alignment echo does not clear the matrix cells")
@@ -230,10 +237,11 @@ final class MSABottomPaneTests: XCTestCase {
         XCTAssertGreaterThan(pair.detail.comparableSites, 0)
     }
 
-    // MARK: Accessibility cost
+    // MARK: Accessibility rows
 
     /// Lane B builds every row and cell element on the first rows query.
-    /// This measures that first query on a 200 x 200 matrix.
+    /// The wall-clock bound was dropped (review N10) because it measured the
+    /// machine's load, not the code.
     func testFirstAccessibilityRowsQueryOnA200RowMatrix() async throws {
         let rows = (0..<200).map { index -> String in
             let bases = Array("ACGT")
@@ -242,14 +250,11 @@ final class MSABottomPaneTests: XCTestCase {
         }.joined()
         let controller = try await controller(bundleURL: try bundle(rows, name: "two-hundred"))
         controller.showDistanceMatrix()
-        await LungfishTestSupport.waitUntil(timeout: .seconds(30)) { controller.bottomPane.distancePane.model.status == .ready }
+        let ready = await LungfishTestSupport.waitUntil(timeout: .seconds(30)) {
+            controller.bottomPane.distancePane.model.status == .ready
+        }
+        XCTAssertTrue(ready)
         let grid = controller.bottomPane.distancePane.gridView
-        let clock = ContinuousClock()
-        var count = 0
-        let elapsed = clock.measure { count = grid.accessibilityRows()?.count ?? 0 }
-        XCTAssertEqual(count, 200)
-        let milliseconds = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1_000
-        print("MSA distance grid first accessibilityRows query, 200 rows: \(Int(milliseconds)) ms")
-        XCTAssertLessThan(milliseconds, 5_000, "a first query this slow would stall VoiceOver")
+        XCTAssertEqual(grid.accessibilityRows()?.count, 200)
     }
 }

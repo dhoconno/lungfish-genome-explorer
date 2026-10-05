@@ -6,6 +6,8 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 import LungfishIO
+@testable import LungfishAlignmentUI
+import LungfishTestSupport
 
 @MainActor
 final class MSADistanceMatrixMenuRoutingTests: XCTestCase {
@@ -41,9 +43,12 @@ final class MSADistanceMatrixMenuRoutingTests: XCTestCase {
         XCTAssertNil(toggle.target)
 
         let submenu = try XCTUnwrap(items.first { $0.identifier?.rawValue == DistanceMatrixMenuID.submenu }?.submenu)
-        XCTAssertEqual(submenu.items.map(\.title), ["Reveal Pair in Alignment", "Copy Matrix", "Export Matrix as TSV\u{2026}"])
+        XCTAssertEqual(submenu.items.map(\.title), [
+            "Reveal Pair in Alignment", "Select Row's Sequences", "Copy Matrix", "Export Matrix as TSV\u{2026}",
+        ])
         XCTAssertEqual(submenu.items.map(\.action), [
             #selector(DistanceMatrixMenuActions.revealPairInAlignment(_:)),
+            #selector(DistanceMatrixMenuActions.selectRowSequences(_:)),
             #selector(DistanceMatrixMenuActions.copyMatrix(_:)),
             #selector(DistanceMatrixMenuActions.exportDistanceMatrix(_:)),
         ])
@@ -96,12 +101,24 @@ final class MSADistanceMatrixMenuRoutingTests: XCTestCase {
         // View > Show Distance Matrix (Control-Command-M).
         XCTAssertEqual(validated(#selector(MainWindowController.toggleDistanceMatrix(_:))).title, "Show Distance Matrix")
         XCTAssertFalse(validated(#selector(MainWindowController.copyMatrix(_:))).enabled, "no matrix on screen yet")
+        XCTAssertFalse(validated(#selector(MainWindowController.selectRowSequences(_:))).enabled)
         windowController.toggleDistanceMatrix(nil)
         XCTAssertTrue(msa.isDistanceMatrixShowing)
         let toggle = validated(#selector(MainWindowController.toggleDistanceMatrix(_:)))
         XCTAssertTrue(toggle.enabled)
         XCTAssertEqual(toggle.title, "Hide Distance Matrix")
         XCTAssertTrue(validated(#selector(MainWindowController.exportDistanceMatrix(_:))).enabled)
+
+        // View > Distance Matrix > Select Row's Sequences, the twin of the
+        // cell and header command (review S4).
+        let ready = await waitUntil(timeout: .seconds(20)) { msa.bottomPane.distancePane.model.status == .ready }
+        XCTAssertTrue(ready)
+        let grid = msa.bottomPane.distancePane.gridView
+        grid.updateSelection { $0.click(MSADistanceCell(row: 2, column: 0)) }
+        XCTAssertTrue(validated(#selector(MainWindowController.selectRowSequences(_:))).enabled)
+        windowController.selectRowSequences(nil)
+        XCTAssertEqual(msa.testingSelectedRowIndices, IndexSet(integer: 2))
+        XCTAssertEqual(grid.selection.selectedSequences, IndexSet(integer: 2))
 
         windowController.toggleDistanceMatrix(nil)
         XCTAssertFalse(msa.isBottomPaneOpen)

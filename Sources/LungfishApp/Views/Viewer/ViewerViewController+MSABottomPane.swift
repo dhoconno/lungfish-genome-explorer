@@ -17,6 +17,12 @@ extension ViewerViewController {
         return isAnnotationDrawerOpen
     }
 
+    /// Keeps the window toolbar drawer button in step when the MSA toolbar,
+    /// the Inspector or a menu route opens or closes the pane (review N5).
+    func syncWindowDrawerToolbarButton() {
+        (view.window?.windowController as? MainWindowController)?.syncDrawerToolbarButton()
+    }
+
     /// Export Matrix as TSV… from the Distances pane or the menu bar (ruling U8).
     func exportMSADistanceMatrixViaCLI(bundleURL: URL, options: MSADistanceOptions) {
         MSADistanceMatrixExportCoordinator.export(

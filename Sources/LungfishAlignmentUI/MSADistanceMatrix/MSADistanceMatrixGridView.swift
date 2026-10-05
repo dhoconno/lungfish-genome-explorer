@@ -42,6 +42,8 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
     public var onReveal: ((MSADistanceCell) -> Void)?
     public var onCopyMatrix: (() -> Void)?
     public var onExport: (() -> Void)?
+    /// Accessibility display options changed. The pane redraws the legend.
+    public var onDisplayOptionsChanged: (() -> Void)?
     /// Whether Export is available even without an on-screen matrix, as in
     /// the too-many-rows state.
     public var isExportAvailable: () -> Bool = { false }
@@ -57,6 +59,8 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
     static let compactCellSide: CGFloat = 12
 
     var axCache = MSADistanceAXCache()
+    /// Forces the assistive-client check in tests. Nil reads the system.
+    var accessibilityClientOverride: Bool?
     private(set) var layoutCount = 0
 
     public init(pasteboard: PasteboardWriting = DefaultPasteboard()) {
@@ -67,6 +71,13 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
         setAccessibilityRole(.table)
         setAccessibilityLabel("Distance matrix")
         relayout()
+        // Registered once here, not on every window attach (review N3).
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(accessibilityDisplayOptionsChanged(_:)),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
     }
 
     @available(*, unavailable)
@@ -159,7 +170,8 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
                     NSColor.quaternarySystemFill.setFill()
                     frame.fill()
                 } else if value.isNaN {
-                    textColor = .secondaryLabelColor
+                    // Full label colour keeps "n/a" above 4.5:1 (review N7).
+                    if !showsValues { Self.drawNotDefinedMark(in: frame) }
                 } else if value == .infinity {
                     drawHatch(in: frame)
                 } else if let fill = colorScale.fill(for: value, appearance: appearanceKind) {
@@ -191,6 +203,16 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
         }
         drawSequenceBands(rows: rows, columns: columns)
         drawSelection(increaseContrast: increaseContrast)
+    }
+
+    /// The outlined square the legend shows for n/a, so a compact cell with no
+    /// comparable sites never differs from an empty cell by colour alone.
+    static func drawNotDefinedMark(in frame: NSRect) {
+        let inset = max(2, floor(frame.width / 5)) + 0.5
+        let path = NSBezierPath(rect: frame.insetBy(dx: inset, dy: inset))
+        path.lineWidth = 1
+        NSColor.secondaryLabelColor.setStroke()
+        path.stroke()
     }
 
     private func drawHatch(in frame: NSRect) {
@@ -246,6 +268,13 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
                 dashed.setLineDash([3, 2], count: 2, phase: 0)
                 NSColor.keyboardFocusIndicatorColor.withAlphaComponent(1).setStroke()
                 dashed.stroke()
+                // Inner white stroke, as on the selected cell, so the dashes
+                // read on dark ramp fills too (review N7).
+                let mirrorInner = NSBezierPath(rect: rect(for: mirror).insetBy(dx: 2.5, dy: 2.5))
+                mirrorInner.lineWidth = 1
+                mirrorInner.setLineDash([3, 2], count: 2, phase: 0)
+                NSColor.white.setStroke()
+                mirrorInner.stroke()
             }
         }
         if let focus = selection.focus, window?.firstResponder === self, !selection.cells.contains(focus) {
@@ -277,9 +306,7 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
         if notify { onSelectionChanged?(selection) }
         if selection.focus != oldFocus {
             onFocusChanged?(selection.focus)
-            if let focus = selection.focus {
-                NSAccessibility.post(element: axCellElement(for: focus), notification: .focusedUIElementChanged)
-            }
+            postFocusedCellChanged()
         }
         NSAccessibility.post(element: self, notification: .selectedCellsChanged)
     }
@@ -465,19 +492,13 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
         needsDisplay = true
     }
 
-    public override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard window != nil else { return }
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(accessibilityDisplayOptionsChanged(_:)),
-            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
-            object: nil
-        )
-    }
-
-    @objc private func accessibilityDisplayOptionsChanged(_ notification: Notification) {
+    /// Increase Contrast and the other display options change the cell
+    /// strokes, the header weight and the legend, so all of them redraw.
+    @objc func accessibilityDisplayOptionsChanged(_ notification: Notification?) {
         relayout()
+        rowHeaderView?.needsDisplay = true
+        columnHeaderView?.needsDisplay = true
+        onDisplayOptionsChanged?()
     }
 
     /// Help tag with the full cell description, so the 4-decimal drawing

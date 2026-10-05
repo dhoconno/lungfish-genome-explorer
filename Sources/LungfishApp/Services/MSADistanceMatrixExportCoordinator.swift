@@ -34,10 +34,13 @@ enum MSADistanceMatrixExportCoordinator {
         panel.nameFieldStringValue = suggestedFileName(bundleURL: bundleURL, options: options)
         panel.allowedContentTypes = [.tabSeparatedText]
         panel.canCreateDirectories = true
-        Task { @MainActor in
-            let response = await panel.beginSheetModal(for: window)
+        // Completion-handler presentation, never an awaited sheet inside a
+        // MainActor task (AppKitConcurrencyModalSafetyTests).
+        panel.beginSheetModal(for: window) { response in
             guard response == .OK, let outputURL = panel.url else { return }
-            run(bundleURL: bundleURL, options: options, outputURL: outputURL, windowStateScope: windowStateScope)
+            Task { @MainActor in
+                run(bundleURL: bundleURL, options: options, outputURL: outputURL, windowStateScope: windowStateScope)
+            }
         }
     }
 
