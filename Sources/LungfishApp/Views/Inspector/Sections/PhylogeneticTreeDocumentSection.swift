@@ -3,6 +3,7 @@ import SwiftUI
 
 enum PhylogeneticTreeDocumentSectionKind: Equatable {
     case header
+    case inference
     case treeSummary
     case warnings
     case sourceArtifacts
@@ -20,9 +21,12 @@ struct PhylogeneticTreeDocumentState: Equatable {
     let contextRows: [(String, String)]
     let warningRows: [String]
     let artifactRows: [PhylogeneticTreeDocumentArtifactRow]
+    /// Shown as the Inference section only when the tree was inferred in LGE (V2).
+    var inferenceRows: [(String, String)] = []
+    var inferenceArtifactRows: [PhylogeneticTreeDocumentArtifactRow] = []
 
     var visibleSectionOrder: [PhylogeneticTreeDocumentSectionKind] {
-        [.header, .treeSummary, .warnings, .sourceArtifacts]
+        (inferenceRows.isEmpty ? [.header] : [.header, .inference]) + [.treeSummary, .warnings, .sourceArtifacts]
     }
 
     static func == (
@@ -34,7 +38,9 @@ struct PhylogeneticTreeDocumentState: Equatable {
             lhs.summary == rhs.summary &&
             lhs.contextRows.elementsEqual(rhs.contextRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.warningRows == rhs.warningRows &&
-            lhs.artifactRows == rhs.artifactRows
+            lhs.artifactRows == rhs.artifactRows &&
+            lhs.inferenceRows.elementsEqual(rhs.inferenceRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
+            lhs.inferenceArtifactRows == rhs.inferenceArtifactRows
     }
 }
 
@@ -50,6 +56,11 @@ struct PhylogeneticTreeDocumentSection: View {
             header
 
             Divider()
+
+            if !state.inferenceRows.isEmpty {
+                PhylogeneticTreeInferenceSection(rows: state.inferenceRows, artifactRows: state.inferenceArtifactRows)
+                Divider()
+            }
 
             summarySection
 
@@ -121,7 +132,7 @@ struct PhylogeneticTreeDocumentSection: View {
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(state.artifactRows.enumerated()), id: \.offset) { _, row in
-                        artifactRow(row)
+                        PhylogeneticTreeArtifactRowView(row: row)
                     }
                 }
                 .padding(.top, 4)
@@ -141,40 +152,6 @@ struct PhylogeneticTreeDocumentSection: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    @ViewBuilder
-    private func artifactRow(_ row: PhylogeneticTreeDocumentArtifactRow) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if let fileURL = row.fileURL, FileManager.default.fileExists(atPath: fileURL.path) {
-                Button(row.label) {
-                    NSWorkspace.shared.activateFileViewerSelecting([fileURL])
-                }
-                .buttonStyle(.link)
-                .font(LungfishInspectorStyle.controlFont)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .help("Reveal in Finder")
-                pathCaption(fileURL.path)
-            } else {
-                Text(row.label)
-                    .font(LungfishInspectorStyle.controlFont)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if let fileURL = row.fileURL {
-                    pathCaption(fileURL.path)
-                } else {
-                    pathCaption("Missing")
-                }
-            }
-        }
-    }
-
-    private func pathCaption(_ text: String) -> some View {
-        Text(text)
-            .font(LungfishInspectorStyle.controlFont)
-            .foregroundStyle(.tertiary)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func emptyMessage(_ text: String) -> some View {
