@@ -535,7 +535,7 @@ func writeTreeAlignedFASTA(records: [TreeAlignedFASTARecord], to url: URL) throw
     try text.write(to: url, atomically: true, encoding: .utf8)
 }
 
-private func parseTreeColumnRanges(_ value: String?, alignedLength: Int) throws -> [ClosedRange<Int>] {
+func parseTreeColumnRanges(_ value: String?, alignedLength: Int) throws -> [ClosedRange<Int>] {
     guard let value, value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
         return []
     }
