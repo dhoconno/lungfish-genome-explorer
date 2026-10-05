@@ -5,6 +5,9 @@
 // Owner: ENA Integration Specialist (Role 13)
 
 import Foundation
+import os.log
+
+private let logger = Logger(subsystem: LogSubsystem.core, category: "ENAService")
 
 // MARK: - ENA Service
 
@@ -414,20 +417,43 @@ public actor ENAService: DatabaseService {
         case 200...299:
             return data
         case 400:
-            let body = String(data: data, encoding: .utf8) ?? ""
-            let detail = body.isEmpty ? url.absoluteString : "\(body.prefix(200)) (URL: \(url.absoluteString))"
-            throw DatabaseServiceError.invalidQuery(reason: detail)
+            let excerpt = Self.loggedErrorBodyExcerpt(data, statusCode: 400, url: url)
+            throw DatabaseServiceError.invalidQuery(reason: excerpt.isEmpty ? "HTTP 400" : "HTTP 400: \(excerpt)")
         case 404:
             throw DatabaseServiceError.notFound(accession: url.lastPathComponent)
         case 429:
             throw DatabaseServiceError.rateLimitExceeded
         case 500...599:
-            let body = String(data: data, encoding: .utf8) ?? ""
-            let detail = body.isEmpty ? "HTTP \(httpResponse.statusCode)" : "HTTP \(httpResponse.statusCode): \(body.prefix(200))"
-            throw DatabaseServiceError.serverError(message: detail)
+            let status = httpResponse.statusCode
+            let excerpt = Self.loggedErrorBodyExcerpt(data, statusCode: status, url: url)
+            throw DatabaseServiceError.serverError(message: excerpt.isEmpty ? "HTTP \(status)" : "HTTP \(status): \(excerpt)")
         default:
             throw DatabaseServiceError.invalidResponse(statusCode: httpResponse.statusCode)
         }
+    }
+
+    /// Logs the whole body of an error response and returns the part of it
+    /// that fits a one-line message, which is empty for an HTML page.
+    ///
+    /// ENA's portal API answered every request with an HTML error page on
+    /// 2026-10-04, and the page reached the SRA Runs pane as its error. The
+    /// body now goes to the log, in parts short enough for the unified log to
+    /// keep whole, and the error keeps the status and at most one line.
+    private static func loggedErrorBodyExcerpt(_ data: Data, statusCode: Int, url: URL) -> String {
+        let body = String(decoding: data, as: UTF8.self)
+        let partLength = 800
+        let maxParts = 256
+        let partCount = max(1, (body.count + partLength - 1) / partLength)
+        var remaining = Substring(body)
+        for part in 1...min(partCount, maxParts) {
+            let piece = remaining.prefix(partLength)
+            remaining = remaining.dropFirst(piece.count)
+            logger.error("ENA answered HTTP \(statusCode, privacy: .public) for \(url.absoluteString, privacy: .public), body part \(part, privacy: .public) of \(partCount, privacy: .public): \(String(piece), privacy: .public)")
+        }
+        if partCount > maxParts {
+            logger.error("ENA answered HTTP \(statusCode, privacy: .public) for \(url.absoluteString, privacy: .public), \(partCount - maxParts, privacy: .public) more body part(s) not logged")
+        }
+        return ArchiveRequestFailure.displayLine(body)
     }
 }
 
