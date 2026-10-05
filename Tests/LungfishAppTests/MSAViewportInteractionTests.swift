@@ -390,17 +390,37 @@ final class MSAViewportInteractionTests: XCTestCase {
         XCTAssertEqual(controller.testingSelectedRowName, "2 rows")
     }
 
-    func testGutterResizeRefitsAlignmentAndSelectingOneRowNeverInfersAllRows() async throws {
+    func testGutterResizeRefitsAlignment() async throws {
         let controller = try await controller(columns: 1000)
         controller.view.frame.size.width = 1500
         controller.view.layoutSubtreeIfNeeded()
         controller.testingSetGutterWidth(400)
         controller.view.layoutSubtreeIfNeeded()
         XCTAssertEqual(controller.testingAlignmentColumnWidth * 1000, controller.testingEffectiveVisibleMatrixWidth - 8, accuracy: 1)
-        var inferred = false
-        controller.onInferTreeRequested = { _ in inferred = true }
+    }
+
+    func testBuildTreeIsAvailableWithAnySelectionOnceABundleIsLoaded() async throws {
+        let controller = try await controller()
+        XCTAssertTrue(controller.testingBuildTreeContextItemEnabled)
+        var requests: [MultipleSequenceAlignmentTreeInferenceRequest] = []
+        controller.onInferTreeRequested = { requests.append($0) }
+        controller.testingSelectBlock(rowRange: 0...0, displayedColumnRange: 1...2)
+        XCTAssertTrue(controller.testingBuildTreeContextItemEnabled, "one row, the dialog validates scope")
         controller.testingInferTreeFromAlignment()
-        XCTAssertFalse(inferred)
+        XCTAssertEqual(requests.count, 1, "the two-row guard is gone")
+        XCTAssertEqual(requests.first?.rows?.split(separator: ",").count, 1)
+    }
+
+    func testMatrixAndGutterOfferBuildTreeAccessibilityActionWhileABundleIsLoaded() async throws {
+        let controller = try await controller()
+        let names = controller.testingTreeAccessibilityActionNames
+        XCTAssertEqual(names.matrix, ["Build Tree with IQ-TREE\u{2026}"])
+        XCTAssertEqual(names.gutter, ["Build Tree with IQ-TREE\u{2026}"])
+
+        var requested = 0
+        controller.onInferTreeRequested = { _ in requested += 1 }
+        XCTAssertTrue(controller.testingPerformMatrixTreeAccessibilityAction())
+        XCTAssertEqual(requested, 1)
     }
 
 }

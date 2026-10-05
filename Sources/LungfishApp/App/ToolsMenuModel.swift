@@ -104,7 +104,7 @@ extension FASTQOperationCategoryID {
         case .decontamination: return "Decontamination"
         case .readProcessing: return "Read Processing"
         case .searchSubsetting: return "Search & Subsetting"
-        case .alignment: return "Multiple Sequence Alignment"
+        case .alignment: return "Alignment & Phylogenetics"
         case .mapping: return "Mapping"
         case .assembly: return "Assembly"
         case .clustering: return "Clustering"

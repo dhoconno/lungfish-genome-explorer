@@ -2512,6 +2512,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return canShowBAMVariantCalling(bundle: bundle)
         }
 
+        if menuItem.action == #selector(showIQTreeInference(_:)) {
+            let enabled = treeInferenceRequest(in: activeMainWindowController()) != nil
+            menuItem.toolTip = enabled ? nil : Self.treeInferenceDisabledToolTip
+            return enabled
+        }
+
         if menuItem.action == #selector(showHaplotypeDefinitions(_:)) {
             let enabled = WorkflowFeatureAvailability.current().hasHaplotypeDefinitions
             menuItem.isHidden = !enabled
