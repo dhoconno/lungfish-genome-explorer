@@ -129,7 +129,9 @@ public struct KrakenResultReadSources: Sendable, Equatable {
     /// named, else the bundle a legacy result sits in, else its input files.
     /// A file the run wrote into its `.lungfish-classify-inputs` folder is
     /// never one of them. A pair of loose files adds the files of single
-    /// reads named beside it with `--unpaired`.
+    /// reads named beside it with `--unpaired`. A file named inside a bundle
+    /// gives that bundle when the run planned the bundle's read set and read
+    /// its other files too, as `--read-format auto` does (final review S3).
     public static func recordedInputs(of result: ClassificationResult) throws -> [URL] {
         let config = result.config
         let fileManager = FileManager.default
@@ -145,7 +147,7 @@ public struct KrakenResultReadSources: Sendable, Equatable {
         }
         let named: [URL]
         if let originals = durable(config.originalInputFiles ?? []) {
-            named = originals
+            named = originals.map { plannedBundle(holding: $0, config: config, scratchPrefix: scratchPrefix) ?? $0 }
         } else if let bundle = legacyEnclosingBundle(of: config) {
             return [bundle]
         } else if let inputs = durable(config.inputFiles) {
@@ -158,6 +160,20 @@ public struct KrakenResultReadSources: Sendable, Equatable {
             fileManager.fileExists(atPath: $0.path) && !$0.path.hasPrefix(scratchPrefix) && !named.contains($0)
         }
         return named + singles
+    }
+
+    /// The bundle that holds `file` when the run planned the read set of that
+    /// bundle and read other files of it too. `--read-format auto` plans the
+    /// bundle that holds a named file (``ReadSetResolver``), so a merged file
+    /// named inside a merge derivative ran with the derivative's pairs.
+    private static func plannedBundle(holding file: URL, config: ClassificationConfig, scratchPrefix: String) -> URL? {
+        guard config.plansReadSet, !FASTQBundle.isBundleURL(file),
+              let bundle = SequenceInputResolver.enclosingFASTQBundleURL(for: file)?.standardizedFileURL else { return nil }
+        let bundlePrefix = bundle.path + "/"
+        let runFiles = (config.inputFiles + config.singleReadFiles).map(\.standardizedFileURL)
+        return runFiles.contains {
+            $0 != file && $0.path.hasPrefix(bundlePrefix) && !$0.path.hasPrefix(scratchPrefix)
+        } ? bundle : nil
     }
 
     /// The bundle a result written before `originalInputFiles` existed sits
