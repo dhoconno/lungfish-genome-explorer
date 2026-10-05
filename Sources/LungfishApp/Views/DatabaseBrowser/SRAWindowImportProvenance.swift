@@ -14,6 +14,11 @@ import LungfishWorkflow
 /// path, because the default can run `swift build --show-bin-path`, which
 /// waits on the build lock `swift test` holds.
 ///
+/// `fallbackMessage` is the line the row logged when the run fell back to
+/// the other archive, recorded under `fallbackMessage` beside the
+/// `requestedStrategy` and `selectedStrategy` names `fetch sra download`
+/// records.
+///
 /// `stagedReadCounts` gives the reads each staged file held for a run that
 /// imported unpaired reads beside its pairs, recorded under
 /// `stagingInputReadCounts`. Any other run passes nil and records nothing new.
@@ -23,6 +28,7 @@ func writeGUISRAFASTQImportProvenance(
     downloadSource: String,
     preferredSource: SRADownloadSourcePreference = .ena,
     layoutWarning: String? = nil,
+    fallbackMessage: String? = nil,
     enaDownloadSteps: [StepExecution],
     toolkitDownloadTraces: [SRAService.FASTQDownloadStepTrace],
     cliArguments: [String],
@@ -40,6 +46,11 @@ func writeGUISRAFASTQImportProvenance(
     cliBinaryPath: () -> URL? = { CLIImportRunner.cliBinaryPath() }
 ) throws {
     let existingCLIProvenance = ProvenanceRecorder.load(from: bundleURL)
+    let source = SRAFASTQDownloadSource(rawValue: downloadSource)
+    // The toolkit's steps belong to a failed attempt when ENA served the run
+    // after it. They stay recorded, marked failed, and the import does not
+    // depend on them.
+    let toolkitAttemptFailed = source.map { !$0.usesSRAToolkit } ?? false
     var steps = enaDownloadSteps
 
     steps.append(contentsOf: toolkitDownloadTraces.map { trace in
@@ -47,6 +58,7 @@ func writeGUISRAFASTQImportProvenance(
             toolName: trace.toolName,
             toolVersion: trace.toolVersion,
             command: trace.command,
+            resolvedOptions: toolkitAttemptFailed ? ["attempt": .string("failed")] : nil,
             inputs: trace.inputs.map {
                 FileRecord(path: $0, format: sraGUIInputFormat(for: $0), role: .input)
             },
@@ -60,6 +72,11 @@ func writeGUISRAFASTQImportProvenance(
             endTime: trace.completedAt
         )
     })
+    // Stable, so steps that started together keep their order.
+    steps = steps.enumerated()
+        .sorted { ($0.element.startTime, $0.offset) < ($1.element.startTime, $1.offset) }
+        .map(\.element)
+    let servingStepIDs = steps.filter { $0.resolvedOptions?["attempt"] != .string("failed") }.map(\.id)
 
     if let existingCLIProvenance {
         steps.append(contentsOf: existingCLIProvenance.steps)
@@ -78,7 +95,7 @@ func writeGUISRAFASTQImportProvenance(
                 exitCode: 0,
                 wallTime: cliCompletedAt.timeIntervalSince(cliStartedAt),
                 stderr: nil,
-                dependsOn: steps.map(\.id),
+                dependsOn: servingStepIDs,
                 startTime: cliStartedAt,
                 endTime: cliCompletedAt
             )
@@ -92,6 +109,10 @@ func writeGUISRAFASTQImportProvenance(
         // The window's "Download source" setting. The window records `import
         // fastq`, not `fetch sra download`, so the choice is kept here.
         "preferredSource": .string(preferredSource.rawValue),
+        // The strategy names `fetch sra download` records.
+        "requestedStrategy": .string(preferredSource == .ncbi ? "sra-toolkit-first" : "ena-direct"),
+        "selectedStrategy": .string(sraGUISelectedStrategy(preferredSource: preferredSource, source: source)),
+        "fallbackMessage": fallbackMessage.map { .string($0) } ?? .null,
         "enaFastqURLs": .array((readRecord?.fastqHTTPURLs ?? []).map { .string($0.absoluteString) }),
         "cliCommand": .string(CLIImportRunner.commandLine(arguments: cliArguments)),
         "platform": .string(platform),
@@ -134,6 +155,20 @@ func writeGUISRAFASTQImportProvenance(
     )
 
     try run.writeSidecar(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+}
+
+/// The strategy that served the run, in the names `fetch sra download`
+/// records under `selectedStrategy`.
+private func sraGUISelectedStrategy(
+    preferredSource: SRADownloadSourcePreference,
+    source: SRAFASTQDownloadSource?
+) -> String {
+    switch preferredSource {
+    case .ena:
+        return source == nil || source == .ena ? "ena-direct" : "sra-toolkit-fallback"
+    case .ncbi:
+        return source == nil || source == .sraToolkit ? "sra-toolkit" : "ena-fallback"
+    }
 }
 
 private func sraGUIInputFormat(for path: String) -> FileFormat? {
