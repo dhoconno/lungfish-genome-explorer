@@ -114,11 +114,17 @@ final class SRADownloadPreferSourceTests: XCTestCase {
         XCTAssertTrue(argv.contains("--use-toolkit"))
         XCTAssertFalse(argv.contains("--prefer-source"))
 
-        // Without the toolkit it fails rather than falling back to ENA.
+        // Without the toolkit it fails rather than falling back to ENA, with
+        // the toolkit's own error and no request to ENA's mirror.
+        let client = PreferSourceENAClient(portal: .listsFiles, run: Self.run)
         do {
-            _ = try await download(["--use-toolkit"], portal: .listsFiles, toolkit: .missing)
+            _ = try await download(["--use-toolkit"], client: client, toolkit: .missing)
             XCTFail("--use-toolkit must not fall back")
-        } catch {}
+        } catch CLIError.networkError(let reason) {
+            XCTAssertEqual(reason, SRAError.toolkitNotFound.localizedDescription)
+        }
+        let mirrorRequests = await client.mirrorRequests
+        XCTAssertEqual(mirrorRequests, 0, "--use-toolkit never asks ENA's mirror")
     }
 
     // MARK: - Helpers
@@ -134,8 +140,11 @@ final class SRADownloadPreferSourceTests: XCTestCase {
     }
 
     private func download(_ flags: [String], portal: PreferSourcePortal, toolkit: Toolkit) async throws -> DownloadRun {
+        try await download(flags, client: PreferSourceENAClient(portal: portal, run: Self.run), toolkit: toolkit)
+    }
+
+    private func download(_ flags: [String], client: PreferSourceENAClient, toolkit: Toolkit) async throws -> DownloadRun {
         let folder = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let client = PreferSourceENAClient(portal: portal, run: Self.run)
         let emptyHome = root.appendingPathComponent("home-\(UUID().uuidString)", isDirectory: true)
         let runner: SRAToolkitRunner? = toolkit == .recorded ? SRAToolkitRecordedRunner(testFile: #filePath).runner : nil
         let service = SRAService(
