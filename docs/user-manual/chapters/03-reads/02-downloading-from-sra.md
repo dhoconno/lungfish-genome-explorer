@@ -133,7 +133,7 @@ These are the controls on the SRA Runs pane. Six sit in the Advanced Search Filt
 
 Three places carry numbers worth reading, the results list, the Operations Panel row, and the Inspector for the bundle that lands.
 
-Each row in the results list shows the run accession, the run's sequence length in bases at the right of the same line, and the run title and organism beneath. The list has no column headers and cannot be sorted, so the filters are how you narrow a long result.
+Each row in the results list shows the run accession, the run's sequence length in bases at the right of the same line, and the run title and organism beneath. The list has no column headers and cannot be sorted, so the filters are how you narrow a long result. When ENA cannot answer a search, the list shows NCBI's record of each run, and the status line at the bottom of the dialog says so, for example "ENA returned HTTP 500 (server error). Results from NCBI are shown."
 
 The Operations Panel row's detail line names each stage as it happens, from "Downloading SRR36291587 (1/1)" through "Fetching FASTQ URLs for SRR36291587..." to the import. If ENA cannot serve a usable copy, the line changes to one naming the SRA Toolkit, which the next section explains. A batch in which some runs fail ends with a line counting the downloads that completed and the ones that failed. A failed run turns its row red, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it.
 
@@ -201,7 +201,7 @@ lungfish-cli import fastq \
   --project "$PROJECT" --platform illumina
 ```
 
-Two differences change what you get. `fetch sra download` writes loose files, `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`, plus one provenance sidecar named `.lungfish-provenance.json` in the output folder, and only `import fastq` turns them into a bundle. And `--limit` defaults to 20 where the window's Max Results defaults to 50. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The command it copies covers the download only, so add the `import fastq` step yourself.
+Two differences change what you get. `fetch sra download` writes loose files, `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`, plus one provenance sidecar named `.lungfish-provenance.json` in the output folder, and only `import fastq` turns them into a bundle. And `--limit` defaults to 20 where the window's Max Results defaults to 50. An SRA download row in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) records no command, so its menu has no Copy CLI Command item, because no single command both downloads a run and imports it with the settings from the import sheet. Use the `fetch sra download` and `import fastq` steps above instead.
 
 ## Next
 
