@@ -11,7 +11,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 609 | 234009 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 610 | 234094 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1996 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 211 | 62255 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
@@ -34,7 +34,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1562 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | 634 | 165284 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 635 | 165393 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 35 | 18863 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 6 | 5531 | LungfishApp, LungfishKitTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
@@ -107,7 +107,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 609, lines 234009
+- Swift files. 610, lines 234094
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -124,12 +124,12 @@ None.
 | Support | 2 | 94 |
 | UITestSupport | 4 | 485 |
 | ViewModels | 4 | 2397 |
-| Views | 392 | 172483 |
+| Views | 393 | 172568 |
 | Views/AI | 1 | 1011 |
 | Views/Assembly | 5 | 2077 |
 | Views/BAM | 12 | 1580 |
 | Views/Components | 2 | 242 |
-| Views/DatabaseBrowser | 18 | 6141 |
+| Views/DatabaseBrowser | 19 | 6226 |
 | Views/DemoProjects | 4 | 937 |
 | Views/Dependencies | 3 | 892 |
 | Views/Extraction | 1 | 229 |
@@ -207,7 +207,7 @@ None.
 - `CoordinateRulerView` class, `Sources/LungfishApp/Views/Viewer/CoordinateRulerView.swift:18`
 - `CzIdResultViewController` class, `Sources/LungfishApp/Views/Metagenomics/CzIdResultViewController.swift:10`
 - `DatabaseBrowserViewController` class, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:195`
-- `DatabaseBrowserViewModel` class, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:589`
+- `DatabaseBrowserViewModel` class, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:588`
 - `DebugDependencySharing` enum, `Sources/LungfishApp/App/DebugDependencySharing.swift:11`
 - `DebugRelocationSmoke` enum, `Sources/LungfishApp/App/DebugRelocationSmoke.swift:5`
 - `DetectedFormat` struct, `Sources/LungfishApp/Services/ImportService.swift:15`
@@ -268,11 +268,11 @@ None.
 - `MetagenomicsImportHelper` enum, `Sources/LungfishApp/App/MetagenomicsImportHelper.swift:11`
 - `MetagenomicsImportHelperClient` enum, `Sources/LungfishApp/Services/MetagenomicsImportHelperClient.swift:37`
 - `MetagenomicsImportHelperClientError` enum, `Sources/LungfishApp/Services/MetagenomicsImportHelperClient.swift:10`
-- `MoleculeTypeFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:385`
+- `MoleculeTypeFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:384`
 - `MultiSequenceState` class, `Sources/LungfishApp/Views/Viewer/MultiSequenceSupport.swift:252`
 - `ONTImportOperationCoordinator` class, `Sources/LungfishApp/Services/ONTImportOperationCoordinator.swift:12`
 - `PackedReadLayout` struct, `Sources/LungfishApp/Views/Viewer/ReadTrackLayoutCache.swift:244`
-- `PathoplexusINSDCFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:466`
+- `PathoplexusINSDCFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:465`
 - `PluginManagerWindowController` class, `Sources/LungfishApp/Views/PluginManager/PluginManagerWindowController.swift:30`
 - `ProgramRecordEntry` struct, `Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift:1076`
 - `ProgressOverlayView` class, `Sources/LungfishApp/Views/Viewer/ProgressOverlayView.swift:13`
@@ -313,12 +313,12 @@ None.
 - `SampleFilterState` struct, `Sources/LungfishApp/Views/Metagenomics/SampleFilterDrawerTab.swift:17`
 - `SampleSection` struct, `Sources/LungfishApp/Views/Inspector/Sections/SampleSection.swift:317`
 - `SampleSectionViewModel` class, `Sources/LungfishApp/Views/Inspector/Sections/SampleSection.swift:17`
-- `SearchPhase` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:332`
-- `SearchScope` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:294`
+- `SearchPhase` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:331`
+- `SearchScope` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:293`
 - `SelectionSection` struct, `Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift:814`
 - `SelectionSectionViewModel` class, `Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift:56`
 - `SequenceExtractionPipeline` class, `Sources/LungfishApp/ViewModels/SequenceExtractionPipeline.swift:18`
-- `SequencePropertyFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:413`
+- `SequencePropertyFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:412`
 - `SequenceStackLayout` struct, `Sources/LungfishApp/Views/Viewer/MultiSequenceSupport.swift:144`
 - `SequenceViewerView` class, `Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift:53`
 - `SettingsWindowController` class, `Sources/LungfishApp/Views/Settings/SettingsWindowController.swift:39`
@@ -331,9 +331,9 @@ None.
 - `SidebarSelectionDelegate` protocol, `Sources/LungfishApp/Views/Sidebar/SidebarSelectionDelegate.swift:41`
 - `SidebarSelectionTransition` enum, `Sources/LungfishApp/Views/Sidebar/SidebarSelectionDelegate.swift:9`
 - `SidebarViewController` class, `Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift:64`
-- `SRALayoutFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:513`
-- `SRAPlatformFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:477`
-- `SRAStrategyFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:496`
+- `SRALayoutFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:512`
+- `SRAPlatformFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:476`
+- `SRAStrategyFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:495`
 - `StackedSequenceInfo` struct, `Sources/LungfishApp/Views/Viewer/MultiSequenceSupport.swift:30`
 - `SuggestedQuery` struct, `Sources/LungfishApp/Services/AI/AIAssistantService.swift:896`
 - `SunburstLayout` struct, `Sources/LungfishApp/Views/Metagenomics/SunburstGeometry.swift:177`
@@ -361,7 +361,7 @@ None.
 - `VCFImportHelper` enum, `Sources/LungfishApp/App/VCFImportHelper.swift:18`
 - `ViewerStatusBar` class, `Sources/LungfishApp/Views/Viewer/ViewerStatusBar.swift:10`
 - `ViewerViewController` class, `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift:51`
-- `VirusCompletenessFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:448`
+- `VirusCompletenessFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift:447`
 - `WelcomeWindowController` class, `Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift:1683`
 - `WorkflowFeatureAvailability` struct, `Sources/LungfishApp/Services/WorkflowLibrary.swift:72`
 - `WorkflowLibraryWindowController` class, `Sources/LungfishApp/Views/WorkflowLibrary/WorkflowLibraryWindowController.swift:9`
