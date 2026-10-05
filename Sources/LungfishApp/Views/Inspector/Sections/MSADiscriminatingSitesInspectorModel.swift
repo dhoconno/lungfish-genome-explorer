@@ -103,6 +103,9 @@ final class MSADiscriminatingSitesInspectorModel {
     /// Project reference bundles offered in the exclusion picker.
     private(set) var projectExclusionOptions: [ExclusionFileOption]
 
+    /// Whether the section is open. It lives here, not in view state, so it
+    /// survives the Inspector leaving the Bundle tab and coming back.
+    var isExpanded = false
     var rolesByRowID: [String: RowRole] = [:]
     var exclusionSource: ExclusionSource = .rows {
         didSet { if oldValue != exclusionSource { discardResult() } }
