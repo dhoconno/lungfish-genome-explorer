@@ -182,6 +182,8 @@ public actor CLIImportRunner {
     /// - Parameters:
     ///   - r1: Forward reads file URL.
     ///   - r2: Optional reverse reads file URL (paired-end).
+    ///   - unpaired: Optional file of the pair's reads whose mate is missing,
+    ///     which the CLI imports with the pair as one sample.
     ///   - projectDirectory: The project directory to import into.
     ///   - platform: Sequencing platform name (e.g. "illumina", "nanopore").
     ///   - recipeName: Optional recipe name (e.g. "vsp2").
@@ -195,6 +197,7 @@ public actor CLIImportRunner {
     public static func buildCLIArguments(
         r1: URL,
         r2: URL?,
+        unpaired: URL? = nil,
         projectDirectory: URL,
         platform: String,
         recipeName: String?,
@@ -210,6 +213,9 @@ public actor CLIImportRunner {
 
         if let r2 {
             args.append(r2.path)
+        }
+        if let unpaired {
+            args.append(unpaired.path)
         }
 
         args += ["--project", projectDirectory.path]

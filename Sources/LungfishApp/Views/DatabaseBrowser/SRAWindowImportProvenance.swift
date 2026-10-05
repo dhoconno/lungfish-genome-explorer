@@ -9,6 +9,10 @@ import LungfishWorkflow
 
 /// Writes the provenance of one SRA run the window downloaded and imported.
 /// Internal, not private, so tests can read what it records.
+///
+/// `stagedReadCounts` gives the reads each staged file held for a run that
+/// imported unpaired reads beside its pairs, recorded under
+/// `stagingInputReadCounts`. Any other run passes nil and records nothing new.
 func writeGUISRAFASTQImportProvenance(
     accession: String,
     readRecord: ENAReadRecord?,
@@ -19,6 +23,7 @@ func writeGUISRAFASTQImportProvenance(
     cliStartedAt: Date,
     cliCompletedAt: Date,
     stagedFASTQFiles: [URL],
+    stagedReadCounts: [URL: Int]? = nil,
     finalFASTQURL: URL,
     bundleURL: URL,
     platform: String,
@@ -93,6 +98,12 @@ func writeGUISRAFASTQImportProvenance(
         "finalBundlePath": .string(bundleURL.standardizedFileURL.path),
         "finalFASTQPath": .string(finalFASTQURL.standardizedFileURL.path)
     ]
+    if let stagedReadCounts {
+        parameters["stagingInputReadCounts"] = .dictionary(Dictionary(
+            stagedReadCounts.map { ($0.key.standardizedFileURL.path, ParameterValue.integer($0.value)) },
+            uniquingKeysWith: { first, _ in first }
+        ))
+    }
     if let existingCLIProvenance {
         parameters["preservedCLIProvenanceID"] = .string(existingCLIProvenance.id.uuidString)
         parameters["preservedCLIWorkflowName"] = .string(existingCLIProvenance.name)

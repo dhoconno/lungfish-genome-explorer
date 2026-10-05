@@ -2786,16 +2786,19 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// honoured here too; before 2026-09-24 this path dropped the clumping
     /// tool and always ran the platform default. The pairing choice applies
     /// when the run downloaded a single file (single-end versus interleaved);
-    /// a run that arrived as R1/R2 imports as one paired sample.
+    /// a run that arrived as R1/R2 imports as one paired sample, with the
+    /// file of reads whose mate is missing when the run has one.
     nonisolated static func sraImportCLIArguments(
         importConfig: FASTQImportConfiguration,
         r1: URL,
         r2: URL?,
+        unpaired: URL? = nil,
         projectDirectory: URL
     ) -> [String] {
         CLIImportRunner.buildCLIArguments(
             r1: r1,
             r2: r2,
+            unpaired: unpaired,
             projectDirectory: projectDirectory,
             platform: importConfig.cliPlatformValue,
             recipeName: FASTQIngestionService.resolvedRecipeName(for: importConfig),
@@ -2945,9 +2948,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     let enaDownloadSteps = staged.download.enaSteps
                     let downloadSource = staged.download.source.rawValue
 
-                    // 3. Mates 1 and 2 import as a pair, never as one mate
-                    let r1URL = staged.reads.r1
-                    let r2URL = staged.reads.r2
+                    // 3. Mates 1 and 2 import as a pair, never as one mate,
+                    // with the run's reads whose mate is missing beside them
+                    let reads = staged.reads
 
                     // 4. Run CLI import pipeline
                     performOnMainRunLoop {
@@ -2964,8 +2967,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     let args = Self.sraImportCLIArguments(
                         importConfig: importConfig,
-                        r1: r1URL,
-                        r2: r2URL,
+                        r1: reads.r1,
+                        r2: reads.r2,
+                        unpaired: reads.unpaired,
                         projectDirectory: projectDirectory
                     )
 
@@ -3026,7 +3030,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             cliArguments: args,
                             cliStartedAt: cliStartedAt,
                             cliCompletedAt: cliCompletedAt,
-                            stagedFASTQFiles: staged.reads.files,
+                            stagedFASTQFiles: reads.files,
+                            stagedReadCounts: reads.readCounts(in: metadata.readClassification),
                             finalFASTQURL: fastqURL,
                             bundleURL: bundleURL,
                             platform: platformStr,
