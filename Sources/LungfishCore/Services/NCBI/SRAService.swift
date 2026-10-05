@@ -316,7 +316,9 @@ public actor SRAService {
     ///   - accession: SRA run accession (e.g., SRR11140748)
     ///   - outputDir: Directory for output files (defaults to temp)
     ///   - progress: Optional progress callback (0.0-1.0)
-    /// - Returns: URLs to downloaded FASTQ files
+    /// - Returns: This run's FASTQ files that the download wrote. Other runs'
+    ///   files and older files in `outputDir` are never returned, and the
+    ///   archive `prefetch` added is removed once `fasterq-dump` succeeds.
     public func downloadFASTQ(
         accession: String,
         outputDir: URL? = nil,
@@ -337,6 +339,8 @@ public actor SRAService {
         )
 
         logger.info("Downloading SRA run \(accession, privacy: .public) to \(outputDirectory.path, privacy: .public)")
+        // Noted before the tools run, since the folder can hold other runs' files.
+        let runFiles = SRAToolkitRunFiles(accession: accession, outputDirectory: outputDirectory)
 
         let sraFile = outputDirectory
             .appendingPathComponent(accession)
@@ -408,25 +412,18 @@ public actor SRAService {
 
         progress?(0.9)
 
-        // Find the output FASTQ files
-        let files = try FileManager.default.contentsOfDirectory(
-            at: outputDirectory,
-            includingPropertiesForKeys: [.isDirectoryKey]
-        )
-        let fastqFiles = files.filter { url in
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
-            guard values?.isDirectory != true else { return false }
-            let lowercaseName = url.lastPathComponent.lowercased()
-            return lowercaseName.hasSuffix(".fastq")
-                || lowercaseName.hasSuffix(".fq")
-                || lowercaseName.hasSuffix(".fastq.gz")
-                || lowercaseName.hasSuffix(".fq.gz")
+        // Only this run's reads that fasterq-dump wrote, never another run's
+        // file or an older file of this run.
+        let fastqFiles = runFiles.writtenFASTQFiles()
+        trace?(makeFasterqTrace(fastqFiles))
+        guard !fastqFiles.isEmpty else {
+            throw SRAError.conversionFailed("fasterq-dump wrote no FASTQ file for \(accession)")
         }
+        runFiles.removePrefetchFiles()
 
         progress?(1.0)
 
         logger.info("Downloaded \(fastqFiles.count, privacy: .public) FASTQ files for \(accession, privacy: .public)")
-        trace?(makeFasterqTrace(fastqFiles))
 
         return fastqFiles
     }
