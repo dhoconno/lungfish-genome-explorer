@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
     func testImportCopiesIntoHiddenStagingBundleBeforePublishing() throws {
@@ -164,7 +165,7 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
             )
         )
         for provenanceJSON in try provenanceJSONFiles(in: destinationBundleURL) {
-            let text = try String(contentsOf: provenanceJSON, encoding: .utf8)
+            let text = try readRepositorySource(provenanceJSON)
             XCTAssertFalse(text.contains("stale-source-marker"))
             _ = try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: provenanceJSON)
         }
@@ -199,7 +200,7 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
         let destinationFASTQURL = destinationBundleURL.appendingPathComponent("reads.fastq")
         let destinationValues = try destinationFASTQURL.resourceValues(forKeys: [.isSymbolicLinkKey])
         XCTAssertFalse(destinationValues.isSymbolicLink == true)
-        XCTAssertEqual(try String(contentsOf: destinationFASTQURL, encoding: .utf8), "@r1\nACGT\n+\n!!!!\n")
+        XCTAssertEqual(try readRepositorySource(destinationFASTQURL), "@r1\nACGT\n+\n!!!!\n")
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: destinationBundleURL))
         let allPaths = envelope.files.map(\.path) + envelope.outputs.map(\.path)
@@ -242,8 +243,8 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
             sourceBundleURL: fixture.source, outputURL: fixture.output, context: replacementContext(), replaceExisting: true)) { error in
             XCTAssertTrue(String(reflecting: error).contains("replacement"), "Must reach injected writer failure: \(error)")
         }
-        XCTAssertEqual(try String(contentsOf: fixture.output.appendingPathComponent("old.txt"), encoding: .utf8), "previous")
-        XCTAssertEqual(try String(contentsOf: fixture.output.appendingPathComponent(ProvenanceWriter.provenanceFilename), encoding: .utf8), "previous provenance")
+        XCTAssertEqual(try readRepositorySource(fixture.output.appendingPathComponent("old.txt")), "previous")
+        XCTAssertEqual(try readRepositorySource(fixture.output.appendingPathComponent(ProvenanceWriter.provenanceFilename)), "previous provenance")
     }
 
     func testReplacementRejectsSourceDestinationAlias() throws {
@@ -255,7 +256,7 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
             XCTAssertThrowsError(try FASTQBundleCopyImportWorkflow().importBundle(sourceBundleURL: fixture.source,
                 outputURL: output, context: replacementContext(), replaceExisting: true))
         }
-        XCTAssertEqual(try String(contentsOf: fixture.source.appendingPathComponent("reads.fastq"), encoding: .utf8), "@fixture\nACGT\n+\n!!!!\n")
+        XCTAssertEqual(try readRepositorySource(fixture.source.appendingPathComponent("reads.fastq")), "@fixture\nACGT\n+\n!!!!\n")
     }
 
     private func replacementContext() -> FASTQBundleCopyImportWorkflow.CommandContext {

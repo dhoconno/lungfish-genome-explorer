@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 @MainActor
 final class FASTQOperationDialogRoutingTests: XCTestCase {
@@ -1557,10 +1558,10 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
 
         XCTAssertTrue(selection.derivedFasta)
-        let stagedBED = try String(contentsOf: selection.bedURL, encoding: .utf8)
+        let stagedBED = try readRepositorySource(selection.bedURL)
         XCTAssertTrue(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
         XCTAssertFalse(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
-        let stagedFASTA = try String(contentsOf: XCTUnwrap(selection.fastaURL), encoding: .utf8)
+        let stagedFASTA = try readRepositorySource(XCTUnwrap(selection.fastaURL))
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_RIGHT\nGGGG"))
 
@@ -1644,7 +1645,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
 
         XCTAssertTrue(selection.derivedFasta)
-        let stagedFASTA = try String(contentsOf: XCTUnwrap(selection.fastaURL), encoding: .utf8)
+        let stagedFASTA = try readRepositorySource(XCTUnwrap(selection.fastaURL))
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_RIGHT\nGGGG"))
     }
@@ -1684,10 +1685,10 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         // A scheme that ships its own primer FASTA needs no reference at all, so
         // it stages completely even before the reference has been acquired.
         XCTAssertFalse(selection.derivedFasta)
-        let stagedBED = try String(contentsOf: selection.bedURL, encoding: .utf8)
+        let stagedBED = try readRepositorySource(selection.bedURL)
         XCTAssertTrue(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
         XCTAssertFalse(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
-        let stagedFASTA = try String(contentsOf: XCTUnwrap(selection.fastaURL), encoding: .utf8)
+        let stagedFASTA = try readRepositorySource(XCTUnwrap(selection.fastaURL))
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
 
         XCTAssertEqual(selection.bedURL.lastPathComponent, "primers.bed")

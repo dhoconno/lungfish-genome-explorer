@@ -9,6 +9,7 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 @testable import LungfishCore
+import LungfishTestSupport
 
 @MainActor
 private final class EsVirituRecordingEvidenceViewer: NSObject, ClassifierAlignmentViewerProviding {
@@ -175,10 +176,10 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         let directory = URL(fileURLWithPath: "Sources/LungfishEsVirituUI")
         let sources = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "swift" }
-            .map { try String(contentsOf: $0, encoding: .utf8) }
+            .map { try readRepositorySource($0) }
             .joined(separator: "\n")
         XCTAssertFalse(sources.contains("MiniBAMViewController"))
-        let source = try String(contentsOfFile: "Sources/LungfishEsVirituUI/EsVirituResultViewController.swift", encoding: .utf8)
+        let source = try readRepositorySource(atPath: "Sources/LungfishEsVirituUI/EsVirituResultViewController.swift")
         XCTAssertTrue(source.contains("currentBAMSampleID"))
         XCTAssertTrue(source.contains("sample: .init(canonicalID: sampleID)"))
     }

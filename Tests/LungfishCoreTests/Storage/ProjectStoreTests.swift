@@ -5,6 +5,7 @@
 import XCTest
 import SQLite3
 @testable import LungfishCore
+import LungfishTestSupport
 
 @MainActor
 final class ProjectStoreTests: XCTestCase {
@@ -422,7 +423,7 @@ final class ProjectStoreTests: XCTestCase {
     }
 
     func testQueryHelperRequiresTerminalSQLiteDoneResult() throws {
-        let source = try String(contentsOf: projectStoreSourceURL(), encoding: .utf8)
+        let source = try readRepositorySource(projectStoreSourceURL())
 
         XCTAssertTrue(source.contains("guard stepResult == SQLITE_DONE"))
         XCTAssertTrue(source.contains("Query failed:"))

@@ -23,12 +23,13 @@
 // et al.) rather than rendering SwiftUI views directly.
 
 import XCTest
+import LungfishTestSupport
 
 final class MetagenomicsWizardMultiBundlePickerSourceTests: XCTestCase {
     private func source(_ relativePath: String) throws -> String {
         let url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(relativePath)
-        return try String(contentsOf: url, encoding: .utf8)
+        return try readRepositorySource(url)
     }
 
     private var classificationWizardSource: String {

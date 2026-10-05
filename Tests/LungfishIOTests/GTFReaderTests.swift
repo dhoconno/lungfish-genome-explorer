@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishIO
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class GTFReaderTests: XCTestCase {
 
@@ -105,7 +106,7 @@ final class GTFReaderTests: XCTestCase {
             .deletingLastPathComponent()
         let sourceURL = packageRoot
             .appendingPathComponent("Sources/LungfishIO/Formats/GFF/GTFReader.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         guard
             let methodStart = source.range(of: "public func readAllSync() throws -> [SequenceAnnotation]"),

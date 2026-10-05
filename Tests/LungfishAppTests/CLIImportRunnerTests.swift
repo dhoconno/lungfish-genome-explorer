@@ -9,6 +9,7 @@ import LungfishWorkflow
 @testable import LungfishApp
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 private final class CLIImportRunnerStringCollector: @unchecked Sendable {
     private let lock = NSLock()
@@ -787,7 +788,7 @@ final class CLIImportRunnerTests: XCTestCase {
     private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 5.0) async throws -> Int32 {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let contents = try? String(contentsOf: url, encoding: .utf8)
+            if let contents = try? readRepositorySource(url)
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                let pid = Int32(contents) {
                 return pid

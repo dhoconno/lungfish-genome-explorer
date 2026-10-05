@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class ClassificationBatchOutcomeTests: XCTestCase {
     private let summaryHeader = "sample_id\tstatus\tprofile_state\trequested_rank\tresolved_rank\ttotal_reads\tclassified_reads\tclassified_pct\tspecies_count\tdominant_species\tmessage"
@@ -233,7 +234,7 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate+Classification.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let batchFunctionStart = try XCTUnwrap(
             source.range(of: "private func runClassificationBatch(")
         )
@@ -276,7 +277,7 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate+Classification.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let functionStart = try XCTUnwrap(
             source.range(of: "internal func runClassification(\n        config:")
         )
@@ -302,7 +303,7 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate+Classification.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let functionStart = try XCTUnwrap(
             source.range(of: "private func runClassificationBatch(")
         )
@@ -363,7 +364,7 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
         let summaryURL = batchRoot.appendingPathComponent("classification-batch-summary.tsv")
-        let summary = try String(contentsOf: summaryURL, encoding: .utf8)
+        let summary = try readRepositorySource(summaryURL)
         XCTAssertTrue(summary.contains("air-A\tfailed"))
         XCTAssertTrue(summary.contains("air-B\tfailed"))
         XCTAssertTrue(summary.contains("Unable to create materialization directory"))
@@ -432,7 +433,7 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate+Classification.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let detail = try XCTUnwrap(
             source.range(of: "Failed to write classification batch artifacts:")
         )
@@ -453,7 +454,7 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate+Classification.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let detail = try XCTUnwrap(
             source.range(of: "Failed to write classification batch provenance:")
         )

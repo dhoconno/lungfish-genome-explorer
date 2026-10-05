@@ -5,6 +5,7 @@
 import Foundation
 import XCTest
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 /// Missing-tool messages tell the user which pack to install. A pack name
 /// that is not in the registry sends them hunting for something the Plugin
@@ -35,16 +36,10 @@ final class PluginPackMessageSweepTests: XCTestCase {
         let knownSet = Set(known)
 
         let sourcesRoot = repositoryRoot.appendingPathComponent("Sources", isDirectory: true)
-        let enumerator = try XCTUnwrap(FileManager.default.enumerator(
-            at: sourcesRoot,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ))
-
         var unknown: [String] = []
         var matched = 0
-        for case let fileURL as URL in enumerator where fileURL.pathExtension == "swift" {
-            let text = try String(contentsOf: fileURL, encoding: .utf8)
+        for fileURL in try repositoryFiles(under: sourcesRoot) {
+            let text = try readRepositorySource(fileURL)
             guard text.contains(" pack") else { continue }
             let range = NSRange(text.startIndex..., in: text)
             for match in Self.phrase.matches(in: text, range: range) {

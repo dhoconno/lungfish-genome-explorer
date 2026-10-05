@@ -59,19 +59,11 @@ final class ScopedEventClassificationTests: XCTestCase {
         let pattern = try NSRegularExpression(
             pattern: #"(?:NS)?Notification\.Name\(\s*(?:rawValue:\s*)?"([^"\\]+)"\s*\)"#
         )
-        guard let enumerator = FileManager.default.enumerator(
-            at: sources,
-            includingPropertiesForKeys: nil
-        ) else {
-            XCTFail("Cannot enumerate \(sources.path)")
-            return [:]
-        }
-
         var declared: [String: String] = [:]
-        for case let url as URL in enumerator where url.pathExtension == "swift" {
+        for url in try repositoryFiles(under: sources) {
             let path = url.standardizedFileURL.path
             guard path != table else { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try readRepositorySource(url)
             // Blank comment lines but keep the line count, so locations stay right.
             let code = text
                 .components(separatedBy: "\n")

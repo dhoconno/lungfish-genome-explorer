@@ -13,7 +13,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         var violations: [String] = []
 
         for file in swiftFiles {
-            let source = try String(contentsOf: file, encoding: .utf8)
+            let source = try readRepositorySource(file)
             let lines = source.components(separatedBy: .newlines)
             let path = relativePath(file, root: root)
             for index in lines.indices where lines[index].contains(".runModal(") {
@@ -49,7 +49,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
                 under: root.appendingPathComponent(sourceRoot, isDirectory: true)
             )
             for file in swiftFiles {
-                let source = try String(contentsOf: file, encoding: .utf8)
+                let source = try readRepositorySource(file)
                 let lines = source.components(separatedBy: .newlines)
                 let path = relativePath(file, root: root)
                 for index in lines.indices {
@@ -102,7 +102,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             if path == "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift" {
                 source = combinedInspectorViewControllerSource()
             } else {
-                source = try String(contentsOf: url, encoding: .utf8)
+                source = try readRepositorySource(url)
             }
             // Owned project-open/migration tasks are asynchronous transactions,
             // not completion callbacks. Exempt only their declaration token;
@@ -146,7 +146,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         .filter { $0.lastPathComponent.hasPrefix("CLI") && $0.lastPathComponent.hasSuffix("Runner.swift") }
 
         for file in cliRunnerFiles {
-            let source = try String(contentsOf: file, encoding: .utf8)
+            let source = try readRepositorySource(file)
             if source.contains("await MainActor.run") {
                 violations.append("\(relativePath(file, root: root)): contains await MainActor.run")
             }
@@ -221,7 +221,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         var violations: [String] = []
 
         for file in swiftFiles {
-            let source = try String(contentsOf: file, encoding: .utf8)
+            let source = try readRepositorySource(file)
             if containsAwaitedSheetInMainActorTask(source) {
                 violations.append(relativePath(file, root: root))
             }
@@ -402,7 +402,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
     func testMiniBAMAlignmentLoadingDoesNotInheritMainActor() throws {
         let root = repositoryRoot()
         let path = "Sources/LungfishKit/MiniBAMViewController.swift"
-        let source = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+        let source = try readRepositorySource(root.appendingPathComponent(path))
 
         XCTAssertTrue(
             source.contains("loadTask = Task.detached"),
@@ -417,7 +417,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
     func testTaxTriageSelectionDoesNotSynchronouslyParseBAMReferences() throws {
         let root = repositoryRoot()
         let path = "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift"
-        let source = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+        let source = try readRepositorySource(root.appendingPathComponent(path))
         let selectionBlocks = [
             sourceSlice(
                 in: source,
@@ -514,23 +514,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
     }
 
     private func swiftSourceFiles(under root: URL) throws -> [URL] {
-        let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: Array(resourceKeys),
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        var files: [URL] = []
-        for case let file as URL in enumerator where file.pathExtension == "swift" {
-            let values = try file.resourceValues(forKeys: resourceKeys)
-            if values.isRegularFile == true {
-                files.append(file)
-            }
-        }
-        return files
+        try repositoryFiles(under: root)
     }
 
     private func relativePath(_ url: URL, root: URL) -> String {

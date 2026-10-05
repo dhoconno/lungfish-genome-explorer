@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 
 final class NextPanelExtractionTests: XCTestCase {
     func testNextSliceTargetFilesDoNotConstructPanelsInline() throws {
@@ -23,7 +24,7 @@ final class NextPanelExtractionTests: XCTestCase {
         ]
 
         for targetFile in targetFiles {
-            let source = try String(contentsOf: root.appendingPathComponent(targetFile), encoding: .utf8)
+            let source = try readRepositorySource(root.appendingPathComponent(targetFile))
             XCTAssertFalse(source.contains("NSOpenPanel("), "\(targetFile) should use a panel helper")
             XCTAssertFalse(source.contains("NSSavePanel("), "\(targetFile) should use a panel helper")
         }

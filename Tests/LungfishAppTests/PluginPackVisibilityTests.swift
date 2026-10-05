@@ -4,6 +4,7 @@ import XCTest
 @testable import LungfishWorkflow
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 private actor StubPluginManagerPackStatusProvider: PluginPackStatusProviding {
     let statuses: [PluginPackStatus]
@@ -196,7 +197,7 @@ final class PluginPackVisibilityTests: XCTestCase {
     }
 
     func testPluginManagerCallbacksUseMainQueueBridgeInsteadOfMainActorTasks() throws {
-        let source = try String(contentsOf: pluginManagerViewModelSourceURL(), encoding: .utf8)
+        let source = try readRepositorySource(pluginManagerViewModelSourceURL())
         let storageObserver = try sourceSection(
             in: source,
             from: "private final class StorageLocationChangeObserver",

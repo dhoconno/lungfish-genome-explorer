@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishCore
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class ProjectCommandTests: XCTestCase {
     private var tempDir: URL!
@@ -460,7 +461,7 @@ final class ProjectCommandTests: XCTestCase {
     }
 
     func testMigrateStagesManifestAndWritesProvenanceBeforePublishing() throws {
-        let source = try String(contentsOf: projectCommandSourceURL(), encoding: .utf8)
+        let source = try readRepositorySource(projectCommandSourceURL())
         let start = try XCTUnwrap(source.range(of: "private func migrateLegacyBrowserSummary"))
         let end = try XCTUnwrap(
             source.range(of: "\n    private func migrationInputRecords", range: start.upperBound..<source.endIndex)
@@ -560,7 +561,7 @@ final class ProjectCommandTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(manifest).write(to: bundleURL.appendingPathComponent(BundleManifest.filename), options: .atomic)
-        let rawJSON = try String(contentsOf: bundleURL.appendingPathComponent(BundleManifest.filename), encoding: .utf8)
+        let rawJSON = try readRepositorySource(bundleURL.appendingPathComponent(BundleManifest.filename))
         XCTAssertFalse(rawJSON.contains("browser_summary"))
         return bundleURL
     }

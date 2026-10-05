@@ -8,6 +8,7 @@ import AppKit
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class FASTQDashboardTests: XCTestCase {
     // MARK: - Helpers
@@ -410,7 +411,7 @@ final class FASTQDashboardTests: XCTestCase {
             .deletingLastPathComponent()
         let sourceURL = root
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         // Dead-code absence check (legacy accordion-state symbols no longer exist);
@@ -431,8 +432,8 @@ final class FASTQDashboardTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
         let panelFactorySourceURL = root
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerFilePanelFactory.swift")
-        let controllerSource = try String(contentsOf: controllerSourceURL, encoding: .utf8)
-        let panelFactorySource = try String(contentsOf: panelFactorySourceURL, encoding: .utf8)
+        let controllerSource = try readRepositorySource(controllerSourceURL)
+        let panelFactorySource = try readRepositorySource(panelFactorySourceURL)
 
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         // contaminantReferenceBrowseClicked opens a real NSOpenPanel via
@@ -482,7 +483,7 @@ final class FASTQDashboardTests: XCTestCase {
             .deletingLastPathComponent()
         let sourceURL = root
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         let launchRange = try XCTUnwrap(source.range(of: "private func launchFASTQOperationCategory"))
         let launchSuffix = source[launchRange.lowerBound...]
@@ -553,7 +554,7 @@ final class FASTQDashboardTests: XCTestCase {
             .deletingLastPathComponent()
         let sourceURL = root
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         // Dead-code / non-goal absence check (these workflows are intentionally not

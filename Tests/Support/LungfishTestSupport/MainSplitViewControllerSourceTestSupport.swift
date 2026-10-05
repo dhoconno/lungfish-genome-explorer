@@ -56,7 +56,7 @@ public func combinedMainSplitViewControllerSource() -> String {
     var pieces: [String] = []
     for name in mainSplitViewControllerOrderedSourceFiles {
         let url = dir.appendingPathComponent(name)
-        if let text = try? String(contentsOf: url, encoding: .utf8) {
+        if let text = try? readRepositorySource(url) {
             pieces.append(text)
         }
     }

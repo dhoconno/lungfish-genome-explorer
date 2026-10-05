@@ -2,6 +2,7 @@ import XCTest
 import ViewInspector
 @testable import LungfishApp
 import LungfishKit
+import LungfishTestSupport
 
 final class IQTreeInferenceOptionsDialogTests: XCTestCase {
     private var repositoryRoot: URL {
@@ -63,7 +64,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
 
     func testMSATreeInferenceRoutesThroughDialogBeforeRunner() throws {
         let sourceURL = repositoryRoot.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         // runIQTreeInferenceViaCLI is a private method on ViewerViewController with no
@@ -118,7 +119,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         let sourceURL = repositoryRoot.appendingPathComponent(
             "Sources/LungfishApp/Views/Phylogenetics/IQTreeInferenceDialogPresenter.swift"
         )
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         // IQTreeInferenceDialogPresenter.present(from:) constructs a real NSPanel with an

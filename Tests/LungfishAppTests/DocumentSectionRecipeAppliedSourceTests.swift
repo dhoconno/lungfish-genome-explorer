@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 
 final class DocumentSectionRecipeAppliedSourceTests: XCTestCase {
     func testRecipeAppliedSectionShowsExplicitReadDeltaSummaries() throws {
@@ -7,7 +8,7 @@ final class DocumentSectionRecipeAppliedSourceTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains(#"metadataRow(label: "Deduplication", value: deduplication.value)"#))
         XCTAssertTrue(source.contains(#"case standaloneReadDelta(String)"#))

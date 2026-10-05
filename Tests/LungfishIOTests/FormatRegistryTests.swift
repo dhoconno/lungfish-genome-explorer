@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 /// Tests for the central format registry, verifying format detection,
 /// importer/exporter lookup, and extension/MIME type mapping completeness.
@@ -19,7 +20,7 @@ final class FormatRegistryTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishIO/Registry/FormatRegistry.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("public enum FormatRegistryError"))
         XCTAssertTrue(source.contains("case unknownFormat(URL)"))

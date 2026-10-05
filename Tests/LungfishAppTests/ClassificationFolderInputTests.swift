@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishTestSupport
 
 final class ClassificationFolderInputTests: XCTestCase {
     func testFolderInputAdapterUsesWorkflowSidebarSelection() {
@@ -56,7 +57,7 @@ final class ClassificationFolderInputTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("initialCategory == .classification"))
         XCTAssertTrue(source.contains("ClassificationFolderPrompt.present"))

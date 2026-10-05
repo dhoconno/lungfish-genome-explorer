@@ -7,7 +7,8 @@ and file splits. The count of such assertions may only fall.
 
 Heuristic (documented approximation): a file under Tests/ is a "source-text test"
 when it both
-  1. reads file text (String(contentsOf:, contentsOfFile or String(decoding:), and
+  1. reads file text (String(contentsOf:, contentsOfFile, String(decoding:, or the
+     EINTR-proof readRepositorySource( helper from LungfishTestSupport), and
   2. names a Swift source path (a string literal ending in `.swift"`, or containing
      `Sources/` or starting `"Sources`).
 Every `.contains("` occurrence in such a file is counted. Comment lines are
@@ -30,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTS_DIR = REPO_ROOT / "Tests"
 BASELINE_FILE = Path(__file__).resolve().with_suffix(".baseline")
 
-READS_FILE = re.compile(r"String\(contentsOf|contentsOfFile|String\(decoding")
+READS_FILE = re.compile(r"String\(contentsOf|contentsOfFile|String\(decoding|readRepositorySource\(")
 NAMES_SOURCE = re.compile(r'\.swift"|"Sources[/"]|Sources/')
 CONTAINS = re.compile(r'\.contains\("')
 

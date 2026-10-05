@@ -9,6 +9,7 @@ import SwiftUI
 @testable import LungfishGenotypeUI
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeStatusFlagSectionTests: XCTestCase {
@@ -59,7 +60,7 @@ final class GenotypeStatusFlagSectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeStatusFlagSection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         XCTAssertTrue(source.contains("No comments yet."))
     }
 
@@ -88,7 +89,7 @@ final class GenotypeStatusFlagSectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeStatusFlagSection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains(".pickerStyle(.segmented)"))
         XCTAssertTrue(source.contains("ForEach(GenotypeAnnotationSidecar.StatusValue.allCases"))

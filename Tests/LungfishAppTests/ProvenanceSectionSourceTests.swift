@@ -2,6 +2,7 @@ import XCTest
 import ViewInspector
 @testable import LungfishApp
 import SwiftUI
+import LungfishTestSupport
 
 @MainActor
 final class ProvenanceSectionSourceTests: XCTestCase {
@@ -137,7 +138,7 @@ final class ProvenanceSectionSourceTests: XCTestCase {
         let exportMenu = try inspected.find(viewWithAccessibilityIdentifier: "provenance-export-menu")
         XCTAssertTrue(exportMenu.isDisabled())
 
-        let source = try String(contentsOf: sectionSourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sectionSourceURL)
         XCTAssertFalse(source.contains("Color(red:"))
         XCTAssertFalse(source.contains("Color(hex"))
     }
@@ -232,7 +233,7 @@ final class ProvenanceSectionSourceTests: XCTestCase {
         // accessibility identifier assigned to *that* control cannot be reached via
         // the live tree the way the Text-based summary rows above can. Kept as a
         // source assertion for that one control only.
-        let source = try String(contentsOf: sectionSourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sectionSourceURL)
         XCTAssertTrue(source.contains(".textSelection(.enabled)"))
         XCTAssertTrue(source.contains("SelectableWrappingText("))
         XCTAssertTrue(source.contains("accessibilityIdentifier: \"provenance-raw-json-text\""))

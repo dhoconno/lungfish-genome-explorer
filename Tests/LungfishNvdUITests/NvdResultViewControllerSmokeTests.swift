@@ -4,6 +4,7 @@ import AppKit
 import LungfishWorkflow
 import LungfishIO
 import LungfishKit
+import LungfishTestSupport
 
 final class NvdResultViewControllerSmokeTests: XCTestCase {
     @MainActor
@@ -13,7 +14,7 @@ final class NvdResultViewControllerSmokeTests: XCTestCase {
     }
 
     func testNvdLeafDoesNotDependOnMiniBAM() throws {
-        let source = try String(contentsOfFile: "Sources/LungfishNvdUI/NvdResultViewController.swift", encoding: .utf8)
+        let source = try readRepositorySource(atPath: "Sources/LungfishNvdUI/NvdResultViewController.swift")
         XCTAssertFalse(source.contains("MiniBAMViewController"))
     }
 

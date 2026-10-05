@@ -12,6 +12,7 @@ import AppKit
 @testable import LungfishNaoMgsUI
 @testable import LungfishTaxTriageUI
 import LungfishKit
+import LungfishTestSupport
 
 // MARK: - Shared Test Helpers
 
@@ -427,7 +428,7 @@ struct KrakenTaxonomyRegressionTests {
             "Sources/LungfishEsVirituUI/ViralDetectionTableView.swift",
             "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
         ] {
-            let source = try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+            let source = try readRepositorySource(root.appendingPathComponent(relativePath))
             #expect(source.contains("ColumnFilterSet"))
             #expect(source.contains("ColumnFilterMenuHost"))
             #expect(source.contains("ColumnHeaderFilterMenu(host: self)"))

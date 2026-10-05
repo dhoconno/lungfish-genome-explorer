@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishWorkflow
 import LungfishCore
+import LungfishTestSupport
 
 /// Tests for CondaManager, CondaPackageInfo, PluginPack, and related types.
 ///
@@ -674,7 +675,7 @@ final class CondaManagerTests: XCTestCase {
 
         let installedPath = try await manager.ensureMicromamba()
         let expectedPath = await manager.micromambaPath
-        let installedContents = try String(contentsOf: installedPath, encoding: .utf8)
+        let installedContents = try readRepositorySource(installedPath)
         let installedVersion = try await readMicromambaVersion(at: installedPath)
         let permissions = try FileManager.default.attributesOfItem(atPath: installedPath.path)[.posixPermissions] as? NSNumber
 
@@ -697,7 +698,7 @@ final class CondaManagerTests: XCTestCase {
             at: rootPrefix.appendingPathComponent("bin/micromamba"),
             version: "2.0.4"
         )
-        let oldContents = try String(contentsOf: installedMicromamba, encoding: .utf8)
+        let oldContents = try readRepositorySource(installedMicromamba)
 
         let manager = CondaManager(
             rootPrefix: rootPrefix,
@@ -706,7 +707,7 @@ final class CondaManagerTests: XCTestCase {
         )
 
         let installedPath = try await manager.ensureMicromamba()
-        let newContents = try String(contentsOf: installedPath, encoding: .utf8)
+        let newContents = try readRepositorySource(installedPath)
         let installedVersion = try await readMicromambaVersion(at: installedPath)
 
         XCTAssertEqual(installedVersion, "2.0.5-0")
@@ -732,7 +733,7 @@ final class CondaManagerTests: XCTestCase {
             at: rootPrefix.appendingPathComponent("bin/micromamba"),
             version: "2.9.0"
         )
-        let oldContents = try String(contentsOf: installedMicromamba, encoding: .utf8)
+        let oldContents = try readRepositorySource(installedMicromamba)
 
         let manager = CondaManager(
             rootPrefix: rootPrefix,
@@ -741,7 +742,7 @@ final class CondaManagerTests: XCTestCase {
         )
 
         let installedPath = try await manager.ensureMicromamba()
-        let newContents = try String(contentsOf: installedPath, encoding: .utf8)
+        let newContents = try readRepositorySource(installedPath)
 
         XCTAssertEqual(installedPath, installedMicromamba)
         XCTAssertEqual(newContents, oldContents, "a working installed micromamba must not be replaced by a bundled one that cannot run")
@@ -829,7 +830,7 @@ final class CondaManagerTests: XCTestCase {
             at: rootPrefix.appendingPathComponent("bin/micromamba"),
             version: "2.0.4"
         )
-        let installedContents = try String(contentsOf: installedMicromamba, encoding: .utf8)
+        let installedContents = try readRepositorySource(installedMicromamba)
 
         let manager = CondaManager(
             rootPrefix: rootPrefix,
@@ -845,7 +846,7 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertEqual(resolvedVersion, "2.0.4")
         // The installed binary is used as-is, never replaced, since there is
         // no bundled copy to replace it with.
-        XCTAssertEqual(try String(contentsOf: resolvedPath, encoding: .utf8), installedContents)
+        XCTAssertEqual(try readRepositorySource(resolvedPath), installedContents)
 
         let permissions = try FileManager.default
             .attributesOfItem(atPath: resolvedPath.path)[.posixPermissions] as? NSNumber
@@ -1468,7 +1469,7 @@ final class CondaManagerTests: XCTestCase {
     }
 
     private func readPID(_ url: URL) throws -> Int32 {
-        let text = try String(contentsOf: url, encoding: .utf8)
+        let text = try readRepositorySource(url)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
     }

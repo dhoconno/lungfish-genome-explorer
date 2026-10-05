@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class ReferenceBundleBuilderTests: XCTestCase {
 
@@ -41,7 +42,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
     func testObservableBuilderDispatchesBundleWorkOffMainActor() throws {
         let sourceURL = try repoRoot()
             .appendingPathComponent("Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(
             source.contains("Task.detached"),
@@ -299,7 +300,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
             FileManager.default.fileExists(atPath: sentinelURL.path),
             "Rejecting an existing output bundle must not delete user data"
         )
-        XCTAssertEqual(try String(contentsOf: sentinelURL, encoding: .utf8), "existing user data")
+        XCTAssertEqual(try readRepositorySource(sentinelURL), "existing user data")
     }
 
     @MainActor
@@ -491,7 +492,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
 
         let bundleURL = try await builder.build(configuration: config)
         let indexURL = bundleURL.appendingPathComponent("genome/sequence.fa.fai")
-        let index = try String(contentsOf: indexURL, encoding: .utf8)
+        let index = try readRepositorySource(indexURL)
 
         XCTAssertEqual(index, "chr1\t8\t7\t4\t6\nchr2\t2\t26\t2\t4\n")
     }
@@ -515,7 +516,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
 
         let bundleURL = try await builder.build(configuration: config)
         let indexURL = bundleURL.appendingPathComponent("genome/sequence.fa.fai")
-        let index = try String(contentsOf: indexURL, encoding: .utf8)
+        let index = try readRepositorySource(indexURL)
 
         XCTAssertEqual(index, "chr1\t4\t6\t4\t5\n")
     }
@@ -667,7 +668,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
 
         let bundleURL = try await builder.build(configuration: config)
         let indexURL = bundleURL.appendingPathComponent("genome/sequence.fa.fai")
-        let index = try String(contentsOf: indexURL, encoding: .utf8)
+        let index = try readRepositorySource(indexURL)
 
         XCTAssertEqual(index, "chr1\t4\t7\t4\t5\nchr2\t2\t19\t2\t3\n")
     }

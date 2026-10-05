@@ -5,6 +5,7 @@ import LungfishIO
 import LungfishKit
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeQuickFilterBarViewTests: XCTestCase {
@@ -96,7 +97,7 @@ final class GenotypeQuickFilterBarViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDocumentSection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("@State private var isHaplotypeDefinitionsExpanded"))
         XCTAssertTrue(source.contains("DisclosureGroup(\"Haplotype Definitions\", isExpanded: $isHaplotypeDefinitionsExpanded)"))

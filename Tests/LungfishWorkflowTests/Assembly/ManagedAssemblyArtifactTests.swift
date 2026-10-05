@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishWorkflow
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class ManagedAssemblyArtifactTests: XCTestCase {
     func testManagedAssemblyResultRoundTripsThroughSidecar() throws {
@@ -337,7 +338,7 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
         XCTAssertEqual(result.graphPath, gfaURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.contigsPath.path))
 
-        let fasta = try String(contentsOf: result.contigsPath, encoding: .utf8)
+        let fasta = try readRepositorySource(result.contigsPath)
         XCTAssertTrue(fasta.contains(">ptg000001l"))
         XCTAssertTrue(fasta.contains(">ptg000002l"))
         XCTAssertEqual(result.statistics.contigCount, 2)
@@ -417,7 +418,7 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
             .appendingPathComponent("Commands")
             .appendingPathComponent("AssembleCommand.swift")
 
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("Assembly completed, but no contigs were generated."))
         XCTAssertTrue(source.contains(".completedWithNoContigs"))
@@ -567,7 +568,7 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
             XCTFail("Unexpected error: \(error)")
         }
 
-        XCTAssertEqual(try String(contentsOf: sentinelURL, encoding: .utf8), "preserve me\n")
+        XCTAssertEqual(try readRepositorySource(sentinelURL), "preserve me\n")
         let entries = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
         XCTAssertFalse(entries.contains { $0.hasPrefix(".Managed_Bundle.building-") })
     }

@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 
 @MainActor
 final class MainWindowSessionRoutingTests: XCTestCase {
@@ -550,7 +551,7 @@ final class MainWindowSessionRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift")
-        let source = try String(contentsOf: appDelegateURL, encoding: .utf8)
+        let source = try readRepositorySource(appDelegateURL)
         let start = try XCTUnwrap(source.range(of: "public func applicationDidBecomeActive"))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "// MARK: - File Handling"))
         let body = String(source[start.lowerBound..<end.lowerBound])

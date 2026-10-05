@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishApp
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class ScientificFileExportProvenanceTests: XCTestCase {
     private var tempDir: URL!
@@ -151,7 +152,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         }
 
         XCTAssertEqual(sidecarURL, ProvenanceRecorder.fileSidecarURL(for: outputURL))
-        XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), "name\tcount\nalpha\t1\n")
+        XCTAssertEqual(try readRepositorySource(outputURL), "name\tcount\nalpha\t1\n")
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
         XCTAssertEqual(envelope.output?.path, outputURL.path)
         XCTAssertEqual(envelope.output?.format, .text)
@@ -260,8 +261,8 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), "old\n")
-        XCTAssertEqual(try String(contentsOf: sidecarURL, encoding: .utf8), "old provenance\n")
+        XCTAssertEqual(try readRepositorySource(outputURL), "old\n")
+        XCTAssertEqual(try readRepositorySource(sidecarURL), "old provenance\n")
     }
 
     func testRetainedSnapshotCanPreserveOriginalScientificSourcesAlongsideReplayInputs() throws {
@@ -318,7 +319,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory))
         XCTAssertTrue(isDirectory.boolValue)
         XCTAssertEqual(
-            try String(contentsOf: outputURL.appendingPathComponent("manifest.json"), encoding: .utf8),
+            try readRepositorySource(outputURL.appendingPathComponent("manifest.json")),
             "manifest\n"
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: outputURL).path))
@@ -349,7 +350,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         )
 
         XCTAssertEqual(sidecarURL, ProvenanceRecorder.fileSidecarURL(for: outputURL))
-        let fasta = try String(contentsOf: outputURL, encoding: .utf8)
+        let fasta = try readRepositorySource(outputURL)
         XCTAssertTrue(fasta.hasPrefix(">chr1 visible track\n"))
         XCTAssertTrue(fasta.contains(String(repeating: "ACGT", count: 20)))
 
@@ -463,7 +464,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         ]
 
         for (path, workflowName) in files {
-            let source = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+            let source = try readRepositorySource(root.appendingPathComponent(path))
             XCTAssertTrue(
                 source.contains("ScientificFileExportProvenance.write(.init(")
                     || source.contains("ScientificFileExportProvenance.writeAtomically(.init("),

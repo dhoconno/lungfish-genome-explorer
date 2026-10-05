@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+import LungfishTestSupport
 
 @MainActor
 final class SidebarDirectoryScanSnapshotTests: XCTestCase {
@@ -194,7 +195,7 @@ final class SidebarDirectoryScanSnapshotTests: XCTestCase {
     private func sidebarProjectScannerSource() -> String {
         let url = sidebarViewControllerSourceDirectory()
             .appendingPathComponent("SidebarProjectScanner.swift")
-        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        return (try? readRepositorySource(url)) ?? ""
     }
 
     func testSidebarMovePathsRewriteAnalysisManifestReferences() throws {

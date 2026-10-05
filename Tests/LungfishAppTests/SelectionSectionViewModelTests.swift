@@ -85,10 +85,10 @@ final class SelectionSectionViewModelTests: XCTestCase {
 
     func testSelectionInspectorAndViewerRouteAnnotationsToGenericFASTAOperations() throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let selectionSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift"), encoding: .utf8)
+        let selectionSource = try readRepositorySource(root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift"))
         let inspectorSource = combinedInspectorViewControllerSource()
-        let viewerSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift"), encoding: .utf8)
-        let extractionSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+Extraction.swift"), encoding: .utf8)
+        let viewerSource = try readRepositorySource(root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift"))
+        let extractionSource = try readRepositorySource(root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+Extraction.swift"))
         let sequenceViewerSource = combinedSequenceViewerSource()
         let appDelegateSource = combinedAppDelegateSource()
 

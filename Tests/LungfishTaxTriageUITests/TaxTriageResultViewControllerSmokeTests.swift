@@ -8,6 +8,7 @@ import AppKit
 @testable import LungfishIO
 import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 private final class TaxTriageRecordingEvidenceViewer: NSObject, ClassifierAlignmentViewerProviding {
@@ -59,7 +60,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(vc.testBatchFlatTableView.testCellText(row: sample2Row, columnID: "metadata_Cohort").primary, "control")
     }
     func testTaxTriageLeafDoesNotDependOnMiniBAM() throws {
-        let source = try String(contentsOfFile: "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", encoding: .utf8)
+        let source = try readRepositorySource(atPath: "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift")
         XCTAssertFalse(source.contains("MiniBAMViewController"))
         XCTAssertFalse(source.contains("createSymbolicLink"))
         XCTAssertTrue(source.contains("let name = \"\\(sampleID).dwnld.references.fasta\""))

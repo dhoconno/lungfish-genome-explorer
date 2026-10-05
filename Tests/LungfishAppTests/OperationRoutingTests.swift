@@ -436,7 +436,7 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift")
-        let viewerSource = try String(contentsOf: viewerURL, encoding: .utf8)
+        let viewerSource = try readRepositorySource(viewerURL)
         let actionBody = try sourceFunctionBody(
             named: "private func runMSAInPlaceAnnotationAction",
             endingBefore: "func inferTreeFromMSAViaCLI",
@@ -593,7 +593,7 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift")
-        let source = try String(contentsOf: drawerURL, encoding: .utf8)
+        let source = try readRepositorySource(drawerURL)
 
         XCTAssertTrue(source.contains("private func canWriteVariantDatabaseOutputs(workflowName: String) -> Bool"))
         XCTAssertTrue(source.contains("windowStateScope: windowStateScope"))
@@ -646,7 +646,7 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Services/FASTQIngestionService.swift")
-        let source = try String(contentsOf: serviceURL, encoding: .utf8)
+        let source = try readRepositorySource(serviceURL)
         let body = try sourceFunctionBody(
             named: "nonisolated private static func _runCLIImport",
             endingBefore: "nonisolated static func cliImportCommandPreview",
@@ -665,7 +665,7 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Services/MetagenomicsImportHelperClient.swift")
-        let source = try String(contentsOf: serviceURL, encoding: .utf8)
+        let source = try readRepositorySource(serviceURL)
 
         XCTAssertTrue(source.contains("NativeProcessCancellationHandle"))
         XCTAssertTrue(source.contains("withTaskCancellationHandler"))
@@ -681,7 +681,7 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Services/FASTQIngestionService.swift")
-        let source = try String(contentsOf: serviceURL, encoding: .utf8)
+        let source = try readRepositorySource(serviceURL)
         let body = try sourceFunctionBody(
             named: "nonisolated private static func withImportSlot",
             endingBefore: "    /// Runs the ingestion pipeline off the main actor.",
@@ -700,7 +700,7 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift")
-        let source = try String(contentsOf: viewerURL, encoding: .utf8)
+        let source = try readRepositorySource(viewerURL)
         let body = try sourceFunctionBody(
             named: "controller.onUnresolvedBlastRequested",
             endingBefore: "        annotationDrawerView?.isHidden",
@@ -719,7 +719,7 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift")
-        let source = try String(contentsOf: viewerURL, encoding: .utf8)
+        let source = try readRepositorySource(viewerURL)
 
         let rowDeleteBody = try sourceFunctionBody(
             named: "private func runAnnotationRowDeletion",

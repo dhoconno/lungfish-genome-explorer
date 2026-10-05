@@ -11,6 +11,7 @@
 // tests slicing ranges that span method boundaries still resolve start < end.
 
 import Foundation
+import LungfishTestSupport
 
 /// Directory holding InspectorViewController.swift and its split files.
 func inspectorViewControllerSourceDirectory() -> URL {
@@ -53,7 +54,7 @@ func combinedInspectorViewControllerSource() -> String {
     var pieces: [String] = []
     for name in inspectorViewControllerOrderedSourceFiles {
         let url = dir.appendingPathComponent(name)
-        if let text = try? String(contentsOf: url, encoding: .utf8) {
+        if let text = try? readRepositorySource(url) {
             pieces.append(text)
         }
     }

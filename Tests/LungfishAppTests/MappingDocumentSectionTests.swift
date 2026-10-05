@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishTestSupport
 
 @MainActor
 final class MappingDocumentSectionTests: XCTestCase {
@@ -52,6 +53,6 @@ final class MappingDocumentSectionTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent(relativePath)
 
-        return try String(contentsOf: sourceURL, encoding: .utf8)
+        return try readRepositorySource(sourceURL)
     }
 }

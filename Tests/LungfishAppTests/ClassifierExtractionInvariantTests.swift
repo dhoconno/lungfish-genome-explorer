@@ -10,6 +10,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishNaoMgsUI
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 /// Asserts the 7 spec invariants for the unified classifier extraction feature.
 ///
@@ -82,7 +83,7 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
 
     func testI1_naomgs_menuItemVisible_sourceLevel() throws {
         let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift"
-        let source = try String(contentsOfFile: path, encoding: .utf8)
+        let source = try readRepositorySource(atPath: path)
         XCTAssertTrue(
             source.contains("func extractReadsForSelectedRows(") && source.contains(".extractReads"),
             "NaoMgsResultViewController must route Extract Reads through extractReadsForSelectedRows"
@@ -91,7 +92,7 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
 
     func testI1_nvd_menuItemVisible_sourceLevel() throws {
         let path = "\(ClassifierExtractionFixtures.repositoryRoot.path)/Sources/LungfishNvdUI/NvdResultViewController.swift"
-        let source = try String(contentsOfFile: path, encoding: .utf8)
+        let source = try readRepositorySource(atPath: path)
         // The context menu, Selection > Table Row and the row accessibility
         // actions all route Extract Reads through the shared selector.
         XCTAssertTrue(

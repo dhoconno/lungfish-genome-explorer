@@ -1707,7 +1707,7 @@ final class MappingViewportRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent(relativePath)
 
-        return try String(contentsOf: sourceURL, encoding: .utf8)
+        return try readRepositorySource(sourceURL)
     }
 
     private func recursiveFileBytes(in root: URL) throws -> [String: Data] {

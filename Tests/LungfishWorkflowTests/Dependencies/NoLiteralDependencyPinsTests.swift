@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 
 final class NoLiteralDependencyPinsTests: XCTestCase {
     /// Files that may legitimately contain conda specs.
@@ -18,11 +19,10 @@ final class NoLiteralDependencyPinsTests: XCTestCase {
         let sourcesRoot = root.appendingPathComponent("Sources")
         let pattern = try NSRegularExpression(pattern: #"\b(bioconda|conda-forge)::[a-z0-9_.-]+=[0-9]"#)
         var offenders: [String] = []
-        let enumerator = FileManager.default.enumerator(at: sourcesRoot, includingPropertiesForKeys: nil)!
-        for case let url as URL in enumerator where url.pathExtension == "swift" {
+        for url in try repositoryFiles(under: sourcesRoot) {
             let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
             if allowlist.contains(rel) { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try readRepositorySource(url)
             // Only real code counts. Comments may name a spec when documenting an
             // upstream packaging defect (see BrackenInvocationForm), and that
             // prose is not a pin the installer can drift away from.

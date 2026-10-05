@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishCore
+import LungfishTestSupport
 
 // MARK: - BLAST Result Model Tests
 
@@ -464,7 +465,7 @@ final class BlastServiceTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishCore/Services/Blast/BlastService.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("public func submit("))
         XCTAssertTrue(source.contains("public func checkStatus(rid:"))
