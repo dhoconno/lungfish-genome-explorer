@@ -14,8 +14,8 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "DatabaseBrow
 /// they came from.
 ///
 /// `DatabaseBrowserViewModel.startENADownloadTask` stages each run in its
-/// own folder with `stage(accession:route:in:mirrorFile:toolkit:)`, which
-/// downloads it with `download(accession:route:into:mirrorFile:toolkit:)`,
+/// own folder with `stage(accession:route:preference:in:mirrorFile:toolkit:log:)`, which
+/// downloads it with `download(accession:route:preference:into:mirrorFile:toolkit:log:)`,
 /// and then imports the files with `lungfish-cli import fastq`. Both take the
 /// transfers as closures, so a test can drive them with a scripted mirror
 /// and toolkit.
@@ -29,6 +29,9 @@ struct SRAWindowRunDownload {
     /// One HTTPS transfer step for each file ENA's mirror served. Empty when
     /// the SRA Toolkit fetched the run.
     var enaSteps: [StepExecution]
+    /// The window's "Download source" setting the run was downloaded with,
+    /// which its provenance records under `preferredSource`.
+    var preference: SRADownloadSourcePreference = .ena
 
     /// Downloads one run's FASTQ files into `folder` along `route`.
     ///
@@ -52,9 +55,11 @@ struct SRAWindowRunDownload {
     static func download(
         accession: String,
         route: SRAFASTQDownloadRoute,
+        preference: SRADownloadSourcePreference = .ena,
         into folder: URL,
         mirrorFile: (_ url: URL, _ expectedBytes: Int64?, _ priorBytes: Int64) async throws -> Data,
-        toolkit: (_ statusDetail: String) async throws -> [URL]
+        toolkit: (_ statusDetail: String) async throws -> [URL],
+        log: (_ line: String) -> Void = { _ in }
     ) async throws -> SRAWindowRunDownload {
         let readRecord: ENAReadRecord
         switch route {
@@ -62,9 +67,76 @@ struct SRAWindowRunDownload {
             readRecord = record
         case .sraToolkit(_, let reason):
             let files = try await toolkit("\(reason); using SRA Toolkit...")
-            return SRAWindowRunDownload(fastqFiles: files, source: .sraToolkit, enaSteps: [])
+            return SRAWindowRunDownload(fastqFiles: files, source: .sraToolkit, enaSteps: [], preference: preference)
         }
 
+        if route.plan(preferring: preference).transfers.first == .sraToolkit {
+            return try await downloadPreferringToolkit(
+                accession: accession, record: readRecord, into: folder, mirrorFile: mirrorFile, toolkit: toolkit, log: log
+            )
+        }
+
+        do {
+            let mirrored = try await downloadFromMirror(record: readRecord, into: folder, mirrorFile: mirrorFile)
+            return SRAWindowRunDownload(fastqFiles: mirrored.files, source: .ena, enaSteps: mirrored.steps, preference: preference)
+        } catch {
+            guard let fallbackSource = SRAFASTQDownloadSource.toolkitFallback(after: error) else {
+                throw error
+            }
+            // Fetch the run from NCBI via the SRA Toolkit instead.
+            logger.warning("startENADownloadTask: ENA download failed for \(accession, privacy: .public): \(error.localizedDescription, privacy: .public); falling back to SRA Toolkit")
+            let failure = fallbackSource == .sraToolkitAfterIncompleteMirror
+                ? "ENA mirror is missing files" : "ENA transfer failed"
+            let files = try await toolkit("\(failure) for \(accession); using SRA Toolkit...")
+            return SRAWindowRunDownload(fastqFiles: files, source: fallbackSource, enaSteps: [], preference: preference)
+        }
+    }
+
+    /// Fetches the run with the SRA Toolkit first, as "Prefer NCBI" asks.
+    /// When the toolkit is not installed or fails, everything it left in the
+    /// run's folder is removed, `log` gets the reason, and ENA's mirror
+    /// serves the files ENA lists. A cancellation stops the download.
+    private static func downloadPreferringToolkit(
+        accession: String,
+        record: ENAReadRecord,
+        into folder: URL,
+        mirrorFile: (_ url: URL, _ expectedBytes: Int64?, _ priorBytes: Int64) async throws -> Data,
+        toolkit: (_ statusDetail: String) async throws -> [URL],
+        log: (_ line: String) -> Void
+    ) async throws -> SRAWindowRunDownload {
+        do {
+            let files = try await toolkit("Fetching \(accession) from NCBI with the SRA Toolkit (Prefer NCBI)...")
+            return SRAWindowRunDownload(fastqFiles: files, source: .sraToolkit, enaSteps: [], preference: .ncbi)
+        } catch let toolkitError {
+            guard let source = SRAFASTQDownloadSource.enaFallback(afterToolkitError: toolkitError) else {
+                throw toolkitError
+            }
+            // The folder holds only this run, so nothing the toolkit wrote
+            // can reach the import beside ENA's files.
+            for entry in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
+                try? FileManager.default.removeItem(at: entry)
+            }
+            log(SRAFASTQDownloadSource.enaFallbackMessage(accession: accession, after: toolkitError))
+            do {
+                let mirrored = try await downloadFromMirror(record: record, into: folder, mirrorFile: mirrorFile)
+                return SRAWindowRunDownload(fastqFiles: mirrored.files, source: source, enaSteps: mirrored.steps, preference: .ncbi)
+            } catch let enaError {
+                if SRAFASTQDownloadSource.toolkitFallback(after: enaError) == nil {
+                    throw enaError
+                }
+                throw SRAError.downloadFailed("Toolkit: \(toolkitError.localizedDescription); ENA: \(enaError.localizedDescription)")
+            }
+        }
+    }
+
+    /// Fetches every file ENA lists for the run from ENA's mirror with
+    /// `mirrorFile`, checking each with `ENAFASTQDownloadValidator`. On any
+    /// failure the files staged so far are removed and the error rethrown.
+    private static func downloadFromMirror(
+        record readRecord: ENAReadRecord,
+        into folder: URL,
+        mirrorFile: (_ url: URL, _ expectedBytes: Int64?, _ priorBytes: Int64) async throws -> Data
+    ) async throws -> (files: [URL], steps: [StepExecution]) {
         let fastqURLs = readRecord.fastqHTTPURLs
         let perFileSizes = ENAFASTQDownloadValidator.expectedByteCounts(for: readRecord)
         var fastqFiles: [URL] = []
@@ -123,21 +195,13 @@ struct SRAWindowRunDownload {
                 fastqFiles.append(localPath)
                 priorBytesDownloaded += fileExpectedBytes ?? Int64(data.count)
             }
-            return SRAWindowRunDownload(fastqFiles: fastqFiles, source: .ena, enaSteps: enaSteps)
+            return (fastqFiles, enaSteps)
         } catch {
-            guard let fallbackSource = SRAFASTQDownloadSource.toolkitFallback(after: error) else {
-                throw error
-            }
-            // Discard the partial pair and fetch the run from NCBI via the
-            // SRA Toolkit instead.
-            logger.warning("startENADownloadTask: ENA download failed for \(accession, privacy: .public): \(error.localizedDescription, privacy: .public); falling back to SRA Toolkit")
+            // Discard the partial pair.
             for stagedURL in fastqURLs {
                 try? FileManager.default.removeItem(at: folder.appendingPathComponent(stagedURL.lastPathComponent))
             }
-            let failure = fallbackSource == .sraToolkitAfterIncompleteMirror
-                ? "ENA mirror is missing files" : "ENA transfer failed"
-            let files = try await toolkit("\(failure) for \(accession); using SRA Toolkit...")
-            return SRAWindowRunDownload(fastqFiles: files, source: fallbackSource, enaSteps: [])
+            throw error
         }
     }
 }
@@ -251,15 +315,17 @@ extension SRAWindowRunDownload {
     /// `SRAWindowStagedRun.removeFolder()` after the import or on failure.
     ///
     /// - Parameters:
-    ///   - mirrorFile: As for `download(accession:route:into:mirrorFile:toolkit:)`.
+    ///   - mirrorFile: As for `download(accession:route:preference:into:mirrorFile:toolkit:log:)`.
     ///   - toolkit: Fetches the whole run with the SRA Toolkit into the given
     ///     folder, given the status line the Operations panel row logs.
     static func stage(
         accession: String,
         route: SRAFASTQDownloadRoute,
+        preference: SRADownloadSourcePreference = .ena,
         in batchDir: URL,
         mirrorFile: (_ url: URL, _ expectedBytes: Int64?, _ priorBytes: Int64) async throws -> Data,
-        toolkit: (_ statusDetail: String, _ folder: URL) async throws -> [URL]
+        toolkit: (_ statusDetail: String, _ folder: URL) async throws -> [URL],
+        log: (_ line: String) -> Void = { _ in }
     ) async throws -> SRAWindowStagedRun {
         let folder = batchDir.appendingPathComponent(accession, isDirectory: true)
         // A folder left by an earlier copy of this run in the batch is stale.
@@ -269,9 +335,11 @@ extension SRAWindowRunDownload {
             let download = try await download(
                 accession: accession,
                 route: route,
+                preference: preference,
                 into: folder,
                 mirrorFile: mirrorFile,
-                toolkit: { try await toolkit($0, folder) }
+                toolkit: { try await toolkit($0, folder) },
+                log: log
             )
             let reads = try SRAWindowRunReads(
                 stagedFiles: download.fastqFiles,

@@ -96,11 +96,22 @@ public enum SRAFASTQDownloadSource: String, Sendable, CaseIterable {
     /// A transfer from ENA's mirror broke off or answered an HTTP error, so
     /// the SRA Toolkit fetched the whole run.
     case sraToolkitAfterFailedTransfer = "SRA Toolkit (ENA transfer failed)"
+    /// The download preferred NCBI, the SRA Toolkit is not installed, so
+    /// ENA's mirror served the run.
+    case enaAfterMissingToolkit = "ENA (SRA Toolkit not installed)"
+    /// The download preferred NCBI, the SRA Toolkit failed, so ENA's mirror
+    /// served the run.
+    case enaAfterFailedToolkit = "ENA (SRA Toolkit failed)"
 
     /// Whether the SRA Toolkit fetched the reads. Its `prefetch` and
     /// `fasterq-dump` run in the managed sra-tools environment.
     public var usesSRAToolkit: Bool {
-        self != .ena
+        switch self {
+        case .ena, .enaAfterMissingToolkit, .enaAfterFailedToolkit:
+            return false
+        case .sraToolkit, .sraToolkitAfterIncompleteMirror, .sraToolkitAfterFailedTransfer:
+            return true
+        }
     }
 
     /// The source a download records when its ENA download failed with
@@ -122,6 +133,14 @@ public enum SRAFASTQDownloadSource: String, Sendable, CaseIterable {
             return .sraToolkitAfterIncompleteMirror
         }
         return .sraToolkitAfterFailedTransfer
+    }
+
+    /// The line `lungfish-cli fetch sra download` prints and records when
+    /// ENA failed with `error` and the SRA Toolkit fetches the run instead.
+    /// It names the run and why ENA could not serve it.
+    public static func toolkitFallbackMessage(accession: String, after error: any Error) -> String {
+        let reason = (error as? ENAFASTQDownloadFailure)?.message ?? error.localizedDescription
+        return "ENA could not serve \(accession), so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. \(reason)"
     }
 }
 
