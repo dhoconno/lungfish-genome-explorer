@@ -361,7 +361,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     var onBottomPaneStateChanged: (() -> Void)?
 
     private(set) var alignmentRows: [MSAAlignmentSequence] = []
-    private var rowIDsByIndex: [String] = []
+    var rowIDsByIndex: [String] = []
     private var columnSummaries: [MSAColumnSummary] = []
     private var displayedColumns: [Int] = []
     private var coordinateMapsByRowID: [String: MultipleSequenceAlignmentBundle.RowCoordinateMap] = [:]
@@ -370,7 +370,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     var drawerAnnotationByResultID: [UUID: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] = [:]
     private var selectedRowIndex: Int?
     private var selectedAlignmentColumn: Int?
-    private var selectedRowIndices = IndexSet()
+    var selectedRowIndices = IndexSet()
     private var rowSelectionAnchor: Int?
     private var isWholeRowSelection = false
     private var contextReferenceRowIndex: Int?
@@ -1778,7 +1778,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         alignmentClipViewBoundsDidChange(Notification(name: NSView.boundsDidChangeNotification, object: clipView))
     }
 
-    private func selectionContextMenu() -> NSMenu {
+    func selectionContextMenu() -> NSMenu {
         let menu = FASTASequenceActionMenuBuilder.buildMenu(
             selectionCount: selectedRowIndices.count,
             handlers: FASTASequenceActionHandlers(
@@ -1898,33 +1898,14 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         )
     }
 
-    /// K5: the accessibility twin of the context-menu "Build Tree with IQ-TREE…" item, present
-    /// on the matrix and the row gutter whenever a bundle is loaded.
     private func refreshTreeAccessibilityActions() {
-        let actions: [NSAccessibilityCustomAction]
-        if bundleURL != nil {
-            actions = [
-                NSAccessibilityCustomAction(name: "Build Tree with IQ-TREE…") { [weak self] in
-                    MainActor.assumeIsolated { self?.inferTreeFromAlignment() }
-                    return true
-                }
-            ]
-        } else {
-            actions = []
-        }
+        let actions = treeAccessibilityActions()
         alignmentMatrixView.setAccessibilityCustomActions(actions)
         rowGutterView.setAccessibilityCustomActions(actions)
     }
 
-    var testingTreeAccessibilityActionNames: (matrix: [String], gutter: [String]) {
-        (
-            alignmentMatrixView.accessibilityCustomActions()?.map(\.name) ?? [],
-            rowGutterView.accessibilityCustomActions()?.map(\.name) ?? []
-        )
-    }
-
-    func testingPerformMatrixTreeAccessibilityAction() -> Bool {
-        alignmentMatrixView.accessibilityCustomActions()?.first?.handler?() ?? false
+    var testingTreeAccessibilityActions: (matrix: [NSAccessibilityCustomAction], gutter: [NSAccessibilityCustomAction]) {
+        (alignmentMatrixView.accessibilityCustomActions() ?? [], rowGutterView.accessibilityCustomActions() ?? [])
     }
 
     @objc private func inferTreeFromMenu(_ sender: Any?) {
@@ -1941,7 +1922,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         !isWholeRowSelection && (selectedRowIndices.count > 1 || (selectedAlignmentColumnRange?.count ?? 0) > 1)
     }
 
-    private var selectedExportColumns: String? {
+    var selectedExportColumns: String? {
         guard isResidueBlockSelection, let range = selectedAlignmentColumnRange else { return nil }
         return "\(range.lowerBound + 1)-\(range.upperBound + 1)"
     }
@@ -2052,34 +2033,9 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         onRunOperationRequested?(records, selectedFASTAName())
     }
 
-    private func inferTreeFromAlignment() {
+    func inferTreeFromAlignment() {
         guard let request = treeInferenceRequest() else { return }
         onInferTreeRequested?(request)
-    }
-
-    /// The tree-inference request for the loaded alignment, carrying the current row and
-    /// column selection. The IQ-TREE dialog validates the scope, so no selection size is
-    /// required here. `nil` only when no bundle is loaded.
-    func treeInferenceRequest() -> MultipleSequenceAlignmentTreeInferenceRequest? {
-        guard let bundleURL else { return nil }
-        let displayName = bundle?.manifest.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? bundle?.manifest.name ?? bundleURL.deletingPathExtension().lastPathComponent
-            : bundleURL.deletingPathExtension().lastPathComponent
-        let selectedRows: String?
-        if !selectedRowIndices.isEmpty {
-            let rowIDs = selectedRowIndices.compactMap { rowIDsByIndex[safe: $0] }
-            selectedRows = rowIDs.isEmpty ? nil : rowIDs.joined(separator: ",")
-        } else {
-            selectedRows = nil
-        }
-        let selectedColumns = selectedExportColumns
-        return MultipleSequenceAlignmentTreeInferenceRequest(
-            bundleURL: bundleURL,
-            rows: selectedRows,
-            columns: selectedColumns,
-            suggestedName: "\(displayName).lungfishtree",
-            displayName: displayName
-        )
     }
 
     static func fastaRecord(name: String, sequence: String) -> String {
@@ -2613,10 +2569,6 @@ extension MultipleSequenceAlignmentViewController {
     func testingInvokeReferenceActions() {
         useSelectedRowAsReference(nil)
         useConsensusAsReference(nil)
-    }
-
-    var testingBuildTreeContextItemEnabled: Bool {
-        selectionContextMenu().items.first { $0.title == "Build Tree with IQ-TREE\u{2026}" }?.isEnabled ?? false
     }
 
     var testingSelectionContextMenuTitles: [String] {
