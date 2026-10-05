@@ -205,36 +205,16 @@ extension DatabaseBrowserViewModel {
                         projectDirectory: projectDirectory
                     )
 
-                    final class ResultTracker: @unchecked Sendable {
-                        var bundleURL: URL?
-                        var errorMessage: String?
-                    }
-                    let tracker = ResultTracker()
-
-                    let runner = CLIImportRunner()
                     let cliStartedAt = Date()
-                    await runner.run(
+                    let bundleURL = try await SRAWindowImportLeftovers.importRun(
                         arguments: args,
                         operationID: downloadCenterTaskID,
                         projectDirectory: projectDirectory,
-                        onBundleCreated: { url in tracker.bundleURL = url },
-                        onError: { error in tracker.errorMessage = error }
+                        accession: accession,
+                        files: reads.files,
+                        launchedAt: cliStartedAt
                     )
                     let cliCompletedAt = Date()
-
-                    if let errorMsg = tracker.errorMessage, tracker.bundleURL == nil {
-                        throw NSError(
-                            domain: "DatabaseBrowser.SRAImport", code: 1,
-                            userInfo: [NSLocalizedDescriptionKey: errorMsg]
-                        )
-                    }
-
-                    guard let bundleURL = tracker.bundleURL else {
-                        throw NSError(
-                            domain: "DatabaseBrowser.SRAImport", code: 2,
-                            userInfo: [NSLocalizedDescriptionKey: "CLI import produced no output bundle for \(record.accession)"]
-                        )
-                    }
 
                     // 5. Augment metadata sidecar with ENA provenance info
                     let contents = try? FileManager.default.contentsOfDirectory(
