@@ -116,6 +116,7 @@ public enum FASTQBatchImporter {
         public let failed: Int
         public let totalDurationSeconds: Double
         public let errors: [(sample: String, error: String)]
+        public let cancelled: Bool // a cancel stopped the batch before every sample was done
     }
 
     struct RequiredSeqkitStats: Sendable, Equatable {
@@ -746,11 +747,11 @@ public enum FASTQBatchImporter {
 
         var completed = 0
         var skipped = 0
-        var failed = 0
+        var cancelled = false
         var errors: [(sample: String, error: String)] = []
 
         for (index, pair) in pairs.enumerated() {
-            if Task.isCancelled { break } // a cancel (lungfish-cli turns SIGTERM into one) stops the batch
+            if Task.isCancelled { cancelled = true; break } // a cancel (lungfish-cli turns SIGTERM into one) stops the batch
             // Check for skip before allocating anything (unless forceReimport is set)
             if !config.forceReimport {
                 switch existingImportBundleStatus(for: pair, in: config.projectDirectory) {
@@ -761,12 +762,7 @@ public enum FASTQBatchImporter {
                     skipped += 1
                     continue
                 case .incomplete(let bundleURL):
-                    let error = BatchImportError.outputBundleAlreadyExists(bundleURL)
-                    let message = error.localizedDescription
-                    log?(.sampleFailed(sample: pair.sampleName, error: message))
-                    logger.error("Sample \(pair.sampleName) failed: \(message)")
-                    errors.append((sample: pair.sampleName, error: message))
-                    failed += 1
+                    recordFailure(BatchImportError.outputBundleAlreadyExists(bundleURL), of: pair.sampleName, log: log, into: &errors)
                     continue
                 case .missing:
                     break
@@ -787,12 +783,11 @@ public enum FASTQBatchImporter {
             switch result {
             case .success:
                 completed += 1
+            case .failure(let error) where isCancellation(error):
+                recordCancel(of: pair.sampleName) // a cancel, not a failed sample
+                cancelled = true
             case .failure(let error):
-                let message = error.localizedDescription
-                log?(.sampleFailed(sample: pair.sampleName, error: message))
-                logger.error("Sample \(pair.sampleName) failed: \(message)")
-                errors.append((sample: pair.sampleName, error: message))
-                failed += 1
+                recordFailure(error, of: pair.sampleName, log: log, into: &errors)
             }
         }
 
@@ -800,17 +795,18 @@ public enum FASTQBatchImporter {
         log?(.importComplete(
             completed: completed,
             skipped: skipped,
-            failed: failed,
+            failed: errors.count,
             totalDurationSeconds: totalDuration
         ))
-        logger.info("Batch import complete: \(completed) completed, \(skipped) skipped, \(failed) failed in \(String(format: "%.1f", totalDuration))s")
+        logger.info("Batch import complete: \(completed) completed, \(skipped) skipped, \(errors.count) failed in \(String(format: "%.1f", totalDuration))s")
 
         return ImportResult(
             completed: completed,
             skipped: skipped,
-            failed: failed,
+            failed: errors.count,
             totalDurationSeconds: totalDuration,
-            errors: errors
+            errors: errors,
+            cancelled: cancelled
         )
     }
 

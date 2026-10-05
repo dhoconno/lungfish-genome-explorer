@@ -452,11 +452,14 @@ extension ImportCommand {
                 )
             }
             // SIGTERM (the window's Cancel) cancels the import, so it removes
-            // its staging bundle and workspace before the command exits.
-            let termination = SIGTERMCancellation(cancelling: importTask)
+            // its staging bundle and workspace before the command exits. A
+            // second SIGTERM ends the command at once. The batch itself says
+            // whether a cancel stopped it, so a SIGTERM after the last sample
+            // was published does not turn a finished import into a cancelled one.
+            let termination = SIGTERMCancellation(cancelling: importTask, secondSignalEndsProcess: true)
             let result = await importTask.value
             termination.end()
-            if importTask.isCancelled {
+            if result.cancelled {
                 print(formatter.error("Import cancelled"))
                 throw CLIExitCode.cancelled.exitCode
             }
