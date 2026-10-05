@@ -270,7 +270,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAlignmentUITests",
-            dependencies: ["LungfishAlignmentUI", "LungfishKit"],
+            dependencies: ["LungfishAlignmentUI", "LungfishKit", "LungfishIO", "LungfishTestSupport"],
             path: "Tests/LungfishAlignmentUITests"
         ),
 
