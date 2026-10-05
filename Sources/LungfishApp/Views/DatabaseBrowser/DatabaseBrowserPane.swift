@@ -23,6 +23,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
     /// Height of the header, accessory and search cards, measured so their
     /// scroll view is never taller than they are.
     @State private var upperContentHeight: CGFloat?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The results card keeps at least this height when the cards above it
     /// scroll.
@@ -41,7 +42,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 .scrollBounceBehavior(.basedOnSize)
                 .onChange(of: viewModel.isAdvancedExpanded) { _, isExpanded in
                     guard isExpanded else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                         proxy.scrollTo(Self.advancedSectionScrollID, anchor: .top)
                     }
                 }
@@ -254,7 +255,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 }
 
                 Button(viewModel.isAdvancedExpanded ? "Hide" : "Show") {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                         viewModel.isAdvancedExpanded.toggle()
                     }
                 }
