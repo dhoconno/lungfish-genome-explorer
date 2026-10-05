@@ -173,7 +173,7 @@ final class WindowAppearanceTests: XCTestCase {
                 if allowedDataColorFiles.contains(relativePath) {
                     continue
                 }
-                let source = try String(contentsOf: url, encoding: .utf8)
+                let source = try readRepositorySource(url)
                 // source-audit: intentional repo-wide lint
                 // Deliberate whole-tree style-guide scan (forbidden system-red patterns
                 // anywhere in UI sources); the assertion's subject is source text itself
@@ -583,7 +583,7 @@ final class WindowAppearanceTests: XCTestCase {
         var offenders: [String] = []
         for scanRoot in scanRoots {
             let matches = try swiftSourceFiles(under: scanRoot).filter { url in
-                let source = try String(contentsOf: url, encoding: .utf8)
+                let source = try readRepositorySource(url)
                 // source-audit: intentional repo-wide lint
                 // Deliberate whole-tree scan for a deprecated AppKit API name; the
                 // assertion's subject is source text by design (there is no runtime
@@ -726,7 +726,7 @@ final class WindowAppearanceTests: XCTestCase {
 
         let sourceRoot = root.appendingPathComponent("Sources")
         let references = try swiftSourceFiles(under: sourceRoot).filter { url in
-            let source = try String(contentsOf: url, encoding: .utf8)
+            let source = try readRepositorySource(url)
             // source-audit: intentional repo-wide lint
             // Deliberate dead-code check: confirms no source file still references a
             // type that was deleted. There is no runtime instance to test against by
@@ -848,19 +848,7 @@ final class WindowAppearanceTests: XCTestCase {
     }
 
     private func swiftSourceFiles(under root: URL) throws -> [URL] {
-        guard let enumerator = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        return try enumerator.compactMap { item -> URL? in
-            guard let url = item as? URL, url.pathExtension == "swift" else { return nil }
-            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
-            return values.isRegularFile == true ? url : nil
-        }
+        try repositoryFiles(under: root)
     }
 }
 

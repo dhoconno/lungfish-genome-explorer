@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 
 final class ProvenanceFailurePolicySourceTests: XCTestCase {
     private func repoRoot() throws -> URL {
@@ -26,7 +27,7 @@ final class ProvenanceFailurePolicySourceTests: XCTestCase {
         ]
 
         for file in files {
-            let text = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            let text = try readRepositorySource(root.appendingPathComponent(file))
             XCTAssertFalse(
                 text.contains("Failed to save provenance"),
                 "\(file) still treats provenance save failure as a warning"

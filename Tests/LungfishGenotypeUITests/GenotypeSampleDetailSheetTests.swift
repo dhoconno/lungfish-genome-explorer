@@ -5,6 +5,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 @testable import LungfishGenotypeUI
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeSampleDetailSheetTests: XCTestCase {
@@ -142,7 +143,7 @@ final class GenotypeSampleDetailSheetTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeSampleDetailSheet.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("ViewThatFits(in: .horizontal)"))
         XCTAssertTrue(source.contains("typographyModel.font(for:"))

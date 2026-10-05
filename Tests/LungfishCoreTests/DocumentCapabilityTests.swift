@@ -5,6 +5,7 @@
 import Foundation
 import XCTest
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class DocumentCapabilityTests: XCTestCase {
 
@@ -504,7 +505,7 @@ final class DocumentCapabilityTests: XCTestCase {
     func testGenomicDocumentDoesNotExposeMisleadingCapabilityProviderConformance() throws {
         let sourceURL = Self.repositoryRoot()
             .appendingPathComponent("Sources/LungfishCore/Capabilities/GenomicDocument+Capabilities.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertFalse(
             source.contains("extension GenomicDocument: CapabilityProvider"),

@@ -12,6 +12,7 @@
 // the next method's header) remain valid.
 
 import Foundation
+import LungfishTestSupport
 
 /// Directory holding SidebarViewController.swift and its split files.
 func sidebarViewControllerSourceDirectory() -> URL {
@@ -49,7 +50,7 @@ func combinedSidebarViewControllerSource() -> String {
     var pieces: [String] = []
     for name in sidebarViewControllerOrderedSourceFiles {
         let url = dir.appendingPathComponent(name)
-        if let text = try? String(contentsOf: url, encoding: .utf8) {
+        if let text = try? readRepositorySource(url) {
             pieces.append(text)
         }
     }

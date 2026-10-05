@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
     private var pipelineSourceURL: URL {
@@ -338,7 +339,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             ])
         )
 
-        let source = try String(contentsOf: pipelineSourceURL, encoding: .utf8)
+        let source = try readRepositorySource(pipelineSourceURL)
         let helperStart = try XCTUnwrap(source.range(of: "private func databaseInputRecord"))
         let helperEnd = try XCTUnwrap(
             source.range(of: "private func recordKraken2Failure", range: helperStart.upperBound..<source.endIndex)
@@ -471,7 +472,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
     }
 
     func testClassificationSidecarFailureRecordsFailedWrapperStepInSource() throws {
-        let source = try String(contentsOf: pipelineSourceURL, encoding: .utf8)
+        let source = try readRepositorySource(pipelineSourceURL)
 
         XCTAssertTrue(source.contains("} catch let sidecarError {\n            await provenanceRecorder.recordStep("))
         XCTAssertTrue(source.contains(#"toolName: "Lungfish Classification Result Sidecar""#))
@@ -1275,7 +1276,7 @@ private struct FakeClassificationCondaFixture {
 
     func toolInvocations(named toolName: String) throws -> [String] {
         guard FileManager.default.fileExists(atPath: invocationLogURL.path) else { return [] }
-        return try String(contentsOf: invocationLogURL, encoding: .utf8)
+        return try readRepositorySource(invocationLogURL)
             .split(separator: "\n")
             .map(String.init)
             .filter { $0 == toolName || $0.hasPrefix("\(toolName) ") }

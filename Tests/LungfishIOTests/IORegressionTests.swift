@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishIO
 @testable import LungfishCore
+import LungfishTestSupport
 
 // MARK: - QualityScore Tests
 
@@ -307,7 +308,7 @@ final class FASTAIndexRegressionTests: XCTestCase {
         let outputURL = tempDir.appendingPathComponent("output.fai")
         try index.write(to: outputURL)
 
-        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        let content = try readRepositorySource(outputURL)
         XCTAssertTrue(content.contains("seq1\t100\t6\t80\t81"))
     }
 
@@ -411,7 +412,7 @@ final class FASTAIndexRegressionTests: XCTestCase {
         let sourceURL = packageRoot
             .appendingPathComponent("Sources/LungfishIO/Index/FASTAIndex.swift")
 
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertFalse(
             source.contains("readToEnd()"),

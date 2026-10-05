@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
 import LungfishIO
+import LungfishTestSupport
 
 final class ProjectDeletionPlannerTests: XCTestCase {
     private var tempDir: URL!
@@ -332,7 +333,7 @@ final class ProjectDeletionPlannerTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("presentProgressiveDeleteConfirmation(items: deletableItems, in: window)"))
         XCTAssertTrue(source.contains("Task.detached(priority: .userInitiated)"))

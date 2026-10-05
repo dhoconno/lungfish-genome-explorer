@@ -67,8 +67,8 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             }
             guard outputs.count == 2 else { return XCTFail("Expected one output per input for \(operation.operationKindString), \(mode)") }
             XCTAssertEqual(outputs.map { SequenceFormat.from(url: $0) }, [.fasta, .fastq], operation.operationKindString)
-            XCTAssertEqual(try String(contentsOf: outputs[0], encoding: .utf8), ">read\nACGT\n")
-            XCTAssertEqual(try String(contentsOf: outputs[1], encoding: .utf8), "@read\nACGT\n+\n!I!I\n")
+            XCTAssertEqual(try readRepositorySource(outputs[0]), ">read\nACGT\n")
+            XCTAssertEqual(try readRepositorySource(outputs[1]), "@read\nACGT\n+\n!I!I\n")
             let provenance = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: outputs[0])?.envelope)
             XCTAssertTrue(provenance.steps.contains { $0.toolName == "SyntheticFASTQBridge.convertFASTAToFASTQ" })
             XCTAssertTrue(provenance.steps.contains { $0.toolName == SequenceProcessingOutputNormalizer.normalizationToolName })
@@ -1650,7 +1650,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Services/FASTQOperationExecutionService.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let runnerSource = try XCTUnwrap(
             source.range(of: "struct LungfishCLIProcessRunner")
                 .flatMap { start in
@@ -1974,7 +1974,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             XCTAssertNotEqual(resolvedInputPath, chunkB.path)
 
             let resolvedInputURL = URL(fileURLWithPath: resolvedInputPath)
-            let resolvedContents = try String(contentsOf: resolvedInputURL, encoding: .utf8)
+            let resolvedContents = try readRepositorySource(resolvedInputURL)
             XCTAssertTrue(resolvedContents.contains("@chunkA1"))
             XCTAssertTrue(resolvedContents.contains("@chunkB1"))
 
@@ -2173,7 +2173,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             let bridgedInputURL = URL(fileURLWithPath: try XCTUnwrap(invocation.arguments[safe: 1]))
             XCTAssertEqual(SequenceFormat.from(url: bridgedInputURL), .fastq)
 
-            let bridgedContents = try String(contentsOf: bridgedInputURL, encoding: .utf8)
+            let bridgedContents = try readRepositorySource(bridgedInputURL)
             XCTAssertTrue(bridgedContents.contains("@seq1"))
             XCTAssertTrue(bridgedContents.contains("AACCGGTTAACC"))
             XCTAssertTrue(bridgedContents.contains("+"))
@@ -2224,7 +2224,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             let bridgedInputURL = URL(fileURLWithPath: try XCTUnwrap(invocation.arguments[safe: 1]))
             XCTAssertEqual(SequenceFormat.from(url: bridgedInputURL), .fastq)
 
-            let bridgedContents = try String(contentsOf: bridgedInputURL, encoding: .utf8)
+            let bridgedContents = try readRepositorySource(bridgedInputURL)
             XCTAssertTrue(bridgedContents.contains("@contig1"))
             XCTAssertTrue(bridgedContents.contains("AACCGGTTAACC"))
             XCTAssertTrue(bridgedContents.contains("IIIIIIIIIIII"))
@@ -4400,7 +4400,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             let bridgedInputURL = URL(fileURLWithPath: try XCTUnwrap(invocation.arguments[safe: 1]))
             XCTAssertEqual(SequenceFormat.from(url: bridgedInputURL), .fastq)
 
-            let bridgedContents = try String(contentsOf: bridgedInputURL, encoding: .utf8)
+            let bridgedContents = try readRepositorySource(bridgedInputURL)
             XCTAssertTrue(bridgedContents.contains("@seq1"))
             XCTAssertTrue(bridgedContents.contains("IIIIIIIIIIII"))
 

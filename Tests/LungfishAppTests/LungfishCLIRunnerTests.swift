@@ -1,6 +1,7 @@
 import LungfishKit
 import XCTest
 @testable import LungfishApp
+import LungfishTestSupport
 
 final class LungfishCLIRunnerTests: XCTestCase {
     func testLaunchFailureClosesCapturePipesBeforeThrowing() throws {
@@ -9,7 +10,7 @@ final class LungfishCLIRunnerTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let sourceURL = root.appendingPathComponent("Sources/LungfishKit/LungfishCLIRunner.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let catchStart = try XCTUnwrap(source.range(of: "} catch {"))
         let throwRange = try XCTUnwrap(
             source.range(of: "throw RunError.launchFailed", range: catchStart.upperBound..<source.endIndex)

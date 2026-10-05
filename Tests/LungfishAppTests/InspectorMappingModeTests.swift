@@ -3,6 +3,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class InspectorMappingModeTests: XCTestCase {
@@ -153,7 +154,7 @@ final class InspectorMappingModeTests: XCTestCase {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift")
-        let lines = try String(contentsOf: sourceURL, encoding: .utf8)
+        let lines = try readRepositorySource(sourceURL)
             .components(separatedBy: "\n")
         let segmentedLines = lines.indices.filter { lines[$0].contains(".pickerStyle(.segmented)") }
         XCTAssertFalse(segmentedLines.isEmpty)

@@ -4,6 +4,7 @@ import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
 @testable import LungfishApp
+import LungfishTestSupport
 
 /// A completed FASTQ operation must record what it produced so the
 /// Operations panel can enable its Results button and offer Reveal Output
@@ -128,7 +129,7 @@ final class FASTQOperationCompletionOutputsTests: XCTestCase {
         ]
         var launchCount = 0
         for file in files {
-            let source = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            let source = try readRepositorySource(root.appendingPathComponent(file))
             for marker in launchMarkers {
                 var cursor = source.startIndex
                 while let launch = source.range(of: marker, range: cursor..<source.endIndex) {

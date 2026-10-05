@@ -2104,7 +2104,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
     private func waitForEvent(prefix: String, in eventLogURL: URL, timeout: TimeInterval) throws -> String {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let content = try? String(contentsOf: eventLogURL, encoding: .utf8),
+            if let content = try? readRepositorySource(eventLogURL),
                let event = content.components(separatedBy: .newlines).first(where: { $0.hasPrefix(prefix) }) {
                 return event
             }

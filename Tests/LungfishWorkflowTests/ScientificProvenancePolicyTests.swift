@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 @Suite("Scientific Provenance Policy")
 struct ScientificProvenancePolicyTests {
@@ -205,7 +206,7 @@ struct ScientificProvenancePolicyTests {
         #expect(envelope.reproducibleCommand.contains(finalBundleRelativePath))
         #expect(!containsTemporaryOrStagingPath(envelope.output?.path ?? ""))
         #expect(!containsTemporaryOrStagingPath(envelope.reproducibleCommand))
-        #expect(!containsTemporaryOrStagingPath(try String(contentsOf: provenanceURL, encoding: .utf8)))
+        #expect(!containsTemporaryOrStagingPath(try readRepositorySource(provenanceURL)))
     }
 
     private func repositoryRoot() -> URL {

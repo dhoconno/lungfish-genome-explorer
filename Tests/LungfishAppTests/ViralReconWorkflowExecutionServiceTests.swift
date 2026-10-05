@@ -158,16 +158,16 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: persistedPrimerBED.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: persistedPrimerFASTA.path))
         XCTAssertEqual(
-            try String(contentsOf: persistedSamplesheet, encoding: .utf8),
-            try String(contentsOf: request.samplesheetURL, encoding: .utf8)
+            try readRepositorySource(persistedSamplesheet),
+            try readRepositorySource(request.samplesheetURL)
         )
         XCTAssertEqual(
-            try String(contentsOf: persistedPrimerBED, encoding: .utf8),
-            try String(contentsOf: request.primer.bedURL, encoding: .utf8)
+            try readRepositorySource(persistedPrimerBED),
+            try readRepositorySource(request.primer.bedURL)
         )
         XCTAssertEqual(
-            try String(contentsOf: persistedPrimerFASTA, encoding: .utf8),
-            try String(contentsOf: XCTUnwrap(request.primer.fastaURL), encoding: .utf8)
+            try readRepositorySource(persistedPrimerFASTA),
+            try readRepositorySource(XCTUnwrap(request.primer.fastaURL))
         )
 
         let invocation = try XCTUnwrap(runner.invocations.first)
@@ -188,11 +188,11 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertEqual(manifest.params["primer_fasta"], persistedPrimerFASTA.path)
 
         XCTAssertEqual(
-            try String(contentsOf: result.bundleURL.appendingPathComponent("logs/stdout.log"), encoding: .utf8),
+            try readRepositorySource(result.bundleURL.appendingPathComponent("logs/stdout.log")),
             "nextflow progress\ncompleted sample SARS2_A"
         )
         XCTAssertEqual(
-            try String(contentsOf: result.bundleURL.appendingPathComponent("logs/stderr.log"), encoding: .utf8),
+            try readRepositorySource(result.bundleURL.appendingPathComponent("logs/stderr.log")),
             "nextflow warning"
         )
 
@@ -680,7 +680,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
 
         let persistedPrimerFASTA = result.bundleURL.appendingPathComponent("inputs/primers/primers.fasta")
         XCTAssertTrue(FileManager.default.fileExists(atPath: persistedPrimerFASTA.path))
-        let staged = try String(contentsOf: persistedPrimerFASTA, encoding: .utf8)
+        let staged = try readRepositorySource(persistedPrimerFASTA)
         XCTAssertTrue(staged.contains(">SARS2_1_LEFT\nAAAA"), staged)
         XCTAssertTrue(staged.contains(">SARS2_1_RIGHT\nGGGG"), staged)
     }
@@ -1080,7 +1080,7 @@ final class PipelineCancelCallbackRegressionTests: XCTestCase {
 
         let handleSource = try functionBody(
             named: "cancelStoredTask",
-            in: try String(contentsOf: appDelegateSourceDirectory().appendingPathComponent("AppDelegate+ToolsMenu.swift"), encoding: .utf8)
+            in: try readRepositorySource(appDelegateSourceDirectory().appendingPathComponent("AppDelegate+ToolsMenu.swift"))
         )
         XCTAssertTrue(
             handleSource.contains("task?.cancel()"),
@@ -1284,7 +1284,7 @@ private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 10) async th
 }
 
 private func readPID(_ url: URL) throws -> Int32 {
-    let text = try String(contentsOf: url, encoding: .utf8)
+    let text = try readRepositorySource(url)
         .trimmingCharacters(in: .whitespacesAndNewlines)
     return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
 }

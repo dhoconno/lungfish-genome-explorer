@@ -6,6 +6,7 @@ import XCTest
 import SQLite3
 @testable import LungfishIO
 @testable import LungfishCore
+import LungfishTestSupport
 
 private final class AnnotationDatabaseFailureLog: @unchecked Sendable {
     private let lock = NSLock()
@@ -534,7 +535,7 @@ final class AnnotationDatabaseTests: XCTestCase {
 
         for relativePath in relativePaths {
             let sourceURL = repoRoot.appendingPathComponent(relativePath)
-            let source = try String(contentsOf: sourceURL, encoding: .utf8)
+            let source = try readRepositorySource(sourceURL)
             let bindTextLines = source
                 .components(separatedBy: .newlines)
                 .filter { $0.contains("sqlite3_bind_text(") }

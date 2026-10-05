@@ -3,6 +3,7 @@ import LungfishCore
 import SQLite3
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class MultipleSequenceAlignmentBundleTests: XCTestCase {
     enum AnnotationEditOriginalFailure: Error, Equatable {
@@ -34,7 +35,7 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishIO/Bundles/MultipleSequenceAlignmentBundle.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("public struct ColumnStat"))
         XCTAssertTrue(source.contains("public let consensusResidue"))
@@ -283,7 +284,7 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         XCTAssertEqual(provenance.wallTimeSeconds, 12.5)
         XCTAssertEqual(provenance.warnings, bundle.manifest.warnings)
 
-        let provenanceText = try String(contentsOf: bundleURL.appendingPathComponent(".lungfish-provenance.json"), encoding: .utf8)
+        let provenanceText = try readRepositorySource(bundleURL.appendingPathComponent(".lungfish-provenance.json"))
         XCTAssertFalse(provenanceText.contains("/tmp/"), "Provenance must not point at temporary staging paths")
     }
 

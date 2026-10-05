@@ -36,7 +36,7 @@ final class EsVirituProvenanceSourceTests: XCTestCase {
     }
 
     func testEsVirituPipelineRecordsChecksummedFilesAtFinalOutputPaths() throws {
-        let source = try String(contentsOf: pipelineSourceURL, encoding: .utf8)
+        let source = try readRepositorySource(pipelineSourceURL)
 
         XCTAssertTrue(source.contains("ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)"))
         XCTAssertTrue(source.contains("ProvenanceRecorder.fileRecord(url: config.detectionOutputURL, format: .text, role: .output)"))
@@ -45,7 +45,7 @@ final class EsVirituProvenanceSourceTests: XCTestCase {
     }
 
     func testEsVirituSidecarFailureRecordsFailedWrapperStepInSource() throws {
-        let source = try String(contentsOf: pipelineSourceURL, encoding: .utf8)
+        let source = try readRepositorySource(pipelineSourceURL)
 
         XCTAssertTrue(source.contains("} catch let sidecarError {\n            await provenanceRecorder.recordStep("))
         XCTAssertTrue(source.contains(#"toolName: "Lungfish EsViritu Result Sidecar""#))

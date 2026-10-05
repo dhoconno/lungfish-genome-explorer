@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+import LungfishTestSupport
 
 @MainActor
 final class FASTQMetadataSectionViewModelTests: XCTestCase {
@@ -30,7 +31,7 @@ final class FASTQMetadataSectionViewModelTests: XCTestCase {
             .deletingLastPathComponent()
         let sourceURL = root
             .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/FASTQMetadataSection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertFalse(source.contains("|| true"))
         XCTAssertTrue(source.contains("DisclosureGroup(\"Custom Fields\")"))

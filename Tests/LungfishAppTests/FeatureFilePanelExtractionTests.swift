@@ -4,6 +4,7 @@
 
 import LungfishKit
 import XCTest
+import LungfishTestSupport
 
 final class FeatureFilePanelExtractionTests: XCTestCase {
     func testTargetFeatureFilesDoNotConstructPanelsInline() throws {
@@ -33,7 +34,7 @@ final class FeatureFilePanelExtractionTests: XCTestCase {
             if targetFile == "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift" {
                 source = combinedInspectorViewControllerSource()
             } else {
-                source = try String(contentsOf: root.appendingPathComponent(targetFile), encoding: .utf8)
+                source = try readRepositorySource(root.appendingPathComponent(targetFile))
             }
             XCTAssertFalse(source.contains("NSOpenPanel("), "\(targetFile) should use a panel helper")
             XCTAssertFalse(source.contains("NSSavePanel("), "\(targetFile) should use a panel helper")

@@ -5,6 +5,7 @@
 import XCTest
 import SQLite3
 @testable import LungfishCore
+import LungfishTestSupport
 
 @MainActor
 final class ProjectFileTests: XCTestCase {
@@ -527,7 +528,7 @@ final class ProjectFileTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let sourceURL = root.appendingPathComponent("Sources/LungfishCore/Storage/ProjectFile.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("data.write(to: metadataURL, options: .atomic)"))
     }

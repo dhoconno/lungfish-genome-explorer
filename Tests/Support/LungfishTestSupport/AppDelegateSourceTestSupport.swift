@@ -43,7 +43,7 @@ public func combinedAppDelegateSource() -> String {
 
     var pieces: [String] = []
     for url in urls {
-        if let text = try? String(contentsOf: url, encoding: .utf8) {
+        if let text = try? readRepositorySource(url) {
             pieces.append(text)
         }
     }

@@ -3,6 +3,7 @@ import LungfishCore
 import LungfishIO
 @testable import LungfishCLI
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class ScientificCLIProvenanceCoverageTests: XCTestCase {
     func testConvertForcePreservesPreviousPayloadAndSidecarsWhenPublicationFails() async throws {
@@ -626,7 +627,7 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         ])
         try await command.run()
 
-        let output = try String(contentsOf: outputURL, encoding: .utf8)
+        let output = try readRepositorySource(outputURL)
         XCTAssertTrue(output.contains("gene1"))
         XCTAssertFalse(output.contains("STALE_TRAILING_CONTENT_SHOULD_NOT_SURVIVE"))
     }
@@ -712,7 +713,7 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertEqual(reverseEnvelope.output?.path, reverseOutputURL.path)
         XCTAssertEqual(reverseEnvelope.outputs.first?.format, .fastq)
         XCTAssertTrue(reverseEnvelope.argv.contains("reverse-complement"))
-        XCTAssertTrue(try String(contentsOf: reverseOutputURL, encoding: .utf8).contains("TGCCAT"))
+        XCTAssertTrue(try readRepositorySource(reverseOutputURL).contains("TGCCAT"))
 
         let translateOutputURL = root.appendingPathComponent("translate.fasta")
         let translateCommand = try FastqTranslateSubcommand.parse([
@@ -729,7 +730,7 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertEqual(translateEnvelope.outputs.first?.format, .fasta)
         XCTAssertEqual(translateEnvelope.options.defaults["table"]?.integerValue, 1)
         XCTAssertTrue(translateEnvelope.argv.contains("translate"))
-        XCTAssertTrue(try String(contentsOf: translateOutputURL, encoding: .utf8).contains("MA"))
+        XCTAssertTrue(try readRepositorySource(translateOutputURL).contains("MA"))
     }
 
     private func loadFileSidecarEnvelope(for outputURL: URL) throws -> ProvenanceEnvelope {

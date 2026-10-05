@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 
 /// Source-guard tests enforcing the binding replay-argv rule: GUI-triggered
 /// provenance must record `lungfish-cli` as argv[0]. Historically the haplotype
@@ -36,7 +37,7 @@ final class ReplayArgvHygieneTests: XCTestCase {
         ]
         for rel in sources {
             let url = repoRoot.appendingPathComponent(rel)
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try readRepositorySource(url)
             XCTAssertFalse(
                 text.contains("\"lungfish-gui\""),
                 "\(rel) still has a lungfish-gui replay argv"

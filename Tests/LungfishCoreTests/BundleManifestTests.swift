@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class BundleManifestTests: XCTestCase {
 
@@ -155,7 +156,7 @@ final class BundleManifestTests: XCTestCase {
     func testBundleManifestSaveUsesAtomicWrite() throws {
         let root = try repoRoot()
         let sourceURL = root.appendingPathComponent("Sources/LungfishCore/Bundles/BundleManifest.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(
             source.contains("try data.write(to: manifestURL, options: .atomic)"),

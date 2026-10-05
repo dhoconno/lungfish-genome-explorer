@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+import LungfishTestSupport
 
 @MainActor
 final class DatabaseSearchDialogStateTests: XCTestCase {
@@ -180,7 +181,7 @@ final class DatabaseSearchDialogStateTests: XCTestCase {
         let sourceURL = testsDirectory
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertFalse(source.contains("let action = await confirmLargeResultActionDialog("))
         XCTAssertGreaterThanOrEqual(

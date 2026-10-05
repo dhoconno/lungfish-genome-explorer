@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishEsVirituUI
 import LungfishCore
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
@@ -217,7 +218,7 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
             "Sources/LungfishApp/Views/Viewer/ViewerViewController+Nvd.swift",
         ]
         for path in paths {
-            let source = try String(contentsOfFile: path, encoding: .utf8)
+            let source = try readRepositorySource(atPath: path)
             XCTAssertTrue(source.contains("clearClassifierAlignmentEvidence()"), path)
         }
     }

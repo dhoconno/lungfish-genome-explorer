@@ -1,5 +1,6 @@
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 
 final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
     func testCanonicalLocusNameNormalizesFullLengthMacaqueAlleles() {
@@ -1680,7 +1681,7 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
             .appendingPathComponent(
                 "Sources/LungfishWorkflow/Resources/MCMHaplotyping/MCM-MHC-miSeq-20260617.lungfishmhcref/mcm_mhc_miseq_reference.trimmed.unique.fasta"
             )
-        let text = try String(contentsOf: url, encoding: .utf8)
+        let text = try readRepositorySource(url)
         var headers: [String: String] = [:]
         for line in text.split(separator: "\n") where line.hasPrefix(">") {
             let header = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)

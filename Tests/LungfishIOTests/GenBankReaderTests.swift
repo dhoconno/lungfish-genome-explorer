@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishIO
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class GenBankReaderTests: XCTestCase {
 
@@ -78,7 +79,7 @@ final class GenBankReaderTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishIO/Formats/GenBank/GenBankReader.swift")
 
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let parseFileSyncBody = try XCTUnwrap(source.slice(from: "private func parseFileSync", to: "private func parseRecord"))
         let recordsBody = try XCTUnwrap(source.slice(from: "public func records()", to: "private func makeRecordScanner"))
 

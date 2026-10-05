@@ -9,6 +9,7 @@ import SwiftUI
 @testable import LungfishGenotypeUI
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeOverrideSectionTests: XCTestCase {
@@ -60,7 +61,7 @@ final class GenotypeOverrideSectionTests: XCTestCase {
         // Confirm the picker references each allowed entry via a `.tag(name)` call in
         // source — this is the contract guaranteeing the entries are wired into the
         // SwiftUI picker.
-        let source = try? String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try? readRepositorySource(sourceURL)
         XCTAssertNotNil(source)
         if let src = source {
             // Whitelist values are surfaced as suggestion chips (free-text
@@ -97,7 +98,7 @@ final class GenotypeOverrideSectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeOverrideSection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         XCTAssertTrue(source.contains("TextField(\"Haplotype name\", text: $draft.target)"))
     }
 
@@ -155,7 +156,7 @@ final class GenotypeOverrideSectionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeOverrideSection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         // Each reason tag should be exposed via a chip case in `reasonLabel`.
         for caseName in [

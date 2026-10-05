@@ -684,7 +684,7 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
     func testFailureWrapperDoesNotClaimTheChildCondaRuntime() throws {
         let sourceURL = CLITestBinaryResolver.repositoryRoot(containing: #filePath)
             .appendingPathComponent("Sources/LungfishCLI/Commands/ClassifyCommand.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let functionStart = try XCTUnwrap(source.range(of: "static func writeFailureProvenance"))
         let suffix = source[functionStart.lowerBound...]
         let functionEnd = try XCTUnwrap(
@@ -701,7 +701,7 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
     func testFailureWrapperPropagatesTerminalStateIntoResolvedOptions() throws {
         let sourceURL = CLITestBinaryResolver.repositoryRoot(containing: #filePath)
             .appendingPathComponent("Sources/LungfishCLI/Commands/ClassifyCommand.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("profileState: Self.failureProfileState(for: error)"))
         XCTAssertTrue(source.contains("options[\"profileState\"] = .string(profileState)"))
@@ -711,7 +711,7 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
     func testPrintedBrackenRankIncludesRequestedModeAndResolvedRank() throws {
         let sourceURL = CLITestBinaryResolver.repositoryRoot(containing: #filePath)
             .appendingPathComponent("Sources/LungfishCLI/Commands/ClassifyCommand.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let functionStart = try XCTUnwrap(
             source.range(of: "func resolvedBrackenRankDescription")
         )
@@ -1331,7 +1331,7 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             )
             XCTFail("Expected directory creation to fail when materialization path is a file")
         } catch {
-            XCTAssertEqual(try String(contentsOf: blockingURL, encoding: .utf8), "preexisting")
+            XCTAssertEqual(try readRepositorySource(blockingURL), "preexisting")
         }
     }
 
@@ -2445,11 +2445,11 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertEqual(manifest.stdoutLogPath, "logs/stdout.log")
         XCTAssertEqual(manifest.stderrLogPath, "logs/stderr.log")
         XCTAssertEqual(
-            try String(contentsOf: bundleURL.appendingPathComponent("logs/stdout.log"), encoding: .utf8),
+            try readRepositorySource(bundleURL.appendingPathComponent("logs/stdout.log")),
             "building all\ncomplete\n"
         )
         XCTAssertEqual(
-            try String(contentsOf: bundleURL.appendingPathComponent("logs/stderr.log"), encoding: .utf8),
+            try readRepositorySource(bundleURL.appendingPathComponent("logs/stderr.log")),
             "snakemake warning\n"
         )
 
@@ -2564,7 +2564,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         }
         XCTAssertEqual(runner.invocations.count, 1)
         XCTAssertEqual(
-            try String(contentsOf: bundleURL.appendingPathComponent("logs/stderr.log"), encoding: .utf8),
+            try readRepositorySource(bundleURL.appendingPathComponent("logs/stderr.log")),
             "env: nextflow: No such file or directory\n"
         )
     }

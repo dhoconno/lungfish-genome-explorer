@@ -765,7 +765,7 @@ final class SequenceMenuOperationTests: XCTestCase {
     }
 
     nonisolated private func readPID(_ url: URL) throws -> Int32 {
-        let text = try String(contentsOf: url, encoding: .utf8)
+        let text = try readRepositorySource(url)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
     }

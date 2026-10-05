@@ -8,6 +8,7 @@
 import XCTest
 @testable import LungfishWorkflow
 @testable import LungfishCore
+import LungfishTestSupport
 
 // MARK: - Container Model Tests
 
@@ -1293,7 +1294,7 @@ final class NativeBundleBuilderRegressionTests: XCTestCase {
             .deletingLastPathComponent()
         let sourceURL = packageRoot
             .appendingPathComponent("Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("NativeBundleBuilder requires an existing BigWig signal track"))
         XCTAssertFalse(source.contains("else if ext == \"bedgraph\""))
@@ -1308,7 +1309,7 @@ final class NativeBundleBuilderRegressionTests: XCTestCase {
             .deletingLastPathComponent()
         let sourceURL = packageRoot
             .appendingPathComponent("Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         let helperStart = try XCTUnwrap(source.range(of: "private func createBundleStructure(at bundleURL: URL) throws"))
         let helperEnd = try XCTUnwrap(source[helperStart.lowerBound...].range(of: "logger.info(\"Bundle structure created\")"))
         let helperSource = String(source[helperStart.lowerBound..<helperEnd.upperBound])

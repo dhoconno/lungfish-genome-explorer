@@ -9,6 +9,7 @@ import LungfishKit
 import LungfishWorkflow
 @testable import LungfishIO
 @testable import LungfishPhylogeneticsUI
+import LungfishTestSupport
 
 @MainActor
 final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
@@ -320,7 +321,7 @@ final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
         )
 
         XCTAssertEqual(sidecarURL, ProvenanceRecorder.fileSidecarURL(for: outputURL))
-        XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), export.newick)
+        XCTAssertEqual(try readRepositorySource(outputURL), export.newick)
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
         XCTAssertEqual(envelope.workflowName, "lungfish app phylogenetic subtree export")

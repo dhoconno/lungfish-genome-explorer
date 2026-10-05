@@ -5,6 +5,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 @testable import LungfishGenotypeUI
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeCallEvidenceViewTests: XCTestCase {
@@ -66,7 +67,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("ViewThatFits(in: .horizontal)"))
         XCTAssertTrue(source.contains("typographyModel.font(for:"))
@@ -343,7 +344,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("Divider()"))
     }
@@ -408,7 +409,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
         XCTAssertTrue(source.contains("@State private var hiddenGenotypeSections"))
         XCTAssertTrue(source.contains("genotypeSectionVisibilityMenu"))
         XCTAssertTrue(source.contains("Diagnostic"))
@@ -663,7 +664,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertFalse(source.contains("Menu(\"Override"))
         XCTAssertFalse(source.contains("Button(\"Set haplotype"))
@@ -759,7 +760,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertTrue(source.contains("compactAlleleLine(Self.displayAlleleLabel(allele), marker: \"missing\")"))
         XCTAssertTrue(source.contains("static func displayAlleleLabel"))
@@ -771,7 +772,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeOutlineView.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertFalse(source.contains("makeNoteGlyph"))
         XCTAssertFalse(source.contains("labelWithString: \"!\""))
@@ -788,7 +789,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultViewController.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertFalse(source.contains("NSPopover"))
         XCTAssertFalse(source.contains("presentCellEvidencePopover"))
@@ -801,7 +802,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultViewController.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try readRepositorySource(sourceURL)
 
         XCTAssertFalse(source.contains("Dropout Thresholds"))
         XCTAssertFalse(source.contains("makeDropoutThresholdHost"))

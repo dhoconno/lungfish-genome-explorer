@@ -10,6 +10,7 @@ import SwiftUI
 import LungfishWorkflow
 @testable import LungfishKit
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
     // MARK: - Free-text search (NAO-MGS previously had none)
@@ -117,7 +118,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
         try vc.exportResults(to: outputURL, format: .tsv)
 
-        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        let content = try readRepositorySource(outputURL)
         XCTAssertTrue(
             content.hasPrefix(
                 "sample\ttaxon_id\tname\thit_count\tunique_read_count\tpcr_duplicate_count\tavg_identity\tavg_bit_score\tavg_edit_distance\taccession_count\n"
@@ -173,7 +174,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
         try vc.exportResults(to: outputURL, format: .tsv)
 
-        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        let content = try readRepositorySource(outputURL)
         XCTAssertTrue(content.contains("parser-sample\t5678\tCached result virus\t12\t9\t3\t98.25\t175.0\t2.0\t2\n"))
 
         let provenance = try XCTUnwrap(

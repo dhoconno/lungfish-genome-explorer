@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import LungfishCore
 import Testing
+import LungfishTestSupport
 
 @Suite("Release Build Configuration")
 struct ReleaseBuildConfigurationTests {
@@ -517,7 +518,7 @@ struct ReleaseBuildConfigurationTests {
 
         for case let fileURL as URL in enumerator {
             guard scannedExtensions.contains(fileURL.pathExtension.lowercased()),
-                  let text = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                  let text = try? readRepositorySource(fileURL) else {
                 continue
             }
             for pattern in leakPatterns where text.contains(pattern) {
@@ -644,7 +645,7 @@ struct ReleaseBuildConfigurationTests {
         #expect(FileManager.default.isExecutableFile(atPath: textURL.path) == false)
 
         let sanitizedBinary = String(decoding: try Data(contentsOf: micromambaURL), as: UTF8.self)
-        let sanitizedScript = try String(contentsOf: scriptURL, encoding: .utf8)
+        let sanitizedScript = try readRepositorySource(scriptURL)
         #expect(sanitizedBinary.contains("/Users/dho") == false)
         #expect(sanitizedBinary.contains("/opt/homebrew") == false)
         #expect(sanitizedScript.contains("/Users/dho/Documents/lungfish-genome-browser/.build/tools/build"))
@@ -863,14 +864,8 @@ struct ReleaseBuildConfigurationTests {
     func productionSourcesAvoidHardcodedHomebrewPathFallbacks() throws {
         let repositoryRoot = Self.repositoryRoot()
         let sourcesRoot = repositoryRoot.appendingPathComponent("Sources")
-        let enumerator = FileManager.default.enumerator(
-            at: sourcesRoot,
-            includingPropertiesForKeys: nil
-        )
-
-        while let fileURL = enumerator?.nextObject() as? URL {
-            guard fileURL.pathExtension == "swift" else { continue }
-            let source = try String(contentsOf: fileURL, encoding: .utf8)
+        for fileURL in try repositoryFiles(under: sourcesRoot) {
+            let source = try readRepositorySource(fileURL)
             #expect(source.contains("/opt/homebrew") == false, "\(fileURL.lastPathComponent) still hardcodes /opt/homebrew")
             #expect(source.contains("/usr/local/Cellar") == false, "\(fileURL.lastPathComponent) still hardcodes /usr/local/Cellar")
         }
@@ -1581,20 +1576,9 @@ struct ReleaseBuildConfigurationTests {
     }
 
     private static func swiftFiles(in directory: URL, relativeTo repositoryRoot: URL) throws -> [String] {
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
         let repositoryPath = repositoryRoot.standardizedFileURL.path + "/"
         var files: [String] = []
-        for case let url as URL in enumerator where url.pathExtension == "swift" {
-            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
-            guard values.isRegularFile == true else { continue }
+        for url in try repositoryFiles(under: directory) {
             let path = url.standardizedFileURL.path
             guard path.hasPrefix(repositoryPath) else { continue }
             files.append(String(path.dropFirst(repositoryPath.count)))
