@@ -2996,7 +2996,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     let toolkitTraceCollector = SRAGUIDownloadTraceCollector()
 
-                    func downloadViaToolkit(statusDetail: String) async throws -> [URL] {
+                    func downloadViaToolkit(statusDetail: String, into folder: URL) async throws -> [URL] {
                         performOnMainRunLoop {
                             // Logged, so the row's history keeps why ENA was skipped.
                             _ = DownloadCenter.shared.updateWithLog(
@@ -3008,7 +3008,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         }
                         return try await sra.downloadFASTQ(
                             accession: record.accession,
-                            outputDir: batchDir,
+                            outputDir: folder,
                             progress: { toolkitProgress in
                                 performOnMainRunLoop {
                                     _ = DownloadCenter.shared.update(
@@ -3027,12 +3027,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         )
                     }
 
-                    // 2. Download each FASTQ file to the batch directory
+                    // 2. Download the run's FASTQ files into its own folder of the batch
                     let totalExpectedBytes = readRecord?.totalFileSizeBytes.map { Int64($0) }
-                    let runDownload = try await SRAWindowRunDownload.download(
+                    let staged = try await SRAWindowRunDownload.stage(
                         accession: record.accession,
                         route: route,
-                        into: batchDir,
+                        in: batchDir,
                         mirrorFile: { fastqURL, fileExpectedBytes, priorBytes in
                             try await streamingDownload(
                                 url: fastqURL,
@@ -3049,33 +3049,19 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                 }
                             )
                         },
-                        toolkit: { statusDetail in
-                            try await downloadViaToolkit(statusDetail: statusDetail)
+                        toolkit: { statusDetail, folder in
+                            try await downloadViaToolkit(statusDetail: statusDetail, into: folder)
                         }
                     )
-                    let downloadedFASTQFiles = runDownload.fastqFiles
-                    let enaDownloadSteps = runDownload.enaSteps
-                    let downloadSource = runDownload.source.rawValue
+                    // Removed after the import or on failure, so no file of
+                    // this run reaches the next one.
+                    defer { staged.removeFolder() }
+                    let enaDownloadSteps = staged.download.enaSteps
+                    let downloadSource = staged.download.source.rawValue
 
-                    guard !downloadedFASTQFiles.isEmpty else {
-                        throw DatabaseServiceError.invalidQuery(
-                            reason: "No FASTQ files were downloaded for \(record.accession)"
-                        )
-                    }
-
-                    // 3. Detect R1/R2 pairing from downloaded files
-                    let sortedFiles = downloadedFASTQFiles.sorted { lhs, rhs in
-                        let left = lhs.lastPathComponent.lowercased()
-                        let right = rhs.lastPathComponent.lowercased()
-                        let leftIsR1 = left.contains("_1.fastq") || left.contains("_1.fq")
-                            || left.contains("_r1.fastq") || left.contains("_r1.fq")
-                        let rightIsR1 = right.contains("_1.fastq") || right.contains("_1.fq")
-                            || right.contains("_r1.fastq") || right.contains("_r1.fq")
-                        if leftIsR1 != rightIsR1 { return leftIsR1 }
-                        return left.localizedStandardCompare(right) == .orderedAscending
-                    }
-                    let r1URL = sortedFiles[0]
-                    let r2URL: URL? = sortedFiles.count == 2 ? sortedFiles[1] : nil
+                    // 3. Mates 1 and 2 import as a pair, never as one mate
+                    let r1URL = staged.reads.r1
+                    let r2URL = staged.reads.r2
 
                     // 4. Run CLI import pipeline
                     performOnMainRunLoop {
@@ -3154,7 +3140,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             cliArguments: args,
                             cliStartedAt: cliStartedAt,
                             cliCompletedAt: cliCompletedAt,
-                            stagedFASTQFiles: downloadedFASTQFiles,
+                            stagedFASTQFiles: staged.reads.files,
                             finalFASTQURL: fastqURL,
                             bundleURL: bundleURL,
                             platform: platformStr,
@@ -3167,11 +3153,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     logger.info("startENADownloadTask: Created bundle at \(bundleURL.path, privacy: .public)")
                     downloadedURLs.append(bundleURL)
-
-                    // Clean up raw downloaded FASTQ files from batch staging dir
-                    for rawFile in downloadedFASTQFiles {
-                        try? FileManager.default.removeItem(at: rawFile)
-                    }
 
                     // Deliver bundle immediately so it appears in sidebar right away
                     let deliverURL = bundleURL
@@ -3197,7 +3178,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 }
             }
 
-            // Clean up the batch staging directory (raw FASTQs already removed per-record)
+            // Clean up the batch staging directory (each run's folder is already removed)
             try? FileManager.default.removeItem(at: batchDir)
             logger.info("startENADownloadTask: Cleaned up batch staging dir")
 
