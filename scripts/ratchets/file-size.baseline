@@ -94,7 +94,7 @@ Sources/LungfishCLI/Commands/GATKCommand.swift 1094
 Sources/LungfishCLI/Commands/GenotypeAIHaplotypingSubcommand.swift 1017
 Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift 999
 Sources/LungfishCLI/Commands/ImportCommand.swift 2527
-Sources/LungfishCLI/Commands/MSACommand.swift 2811
+Sources/LungfishCLI/Commands/MSACommand.swift 2797
 Sources/LungfishCLI/Commands/MarkdupCommand.swift 1132
 Sources/LungfishCLI/Commands/RunSubcommand.swift 1004
 Sources/LungfishCLI/Commands/TreeCommand.swift 1359
