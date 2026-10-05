@@ -10,7 +10,7 @@ import LungfishKit
 /// reach with a nil target. It sits in an NSScrollView. The row gutter and
 /// column header are sibling views the pane keeps in step with the scroll.
 @MainActor
-public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation {
+public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSViewToolTipOwner {
     // MARK: Data
 
     public private(set) var matrix: (any MSADistanceMatrixDisplaying)?
@@ -104,6 +104,8 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation {
         }
         let count = CGFloat(matrix?.displayCount ?? 0)
         setFrameSize(NSSize(width: count * cellSide, height: count * cellSide))
+        removeAllToolTips()
+        addToolTip(bounds, owner: self, userData: nil)
         layoutCount += 1
         needsDisplay = true
     }
@@ -473,6 +475,18 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation {
 
     @objc private func accessibilityDisplayOptionsChanged(_ notification: Notification) {
         relayout()
+    }
+
+    /// Help tag with the full cell description, so the 4-decimal drawing
+    /// and truncated names never hide data.
+    public func view(
+        _ view: NSView,
+        stringForToolTip tag: NSView.ToolTipTag,
+        point: NSPoint,
+        userData data: UnsafeMutableRawPointer?
+    ) -> String {
+        guard let cell = cell(at: point) else { return "" }
+        return axCellLabel(cell) ?? ""
     }
 
     isolated deinit {
