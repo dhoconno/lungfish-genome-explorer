@@ -11,8 +11,11 @@ import Foundation
 /// `fasterq-dump --split-3`, which takes longer but can still be faster when
 /// ENA is slow. Both routes give the same reads in the same layout. The
 /// window's "Download source" setting and `lungfish-cli fetch sra download
-/// --prefer-source` both take this value, and both turn it into an order of
-/// transfers with `SRAFASTQDownloadRoute.plan(preferring:)`.
+/// --prefer-source` both take this value. `fetch sra download` downloads with
+/// `SRAService.downloadFASTQ(accession:outputDir:preferring:)` and the window
+/// with `SRAWindowRunDownload`, which also looks up ENA's record beside the
+/// toolkit for the bundle's metadata. Both name an ENA fallback with
+/// `SRAFASTQDownloadSource.enaFallback(afterToolkitError:)`.
 public enum SRADownloadSourcePreference: String, CaseIterable, Sendable {
     /// ENA's mirror first, then the SRA Toolkit when ENA cannot serve the
     /// run. This is the default and the behaviour before the setting existed.
@@ -45,39 +48,6 @@ public enum SRADownloadSourcePreference: String, CaseIterable, Sendable {
 
     /// The trade-off, in the words the window and the CLI help use.
     public static let tradeOff = "ENA serves ready FASTQ files. NCBI needs the SRA Toolkit to convert its archive, which takes longer, but it can be faster when ENA is slow. When the preferred source fails, the other one is tried."
-}
-
-/// The transfers one run's download tries, in order. Each later transfer
-/// runs only when the one before it failed and was not cancelled.
-public struct SRAFASTQDownloadPlan: Sendable, Equatable {
-    /// One way to fetch a run's FASTQ files.
-    public enum Transfer: Sendable, Equatable {
-        /// The files ENA's record lists, from ENA's mirror.
-        case enaMirror
-        /// The whole run from NCBI with the SRA Toolkit.
-        case sraToolkit
-    }
-
-    /// The transfers in the order they are tried.
-    public let transfers: [Transfer]
-}
-
-public extension SRAFASTQDownloadRoute {
-    /// The transfers a download along this route tries for `preference`.
-    ///
-    /// ENA's mirror is only ever tried when ENA lists FASTQ files for the
-    /// run, so a run ENA cannot serve takes the SRA Toolkit alone whatever
-    /// the preference.
-    func plan(preferring preference: SRADownloadSourcePreference) -> SRAFASTQDownloadPlan {
-        switch (self, preference) {
-        case (.enaMirror, .ena):
-            return SRAFASTQDownloadPlan(transfers: [.enaMirror, .sraToolkit])
-        case (.enaMirror, .ncbi):
-            return SRAFASTQDownloadPlan(transfers: [.sraToolkit, .enaMirror])
-        case (.sraToolkit, _):
-            return SRAFASTQDownloadPlan(transfers: [.sraToolkit])
-        }
-    }
 }
 
 public extension SRAFASTQDownloadSource {

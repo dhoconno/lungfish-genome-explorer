@@ -25,36 +25,6 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    // MARK: - The plan both surfaces take
-
-    func testPreferringENAKeepsTodaysOrder() {
-        let record = Self.record(listsFiles: true)
-        XCTAssertEqual(SRAFASTQDownloadRoute.enaMirror(record).plan(preferring: .ena).transfers, [.enaMirror, .sraToolkit])
-        XCTAssertEqual(
-            SRAFASTQDownloadRoute.sraToolkit(enaRecord: Self.record(listsFiles: false), reason: "no files").plan(preferring: .ena).transfers,
-            [.sraToolkit]
-        )
-        XCTAssertEqual(
-            SRAFASTQDownloadRoute.sraToolkit(enaRecord: nil, reason: "ENA failed").plan(preferring: .ena).transfers,
-            [.sraToolkit]
-        )
-    }
-
-    func testPreferringNCBITakesTheToolkitFirstAndENAOnlyWhenItListsFiles() {
-        XCTAssertEqual(
-            SRAFASTQDownloadRoute.enaMirror(Self.record(listsFiles: true)).plan(preferring: .ncbi).transfers,
-            [.sraToolkit, .enaMirror]
-        )
-        XCTAssertEqual(
-            SRAFASTQDownloadRoute.sraToolkit(enaRecord: Self.record(listsFiles: false), reason: "no files").plan(preferring: .ncbi).transfers,
-            [.sraToolkit]
-        )
-        XCTAssertEqual(
-            SRAFASTQDownloadRoute.sraToolkit(enaRecord: nil, reason: "ENA failed").plan(preferring: .ncbi).transfers,
-            [.sraToolkit]
-        )
-    }
-
     // MARK: - Stored choice
 
     func testTheStoredChoiceDefaultsToENAAndRoundTrips() throws {
@@ -252,12 +222,6 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
             folderFASTQ: folderFASTQ,
             folderEntries: try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
         )
-    }
-
-    private static func record(listsFiles: Bool) -> ENAReadRecord {
-        let ftp = listsFiles ? "ftp.sra.ebi.ac.uk/vol1/fastq/ERR123/094/\(run)/\(run)_1.fastq.gz" : ""
-        let json = #"{"run_accession": "\#(run)", "library_layout": "PAIRED", "fastq_ftp": "\#(ftp)", "fastq_bytes": ""}"#
-        return try! JSONDecoder().decode(ENAReadRecord.self, from: Data(json.utf8))
     }
 }
 
