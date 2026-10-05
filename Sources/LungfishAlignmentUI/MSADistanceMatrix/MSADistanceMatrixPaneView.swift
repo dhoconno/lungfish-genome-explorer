@@ -149,6 +149,11 @@ public final class MSADistanceMatrixPaneView: NSView {
         headerBar.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         headerBar.alignment = .centerY
         headerBar.clipsToBounds = true
+        // The pane lays the bar out by frame, and its frame starts empty, so
+        // the stack clips its controls instead of breaking its own required
+        // spacing (orchestrator item b, "Conflicting constraints detected").
+        headerBar.setClippingResistancePriority(.defaultHigh, for: .horizontal)
+        headerBar.setClippingResistancePriority(.defaultHigh, for: .vertical)
 
         modelPopup.setAccessibilityLabel("Distance model")
         modelPopup.toolTip = "Distance model (--model)"
@@ -220,6 +225,8 @@ public final class MSADistanceMatrixPaneView: NSView {
         statusStack.alignment = .centerX
         statusStack.spacing = 8
         statusStack.clipsToBounds = true
+        statusStack.setClippingResistancePriority(.defaultHigh, for: .horizontal)
+        statusStack.setClippingResistancePriority(.defaultHigh, for: .vertical)
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = true

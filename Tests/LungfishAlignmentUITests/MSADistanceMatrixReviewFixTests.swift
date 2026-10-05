@@ -145,6 +145,17 @@ final class MSADistanceMatrixReviewFixTests: XCTestCase {
         XCTAssertEqual(pane.gridView.selection.selectedSequences, IndexSet(integer: 2), "after a recompute")
     }
 
+    /// The header and status stacks are laid out by frame from an empty
+    /// frame, so they must clip rather than hold required edge constraints.
+    func testFrameLaidStacksClipInsteadOfConflicting() {
+        let pane = MSADistanceMatrixPaneView()
+        for stack in [pane.headerBar, pane.statusStack] {
+            for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+                XCTAssertLessThan(stack.clippingResistancePriority(for: orientation), .required)
+            }
+        }
+    }
+
     func testLoadFailureShowsAnError() {
         let pane = MSADistanceMatrixPaneView()
         pane.showLoadFailure("No alphabet.")

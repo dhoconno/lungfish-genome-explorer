@@ -1564,6 +1564,12 @@ final class ViewerBundleRoutingTests: XCTestCase {
 
     func testMultipleSequenceAlignmentViewportUsesFullCanvasAndAnnotationDrawer() async throws {
         let controller = MultipleSequenceAlignmentViewController()
+        // A private defaults suite, so a pane another test or the user left
+        // open does not leak in.
+        let suiteName = "lungfish-test-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        controller.gutterWidthDefaults = defaults
         controller.view.frame = NSRect(x: 0, y: 0, width: 1_200, height: 720)
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1590,8 +1596,11 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertGreaterThan(matrixView.frame.height, 400)
         XCTAssertGreaterThanOrEqual(rowGutter.frame.width, 150)
         XCTAssertGreaterThanOrEqual(columnHeader.frame.height, 22)
-        XCTAssertTrue(annotationDrawer.isHidden)
-        XCTAssertEqual(annotationDrawer.frame.height, 0)
+        // The drawer is the Annotations tab of the MSA bottom pane (lane C,
+        // ruling U1), so the closed pane hides it and holds no height.
+        XCTAssertTrue(annotationDrawer.isHiddenOrHasHiddenAncestor)
+        XCTAssertFalse(controller.bottomPane.isOpen)
+        XCTAssertEqual(controller.bottomPane.heightConstraint.constant, 0)
     }
 
     func testMultipleSequenceAlignmentSelectionContextMenuUsesFASTAExtractionActions() async throws {
