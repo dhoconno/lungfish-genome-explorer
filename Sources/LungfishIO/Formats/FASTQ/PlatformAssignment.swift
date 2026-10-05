@@ -21,6 +21,16 @@ public struct PlatformAssignment: Codable, Sendable, Equatable {
         case userCorrected
         /// Kept later by a person after a notice (`lungfish-cli fastq platform --confirm`).
         case userConfirmed
+        /// A source a later release recorded that this release does not know.
+        /// The label still counts as decided. This release never records it.
+        case unknown
+
+        /// An unrecognised raw value decodes as `.unknown` instead of failing
+        /// the whole sidecar, as ``SequencingPlatform`` does.
+        public init(from decoder: any Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Source(rawValue: raw) ?? .unknown
+        }
     }
 
     public var source: Source
