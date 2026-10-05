@@ -50,6 +50,10 @@ struct SRAWindowRunDownload {
     var enaRecord: ENAReadRecord?
     /// Why `enaRecord` is nil, for the Operations panel row.
     var enaRecordGap: String?
+    /// The line the row logged when the run fell back to the other archive,
+    /// which its provenance records under `fallbackMessage`. Nil when the
+    /// preferred archive served the run.
+    var fallbackMessage: String? = nil
 
     /// How long a toolkit download that already finished waits for ENA's
     /// record of the run before it imports without it.
@@ -120,8 +124,11 @@ struct SRAWindowRunDownload {
         case .enaMirror(let record):
             readRecord = record
         case .sraToolkit(let record, let reason):
-            let files = try await toolkit(SRAWindowToolkitStatus(line: "\(reason); using SRA Toolkit...", isFallback: true))
-            return SRAWindowRunDownload(fastqFiles: files, source: .sraToolkit, enaSteps: [], preference: preference, enaRecord: record)
+            let line = "\(reason); using SRA Toolkit..."
+            let files = try await toolkit(SRAWindowToolkitStatus(line: line, isFallback: true))
+            return SRAWindowRunDownload(
+                fastqFiles: files, source: .sraToolkit, enaSteps: [], preference: preference, enaRecord: record, fallbackMessage: line
+            )
         }
 
         do {
@@ -137,9 +144,11 @@ struct SRAWindowRunDownload {
             logger.warning("startENADownloadTask: ENA download failed for \(accession, privacy: .public): \(error.localizedDescription, privacy: .public); falling back to SRA Toolkit")
             let failure = fallbackSource == .sraToolkitAfterIncompleteMirror
                 ? "ENA mirror is missing files" : "ENA transfer failed"
-            let files = try await toolkit(SRAWindowToolkitStatus(line: "\(failure) for \(accession); using SRA Toolkit...", isFallback: true))
+            let line = "\(failure) for \(accession); using SRA Toolkit..."
+            let files = try await toolkit(SRAWindowToolkitStatus(line: line, isFallback: true))
             return SRAWindowRunDownload(
-                fastqFiles: files, source: fallbackSource, enaSteps: [], preference: preference, enaRecord: readRecord
+                fastqFiles: files, source: fallbackSource, enaSteps: [], preference: preference, enaRecord: readRecord,
+                fallbackMessage: line
             )
         }
     }
@@ -174,37 +183,57 @@ struct SRAWindowRunDownload {
             for entry in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
                 try? FileManager.default.removeItem(at: entry)
             }
-            func bothFailed(_ enaReason: String) -> SRAError {
+            func bothFailed(_ enaError: any Error) -> SRAError {
+                bothFailed(reason: (enaError as? ENAFASTQDownloadFailure)?.message ?? enaError.localizedDescription)
+            }
+            func bothFailed(reason enaReason: String) -> SRAError {
                 SRAError.downloadFailed("Toolkit: \(toolkitError.localizedDescription); ENA: \(enaReason)")
             }
+            // Logged before the wait on ENA's lookup, so the row is not silent.
+            let fallbackLine = SRAFASTQDownloadSource.enaFallbackMessage(accession: accession, after: toolkitError)
+            log(fallbackLine)
             let route: SRAFASTQDownloadRoute
             do {
-                route = try await lookup.value
+                route = try await value(of: lookup)
             } catch let lookupError {
                 if SRAFASTQDownloadSource.toolkitFallback(after: lookupError) == nil { throw lookupError }
-                throw bothFailed(lookupError.localizedDescription)
+                throw bothFailed(lookupError)
             }
+            try Task.checkCancellation()
             guard case .enaMirror(let record) = route else {
-                throw bothFailed(route.toolkitReason ?? "ENA lists no FASTQ files for \(accession)")
+                throw bothFailed(reason: route.toolkitReason ?? "ENA lists no FASTQ files for \(accession)")
             }
-            log(SRAFASTQDownloadSource.enaFallbackMessage(accession: accession, after: toolkitError))
             do {
                 let mirrored = try await downloadFromMirror(record: record, into: folder, mirrorFile: mirrorFile)
                 return SRAWindowRunDownload(
-                    fastqFiles: mirrored.files, source: source, enaSteps: mirrored.steps, preference: .ncbi, enaRecord: record
+                    fastqFiles: mirrored.files, source: source, enaSteps: mirrored.steps, preference: .ncbi, enaRecord: record,
+                    fallbackMessage: fallbackLine
                 )
             } catch let enaError {
                 if SRAFASTQDownloadSource.toolkitFallback(after: enaError) == nil {
                     throw enaError
                 }
-                throw bothFailed(enaError.localizedDescription)
+                throw bothFailed(enaError)
             }
         }
         let answer = await enaRecord(from: lookup, within: enaRecordWait)
+        // A cancel during the wait is not ENA failing to answer, so the run
+        // stops here and nothing is imported.
+        try Task.checkCancellation()
         return SRAWindowRunDownload(
             fastqFiles: files, source: .sraToolkit, enaSteps: [], preference: .ncbi,
             enaRecord: answer.record, enaRecordGap: answer.gap
         )
+    }
+
+    /// The lookup's answer. Awaiting an unstructured task does not pass a
+    /// cancel on, so this cancels `lookup` when the waiting task is cancelled.
+    private static func value(of lookup: Task<SRAFASTQDownloadRoute, any Error>) async throws -> SRAFASTQDownloadRoute {
+        try await withTaskCancellationHandler {
+            try await lookup.value
+        } onCancel: {
+            lookup.cancel()
+        }
     }
 
     /// ENA's record from `lookup`, or why there is none. A lookup still
@@ -216,7 +245,7 @@ struct SRAWindowRunDownload {
     ) async -> (record: ENAReadRecord?, gap: String?) {
         let first = await withTaskGroup(of: Result<SRAFASTQDownloadRoute, any Error>?.self) { group in
             group.addTask {
-                do { return .success(try await lookup.value) } catch { return .failure(error) }
+                do { return .success(try await value(of: lookup)) } catch { return .failure(error) }
             }
             group.addTask {
                 try? await Task.sleep(for: wait)

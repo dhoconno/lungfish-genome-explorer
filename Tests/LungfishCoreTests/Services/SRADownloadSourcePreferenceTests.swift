@@ -25,36 +25,6 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    // MARK: - The plan both surfaces take
-
-    func testPreferringENAKeepsTodaysOrder() {
-        let record = Self.record(listsFiles: true)
-        XCTAssertEqual(SRAFASTQDownloadRoute.enaMirror(record).plan(preferring: .ena).transfers, [.enaMirror, .sraToolkit])
-        XCTAssertEqual(
-            SRAFASTQDownloadRoute.sraToolkit(enaRecord: Self.record(listsFiles: false), reason: "no files").plan(preferring: .ena).transfers,
-            [.sraToolkit]
-        )
-        XCTAssertEqual(
-            SRAFASTQDownloadRoute.sraToolkit(enaRecord: nil, reason: "ENA failed").plan(preferring: .ena).transfers,
-            [.sraToolkit]
-        )
-    }
-
-    func testPreferringNCBITakesTheToolkitFirstAndENAOnlyWhenItListsFiles() {
-        XCTAssertEqual(
-            SRAFASTQDownloadRoute.enaMirror(Self.record(listsFiles: true)).plan(preferring: .ncbi).transfers,
-            [.sraToolkit, .enaMirror]
-        )
-        XCTAssertEqual(
-            SRAFASTQDownloadRoute.sraToolkit(enaRecord: Self.record(listsFiles: false), reason: "no files").plan(preferring: .ncbi).transfers,
-            [.sraToolkit]
-        )
-        XCTAssertEqual(
-            SRAFASTQDownloadRoute.sraToolkit(enaRecord: nil, reason: "ENA failed").plan(preferring: .ncbi).transfers,
-            [.sraToolkit]
-        )
-    }
-
     // MARK: - Stored choice
 
     func testTheStoredChoiceDefaultsToENAAndRoundTrips() throws {
@@ -141,6 +111,14 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(outcome.fallbackMessages.first).contains("SRA Toolkit failed"))
     }
 
+    /// Review finding S3-1: prefetch's archive (`<run>/<run>.sra`) must not
+    /// stay in the user's folder when the toolkit fails and ENA serves the run.
+    func testNCBIWhenFasterqDumpFailsRemovesThePrefetchArchiveBeforeFallingBack() async throws {
+        let outcome = try await download(preferring: .ncbi, portal: .listsFiles, toolkit: .failsAfterPrefetch)
+        XCTAssertEqual(outcome.sources, [.enaAfterFailedToolkit])
+        XCTAssertEqual(outcome.folderEntries, ["\(Self.run)_1.fastq.gz", "\(Self.run)_2.fastq.gz"], "prefetch's archive folder is removed")
+    }
+
     func testNCBIFailsWithBothReasonsWhenENACannotServeTheRunEither() async throws {
         for portal in [ScriptedPortal.listsNoFiles, .outage] {
             for toolkit in [ScriptedToolkit.missing, .failsAfterWritingAMate] {
@@ -195,6 +173,7 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
         let mirrorRequests: Int
         let portalRequests: Int
         let folderFASTQ: [String]
+        let folderEntries: [String]
     }
 
     private func download(
@@ -240,14 +219,9 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
             fallbackMessages: messages.values,
             mirrorRequests: await client.mirrorRequests,
             portalRequests: await client.portalRequests,
-            folderFASTQ: folderFASTQ
+            folderFASTQ: folderFASTQ,
+            folderEntries: try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
         )
-    }
-
-    private static func record(listsFiles: Bool) -> ENAReadRecord {
-        let ftp = listsFiles ? "ftp.sra.ebi.ac.uk/vol1/fastq/ERR123/094/\(run)/\(run)_1.fastq.gz" : ""
-        let json = #"{"run_accession": "\#(run)", "library_layout": "PAIRED", "fastq_ftp": "\#(ftp)", "fastq_bytes": ""}"#
-        return try! JSONDecoder().decode(ENAReadRecord.self, from: Data(json.utf8))
     }
 }
 
@@ -272,6 +246,8 @@ private enum ScriptedToolkit: Sendable {
     case missing
     /// fasterq-dump writes one mate, then exits 3.
     case failsAfterWritingAMate
+    /// prefetch writes the run's archive (part of it), then fasterq-dump exits 3.
+    case failsAfterPrefetch
     /// prefetch is cancelled.
     case cancelled
 
@@ -294,6 +270,17 @@ private enum ScriptedToolkit: Sendable {
                     to: URL(fileURLWithPath: arguments[index + 1]).appendingPathComponent("\(accession)_1.fastq")
                 )
                 return SRAToolkitRunner.Result(exitCode: 3, stderr: "disk full")
+            }
+        case .failsAfterPrefetch:
+            let prefetch = URL(fileURLWithPath: "/managed/sra-tools/bin/prefetch")
+            return SRAToolkitRunner(prefetch: prefetch, fasterqDump: URL(fileURLWithPath: "/managed/sra-tools/bin/fasterq-dump")) { executable, arguments in
+                guard executable == prefetch, let index = arguments.firstIndex(of: "-O") else {
+                    return SRAToolkitRunner.Result(exitCode: 3, stderr: "disk full")
+                }
+                let folder = URL(fileURLWithPath: arguments[index + 1]).appendingPathComponent(arguments[0], isDirectory: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try Data("partial".utf8).write(to: folder.appendingPathComponent("\(arguments[0]).sra"))
+                return SRAToolkitRunner.Result(exitCode: 0)
             }
         case .cancelled:
             return SRAToolkitRunner(

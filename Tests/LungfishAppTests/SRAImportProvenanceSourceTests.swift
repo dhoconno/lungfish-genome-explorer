@@ -65,7 +65,9 @@ final class SRAImportProvenanceSourceTests: XCTestCase {
             recipeName: nil,
             qualityBinning: "none",
             optimizeStorage: false,
-            compressionLevel: "balanced"
+            compressionLevel: "balanced",
+            // Never the locator, which can wait on the build lock `swift test` holds.
+            cliBinaryPath: { URL(fileURLWithPath: "/injected/lungfish-cli") }
         )
         let run = try XCTUnwrap(ProvenanceRecorder.load(from: bundleURL))
         XCTAssertEqual(run.name, "gui-sra-fastq-import")
