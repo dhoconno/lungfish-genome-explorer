@@ -15,7 +15,8 @@ import LungfishIO
 /// with each other. The sidecar's read roles are merge evidence, so the scan
 /// says mixed (D2 and D10, Phase 1.5 lane A7). The roles take the form an
 /// import with a merge recipe writes: every role names the one file, and the
-/// R1 and R2 entries each count the pairs.
+/// R1 and R2 entries each count the pairs. A file that holds only pairs gets
+/// the same form with no single role (``pairsOnlyClassification(pairs:singles:filename:)``).
 public enum FASTQMixedLayoutHint {
 
     /// The number of adjacent mate pairs and of single records in a FASTQ
@@ -61,6 +62,29 @@ public enum FASTQMixedLayoutHint {
             .init(filename: filename, role: .pairedR1, readCount: pairs),
             .init(filename: filename, role: .pairedR2, readCount: pairs),
             .init(filename: filename, role: singleRole, readCount: singles),
+        ])
+    }
+
+    /// The roles of a file holding `pairs` pairs and no single read, every
+    /// role naming `filename`. The R1 and R2 entries each count the pairs and
+    /// no role names a single read. Nil when the file holds a single read,
+    /// which ``classification(pairs:singles:singleRole:filename:)`` records,
+    /// or no pair, which needs no hint.
+    ///
+    /// The operations dialog's import records this for an output of a merge
+    /// bundle that kept only the unmerged pairs. The output inherits the merge
+    /// in its lineage, which the layout scan reads as proof of single reads, so
+    /// these counts are what show the read-set resolver that the file holds
+    /// none (Phase 1.5 lane F6, re-review SHOULD-FIX 2).
+    public static func pairsOnlyClassification(
+        pairs: Int,
+        singles: Int,
+        filename: String
+    ) -> ReadClassification? {
+        guard pairs > 0, singles == 0 else { return nil }
+        return ReadClassification(files: [
+            .init(filename: filename, role: .pairedR1, readCount: pairs),
+            .init(filename: filename, role: .pairedR2, readCount: pairs),
         ])
     }
 

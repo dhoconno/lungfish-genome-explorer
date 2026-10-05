@@ -435,6 +435,97 @@ final class FASTQOperationOutputImporterToolCommandTests: XCTestCase {
         XCTAssertNil(FASTQMetadataStore.load(for: payload)?.readClassification)
         XCTAssertEqual(FASTQBundle.loadDerivedManifest(in: bundleURL)?.pairingMode, .interleaved)
     }
+
+    // MARK: - A pairs-only output of a merge bundle (Phase 1.5 lane F6)
+
+    /// Imports `records` as the output of Filter by Read Length on the merge
+    /// derivative of `fixtures` and returns the imported bundle.
+    private func importLengthFilterOutput(
+        of records: [(id: String, sequence: String)],
+        named name: String,
+        fixtures: ReadSetFixtures
+    ) async throws -> URL {
+        let staging = root.appendingPathComponent("work-\(name)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let staged = staging.appendingPathComponent("\(name).fastq")
+        try FASTQOperationTestHelper.writeFASTQ(records: records, to: staged)
+        let mergedInput = fixtures.mergeDerivative.appendingPathComponent("merged.fastq")
+        try SyntheticToolProvenance.write(
+            argv: ["fixture-tool", mergedInput.path, "-o", staged.path],
+            inputURL: mergedInput,
+            outputURL: staged,
+            in: staging
+        )
+        let destination = fixtures.projectURL.appendingPathComponent("Derived", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        return try await makeWriter().importFASTQOutput(
+            sourceURL: staged,
+            bundleURL: destination.appendingPathComponent("\(name).\(FASTQBundle.directoryExtension)"),
+            originalRequest: .derivative(
+                request: .lengthFilter(min: 5, max: 40),
+                inputURLs: [fixtures.mergeDerivative],
+                outputMode: .perInput
+            ),
+            sourceInputURL: fixtures.mergeDerivative
+        )
+    }
+
+    /// Phase 1.5 lane F6, re-review SHOULD-FIX 2. A dialog operation on a merge
+    /// bundle can keep only its unmerged pairs, such as Filter by Read Length
+    /// with bounds that drop every merged read. The output is a physical `full`
+    /// bundle that inherits the merge in its lineage, so the layout scan reads
+    /// it as mixed. The import recorded roles only for a file that holds pairs
+    /// and single reads, so the output had no counts, the resolver planned it as
+    /// mixed, and EsViritu and TaxTriage ran every mate single-end under the
+    /// statement that the sample held single reads. The import now records the
+    /// pairs, `pairedR1` and `pairedR2` naming the file and no single role, and
+    /// the resolver plans the output from those counts. An output that holds
+    /// only merged reads records nothing, as before.
+    func testAPairsOnlyOutputOfAMergeBundleRecordsItsPairsSoItPlansAsPairs() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let bundleURL = try await importLengthFilterOutput(
+            of: [(id: "u1/1", sequence: "ACGTACGTAC"), (id: "u1/2", sequence: "ACGTACGTAC")],
+            named: "merge-pairs",
+            fixtures: fixtures
+        )
+
+        // The premise. The output inherits the merge, so the scan reads mates beside it as mixed.
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundleURL))
+        XCTAssertTrue(manifest.lineage.contains { $0.kind == .pairedEndMerge }, "the output inherits the merge")
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: bundleURL).layout, .mixedInterleaved)
+
+        // The import records the pairs and no single role, every role naming the file.
+        let payload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        let classification = try XCTUnwrap(FASTQMetadataStore.load(for: payload)?.readClassification)
+        XCTAssertEqual(classification.files.map(\.role), [.pairedR1, .pairedR2])
+        XCTAssertEqual(classification.files.map(\.readCount), [1, 1])
+        XCTAssertEqual(Set(classification.files.map(\.filename)), [payload.lastPathComponent])
+        XCTAssertEqual(classification.mergedReadCount + classification.unpairedReadCount, 0)
+
+        // Both tools plan the output as one interleaved pair, with no reason.
+        for consumerID in [EsVirituConfig.readPairingConsumerID, TaxTriageReadSetPlanner.consumerID] {
+            let readSet = try await SamplesheetReadSetPlanner.plan(
+                input: bundleURL,
+                consumerID: consumerID,
+                materializationDirectory: root.appendingPathComponent("plan-\(consumerID)", isDirectory: true),
+                materializer: fixtures.materializer
+            )
+            guard case .interleaved(let file) = readSet.reads else { return XCTFail("\(consumerID): \(readSet.reads)") }
+            XCTAssertEqual(file.lastPathComponent, payload.lastPathComponent, consumerID)
+            XCTAssertNil(readSet.plan.singleReadReason, consumerID)
+            XCTAssertFalse(readSet.plan.sampleHoldsPairsAndSingleReads, consumerID)
+            XCTAssertEqual(readSet.plan.composition.pairedFragments, 1, consumerID)
+        }
+
+        // An output that holds only merged reads records nothing, as before.
+        let mergedOnly = try await importLengthFilterOutput(
+            of: [(id: "x1", sequence: "ACGTACGTACGTACGTACGT"), (id: "x2", sequence: "ACGTACGTACGTACGTACGT")],
+            named: "merge-singles",
+            fixtures: fixtures
+        )
+        let mergedOnlyPayload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: mergedOnly))
+        XCTAssertNil(FASTQMetadataStore.load(for: mergedOnlyPayload)?.readClassification)
+    }
 }
 
 /// Runs each invocation with the real `lungfish-cli` subcommand in this
