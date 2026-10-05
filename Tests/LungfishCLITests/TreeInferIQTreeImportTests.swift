@@ -29,10 +29,12 @@ final class TreeInferIQTreeImportTests: XCTestCase {
         defer { project.remove() }
         try project.setFakeTree(supportTree)
 
-        try await project.run(["--bootstrap", "1000", "--alrt", "1000"])
+        try await project.run(["--bootstrap", "1500", "--alrt", "1000"])
 
         let tree = try PhylogeneticTreeBundle.load(from: project.outputURL())
         XCTAssertEqual(tree.manifest.supportLabels, ["SH-aLRT", "UFBoot"])
+        XCTAssertEqual(tree.manifest.inference?.ufBootReplicates, 1500)
+        XCTAssertEqual(tree.manifest.inference?.shALRTReplicates, 1000)
         XCTAssertEqual(tree.manifest.branchLengthUnit, "substitutions per site")
         let clade = try XCTUnwrap(node(over: ["D", "E"], in: tree))
         XCTAssertEqual(clade.supportValues.map(\.label), ["SH-aLRT", "UFBoot"])
@@ -58,6 +60,8 @@ final class TreeInferIQTreeImportTests: XCTestCase {
 
         let tree = try PhylogeneticTreeBundle.load(from: project.outputURL())
         XCTAssertNil(tree.manifest.supportLabels)
+        XCTAssertNil(tree.manifest.inference?.ufBootReplicates)
+        XCTAssertNil(tree.manifest.inference?.shALRTReplicates)
         XCTAssertEqual(tree.manifest.branchLengthUnit, "substitutions per site")
     }
 

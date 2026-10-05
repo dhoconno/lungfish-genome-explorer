@@ -15,6 +15,10 @@ public struct PhylogeneticTreeInferenceSummary: Codable, Sendable, Equatable {
     public let logLikelihood: Double?
     public let logLikelihoodStandardError: Double?
     public let freeParameters: Int?
+    /// The ultrafast bootstrap replicate count (`--bootstrap`). Nil when UFBoot was not requested.
+    public let ufBootReplicates: Int?
+    /// The SH-aLRT replicate count (`--alrt`). Nil when SH-aLRT was not requested.
+    public let shALRTReplicates: Int?
     public let sequenceType: String
     public let seed: Int?
     public let threads: Int?
@@ -37,6 +41,8 @@ public struct PhylogeneticTreeInferenceSummary: Codable, Sendable, Equatable {
         logLikelihood: Double? = nil,
         logLikelihoodStandardError: Double? = nil,
         freeParameters: Int? = nil,
+        ufBootReplicates: Int? = nil,
+        shALRTReplicates: Int? = nil,
         sequenceType: String,
         seed: Int? = nil,
         threads: Int? = nil,
@@ -58,6 +64,8 @@ public struct PhylogeneticTreeInferenceSummary: Codable, Sendable, Equatable {
         self.logLikelihood = logLikelihood
         self.logLikelihoodStandardError = logLikelihoodStandardError
         self.freeParameters = freeParameters
+        self.ufBootReplicates = ufBootReplicates
+        self.shALRTReplicates = shALRTReplicates
         self.sequenceType = sequenceType
         self.seed = seed
         self.threads = threads
