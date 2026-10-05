@@ -8,7 +8,12 @@ extension TreeCommand {
     struct InferIQTreeSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "iqtree",
-            abstract: "Infer a maximum-likelihood tree from a .lungfishmsa bundle using IQ-TREE"
+            abstract: "Infer a maximum-likelihood tree from a .lungfishmsa bundle using IQ-TREE",
+            discussion: """
+            --threads sets IQ-TREE -T. Without --threads IQ-TREE runs with -T AUTO, which is \
+            not reproducible because the same seed can give different branch support. Pass \
+            --seed N with a fixed --threads N to reproduce a tree.
+            """
         )
 
         @Argument(help: "Input .lungfishmsa bundle")
@@ -32,17 +37,26 @@ extension TreeCommand {
         @Option(name: .customLong("model"), help: "IQ-TREE model string")
         var model: String = "MFP"
 
-        @Option(name: .customLong("sequence-type"), help: "IQ-TREE sequence type: auto, DNA, AA, CODON, BIN, MORPH, NT2AA")
+        @Option(
+            name: .customLong("sequence-type"),
+            help: "IQ-TREE sequence type: auto, DNA, AA, CODON, CODON1 to CODON25 (IQ-TREE genetic code numbers), BIN, MORPH, NT2AA"
+        )
         var sequenceType: String = "auto"
 
-        @Option(name: .customLong("bootstrap"), help: "Ultrafast bootstrap replicate count")
+        @Option(name: .customLong("bootstrap"), help: "Ultrafast bootstrap replicate count (1000 or more)")
         var bootstrap: Int?
 
-        @Option(name: .customLong("alrt"), help: "SH-aLRT replicate count")
+        @Option(name: .customLong("alrt"), help: "SH-aLRT replicate count (1 or more)")
         var alrt: Int?
 
-        @Option(name: .customLong("seed"), help: "Random seed (default: IQ-TREE chooses a time-based random seed when omitted)")
+        @Option(name: .customLong("seed"), help: "Random seed (default: IQ-TREE draws one, and provenance records it as effectiveSeed)")
         var seed: Int?
+
+        @Option(
+            name: .customLong("outgroup"),
+            help: "Optional comma-separated outgroup row IDs or display names. The saved tree is rooted on the outgroup. It does not change the inferred relationships."
+        )
+        var outgroup: String?
 
         @Flag(name: .customLong("safe"), help: "Enable IQ-TREE safe numerical mode")
         var safeMode: Bool = false
@@ -53,14 +67,14 @@ extension TreeCommand {
         @Option(
             name: .customLong("extra-iqtree-options"),
             parsing: .unconditional,
-            help: "Additional IQ-TREE options, written exactly as they should be passed to IQ-TREE"
+            help: .hidden
         )
         var extraIQTreeOptions: String = ""
 
         @Option(
             name: .customLong("extra-args"),
             parsing: .unconditional,
-            help: "Additional IQ-TREE arguments passed verbatim"
+            help: "Additional IQ-TREE arguments passed verbatim. Flags that have a curated option (-s, --prefix, -m, -T, -nt, --seed, -B, --alrt, -alrt, -o, -st, --seqtype) are rejected."
         )
         var extraArgs: String = ""
 
@@ -113,6 +127,28 @@ extension TreeCommand {
                 if outputExisted, force == false {
                     throw ValidationError("Output tree bundle already exists: \(outputURL.path). Use --force to overwrite.")
                 }
+
+                // Rulings C5, C6 and C7: every check that can fail runs before anything is staged.
+                try validateCuratedOptions()
+                let normalizedSequenceType = try Self.normalizedSequenceType(sequenceType)
+                let advancedArguments = try parsedAdvancedArguments()
+                emitter.emitProgress(0.12, message: "Preparing aligned FASTA input.")
+                let bundle = try MultipleSequenceAlignmentBundle.load(from: msaBundleURL)
+                let stagedRows = try stageIQTreeRows(
+                    records: parseTreeAlignedFASTA(at: msaBundleURL.appendingPathComponent("alignment/primary.aligned.fasta")),
+                    bundle: bundle,
+                    rows: rows,
+                    columns: columns
+                )
+                let stagedRecords = stagedRows.map { TreeAlignedFASTARecord(name: $0.tipID, sequence: $0.sequence) }
+                let selectedAlignedLength = stagedRecords.first?.sequence.count ?? 0
+                guard selectedAlignedLength > 0 else {
+                    throw ValidationError("Tree inference selection produced zero aligned columns.")
+                }
+                try validateTreeAlignedRecords(stagedRecords)
+                try validateScope(rowCount: stagedRows.count, alignedLength: selectedAlignedLength, sequenceType: normalizedSequenceType)
+                let outgroupRows = try resolvedOutgroup(in: stagedRows, bundle: bundle)
+
                 try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
                 defer {
@@ -129,26 +165,15 @@ extension TreeCommand {
                     createdOutputInThisRun = true
                 }
 
-                emitter.emitProgress(0.12, message: "Preparing aligned FASTA input.")
-                let bundle = try MultipleSequenceAlignmentBundle.load(from: msaBundleURL)
                 let stagedAlignmentURL = stagingURL.appendingPathComponent("input.aligned.fasta")
-                let selectedRecords = try selectTreeAlignedRecords(
-                    records: parseTreeAlignedFASTA(at: msaBundleURL.appendingPathComponent("alignment/primary.aligned.fasta")),
-                    bundle: bundle,
-                    rows: rows,
-                    columns: columns
-                )
-                let selectedAlignedLength = selectedRecords.first?.sequence.count ?? 0
-                guard selectedAlignedLength > 0 else {
-                    throw ValidationError("Tree inference selection produced zero aligned columns.")
-                }
-                try validateTreeAlignedRecords(selectedRecords)
-                try writeTreeAlignedFASTA(records: selectedRecords, to: stagedAlignmentURL)
+                try writeTreeAlignedFASTA(records: stagedRecords, to: stagedAlignmentURL)
+                try writeIQTreeTipMap(stagedRows, to: stagingURL.appendingPathComponent("tip-map.tsv"))
 
                 emitter.emitProgress(0.20, message: "Resolving IQ-TREE executable.")
                 let executableURL = try resolveIQTreeExecutable()
                 let versionResult = try runProcess(executableURL: executableURL, arguments: ["--version"], workingDirectory: nil)
                 let toolVersion = parseIQTreeVersion(stdout: versionResult.stdout, stderr: versionResult.stderr)
+                // Ruling C2: AUTO only when --threads is omitted. It is not reproducible.
                 let iqtreeThreads = globalOptions.threads.map(String.init) ?? "AUTO"
 
                 let prefixURL = stagingURL.appendingPathComponent("run")
@@ -156,34 +181,29 @@ extension TreeCommand {
                     "-s", stagedAlignmentURL.path,
                     "-m", model,
                     "--prefix", prefixURL.path,
-                    "-nt", iqtreeThreads,
+                    "-T", iqtreeThreads,
                 ]
-                let normalizedSequenceType = try parsedSequenceType()
                 if let normalizedSequenceType {
-                    iqtreeArguments += ["-st", normalizedSequenceType]
+                    iqtreeArguments += ["--seqtype", normalizedSequenceType]
                 }
                 if let bootstrap {
-                    guard bootstrap > 0 else {
-                        throw ValidationError("--bootstrap must be greater than 0.")
-                    }
                     iqtreeArguments += ["-B", String(bootstrap)]
                 }
                 if let alrt {
-                    guard alrt > 0 else {
-                        throw ValidationError("--alrt must be greater than 0.")
-                    }
-                    iqtreeArguments += ["-alrt", String(alrt)]
+                    iqtreeArguments += ["--alrt", String(alrt)]
                 }
                 if let seed {
                     iqtreeArguments += ["--seed", String(seed)]
                 }
+                if outgroupRows.isEmpty == false {
+                    iqtreeArguments += ["-o", outgroupRows.map(\.tipID).joined(separator: ",")]
+                }
                 if safeMode {
-                    iqtreeArguments.append("-safe")
+                    iqtreeArguments.append("--safe")
                 }
                 if keepIdenticalSequences {
-                    iqtreeArguments.append("-keep-ident")
+                    iqtreeArguments.append("--keep-ident")
                 }
-                let advancedArguments = try parsedAdvancedArguments()
                 iqtreeArguments += advancedArguments
 
                 emitter.emitProgress(0.34, message: "Running IQ-TREE.")
@@ -202,11 +222,26 @@ extension TreeCommand {
                 guard FileManager.default.fileExists(atPath: treefileURL.path) else {
                     throw ValidationError("IQ-TREE did not produce \(treefileURL.lastPathComponent).")
                 }
+                let runLog = (try? String(contentsOf: stagingURL.appendingPathComponent("run.log"), encoding: .utf8)) ?? ""
+
+                emitter.emitProgress(0.66, message: "Mapping tip IDs back to MSA names.")
+                let labelled = try labelledTreefile(
+                    treefileURL: treefileURL,
+                    stagedRows: stagedRows,
+                    outgroupRows: outgroupRows,
+                    iqtreeOutput: runLog + "\n" + runResult.stdout,
+                    stagingURL: stagingURL
+                )
+                var warnings: [String] = []
+                if let warning = labelled.outgroupWarning {
+                    warnings.append(warning)
+                    emitter.emitLog(.warning, warning)
+                }
 
                 let argv = canonicalArgv(msaBundleURL: msaBundleURL, projectURL: projectURL, outputURL: outputURL)
                 emitter.emitProgress(0.72, message: "Creating native .lungfishtree bundle.")
                 _ = try PhylogeneticTreeBundleImporter.importTree(
-                    from: treefileURL,
+                    from: labelled.url,
                     to: buildTargetURL,
                     options: .init(
                         name: name ?? outputURL.deletingPathExtension().lastPathComponent,
@@ -224,6 +259,15 @@ extension TreeCommand {
                     stagedAlignmentURL.path: outputURL.appendingPathComponent("artifacts/iqtree/input.aligned.fasta").path,
                     prefixURL.path: outputURL.appendingPathComponent("artifacts/iqtree/run").path,
                 ]
+                var runOptions: [String: String] = [:]
+                if let effectiveSeed = seed.map(String.init) ?? parseIQTreeSeed(log: runLog) {
+                    runOptions["effectiveSeed"] = effectiveSeed
+                }
+                if let outgroup, outgroupRows.isEmpty == false {
+                    runOptions["outgroup"] = outgroup
+                    runOptions["outgroupTipIDs"] = outgroupRows.map(\.tipID).joined(separator: ",")
+                    runOptions["rooting"] = labelled.rooted ? "outgroup" : "unrooted"
+                }
                 try rewriteManifestAndProvenance(
                     bundleURL: buildTargetURL,
                     msaBundleURL: msaBundleURL,
@@ -248,10 +292,12 @@ extension TreeCommand {
                     advancedArguments: advancedArguments,
                     rowCount: bundle.manifest.rowCount,
                     alignedLength: bundle.manifest.alignedLength,
-                    selectedRowCount: selectedRecords.count,
+                    selectedRowCount: stagedRows.count,
                     selectedAlignedLength: selectedAlignedLength,
                     rows: rows,
                     columns: columns,
+                    runOptions: runOptions,
+                    warnings: warnings,
                     exitStatus: runResult.exitStatus,
                     stdout: runResult.stdout,
                     stderr: runResult.stderr,
@@ -334,17 +380,19 @@ extension TreeCommand {
             if let seed {
                 argv += ["--seed", String(seed)]
             }
+            if let outgroup, outgroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                argv += ["--outgroup", outgroup]
+            }
             if safeMode {
                 argv.append("--safe")
             }
             if keepIdenticalSequences {
                 argv.append("--keep-identical")
             }
-            if extraArgs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                argv += ["--extra-args", extraArgs]
-            }
-            if extraIQTreeOptions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                argv += ["--extra-iqtree-options", extraIQTreeOptions]
+            // Ruling C6: the hidden --extra-iqtree-options alias folds into --extra-args.
+            let combinedExtraArgs = combinedExtraArgumentText()
+            if combinedExtraArgs.isEmpty == false {
+                argv += ["--extra-args", combinedExtraArgs]
             }
             if let iqtreePath {
                 argv += ["--iqtree-path", iqtreePath]
@@ -424,25 +472,153 @@ extension TreeCommand {
             )
         }
 
-        private func parsedSequenceType() throws -> String? {
-            let trimmed = sequenceType.trimmingCharacters(in: .whitespacesAndNewlines)
+        /// Genetic codes IQ-TREE 3.1.3 defines for `CODONn`. Codes 7, 8 and 17 to 20 are not
+        /// NCBI tables, and IQ-TREE exits with "Wrong genetic code" for them.
+        static let iqtreeGeneticCodes: Set<Int> = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 21, 22, 23, 24, 25]
+
+        /// The IQ-TREE `--seqtype` value, or nil for auto-detection (ruling C7).
+        static func normalizedSequenceType(_ value: String) throws -> String? {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.isEmpty == false, trimmed.lowercased() != "auto" else {
                 return nil
             }
-            let allowed = ["DNA", "AA", "CODON", "BIN", "MORPH", "NT2AA"]
             let uppercased = trimmed.uppercased()
-            guard allowed.contains(uppercased) else {
-                throw ValidationError("Unsupported IQ-TREE sequence type '\(trimmed)'. Supported values: auto, DNA, AA, CODON, BIN, MORPH, NT2AA.")
+            if ["DNA", "AA", "CODON", "BIN", "MORPH", "NT2AA"].contains(uppercased) {
+                return uppercased
             }
-            return uppercased
+            if uppercased.hasPrefix("CODON"),
+               uppercased.dropFirst(5).allSatisfy(\.isNumber),
+               let code = Int(uppercased.dropFirst(5)),
+               iqtreeGeneticCodes.contains(code) {
+                return "CODON\(code)"
+            }
+            throw ValidationError(
+                "Unsupported IQ-TREE sequence type '\(trimmed)'. Supported values: auto, DNA, AA, CODON, CODON1 to CODON25 except 7, 8 and 17 to 20, BIN, MORPH, NT2AA."
+            )
         }
 
-        private func parsedAdvancedArguments() throws -> [String] {
-            let text = [extraIQTreeOptions, extraArgs]
+        /// IQ-TREE flags that a curated option already sets, mapped to that option (ruling C6).
+        /// Extra text that repeats one would silently override the curated value.
+        static let reservedIQTreeFlags: [String: String] = [
+            "-s": "the input bundle argument",
+            "--prefix": "--output",
+            "-m": "--model",
+            "-T": "--threads",
+            "-nt": "--threads",
+            "--seed": "--seed",
+            "-B": "--bootstrap",
+            "--alrt": "--alrt",
+            "-alrt": "--alrt",
+            "-o": "--outgroup",
+            "-st": "--sequence-type",
+            "--seqtype": "--sequence-type",
+        ]
+
+        /// Ruling C5. Checks that need only the options, run before the bundle is read.
+        private func validateCuratedOptions() throws {
+            if let bootstrap, bootstrap < 1000 {
+                throw ValidationError("--bootstrap must be 1000 or more (the IQ-TREE ultrafast bootstrap minimum), got \(bootstrap).")
+            }
+            if let alrt, alrt < 1 {
+                throw ValidationError("--alrt must be 1 or more, got \(alrt).")
+            }
+            let base = model.trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "+", maxSplits: 1)
+                .first
+                .map { $0.uppercased() } ?? ""
+            if base == "MF" || base.hasSuffix("ONLY") {
+                throw ValidationError("--model \(model) is not allowed. MF/TESTONLY select a model without a tree search, use MFP or TEST.")
+            }
+        }
+
+        /// Ruling C5 row minimums and the C7 codon frame check, on the in-scope rows and columns.
+        private func validateScope(rowCount: Int, alignedLength: Int, sequenceType: String?) throws {
+            if rowCount < 3 {
+                throw ValidationError("IQ-TREE needs at least 3 sequences, but the selection has \(rowCount).")
+            }
+            if bootstrap != nil || alrt != nil, rowCount < 4 {
+                throw ValidationError("Branch support (--bootstrap or --alrt) needs at least 4 sequences, but the selection has \(rowCount).")
+            }
+            if let sequenceType, sequenceType.hasPrefix("CODON"), alignedLength % 3 != 0 {
+                throw ValidationError(
+                    "Codon sequence types need whole codons, so the in-scope column count must be a multiple of 3 (got \(alignedLength))."
+                )
+            }
+        }
+
+        /// Ruling C4. Outgroup names resolve against the in-scope rows the way --rows does.
+        private func resolvedOutgroup(in stagedRows: [IQTreeStagedRow], bundle: MultipleSequenceAlignmentBundle) throws -> [IQTreeStagedRow] {
+            guard let outgroup, outgroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                return []
+            }
+            let stagedByRowID = Dictionary(uniqueKeysWithValues: stagedRows.map { ($0.rowID, $0) })
+            let inScope = bundle.rows.filter { stagedByRowID[$0.id] != nil }
+            let matched = try resolveTreeRowSelectors(outgroup, among: inScope, option: "--outgroup")
+                .compactMap { stagedByRowID[$0.id] }
+            guard matched.count < stagedRows.count else {
+                throw ValidationError("--outgroup must leave at least one in-scope sequence in the ingroup.")
+            }
+            return matched
+        }
+
+        /// Roots the IQ-TREE tree on the outgroup when it is a clade, then swaps the safe tip IDs
+        /// back to MSA display names (rulings C3 and C4). The labelled file keeps the name
+        /// run.treefile so the manifest's source file name matches the IQ-TREE artifact.
+        private func labelledTreefile(
+            treefileURL: URL,
+            stagedRows: [IQTreeStagedRow],
+            outgroupRows: [IQTreeStagedRow],
+            iqtreeOutput: String,
+            stagingURL: URL
+        ) throws -> (url: URL, rooted: Bool, outgroupWarning: String?) {
+            var newick = try String(contentsOf: treefileURL, encoding: .utf8)
+            var rooted = false
+            var warning: String?
+            if outgroupRows.isEmpty == false {
+                let idTree = try PhylogeneticTreeBundleImporter.importTree(
+                    from: treefileURL,
+                    to: stagingURL.appendingPathComponent("tip-ids.lungfishtree", isDirectory: true)
+                )
+                let rootNodeID = iqtreeOutput.contains("Branch separating outgroup is not found")
+                    ? nil
+                    : iqtreeOutgroupRootNodeID(tipIDs: Set(outgroupRows.map(\.tipID)), in: idTree.normalizedTree)
+                if let rootNodeID {
+                    let rerooted = try idTree.rerootedBundle(
+                        on: rootNodeID,
+                        to: stagingURL.appendingPathComponent("rooted.lungfishtree", isDirectory: true),
+                        provenance: .init(toolName: "lungfish tree infer iqtree", argv: [])
+                    )
+                    newick = try String(contentsOf: rerooted.url.appendingPathComponent("tree/primary.nwk"), encoding: .utf8)
+                    rooted = true
+                } else {
+                    let names = outgroupRows.map(\.displayName).joined(separator: ", ")
+                    warning = "The outgroup (\(names)) is not monophyletic in the inferred tree, so the tree was saved unrooted."
+                }
+            }
+            let labels = Dictionary(uniqueKeysWithValues: stagedRows.map { ($0.tipID, $0.displayName) })
+            let labelledDirectory = stagingURL.appendingPathComponent("labelled", isDirectory: true)
+            try FileManager.default.createDirectory(at: labelledDirectory, withIntermediateDirectories: true)
+            let url = labelledDirectory.appendingPathComponent("run.treefile")
+            try relabelIQTreeTips(in: newick, labels: labels).write(to: url, atomically: true, encoding: .utf8)
+            return (url, rooted, warning)
+        }
+
+        private func combinedExtraArgumentText() -> String {
+            [extraIQTreeOptions, extraArgs]
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
                 .joined(separator: " ")
-            return try AdvancedCommandLineOptions.parse(text)
+        }
+
+        private func parsedAdvancedArguments() throws -> [String] {
+            let arguments = try AdvancedCommandLineOptions.parse(combinedExtraArgumentText())
+            for argument in arguments {
+                let flag = String(argument.split(separator: "=", maxSplits: 1).first ?? "")
+                if let curated = Self.reservedIQTreeFlags[flag] {
+                    throw ValidationError("--extra-args must not set \(flag). Use \(curated) instead.")
+                }
+            }
+            return arguments
         }
     }
 }
