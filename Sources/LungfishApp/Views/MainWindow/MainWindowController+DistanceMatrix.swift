@@ -27,6 +27,12 @@ extension MainWindowController: DistanceMatrixMenuActions {
         multipleSequenceAlignmentController?.distanceMatrixCommandTarget?.revealPairInAlignment(sender)
     }
 
+    /// The menu-bar twin of the cell and header command that selects the
+    /// focused row's sequence in the alignment (review S4).
+    @objc func selectRowSequences(_ sender: Any?) {
+        multipleSequenceAlignmentController?.distanceMatrixCommandTarget?.selectRowSequences(sender)
+    }
+
     @objc func copyMatrix(_ sender: Any?) {
         multipleSequenceAlignmentController?.distanceMatrixCommandTarget?.copyMatrix(sender)
     }
@@ -41,7 +47,7 @@ extension MainWindowController: DistanceMatrixMenuActions {
         syncDrawerToolbarButton()
     }
 
-    private func syncDrawerToolbarButton() {
+    func syncDrawerToolbarButton() {
         drawerToolbarButton?.state = mainSplitViewController?.viewerController?.isActiveDrawerOpen == true ? .on : .off
     }
 
@@ -54,7 +60,7 @@ extension MainWindowController: DistanceMatrixMenuActions {
             return msa?.isDistanceMatrixAvailable == true
         case #selector(showDistanceMatrix(_:)):
             return msa?.isDistanceMatrixAvailable == true
-        case #selector(revealPairInAlignment(_:)), #selector(copyMatrix(_:)):
+        case #selector(revealPairInAlignment(_:)), #selector(copyMatrix(_:)), #selector(selectRowSequences(_:)):
             guard let grid = msa?.distanceMatrixCommandTarget else { return false }
             return grid.validateMenuItem(menuItem)
         case #selector(exportDistanceMatrix(_:)):

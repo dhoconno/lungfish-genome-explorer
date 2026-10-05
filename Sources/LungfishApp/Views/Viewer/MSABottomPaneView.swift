@@ -85,8 +85,9 @@ final class MSABottomPaneView: NSView {
     var isDrivingAlignmentSelection = false
 
     /// Builds the Distances input on demand, so an alignment whose matrix is
-    /// never shown is never converted or computed.
-    typealias DistanceInput = () -> (records: [MSAAlignedRecord], alphabet: MSASequenceAlphabet)
+    /// never shown is never converted or computed. A thrown error, such as an
+    /// unreadable alphabet, shows in the pane instead of a guessed input.
+    typealias DistanceInput = () throws -> (records: [MSAAlignedRecord], alphabet: MSASequenceAlphabet)
     private var pendingDistanceInput: DistanceInput?
 
     /// Replaces the alignment the Distances tab computes from. Nil clears it.
@@ -99,8 +100,23 @@ final class MSABottomPaneView: NSView {
     func loadPendingDistanceInput() {
         guard let input = pendingDistanceInput else { return }
         pendingDistanceInput = nil
-        let (records, alphabet) = input()
-        distancePane.load(records: records, alphabet: alphabet)
+        do {
+            let (records, alphabet) = try input()
+            distancePane.load(records: records, alphabet: alphabet)
+        } catch {
+            distancePane.showLoadFailure(error.localizedDescription)
+        }
+    }
+
+    /// Links the pane into the host's key view loop (review S3): `previous`
+    /// to the divider, the tab control, the Distances controls, the grid,
+    /// then `next`. Hidden content is skipped by AppKit, so the same links
+    /// serve both tabs.
+    func linkKeyViewLoop(after previous: NSView, before next: NSView) {
+        previous.nextKeyView = divider
+        divider.nextKeyView = tabControl
+        tabControl.nextKeyView = distancePane.firstKeyView
+        distancePane.lastKeyView.nextKeyView = next
     }
 
     var hasPendingDistanceInput: Bool { pendingDistanceInput != nil }
@@ -197,7 +213,6 @@ final class MSABottomPaneView: NSView {
         // with the fixed divider and header heights inside.
         heightConstraint.priority = .defaultHigh + 1
         heightConstraint.isActive = true
-        divider.nextKeyView = tabControl
     }
 
     // MARK: State

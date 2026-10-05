@@ -203,7 +203,12 @@ extension MultipleSequenceAlignmentViewController {
         }
         bottomPane.onOpenStateChanged = { [weak self] _ in self?.bottomPaneStateDidChange() }
         bottomPane.onTabChanged = { [weak self] _ in self?.bottomPaneStateDidChange() }
+        bottomPane.linkKeyViewLoop(after: alignmentKeyView, before: alignmentKeyView.nextKeyView ?? alignmentKeyView)
     }
+
+    /// True while a matrix click or key drives the alignment selection, so
+    /// the Inspector keeps its tab (review S1).
+    var isDistancePaneDrivingSelection: Bool { bottomPane.isDrivingAlignmentSelection }
 
     func makeDistanceMatrixToggleButton() -> NSButton {
         let button = NSButton(title: "", target: self, action: #selector(toggleDistanceMatrixFromToolbar(_:)))
@@ -234,10 +239,17 @@ extension MultipleSequenceAlignmentViewController {
             bottomPaneStateDidChange()
             return
         }
-        let alphabet = (try? MSASequenceAlphabet.load(fromBundle: bundleURL)) ?? .nucleotide
         bottomPane.isDistancesAvailable = true
         bottomPane.setDistanceInput {
-            (rows.map { MSAAlignedRecord(name: $0.name, sequence: $0.sequenceString) }, alphabet)
+            // The CLI reads the same manifest field and fails the same way,
+            // so a missing alphabet is an error, never a nucleotide guess.
+            let alphabet: MSASequenceAlphabet
+            do {
+                alphabet = try MSASequenceAlphabet.load(fromBundle: bundleURL)
+            } catch {
+                throw MSADistanceInputError.unreadableAlphabet(error.localizedDescription)
+            }
+            return (rows.map { MSAAlignedRecord(name: $0.name, sequence: $0.sequenceString) }, alphabet)
         }
         bottomPaneStateDidChange()
     }
@@ -262,8 +274,19 @@ extension MultipleSequenceAlignmentViewController {
 
     /// View > Show Drawer (Control-Command-B) and the window toolbar drawer
     /// button: toggles the pane and keeps its last tab.
+    /// Closing moves focus from the pane back to the alignment (review N2).
     func toggleBottomPane() {
-        bottomPane.setOpen(!bottomPane.isOpen)
+        if bottomPane.isOpen {
+            closeBottomPaneKeepingFocus()
+        } else {
+            bottomPane.setOpen(true)
+        }
+    }
+
+    private func closeBottomPaneKeepingFocus() {
+        let focusWasInPane = (view.window?.firstResponder as? NSView)?.isDescendant(of: bottomPane) == true
+        bottomPane.setOpen(false)
+        if focusWasInPane { focusAlignment() }
     }
 
     /// Opens the pane on the Distances tab and puts keyboard focus in the grid.
@@ -277,9 +300,7 @@ extension MultipleSequenceAlignmentViewController {
     /// View > Show / Hide Distance Matrix (Control-Command-M) and the MSA toolbar button.
     func toggleDistanceMatrix() {
         if isDistanceMatrixShowing {
-            let focusWasInPane = (view.window?.firstResponder as? NSView)?.isDescendant(of: bottomPane) == true
-            bottomPane.setOpen(false)
-            if focusWasInPane { focusAlignment() }
+            closeBottomPaneKeepingFocus()
         } else {
             showDistanceMatrix()
         }
@@ -306,6 +327,19 @@ extension MultipleSequenceAlignmentViewController {
         distanceMatrixToggleButton.state = isDistanceMatrixShowing ? .on : .off
         distanceMatrixToggleButton.isEnabled = bottomPane.isDistancesAvailable
         if isDistanceMatrixShowing { bottomPane.loadPendingDistanceInput() }
+        onBottomPaneStateChanged?()
+    }
+}
+
+/// Why the Distances pane could not get its input.
+enum MSADistanceInputError: LocalizedError {
+    case unreadableAlphabet(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadableAlphabet(let reason):
+            return "The alignment's sequence alphabet could not be read from its manifest. \(reason)"
+        }
     }
 }
 

@@ -12,6 +12,7 @@ import AppKit
     func toggleDistanceMatrix(_ sender: Any?)
     func showDistanceMatrix(_ sender: Any?)
     func revealPairInAlignment(_ sender: Any?)
+    func selectRowSequences(_ sender: Any?)
     func copyMatrix(_ sender: Any?)
     func exportDistanceMatrix(_ sender: Any?)
 }
@@ -20,6 +21,7 @@ enum DistanceMatrixMenuID {
     static let toggle = "view-menu-toggle-distance-matrix"
     static let submenu = "view-menu-distance-matrix"
     static let reveal = "view-menu-distance-matrix-reveal-pair"
+    static let selectRow = "view-menu-distance-matrix-select-row-sequences"
     static let copyMatrix = "view-menu-distance-matrix-copy-matrix"
     static let export = "view-menu-distance-matrix-export"
     static let fileExport = "file-menu-export-distance-matrix"
@@ -45,6 +47,11 @@ extension MainMenu {
             action: #selector(DistanceMatrixMenuActions.revealPairInAlignment(_:)),
             keyEquivalent: ""
         ).identifier = NSUserInterfaceItemIdentifier(DistanceMatrixMenuID.reveal)
+        submenu.addItem(
+            withTitle: "Select Row's Sequences",
+            action: #selector(DistanceMatrixMenuActions.selectRowSequences(_:)),
+            keyEquivalent: ""
+        ).identifier = NSUserInterfaceItemIdentifier(DistanceMatrixMenuID.selectRow)
         submenu.addItem(
             withTitle: "Copy Matrix",
             action: #selector(DistanceMatrixMenuActions.copyMatrix(_:)),

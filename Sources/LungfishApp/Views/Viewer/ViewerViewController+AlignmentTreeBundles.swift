@@ -116,6 +116,7 @@ extension ViewerViewController {
         controller.onExportDistanceMatrixRequested = { [weak self] bundleURL, options in
             self?.exportMSADistanceMatrixViaCLI(bundleURL: bundleURL, options: options)
         }
+        controller.onBottomPaneStateChanged = { [weak self] in self?.syncWindowDrawerToolbarButton() }
 
         multipleSequenceAlignmentViewController = controller
         contentMode = .genomics
