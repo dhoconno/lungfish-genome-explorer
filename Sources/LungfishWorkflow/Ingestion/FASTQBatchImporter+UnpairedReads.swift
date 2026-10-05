@@ -12,17 +12,21 @@ import LungfishIO
 /// the third file's reads as unpaired reads, in the one-file mixed form a
 /// merge recipe writes (row L3 of docs/contracts/READ-PAIRING.md). The
 /// window imports an SRA run through this command, so both keep every read.
+/// The file names propose the join, and the first read of each file decides
+/// it (``checkingUnpairedReads(_:)``).
 extension FASTQBatchImporter {
 
     // MARK: - Detection
 
     /// Joins each run's file of reads without a mate to the pair detected
-    /// from `<run>_1` and `<run>_2`.
+    /// from `<run>_1` and `<run>_2`, by file name.
     ///
     /// That file used to import as a second sample of the same name, which
     /// found the pair's bundle and was skipped, so the bundle held part of
     /// the run. A bare file beside an `_R1` and `_R2` pair, a BAM, and a name
-    /// two bare files share keep their own samples.
+    /// two bare files share keep their own samples. A name proves nothing
+    /// about the reads, so ``checkingUnpairedReads(_:)`` keeps a join only
+    /// when the first reads bear it out.
     static func joiningUnpairedReads(_ samples: [SamplePair]) -> [SamplePair] {
         let singles = Dictionary(
             grouping: samples.filter { $0.r2 == nil && !SequencingReadImportSource.isBAM($0.r1) },
@@ -51,6 +55,137 @@ extension FASTQBatchImporter {
         return joined.filter { $0.r2 != nil || !joinedFiles.contains($0.r1) }
     }
 
+    // MARK: - Check
+
+    /// What ``checkingUnpairedReads(_:)`` decided for the detected samples.
+    public struct UnpairedReadsCheck: Sendable {
+        /// The samples to import. A run whose third file passed keeps it.
+        /// Any other run is its pair followed by its third file as a sample
+        /// of the same name, the two samples detection gave before the join.
+        public let samples: [SamplePair]
+        /// A `notice` for each third file left out, naming it and saying why.
+        public let warnings: [ImportLogEvent]
+    }
+
+    /// Keeps a run's third file joined to its pair only when the first
+    /// records show that it holds the run's reads without a mate.
+    ///
+    /// The first reads of `<run>_1` and `<run>_2` must be mates by
+    /// ``FASTQReadLayoutClassifier/areMates(_:_:)``, the rule the join checks
+    /// every pair with and the storage step finds pairs by. The third file
+    /// must start with a whole record whose read is not of that first
+    /// fragment, neither a mate of either read nor a read of the same name.
+    /// Mates that `fastq-dump --readids` names `SRR1.1.1` and `SRR1.1.2` fail
+    /// the first rule, which made the join fail the whole sample (finding
+    /// F9-S1), and an interleaved copy of the pair fails the second, which
+    /// the join stored beside the pair (F9-N1). Each file is read to its
+    /// fourth line at most, plain or gzip.
+    ///
+    /// `import fastq` runs this on the detected samples before it lists
+    /// them, so a dry run prints the same warnings as an import.
+    public static func checkingUnpairedReads(_ samples: [SamplePair]) -> UnpairedReadsCheck {
+        var checked: [SamplePair] = []
+        var warnings: [ImportLogEvent] = []
+        for sample in samples {
+            guard let r2 = sample.r2, let unpaired = sample.unpaired,
+                  let reason = reasonNotToJoin(r1: sample.r1, r2: r2, unpaired: unpaired)
+            else {
+                checked.append(sample)
+                continue
+            }
+            checked.append(SamplePair(
+                sampleName: sample.sampleName, r1: sample.r1, r2: r2, relativePath: sample.relativePath,
+                metadata: sample.metadata, sampleSheetURL: sample.sampleSheetURL
+            ))
+            checked.append(SamplePair(sampleName: sample.sampleName, r1: unpaired, r2: nil, relativePath: sample.relativePath))
+            warnings.append(.notice(
+                sample: sample.sampleName,
+                message: "\(notJoined(unpaired, to: sample.r1, r2, because: reason)). The pair imports without it, "
+                    + "and \(unpaired.lastPathComponent) is a separate sample named \(sample.sampleName)."
+            ))
+        }
+        return UnpairedReadsCheck(samples: checked, warnings: warnings)
+    }
+
+    /// The first record of a FASTQ file, as far as the check reads it.
+    enum FirstRecord: Equatable {
+        /// A whole first record, by its header line without the `@`, the
+        /// form the interleaver compares mate names in.
+        case read(String)
+        case empty
+        case incomplete
+        case unreadable
+
+        /// Why `file` keeps the third file out, or nil when it starts with a read.
+        func problem(of file: String) -> String? {
+            switch self {
+            case .read: return nil
+            case .empty: return "\(file) holds no reads"
+            case .incomplete: return "\(file) does not start with a complete FASTQ record"
+            case .unreadable: return "\(file) could not be read"
+            }
+        }
+    }
+
+    /// Reads the first record of a plain or gzip FASTQ with the interleaver's
+    /// line reader, four lines at most, and checks its shape as the
+    /// interleaver checks every record.
+    static func firstRecord(of url: URL) -> FirstRecord {
+        guard let reader = try? FASTQRawLineReader(url: url) else { return .unreadable }
+        defer { reader.close() }
+        do {
+            guard let header = try reader.nextLine() else { return .empty }
+            guard header.first == UInt8(ascii: "@"),
+                  let sequence = try reader.nextLine(),
+                  let separator = try reader.nextLine(), separator.first == UInt8(ascii: "+"),
+                  let quality = try reader.nextLine(), quality.count == sequence.count
+            else { return .incomplete }
+            return .read(String(decoding: header.dropFirst(), as: UTF8.self))
+        } catch {
+            return .unreadable
+        }
+    }
+
+    /// Why a run's third file cannot be taken for the run's reads without a
+    /// mate, in words for the user, or nil when it can.
+    static func reasonNotToJoin(r1: URL, r2: URL, unpaired: URL) -> String? {
+        let first1 = firstRecord(of: r1)
+        guard case .read(let name1) = first1 else { return first1.problem(of: r1.lastPathComponent) }
+        let first2 = firstRecord(of: r2)
+        guard case .read(let name2) = first2 else { return first2.problem(of: r2.lastPathComponent) }
+        guard FASTQReadLayoutClassifier.areMates(name1, name2) else {
+            return "the names of their first reads, \(readID(name1)) and \(readID(name2)), do not mark the two as mates"
+        }
+        let first3 = firstRecord(of: unpaired)
+        guard case .read(let name3) = first3 else { return first3.problem(of: "it") }
+        let isOfFirstFragment = [name1, name2].contains { name in
+            FASTQReadLayoutClassifier.areMates(name, name3) || FASTQReadLayoutClassifier.areMates(name3, name)
+                || fragmentName(name) == fragmentName(name3)
+        }
+        guard !isOfFirstFragment else {
+            return "its first read, \(readID(name3)), belongs to the same fragment as the pair's first reads, "
+                + "so the file looks like a copy of the pair"
+        }
+        return nil
+    }
+
+    /// The read ID of a header line, the text before its first space or tab.
+    static func readID(_ header: String) -> Substring {
+        header.prefix { $0 != " " && $0 != "\t" }
+    }
+
+    /// The read ID without a `/1` or `/2` mate number, which the two reads
+    /// of one fragment share, as do two reads with one read ID.
+    static func fragmentName(_ header: String) -> Substring {
+        let id = readID(header)
+        return id.hasSuffix("/1") || id.hasSuffix("/2") ? id.dropLast(2) : id
+    }
+
+    private static func notJoined(_ unpaired: URL, to r1: URL, _ r2: URL, because reason: String) -> String {
+        "\(unpaired.lastPathComponent) was not joined to \(r1.lastPathComponent) and \(r2.lastPathComponent) "
+            + "as reads whose mate is missing, because \(reason)"
+    }
+
     // MARK: - Import
 
     /// The one file a sample's pairs and its reads without a mate import as.
@@ -72,7 +207,10 @@ extension FASTQBatchImporter {
     ///
     /// This is the read-set resolver's interleave by name, so the ingestion
     /// pipeline stores the file as it stores a merge recipe's mixed output,
-    /// and the sidecar records how many reads of each kind it holds.
+    /// and the sidecar records how many reads of each kind it holds. The
+    /// files must pass ``checkingUnpairedReads(_:)``, which `import fastq`
+    /// runs before the import. A caller that skipped it gets an error that
+    /// says why, never a copy of the pair stored as unpaired reads.
     static func writePairsThenUnpairedReads(
         of pair: SamplePair,
         in workspace: URL,
@@ -83,6 +221,9 @@ extension FASTQBatchImporter {
         let output = workspace.appendingPathComponent("\(pair.sampleName)_pairs_then_unpaired.fastq")
         let startedAt = Date()
         let counts = try await Task.detached(priority: .utility) {
+            if let reason = Self.reasonNotToJoin(r1: r1, r2: r2, unpaired: unpaired) {
+                throw UnpairedReadsImportError.notJoinable(Self.notJoined(unpaired, to: r1, r2, because: reason))
+            }
             FileManager.default.createFile(atPath: output.path, contents: nil)
             let handle = try FileHandle(forWritingTo: output)
             defer { try? handle.close() }
@@ -121,6 +262,33 @@ extension FASTQBatchImporter {
         )
     }
 
+    /// Why an import refused a sample that holds reads without a mate.
+    enum UnpairedReadsImportError: Error, LocalizedError {
+        /// The first reads do not bear out the join of the third file. Only
+        /// a caller that skipped ``checkingUnpairedReads(_:)`` reaches this.
+        case notJoinable(String)
+        /// Trim Galore was asked to store the sample.
+        case trimGaloreLeavesUnpairedReadsOut(sample: String, file: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .notJoinable(let reason):
+                return "\(reason). Import the pair without it."
+            case .trimGaloreLeavesUnpairedReadsOut(let sample, let file):
+                return "Trim Galore cannot optimize storage for sample '\(sample)', because \(file) holds reads whose "
+                    + "mate is missing, and Trim Galore reads only pairs or only single reads. Choose BBTools "
+                    + "clumpify or skip storage optimization to keep every read."
+            }
+        }
+    }
+
+    /// The checks that a sample holding reads without a mate is imported
+    /// with every read, run before any work.
+    static func validateImportKeepsUnpairedReads(pair: SamplePair, config: ImportConfig) throws {
+        try validateRecipeKeepsUnpairedReads(pair: pair, config: config)
+        try validateStorageKeepsUnpairedReads(pair: pair, config: config)
+    }
+
     /// A recipe reads pairs or single reads, not both, so a sample that also
     /// holds reads without a mate cannot run one without leaving reads out.
     /// The import refuses it and names the file.
@@ -136,11 +304,30 @@ extension FASTQBatchImporter {
         )
     }
 
+    /// Trim Galore reads pairs or single reads, not both, so it would store
+    /// such a sample only by leaving reads out. The import refuses it up
+    /// front and names the file, as it refuses a recipe, where the pipeline
+    /// refused it only after the join with a message that named neither the
+    /// run nor the file (finding F9-N2). `auto` never picks Trim Galore.
+    static func validateStorageKeepsUnpairedReads(pair: SamplePair, config: ImportConfig) throws {
+        guard let unpaired = pair.unpaired, config.clumpingTool == .trimGalore else { return }
+        throw UnpairedReadsImportError.trimGaloreLeavesUnpairedReadsOut(
+            sample: pair.sampleName,
+            file: unpaired.lastPathComponent
+        )
+    }
+
     // MARK: - Provenance
 
     /// The explicit option a sample with reads without a mate records. Any
     /// other sample records none, so its record reads as it did.
     static func unpairedReadsParameters(of pair: SamplePair) -> [String: ParameterValue] {
         pair.unpaired.map { ["unpaired": .file($0)] } ?? [:]
+    }
+
+    /// The `--log-dir` entry that names a sample's file of reads without a
+    /// mate. Any other sample adds nothing, so its log reads as it did.
+    static func unpairedReadsLogEntry(of pair: SamplePair) -> [String: Any] {
+        pair.unpaired.map { ["unpaired": $0.lastPathComponent] } ?? [:]
     }
 }

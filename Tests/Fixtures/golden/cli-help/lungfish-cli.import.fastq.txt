@@ -36,12 +36,16 @@ OPTIONS:
         recorded as given, even when the reads suggest another platform.
   --pairing <pairing>     Read pairing: auto, single, paired, interleaved
                           (default: auto) (default: auto)
-        auto and paired match R1/R2 files by name. For a file with no mate
-        file, they read its records and record interleaved mates when every
-        record is followed by its mate, otherwise single-end. single imports
-        every file as its own single-end sample, even when a mate is detected.
-        interleaved imports every file on its own and records it as interleaved
-        mates.
+        auto and paired match R1/R2 files by name. They also join a run's file
+        named for the run alone, such as SRR1.fastq beside SRR1_1.fastq and
+        SRR1_2.fastq, to that pair as unpaired reads, when the first reads of
+        the pair are named as mates and the first read of that file is not one
+        of them. Otherwise the file stays a sample of its own and a warning
+        says why. For any other file with no mate file, they read its records
+        and record interleaved mates when every record is followed by its mate,
+        otherwise single-end. single imports every file as its own single-end
+        sample, even when a mate is detected. interleaved imports every file on
+        its own and records it as interleaved mates.
   --no-optimize-storage   Skip read reordering for storage optimization
   --clumping-tool <clumping-tool>
                           Storage optimization tool: auto, bbtools,
