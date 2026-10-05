@@ -1,4 +1,9 @@
-OVERVIEW: Compute identity or p-distance matrices from a .lungfishmsa bundle
+OVERVIEW: Compute identity or distance matrices from a .lungfishmsa bundle
+
+Gaps and ambiguous characters are missing data. A nucleotide site compares only
+when both characters are A, C, G, T or U. A protein site skips X, B, Z, J, ?
+and *. The alphabet comes from the bundle manifest. A cell with no comparable
+sites is written as nan, and a saturated corrected distance is written as inf.
 
 USAGE: lungfish-cli msa distance [<options>] <bundle-path> --output <output>
 
@@ -6,8 +11,15 @@ ARGUMENTS:
   <bundle-path>           Input .lungfishmsa bundle
 
 OPTIONS:
-  --model <model>         Distance model: identity or p-distance (default:
-                          identity)
+  --model <model>         Distance model: identity, p-distance, jc69 or k2p for
+                          nucleotides, identity, p-distance or poisson for
+                          protein (default: identity)
+  --gaps <gaps>           Gap and ambiguity deletion: pairwise (each pair skips
+                          its own missing sites) or complete (skip every column
+                          with a missing site in any selected row) (default:
+                          pairwise)
+  --order <order>         Row and column order: alignment or average-linkage
+                          (UPGMA leaf order on p-distance) (default: alignment)
   --output <output>       Output TSV matrix path
   --rows <rows>           Optional comma-separated row IDs or display names
   --columns <columns>     Optional 1-based aligned column ranges, e.g. 10-40,55

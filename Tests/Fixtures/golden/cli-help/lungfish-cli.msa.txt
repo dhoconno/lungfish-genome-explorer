@@ -18,7 +18,7 @@ SUBCOMMANDS:
                           bundle
   mask                    Create derived MSA bundles with non-destructive masks
   trim                    Create derived MSA bundles with removed columns
-  distance                Compute identity or p-distance matrices from a
+  distance                Compute identity or distance matrices from a
                           .lungfishmsa bundle
   discriminating-sites    Find alignment columns where all targets differ from
                           every exclusion sequence

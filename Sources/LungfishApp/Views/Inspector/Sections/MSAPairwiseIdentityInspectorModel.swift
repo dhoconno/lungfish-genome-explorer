@@ -79,7 +79,12 @@ final class MSAPairwiseIdentityInspectorModel {
                 if records.count > Self.maxRowsForInlineTable {
                     throw TooManyRows(count: records.count)
                 }
-                return .success(try MSADistanceMatrix(records: records, model: model))
+                // The alphabet the CLI reads from the manifest. Injected test loaders have no bundle.
+                let alphabet = (try? MSASequenceAlphabet.load(fromBundle: url)) ?? .nucleotide
+                return .success(try MSADistanceMatrix(
+                    records: records,
+                    options: MSADistanceOptions(model: model, alphabet: alphabet)
+                ))
             } catch {
                 return .failure(error)
             }

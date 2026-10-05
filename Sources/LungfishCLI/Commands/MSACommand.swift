@@ -1764,157 +1764,6 @@ extension MSACommand {
         }
     }
 
-    struct DistanceSubcommand: ParsableCommand {
-        static let configuration = CommandConfiguration(
-            commandName: "distance",
-            abstract: "Compute identity or p-distance matrices from a .lungfishmsa bundle"
-        )
-
-        @Argument(help: "Input .lungfishmsa bundle")
-        var bundlePath: String
-
-        @Option(name: .customLong("model"), help: "Distance model: identity or p-distance")
-        var model: String = "identity"
-
-        @Option(name: .customLong("output"), help: "Output TSV matrix path")
-        var outputPath: String
-
-        @Option(name: .customLong("rows"), help: "Optional comma-separated row IDs or display names")
-        var rows: String?
-
-        @Option(name: .customLong("columns"), help: "Optional 1-based aligned column ranges, e.g. 10-40,55")
-        var columns: String?
-
-        @Flag(name: .customLong("force"), help: "Overwrite an existing output file")
-        var force: Bool = false
-
-        @OptionGroup var globalOptions: GlobalOptions
-
-        func run() throws {
-            try execute(emit: { print($0) })
-        }
-
-        func executeForTesting(emit: @escaping (String) -> Void) throws {
-            try execute(emit: emit)
-        }
-
-        private func execute(emit: @escaping (String) -> Void) throws {
-            let startedAt = Date()
-            let actionID = "msa.phylogenetics.distance-matrix"
-            let emitter = MSAActionCLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: emit)
-            let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
-            let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
-            emitter.emitStart(actionID: actionID, message: "Starting MSA distance matrix.")
-
-            do {
-                guard supportedMSADistanceModels.contains(model) else {
-                    throw ValidationError("Unsupported MSA distance model '\(model)'. Supported values: \(supportedMSADistanceModels.sorted().joined(separator: ", ")).")
-                }
-                if FileManager.default.fileExists(atPath: outputURL.path), force == false {
-                    throw ValidationError("Output file already exists: \(outputURL.path). Use --force to overwrite.")
-                }
-
-                emitter.emitProgress(actionID: actionID, progress: 0.15, message: "Loading MSA bundle.")
-                let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
-                let fastaURL = bundleURL.appendingPathComponent("alignment/primary.aligned.fasta")
-                let records = try selectAlignedRecords(
-                    records: parseAlignedFASTA(at: fastaURL),
-                    bundle: bundle,
-                    rows: rows,
-                    columns: columns,
-                    renameColumnSubsets: false
-                )
-                try validateRectangular(records)
-
-                emitter.emitProgress(actionID: actionID, progress: 0.55, message: "Computing pairwise \(model) matrix.")
-                let output = try formatDistanceMatrix(records: records, model: model)
-                let argv = canonicalDistanceArgv(bundleURL: bundleURL, outputURL: outputURL)
-                let snapshot = try msaStandaloneFilePublicationSnapshot(
-                    for: outputURL,
-                    backupNamePrefix: "lungfish-msa-distance"
-                )
-                defer { snapshot.discard() }
-                do {
-                    try FileManager.default.createDirectory(
-                        at: outputURL.deletingLastPathComponent(),
-                        withIntermediateDirectories: true
-                    )
-                    try Data(output.utf8).write(to: outputURL, options: .atomic)
-
-                    emitter.emitProgress(actionID: actionID, progress: 0.82, message: "Writing distance-matrix provenance.")
-                    try writeJSON(
-                        try MSAFileExportProvenance(
-                            workflowName: "multiple-sequence-alignment-distance-matrix",
-                            actionID: actionID,
-                            toolName: "lungfish msa distance",
-                            argv: argv,
-                            reproducibleCommand: shellCommand(argv),
-                            inputBundle: .init(
-                                path: bundleURL.path,
-                                checksumSHA256: bundleDigest(from: bundle.manifest),
-                                fileSize: bundle.manifest.fileSizes.values.reduce(0, +)
-                            ),
-                            inputAlignmentFile: fileRecord(at: fastaURL),
-                            outputFile: fileRecord(at: outputURL),
-                            options: .init(
-                                outputFormat: "tsv",
-                                rows: rows,
-                                columns: columns,
-                                selectedRowCount: records.count,
-                                selectedColumnCount: records.first?.sequence.count ?? 0,
-                                outputKind: "distance-matrix",
-                                name: nil,
-                                threshold: nil,
-                                gapPolicy: "pairwise-delete",
-                                distanceModel: model
-                            ),
-                            exitStatus: 0,
-                            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
-                        ),
-                        to: outputURL.appendingPathExtension("lungfish-provenance.json")
-                    )
-                } catch {
-                    try snapshot.restore()
-                    throw error
-                }
-
-                emitter.emitComplete(actionID: actionID, output: outputURL.path, warningCount: 0)
-                if globalOptions.outputFormat != .json && !globalOptions.quiet {
-                    emit("Wrote \(model) matrix \(outputURL.path)")
-                }
-            } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
-                throw error
-            }
-        }
-
-        private func canonicalDistanceArgv(bundleURL: URL, outputURL: URL) -> [String] {
-            var argv = [
-                CLICommandIdentity.executableName,
-                "msa",
-                "distance",
-                bundleURL.path,
-                "--model",
-                model,
-                "--output",
-                outputURL.path,
-            ]
-            if let rows {
-                argv += ["--rows", rows]
-            }
-            if let columns {
-                argv += ["--columns", columns]
-            }
-            if force {
-                argv += ["--force"]
-            }
-            if globalOptions.outputFormat == .json {
-                argv += ["--format", "json"]
-            }
-            return argv
-        }
-    }
-
     struct ActionsSubcommand: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "actions",
@@ -2083,11 +1932,7 @@ private let supportedAlignmentExportFormats: Set<String> = [
     "a3m",
 ]
 
-/// The `--model` spellings accepted by `msa distance`; the computation itself lives in
-/// `MSADistanceMatrix` (LungfishIO) so the MSA Inspector shows the same numbers.
-private let supportedMSADistanceModels: Set<String> = Set(MSADistanceModel.allCases.map(\.rawValue))
-
-private struct MSAFileExportProvenance: Codable, Equatable {
+struct MSAFileExportProvenance: Codable, Equatable {
     struct RuntimeIdentity: Codable, Equatable {
         let executablePath: String?
         let operatingSystemVersion: String
@@ -2114,6 +1959,13 @@ private struct MSAFileExportProvenance: Codable, Equatable {
         let gapPolicy: String?
         let distanceModel: String?
         let sequenceLayout: String?
+        // Distance-matrix fields. Optional so sidecars written before they existed still decode,
+        // and a sidecar without ambiguityPolicy is recognisable as the old literal comparison.
+        let order: String?
+        let alphabet: String?
+        let ambiguityPolicy: String?
+        let undefinedPairCount: Int?
+        let saturatedPairCount: Int?
 
         init(
             outputFormat: String,
@@ -2126,8 +1978,18 @@ private struct MSAFileExportProvenance: Codable, Equatable {
             threshold: Double?,
             gapPolicy: String?,
             distanceModel: String?,
-            sequenceLayout: String? = nil
+            sequenceLayout: String? = nil,
+            order: String? = nil,
+            alphabet: String? = nil,
+            ambiguityPolicy: String? = nil,
+            undefinedPairCount: Int? = nil,
+            saturatedPairCount: Int? = nil
         ) {
+            self.order = order
+            self.alphabet = alphabet
+            self.ambiguityPolicy = ambiguityPolicy
+            self.undefinedPairCount = undefinedPairCount
+            self.saturatedPairCount = saturatedPairCount
             self.outputFormat = outputFormat
             self.rows = rows
             self.columns = columns
@@ -2317,7 +2179,7 @@ func parseAlignedFASTA(at url: URL) throws -> [AlignedFASTARecord] {
     return records
 }
 
-private func selectAlignedRecords(
+func selectAlignedRecords(
     records: [AlignedFASTARecord],
     bundle: MultipleSequenceAlignmentBundle,
     rows: String?,
@@ -2481,22 +2343,7 @@ private func ungappedRecords(_ records: [AlignedFASTARecord]) -> [AlignedFASTARe
     }
 }
 
-/// Delegates to the shared `MSADistanceMatrix` so the CLI TSV and the MSA Inspector's
-/// pairwise table are computed by one implementation.
-private func formatDistanceMatrix(records: [AlignedFASTARecord], model: String) throws -> String {
-    try validateRectangular(records)
-    guard let distanceModel = MSADistanceModel(rawValue: model) else {
-        throw ValidationError("Unsupported MSA distance model '\(model)'.")
-    }
-    let alignedRecords = records.map { MSAAlignedRecord(name: $0.name, sequence: $0.sequence) }
-    do {
-        return try MSADistanceMatrix(records: alignedRecords, model: distanceModel).tsv
-    } catch let error as MSADistanceMatrixError {
-        throw ValidationError(error.localizedDescription)
-    }
-}
-
-private func validateRectangular(_ records: [AlignedFASTARecord]) throws {
+func validateRectangular(_ records: [AlignedFASTARecord]) throws {
     guard let expected = records.first?.sequence.count else { return }
     let unequal = records.filter { $0.sequence.count != expected }
     if unequal.isEmpty == false {
@@ -2943,6 +2790,12 @@ func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
     let data = try encoder.encode(value)
     try data.write(to: url, options: .atomic)
 }
+
+// Module-visible names for the MSA subcommands kept in their own files. The short names stay
+// private because TreeCommand.swift and ImportMSATreeSubcommands.swift declare their own.
+func msaShellCommand(_ argv: [String]) -> String { shellCommand(argv) }
+func msaBundleDigest(from manifest: MultipleSequenceAlignmentBundle.Manifest) -> String { bundleDigest(from: manifest) }
+func msaFileRecord(at url: URL) throws -> MSAFileExportProvenance.FileRecord { try fileRecord(at: url) }
 
 private func shellCommand(_ argv: [String]) -> String {
     argv.map(shellEscaped).joined(separator: " ")
