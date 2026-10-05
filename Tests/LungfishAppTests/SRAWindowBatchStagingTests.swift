@@ -85,14 +85,19 @@ final class SRAWindowBatchStagingTests: XCTestCase {
 
     // MARK: - A paired run imports as a pair or not at all
 
-    func testMatesImportAsAPairBesideTheUnpairedFile() throws {
+    func testMatesImportAsAPairWithTheUnpairedFileBesideThem() throws {
         let reads = try SRAWindowRunReads(
             stagedFiles: Self.files(["SRR200.fastq.gz", "SRR200_2.fastq.gz", "SRR200_1.fastq.gz"]),
             accession: "SRR200",
             listedAsPaired: true
         )
 
-        XCTAssertEqual(reads.files.map(\.lastPathComponent), ["SRR200_1.fastq.gz", "SRR200_2.fastq.gz"])
+        XCTAssertEqual(
+            reads.files.map(\.lastPathComponent),
+            ["SRR200_1.fastq.gz", "SRR200_2.fastq.gz", "SRR200.fastq.gz"],
+            "the reads whose mate is missing import with the pair (finding F7-S1)"
+        )
+        XCTAssertEqual(reads.unpaired?.lastPathComponent, "SRR200.fastq.gz")
     }
 
     func testALoneSecondMateFails() {

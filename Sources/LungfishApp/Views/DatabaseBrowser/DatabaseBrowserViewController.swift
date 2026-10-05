@@ -168,120 +168,6 @@ private func performOnMainRunLoopAsync<T: Sendable>(_ block: @escaping @MainActo
     }
 }
 
-/// Writes the provenance of one SRA run the window downloaded and imported.
-/// Internal, not private, so tests can read what it records.
-func writeGUISRAFASTQImportProvenance(
-    accession: String,
-    readRecord: ENAReadRecord?,
-    downloadSource: String,
-    enaDownloadSteps: [StepExecution],
-    toolkitDownloadTraces: [SRAService.FASTQDownloadStepTrace],
-    cliArguments: [String],
-    cliStartedAt: Date,
-    cliCompletedAt: Date,
-    stagedFASTQFiles: [URL],
-    finalFASTQURL: URL,
-    bundleURL: URL,
-    platform: String,
-    recipeName: String?,
-    qualityBinning: String,
-    optimizeStorage: Bool,
-    compressionLevel: String
-) throws {
-    let existingCLIProvenance = ProvenanceRecorder.load(from: bundleURL)
-    var steps = enaDownloadSteps
-
-    steps.append(contentsOf: toolkitDownloadTraces.map { trace in
-        StepExecution(
-            toolName: trace.toolName,
-            toolVersion: trace.toolVersion,
-            command: trace.command,
-            inputs: trace.inputs.map {
-                FileRecord(path: $0, format: sraGUIInputFormat(for: $0), role: .input)
-            },
-            outputs: trace.outputs.map {
-                ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
-            },
-            exitCode: trace.exitCode,
-            wallTime: trace.wallTime,
-            stderr: trace.stderr,
-            startTime: trace.startedAt,
-            endTime: trace.completedAt
-        )
-    })
-
-    if let existingCLIProvenance {
-        steps.append(contentsOf: existingCLIProvenance.steps)
-    } else {
-        steps.append(
-            StepExecution(
-                toolName: CLICommandIdentity.executableName,
-                toolVersion: WorkflowRun.currentAppVersion,
-                command: [CLIImportRunner.cliBinaryPath()?.path ?? CLICommandIdentity.executableName] + cliArguments,
-                inputs: stagedFASTQFiles.map {
-                    ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
-                },
-                outputs: [
-                    ProvenanceRecorder.fileRecord(url: finalFASTQURL, format: .fastq, role: .output)
-                ],
-                exitCode: 0,
-                wallTime: cliCompletedAt.timeIntervalSince(cliStartedAt),
-                stderr: nil,
-                dependsOn: steps.map(\.id),
-                startTime: cliStartedAt,
-                endTime: cliCompletedAt
-            )
-        )
-    }
-
-    var parameters: [String: ParameterValue] = [
-        "workflow": .string("gui-sra-fastq-import"),
-        "accession": .string(accession),
-        "downloadSource": .string(downloadSource),
-        "enaFastqURLs": .array((readRecord?.fastqHTTPURLs ?? []).map { .string($0.absoluteString) }),
-        "cliCommand": .string(CLIImportRunner.commandLine(arguments: cliArguments)),
-        "platform": .string(platform),
-        "recipe": recipeName.map { .string($0) } ?? .null,
-        "qualityBinning": .string(qualityBinning),
-        "optimizeStorage": .boolean(optimizeStorage),
-        "compression": .string(compressionLevel),
-        "containerRuntime": .string("none"),
-        // Every SRA Toolkit source ran in the managed sra-tools environment.
-        "condaEnvironment": .string(
-            SRAFASTQDownloadSource(rawValue: downloadSource)?.usesSRAToolkit == true ? "managed sra-tools" : "none"
-        ),
-        "stagingInputs": .array(stagedFASTQFiles.map { .string($0.standardizedFileURL.path) }),
-        "finalBundlePath": .string(bundleURL.standardizedFileURL.path),
-        "finalFASTQPath": .string(finalFASTQURL.standardizedFileURL.path)
-    ]
-    if let existingCLIProvenance {
-        parameters["preservedCLIProvenanceID"] = .string(existingCLIProvenance.id.uuidString)
-        parameters["preservedCLIWorkflowName"] = .string(existingCLIProvenance.name)
-    }
-
-    let run = WorkflowRun(
-        name: "gui-sra-fastq-import",
-        startTime: steps.first?.startTime ?? cliStartedAt,
-        endTime: cliCompletedAt,
-        status: .completed,
-        appVersion: WorkflowRun.currentAppVersion,
-        hostOS: WorkflowRun.currentHostOS,
-        steps: steps,
-        parameters: parameters
-    )
-
-    try run.writeSidecar(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-}
-
-private func sraGUIInputFormat(for path: String) -> FileFormat? {
-    let lowercase = path.lowercased()
-    if lowercase.hasSuffix(".fastq") || lowercase.hasSuffix(".fq")
-        || lowercase.hasSuffix(".fastq.gz") || lowercase.hasSuffix(".fq.gz") {
-        return .fastq
-    }
-    return lowercase.hasSuffix(".sra") ? .unknown : nil
-}
-
 private func effectiveSRABaseCount(enaRecord: ENAReadRecord?, ncbiRun: SRARunInfo?) -> Int? {
     if let baseCount = enaRecord?.baseCount, baseCount > 0 {
         return baseCount
@@ -2900,16 +2786,19 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// honoured here too; before 2026-09-24 this path dropped the clumping
     /// tool and always ran the platform default. The pairing choice applies
     /// when the run downloaded a single file (single-end versus interleaved);
-    /// a run that arrived as R1/R2 imports as one paired sample.
+    /// a run that arrived as R1/R2 imports as one paired sample, with the
+    /// file of reads whose mate is missing when the run has one.
     nonisolated static func sraImportCLIArguments(
         importConfig: FASTQImportConfiguration,
         r1: URL,
         r2: URL?,
+        unpaired: URL? = nil,
         projectDirectory: URL
     ) -> [String] {
         CLIImportRunner.buildCLIArguments(
             r1: r1,
             r2: r2,
+            unpaired: unpaired,
             projectDirectory: projectDirectory,
             platform: importConfig.cliPlatformValue,
             recipeName: FASTQIngestionService.resolvedRecipeName(for: importConfig),
@@ -3059,9 +2948,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     let enaDownloadSteps = staged.download.enaSteps
                     let downloadSource = staged.download.source.rawValue
 
-                    // 3. Mates 1 and 2 import as a pair, never as one mate
-                    let r1URL = staged.reads.r1
-                    let r2URL = staged.reads.r2
+                    // 3. Mates 1 and 2 import as a pair, never as one mate,
+                    // with the run's reads whose mate is missing beside them
+                    let reads = staged.reads
 
                     // 4. Run CLI import pipeline
                     performOnMainRunLoop {
@@ -3078,8 +2967,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     let args = Self.sraImportCLIArguments(
                         importConfig: importConfig,
-                        r1: r1URL,
-                        r2: r2URL,
+                        r1: reads.r1,
+                        r2: reads.r2,
+                        unpaired: reads.unpaired,
                         projectDirectory: projectDirectory
                     )
 
@@ -3140,7 +3030,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             cliArguments: args,
                             cliStartedAt: cliStartedAt,
                             cliCompletedAt: cliCompletedAt,
-                            stagedFASTQFiles: staged.reads.files,
+                            stagedFASTQFiles: reads.files,
+                            stagedReadCounts: reads.readCounts(in: metadata.readClassification),
                             finalFASTQURL: fastqURL,
                             bundleURL: bundleURL,
                             platform: platformStr,

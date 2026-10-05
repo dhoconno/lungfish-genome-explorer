@@ -262,6 +262,7 @@ extension ImportCommand {
                         sampleName: name,
                         r1: original.r1,
                         r2: original.r2,
+                        unpaired: original.unpaired,
                         relativePath: original.relativePath,
                         metadata: original.metadata,
                         sampleSheetURL: original.sampleSheetURL
@@ -282,6 +283,9 @@ extension ImportCommand {
                     print("  \(index). \(pair.sampleName)  [paired]")
                     print("        R1: \(pair.r1.lastPathComponent)")
                     print("        R2: \(r2.lastPathComponent)")
+                    if let unpaired = pair.unpaired {
+                        print("        Unpaired: \(unpaired.lastPathComponent)")
+                    }
                 } else {
                     print("  \(index). \(pair.sampleName)  [single-end]")
                     print("        R1: \(pair.r1.lastPathComponent)")

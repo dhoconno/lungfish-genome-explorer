@@ -168,7 +168,7 @@ Four checks are worth making before you build anything on downloaded reads.
 
 Confirm the accession. The bundle name should read the run accession you asked for, here `SRR36291587`. A different name means a different run was ticked, which is easy to do in a list of near-identical rows.
 
-Confirm the read count against the archive. The bundle's read count should be twice the ENA Metadata Read Count for a paired run, 170,398 against 85,199 here. A count below that means reads are missing, and a count equal to the spot count means only one mate arrived.
+Confirm the read count against the archive. The bundle's read count should be twice the ENA Metadata Read Count for a paired run, 170,398 against 85,199 here. Some paired runs also hold spots whose mate is missing. ENA lists their reads in a third file named after the run alone, with no `_1` or `_2`, and LGE imports that file with the pair as unpaired reads. Each of those spots adds one read to the bundle, not two, so the count falls short of twice the spot count by the number of reads in the third file. Any other shortfall means reads are missing, and a count equal to the spot count means only one mate arrived.
 
 Confirm the pairing. The Ingestion group's Pairing row should read Interleaved, not Single End, for a run the archive lists as PAIRED. Interleaved is correct, because LGE stores the two mates of a pair in one file, one after the other, as [Importing Sequencing Reads](01-importing-fastq.md#reading-the-results) explains.
 
@@ -201,7 +201,7 @@ lungfish-cli import fastq \
   --project "$PROJECT" --platform illumina
 ```
 
-Two differences change what you get. `fetch sra download` writes loose files, `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`, plus one provenance sidecar named `.lungfish-provenance.json` in the output folder, and only `import fastq` turns them into a bundle. And `--limit` defaults to 20 where the window's Max Results defaults to 50. An SRA download row in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) records no command, so its menu has no Copy CLI Command item, because no single command both downloads a run and imports it with the settings from the import sheet. Use the `fetch sra download` and `import fastq` steps above instead.
+Two differences change what you get. `fetch sra download` writes loose files, `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`, plus one provenance sidecar named `.lungfish-provenance.json` in the output folder, and only `import fastq` turns them into a bundle. And `--limit` defaults to 20 where the window's Max Results defaults to 50. An SRA download row in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) records no command, so its menu has no Copy CLI Command item, because no single command both downloads a run and imports it with the settings from the import sheet. Use the `fetch sra download` and `import fastq` steps above instead. When a download also writes a third file named after the run alone, add its path after the two mates, and `import fastq` imports the three as one bundle, as the window does.
 
 ## Next
 

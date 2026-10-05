@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 import os.log
 
@@ -141,14 +142,15 @@ struct SRAWindowRunDownload {
     }
 }
 
-/// The reads of one SRA run that the window imports, one file or both mates
-/// of a pair.
+/// The reads of one SRA run that the window imports, one file, or both mates
+/// of a pair with the reads whose mate is missing when the run has any.
 ///
 /// ENA's mirror and the SRA Toolkit both name a run's files
 /// `<accession>_1.fastq`, `<accession>_2.fastq` and `<accession>.fastq`,
 /// gzipped when ENA serves them. Mates 1 and 2 import together as a pair.
 /// The file without a suffix beside them holds the reads whose mate is
-/// missing, and it stays out of the import. A run never imports as one mate
+/// missing, and it imports with the pair as the run's unpaired reads, so
+/// the bundle holds every read of the run. A run never imports as one mate
 /// of a pair, so a lone mate 2 fails, and so does a lone mate 1 of a run ENA
 /// lists as paired. Files named for another run never import.
 struct SRAWindowRunReads: Equatable {
@@ -162,9 +164,23 @@ struct SRAWindowRunReads: Equatable {
     let r1: URL
     /// Mate 2, or nil for single reads.
     let r2: URL?
+    /// The reads beside a pair whose mate is missing, or nil.
+    let unpaired: URL?
 
-    /// The files `lungfish-cli import fastq` takes, mate 1 first.
-    var files: [URL] { r2.map { [r1, $0] } ?? [r1] }
+    /// The files `lungfish-cli import fastq` takes, mate 1, mate 2, then
+    /// the unpaired reads.
+    var files: [URL] { [r1] + [r2, unpaired].compactMap { $0 } }
+
+    /// The reads each file held, read from the bundle's classification, for
+    /// a run that imported unpaired reads beside its pairs. Nil for any other
+    /// run, so its record keeps the parameters it had.
+    func readCounts(in classification: ReadClassification?) -> [URL: Int]? {
+        guard let r2, let unpaired, let classification else { return nil }
+        func reads(_ role: ReadClassification.FileRole) -> Int {
+            classification.files.filter { $0.role == role }.reduce(0) { $0 + $1.readCount }
+        }
+        return [r1: reads(.pairedR1), r2: reads(.pairedR2), unpaired: reads(.unpaired)]
+    }
 
     /// Sorts one run's staged files into the reads to import.
     ///
@@ -183,25 +199,28 @@ struct SRAWindowRunReads: Equatable {
         }
         let mate1 = try file("_1")
         let mate2 = try file("_2")
-        let unpaired = try file("")
+        let unsuffixed = try file("")
         switch (mate1, mate2) {
         case let (mate1?, mate2?):
             r1 = mate1
             r2 = mate2
+            unpaired = unsuffixed
         case (nil, .some):
             throw Failure(message: "Only mate 2 of \(accession) arrived, so it was not imported")
         case let (mate1?, nil):
-            guard !listedAsPaired, unpaired == nil else {
+            guard !listedAsPaired, unsuffixed == nil else {
                 throw Failure(message: "Only mate 1 of the paired run \(accession) arrived, so it was not imported")
             }
             r1 = mate1
             r2 = nil
+            unpaired = nil
         case (nil, nil):
-            guard let unpaired else {
+            guard let unsuffixed else {
                 throw Failure(message: "No FASTQ file of \(accession) arrived")
             }
-            r1 = unpaired
+            r1 = unsuffixed
             r2 = nil
+            unpaired = nil
         }
     }
 }
