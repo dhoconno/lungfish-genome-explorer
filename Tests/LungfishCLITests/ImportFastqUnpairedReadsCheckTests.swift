@@ -21,7 +21,10 @@ import LungfishWorkflow
 /// run's reads without a mate. Otherwise the pair imports on its own and the
 /// third file stays a sample of its own, as before the join, and a warning
 /// names the file and says why, in the text output, in a dry run, and as a
-/// JSON notice the window's Operations row logs.
+/// JSON notice the window's Operations row logs. A copy of the pair that
+/// starts at another pair still joined (F10-N1), and the warning promised
+/// that the pair imports even when the reason was the pair's own file
+/// (F10-N2).
 final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
 
     private var root: URL!
@@ -159,6 +162,87 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         let headers = try Self.headers(in: try importedBundle("S"))
         XCTAssertEqual(headers.count, 6, "each read is stored once, not twice")
         XCTAssertEqual(Set(headers).count, 6)
+    }
+
+    func testAnInterleavedCopyOfThePairInAnotherOrderIsNotJoinedSoEachReadIsStoredOnce() async throws {
+        // clumpify.sh in=T_1.fastq in2=T_2.fastq out=T.fastq writes the pairs
+        // in its own order, and a filter that drops the first pair starts its
+        // copy at the second, here from gzip files. Neither copy starts with
+        // a read of the pair's first fragment, but each starts with both
+        // reads of one fragment, which a file of reads whose mate is missing
+        // never does (F10-N1).
+        let pairs = [1, 2, 3, 4]
+        func copy(of run: String, inOrder order: [Int]) -> String {
+            order.map {
+                Self.records([("\(run).\($0)/1", $0)], bases: "ACGTACGT")
+                    + Self.records([("\(run).\($0)/2", $0)], bases: "TTGGCCAA")
+            }.joined()
+        }
+        let folder = try writeRun("copies", files: [
+            "S_1.fastq.gz": Self.records(pairs.map { ("S.\($0)/1", $0) }, bases: "ACGTACGT"),
+            "S_2.fastq.gz": Self.records(pairs.map { ("S.\($0)/2", $0) }, bases: "TTGGCCAA"),
+            "S.fastq.gz": copy(of: "S", inOrder: [2, 3, 4]),
+            "T_1.fastq": Self.records(pairs.map { ("T.\($0)/1", $0) }, bases: "ACGTACGT"),
+            "T_2.fastq": Self.records(pairs.map { ("T.\($0)/2", $0) }, bases: "TTGGCCAA"),
+            "T.fastq": copy(of: "T", inOrder: [3, 1, 4, 2]),
+        ])
+
+        let run = try await runImport([folder.path])
+
+        XCTAssertNil(run.error, run.output)
+        for (sample, ext, firstPair) in [("S", ".fastq.gz", 2), ("T", ".fastq", 3)] {
+            XCTAssertTrue(
+                run.output.contains(
+                    "\(sample): \(sample)\(ext) was not joined to \(sample)_1\(ext) and \(sample)_2\(ext) as reads "
+                        + "whose mate is missing, because its first two reads, \(sample).\(firstPair)/1 and "
+                        + "\(sample).\(firstPair)/2, belong to one fragment, so the file looks like a copy of the pair. "
+                        + "The pair imports without it, and \(sample)\(ext) is a separate sample named \(sample), "
+                        + "which the import skips once the pair's bundle exists."
+                ),
+                run.output
+            )
+            let headers = try Self.headers(in: try importedBundle(sample))
+            XCTAssertEqual(headers.count, 8, "\(sample): each read is stored once, not twice")
+            XCTAssertEqual(Set(headers).count, 8, sample)
+        }
+        // As the warning says, each copy is a sample of its own that the
+        // pair's bundle keeps out.
+        let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
+        XCTAssertEqual(skips.compactMap { $0["sample"] as? String }, ["S", "T"], run.output)
+        XCTAssertEqual(Set(skips.compactMap { $0["reason"] as? String }), ["Bundle already exists"])
+    }
+
+    // MARK: - What the warning says follows (F10-N2)
+
+    func testAWarningAboutAMateFileDoesNotPromiseThatThePairImports() async throws {
+        // The download of SRR130_1.fastq stopped before its first read.
+        let folder = try writeRun("SRR130", files: [
+            "SRR130_1.fastq": "",
+            "SRR130_2.fastq": Self.records([("SRR130.1", 1), ("SRR130.2", 2)], bases: "TTGGCCAA"),
+            "SRR130.fastq": Self.records([("SRR130.3", 3)], bases: "GATTACAG"),
+        ])
+
+        let run = try await runImport([folder.path])
+
+        XCTAssertTrue(
+            run.output.contains(
+                "SRR130: SRR130.fastq was not joined to SRR130_1.fastq and SRR130_2.fastq as reads whose mate is "
+                    + "missing, because SRR130_1.fastq holds no reads. The pair and SRR130.fastq are imported as "
+                    + "separate samples, as they were before the join."
+            ),
+            run.output
+        )
+        XCTAssertFalse(run.output.contains("The pair imports without it"), run.output)
+        // What follows is what the warning says. The pair fails on its empty
+        // mate file, and SRR130.fastq imports as a sample of its own.
+        XCTAssertNotNil(run.error, "the pair is a failed sample. Output:\n\(run.output)")
+        let failures = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleFailed" }
+        XCTAssertEqual(failures.count, 1, run.output)
+        XCTAssertTrue((failures.first?["error"] as? String)?.contains("SRR130_1.fastq") == true, run.output)
+        let bundle = try importedBundle("SRR130")
+        let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))))
+        XCTAssertEqual(metadata.ingestion?.originalFilenames, ["SRR130.fastq"])
+        XCTAssertEqual(try Self.headers(in: bundle), ["SRR130.3 3 length=8"])
     }
 
     // MARK: - A third file with no whole record
