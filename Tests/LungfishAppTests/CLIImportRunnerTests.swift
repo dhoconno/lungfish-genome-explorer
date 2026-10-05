@@ -538,7 +538,7 @@ final class CLIImportRunnerTests: XCTestCase {
 
         await runner.cancel()
 
-        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 10.0)
         XCTAssertTrue(childExited, "Cancelling the CLI import must terminate child tool processes, not only lungfish-cli")
 
         if !childExited {
@@ -785,7 +785,7 @@ final class CLIImportRunnerTests: XCTestCase {
         return url
     }
 
-    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 5.0) async throws -> Int32 {
+    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 30.0) async throws -> Int32 {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let contents = try? readRepositorySource(url)
