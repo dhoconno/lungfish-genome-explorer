@@ -431,23 +431,35 @@ extension ImportCommand {
                 print("")
             }
 
-            let result = await FASTQBatchImporter.runBatchImport(
-                pairs: effectivePairs,
-                config: config,
-                log: { event in
-                    if !isJSON, !globalOptions.quiet, case .platformResolved(let sample, let platform, let source, _, _, _, let message) = event {
-                        let line = "\(sample): \(message)"
-                        print(platform == "unknown" && source == "inferred" ? formatter.warning(line) : formatter.info(line))
+            let quiet = globalOptions.quiet
+            let importTask = Task {
+                await FASTQBatchImporter.runBatchImport(
+                    pairs: effectivePairs,
+                    config: config,
+                    log: { event in
+                        if !isJSON, !quiet, case .platformResolved(let sample, let platform, let source, _, _, _, let message) = event {
+                            let line = "\(sample): \(message)"
+                            print(platform == "unknown" && source == "inferred" ? formatter.warning(line) : formatter.info(line))
+                        }
+                        if !isJSON, case .notice(let sample, let message) = event, message.hasPrefix("--platform ") {
+                            print(formatter.warning("\(sample): \(message)"))
+                        }
+                        if isJSON || !quiet {
+                            let json = FASTQBatchImporter.encodeLogEvent(event)
+                            print(json)
+                        }
                     }
-                    if !isJSON, case .notice(let sample, let message) = event, message.hasPrefix("--platform ") {
-                        print(formatter.warning("\(sample): \(message)"))
-                    }
-                    if isJSON || !globalOptions.quiet {
-                        let json = FASTQBatchImporter.encodeLogEvent(event)
-                        print(json)
-                    }
-                }
-            )
+                )
+            }
+            // SIGTERM (the window's Cancel) cancels the import, so it removes
+            // its staging bundle and workspace before the command exits.
+            let termination = SIGTERMCancellation(cancelling: importTask)
+            let result = await importTask.value
+            termination.end()
+            if importTask.isCancelled {
+                print(formatter.error("Import cancelled"))
+                throw CLIExitCode.cancelled.exitCode
+            }
 
             // MARK: Print summary
 

@@ -119,6 +119,75 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
         XCTAssertEqual(outcome.folderEntries, ["\(Self.run)_1.fastq.gz", "\(Self.run)_2.fastq.gz"], "prefetch's archive folder is removed")
     }
 
+    /// Review finding S4-S1: a regular file the user keeps at `<out>/<run>`
+    /// is not prefetch's folder and survives the fallback.
+    func testNCBIFallbackKeepsAUserFileNamedLikeTheRun() async throws {
+        let outcome = try await download(preferring: .ncbi, portal: .listsFiles, toolkit: .missing) { folder in
+            try Data("the user's notes".utf8).write(to: folder.appendingPathComponent(Self.run))
+        }
+        XCTAssertEqual(outcome.sources, [.enaAfterMissingToolkit])
+        XCTAssertEqual(
+            outcome.folderEntries,
+            [Self.run, "\(Self.run)_1.fastq.gz", "\(Self.run)_2.fastq.gz"],
+            "the user's file named like the run survives"
+        )
+        let kept = try String(contentsOf: outcome.folder.appendingPathComponent(Self.run), encoding: .utf8)
+        XCTAssertEqual(kept, "the user's notes")
+    }
+
+    /// Review finding S4-S1: a folder `<out>/<run>/` that existed before the
+    /// toolkit ran keeps its own entries. Only what prefetch added goes.
+    func testNCBIFallbackKeepsAPreExistingRunFolderAndRemovesOnlyPrefetchsEntries() async throws {
+        for toolkit in [ScriptedToolkit.missing, .failsAfterPrefetch] {
+            let outcome = try await download(preferring: .ncbi, portal: .listsFiles, toolkit: toolkit) { folder in
+                let runFolder = folder.appendingPathComponent(Self.run, isDirectory: true)
+                try FileManager.default.createDirectory(at: runFolder, withIntermediateDirectories: true)
+                try Data("keep".utf8).write(to: runFolder.appendingPathComponent("keep.txt"))
+            }
+            XCTAssertEqual(outcome.sources.count, 1, "\(toolkit) falls back to ENA")
+            let runFolder = outcome.folder.appendingPathComponent(Self.run, isDirectory: true)
+            XCTAssertEqual(
+                try FileManager.default.contentsOfDirectory(atPath: runFolder.path).sorted(),
+                ["keep.txt"],
+                "\(toolkit): the user's entry stays and prefetch's archive goes"
+            )
+        }
+    }
+
+    /// Review finding S4-S1: when the run folder's contents cannot be listed
+    /// before the toolkit runs, nothing in it is removed.
+    func testRunFilesRemoveNothingWhenTheRunFolderCouldNotBeListed() throws {
+        let folder = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let runFolder = folder.appendingPathComponent(Self.run, isDirectory: true)
+        try FileManager.default.createDirectory(at: runFolder, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: runFolder.appendingPathComponent("keep.txt"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: runFolder.path)
+        let runFiles = SRAToolkitRunFiles(accession: Self.run, outputDirectory: folder)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: runFolder.path)
+        try Data("added later".utf8).write(to: runFolder.appendingPathComponent("\(Self.run).sra"))
+
+        runFiles.removePrefetchFiles()
+
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: runFolder.path).sorted(),
+            ["\(Self.run).sra", "keep.txt"],
+            "without a snapshot nothing is provably prefetch's, so nothing is removed"
+        )
+    }
+
+    func testRunFilesRemoveTheRunFolderThatDidNotExistBefore() throws {
+        let folder = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let runFiles = SRAToolkitRunFiles(accession: Self.run, outputDirectory: folder)
+        let runFolder = folder.appendingPathComponent(Self.run, isDirectory: true)
+        try FileManager.default.createDirectory(at: runFolder, withIntermediateDirectories: true)
+        try Data("partial".utf8).write(to: runFolder.appendingPathComponent("\(Self.run).sra"))
+
+        runFiles.removePrefetchFiles()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: runFolder.path))
+    }
+
     func testNCBIFailsWithBothReasonsWhenENACannotServeTheRunEither() async throws {
         for portal in [ScriptedPortal.listsNoFiles, .outage] {
             for toolkit in [ScriptedToolkit.missing, .failsAfterWritingAMate] {
@@ -174,27 +243,32 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
         let portalRequests: Int
         let folderFASTQ: [String]
         let folderEntries: [String]
+        let folder: URL
     }
 
     private func download(
         preferring preference: SRADownloadSourcePreference,
         portal: ScriptedPortal,
-        toolkit: ScriptedToolkit
+        toolkit: ScriptedToolkit,
+        seed: (URL) throws -> Void = { _ in }
     ) async throws -> Outcome {
         try await download(
             preferring: preference,
             client: ScriptedPortalClient(portal: portal, run: Self.run),
-            toolkit: toolkit
+            toolkit: toolkit,
+            seed: seed
         )
     }
 
     private func download(
         preferring preference: SRADownloadSourcePreference,
         client: ScriptedPortalClient,
-        toolkit: ScriptedToolkit
+        toolkit: ScriptedToolkit,
+        seed: (URL) throws -> Void = { _ in }
     ) async throws -> Outcome {
         let folder = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try seed(folder)
         let emptyHome = root.appendingPathComponent("home-\(UUID().uuidString)", isDirectory: true)
         let service = SRAService(
             ncbiService: NCBIService(httpClient: client, environment: [:]),
@@ -220,7 +294,8 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
             mirrorRequests: await client.mirrorRequests,
             portalRequests: await client.portalRequests,
             folderFASTQ: folderFASTQ,
-            folderEntries: try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+            folderEntries: try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(),
+            folder: folder
         )
     }
 }

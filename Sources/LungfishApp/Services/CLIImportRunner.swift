@@ -49,80 +49,6 @@ public enum CLIImportEvent: Sendable {
     case importComplete(completed: Int, skipped: Int, failed: Int, totalDurationSeconds: Double)
 }
 
-/// A thread-safe box holding the currently running CLI process.
-///
-/// `cancel()` must be able to terminate the process tree without waiting for
-/// actor access on ``CLIImportRunner``. If cancellation went through the
-/// actor, a synchronous, non-suspending wait for process exit inside `run()`
-/// (see the historical `proc.waitUntilExit()` call) would occupy the actor's
-/// executor for the process's entire lifetime, and `cancel()` could never
-/// run concurrently — the actor would deadlock against itself. Termination
-/// is therefore driven from this plain, lock-protected box instead.
-private final class CLIImportProcessBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var process: Process?
-
-    func store(_ process: Process) {
-        lock.lock()
-        self.process = process
-        lock.unlock()
-    }
-
-    func clear(_ process: Process) {
-        lock.lock()
-        if self.process === process {
-            self.process = nil
-        }
-        lock.unlock()
-    }
-
-    /// Terminates the whole process tree rooted at the stored process, if any.
-    /// Safe to call from any thread, any number of times.
-    func terminateTree(gracePeriod: TimeInterval = 0.5) {
-        lock.lock()
-        let current = process
-        lock.unlock()
-        guard let current else { return }
-        ProcessTreeTerminator.terminate(rootProcess: current, gracePeriod: gracePeriod)
-    }
-}
-
-/// Resumes exactly once with the process's exit status, driven by
-/// `Process.terminationHandler` rather than a blocking `waitUntilExit()`
-/// call, so nothing that awaits it can occupy an actor's executor.
-private final class CLIImportExitCompletion: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Int32, Never>?
-    private var exitStatus: Int32?
-
-    func wait() async -> Int32 {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            if let exitStatus {
-                lock.unlock()
-                continuation.resume(returning: exitStatus)
-            } else {
-                self.continuation = continuation
-                lock.unlock()
-            }
-        }
-    }
-
-    func complete(exitStatus: Int32) {
-        let continuationToResume: CheckedContinuation<Int32, Never>?
-        lock.lock()
-        if self.exitStatus != nil {
-            continuationToResume = nil
-        } else {
-            self.exitStatus = exitStatus
-            continuationToResume = continuation
-            continuation = nil
-        }
-        lock.unlock()
-        continuationToResume?.resume(returning: exitStatus)
-    }
-}
-
 // MARK: - CLIImportRunner
 
 /// Manages a `lungfish-cli import fastq` subprocess, parsing its JSON progress events
@@ -405,7 +331,6 @@ public actor CLIImportRunner {
         proc.standardError = stderrPipe
 
         self.process = proc
-        processBox.store(proc)
         NativeProcessRegistry.shared.register(proc)
         defer {
             NativeProcessRegistry.shared.unregister(proc)
@@ -646,7 +571,17 @@ public actor CLIImportRunner {
             }
 
             do {
-                try proc.run()
+                guard try processBox.launch(proc) else {
+                    // A cancel came before the launch, so nothing ran. The
+                    // caller ends the operation as cancelled.
+                    proc.terminationHandler = nil
+                    stdoutHandle.readabilityHandler = nil
+                    stderrHandle.readabilityHandler = nil
+                    drainStreamHandlers()
+                    logger.info("CLI import cancelled before launch")
+                    onError("Import cancelled before it started")
+                    return
+                }
             } catch {
                 proc.terminationHandler = nil
                 stdoutHandle.readabilityHandler = nil
@@ -694,14 +629,18 @@ public actor CLIImportRunner {
                     .filter { !$0.isEmpty }
                 let errorDetail = detailParts.isEmpty ? nil : detailParts.joined(separator: "\n\n")
                 logger.error("\(exitSummary, privacy: .public): \(stderrOutput, privacy: .public)")
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
-                            id: opID,
-                            detail: msg,
-                            errorMessage: msg,
-                            errorDetail: errorDetail
-                        )
+                // After a cancel the caller ends the operation, once its own
+                // cleanup has run, so the row is not ended here first.
+                if !processBox.isCancelled {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.fail(
+                                id: opID,
+                                detail: msg,
+                                errorMessage: msg,
+                                errorDetail: errorDetail
+                            )
+                        }
                     }
                 }
                 onError(msg)
@@ -761,15 +700,22 @@ public actor CLIImportRunner {
 
     // MARK: - Instance: Cancel
 
-    /// Terminates the running CLI process tree, if any.
+    /// How long `lungfish-cli` gets after SIGTERM to remove its staging
+    /// folders and workspace before it is killed. Inside OperationCenter's
+    /// 10 s forced-acknowledge grace period.
+    static let cleanupGrace: TimeInterval = 5
+
+    /// Terminates the running CLI process tree, if any, or keeps the CLI
+    /// from launching when the cancel comes first.
     ///
     /// Deliberately `nonisolated`: it must be callable — and must complete —
     /// even while `run()` holds the actor executor awaiting other work.
     /// Termination goes through ``processBox`` rather than the actor-isolated
     /// `process` property so cancellation never has to wait in line behind
-    /// the very operation it is trying to stop.
+    /// the very operation it is trying to stop. It returns at once. The
+    /// process tree is stopped on a background queue.
     public nonisolated func cancel() {
         logger.info("Terminating CLI process tree")
-        processBox.terminateTree()
+        processBox.cancel(cleanupGrace: Self.cleanupGrace)
     }
 }

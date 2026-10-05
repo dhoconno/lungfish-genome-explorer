@@ -750,6 +750,7 @@ public enum FASTQBatchImporter {
         var errors: [(sample: String, error: String)] = []
 
         for (index, pair) in pairs.enumerated() {
+            if Task.isCancelled { break } // a cancel (lungfish-cli turns SIGTERM into one) stops the batch
             // Check for skip before allocating anything (unless forceReimport is set)
             if !config.forceReimport {
                 switch existingImportBundleStatus(for: pair, in: config.projectDirectory) {
@@ -781,7 +782,6 @@ public enum FASTQBatchImporter {
                 log: log,
                 databaseRegistry: databaseRegistry
             )
-            // Drain autorelease pool for any Objective-C bridge objects created during processing
             autoreleasepool { }
 
             switch result {
@@ -1186,7 +1186,7 @@ public enum FASTQBatchImporter {
                 statsCompletedAt: statsCompletedAt,
                 statsError: statsError
             )
-
+            try Task.checkCancellation() // the throw runs the defers that remove the staging bundle and workspace
             try publishFASTQBundle(
                 from: stagingBundleURL,
                 to: bundleURL,

@@ -8,7 +8,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
-import os.log
+import os
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "DatabaseBrowser")
 
@@ -45,7 +45,7 @@ extension DatabaseBrowserViewModel {
         totalCount: Int
     ) {
         let ena = enaService
-        let sra = SRAService(ncbiService: ncbiService)
+        let sra = SRAWindowDownloadSeams.sraService ?? SRAService(ncbiService: ncbiService)
         // Recorded in the GUI provenance envelope; the argv itself comes from
         // `sraImportCLIArguments` so the two never disagree.
         let platformStr = importConfig.cliPlatformValue
@@ -205,36 +205,16 @@ extension DatabaseBrowserViewModel {
                         projectDirectory: projectDirectory
                     )
 
-                    final class ResultTracker: @unchecked Sendable {
-                        var bundleURL: URL?
-                        var errorMessage: String?
-                    }
-                    let tracker = ResultTracker()
-
-                    let runner = CLIImportRunner()
                     let cliStartedAt = Date()
-                    await runner.run(
+                    let bundleURL = try await SRAWindowImportLeftovers.importRun(
                         arguments: args,
                         operationID: downloadCenterTaskID,
                         projectDirectory: projectDirectory,
-                        onBundleCreated: { url in tracker.bundleURL = url },
-                        onError: { error in tracker.errorMessage = error }
+                        accession: accession,
+                        files: reads.files,
+                        launchedAt: cliStartedAt
                     )
                     let cliCompletedAt = Date()
-
-                    if let errorMsg = tracker.errorMessage, tracker.bundleURL == nil {
-                        throw NSError(
-                            domain: "DatabaseBrowser.SRAImport", code: 1,
-                            userInfo: [NSLocalizedDescriptionKey: errorMsg]
-                        )
-                    }
-
-                    guard let bundleURL = tracker.bundleURL else {
-                        throw NSError(
-                            domain: "DatabaseBrowser.SRAImport", code: 2,
-                            userInfo: [NSLocalizedDescriptionKey: "CLI import produced no output bundle for \(record.accession)"]
-                        )
-                    }
 
                     // 5. Augment metadata sidecar with ENA provenance info
                     let contents = try? FileManager.default.contentsOfDirectory(
@@ -362,6 +342,14 @@ extension DatabaseBrowserViewModel {
     }
 }
 
+/// What the window's SRA download task uses in place of the real thing.
+/// Only tests set it, so a batch runs without the real SRA Toolkit.
+enum SRAWindowDownloadSeams {
+    /// The SRA service for the SRA Toolkit route, read once when a batch
+    /// starts.
+    @TaskLocal static var sraService: SRAService?
+}
+
 // MARK: - Streaming Download Helper
 
 /// Downloads a file using URLSession downloadTask with byte-level progress callbacks.
@@ -375,8 +363,9 @@ extension DatabaseBrowserViewModel {
 ///   - totalBytes: Expected total size (used when Content-Length header is absent).
 ///   - progressHandler: Called with (bytesDownloaded, totalBytes?) during download.
 /// - Returns: The downloaded data.
-/// - Throws: `DatabaseServiceError` on network or HTTP errors.
-private func streamingDownload(
+/// - Throws: `DatabaseServiceError` on network or HTTP errors, or a
+///   `CancellationError` when the task is cancelled, even before it starts.
+func streamingDownload(
     url: URL,
     totalBytes: Int64?,
     progressHandler: @escaping @Sendable (Int64, Int64?) -> Void
@@ -384,7 +373,7 @@ private func streamingDownload(
     final class Delegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
         let knownTotal: Int64?
         let progress: @Sendable (Int64, Int64?) -> Void
-        var continuation: CheckedContinuation<URL, Error>?
+        let completion = SRAWindowTransferCompletion()
 
         init(knownTotal: Int64?, progress: @escaping @Sendable (Int64, Int64?) -> Void) {
             self.knownTotal = knownTotal
@@ -405,31 +394,33 @@ private func streamingDownload(
             do {
                 try FileManager.default.copyItem(at: location, to: tmp)
             } catch {
-                continuation?.resume(throwing: error)
-                continuation = nil
+                completion.finish(.failure(error))
                 return
             }
             guard let resp = downloadTask.response as? HTTPURLResponse,
                   (200...299).contains(resp.statusCode) else {
+                try? FileManager.default.removeItem(at: tmp)
                 let code = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? -1
-                continuation?.resume(throwing: DatabaseServiceError.serverError(
+                completion.finish(.failure(DatabaseServiceError.serverError(
                     message: "HTTP \(code) downloading \(downloadTask.originalRequest?.url?.lastPathComponent ?? "file")"
-                ))
-                continuation = nil
+                )))
                 return
             }
-            continuation?.resume(returning: tmp)
-            continuation = nil
+            if !completion.finish(.success(tmp)) {
+                try? FileManager.default.removeItem(at: tmp)
+            }
         }
 
         func urlSession(_ session: URLSession, task: URLSessionTask,
                         didCompleteWithError error: (any Error)?) {
-            if let error, continuation != nil {
-                continuation?.resume(throwing: error)
-                continuation = nil
+            if let error {
+                completion.finish(.failure(error))
             }
         }
     }
+
+    // An already cancelled task never creates the transfer.
+    try Task.checkCancellation()
 
     var request = URLRequest(url: url)
     request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
@@ -438,14 +429,14 @@ private func streamingDownload(
     let delegate = Delegate(knownTotal: totalBytes, progress: progressHandler)
     let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
 
-    // Cancelling a task that has not resumed yet is safe, and it then ends
-    // at once with a cancellation error.
+    // A cancel can end the transfer before the continuation is handed over.
+    // The completion keeps that early end and resumes the wait with it.
     let transfer = session.downloadTask(with: request)
     let tempURL: URL
     do {
         tempURL = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                delegate.continuation = continuation
+                delegate.completion.wait(continuation)
                 transfer.resume()
             }
         } onCancel: {
@@ -453,6 +444,9 @@ private func streamingDownload(
         }
     } catch {
         session.invalidateAndCancel()
+        if Task.isCancelled {
+            throw CancellationError()
+        }
         throw error
     }
     session.invalidateAndCancel()
@@ -460,4 +454,45 @@ private func streamingDownload(
     let data = try Data(contentsOf: tempURL)
     try? FileManager.default.removeItem(at: tempURL)
     return data
+}
+
+/// Hands a URLSession transfer's end to the wait for it, in either order.
+///
+/// The transfer can end, for example when a cancel stops it, before the
+/// wait's continuation is handed over. The end is then kept and resumes the
+/// wait at once, so the wait never hangs. Only the first end counts.
+final class SRAWindowTransferCompletion: Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<URL, Error>?
+        var result: Result<URL, Error>?
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    /// Resumes `continuation` with the transfer's end, now if it has ended.
+    func wait(_ continuation: CheckedContinuation<URL, Error>) {
+        let ended: Result<URL, Error>? = state.withLock { state in
+            if let result = state.result { return result }
+            state.continuation = continuation
+            return nil
+        }
+        if let ended {
+            continuation.resume(with: ended)
+        }
+    }
+
+    /// Records the transfer's end and resumes the wait if it is waiting.
+    ///
+    /// - Returns: Whether this was the first end. A later end is ignored.
+    @discardableResult
+    func finish(_ result: Result<URL, Error>) -> Bool {
+        let (first, waiting) = state.withLock { state -> (Bool, CheckedContinuation<URL, Error>?) in
+            guard state.result == nil else { return (false, nil) }
+            state.result = result
+            defer { state.continuation = nil }
+            return (true, state.continuation)
+        }
+        waiting?.resume(with: result)
+        return first
+    }
 }

@@ -76,9 +76,36 @@ struct SRAToolkitRunFiles {
     /// The folder `prefetch` writes the run's archive to, or nil when the
     /// accession cannot name a folder.
     private let prefetchFolder: URL?
-    /// What the prefetch folder held before the download, or nil when it did
-    /// not exist.
-    private let prefetchEntriesBefore: Set<String>?
+    /// What was at the prefetch folder's path before the download.
+    private let prefetchPathBefore: PrefetchPathSnapshot
+
+    /// What was at `<out>/<accession>` before the toolkit ran.
+    enum PrefetchPathSnapshot: Equatable {
+        /// Nothing was there, so whatever is there now is the toolkit's.
+        case absent
+        /// A folder with these entries, so only entries added since are the
+        /// toolkit's.
+        case folder(Set<String>)
+        /// A file, a link, or a folder whose entries could not be listed.
+        /// Nothing there is provably the toolkit's.
+        case notTheToolkits
+
+        init(of url: URL) {
+            let fileManager = FileManager.default
+            // attributesOfItem does not follow a link, so a link counts as
+            // the user's and is never removed or looked into.
+            guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else {
+                self = fileManager.fileExists(atPath: url.path) ? .notTheToolkits : .absent
+                return
+            }
+            guard attributes[.type] as? FileAttributeType == .typeDirectory,
+                  let entries = try? fileManager.contentsOfDirectory(atPath: url.path) else {
+                self = .notTheToolkits
+                return
+            }
+            self = .folder(Set(entries))
+        }
+    }
 
     init(accession: String, outputDirectory: URL) {
         fastqURLs = ["_1", "_2", ""].flatMap { suffix in
@@ -91,8 +118,7 @@ struct SRAToolkitRunFiles {
         fastqBefore = before
         let namesAFolder = !accession.isEmpty && !accession.contains("/") && accession != "." && accession != ".."
         prefetchFolder = namesAFolder ? outputDirectory.appendingPathComponent(accession, isDirectory: true) : nil
-        prefetchEntriesBefore = prefetchFolder.flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) }
-            .map(Set.init)
+        prefetchPathBefore = prefetchFolder.map(PrefetchPathSnapshot.init(of:)) ?? .notTheToolkits
     }
 
     /// The run's FASTQ files that the download wrote, mate 1 and mate 2
@@ -105,17 +131,23 @@ struct SRAToolkitRunFiles {
     }
 
     /// Removes what `prefetch` added under `<accession>/`, and the folder
-    /// itself when the download created it.
+    /// itself when nothing was at its path before the download. A path that
+    /// existed before is never removed. Inside a folder that existed before,
+    /// only entries added since are removed. When the folder could not be
+    /// listed before, nothing is removed.
     func removePrefetchFiles() {
         guard let prefetchFolder else { return }
         let fileManager = FileManager.default
-        guard let entriesBefore = prefetchEntriesBefore else {
+        switch prefetchPathBefore {
+        case .absent:
             try? fileManager.removeItem(at: prefetchFolder)
+        case .folder(let entriesBefore):
+            let entries = (try? fileManager.contentsOfDirectory(atPath: prefetchFolder.path)) ?? []
+            for entry in entries where !entriesBefore.contains(entry) {
+                try? fileManager.removeItem(at: prefetchFolder.appendingPathComponent(entry))
+            }
+        case .notTheToolkits:
             return
-        }
-        let entries = (try? fileManager.contentsOfDirectory(atPath: prefetchFolder.path)) ?? []
-        for entry in entries where !entriesBefore.contains(entry) {
-            try? fileManager.removeItem(at: prefetchFolder.appendingPathComponent(entry))
         }
     }
 }

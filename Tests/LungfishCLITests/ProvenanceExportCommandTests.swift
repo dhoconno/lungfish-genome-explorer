@@ -721,14 +721,15 @@ final class ProvenanceExportCommandTests: XCTestCase {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
-        _ = try runExternalCommand(
+        let result = try runExternalCommand(
             scriptURL,
             arguments: [],
             workingDirectory: directory,
             timeout: .seconds(5)
         )
+        XCTAssertTrue(result.timedOut, "the script never exits, so the timeout must fire: \(result.diagnostics)")
 
-        let childPID = try waitForPIDFile(childPIDFile)
+        let childPID = try await waitForPIDFile(childPIDFile)
         let childExited = await waitUntilProcessExits(pid: childPID, timeout: 30.0)
         XCTAssertTrue(childExited, "Timeout cleanup must terminate spawned child processes")
     }
@@ -1425,10 +1426,13 @@ final class ProvenanceExportCommandTests: XCTestCase {
         let exitStatus: Int32
         let stdout: String
         let stderr: String
+        /// Whether the command outlived its timeout and was killed.
+        var timedOut = false
 
         var diagnostics: String {
             """
             exitStatus: \(exitStatus)
+            timedOut: \(timedOut)
             stdout:
             \(stdout)
             stderr:
@@ -1457,24 +1461,66 @@ final class ProvenanceExportCommandTests: XCTestCase {
         process.standardOutput = stdout
         process.standardError = stderr
 
+        // Both pipes are drained while the command runs, so a large output
+        // cannot fill a pipe and stall it, and the read never waits on a
+        // descendant that keeps a pipe open after the kill.
+        let stdoutReader = PipeDrain(stdout)
+        let stderrReader = PipeDrain(stderr)
+
         let semaphore = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in semaphore.signal() }
         try process.run()
+        var timedOut = false
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
+            timedOut = true
             ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: 0)
-            _ = semaphore.wait(timeout: .now() + .seconds(2))
+            if semaphore.wait(timeout: .now() + .seconds(5)) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = semaphore.wait(timeout: .now() + .seconds(5))
+            }
         }
 
-        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+        let ceiling = DispatchTime.now() + .seconds(5)
         return ExternalCommandResult(
-            exitStatus: process.terminationStatus,
-            stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-            stderr: String(data: stderrData, encoding: .utf8) ?? ""
+            // terminationStatus raises while the process runs.
+            exitStatus: process.isRunning ? -1 : process.terminationStatus,
+            stdout: String(data: stdoutReader.finish(by: ceiling), encoding: .utf8) ?? "",
+            stderr: String(data: stderrReader.finish(by: ceiling), encoding: .utf8) ?? "",
+            timedOut: timedOut
         )
     }
 
-    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 30.0) throws -> Int32 {
+    /// Collects what a pipe delivers until it closes, and hands it over by a
+    /// deadline even when it never closes.
+    private final class PipeDrain: @unchecked Sendable {
+        private let lock = NSLock()
+        private let closed = DispatchSemaphore(value: 0)
+        private let handle: FileHandle
+        private var data = Data()
+
+        init(_ pipe: Pipe) {
+            handle = pipe.fileHandleForReading
+            handle.readabilityHandler = { [weak self] handle in
+                let chunk = handle.availableData
+                guard let self else { return }
+                if chunk.isEmpty {
+                    handle.readabilityHandler = nil
+                    self.closed.signal()
+                } else {
+                    self.lock.withLock { self.data.append(chunk) }
+                }
+            }
+        }
+
+        func finish(by deadline: DispatchTime) -> Data {
+            if closed.wait(timeout: deadline) == .timedOut {
+                handle.readabilityHandler = nil
+            }
+            return lock.withLock { data }
+        }
+    }
+
+    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 30.0) async throws -> Int32 {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let contents = try? String(contentsOf: url, encoding: .utf8)
@@ -1482,7 +1528,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
                let pid = Int32(contents) {
                 return pid
             }
-            Thread.sleep(forTimeInterval: 0.05)
+            try await Task.sleep(for: .milliseconds(50))
         }
         throw NSError(
             domain: "ProvenanceExportCommandTests",
