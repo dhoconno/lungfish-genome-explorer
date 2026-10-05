@@ -31,7 +31,12 @@ extension ImportFastqE2ETests {
         let child = Process()
         child.executableURL = URL(fileURLWithPath: xctest)
         child.arguments = ["-XCTest", "LungfishCLITests.ImportFastqE2ETests/testSIGTERMEscalationChild", bundle]
-        var environment = ProcessInfo.processInfo.environment
+        // An IDE run hands this process the variables of its test session.
+        // The child is a plain xctest run, so it must not join that session.
+        var environment = ProcessInfo.processInfo.environment.filter { key, value in
+            !(key.hasPrefix("XCTest") || key.hasPrefix("XCInject")
+                || (key == "DYLD_INSERT_LIBRARIES" && value.contains("XCTest")))
+        }
         environment[Self.childFolderVariable] = folder.path
         child.environment = environment
         child.standardOutput = FileHandle.nullDevice

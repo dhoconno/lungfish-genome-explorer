@@ -31,9 +31,30 @@ final class SIGTERMCancellationTests: XCTestCase {
         XCTAssertTrue(cancelled, "SIGTERM cancels the task")
     }
 
-    /// The SIGTERM lands after the handler is in place and before the dispatch
-    /// source is listening. kill() to this process delivers it before it
-    /// returns, so the timing is fixed.
+    /// Re-review finding S7-S2: `import fastq` now listens before it starts
+    /// the import task. A SIGTERM caught before the task exists still
+    /// cancels it once the task is attached.
+    func testASIGTERMBeforeTheTaskExistsCancelsItOnceAttached() async throws {
+        let target = PendingTaskCancel<Bool>()
+        let termination = SIGTERMCancellation(cancelling: target)
+        defer { termination.end() }
+
+        kill(getpid(), SIGTERM)
+        let caught = await waitUntil(timeout: .seconds(5)) { target.cancelRequested }
+        XCTAssertTrue(caught, "the SIGTERM is caught before the task exists")
+
+        let task = Task<Bool, Never> {
+            try? await Task.sleep(for: .seconds(30))
+            return Task.isCancelled
+        }
+        defer { task.cancel() }
+        target.attach(task)
+        XCTAssertTrue(task.isCancelled, "attaching the task cancels it at once")
+    }
+
+    /// The SIGTERM is sent after the handler is in place and before the
+    /// dispatch source is listening. Whenever the handler then runs, its byte
+    /// waits in the pipe, so the source still sees it once it listens.
     func testASIGTERMBeforeTheSourceListensStillCancels() async throws {
         let task = Task<Bool, Never> {
             try? await Task.sleep(for: .seconds(30))

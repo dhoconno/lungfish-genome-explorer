@@ -783,7 +783,7 @@ public enum FASTQBatchImporter {
             switch result {
             case .success:
                 completed += 1
-            case .failure(let error) where isCancellation(error):
+            case .failure where failureEndedByCancel():
                 recordCancel(of: pair.sampleName) // a cancel, not a failed sample
                 cancelled = true
             case .failure(let error):

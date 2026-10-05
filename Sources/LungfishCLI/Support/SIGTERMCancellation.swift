@@ -96,6 +96,9 @@ final class SIGTERMCancellation {
         let queue = DispatchQueue.global(qos: .userInitiated)
         let ends = SIGTERMPipe.ends
         if let ends { SIGTERMPipe.drain(ends.read) } // nothing from an earlier instance
+        // Touch all three atomics before signal() installs the handler. A
+        // global is set up lazily on its first use, and that set-up is not
+        // async-signal-safe, so it must never first happen inside the handler.
         caughtSIGTERMs.store(0, ordering: .sequentiallyConsistent)
         secondSIGTERMEndsProcess.store(secondSignalEndsProcess, ordering: .sequentiallyConsistent)
         sigtermPipeWriteEnd.store(ends?.write ?? -1, ordering: .sequentiallyConsistent)
@@ -126,6 +129,14 @@ final class SIGTERMCancellation {
         self.init(secondSignalEndsProcess: secondSignalEndsProcess) { task.cancel() }
     }
 
+    /// Starts turning SIGTERM into a cancel of a task that may not exist yet.
+    convenience init<Success: Sendable>(
+        cancelling target: PendingTaskCancel<Success>,
+        secondSignalEndsProcess: Bool = false
+    ) {
+        self.init(secondSignalEndsProcess: secondSignalEndsProcess) { target.cancel() }
+    }
+
     /// Gives SIGTERM its default action back.
     func end() {
         guard !ended else { return }
@@ -138,5 +149,36 @@ final class SIGTERMCancellation {
 
     deinit {
         end()
+    }
+}
+
+/// The task a SIGTERM cancels, for a command that listens before it starts
+/// the task. A SIGTERM caught before `attach(_:)` is kept, and attaching
+/// then cancels the task at once, so no SIGTERM is lost in between.
+final class PendingTaskCancel<Success: Sendable>: Sendable {
+    private struct State {
+        var task: Task<Success, Never>?
+        var requested = false
+    }
+
+    private let state = Mutex(State())
+
+    /// Whether a cancel has been asked for.
+    var cancelRequested: Bool { state.withLock { $0.requested } }
+
+    /// Cancels the task, or the task attached later.
+    func cancel() {
+        state.withLock { state in
+            state.requested = true
+            state.task?.cancel()
+        }
+    }
+
+    /// Sets the task, and cancels it at once if a cancel was asked for.
+    func attach(_ task: Task<Success, Never>) {
+        state.withLock { state in
+            state.task = task
+            if state.requested { task.cancel() }
+        }
     }
 }
