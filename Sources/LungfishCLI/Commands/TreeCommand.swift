@@ -561,7 +561,7 @@ struct TreeCommand: AsyncParsableCommand {
                     options: .init(
                         name: name ?? outputURL.deletingPathExtension().lastPathComponent,
                         argv: argv,
-                        command: shellCommand(argv),
+                        command: treeCLIShellCommand(argv),
                         sourceFormat: "newick",
                         toolName: wrapperToolName,
                         toolVersion: wrapperToolVersion
@@ -845,19 +845,19 @@ private func executeTreeTransform(
     }
 }
 
-private struct TreeProcessResult {
+struct TreeProcessResult {
     let exitStatus: Int32
     let stdout: String
     let stderr: String
     let wallTimeSeconds: TimeInterval
 }
 
-private struct TreeAlignedFASTARecord {
+struct TreeAlignedFASTARecord {
     let name: String
     let sequence: String
 }
 
-private func runProcess(
+func runProcess(
     executableURL: URL,
     arguments: [String],
     workingDirectory: URL?
@@ -929,7 +929,7 @@ private func runProcess(
     )
 }
 
-private func parseTreeAlignedFASTA(at url: URL) throws -> [TreeAlignedFASTARecord] {
+func parseTreeAlignedFASTA(at url: URL) throws -> [TreeAlignedFASTARecord] {
     let text = try String(contentsOf: url, encoding: .utf8)
     var records: [TreeAlignedFASTARecord] = []
     var currentName: String?
@@ -959,7 +959,7 @@ private func parseTreeAlignedFASTA(at url: URL) throws -> [TreeAlignedFASTARecor
     return records
 }
 
-private func selectTreeAlignedRecords(
+func selectTreeAlignedRecords(
     records: [TreeAlignedFASTARecord],
     bundle: MultipleSequenceAlignmentBundle,
     rows: String?,
@@ -1002,7 +1002,7 @@ private func selectTreeAlignedRecords(
     return selected
 }
 
-private func validateTreeAlignedRecords(_ records: [TreeAlignedFASTARecord]) throws {
+func validateTreeAlignedRecords(_ records: [TreeAlignedFASTARecord]) throws {
     guard let length = records.first?.sequence.count, length > 0 else {
         throw ValidationError("Tree inference input alignment is empty.")
     }
@@ -1012,7 +1012,7 @@ private func validateTreeAlignedRecords(_ records: [TreeAlignedFASTARecord]) thr
     }
 }
 
-private func writeTreeAlignedFASTA(records: [TreeAlignedFASTARecord], to url: URL) throws {
+func writeTreeAlignedFASTA(records: [TreeAlignedFASTARecord], to url: URL) throws {
     let text = records
         .map { ">\($0.name)\n\($0.sequence)" }
         .joined(separator: "\n") + "\n"
@@ -1046,7 +1046,7 @@ private func parseTreeColumnRanges(_ value: String?, alignedLength: Int) throws 
     }
 }
 
-private func parseIQTreeVersion(stdout: String, stderr: String) -> String {
+func parseIQTreeVersion(stdout: String, stderr: String) -> String {
     let text = "\(stdout)\n\(stderr)"
     if let range = text.range(of: #"version\s+([0-9][A-Za-z0-9._+-]*)"#, options: [.regularExpression, .caseInsensitive]) {
         let match = String(text[range])
@@ -1055,7 +1055,7 @@ private func parseIQTreeVersion(stdout: String, stderr: String) -> String {
     return "unknown"
 }
 
-private func copyIQTreeArtifacts(from stagingURL: URL, to bundleURL: URL) throws -> [String] {
+func copyIQTreeArtifacts(from stagingURL: URL, to bundleURL: URL) throws -> [String] {
     let artifactDir = bundleURL.appendingPathComponent("artifacts/iqtree", isDirectory: true)
     try FileManager.default.createDirectory(at: artifactDir, withIntermediateDirectories: true)
     var relativePaths: [String] = []
@@ -1073,7 +1073,7 @@ private func copyIQTreeArtifacts(from stagingURL: URL, to bundleURL: URL) throws
     return relativePaths
 }
 
-private func rewriteManifestAndProvenance(
+func rewriteManifestAndProvenance(
     bundleURL: URL,
     msaBundleURL: URL,
     artifactPaths: [String],
@@ -1223,7 +1223,7 @@ private func jsonObject(at url: URL) throws -> [String: Any] {
     return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
 }
 
-private struct TreeCommandRuntimeError: Error, LocalizedError, CustomStringConvertible {
+struct TreeCommandRuntimeError: Error, LocalizedError, CustomStringConvertible {
     let message: String
 
     init(_ message: String) {
@@ -1234,7 +1234,7 @@ private struct TreeCommandRuntimeError: Error, LocalizedError, CustomStringConve
     var description: String { message }
 }
 
-private func treeCommandErrorDescription(_ error: Error) -> String {
+func treeCommandErrorDescription(_ error: Error) -> String {
     if let localizedError = error as? LocalizedError,
        let errorDescription = localizedError.errorDescription,
        errorDescription.isEmpty == false {
@@ -1344,6 +1344,10 @@ private func bundleDigest(checksums: [String: String]) -> String {
     let joined = checksums.keys.sorted().map { "\($0)=\(checksums[$0] ?? "")" }.joined(separator: "\n")
     return SHA256.hash(data: Data(joined.utf8)).map { String(format: "%02x", $0) }.joined()
 }
+
+// Module-visible name for the IQ-TREE subcommand kept in its own file. The short name stays
+// private because MSACommand.swift and ImportMSATreeSubcommands.swift declare their own.
+func treeCLIShellCommand(_ argv: [String]) -> String { shellCommand(argv) }
 
 private func shellCommand(_ argv: [String]) -> String {
     argv.map(shellEscaped).joined(separator: " ")
