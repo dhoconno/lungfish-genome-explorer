@@ -34,7 +34,7 @@ The resolver turns each sample into a `ReadSetPlan` for one tool. A plan holds t
 |---|---|---|
 | L1 | Root single-end file | Single reads. A root holding only `preview.fastq` has no payload and stops the plan, because the preview is a subset. A root that is not chunked and holds two files named as R1 and R2 is one mate pair. |
 | L2 | Root interleaved file | One interleaved mate pair |
-| L3 | Root file of merged reads followed by pairs | A mixed stream, split by name when the tool takes separate files |
+| L3 | Root file of merged reads followed by pairs, or of pairs followed by the unpaired reads of an SRA run's third file | A mixed stream, split by name when the tool takes separate files |
 | L4 | Chunked root (`source-files.json`) | Each chunk as single reads. Two chunks named as R1 and R2 are one mate pair only when the bundle records a short-read platform (Illumina, Element, Ultima or MGI). |
 | L5a | `full` derivative | Read as a root file. A sidecar classification in the L3 form makes it a mixed stream, as for a re-imported `fastq merge` output. |
 | L5b | `fullPaired` derivative | One mate pair |
