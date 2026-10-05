@@ -2920,7 +2920,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     let totalExpectedBytes = readRecord?.totalFileSizeBytes.map { Int64($0) }
                     let staged = try await SRAWindowRunDownload.stage(
                         accession: record.accession,
-                        route: route,
+                        route: route, preference: .stored(), // The window's "Download source" setting
                         in: batchDir,
                         mirrorFile: { fastqURL, fileExpectedBytes, priorBytes in
                             try await streamingDownload(
@@ -2938,9 +2938,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                 }
                             )
                         },
-                        toolkit: { statusDetail, folder in
-                            try await downloadViaToolkit(statusDetail: statusDetail, into: folder)
-                        }
+                        toolkit: { try await downloadViaToolkit(statusDetail: $0, into: $1) },
+                        log: { line in performOnMainRunLoop { _ = DownloadCenter.shared.updateWithLog(id: downloadCenterTaskID, progress: progressFraction, detail: line, level: .warning) } }
                     )
                     // Removed after the import or on failure, so no file of
                     // this run reaches the next one.
@@ -3024,7 +3023,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         try writeGUISRAFASTQImportProvenance(
                             accession: record.accession,
                             readRecord: readRecord,
-                            downloadSource: downloadSource,
+                            downloadSource: downloadSource, preferredSource: staged.download.preference,
                             enaDownloadSteps: enaDownloadSteps,
                             toolkitDownloadTraces: toolkitTraceCollector.steps,
                             cliArguments: args,

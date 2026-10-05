@@ -91,15 +91,15 @@ public actor SRAService {
     }
 
     private let ncbiService: NCBIService
-    private let httpClient: HTTPClient
+    let httpClient: HTTPClient
     private let homeDirectoryProvider: @Sendable () -> URL
     private let appIdentity: LungfishAppIdentity
 
     /// Closure type used to inject custom download strategies (primarily for tests).
     public typealias DownloadStrategy = @Sendable (_ accession: String, _ outputDir: URL?) async throws -> [URL]
 
-    private let enaDownloader: DownloadStrategy?
-    private let toolkitDownloader: DownloadStrategy?
+    let enaDownloader: DownloadStrategy?
+    let toolkitDownloader: DownloadStrategy?
     /// Runs `prefetch` and `fasterq-dump`, or nil for the managed sra-tools environment's.
     private let toolkitRunner: SRAToolkitRunner?
 

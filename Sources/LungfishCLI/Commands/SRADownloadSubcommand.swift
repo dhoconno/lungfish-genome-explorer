@@ -27,9 +27,18 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
 
     @Flag(
         name: .customLong("use-toolkit"),
-        help: "Use SRA Toolkit instead of ENA (requires prefetch/fasterq-dump)"
+        help: "Fetch with the SRA Toolkit only, with no fallback to ENA (requires prefetch/fasterq-dump)"
     )
     var useToolkit: Bool = false
+
+    @Option(
+        name: .customLong("prefer-source"),
+        help: ArgumentHelp(
+            "Archive to try first, ena (default) or ncbi. \(SRADownloadSourcePreference.tradeOff)",
+            valueName: "source"
+        )
+    )
+    var preferSource: SRADownloadSourcePreference?
 
     @OptionGroup var globalOptions: GlobalOptions
 
@@ -41,8 +50,8 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let trace = SRADownloadTraceCapture(
-            selectedStrategy: useToolkit ? "sra-toolkit" : "ena-direct",
-            downloadSource: useToolkit ? .sraToolkit : .ena
+            selectedStrategy: initialStrategy,
+            downloadSource: initialStrategy == "sra-toolkit" ? .sraToolkit : .ena
         )
 
         let outputURL = URL(fileURLWithPath: outputDir)
@@ -52,7 +61,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
 
         if !globalOptions.quiet {
             print(formatter.info("Downloading FASTQ for \(accession)..."))
-            if useToolkit {
+            if useToolkit || sourcePreference == .ncbi {
                 print(formatter.info("Using SRA Toolkit (prefetch + fasterq-dump)"))
             } else {
                 print(formatter.info("Using ENA direct download"))
@@ -78,9 +87,11 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
             } else {
                 let quiet = globalOptions.quiet
                 let useColors = globalOptions.useColors
-                files = try await service.downloadFASTQWithFallback(
+                let fallbackStrategy = fallbackStrategy
+                files = try await service.downloadFASTQ(
                     accession: accession,
                     outputDir: outputURL,
+                    preferring: sourcePreference,
                     progress: { progress in
                         if !quiet {
                             let formatter = TerminalFormatter(useColors: useColors)
@@ -88,7 +99,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                         }
                     },
                     onFallback: { message in
-                        trace.recordFallback(message)
+                        trace.recordFallback(message, strategy: fallbackStrategy)
                         if !quiet {
                             let formatter = TerminalFormatter(useColors: useColors)
                             print(formatter.info(message))
@@ -145,6 +156,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         if useToolkit {
             command.append("--use-toolkit")
         }
+        command += preferSourceArguments
         if globalOptions.quiet {
             command.append("--quiet")
         }
@@ -157,7 +169,8 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         [
             "accession": .string(accession),
             "outputDir": .string(URL(fileURLWithPath: outputDir).standardizedFileURL.path),
-            "requestedStrategy": .string(useToolkit ? "sra-toolkit" : "ena-direct"),
+            "requestedStrategy": .string(requestedStrategy),
+            "preferredSource": preferredSourceParameter,
             "selectedStrategy": .string(trace.selectedStrategy),
             // The window's SRA import records the same names.
             "downloadSource": .string(trace.downloadSource.rawValue),
@@ -293,9 +306,9 @@ private final class SRADownloadTraceCapture: @unchecked Sendable {
         return Array(Set(inputs)).sorted()
     }
 
-    func recordFallback(_ message: String) {
+    func recordFallback(_ message: String, strategy: String) {
         lock.lock()
-        _selectedStrategy = "sra-toolkit-fallback"
+        _selectedStrategy = strategy
         _fallbackMessage = message
         lock.unlock()
     }

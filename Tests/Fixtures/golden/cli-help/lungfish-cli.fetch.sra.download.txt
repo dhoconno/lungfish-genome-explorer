@@ -1,6 +1,6 @@
 OVERVIEW: Download FASTQ files from SRA
 
-USAGE: lungfish-cli fetch sra download <accession> [--output-dir <output-dir>] [--use-toolkit] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+USAGE: lungfish-cli fetch sra download [<options>] <accession>
 
 ARGUMENTS:
   <accession>             SRA run accession (e.g., SRR11140748)
@@ -9,8 +9,15 @@ OPTIONS:
   --output-dir <output-dir>
                           Output directory for FASTQ files (default: current
                           directory) (default: .)
-  --use-toolkit           Use SRA Toolkit instead of ENA (requires
-                          prefetch/fasterq-dump)
+  --use-toolkit           Fetch with the SRA Toolkit only, with no fallback to
+                          ENA (requires prefetch/fasterq-dump)
+  --prefer-source <source>
+                          Archive to try first, ena (default) or ncbi. ENA
+                          serves ready FASTQ files. NCBI needs the SRA Toolkit
+                          to convert its archive, which takes longer, but it
+                          can be faster when ENA is slow. When the preferred
+                          source fails, the other one is tried. (values: ena,
+                          ncbi)
   --format <format>       Output format: text, json, tsv (default: text)
                           (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,

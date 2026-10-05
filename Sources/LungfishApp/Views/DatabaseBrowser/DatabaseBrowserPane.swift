@@ -574,6 +574,9 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                     .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sra-max-results"))
                 }
             }
+
+            // Not a search filter: where the window downloads the runs from.
+            SRADownloadSourcePicker()
         }
     }
 

@@ -17,6 +17,7 @@ func writeGUISRAFASTQImportProvenance(
     accession: String,
     readRecord: ENAReadRecord?,
     downloadSource: String,
+    preferredSource: SRADownloadSourcePreference = .ena,
     enaDownloadSteps: [StepExecution],
     toolkitDownloadTraces: [SRAService.FASTQDownloadStepTrace],
     cliArguments: [String],
@@ -82,6 +83,9 @@ func writeGUISRAFASTQImportProvenance(
         "workflow": .string("gui-sra-fastq-import"),
         "accession": .string(accession),
         "downloadSource": .string(downloadSource),
+        // The window's "Download source" setting. The window records `import
+        // fastq`, not `fetch sra download`, so the choice is kept here.
+        "preferredSource": .string(preferredSource.rawValue),
         "enaFastqURLs": .array((readRecord?.fastqHTTPURLs ?? []).map { .string($0.absoluteString) }),
         "cliCommand": .string(CLIImportRunner.commandLine(arguments: cliArguments)),
         "platform": .string(platform),
