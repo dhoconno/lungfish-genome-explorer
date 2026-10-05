@@ -13,11 +13,10 @@ public extension SRAService {
     ///
     /// `.ena` is `downloadFASTQWithFallback`, unchanged. `.ncbi` fetches the
     /// run with the SRA Toolkit without asking ENA anything first. When the
-    /// toolkit is not installed or fails, the reads it wrote are removed,
-    /// the run is looked up on ENA, and ENA's mirror serves it if ENA lists
-    /// FASTQ files for it. This is the order
-    /// `SRAFASTQDownloadRoute.plan(preferring: .ncbi)` gives. A cancellation
-    /// stops the download.
+    /// toolkit is not installed or fails, the reads and the prefetch archive
+    /// it wrote are removed, the run is looked up on ENA, and ENA's mirror
+    /// serves it if ENA lists FASTQ files for it. A cancellation stops the
+    /// download.
     ///
     /// - Parameters:
     ///   - onFallback: Called once with the line to log when the download
@@ -63,6 +62,8 @@ public extension SRAService {
             for file in runFiles.writtenFASTQFiles() {
                 try? FileManager.default.removeItem(at: file)
             }
+            // prefetch's archive, whole or partial, is not the user's output.
+            runFiles.removePrefetchFiles()
             let message = SRAFASTQDownloadSource.enaFallbackMessage(accession: accession, after: toolkitError)
             logger.warning("\(message, privacy: .public)")
             onFallback?(message)
