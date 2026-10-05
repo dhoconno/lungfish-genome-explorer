@@ -164,6 +164,16 @@ public final class MSADistanceMatrixPaneModel {
         }
     }
 
+    /// Drops any alignment and shows `message` as the failure, for input the
+    /// host could not read. Nothing is computed.
+    public func fail(_ message: String) {
+        generation += 1
+        task?.cancel()
+        records = []
+        matrix = nil
+        status = .failed(message)
+    }
+
     /// Uses records the caller already parsed.
     public func load(records: [MSAAlignedRecord], alphabet: MSASequenceAlphabet) {
         self.alphabet = alphabet

@@ -71,13 +71,18 @@ public enum MSADistanceMatrixText {
             label = "\(rowName), \(columnName), no comparable sites"
         } else if value == .infinity {
             label = "\(rowName), \(columnName), saturated, distance not estimable, "
-                + "\(MSADistanceValueFormat.count(comparableSites)) sites compared"
+                + "\(sitesCompared(comparableSites))"
         } else {
             label = "\(rowName), \(columnName), \(MSADistanceValueFormat.full(value)), "
-                + "\(MSADistanceValueFormat.count(comparableSites)) sites compared"
+                + "\(sitesCompared(comparableSites))"
         }
         if isDiagonal { label += ", same sequence" }
         return label
+    }
+
+    /// "1 site compared" or "N sites compared".
+    static func sitesCompared(_ count: Int) -> String {
+        "\(MSADistanceValueFormat.count(count)) \(count == 1 ? "site" : "sites") compared"
     }
 
     public static let cellHelp = "Press Return to show both sequences in the alignment."

@@ -100,7 +100,7 @@ public class MSADistanceMatrixHeaderBaseView: NSView {
         element.setAccessibilityIndex(index)
         element.setAccessibilityLabel(names[index])
         element.setAccessibilityHelp("Select Sequence in Alignment")
-        element.setAccessibilityFrameInParentSpace(rect(forIndex: index))
+        element.setAccessibilityFrameInParentSpace(axFrame(forIndex: index))
         element.setAccessibilitySelected(selectedSequences.contains(index))
         let target = MSADistanceAXHeaderActions(header: self, index: index)
         actionTargets[index] = target
@@ -110,12 +110,23 @@ public class MSADistanceMatrixHeaderBaseView: NSView {
         return element
     }
 
+    /// The header frame in AX parent space, which is unflipped, so the
+    /// first row name reads at the top edge.
+    func axFrame(forIndex index: Int) -> NSRect {
+        let flipped = rect(forIndex: index)
+        return NSRect(x: flipped.minX, y: bounds.height - flipped.maxY, width: flipped.width, height: flipped.height)
+    }
+
     /// Header frames move with the scroll offset and cell size.
     func refreshElementFrames() {
         for (index, element) in elements {
-            element.setAccessibilityFrameInParentSpace(rect(forIndex: index))
+            element.setAccessibilityFrameInParentSpace(axFrame(forIndex: index))
         }
     }
+
+    /// The bar beside the focused cell's name. Label colour, not the
+    /// separator colour, so it stays visible (review N7).
+    static let focusMarkerColor = NSColor.labelColor
 
     func rect(forIndex index: Int) -> NSRect { .zero }
     func index(at point: NSPoint) -> Int? { nil }
@@ -124,12 +135,15 @@ public class MSADistanceMatrixHeaderBaseView: NSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = truncation
         let selected = selectedSequences.contains(index)
+        let plainColor: NSColor = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            ? .labelColor
+            : .secondaryLabelColor
         let drawnFont = selected
             ? NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
             : NSFontManager.shared.convert(font, toNotHaveTrait: .boldFontMask)
         return [
             .font: drawnFont,
-            .foregroundColor: selected ? NSColor.labelColor : NSColor.secondaryLabelColor,
+            .foregroundColor: selected ? NSColor.labelColor : plainColor,
             .paragraphStyle: paragraph,
         ]
     }
@@ -215,7 +229,7 @@ public final class MSADistanceMatrixRowHeaderView: MSADistanceMatrixHeaderBaseVi
             )
             (names[index] as NSString).draw(in: textRect, withAttributes: attributes(for: index, truncation: .byTruncatingMiddle))
             if focusedIndex == index {
-                NSColor.separatorColor.setFill()
+                Self.focusMarkerColor.setFill()
                 NSRect(x: frame.maxX - 2, y: frame.minY, width: 2, height: frame.height).fill()
             }
         }
@@ -272,7 +286,7 @@ public final class MSADistanceMatrixColumnHeaderView: MSADistanceMatrixHeaderBas
             (names[index] as NSString).draw(in: textRect, withAttributes: attributes(for: index, truncation: .byTruncatingMiddle))
             NSGraphicsContext.restoreGraphicsState()
             if focusedIndex == index {
-                NSColor.separatorColor.setFill()
+                Self.focusMarkerColor.setFill()
                 NSRect(x: frame.minX, y: bounds.maxY - 2, width: frame.width, height: 2).fill()
             }
         }

@@ -111,7 +111,10 @@ public final class MSADistanceMatrixPaneView: NSView {
 
     /// Reverse sync (ruling U7): the alignment's row selection, as input
     /// record indices, clears cells and bolds the matching headers.
+    /// The selection is kept, so a matrix that becomes ready later, on first
+    /// show or after a recompute, shows it too (review S5).
     public func reflectAlignmentSelection(_ recordIndices: IndexSet) {
+        alignmentSelection = recordIndices
         guard let matrix = model.matrix else { return }
         var positions = IndexSet()
         for (position, record) in matrix.recordIndices.enumerated() where recordIndices.contains(record) {
@@ -119,6 +122,21 @@ public final class MSADistanceMatrixPaneView: NSView {
         }
         gridView.reflectSequences(positions)
     }
+
+    /// The alignment's row selection as input record indices, last reported
+    /// by the alignment or made from the matrix.
+    public private(set) var alignmentSelection = IndexSet()
+
+    /// Shows an error in place of the matrix when the alignment cannot be
+    /// read, such as a manifest with no readable alphabet.
+    public func showLoadFailure(_ message: String) {
+        model.fail(message)
+    }
+
+    /// The first and last views of the pane's key view chain, for the host
+    /// to link into the window's loop (review S3).
+    public var firstKeyView: NSView { modelPopup }
+    public var lastKeyView: NSView { gridView }
 
     /// The matrix TSV for the current options, byte-identical to the CLI.
     public var matrixTSV: String? { model.matrix?.tsv }
@@ -130,6 +148,7 @@ public final class MSADistanceMatrixPaneView: NSView {
         headerBar.spacing = 8
         headerBar.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         headerBar.alignment = .centerY
+        headerBar.clipsToBounds = true
 
         modelPopup.setAccessibilityLabel("Distance model")
         modelPopup.toolTip = "Distance model (--model)"
@@ -200,6 +219,7 @@ public final class MSADistanceMatrixPaneView: NSView {
         statusStack.orientation = .vertical
         statusStack.alignment = .centerX
         statusStack.spacing = 8
+        statusStack.clipsToBounds = true
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = true
@@ -232,6 +252,7 @@ public final class MSADistanceMatrixPaneView: NSView {
             let records = IndexSet(selection.sequenceIndices.compactMap {
                 matrix.recordIndices.indices.contains($0) ? matrix.recordIndices[$0] : nil
             })
+            self.alignmentSelection = records
             self.onSequencesSelected?(records)
         }
         gridView.onFocusChanged = { [weak self] focus in self?.focusChanged(focus) }
@@ -242,6 +263,10 @@ public final class MSADistanceMatrixPaneView: NSView {
         gridView.onCopyMatrix = { [weak self] in self?.copyMatrixPressed(nil) }
         gridView.onExport = { [weak self] in self?.exportPressed(nil) }
         gridView.isExportAvailable = { [weak self] in self?.model.canExport ?? false }
+        gridView.onDisplayOptionsChanged = { [weak self] in
+            self?.legendView.needsDisplay = true
+            self?.needsLayout = true
+        }
 
         let headerClick: (Int, NSEvent.ModifierFlags) -> Void = { [weak self] index, flags in
             guard let self else { return }
@@ -276,6 +301,9 @@ public final class MSADistanceMatrixPaneView: NSView {
             rowHeaderView.names = matrix?.names ?? []
             columnHeaderView.names = matrix?.names ?? []
             focusChanged(nil)
+            if matrix != nil, !alignmentSelection.isEmpty {
+                reflectAlignmentSelection(alignmentSelection)
+            }
         }
         gridView.colorScale = model.colorScale
         gridView.showsValues = model.showsValues
@@ -546,6 +574,7 @@ public final class MSADistanceMatrixLegendView: NSView {
         text(p.max); x += 10
         let nanBox = NSRect(x: x, y: bounds.midY - Self.swatch / 2, width: Self.swatch, height: Self.swatch)
         NSBezierPath(rect: nanBox.insetBy(dx: 0.5, dy: 0.5)).stroke()
+        MSADistanceMatrixGridView.drawNotDefinedMark(in: nanBox)
         x = nanBox.maxX + 3
         text(p.nan); x += 8
         let infBox = NSRect(x: x, y: bounds.midY - Self.swatch / 2, width: Self.swatch, height: Self.swatch)
