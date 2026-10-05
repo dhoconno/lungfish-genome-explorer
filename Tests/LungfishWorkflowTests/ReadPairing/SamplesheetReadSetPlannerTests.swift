@@ -222,13 +222,21 @@ final class SamplesheetReadSetPlannerTests: XCTestCase {
 
     // MARK: - EsViritu configuration
 
-    private func esVirituConfig(for bundle: URL) -> EsVirituConfig {
+    /// The configuration a wizard or `esviritu detect` makes before the plan
+    /// runs. `readFormat` and `inputLayout` are what the layout scan said.
+    private func esVirituConfig(
+        for bundle: URL,
+        readFormat: EsVirituReadFormat? = nil,
+        inputLayout: FASTQReadLayoutClassification? = nil
+    ) -> EsVirituConfig {
         EsVirituConfig(
             inputFiles: [bundle],
             isPairedEnd: false,
             sampleName: "sample",
             outputDirectory: root.appendingPathComponent("out", isDirectory: true),
-            databasePath: root.appendingPathComponent("db", isDirectory: true)
+            databasePath: root.appendingPathComponent("db", isDirectory: true),
+            readFormat: readFormat,
+            inputLayout: inputLayout
         )
     }
 
@@ -260,9 +268,54 @@ final class SamplesheetReadSetPlannerTests: XCTestCase {
         let singlePlan = try await plan(fixtures.singleRoot)
         XCTAssertFalse(single.apply(singlePlan), "single reads need no change")
         XCTAssertEqual(single.inputFiles, [fixtures.singleRoot])
-        var interleaved = esVirituConfig(for: fixtures.interleavedRoot)
+        // The layout scan of an interleaved root says interleaved, which is
+        // what the plan says, so the configuration already runs it as it is.
+        var interleaved = esVirituConfig(for: fixtures.interleavedRoot, readFormat: .interleaved)
         let interleavedPlan = try await plan(fixtures.interleavedRoot)
         XCTAssertFalse(interleaved.apply(interleavedPlan), "one interleaved file needs no change")
+        XCTAssertNil(interleaved.readSetPlan, "a sample of pairs only records no plan")
+        XCTAssertEqual(interleaved.inputFiles, [fixtures.interleavedRoot])
+    }
+
+    /// Phase 1.5 lane F6, re-review SHOULD-FIX 1. The layout scan reads a merge in a
+    /// file's lineage as proof of single reads, so it calls a virtual subset of
+    /// a merge derivative mixed even when its materialized file holds only the
+    /// unmerged pair, and EsViritu ran `-p unpaired` on both mates. The plan
+    /// reads the whole file, so its pairs outrank the scan. The configuration
+    /// takes the plan, records it and says no mixed layout.
+    func testEsVirituRunsAPairsOnlySampleOfMergeLineageAsInterleavedPairs() async throws {
+        let bundle = fixtures.subsetOfMerge
+        let scanned = FASTQReadLayoutClassifier.classify(
+            headers: ["u1/1", "u1/2"],
+            scannedWholeFile: true,
+            metadata: FASTQPairingMetadataHints(
+                hasMergedOrUnpairedReads: true,
+                mergeEvidence: "paired-end merge in derivative lineage"
+            )
+        )
+        XCTAssertEqual(scanned.layout, .mixedInterleaved, "the premise, mates beside a recorded merge scan as mixed")
+        var config = esVirituConfig(
+            for: bundle,
+            readFormat: EsVirituReadFormat.forSingleFile(scanned.layout),
+            inputLayout: scanned
+        )
+        XCTAssertEqual(config.readFormat, .unpaired, "the premise, the scan sends it single-end")
+
+        let readSet = try await plan(bundle, reads: ["u1/1", "u1/2"])
+        guard case .interleaved = readSet.reads else { return XCTFail("\(readSet.reads)") }
+        XCTAssertTrue(config.apply(readSet), "the plan changes the run")
+
+        XCTAssertEqual(config.readFormat, .interleaved)
+        XCTAssertFalse(config.isPairedEnd, "an interleaved file is one file")
+        XCTAssertEqual(config.inputFiles, readSet.executionURLs)
+        XCTAssertEqual(try config.inputFiles.map(ReadSetFixtures.readNames(in:)), [["u1/1", "u1/2"]])
+        XCTAssertEqual(config.readSetPlan, readSet.plan, "the plan is recorded")
+        XCTAssertNil(readSet.plan.singleReadReason)
+        XCTAssertNotEqual(config.inputLayout?.layout, .mixedInterleaved, "the scan's mixed layout is not kept")
+        XCTAssertEqual(config.readFormatSummaryLines(), ["  Read format: interleaved (Interleaved paired-end reads)"])
+        let arguments = config.esVirituArguments()
+        XCTAssertEqual(arguments.firstIndex(of: "-p").map { arguments[$0 + 1] }, "interleaved")
+        XCTAssertEqual(config.readSetPlan?.provenanceParameters.isEmpty, true, "a sample of pairs only adds nothing to provenance")
     }
 
     // MARK: - Progress

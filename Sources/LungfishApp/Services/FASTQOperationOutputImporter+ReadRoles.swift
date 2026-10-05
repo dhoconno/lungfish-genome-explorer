@@ -13,7 +13,8 @@ private let readRolesLogger = Logger(subsystem: LogSubsystem.app, category: "FAS
 extension AppFASTQOutputBundleWriter {
 
     /// The read roles to record beside a re-imported operation output that
-    /// holds adjacent pairs and single reads, or nil for any other output.
+    /// holds adjacent pairs and single reads, or that holds only pairs and
+    /// comes from a source with merge evidence, or nil for any other output.
     ///
     /// An operation on a source that holds pairs can write a file that mixes
     /// pairs with merged or orphan reads, a trim writing its pairs first and
@@ -27,6 +28,15 @@ extension AppFASTQOutputBundleWriter {
     /// records pairs or merged reads is counted, so single-end work costs no
     /// extra pass. An output whose records cannot be read is logged at error
     /// level and records no roles, the state before this lane.
+    ///
+    /// An operation on a merge bundle can also keep only its unmerged pairs.
+    /// That output inherits the merge in its lineage, which the layout scan
+    /// reads as proof of single reads, and with no counts recorded the resolver
+    /// planned it as mixed. Its pairs are recorded with no single role
+    /// (``FASTQMixedLayoutHint/pairsOnlyClassification(pairs:singles:filename:)``),
+    /// so the resolver plans it as the pairs it is. A pairs-only output of a
+    /// source with no merge evidence records nothing, as before (Phase 1.5
+    /// lane F6, re-review SHOULD-FIX 2).
     func outputReadRoles(of outputFASTQ: URL, sourceInputURL: URL?) -> ReadClassification? {
         guard let sourceInputURL else { return nil }
         let hints = FASTQReadLayoutClassifier.metadataHints(for: sourceInputURL)
@@ -40,10 +50,18 @@ extension AppFASTQOutputBundleWriter {
             )
             return nil
         }
-        return FASTQMixedLayoutHint.classification(
+        if let roles = FASTQMixedLayoutHint.classification(
             pairs: counts.pairs,
             singles: counts.singles,
             singleRole: FASTQMixedLayoutHint.singleRole(of: sourceReadRoles(of: sourceInputURL)),
+            filename: outputFASTQ.lastPathComponent
+        ) {
+            return roles
+        }
+        guard hints.hasMergedOrUnpairedReads else { return nil }
+        return FASTQMixedLayoutHint.pairsOnlyClassification(
+            pairs: counts.pairs,
+            singles: counts.singles,
             filename: outputFASTQ.lastPathComponent
         )
     }

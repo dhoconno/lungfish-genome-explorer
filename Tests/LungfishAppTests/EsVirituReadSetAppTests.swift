@@ -87,6 +87,28 @@ final class EsVirituReadSetAppTests: XCTestCase {
         XCTAssertEqual(run.files, [["c1", "c2", "c3"]])
     }
 
+    /// Phase 1.5 lane F6, re-review SHOULD-FIX 1. The materialized file of a subset of
+    /// a merge derivative holds only the unmerged pair, so the plan finds no
+    /// read without a mate and EsViritu is handed `-p interleaved`. It used to
+    /// run `-p unpaired` on both mates, and the resolved configuration said so
+    /// in its summary.
+    func testAVirtualSubsetOfAMergeDerivativeThatHoldsOnlyPairsRunsInterleaved() async throws {
+        let materializer = ReadSetFixtures.StubMaterializer(readsByBundlePath: [
+            fixtures.subsetOfMerge.standardizedFileURL.path: ReadSetFixtures.fastq(["u1/1", "u1/2"]),
+        ])
+        let run = try await launch(fixtures.subsetOfMerge, materializer: materializer)
+        XCTAssertEqual(run.format, "interleaved")
+        XCTAssertEqual(run.files, [["u1/1", "u1/2"]])
+        XCTAssertFalse(run.summary.contains("Mixed"), run.summary)
+        XCTAssertTrue(run.summary.contains("Interleaved paired-end reads"), run.summary)
+
+        // The wizard says nothing mixed about the sample either, before or after the run.
+        let sample = try XCTUnwrap(MetagenomicsSampleGrouper.group([fixtures.subsetOfMerge]).first)
+        let wizard = await EsVirituSampleReadPlan.planned(for: sample)
+        XCTAssertFalse(wizard.label.localizedCaseInsensitiveContains("mixed"), wizard.label)
+        XCTAssertFalse(wizard.shortLabel.localizedCaseInsensitiveContains("mixed"), wizard.shortLabel)
+    }
+
     // MARK: - Helpers
 
     private struct Launch {
@@ -94,11 +116,16 @@ final class EsVirituReadSetAppTests: XCTestCase {
         let format: String
         /// The record names of each file after `-r`, in argument order.
         let files: [[String]]
+        /// The read format lines the run's summary shows.
+        let summary: String
     }
 
     /// Builds the config the wizard builds for one bundle, resolves it through
     /// the app's EsViritu launch and reads the arguments EsViritu is handed.
-    private func launch(_ bundle: URL) async throws -> Launch {
+    private func launch(
+        _ bundle: URL,
+        materializer: (any CLISequenceInputMaterializing & Sendable)? = nil
+    ) async throws -> Launch {
         let sample = try XCTUnwrap(MetagenomicsSampleGrouper.group([bundle]).first)
         let plan = await EsVirituSampleReadPlan.planned(for: sample)
         var config = EsVirituConfig(
@@ -113,7 +140,8 @@ final class EsVirituReadSetAppTests: XCTestCase {
         config.plansReadSet = plan.plansReadSet
         let resolved = try await AppDelegate().resolvedEsVirituConfig(
             config,
-            tempDirectory: root.appendingPathComponent("inputs-\(UUID().uuidString)", isDirectory: true)
+            tempDirectory: root.appendingPathComponent("inputs-\(UUID().uuidString)", isDirectory: true),
+            materializer: materializer
         ).verifyingInterleavedInput()
         let arguments = resolved.esVirituArguments()
         let reads = try XCTUnwrap(arguments.firstIndex(of: "-r"))
@@ -121,7 +149,8 @@ final class EsVirituReadSetAppTests: XCTestCase {
         let format = try XCTUnwrap(arguments.firstIndex(of: "-p"))
         return Launch(
             format: arguments[format + 1],
-            files: try files.map { try ReadSetFixtures.readNames(in: URL(fileURLWithPath: $0)) }
+            files: try files.map { try ReadSetFixtures.readNames(in: URL(fileURLWithPath: $0)) },
+            summary: resolved.readFormatSummaryLines().joined(separator: "\n")
         )
     }
 }

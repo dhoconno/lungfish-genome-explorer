@@ -44,8 +44,15 @@ extension EsVirituConfig {
     /// - A sample that mixes pairs and single reads, and a sample of several
     ///   files of single reads, run `-p unpaired` on one file that holds every
     ///   read. A mixed sample says why in its plan.
-    /// - A plain single-end file and one interleaved file are what the
-    ///   configuration already runs, so they are left as they are.
+    /// - One interleaved file runs `-p interleaved`. The layout scan reads a
+    ///   merge in a file's lineage as proof of single reads, so it can send a
+    ///   file that holds only pairs single-end, such as the materialized
+    ///   subset of a merge derivative that kept only the unmerged pairs. The
+    ///   plan has counted such a file, so its pairs outrank the scan, and the
+    ///   configuration drops the scan's layout and records the plan.
+    /// - A plain single-end file, and one interleaved file the scan already
+    ///   ran as interleaved, are what the configuration already runs, so they
+    ///   are left as they are.
     ///
     /// - Returns: Whether the plan changed the configuration.
     @discardableResult
@@ -62,8 +69,11 @@ extension EsVirituConfig {
             if readSet.plan.singleReadReason != nil, inputLayout?.layout != .mixedInterleaved {
                 inputLayout = Self.mixedLayout(of: readSet.plan)
             }
-        case .interleaved:
-            return false
+        case .interleaved(let file):
+            guard readFormat != .interleaved else { return false }
+            inputFiles = [file]
+            adoptReadFormat(.interleaved)
+            inputLayout = nil
         }
         readSetPlan = readSet.plan
         recordInputLineage(readSet.resolvedInputs)

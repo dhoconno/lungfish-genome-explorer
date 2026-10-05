@@ -22,7 +22,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishTestSupport
-import LungfishWorkflow
+@testable import LungfishWorkflow
 
 final class FASTQOperationOutputImporterToolCommandTests: XCTestCase {
     private var root: URL!
@@ -434,6 +434,218 @@ final class FASTQOperationOutputImporterToolCommandTests: XCTestCase {
         let payload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
         XCTAssertNil(FASTQMetadataStore.load(for: payload)?.readClassification)
         XCTAssertEqual(FASTQBundle.loadDerivedManifest(in: bundleURL)?.pairingMode, .interleaved)
+    }
+
+    // MARK: - A pairs-only output of a merge bundle (Phase 1.5 lane F6)
+
+    /// Imports `records` as the output of Filter by Read Length on the merge
+    /// derivative of `fixtures` and returns the imported bundle. Static, so a
+    /// main-actor test can call it without sending the test case anywhere.
+    private static func importLengthFilterOutput(
+        of records: [(id: String, sequence: String)],
+        named name: String,
+        fixtures: ReadSetFixtures,
+        root: URL
+    ) async throws -> URL {
+        let staging = root.appendingPathComponent("work-\(name)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let staged = staging.appendingPathComponent("\(name).fastq")
+        try FASTQOperationTestHelper.writeFASTQ(records: records, to: staged)
+        let mergedInput = fixtures.mergeDerivative.appendingPathComponent("merged.fastq")
+        try SyntheticToolProvenance.write(
+            argv: ["fixture-tool", mergedInput.path, "-o", staged.path],
+            inputURL: mergedInput,
+            outputURL: staged,
+            in: staging
+        )
+        let destination = fixtures.projectURL.appendingPathComponent("Derived", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let writer = AppFASTQOutputBundleWriter(
+            ingestor: CopyingFASTQOutputIngestor(),
+            statisticsCalculator: AppFASTQOutputBundleWriter.swiftReaderStatisticsCalculator
+        )
+        return try await writer.importFASTQOutput(
+            sourceURL: staged,
+            bundleURL: destination.appendingPathComponent("\(name).\(FASTQBundle.directoryExtension)"),
+            originalRequest: .derivative(
+                request: .lengthFilter(min: 5, max: 40),
+                inputURLs: [fixtures.mergeDerivative],
+                outputMode: .perInput
+            ),
+            sourceInputURL: fixtures.mergeDerivative
+        )
+    }
+
+    /// Phase 1.5 lane F6, re-review SHOULD-FIX 2. A dialog operation on a merge
+    /// bundle can keep only its unmerged pairs, such as Filter by Read Length
+    /// with bounds that drop every merged read. The output is a physical `full`
+    /// bundle that inherits the merge in its lineage, so the layout scan reads
+    /// it as mixed. The import recorded roles only for a file that holds pairs
+    /// and single reads, so the output had no counts, the resolver planned it as
+    /// mixed, and EsViritu and TaxTriage ran every mate single-end under the
+    /// statement that the sample held single reads. The import now records the
+    /// pairs, `pairedR1` and `pairedR2` naming the file and no single role, and
+    /// the resolver plans the output from those counts. An output that holds
+    /// only merged reads records nothing, as before.
+    func testAPairsOnlyOutputOfAMergeBundleRecordsItsPairsSoItPlansAsPairs() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let bundleURL = try await Self.importLengthFilterOutput(
+            of: [(id: "u1/1", sequence: "ACGTACGTAC"), (id: "u1/2", sequence: "ACGTACGTAC")],
+            named: "merge-pairs",
+            fixtures: fixtures,
+            root: root
+        )
+
+        // The premise. The output inherits the merge, which alone makes the scan read mates
+        // beside it as mixed. Its own counts outrank the merge, so the scan reads it as pairs.
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundleURL))
+        XCTAssertTrue(manifest.lineage.contains { $0.kind == .pairedEndMerge }, "the output inherits the merge")
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: bundleURL).layout, .strictlyInterleaved)
+
+        // The import records the pairs and no single role, every role naming the file.
+        let payload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        let classification = try XCTUnwrap(FASTQMetadataStore.load(for: payload)?.readClassification)
+        XCTAssertEqual(classification.files.map(\.role), [.pairedR1, .pairedR2])
+        XCTAssertEqual(classification.files.map(\.readCount), [1, 1])
+        XCTAssertEqual(Set(classification.files.map(\.filename)), [payload.lastPathComponent])
+        XCTAssertEqual(classification.mergedReadCount + classification.unpairedReadCount, 0)
+
+        // Both tools plan the output as one interleaved pair, with no reason.
+        for consumerID in [EsVirituConfig.readPairingConsumerID, TaxTriageReadSetPlanner.consumerID] {
+            let readSet = try await SamplesheetReadSetPlanner.plan(
+                input: bundleURL,
+                consumerID: consumerID,
+                materializationDirectory: root.appendingPathComponent("plan-\(consumerID)", isDirectory: true),
+                materializer: fixtures.materializer
+            )
+            guard case .interleaved(let file) = readSet.reads else { return XCTFail("\(consumerID): \(readSet.reads)") }
+            XCTAssertEqual(file.lastPathComponent, payload.lastPathComponent, consumerID)
+            XCTAssertNil(readSet.plan.singleReadReason, consumerID)
+            XCTAssertFalse(readSet.plan.sampleHoldsPairsAndSingleReads, consumerID)
+            XCTAssertEqual(readSet.plan.composition.pairedFragments, 1, consumerID)
+        }
+
+        // An output that holds only merged reads records nothing, as before.
+        let mergedOnly = try await Self.importLengthFilterOutput(
+            of: [(id: "x1", sequence: "ACGTACGTACGTACGTACGT"), (id: "x2", sequence: "ACGTACGTACGTACGTACGT")],
+            named: "merge-singles",
+            fixtures: fixtures,
+            root: root
+        )
+        let mergedOnlyPayload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: mergedOnly))
+        XCTAssertNil(FASTQMetadataStore.load(for: mergedOnlyPayload)?.readClassification)
+    }
+
+    // MARK: - The same output runs as pairs in every pairing tool (coordinator ruling, lane F6)
+
+    /// The physical `full` child of the merge fixture that holds only u1/1 and
+    /// u1/2, written by the dialog importer, and its one payload file.
+    private static func importPairsOnlyChild(
+        of fixtures: ReadSetFixtures,
+        root: URL
+    ) async throws -> (bundle: URL, payload: URL) {
+        let bundle = try await importLengthFilterOutput(
+            of: [(id: "u1/1", sequence: "ACGTACGTAC"), (id: "u1/2", sequence: "ACGTACGTAC")],
+            named: "merge-pairs-child",
+            fixtures: fixtures,
+            root: root
+        )
+        return (bundle, try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle)))
+    }
+
+    /// Coordinator ruling on re-review SHOULD-FIX 2. The child carries its own
+    /// counts, which show no read without a mate, so they outrank the merge in
+    /// its lineage. The wizard says interleaved pairs and nothing mixed, the
+    /// launch hands EsViritu `-p interleaved`, the pipeline's own guard keeps
+    /// it, and `esviritu detect --read-format auto` reads the same format.
+    /// Before the ruling the layout scan called the file mixed, so the wizard
+    /// said "Mixed paired and merged reads (run as single-end)" and the
+    /// pipeline ran `-p unpaired` on both mates.
+    @MainActor
+    func testAPairsOnlyOutputOfAMergeBundleRunsInterleavedInEsViritu() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let child = try await Self.importPairsOnlyChild(of: fixtures, root: root)
+
+        let sample = try XCTUnwrap(MetagenomicsSampleGrouper.group([child.bundle]).first)
+        let wizard = await EsVirituSampleReadPlan.planned(for: sample)
+        XCTAssertEqual(wizard.format, .interleaved)
+        XCTAssertEqual(wizard.label, "Interleaved paired-end reads")
+        XCTAssertFalse(wizard.shortLabel.localizedCaseInsensitiveContains("mixed"), wizard.shortLabel)
+
+        var config = EsVirituConfig(
+            inputFiles: sample.inputFiles,
+            isPairedEnd: sample.isPairedEnd,
+            sampleName: "sample",
+            outputDirectory: root.appendingPathComponent("esviritu-out", isDirectory: true),
+            databasePath: root.appendingPathComponent("db", isDirectory: true),
+            readFormat: wizard.format,
+            inputLayout: wizard.layout
+        )
+        config.plansReadSet = wizard.plansReadSet
+        let launched = try await AppDelegate().resolvedEsVirituConfig(
+            config,
+            tempDirectory: root.appendingPathComponent("esviritu-inputs", isDirectory: true)
+        )
+        let guarded = launched.verifyingInterleavedInput()
+        XCTAssertEqual(guarded.readFormat, .interleaved, "the pipeline's guard keeps the pairs")
+        XCTAssertEqual(guarded.inputFiles.map(\.lastPathComponent), [child.payload.lastPathComponent])
+        XCTAssertFalse(guarded.readFormatSummaryLines().joined(separator: "\n").contains("Mixed"))
+
+        let command = try EsVirituCommand.DetectSubcommand.parse(
+            ["detect", "--input", child.bundle.path, "--sample", "sample", "--read-format", "auto"]
+        )
+        XCTAssertEqual(try command.resolveReadFormat(inputURLs: [child.bundle]).format, .interleaved)
+    }
+
+    /// Coordinator ruling on re-review SHOULD-FIX 2. TaxTriage plans the child
+    /// through the resolver, so it reads the counts and runs the pairs as pairs,
+    /// the pipeline splitting the interleaved file into R1 and R2, with no
+    /// single-read reason.
+    func testAPairsOnlyOutputOfAMergeBundleRunsAsPairsInTaxTriage() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let child = try await Self.importPairsOnlyChild(of: fixtures, root: root)
+
+        let resolved = try await TaxTriageReadSetPlanner.resolve(
+            TaxTriageSample(sampleId: "sample", fastq1: child.bundle),
+            materializationDirectory: root.appendingPathComponent("taxtriage-inputs", isDirectory: true),
+            materializer: fixtures.materializer
+        )
+        XCTAssertEqual(resolved.fastq1.lastPathComponent, child.payload.lastPathComponent)
+        XCTAssertNil(resolved.fastq2, "the pipeline splits the interleaved file into R1 and R2")
+        XCTAssertEqual(resolved.readLayout, .strictlyInterleaved)
+        XCTAssertNil(resolved.readSetPlan?.singleReadReason)
+        XCTAssertTrue(TaxTriagePipeline.shouldSplitInterleaved(resolved))
+    }
+
+    /// Coordinator ruling on re-review SHOULD-FIX 2. A Viral Recon row for a
+    /// `full` derivative names its one file, which the run reads with the layout
+    /// scan, so the child's own counts must reach that scan. Its pairs are split
+    /// into an R1 and an R2 file. Before the ruling the decision was mixed and
+    /// the file ran single-end.
+    func testAPairsOnlyOutputOfAMergeBundleRunsAsPairsInViralRecon() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let child = try await Self.importPairsOnlyChild(of: fixtures, root: root)
+
+        XCTAssertFalse(ViralReconReadPairing.plansBundle(child.bundle), "a full derivative's row names its one file")
+        let sample = try XCTUnwrap(
+            ViralReconInputResolver.makeSamples(from: ViralReconInputResolver.resolveInputs(from: [child.bundle])).first
+        )
+        XCTAssertEqual(sample.fastqURLs.map(\.lastPathComponent), [child.payload.lastPathComponent])
+        let decision = ViralReconReadPairing.decision(for: sample)
+        XCTAssertEqual(decision.layout, .strictlyInterleaved)
+        XCTAssertEqual(decision.handling, .splitToR1R2)
+
+        let prepared = try await ViralReconReadPairing.prepareIlluminaSamples(
+            [sample],
+            splitRoot: root.appendingPathComponent("viralrecon-split", isDirectory: true)
+        )
+        XCTAssertTrue(prepared.didSplit)
+        XCTAssertEqual(prepared.decisions.first?.pairCount, 1)
+        let mates = try XCTUnwrap(prepared.samples.first).fastqURLs
+        XCTAssertEqual(mates.count, 2)
+        guard mates.count == 2 else { return }
+        XCTAssertEqual(try FASTQReadLayoutClassifier.readHeaders(from: mates[0]).headers, ["u1/1"])
+        XCTAssertEqual(try FASTQReadLayoutClassifier.readHeaders(from: mates[1]).headers, ["u1/2"])
     }
 }
 

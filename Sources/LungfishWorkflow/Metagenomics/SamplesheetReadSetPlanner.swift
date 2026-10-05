@@ -50,7 +50,9 @@ public struct SamplesheetReadSet: Sendable, Equatable {
     /// Whether the plan changes what a run reads or records: separate mates,
     /// a joined file, or mates that run as single reads with a stated reason.
     /// A plain single-end file and one interleaved file are what the run reads
-    /// without the planner, so they change nothing.
+    /// without the planner, so they change nothing. The one exception is an
+    /// interleaved file that the layout scan sent single-end, which
+    /// ``EsVirituConfig/apply(_:)`` runs as interleaved whatever this says.
     public var changesTheRun: Bool {
         switch reads {
         case .matePair: return true

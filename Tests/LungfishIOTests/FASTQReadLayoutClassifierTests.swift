@@ -214,4 +214,117 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
 
         XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: bundle).layout, .strictlyInterleaved)
     }
+
+    // MARK: - A file's own counts outrank the merge in its lineage (Phase 1.5 lane F6)
+
+    /// The roles of a file that holds `pairs` pairs and no single read, as the
+    /// FASTQ operations dialog's import records them.
+    private func pairsOnlyRoles(naming filename: String, pairs: Int) -> ReadClassification {
+        ReadClassification(files: [
+            .init(filename: filename, role: .pairedR1, readCount: pairs),
+            .init(filename: filename, role: .pairedR2, readCount: pairs),
+        ])
+    }
+
+    /// A physical `full` derivative of reads `headers` whose lineage holds a
+    /// paired-end merge, with `roles` and `recipe` in the sidecar of its file.
+    private func makeMergeLineageChild(
+        headers: [String],
+        roles: ReadClassification?,
+        recipe: RecipeAppliedInfo? = nil
+    ) throws -> URL {
+        let bundle = try makeTempDir().appendingPathComponent("child.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let fastqURL = bundle.appendingPathComponent("reads.fastq")
+        try fastq(headers).write(to: fastqURL, atomically: true, encoding: .utf8)
+        let operation = FASTQDerivativeOperation(kind: .lengthFilter)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: "child",
+                parentBundleRelativePath: ".",
+                rootBundleRelativePath: ".",
+                rootFASTQFilename: "reads.fastq",
+                payload: .full(fastqFilename: "reads.fastq"),
+                lineage: [FASTQDerivativeOperation(kind: .pairedEndMerge), operation],
+                operation: operation,
+                cachedStatistics: .placeholder(readCount: headers.count, baseCount: Int64(headers.count * 4)),
+                pairingMode: .singleEnd,
+                sequenceFormat: .fastq
+            ),
+            in: bundle
+        )
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(
+                ingestion: IngestionMetadata(pairingMode: .singleEnd, recipeApplied: recipe),
+                readClassification: roles
+            ),
+            for: fastqURL
+        )
+        return bundle
+    }
+
+    /// A merge in the lineage says single reads may be in the file, so mates
+    /// beside it scan as mixed. An output of a merge bundle that kept only the
+    /// unmerged pairs holds none, and its own sidecar counts say so, so the
+    /// counts outrank the lineage and the file scans as pairs. The hints carry
+    /// no merge evidence then.
+    func testACountOfOnlyPairsOutranksTheMergeInTheLineage() throws {
+        let headers = ["a/1", "a/2", "b/1", "b/2"]
+
+        let uncounted = try makeMergeLineageChild(headers: headers, roles: nil)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: uncounted).layout, .mixedInterleaved)
+
+        let counted = try makeMergeLineageChild(headers: headers, roles: pairsOnlyRoles(naming: "reads.fastq", pairs: 2))
+        let result = FASTQReadLayoutClassifier.classify(inputURL: counted)
+        XCTAssertEqual(result.layout, .strictlyInterleaved)
+        XCTAssertFalse(result.metadata.hasMergedOrUnpairedReads)
+        XCTAssertNil(result.metadata.mergeEvidence)
+        let primary = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: counted))
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: primary).layout, .strictlyInterleaved, "the file inside the bundle reads the same")
+    }
+
+    /// A count that names another file, a count that holds a merged or orphan
+    /// read, and no count at all leave the merge evidence as it was.
+    func testOnlyACountOfThisFilesPairsClearsTheMerge() throws {
+        let headers = ["a/1", "a/2", "b/1", "b/2"]
+        let otherFile = try makeMergeLineageChild(headers: headers, roles: pairsOnlyRoles(naming: "other.fastq", pairs: 2))
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: otherFile).layout, .mixedInterleaved)
+
+        let withMerged = ReadClassification(files: [
+            .init(filename: "reads.fastq", role: .pairedR1, readCount: 2),
+            .init(filename: "reads.fastq", role: .pairedR2, readCount: 2),
+            .init(filename: "reads.fastq", role: .merged, readCount: 1),
+        ])
+        let mixed = try makeMergeLineageChild(headers: headers, roles: withMerged)
+        let result = FASTQReadLayoutClassifier.classify(inputURL: mixed)
+        XCTAssertEqual(result.layout, .mixedInterleaved)
+        XCTAssertTrue(result.metadata.hasMergedOrUnpairedReads)
+
+        let withOrphan = ReadClassification(files: [
+            .init(filename: "reads.fastq", role: .pairedR1, readCount: 2),
+            .init(filename: "reads.fastq", role: .pairedR2, readCount: 2),
+            .init(filename: "reads.fastq", role: .unpaired, readCount: 1),
+        ])
+        let orphaned = try makeMergeLineageChild(headers: headers, roles: withOrphan)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: orphaned).layout, .mixedInterleaved)
+    }
+
+    /// A merge recipe whose merge left no merged read records the same count,
+    /// so its file holds pairs and runs as pairs.
+    func testAMergeRecipeThatLeftNoMergedReadScansAsPairsWhenItsCountSaysOnlyPairs() throws {
+        let recipe = RecipeAppliedInfo(
+            recipeID: "illuminaVSP2TargetEnrichment",
+            recipeName: "VSP2",
+            stepResults: [RecipeStepResult(stepName: "PE merge (normal, min overlap: 12)", tool: "fastp", durationSeconds: 1)]
+        )
+        let headers = ["a/1", "a/2", "b/1", "b/2"]
+        let uncounted = try makeMergeLineageChild(headers: headers, roles: nil, recipe: recipe)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: uncounted).layout, .mixedInterleaved)
+        let counted = try makeMergeLineageChild(
+            headers: headers,
+            roles: pairsOnlyRoles(naming: "reads.fastq", pairs: 2),
+            recipe: recipe
+        )
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: counted).layout, .strictlyInterleaved)
+    }
 }
