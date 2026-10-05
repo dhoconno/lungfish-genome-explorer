@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import Synchronization
 @testable import LungfishWorkflow
 import LungfishIO
 import LungfishTestSupport
@@ -34,6 +35,7 @@ final class FASTQBatchImporterCancellationTests: XCTestCase {
         }.value
 
         XCTAssertEqual(result.completed, 0)
+        XCTAssertTrue(result.cancelled)
         try assertNothingLeft()
     }
 
@@ -58,7 +60,59 @@ final class FASTQBatchImporterCancellationTests: XCTestCase {
         try assertNothingLeft()
     }
 
+    /// Re-review finding S6-4: a cancelled sample was reported as a failed
+    /// sample with a CancellationError text.
+    func testACancelledSampleIsReportedAsACancelNotAFailure() async throws {
+        let files = try writeRun("SRR9100003")
+        let config = config()
+        let events = EventLog()
+        let result = await Task.detached {
+            await FASTQBatchImporter.runBatchImport(
+                pairs: FASTQBatchImporter.detectPairs(from: files),
+                config: config,
+                log: { event in
+                    events.append(event)
+                    if case .stepComplete(_, let step, _) = event, step == "Compute statistics" {
+                        withUnsafeCurrentTask { $0?.cancel() }
+                    }
+                }
+            )
+        }.value
+
+        XCTAssertTrue(result.cancelled)
+        XCTAssertEqual(result.failed, 0, "a cancel is not a failure")
+        XCTAssertTrue(result.errors.isEmpty)
+        XCTAssertFalse(events.contains { if case .sampleFailed = $0 { true } else { false } }, "no sampleFailed line")
+    }
+
+    /// Re-review finding S6-3: a cancel that lands after the last sample was
+    /// published does not make the batch a cancelled one.
+    func testACancelAfterTheLastSampleIsPublishedLeavesTheBatchFinished() async throws {
+        let files = try writeRun("SRR9100004")
+        let config = config()
+        let result = await Task.detached {
+            await FASTQBatchImporter.runBatchImport(
+                pairs: FASTQBatchImporter.detectPairs(from: files),
+                config: config,
+                log: { event in
+                    if case .sampleComplete = event { withUnsafeCurrentTask { $0?.cancel() } }
+                }
+            )
+        }.value
+
+        XCTAssertEqual(result.completed, 1, "the sample was published")
+        XCTAssertFalse(result.cancelled, "every sample was published, so the batch was not cancelled")
+    }
+
     // MARK: - Helpers
+
+    private final class EventLog: Sendable {
+        private let events = Mutex<[ImportLogEvent]>([])
+        func append(_ event: ImportLogEvent) { events.withLock { $0.append(event) } }
+        func contains(where match: (ImportLogEvent) -> Bool) -> Bool {
+            events.withLock { $0.contains(where: match) }
+        }
+    }
 
     private func assertNothingLeft(file: StaticString = #filePath, line: UInt = #line) throws {
         let imports = project.appendingPathComponent("Imports", isDirectory: true)

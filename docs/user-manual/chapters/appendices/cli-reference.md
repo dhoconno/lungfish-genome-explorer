@@ -467,6 +467,8 @@ lungfish-cli import fastq [<options>] [<input> ...] --project <project>
 | `--name <name>` | Override the output bundle name. Only valid when exactly one sample is detected. |
 | `--recursive` | Recursively scan directories for FASTQ files. |
 
+A first SIGTERM cancels the import cleanly. The command starts no further samples, removes the hidden staging bundle and the working folder of the sample in progress, and exits with code 125. Bundles it already finished stay in the project. A second SIGTERM ends the command at once, so sending `kill` twice or using a timeout tool still stops it.
+
 ### `import-fastq`
 
 Is the same command as `import fastq`, reached by a shorter name, with the same flags. Explained in [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
