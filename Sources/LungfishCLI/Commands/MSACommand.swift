@@ -1893,14 +1893,14 @@ extension MSACommand {
                             actionID: actionID,
                             toolName: "lungfish msa distance",
                             argv: argv,
-                            reproducibleCommand: shellCommand(argv),
+                            reproducibleCommand: msaShellCommand(argv),
                             inputBundle: .init(
                                 path: bundleURL.path,
-                                checksumSHA256: bundleDigest(from: bundle.manifest),
+                                checksumSHA256: msaBundleDigest(from: bundle.manifest),
                                 fileSize: bundle.manifest.fileSizes.values.reduce(0, +)
                             ),
-                            inputAlignmentFile: fileRecord(at: fastaURL),
-                            outputFile: fileRecord(at: outputURL),
+                            inputAlignmentFile: msaFileRecord(at: fastaURL),
+                            outputFile: msaFileRecord(at: outputURL),
                             options: .init(
                                 outputFormat: "tsv",
                                 rows: rows,
@@ -2146,7 +2146,7 @@ private let supportedAlignmentExportFormats: Set<String> = [
 /// itself lives in `MSADistanceMatrix` (LungfishIO) so the GUI shows the same numbers.
 private let supportedMSADistanceModels: [String] = MSADistanceModel.allCases.map(\.rawValue)
 
-private struct MSAFileExportProvenance: Codable, Equatable {
+struct MSAFileExportProvenance: Codable, Equatable {
     struct RuntimeIdentity: Codable, Equatable {
         let executablePath: String?
         let operatingSystemVersion: String
@@ -2393,7 +2393,7 @@ func parseAlignedFASTA(at url: URL) throws -> [AlignedFASTARecord] {
     return records
 }
 
-private func selectAlignedRecords(
+func selectAlignedRecords(
     records: [AlignedFASTARecord],
     bundle: MultipleSequenceAlignmentBundle,
     rows: String?,
@@ -2584,7 +2584,7 @@ private func distanceMatrixWarnings(for matrix: MSADistanceMatrix) -> [String] {
     return warnings
 }
 
-private func validateRectangular(_ records: [AlignedFASTARecord]) throws {
+func validateRectangular(_ records: [AlignedFASTARecord]) throws {
     guard let expected = records.first?.sequence.count else { return }
     let unequal = records.filter { $0.sequence.count != expected }
     if unequal.isEmpty == false {
@@ -3031,6 +3031,12 @@ func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
     let data = try encoder.encode(value)
     try data.write(to: url, options: .atomic)
 }
+
+// Module-visible names for the MSA subcommands kept in their own files. The short names stay
+// private because TreeCommand.swift and ImportMSATreeSubcommands.swift declare their own.
+func msaShellCommand(_ argv: [String]) -> String { shellCommand(argv) }
+func msaBundleDigest(from manifest: MultipleSequenceAlignmentBundle.Manifest) -> String { bundleDigest(from: manifest) }
+func msaFileRecord(at url: URL) throws -> MSAFileExportProvenance.FileRecord { try fileRecord(at: url) }
 
 private func shellCommand(_ argv: [String]) -> String {
     argv.map(shellEscaped).joined(separator: " ")
