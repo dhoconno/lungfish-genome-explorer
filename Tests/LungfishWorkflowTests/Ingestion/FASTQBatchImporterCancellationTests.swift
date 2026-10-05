@@ -104,6 +104,80 @@ final class FASTQBatchImporterCancellationTests: XCTestCase {
         XCTAssertFalse(result.cancelled, "every sample was published, so the batch was not cancelled")
     }
 
+    /// Re-review finding S7-B1, task cancelled first. The cancel reaches the
+    /// storage tool, and the pipeline wraps the tool's error as
+    /// `clumpifyFailed`. The sample is still a cancel, so a single-sample
+    /// import exits 125 and not with a workflow error.
+    func testACancelWhileTheStorageToolRunsIsACancelNotAFailure() async throws {
+        let files = try writeRun("SRR9100005")
+        let config = config(optimizeStorage: true, clumpingTool: .bbtools)
+        let events = EventLog()
+        let result = await Task.detached {
+            await FASTQBatchImporter.runBatchImport(
+                pairs: FASTQBatchImporter.detectPairs(from: files),
+                config: config,
+                log: { event in
+                    events.append(event)
+                    if case .stepStart(_, let step, _, _) = event, step == "Optimize storage + Compress" {
+                        withUnsafeCurrentTask { $0?.cancel() }
+                    }
+                }
+            )
+        }.value
+
+        assertCancelNotFailure(result, events)
+        try assertNothingLeft()
+    }
+
+    /// Re-review finding S7-B1, step failed first. The window's process-tree
+    /// stop can end a tool before the CLI's own cancel lands, so the step
+    /// fails with the tool's error. Here the staging bundle vanishes as the
+    /// statistics step ends, and the cancel lands before the result is
+    /// classified.
+    func testAStepThatFailsJustBeforeTheCancelLandsIsACancelNotAFailure() async throws {
+        let files = try writeRun("SRR9100006")
+        let config = config()
+        let events = EventLog()
+        let project = project!
+        let result = await Task.detached {
+            await FASTQBatchImporter.runBatchImport(
+                pairs: FASTQBatchImporter.detectPairs(from: files),
+                config: config,
+                log: { event in
+                    events.append(event)
+                    if case .stepComplete(_, let step, _) = event, step == "Compute statistics" {
+                        Self.removeStagingBundles(in: project)
+                        withUnsafeCurrentTask { $0?.cancel() }
+                    }
+                }
+            )
+        }.value
+
+        assertCancelNotFailure(result, events)
+        try assertNothingLeft()
+    }
+
+    /// The same failed step with no cancel stays a failed sample.
+    func testAStepThatFailsWithoutACancelIsStillAFailure() async throws {
+        let files = try writeRun("SRR9100007")
+        let config = config()
+        let project = project!
+        let result = await Task.detached {
+            await FASTQBatchImporter.runBatchImport(
+                pairs: FASTQBatchImporter.detectPairs(from: files),
+                config: config,
+                log: { event in
+                    if case .stepComplete(_, let step, _) = event, step == "Compute statistics" {
+                        Self.removeStagingBundles(in: project)
+                    }
+                }
+            )
+        }.value
+
+        XCTAssertFalse(result.cancelled)
+        XCTAssertEqual(result.failed, 1, "the vanished staging bundle fails the sample")
+    }
+
     // MARK: - Helpers
 
     private final class EventLog: Sendable {
@@ -124,13 +198,45 @@ final class FASTQBatchImporterCancellationTests: XCTestCase {
         XCTAssertEqual(workspaces, [], "no import workspace", file: file, line: line)
     }
 
-    private func config() -> FASTQBatchImporter.ImportConfig {
+    private func config(
+        optimizeStorage: Bool = false,
+        clumpingTool: ClumpingTool? = nil
+    ) -> FASTQBatchImporter.ImportConfig {
         FASTQBatchImporter.ImportConfig(
             projectDirectory: project,
             platform: .given(.illumina),
             qualityBinning: QualityBinningScheme.none,
-            optimizeStorage: false,
+            optimizeStorage: optimizeStorage,
+            clumpingTool: clumpingTool,
             threads: 1
+        )
+    }
+
+    /// Removes the hidden staging bundle, as a step whose tool was ended
+    /// would leave the sample unable to finish.
+    private static func removeStagingBundles(in project: URL) {
+        let imports = project.appendingPathComponent("Imports", isDirectory: true)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: imports.path)) ?? []
+        for name in names where name.contains(".building-") {
+            try? FileManager.default.removeItem(at: imports.appendingPathComponent(name))
+        }
+    }
+
+    /// One sample, ended by a cancel. `lungfish-cli import fastq` exits 125
+    /// when `cancelled` is set, and the batch sends no `sampleFailed` line.
+    private func assertCancelNotFailure(
+        _ result: FASTQBatchImporter.ImportResult,
+        _ events: EventLog,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(result.cancelled, "the import was cancelled", file: file, line: line)
+        XCTAssertEqual(result.completed, 0, file: file, line: line)
+        XCTAssertEqual(result.failed, 0, "a cancel is not a failure", file: file, line: line)
+        XCTAssertTrue(result.errors.isEmpty, file: file, line: line)
+        XCTAssertFalse(
+            events.contains { if case .sampleFailed = $0 { true } else { false } },
+            "no sampleFailed line", file: file, line: line
         )
     }
 
