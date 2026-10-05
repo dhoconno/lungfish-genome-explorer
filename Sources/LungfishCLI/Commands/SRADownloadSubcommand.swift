@@ -33,6 +33,10 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
 
     @OptionGroup var globalOptions: GlobalOptions
 
+    /// Makes the service `run()` downloads with. A test binds one that
+    /// scripts ENA and the SRA Toolkit, so it reaches no network.
+    @TaskLocal static var makeService: @Sendable () -> SRAService = { SRAService() }
+
     func run() async throws {
         let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -55,7 +59,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
             }
         }
 
-        let service = SRAService()
+        let service = Self.makeService()
 
         do {
             let files: [URL]
@@ -163,7 +167,8 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
             "outputFormat": .string(globalOptions.outputFormat.rawValue),
             "quiet": .boolean(globalOptions.quiet),
             "containerRuntime": .string("none"),
-            "condaEnvironment": .string("managed sra-tools when --use-toolkit or fallback is selected")
+            // The SRA Toolkit runs in the managed sra-tools environment, as the window records.
+            "condaEnvironment": .string(trace.downloadSource.usesSRAToolkit ? "managed sra-tools" : "none")
         ]
     }
 
