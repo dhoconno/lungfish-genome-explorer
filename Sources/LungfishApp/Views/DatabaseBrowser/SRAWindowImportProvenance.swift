@@ -22,6 +22,7 @@ func writeGUISRAFASTQImportProvenance(
     readRecord: ENAReadRecord?,
     downloadSource: String,
     preferredSource: SRADownloadSourcePreference = .ena,
+    layoutWarning: String? = nil,
     enaDownloadSteps: [StepExecution],
     toolkitDownloadTraces: [SRAService.FASTQDownloadStepTrace],
     cliArguments: [String],
@@ -107,6 +108,9 @@ func writeGUISRAFASTQImportProvenance(
         "finalBundlePath": .string(bundleURL.standardizedFileURL.path),
         "finalFASTQPath": .string(finalFASTQURL.standardizedFileURL.path)
     ]
+    if let layoutWarning {
+        parameters["layoutWarning"] = .string(layoutWarning)
+    }
     if let stagedReadCounts {
         parameters["stagingInputReadCounts"] = .dictionary(Dictionary(
             stagedReadCounts.map { ($0.key.standardizedFileURL.path, ParameterValue.integer($0.value)) },

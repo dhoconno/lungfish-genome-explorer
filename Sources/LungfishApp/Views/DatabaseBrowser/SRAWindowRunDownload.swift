@@ -410,6 +410,9 @@ struct SRAWindowStagedRun {
     /// NCBI's run info from the window's search, which the bundle's metadata
     /// keeps beside ENA's record.
     var ncbiRun: SRARunInfo? = nil
+    /// The line the row and the provenance log when the run arrived in a
+    /// layout its archive record does not list, or nil.
+    var layoutWarning: String? = nil
 
     /// Removes the run's folder and every file in it. The window calls it
     /// after the import and when the import fails, so no file of this run
@@ -445,8 +448,10 @@ extension SRAWindowRunDownload {
     /// removed. Once this returns, the caller removes the folder with
     /// `SRAWindowStagedRun.removeFolder()` after the import or on failure.
     ///
-    /// The run's layout comes from ENA's record. When ENA's record did not
-    /// arrive, NCBI's `ncbiRun` from the search gives it, and `log` says so.
+    /// ENA's record lists the run's layout. When it did not arrive, NCBI's
+    /// `ncbiRun` from the search gives the metadata, and `log` says so. A run
+    /// NCBI lists as paired that arrived as one file imports as single-end
+    /// reads with `SRAWindowStagedRun.layoutWarning` naming the mismatch.
     ///
     /// - Parameters:
     ///   - lookUpRoute: As for `download(accession:preference:lookUpRoute:into:mirrorFile:toolkit:log:)`.
@@ -482,16 +487,25 @@ extension SRAWindowRunDownload {
             if download.enaRecord == nil, let gap = download.enaRecordGap {
                 log(ncbiRun == nil
                     ? "ENA's record of \(accession) is missing (\(gap)), so the run is imported without ENA metadata."
-                    : "ENA's record of \(accession) is missing (\(gap)), so NCBI's record gives the run's layout and metadata.")
+                    : "ENA's record of \(accession) is missing (\(gap)), so NCBI's record gives the run's metadata.")
             }
-            let listedAsPaired = download.enaRecord.map(\.isPaired)
-                ?? (ncbiRun?.libraryLayout?.uppercased() == "PAIRED")
+            // Only ENA's record refuses a lone mate 1. NCBI's layout names the
+            // mismatch but keeps the earlier outcome, single-end reads, until
+            // sub-phase 2.1 decides whether to refuse such runs.
             let reads = try SRAWindowRunReads(
                 stagedFiles: download.fastqFiles,
                 accession: accession,
-                listedAsPaired: listedAsPaired
+                listedAsPaired: download.enaRecord?.isPaired == true
             )
-            return SRAWindowStagedRun(folder: folder, download: download, reads: reads, ncbiRun: ncbiRun)
+            var layoutWarning: String?
+            if download.enaRecord == nil, reads.r2 == nil, ncbiRun?.libraryLayout?.uppercased() == "PAIRED" {
+                let line = "NCBI lists \(accession) as paired but only one read file arrived; imported as single-end reads"
+                log(line)
+                layoutWarning = line
+            }
+            return SRAWindowStagedRun(
+                folder: folder, download: download, reads: reads, ncbiRun: ncbiRun, layoutWarning: layoutWarning
+            )
         } catch {
             try? FileManager.default.removeItem(at: folder)
             throw error

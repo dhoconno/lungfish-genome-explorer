@@ -2999,7 +2999,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         try writeGUISRAFASTQImportProvenance(
                             accession: record.accession,
                             readRecord: readRecord,
-                            downloadSource: downloadSource, preferredSource: staged.download.preference,
+                            downloadSource: downloadSource, preferredSource: staged.download.preference, layoutWarning: staged.layoutWarning,
                             enaDownloadSteps: enaDownloadSteps,
                             toolkitDownloadTraces: toolkitTraceCollector.steps,
                             cliArguments: args,

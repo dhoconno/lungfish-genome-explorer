@@ -266,8 +266,66 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
         XCTAssertNotNil(staged.reads.r2, "the run imports as pairs")
     }
 
+    /// Orchestrator ruling on lane S2: when ENA's record is missing and NCBI
+    /// lists the run as paired but only mate 1 arrived, the run still imports
+    /// as single-end reads, as before, and the row and the provenance name
+    /// the mismatch. Whether to refuse such runs is sub-phase 2.1's call.
+    func testALoneMateOneOfARunNCBIListsAsPairedImportsAsSingleEndWithAWarning() async throws {
+        let lines = Lines()
+        let ncbiRun = try JSONDecoder().decode(SRARunInfo.self, from: Data("""
+        {"accession": "\(Self.run)", "platform": "ILLUMINA", "libraryLayout": "PAIRED"}
+        """.utf8))
+        let staged = try await SRAWindowRunDownload.stage(
+            accession: Self.run,
+            preference: .ncbi,
+            ncbiRun: ncbiRun,
+            in: root.appendingPathComponent("batch", isDirectory: true),
+            lookUpRoute: { throw URLError(.cannotFindHost) },
+            mirrorFile: { _, _, _ in Self.gzipStream },
+            toolkit: { _, folder in
+                let mate1 = folder.appendingPathComponent("\(Self.run)_1.fastq")
+                try Data("@r1\nAC\n+\nII\n".utf8).write(to: mate1)
+                return [mate1]
+            },
+            log: { lines.append($0) }
+        )
+        defer { staged.removeFolder() }
+        XCTAssertNil(staged.reads.r2, "the run imports as single-end reads, as before")
+        let expected = "NCBI lists \(Self.run) as paired but only one read file arrived; imported as single-end reads"
+        XCTAssertEqual(staged.layoutWarning, expected)
+        XCTAssertTrue(lines.values.contains(expected), "\(lines.values)")
+
+        let bundle = root.appendingPathComponent("\(Self.run).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let fastq = bundle.appendingPathComponent("reads.fastq.gz")
+        try Data().write(to: fastq)
+        try writeGUISRAFASTQImportProvenance(
+            accession: Self.run,
+            readRecord: nil,
+            downloadSource: staged.download.source.rawValue,
+            preferredSource: staged.download.preference,
+            layoutWarning: staged.layoutWarning,
+            enaDownloadSteps: [],
+            toolkitDownloadTraces: [],
+            cliArguments: ["import", "fastq"],
+            cliStartedAt: Date(timeIntervalSince1970: 0),
+            cliCompletedAt: Date(timeIntervalSince1970: 1),
+            stagedFASTQFiles: staged.reads.files,
+            finalFASTQURL: fastq,
+            bundleURL: bundle,
+            platform: "illumina",
+            recipeName: nil,
+            qualityBinning: "none",
+            optimizeStorage: false,
+            compressionLevel: "fast",
+            cliBinaryPath: { URL(fileURLWithPath: "/injected/lungfish-cli") }
+        )
+        let run = try XCTUnwrap(ProvenanceRecorder.load(from: bundle))
+        XCTAssertEqual(run.parameters["layoutWarning"], .string(expected))
+    }
+
     /// When ENA never answers, the import waits a bounded time, then NCBI's
-    /// record from the search gives the run's layout and metadata, and the
+    /// record from the search gives the run's metadata, and the
     /// row says so.
     func testPreferNCBIFallsBackToNCBIsRecordWhenENANeverAnswers() async throws {
         let lines = Lines()
@@ -294,8 +352,8 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
         defer { staged.removeFolder() }
         XCTAssertNil(staged.download.enaRecord)
         XCTAssertEqual(staged.ncbiRun?.platform, "ILLUMINA", "NCBI's record reaches the bundle's metadata")
-        XCTAssertNotNil(staged.reads.r2, "NCBI's layout keeps the run paired")
-        XCTAssertTrue(lines.values.contains { $0.contains("NCBI's record gives the run's layout") }, "\(lines.values)")
+        XCTAssertNotNil(staged.reads.r2, "both mates arrived, so the run imports as pairs")
+        XCTAssertTrue(lines.values.contains { $0.contains("NCBI's record gives the run's metadata") }, "\(lines.values)")
     }
 
     /// When the toolkit fails, the download waits for ENA's lookup and the
