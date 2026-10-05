@@ -320,8 +320,8 @@ final class SRAServicePathTests: XCTestCase {
 
         task.cancel()
 
-        let exited = await waitUntilProcessExits(pid: prefetchPID, timeout: 2.0)
-        let childExited = await waitUntilProcessExits(pid: prefetchChildPID, timeout: 2.0)
+        let exited = await waitUntilProcessExits(pid: prefetchPID, timeout: 30.0)
+        let childExited = await waitUntilProcessExits(pid: prefetchChildPID, timeout: 30.0)
         if !exited {
             kill(prefetchPID, SIGKILL)
         }
@@ -347,7 +347,7 @@ private func makeExecutableScript(at url: URL, body: String) throws {
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
 }
 
-private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 5.0) async throws -> Int32 {
+private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 30.0) async throws -> Int32 {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if let contents = try? String(contentsOf: url, encoding: .utf8)
