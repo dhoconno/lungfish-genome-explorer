@@ -3,13 +3,18 @@ import Foundation
 import SQLite3
 
 enum TreeNormalizer {
-    static func normalizedTree(from root: ParsedTreeNode, rooted: Bool) -> PhylogeneticTreeNormalizedTree {
+    static func normalizedTree(
+        from root: ParsedTreeNode,
+        rooted: Bool,
+        supportLabels: [String]? = nil
+    ) -> PhylogeneticTreeNormalizedTree {
         var nodes: [PartialNode] = []
         _ = collect(
             node: root,
             parentID: nil,
             path: "root",
             cumulativeDivergence: 0,
+            supportLabels: supportLabels ?? [],
             nodes: &nodes
         )
         let finalNodes = nodes.map { partial in
@@ -24,7 +29,8 @@ enum TreeNormalizer {
                 cumulativeDivergence: partial.cumulativeDivergence,
                 metadata: partial.metadata,
                 support: partial.support,
-                descendantTipCount: partial.descendantTipCount
+                descendantTipCount: partial.descendantTipCount,
+                supportValues: partial.supportValues
             )
         }
         return PhylogeneticTreeNormalizedTree(schemaVersion: 1, treeID: "tree-1", rooted: rooted, nodes: finalNodes)
@@ -35,6 +41,7 @@ enum TreeNormalizer {
         parentID: String?,
         path: String,
         cumulativeDivergence: Double,
+        supportLabels: [String],
         nodes: inout [PartialNode]
     ) -> (id: String, descendantTipCount: Int) {
         let id = stableID(path: path, node: node)
@@ -47,13 +54,15 @@ enum TreeNormalizer {
                 parentID: id,
                 path: "\(path).\(idx)",
                 cumulativeDivergence: nodeDivergence,
+                supportLabels: supportLabels,
                 nodes: &nodes
             )
             childIDs.append(childResult.id)
             descendantTipCount += childResult.descendantTipCount
         }
 
-        let support = supportValue(for: node)
+        let supportValues = typedSupportValues(for: node, labels: supportLabels)
+        let support = supportValue(for: node, labels: supportLabels, typedValues: supportValues)
         nodes.insert(
             PartialNode(
                 id: id,
@@ -66,7 +75,8 @@ enum TreeNormalizer {
                 cumulativeDivergence: parentID == nil ? 0 : nodeDivergence,
                 metadata: node.metadata,
                 support: support,
-                descendantTipCount: descendantTipCount
+                descendantTipCount: descendantTipCount,
+                supportValues: supportValues
             ),
             at: 0
         )
@@ -79,11 +89,38 @@ enum TreeNormalizer {
         return "node-\(digest.prefix(16))"
     }
 
-    private static func supportValue(for node: ParsedTreeNode) -> PhylogeneticTreeSupport? {
+    /// Splits an internal label such as "99.9/100" against the recorded labels. Returns no
+    /// values unless there is one numeric part per label.
+    private static func typedSupportValues(for node: ParsedTreeNode, labels: [String]) -> [PhylogeneticTreeSupportValue] {
+        guard !labels.isEmpty, !node.children.isEmpty, let raw = node.rawLabel else { return [] }
+        let parts = raw.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == labels.count else { return [] }
+        var values: [PhylogeneticTreeSupportValue] = []
+        for (label, part) in zip(labels, parts) {
+            guard let value = Double(part), value.isFinite else { return [] }
+            values.append(PhylogeneticTreeSupportValue(label: label, rawValue: part, value: value))
+        }
+        return values
+    }
+
+    private static func supportValue(
+        for node: ParsedTreeNode,
+        labels: [String],
+        typedValues: [PhylogeneticTreeSupportValue]
+    ) -> PhylogeneticTreeSupport? {
         if let posterior = node.metadata["posterior"] {
             return PhylogeneticTreeSupport(rawValue: posterior, interpretation: "posterior")
         }
         guard !node.children.isEmpty, let raw = node.rawLabel else { return nil }
+        if !labels.isEmpty {
+            // With labels recorded the label names the test, so no value is guessed to be a
+            // posterior or a bootstrap from its range.
+            let primary = typedValues.first { $0.label == PhylogeneticTreeSupportLabel.ufBoot } ?? typedValues.first
+            guard let primary else {
+                return PhylogeneticTreeSupport(rawValue: raw, interpretation: "unknown")
+            }
+            return PhylogeneticTreeSupport(rawValue: primary.rawValue, interpretation: primary.label)
+        }
         guard let value = Double(raw) else {
             return PhylogeneticTreeSupport(rawValue: raw, interpretation: "unknown")
         }
@@ -108,6 +145,7 @@ enum TreeNormalizer {
         let metadata: [String: String]
         let support: PhylogeneticTreeSupport?
         let descendantTipCount: Int
+        let supportValues: [PhylogeneticTreeSupportValue]
     }
 }
 
@@ -145,21 +183,32 @@ enum NewickWriter {
             result += "(" + node.children.map(writeNode).joined(separator: ",") + ")"
         }
         if !node.displayLabel.isEmpty {
-            result += escapedLabel(node.displayLabel)
+            result += NewickLabel.quotedIfNeeded(node.displayLabel)
         } else if let rawLabel = node.rawLabel {
-            result += escapedLabel(rawLabel)
+            result += NewickLabel.quotedIfNeeded(rawLabel)
         }
         if let branchLength = node.branchLength {
             result += ":\(branchLength)"
         }
         return result
     }
+}
 
-    private static func escapedLabel(_ label: String) -> String {
-        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
-        if label.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+/// Newick label quoting shared by every writer in the tree bundle (primary.nwk, reroot,
+/// relabel and subtree export), so display names round-trip through `NewickParser`.
+enum NewickLabel {
+    /// Letters, digits, "_", ".", "-" and "/" are written bare. "/" is not a Newick
+    /// metacharacter and keeps IQ-TREE support pairs such as "99.9/100" unquoted. Any other
+    /// label, including one with whitespace, ",", "(", ")", ":", ";", "[", "]" or "'", is
+    /// single-quoted with embedded quotes doubled.
+    static func quotedIfNeeded(_ label: String) -> String {
+        if label.unicodeScalars.allSatisfy({ bareCharacters.contains($0) }) {
             return label
         }
         return "'" + label.replacingOccurrences(of: "'", with: "''") + "'"
     }
+
+    private static let bareCharacters = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-/"
+    )
 }
