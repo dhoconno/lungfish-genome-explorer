@@ -433,6 +433,35 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
         XCTAssertEqual(try preparedOptions(state).outgroup, [])
     }
 
+    /// Fix C1: the dialog splits the model on the first "+" like the CLI does.
+    func testCustomModelRejectsSelectionOnlyBaseWithSuffixes() {
+        let state = makeState(alignment: alignment())
+        state.modelChoice = .custom
+        for rejected in ["MF+MERGE", "testonly", "TESTNEWONLY+F", "mf"] {
+            state.customModel = rejected
+            XCTAssertFalse(state.isRunEnabled, rejected)
+        }
+        for accepted in ["TEST", "MFP+MERGE", "GTR+F+I+G4"] {
+            state.customModel = accepted
+            XCTAssertTrue(state.isRunEnabled, accepted)
+        }
+    }
+
+    /// Fix C1: curated flags in the advanced text block Run, as the CLI rejects them.
+    func testAdvancedParametersBlockCuratedFlags() {
+        let state = makeState(alignment: alignment())
+        let flags = ["-s", "--prefix", "-pre", "-m", "-T", "-nt", "--seed", "-seed", "-B", "-bb",
+                     "--ufboot", "--alrt", "-alrt", "-o", "-st", "--seqtype"]
+        for flag in flags {
+            state.extraIQTreeOptions = "\(flag)=4"
+            XCTAssertFalse(state.isRunEnabled, flag)
+        }
+        state.extraIQTreeOptions = "-T 4"
+        XCTAssertTrue(state.readinessText.contains("Remove -T from the additional parameters. Use Threads instead."))
+        state.extraIQTreeOptions = "-b=100 -bnni"
+        XCTAssertTrue(state.isRunEnabled)
+    }
+
     // MARK: - Recorded command
 
     /// Every option that exists on the lane C tip parses with the real CLI parser.
