@@ -215,12 +215,10 @@ final class SRAServiceTests: XCTestCase {
                 outputDir: outputDirectory
             )
             XCTFail("Expected the ENA download to fail when a mate is a directory listing")
-        } catch let error as SRAError {
-            guard case .downloadFailed(let message) = error else {
-                return XCTFail("Expected downloadFailed, got \(error)")
-            }
-            XCTAssertTrue(message.contains("SRR35517993_2.fastq.gz"), message)
-            XCTAssertTrue(message.lowercased().contains("html"), message)
+        } catch let error as ENAFASTQDownloadFailure {
+            XCTAssertEqual(error.fallbackSource, .sraToolkitAfterIncompleteMirror)
+            XCTAssertTrue(error.message.contains("SRR35517993_2.fastq.gz"), error.message)
+            XCTAssertTrue(error.message.lowercased().contains("html"), error.message)
         }
 
         let downloadRequests = await client.downloadRequestURLs

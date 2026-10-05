@@ -79,13 +79,60 @@ public extension ENAService {
 }
 
 /// Where one SRA run's FASTQ files came from, as the run's provenance and
-/// FASTQ metadata record it under `downloadSource`.
+/// FASTQ metadata record it under `downloadSource`. The window's download
+/// and `lungfish-cli fetch sra download` both fall back to the SRA Toolkit
+/// after any ENA failure but a cancellation, and both name the fallback with
+/// `toolkitFallback(after:)`, so they record the same names.
 public enum SRAFASTQDownloadSource: String, Sendable, CaseIterable {
     /// ENA's mirror served every file ENA lists for the run.
     case ena = "ENA"
-    /// The route skipped ENA, so the SRA Toolkit fetched the run from NCBI.
+    /// The download skipped ENA, so the SRA Toolkit fetched the run from
+    /// NCBI. It skips ENA when the route does, and `fetch sra download` also
+    /// when given `--use-toolkit`.
     case sraToolkit = "SRA Toolkit"
     /// A file from ENA's mirror failed the download check, so the SRA
     /// Toolkit fetched the whole run.
     case sraToolkitAfterIncompleteMirror = "SRA Toolkit (ENA mirror incomplete)"
+    /// A transfer from ENA's mirror broke off or answered an HTTP error, so
+    /// the SRA Toolkit fetched the whole run.
+    case sraToolkitAfterFailedTransfer = "SRA Toolkit (ENA transfer failed)"
+
+    /// The source a download records when its ENA download failed with
+    /// `error` and the SRA Toolkit fetches the whole run instead, or nil for
+    /// a cancellation, which stops the download.
+    ///
+    /// A file that fails `ENAFASTQDownloadValidator` names an incomplete
+    /// mirror, an `ENAFASTQDownloadFailure` names its own source, and any
+    /// other error, such as an HTTP error status, a dropped connection or a
+    /// file that cannot be written, names a failed transfer.
+    public static func toolkitFallback(after error: any Error) -> SRAFASTQDownloadSource? {
+        if isArchiveRequestCancellation(error) {
+            return nil
+        }
+        if let failure = error as? ENAFASTQDownloadFailure {
+            return failure.fallbackSource
+        }
+        if error is ENAFASTQDownloadValidator.Failure {
+            return .sraToolkitAfterIncompleteMirror
+        }
+        return .sraToolkitAfterFailedTransfer
+    }
+}
+
+/// Why ENA could not deliver a run's FASTQ files, with the source the SRA
+/// Toolkit fallback records. `SRAService.downloadFASTQFromENA` throws it.
+public struct ENAFASTQDownloadFailure: Error, LocalizedError, Sendable {
+    /// The source the run records when the SRA Toolkit fetches it instead.
+    public let fallbackSource: SRAFASTQDownloadSource
+    /// What went wrong, in one line.
+    public let message: String
+
+    public init(fallbackSource: SRAFASTQDownloadSource, message: String) {
+        self.fallbackSource = fallbackSource
+        self.message = message
+    }
+
+    public var errorDescription: String? {
+        "Download failed: \(message)"
+    }
 }

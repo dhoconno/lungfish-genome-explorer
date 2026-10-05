@@ -61,6 +61,34 @@ final class SRAWindowRunDownloadTests: XCTestCase {
         }
     }
 
+    // MARK: - A failed transfer falls back as `fetch sra download` does
+
+    func testHTTPErrorFromTheMirrorFallsBackToTheToolkitAsAFailedTransfer() async throws {
+        let run = try await Self.download(mirror: { url in
+            guard url.lastPathComponent.hasSuffix("_2.fastq.gz") else { return Self.gzipFixture }
+            throw DatabaseServiceError.serverError(message: "HTTP 500 downloading \(url.lastPathComponent)")
+        })
+
+        XCTAssertEqual(run.download.source.rawValue, "SRA Toolkit (ENA transfer failed)")
+        XCTAssertEqual(run.toolkitStatusLines, ["ENA transfer failed for SRR27069570; using SRA Toolkit..."])
+        XCTAssertEqual(run.download.fastqFiles, run.toolkitFiles)
+        XCTAssertEqual(run.download.enaSteps.count, 0)
+        XCTAssertEqual(run.stagedFiles, [], "no mate from ENA may stay beside the toolkit's files")
+    }
+
+    func testDroppedConnectionFallsBackToTheToolkitAsAFailedTransfer() async throws {
+        let run = try await Self.download(mirror: { url in
+            guard url.lastPathComponent.hasSuffix("_2.fastq.gz") else { return Self.gzipFixture }
+            throw URLError(.networkConnectionLost)
+        })
+
+        XCTAssertEqual(run.download.source.rawValue, "SRA Toolkit (ENA transfer failed)")
+        XCTAssertEqual(run.toolkitStatusLines, ["ENA transfer failed for SRR27069570; using SRA Toolkit..."])
+        XCTAssertEqual(run.download.fastqFiles, run.toolkitFiles)
+        XCTAssertEqual(run.download.enaSteps.count, 0)
+        XCTAssertEqual(run.stagedFiles, [], "no mate from ENA may stay beside the toolkit's files")
+    }
+
     // MARK: - Helpers
 
     /// An empty gzip stream, which passes the download check's magic-byte test.

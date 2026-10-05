@@ -282,7 +282,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **EMBL (sequence format)**{#embl}. The European Nucleotide Archive's annotated flat-file sequence format, the counterpart to GenBank, which Lungfish Genome Explorer accepts at `lungfish-cli import fasta` and converts into a reference bundle on import. See also GenBank, ENA, reference bundle.
 
-**ENA (European Nucleotide Archive)**{#ena}. The European mirror of the SRA, hosted at EMBL-EBI, and one of three INSDC partners (with NCBI SRA and DDBJ) that share deposited sequencing data. LGE downloads SRA runs from ENA first because ENA serves pre-converted FASTQs directly, and falls back to the NCBI SRA Toolkit when ENA's record of the run cannot be fetched or lists no FASTQ files, or a file ENA sends fails an integrity check. See also SRA.
+**ENA (European Nucleotide Archive)**{#ena}. The European mirror of the SRA, hosted at EMBL-EBI, and one of three INSDC partners (with NCBI SRA and DDBJ) that share deposited sequencing data. LGE downloads SRA runs from ENA first because ENA serves pre-converted FASTQs directly, and falls back to the NCBI SRA Toolkit after any ENA failure, such as a record that cannot be fetched or lists no FASTQ files, a file that fails an integrity check, or a transfer that breaks off. See also SRA.
 
 **End-to-end alignment**{#end-to-end-alignment}. An alignment in which every base of a read, from the first to the last, must be placed against the reference, so nothing is soft-clipped, which is Bowtie2's default mode and the reason a read with a damaged or foreign end scores lower under it than under a local aligner. See also local alignment, soft clip, mapper.
 
@@ -924,7 +924,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Spot**{#spot}. The archive's unit for one fragment the instrument read, so a paired-end run records one spot per pair of mates and its archive read count is half the number of reads in the downloaded files. See also paired-end, SRA, run accession.
 
-**SRA (Sequence Read Archive)**{#sra}. The NCBI public archive of raw sequencing reads, identified by accession numbers that start with `SRR` for runs and `SRP` for projects. LGE downloads SRA reads via the ENA mirror first and falls back to the NCBI SRA Toolkit when ENA's record of the run cannot be fetched or lists no FASTQ files, or a file ENA sends fails an integrity check. See also ENA, spot.
+**SRA (Sequence Read Archive)**{#sra}. The NCBI public archive of raw sequencing reads, identified by accession numbers that start with `SRR` for runs and `SRP` for projects. LGE downloads SRA reads via the ENA mirror first and falls back to the NCBI SRA Toolkit after any ENA failure, such as a record that cannot be fetched or lists no FASTQ files, a file that fails an integrity check, or a transfer that breaks off. See also ENA, spot.
 
 **Stale lock**{#stale-lock}. A project lock whose owning process is no longer running on this machine, which Lungfish Genome Explorer treats as safe to replace, so `project lock` overwrites one without complaint and `project unlock` removes one belonging to the current user without needing `--force`. Because a command-line lock's owning process exits the moment the command finishes, a lock taken that way is stale almost immediately. See also project lock, advisory lock, project.
 

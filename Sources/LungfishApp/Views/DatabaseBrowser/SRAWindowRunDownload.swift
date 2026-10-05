@@ -30,8 +30,11 @@ struct SRAWindowRunDownload {
     ///
     /// On the ENA route each file ENA lists is fetched with `mirrorFile` and
     /// checked with `ENAFASTQDownloadValidator`. When a file fails the check,
-    /// the files staged so far are discarded and `toolkit` fetches the whole
-    /// run with the SRA Toolkit.
+    /// a transfer breaks off or the mirror answers an HTTP error, the files
+    /// staged so far are discarded and `toolkit` fetches the whole run with
+    /// the SRA Toolkit, as `lungfish-cli fetch sra download` does. Both name
+    /// the fallback with `SRAFASTQDownloadSource.toolkitFallback(after:)`. A
+    /// cancellation stops the download instead.
     ///
     /// - Parameters:
     ///   - accession: The run accession.
@@ -116,16 +119,20 @@ struct SRAWindowRunDownload {
                 priorBytesDownloaded += fileExpectedBytes ?? Int64(data.count)
             }
             return SRAWindowRunDownload(fastqFiles: fastqFiles, source: .ena, enaSteps: enaSteps)
-        } catch let mirrorFailure as ENAFASTQDownloadValidator.Failure {
-            // The portal advertised a file the mirror does not
-            // hold. Discard the partial pair and fetch the run
-            // from NCBI via the SRA Toolkit instead.
-            logger.warning("startENADownloadTask: ENA mirror incomplete for \(accession, privacy: .public): \(mirrorFailure.localizedDescription, privacy: .public); falling back to SRA Toolkit")
+        } catch {
+            guard let fallbackSource = SRAFASTQDownloadSource.toolkitFallback(after: error) else {
+                throw error
+            }
+            // Discard the partial pair and fetch the run from NCBI via the
+            // SRA Toolkit instead.
+            logger.warning("startENADownloadTask: ENA download failed for \(accession, privacy: .public): \(error.localizedDescription, privacy: .public); falling back to SRA Toolkit")
             for stagedURL in fastqURLs {
                 try? FileManager.default.removeItem(at: batchDir.appendingPathComponent(stagedURL.lastPathComponent))
             }
-            let files = try await toolkit("ENA mirror is missing files for \(accession); using SRA Toolkit...")
-            return SRAWindowRunDownload(fastqFiles: files, source: .sraToolkitAfterIncompleteMirror, enaSteps: [])
+            let failure = fallbackSource == .sraToolkitAfterIncompleteMirror
+                ? "ENA mirror is missing files" : "ENA transfer failed"
+            let files = try await toolkit("\(failure) for \(accession); using SRA Toolkit...")
+            return SRAWindowRunDownload(fastqFiles: files, source: fallbackSource, enaSteps: [])
         }
     }
 }

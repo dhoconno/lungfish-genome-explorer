@@ -152,13 +152,13 @@ LGE prefers ENA and falls back to NCBI's SRA Toolkit. The two paths produce equi
 | What you get | FASTQ files already converted and compressed, over HTTPS | A `.sra` archive file, converted to FASTQ on your Mac |
 | Programs involved | A direct download, recorded as a `curl` command | `prefetch`, then `fasterq-dump` |
 | Typical speed | Usually limited by your network | Usually slower, because the conversion adds time |
-| When it fires in the window | First attempt for every run | LGE cannot fetch ENA's record of the run, the record lists no FASTQ files, or a file ENA sends fails LGE's check |
+| When it fires in the window | First attempt for every run | Any ENA failure, as on the command line |
 | When it fires on the command line | First attempt unless `--use-toolkit` is given | Any ENA failure, or `--use-toolkit` |
-| What the record says | `downloadSource` reads `ENA` | `downloadSource` reads `SRA Toolkit`, or `SRA Toolkit (ENA mirror incomplete)` |
+| What the record says | `downloadSource` reads `ENA` | `downloadSource` reads `SRA Toolkit`, `SRA Toolkit (ENA mirror incomplete)`, or `SRA Toolkit (ENA transfer failed)` |
 
 ENA serves FASTQ files directly because the European archive keeps the converted form beside each deposit. NCBI holds the same data in its own `.sra` format and converts on request. Both archives are [INSDC](../../GLOSSARY.md#insdc) partners, the international group that shares every deposit, so the reads underneath are the same either way.
 
-LGE checks every file ENA sends before it keeps it. A file is rejected when it turns out to be a web page rather than data, when it is empty, when it does not start the way a compressed file must, or when its size differs from the size ENA advertised for it. ENA's servers sometimes answer a request for a missing second mate with a page listing the folder instead, and this check is what catches it. When any file fails, LGE discards what arrived and fetches the whole run through the SRA Toolkit, so a half pair never reaches your bundle. In the window, a dropped connection partway through an ENA download ends the run with a failed row rather than switching to the toolkit, so start the download again.
+LGE checks every file ENA sends before it keeps it. A file is rejected when it turns out to be a web page rather than data, when it is empty, when it does not start the way a compressed file must, or when its size differs from the size ENA advertised for it. ENA's servers sometimes answer a request for a missing second mate with a page listing the folder instead, and this check is what catches it. When any file fails, LGE discards what arrived and fetches the whole run through the SRA Toolkit, so a half pair never reaches your bundle. A transfer that breaks off partway, or that ENA answers with an error, takes the same route, and the record then reads `SRA Toolkit (ENA transfer failed)`.
 
 To see which path ran, select the bundle and open the Inspector's Provenance tab. An ENA download shows one `curl` step per file, against an address under `ftp.sra.ebi.ac.uk`. A toolkit download shows a `prefetch` step and a `fasterq-dump` step with their full argument lists. The same answer sits in the [provenance sidecar](../../GLOSSARY.md#provenance-sidecar), the plain-text record file inside the bundle, as its `downloadSource` value. For this chapter's run, ENA served both files.
 
@@ -201,7 +201,7 @@ lungfish-cli import fastq \
   --project "$PROJECT" --platform illumina
 ```
 
-Three differences change what you get. `fetch sra download` writes loose files, `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`, plus one provenance sidecar named `.lungfish-provenance.json` in the output folder, and only `import fastq` turns them into a bundle. It also falls back to the SRA Toolkit after any ENA failure, where the window falls back only when it cannot fetch ENA's record of the run, the record lists no files, or a file fails the check. And `--limit` defaults to 20 where the window's Max Results defaults to 50. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The command it copies covers the download only, so add the `import fastq` step yourself.
+Two differences change what you get. `fetch sra download` writes loose files, `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`, plus one provenance sidecar named `.lungfish-provenance.json` in the output folder, and only `import fastq` turns them into a bundle. And `--limit` defaults to 20 where the window's Max Results defaults to 50. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The command it copies covers the download only, so add the `import fastq` step yourself.
 
 ## Next
 
