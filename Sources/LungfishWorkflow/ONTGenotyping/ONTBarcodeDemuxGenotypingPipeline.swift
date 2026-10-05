@@ -1955,7 +1955,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 resolvedFASTQs = [url]
             } else if FASTQBundle.isBundleURL(url) {
                 let readSetsDirectory = stagingDirectory.appendingPathComponent("read-sets", isDirectory: true)
-                planned = try await Self.plannedInputReads(for: url, readType: readType, workDirectory: readSetsDirectory)
+                planned = try await Self.plannedInputReads(for: url, readType: readType, workDirectory: readSetsDirectory, joinsChunks: readType == .ont)
                 resolvedFASTQs = planned?.fastqURLs ?? []
             } else if rawDirectoryInput {
                 resolvedFASTQs = Self.resolveRawFASTQDirectoryURLs(for: url)
