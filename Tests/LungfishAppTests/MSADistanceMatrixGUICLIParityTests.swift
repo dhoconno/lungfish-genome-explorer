@@ -8,6 +8,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishAlignmentUI
 import LungfishIO
+import LungfishKit
 import LungfishTestSupport
 
 /// Owner requirement: for every valid model, gap policy and order, the matrix
@@ -79,7 +80,8 @@ final class MSADistanceMatrixGUICLIParityTests: XCTestCase {
                     model.gaps = gaps
                     model.order = order
                     let wanted = MSADistanceOptions(model: distanceModel, gaps: gaps, order: order, alphabet: alphabet)
-                    await waitUntil { model.status == .ready && model.matrix?.options == wanted }
+                    await LungfishTestSupport.waitUntil(timeout: .seconds(20)) { model.status == .ready && model.matrix?.options == wanted }
+                    XCTAssertEqual(model.status, .ready, "status for \(wanted)", file: file, line: line)
                     let gui = try XCTUnwrap(controller.bottomPane.distancePane.matrixTSV, "\(wanted)", file: file, line: line)
                     let tag = "\(distanceModel.rawValue)-\(gaps.rawValue)-\(order.rawValue)"
                     let cli = try cliTSV(bundleURL: bundleURL, options: model.options, tag: tag)
@@ -94,6 +96,36 @@ final class MSADistanceMatrixGUICLIParityTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    /// The export the pane, View > Distance Matrix and File > Export share
+    /// records a command that parses back to the on-screen options.
+    func testExportCoordinatorRunRecordsAParsableCommandWithTheOnScreenOptions() async throws {
+        let bundleURL = try bundle(">a\nACGT\n>b\nACGA\n", name: "export")
+        let outputURL = temporaryDirectory.appendingPathComponent("export-k2p.tsv")
+        let options = MSADistanceOptions(model: .k2p, gaps: .complete, order: .averageLinkage, alphabet: .nucleotide)
+        XCTAssertEqual(
+            MSADistanceMatrixExportCoordinator.suggestedFileName(bundleURL: bundleURL, options: options),
+            "export-k2p.tsv"
+        )
+        let operationID = try XCTUnwrap(MSADistanceMatrixExportCoordinator.run(
+            bundleURL: bundleURL,
+            options: options,
+            outputURL: outputURL,
+            windowStateScope: nil,
+            runner: CLIMSAActionRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true"))
+        ))
+        let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == operationID })
+        let command = try XCTUnwrap(row.cliCommand)
+        let parsed = try RecordedCLICommand.parse(command, as: MSACommand.DistanceSubcommand.self)
+        XCTAssertEqual(parsed.bundlePath, bundleURL.path)
+        XCTAssertEqual(parsed.model, "k2p")
+        XCTAssertEqual(parsed.gaps, "complete")
+        XCTAssertEqual(parsed.order, "average-linkage")
+        XCTAssertEqual(parsed.outputPath, outputURL.path)
+        // The stand-in CLI reports no output, so the row ends as failed. Wait
+        // for that before the next test so no runner outlives this one.
+        await LungfishTestSupport.waitUntil(timeout: .seconds(20)) { OperationCenter.shared.items.first { $0.id == operationID }?.finishedAt != nil }
     }
 
     func testNucleotidePaneMatchesCLIForEveryModelGapPolicyAndOrder() async throws {

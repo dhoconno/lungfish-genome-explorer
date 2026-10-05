@@ -49,7 +49,7 @@ final class MSABottomPaneTests: XCTestCase {
     }
 
     private func waitForMatrix(_ controller: MultipleSequenceAlignmentViewController) async {
-        await waitUntil { controller.bottomPane.distancePane.model.status == .ready }
+        await LungfishTestSupport.waitUntil(timeout: .seconds(20)) { controller.bottomPane.distancePane.model.status == .ready }
     }
 
     // MARK: Pane state
@@ -242,7 +242,7 @@ final class MSABottomPaneTests: XCTestCase {
         }.joined()
         let controller = try await controller(bundleURL: try bundle(rows, name: "two-hundred"))
         controller.showDistanceMatrix()
-        await waitUntil(timeout: .seconds(30)) { controller.bottomPane.distancePane.model.status == .ready }
+        await LungfishTestSupport.waitUntil(timeout: .seconds(30)) { controller.bottomPane.distancePane.model.status == .ready }
         let grid = controller.bottomPane.distancePane.gridView
         let clock = ContinuousClock()
         var count = 0

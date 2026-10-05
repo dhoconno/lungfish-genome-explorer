@@ -218,7 +218,7 @@ final class InspectorSectionAccessibilityTests: XCTestCase {
             },
             "no Show Distance Matrix button; tree:\n" + AccessibilityTreeProbe.dump(window)
         )
-        button.accessibilityPerformAction(.press)
+        XCTAssertTrue(AccessibilityTreeProbe.press(button), "the button answers AXPress")
         AccessibilityTreeProbe.waitUntil { showCount == 1 }
         XCTAssertEqual(showCount, 1)
     }
