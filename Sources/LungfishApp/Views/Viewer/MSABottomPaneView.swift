@@ -129,17 +129,41 @@ final class MSABottomPaneView: NSView {
         linkKeyViewLoop(after: anchor, before: anchor.nextKeyView)
     }
 
-    /// Links `previous` to the divider, the tab control, the Distances
-    /// controls, the grid, then `next`. A nil `next` leaves the grid's next
-    /// view unset so AppKit continues with the window's loop. Only
-    /// `next.previousKeyView` changes outside the pane, so `previous` keeps
-    /// its own previous view. Hidden content is skipped by AppKit, so the
-    /// same links serve both tabs.
+    /// Where Tab goes from the pane's last view, set when the pane is linked.
+    private weak var keyViewExit: NSView?
+    /// The anchor's previous view, kept when the exit is the anchor itself.
+    private weak var anchorPreviousKeyView: NSView?
+
+    /// Links `previous` to the divider, the tab control, the visible tab's
+    /// content, then `next`. With no `next`, Tab from the pane returns to
+    /// `previous`, so the grid and the table are never a dead end
+    /// (re-review SF-A). Outside the pane only `next.previousKeyView`
+    /// changes, and `previous` keeps its own previous view.
     func linkKeyViewLoop(after previous: NSView, before next: NSView?) {
+        let anchorPrevious = previous.previousKeyView
         previous.nextKeyView = divider
         divider.nextKeyView = tabControl
-        tabControl.nextKeyView = distancePane.firstKeyView
-        distancePane.lastKeyView.nextKeyView = next
+        keyViewExit = next ?? previous
+        anchorPreviousKeyView = next == nil ? anchorPrevious : nil
+        routeKeyViewLoopToVisibleTab()
+    }
+
+    /// Sends the tab control to the visible tab's content. The hidden tab's
+    /// last view links to the exit first, so Shift-Tab from the exit returns
+    /// to the visible one.
+    private func routeKeyViewLoopToVisibleTab() {
+        guard let exit = keyViewExit else { return }
+        let table: NSView = annotationDrawer.tableView
+        let grid = distancePane.lastKeyView
+        let showsTable = visibleTab == .annotations
+        (showsTable ? grid : table).nextKeyView = exit
+        (showsTable ? table : grid).nextKeyView = exit
+        tabControl.nextKeyView = showsTable ? table : distancePane.firstKeyView
+        if let anchorPrevious = anchorPreviousKeyView, anchorPrevious.nextKeyView === exit {
+            // Re-linking gives the exit back its own previous view.
+            anchorPrevious.nextKeyView = nil
+            anchorPrevious.nextKeyView = exit
+        }
     }
 
     var hasPendingDistanceInput: Bool { pendingDistanceInput != nil }
@@ -182,6 +206,7 @@ final class MSABottomPaneView: NSView {
         divider.onResize = { [weak self] delta in self?.resize(by: delta, persist: false) }
         divider.onFinishResize = { [weak self] in self?.persistHeight() }
         divider.currentHeight = { [weak self] in self?.heightConstraint.constant ?? 0 }
+        distancePane.onMatrixShown = { [weak self] in self?.growToFitDistances() }
 
         headerStrip.translatesAutoresizingMaskIntoConstraints = false
         headerStrip.clipsToBounds = true
@@ -255,6 +280,36 @@ final class MSABottomPaneView: NSView {
         return stored >= Self.minimumHeight ? stored : Self.defaultHeight
     }
 
+    /// Matrix rows the Distances tab shows on first open, before the user
+    /// has chosen a height.
+    static let firstOpenDistanceRows = 6
+    /// Matrix rows the Distances tab always shows, even at a stored height.
+    static let minimumDistanceRows = 2
+
+    private var hasStoredHeight: Bool {
+        CGFloat(defaults.double(forKey: DefaultsKey.height)) >= Self.minimumHeight
+    }
+
+    /// The open height the Distances tab needs to show its column header and
+    /// enough rows: six before the user picks a height, two after. Nil while
+    /// no matrix is on screen. Not clamped.
+    var distancesFittingHeight: CGFloat? {
+        let rows = hasStoredHeight ? Self.minimumDistanceRows : Self.firstOpenDistanceRows
+        guard let fit = distancePane.fittingHeight(rows: rows) else { return nil }
+        return AnnotationDrawerSizing.dividerHeight + Self.headerHeight + fit
+    }
+
+    /// Grows an open Distances tab that is too short for its column header
+    /// and rows. A taller height, stored or dragged, stays. The grown height
+    /// is not stored, so it never overrides the user's own choice.
+    func growToFitDistances() {
+        guard isOpen, visibleTab == .distances, let fit = distancesFittingHeight else { return }
+        let target = Self.clampedHeight(fit, hostHeight: hostHeight)
+        guard heightConstraint.constant < target else { return }
+        heightConstraint.constant = target
+        superview?.layoutSubtreeIfNeeded()
+    }
+
     /// The visible tab: Distances falls back to Annotations while unavailable.
     var visibleTab: Tab {
         selectedTab == .distances && !isDistancesAvailable ? .annotations : selectedTab
@@ -276,6 +331,7 @@ final class MSABottomPaneView: NSView {
     }
 
     func select(_ tab: Tab) {
+        defer { growToFitDistances() }
         guard tab != selectedTab else {
             showContent()
             return
@@ -305,7 +361,9 @@ final class MSABottomPaneView: NSView {
         let changed = open != isOpen
         isOpen = open
         if persist { defaults.set(open, forKey: DefaultsKey.isOpen) }
-        let target = open ? Self.clampedHeight(preferredOpenHeight, hostHeight: hostHeight) : 0
+        var openHeight = preferredOpenHeight
+        if visibleTab == .distances, let fit = distancesFittingHeight { openHeight = max(openHeight, fit) }
+        let target = open ? Self.clampedHeight(openHeight, hostHeight: hostHeight) : 0
         if open { isHidden = false }
         let duration = animated && !reduceMotion() ? Self.animationDuration : 0
         lastAnimationDuration = duration
@@ -337,6 +395,7 @@ final class MSABottomPaneView: NSView {
         if tabControl.selectedSegment != tab.rawValue {
             tabControl.selectedSegment = tab.rawValue
         }
+        routeKeyViewLoopToVisibleTab()
     }
 
     @objc private func tabControlChanged(_ sender: NSSegmentedControl) {

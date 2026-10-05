@@ -22,6 +22,19 @@ public final class MSADistanceMatrixPaneView: NSView {
     public var onExportRequested: ((MSADistanceOptions) -> Void)?
     /// Focused pair breakdown for the Inspector: detail, row name, column name.
     public var onFocusedPairChanged: ((MSAPairDetail?, String, String) -> Void)?
+    /// A new matrix is on screen, so `fittingHeight(rows:)` can answer.
+    public var onMatrixShown: (() -> Void)?
+
+    /// The pane height that shows the button bar, the rotated column header,
+    /// `rows` matrix rows (at most the matrix size) and the footer. Nil until
+    /// a matrix is ready, since the header height depends on its names.
+    public func fittingHeight(rows: Int) -> CGFloat? {
+        guard let matrix = model.matrix, !columnHeaderView.names.isEmpty else { return nil }
+        let barHeight = ceil(max(28, headerBar.fittingSize.height))
+        let footerHeight = ceil(max(20, footerLabel.fittingSize.height + 4))
+        let shownRows = CGFloat(min(max(rows, 1), matrix.names.count))
+        return barHeight + columnHeaderView.preferredHeight() + shownRows * gridView.cellSide + footerHeight
+    }
 
     public var maxRowsForInlineMatrix: Int {
         get { model.maxRowsForInlineMatrix }
@@ -115,9 +128,14 @@ public final class MSADistanceMatrixPaneView: NSView {
     /// show or after a recompute, shows it too (review S5).
     public func reflectAlignmentSelection(_ recordIndices: IndexSet) {
         alignmentSelection = recordIndices
+        alignmentSelectionIsFromMatrix = false
+        showAlignmentSelectionInGrid()
+    }
+
+    private func showAlignmentSelectionInGrid() {
         guard let matrix = model.matrix else { return }
         var positions = IndexSet()
-        for (position, record) in matrix.recordIndices.enumerated() where recordIndices.contains(record) {
+        for (position, record) in matrix.recordIndices.enumerated() where alignmentSelection.contains(record) {
             positions.insert(position)
         }
         gridView.reflectSequences(positions)
@@ -126,6 +144,12 @@ public final class MSADistanceMatrixPaneView: NSView {
     /// The alignment's row selection as input record indices, last reported
     /// by the alignment or made from the matrix.
     public private(set) var alignmentSelection = IndexSet()
+
+    /// True when the matrix made `alignmentSelection`, so the alignment holds
+    /// those rows whole. A selection made in the alignment, such as one base,
+    /// is false, so a matrix click on the same rows still replaces it
+    /// (re-review SF-B).
+    private var alignmentSelectionIsFromMatrix = false
 
     /// Shows an error in place of the matrix when the alignment cannot be
     /// read, such as a manifest with no readable alphabet.
@@ -259,7 +283,12 @@ public final class MSADistanceMatrixPaneView: NSView {
             let records = IndexSet(selection.sequenceIndices.compactMap {
                 matrix.recordIndices.indices.contains($0) ? matrix.recordIndices[$0] : nil
             })
+            // The alignment hears only a change to what it shows (review N3).
+            // Comparing in record space against the alignment's own selection
+            // keeps a reveal or an alignment click from hiding the change.
+            guard records != self.alignmentSelection || !self.alignmentSelectionIsFromMatrix else { return }
             self.alignmentSelection = records
+            self.alignmentSelectionIsFromMatrix = true
             self.onSequencesSelected?(records)
         }
         gridView.onFocusChanged = { [weak self] focus in self?.focusChanged(focus) }
@@ -269,6 +298,7 @@ public final class MSADistanceMatrixPaneView: NSView {
             let second = matrix.recordIndices[cell.column]
             // The reveal selects both rows in the alignment (review N1).
             self.alignmentSelection = IndexSet([first, second])
+            self.alignmentSelectionIsFromMatrix = true
             self.onRevealPair?(first, second)
         }
         gridView.onCopyMatrix = { [weak self] in self?.copyMatrixPressed(nil) }
@@ -307,14 +337,16 @@ public final class MSADistanceMatrixPaneView: NSView {
         showValuesCheckbox.state = model.showsValues ? .on : .off
 
         let matrix = model.matrix
-        if model.matrixRevision != shownMatrixRevision {
+        let showsNewMatrix = model.matrixRevision != shownMatrixRevision
+        defer { if showsNewMatrix, matrix != nil { onMatrixShown?() } }
+        if showsNewMatrix {
             shownMatrixRevision = model.matrixRevision
             gridView.setMatrix(matrix)
             rowHeaderView.names = matrix?.names ?? []
             columnHeaderView.names = matrix?.names ?? []
             focusChanged(nil)
             if matrix != nil, !alignmentSelection.isEmpty {
-                reflectAlignmentSelection(alignmentSelection)
+                showAlignmentSelectionInGrid()
             }
         }
         gridView.colorScale = model.colorScale

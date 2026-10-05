@@ -20,6 +20,12 @@ enum MSADistanceMatrixExportCoordinator {
         "\(bundleURL.deletingPathExtension().lastPathComponent)-\(options.model.rawValue).tsv"
     }
 
+    /// The folder the save sheet opens in: the project's Analyses folder, as
+    /// the Discriminating Sites export does. Nil outside a project.
+    static func suggestedDirectory(bundleURL: URL) -> URL? {
+        ProjectTempDirectory.findProjectRoot(bundleURL)?.appendingPathComponent("Analyses", isDirectory: true)
+    }
+
     /// Shows the save sheet on `window`, then starts the export.
     static func export(
         bundleURL: URL,
@@ -34,6 +40,7 @@ enum MSADistanceMatrixExportCoordinator {
         panel.nameFieldStringValue = suggestedFileName(bundleURL: bundleURL, options: options)
         panel.allowedContentTypes = [.tabSeparatedText]
         panel.canCreateDirectories = true
+        panel.directoryURL = suggestedDirectory(bundleURL: bundleURL)
         // Completion-handler presentation, never an awaited sheet inside a
         // MainActor task (AppKitConcurrencyModalSafetyTests).
         panel.beginSheetModal(for: window) { response in
