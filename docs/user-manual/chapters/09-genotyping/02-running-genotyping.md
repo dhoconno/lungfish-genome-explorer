@@ -74,7 +74,7 @@ The procedure runs the miSeq amplicon workflow on the demo project with haplotyp
 
 Click `SIMULATED-MHC-A-pairs` in the project sidebar, then Cmd-click `SIMULATED-MHC-B-pairs` to add it. Cmd-click adds one row to the selection and Shift-click extends it over a range. A plate is normally read as one [cohort](../../GLOSSARY.md#cohort), a set of samples genotyped and compared together, which gives one table with one column per animal.
 
-When you select several bundles, the dialog's FASTQ Bundles group says they will run as one batch. That means one report, not pooled reads. Every sample keeps its own read counts and its own column. Each bundle is one sample named for the bundle, whatever files it holds, and every read of it is genotyped. A bundle whose reads were imported as several separate files cannot be one sample, so the run refuses it.
+When you select several bundles, the dialog's FASTQ Bundles group says they will run as one batch. That means one report, not pooled reads. Every sample keeps its own read counts and its own column. Each bundle is one sample named for the bundle, whatever files it holds, and every read of it is genotyped. A Nanopore bundle whose reads were imported as several separate files is one sample too, its files joined in the order they were imported. An Illumina bundle of several separate files is refused, because its files may hold the first and second mates of each pair apart.
 
 ### Open the dialog and set the reference
 

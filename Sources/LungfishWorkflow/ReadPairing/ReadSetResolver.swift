@@ -28,8 +28,10 @@ import LungfishIO
 ///   file that is missing throws, so no read is silently left out.
 /// - A virtual derivative is materialized, read whole once (a truncated
 ///   file throws) and its one file scanned, with the
-///   merge evidence of every bundle it derives from as hints, so a subset of
-///   a merge or repair derivative is never read as strict pairs.
+///   merge evidence of every bundle it derives from as hints. Its whole-file
+///   counts decide, so a subset of a merge or repair derivative that holds
+///   pairs and single reads is mixed, one that holds only pairs is an
+///   interleaved pair, and one that holds no pair is single reads.
 ///
 /// A tool that takes pairs and single reads as separate files gets a mixed
 /// stream split by fragment name. A tool that takes one stream gets
@@ -362,8 +364,10 @@ public struct ReadSetResolver: Sendable {
             resolution = FASTQInputLayoutResolver.resolve(inputURLs: [file])
         }
         // The scan reads a bounded number of records. The whole-file count
-        // of a materialization outranks it, so pairs followed by single reads
-        // past the scan limit (the D2 shape) are mixed, never strict pairs.
+        // of a materialization outranks it in both directions. Pairs followed
+        // by single reads past the scan limit (the D2 shape) are mixed, never
+        // strict pairs, and a mixed stream whose counts show one kind of
+        // record is that kind (`resolvingStreamsByTheirCounts`).
         var layout = resolution.layout
         var layoutReason = resolution.reason
         if let counts = materializedCounts, counts.pairs > 0, counts.unpaired > 0, layout != .mixedMergedAndPairs {
@@ -399,7 +403,7 @@ public struct ReadSetResolver: Sendable {
                 reason: layoutReason,
                 platform: platform,
                 wasMaterialized: wasMaterialized
-            )
+            ).resolvingStreamsByTheirCounts()
         case .singleEnd, .pairedFiles:
             return ReadSetSource(
                 parts: [.single(ReadSetSingleReads(

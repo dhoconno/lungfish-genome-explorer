@@ -74,6 +74,102 @@ public enum FASTQPairInterleaver {
         return Counts(r1Records: counts.r1Records, r2Records: counts.r2Records, writtenRecords: written)
     }
 
+    /// What ``interleaveRecordedPair(r1:r2:to:)`` wrote.
+    public struct RecordedPairCounts: Sendable, Equatable {
+        public let counts: Counts
+        /// The record pairs whose names carry no mate number, which were
+        /// paired by position alone.
+        public let pairedByPosition: Int
+        /// The R1 and R2 names of the first of those pairs.
+        public let firstPairedByPosition: [String]?
+    }
+
+    /// What the names of an R1 record and the R2 record beside it say.
+    public enum RecordedMates: Sendable, Equatable {
+        /// The names are the R1 and R2 of one fragment.
+        case mates
+        /// A name carries no mate number, so only position pairs the records.
+        case unmarked
+        /// Both names carry a mate number and are not R1 and R2 of one fragment.
+        case notMates
+    }
+
+    /// Writes the records of the R1 and R2 files of one recorded pair (a
+    /// `fullPaired` or `fullMixed` bundle) alternately to `sink`, paired by
+    /// position as reformat.sh `interleaved=t` paired them.
+    ///
+    /// Names that carry a mate number are checked (``recordedMates(_:_:)``),
+    /// and a pair of them that are not mates throws
+    /// ``InterleaveError/mateNameMismatch(recordNumber:r1File:r1Name:r2File:r2Name:)``,
+    /// because the files are out of step. A pair of names that carry none is
+    /// paired by position and counted, so the caller can warn. Files that
+    /// hold different numbers of records throw. A legacy bundle whose mates
+    /// are named `x.1` and `x.2` threw before this rule (final review A, N2).
+    public static func interleaveRecordedPair(r1: URL, r2: URL, to sink: FileHandle) throws -> RecordedPairCounts {
+        var output = BufferedSink(handle: sink)
+        var recordNumber = 0
+        var pairedByPosition = 0
+        var firstPairedByPosition: [String]?
+        let counts = try interleave(r1: r1, r2: r2, requireMates: false) { record1, record2 in
+            recordNumber += 1
+            let name1 = headerText(record1[0])
+            let name2 = headerText(record2[0])
+            switch recordedMates(name1, name2) {
+            case .mates:
+                break
+            case .unmarked:
+                pairedByPosition += 1
+                if firstPairedByPosition == nil { firstPairedByPosition = [name1, name2] }
+            case .notMates:
+                throw InterleaveError.mateNameMismatch(
+                    recordNumber: recordNumber,
+                    r1File: r1.lastPathComponent, r1Name: name1,
+                    r2File: r2.lastPathComponent, r2Name: name2
+                )
+            }
+            try output.write(record1)
+            try output.write(record2)
+        }
+        try output.flush()
+        let written = output.recordsWritten
+        guard written == counts.r1Records + counts.r2Records else {
+            throw InterleaveError.recordCountMismatch(expected: counts.r1Records + counts.r2Records, actual: written)
+        }
+        return RecordedPairCounts(
+            counts: Counts(r1Records: counts.r1Records, r2Records: counts.r2Records, writtenRecords: written),
+            pairedByPosition: pairedByPosition,
+            firstPairedByPosition: firstPairedByPosition
+        )
+    }
+
+    /// Whether `name1` and `name2`, the records at one position of the R1
+    /// and R2 files of one recorded pair, are mates.
+    /// ``FASTQReadLayoutClassifier/areMates(_:_:)`` decides first. The read
+    /// ID suffixes `.1` `.2` and `_1` `_2` count as mate numbers here only,
+    /// beside `/1` `/2` and Casava comments, because a file of single reads
+    /// may number its reads that way (SRA spots `SRR1.1`, `SRR1.2`).
+    public static func recordedMates(_ name1: String, _ name2: String) -> RecordedMates {
+        if FASTQReadLayoutClassifier.areMates(name1, name2) { return .mates }
+        guard let mark1 = mateNumber(of: name1), let mark2 = mateNumber(of: name2) else { return .unmarked }
+        return mark1.fragment == mark2.fragment && mark1.mate == 1 && mark2.mate == 2 ? .mates : .notMates
+    }
+
+    /// The fragment and the mate number a read name carries, from `/1` `/2`,
+    /// `.1` `.2` or `_1` `_2` at the end of its read ID, or a Casava
+    /// ` 1:N:` comment.
+    private static func mateNumber(of name: String) -> (fragment: String, mate: Int)? {
+        let header = name.drop(while: { $0 == "@" })
+        let readID = header.prefix(while: { $0 != " " && $0 != "\t" })
+        if readID.count > 2, let digit = readID.last, digit == "1" || digit == "2",
+           "/._".contains(readID[readID.index(readID.endIndex, offsetBy: -2)]) {
+            return (String(readID.dropLast(2)), digit == "1" ? 1 : 2)
+        }
+        if let pair = ReadPair.parse(from: String(header)) {
+            return (pair.pairId, pair.readNumber)
+        }
+        return nil
+    }
+
     private static func interleave(
         r1: URL,
         r2: URL,

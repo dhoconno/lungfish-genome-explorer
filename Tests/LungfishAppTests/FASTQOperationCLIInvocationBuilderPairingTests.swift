@@ -309,6 +309,37 @@ final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
         }
     }
 
+    /// Final review A, N7. `fastq length-filter` splits a mixed file by name
+    /// and filters its pairs as pairs, so a mixed bundle is told
+    /// `interleaved`, as deduplicate is. `single` ran seqkit on every record,
+    /// so Filter by Read Length on a merge bundle kept one mate of a pair
+    /// whose other mate was too short. A strict bundle keeps `interleaved`
+    /// and a single-end bundle keeps `single`.
+    func testLengthFilterIsToldTheByNamePairingSoAMixedBundleKeepsItsPairsWhole() throws {
+        let request = FASTQDerivativeRequest.lengthFilter(min: 50, max: nil)
+        let mixed = try InterleavedFASTQFixture.writeMixedBundle(
+            named: "vsp2-length", in: root, pairCount: 6, mergedCount: 3, naming: .identical, pairingMode: .interleaved
+        )
+        let strict = try InterleavedFASTQFixture.writeBundle(
+            named: "strict-length", in: root, pairCount: 4, naming: .identical, pairingMode: .interleaved
+        )
+        let single = try InterleavedFASTQFixture.writeBundle(
+            named: "single-length", in: root, pairCount: 4, naming: .slashSuffix,
+            pairingMode: .singleEnd, pairingSource: .explicit
+        )
+        for (bundle, expected) in [(mixed, "interleaved"), (strict, "interleaved"), (single, "single")] {
+            let launch = FASTQOperationLaunchRequest.derivative(
+                request: request, inputURLs: [bundle.bundleURL], outputMode: .perInput
+            )
+            let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: launch, outputTargetPath: "/tmp/length.fastq")
+            let recorded = FASTQOperationCLIInvocationBuilder.commandLine(for: invocation)
+            let parsed = try RecordedCLICommand.parse(recorded, as: FastqLengthFilterSubcommand.self)
+            XCTAssertEqual(parsed.pairing.pairing.rawValue, expected, recorded)
+            XCTAssertEqual(parsed.input, bundle.bundleURL.path)
+            XCTAssertEqual(parsed.minLength, 50)
+        }
+    }
+
     func testDisplayCommandIsTheInvocationTheBuilderBuildsWithTheSamePairingFlag() throws {
         // The display command used to map the recorded pairing without
         // checking the records. It is now the builder's own invocation, which

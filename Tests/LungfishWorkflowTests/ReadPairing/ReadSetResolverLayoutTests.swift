@@ -342,23 +342,83 @@ final class ReadSetResolverLayoutTests: XCTestCase {
     }
 
     /// A virtual child of a repair derivative names only `repair` in its
-    /// lineage, so its own metadata shows no single reads, and a subset
-    /// holding only pairs scans as strict pairs. The parent's roles record
-    /// orphans, so the resolver plans it as mixed and splits it by name.
+    /// lineage, so its own metadata shows no single reads. The parent's
+    /// roles record orphans, so the reads without a mate in a child that
+    /// holds pairs and single reads are orphans.
     func testVirtualSubsetOfRepairDerivativeIsPlannedFromTheParentRoles() async throws {
         let ownHints = FASTQReadLayoutClassifier.metadataHints(for: fixtures.subsetOfRepair)
         XCTAssertFalse(ownHints.hasMergedOrUnpairedReads, "the fixture must reproduce the gap")
 
-        let plan = try await plan(fixtures.subsetOfRepair)
+        let materialized = ["r1/1", "r1/2", "r2/1", "r2/2", "o1"]
+        let plan = try await plan(fixtures.subsetOfRepair, materialized: materialized)
         XCTAssertEqual(plan.sourceLayout, .mixedFile)
-        XCTAssertTrue(plan.layoutReason.contains("merged or unpaired"), plan.layoutReason)
         let pair = try separate(plan.matePairs.first)
         XCTAssertEqual(try names(pair.r1), ["r1/1", "r2/1"])
         XCTAssertEqual(try names(pair.r2), ["r1/2", "r2/2"])
-        XCTAssertTrue(plan.singleReads.isEmpty)
+        XCTAssertEqual(plan.singleReads.map(\.role), [.orphan], "the parent's roles say the single reads are orphans")
 
-        let streamPlan = try await self.plan(fixtures.subsetOfRepair, .bothInOneRunAsNameInterleavedStream)
+        let streamPlan = try await self.plan(fixtures.subsetOfRepair, materialized: materialized, .bothInOneRunAsNameInterleavedStream)
         XCTAssertEqual(streamPlan.mixedStreams.map(\.singleReadRole), [.orphan])
+    }
+
+    /// Final review A, S4. A materialized file is counted whole, and a file
+    /// is mixed only when it holds pairs and single reads. The repair child
+    /// that holds only pairs r1 and r2, and a subset of the merge derivative
+    /// that kept only the unmerged pair u1, are pairs whatever their merge
+    /// or repair lineage says. They used to be planned as mixed, so EsViritu,
+    /// TaxTriage and Viral Recon ran their mates as single reads and stated
+    /// that the sample held single reads.
+    func testAVirtualSubsetHoldingOnlyPairsIsAnInterleavedPairWhateverItsLineageSays() async throws {
+        let cases: [(String, URL, [String])] = [
+            ("repair child", fixtures.subsetOfRepair, ["r1/1", "r1/2", "r2/1", "r2/2"]),
+            ("merge subset", fixtures.subsetOfMerge, ["u1/1", "u1/2"]),
+        ]
+        for (label, bundle, materialized) in cases {
+            for capability in [ReadPairingCapability.bothInOneRunAsSeparateFiles, .pairsOnlyWhenAllPaired, .bothInOneRunAsNameInterleavedStream] {
+                let plan = try await plan(bundle, materialized: materialized, capability)
+                XCTAssertTrue(plan.wasMaterialized, label)
+                XCTAssertEqual(plan.sourceLayout, .interleavedFile, "\(label): \(plan.layoutReason)")
+                XCTAssertTrue(plan.layoutReason.contains("no read without a mate"), "\(label): \(plan.layoutReason)")
+                XCTAssertFalse(plan.sampleHoldsPairsAndSingleReads, label)
+                XCTAssertEqual(plan.matePairs.count, 1, label)
+                guard case .interleaved(let url) = plan.matePairs.first?.files else { return XCTFail("\(label): \(plan.matePairs)") }
+                XCTAssertEqual(try names(url), materialized, label)
+                XCTAssertTrue(plan.singleReads.isEmpty, label)
+                XCTAssertTrue(plan.mixedStreams.isEmpty, label)
+                XCTAssertNil(plan.singleReadReason, label)
+                XCTAssertTrue(plan.recordsNothingNew, label)
+                XCTAssertEqual(plan.composition.pairedFragments, materialized.count / 2, label)
+            }
+        }
+    }
+
+    /// A subset of the merge derivative that kept only merged reads holds no
+    /// pair, so it is single reads, merged by the parent's roles, and the plan
+    /// writes no split.
+    func testAVirtualSubsetHoldingNoPairIsSingleReadsWithTheParentsRole() async throws {
+        let plan = try await plan(fixtures.subsetOfMerge, materialized: ["x1", "x2"])
+        XCTAssertEqual(plan.sourceLayout, .singleEndFile, plan.layoutReason)
+        XCTAssertFalse(plan.sampleHoldsPairsAndSingleReads)
+        XCTAssertTrue(plan.matePairs.isEmpty)
+        XCTAssertTrue(plan.mixedStreams.isEmpty)
+        XCTAssertEqual(plan.singleReads.map(\.role), [.merged])
+        XCTAssertEqual(plan.singleReads.map(\.readCount), [2])
+        XCTAssertEqual(try names(plan.singleReads[0].url), ["x1", "x2"])
+        XCTAssertTrue(plan.steps.isEmpty)
+        XCTAssertEqual(plan.composition.mergedReads, 2)
+    }
+
+    /// Plans `bundle` with a materializer that writes `reads` for it.
+    private func plan(
+        _ bundle: URL,
+        materialized reads: [String],
+        _ capability: ReadPairingCapability = .bothInOneRunAsSeparateFiles
+    ) async throws -> ReadSetPlan {
+        let materializer = ReadSetFixtures.StubMaterializer(readsByBundlePath: [
+            bundle.standardizedFileURL.path: ReadSetFixtures.fastq(reads),
+        ])
+        return try await ReadSetResolver(materializationDirectory: workDirectory, materializer: materializer)
+            .plan(for: bundle, capability: capability)
     }
 
     func testDemultiplexGroupThrowsAndLeavesNoFiles() async throws {

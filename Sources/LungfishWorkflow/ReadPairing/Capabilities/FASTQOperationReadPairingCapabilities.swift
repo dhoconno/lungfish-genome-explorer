@@ -23,6 +23,7 @@ extension ReadPairingCapabilityRegistry {
             ("ingest.clumpify", "The import clumpify step"),
             ("fastq.deduplicate", "clumpify dedupe through FASTQSplitByNameRunner"),
             ("fastq.primer-remove", "Primer removal through FASTQSplitByNameRunner"),
+            ("fastq.length-filter", "The length filter through FASTQSplitByNameRunner"),
         ]
         let positionalTools: [(String, String)] = [
             ("fastq.subsample", "reformat interleaved=t"),
@@ -36,8 +37,7 @@ extension ReadPairingCapabilityRegistry {
             ("recipe.convert-interleaved-to-paired", "The recipe interleaved-to-paired step"),
         ]
         let perRecordTools: [(String, String)] = [
-            ("fastq.length-filter", "seqkit seq"),
-            ("fastq.error-correct", "tadpole"),
+            ("fastq.error-correct", "tadpole (ordered=t, which keeps the input order of the reads)"),
         ]
 
         return streamTools.map {

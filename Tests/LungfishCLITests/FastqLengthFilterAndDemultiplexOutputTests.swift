@@ -68,14 +68,30 @@ final class FastqLengthFilterAndDemultiplexOutputTests: XCTestCase {
         XCTAssertTrue(singlePlan.arguments.suffix(5).elementsEqual(["-m", "50", bundle.fastqURL.path, "-o", output]))
     }
 
-    func testMixedInputRunsAsSingleReadsBecauseBBDukPairsByPosition() throws {
+    /// Final review A, N7. A file that mixes pairs with single reads ran
+    /// seqkit on every record, so a pair with one mate under the minimum kept
+    /// its other mate as an orphan (319 of 7,958 pairs of the HG002 chrM
+    /// fixture with merged reads, at `--min 100`). The file is split by name,
+    /// its pairs filtered as pairs by bbduk `interleaved=t` and its single
+    /// reads by seqkit, and the two joined, pairs first, so a pair is kept or
+    /// dropped whole. `--pairing interleaved`, which the window passes for a
+    /// merge bundle, runs the same way.
+    func testAMixedInputKeepsOrDropsEachPairWhole() async throws {
+        for tool in [NativeTool.bbduk, .seqkit] {
+            guard await NativeToolRunner.shared.isToolAvailable(tool) else {
+                try ToolAvailability.skipOrFail("managed \(tool.rawValue) is not installed")
+            }
+        }
         let mixed = root.appendingPathComponent("mixed.fastq")
-        try InterleavedFASTQFixture.writeMixed(pairCount: 5, mergedCount: 3, naming: .slashSuffix, to: mixed)
-        let command = try FastqLengthFilterSubcommand.parse([mixed.path, "--min", "50", "--pairing", "interleaved", "-o", root.appendingPathComponent("o.fq").path])
-        let decision = command.pairing.resolvePairing(inputURL: mixed)
-        XCTAssertFalse(decision.pairAware)
-        XCTAssertEqual(decision.layout, .mixedMergedAndPairs)
-        XCTAssertEqual(command.plan(inputURL: mixed, decision: decision).tool, .seqkit)
+        try [("m1", 10), ("q1/1", 10), ("q1/2", 2), ("m2", 2), ("q2/1", 10), ("q2/2", 10)]
+            .map { "@\($0.0)\n\(String(repeating: "ACGT", count: 3).prefix($0.1))\n+\n\(String(repeating: "I", count: $0.1))\n" }
+            .joined()
+            .write(to: mixed, atomically: true, encoding: .utf8)
+        for pairing in [[], ["--pairing", "interleaved"]] {
+            let output = root.appendingPathComponent("kept\(pairing.count).fastq")
+            try await FastqLengthFilterSubcommand.parse([mixed.path, "--min", "5"] + pairing + ["-o", output.path]).run()
+            XCTAssertEqual(try ReadSetFixtures.readNames(in: output), ["q2/1", "q2/2", "m1"], "\(pairing)")
+        }
     }
 
     // MARK: - demultiplex --replace

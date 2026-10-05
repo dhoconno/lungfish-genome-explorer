@@ -176,13 +176,48 @@ final class SamplesheetReadSetPlannerTests: XCTestCase {
         XCTAssertEqual(try names(interleaved), [["i1/1", "i1/2"]])
     }
 
-    /// The child of a repair derivative carries only `repair` in its lineage,
-    /// and it is still read as a mix of pairs and orphans, never as strict pairs.
-    func testAVirtualChildOfARepairDerivativeIsPlannedAsMixed() async throws {
-        let readSet = try await plan(fixtures.subsetOfRepair)
-        guard case .singleEnd = readSet.reads else { return XCTFail("\(readSet.reads)") }
-        XCTAssertNotNil(readSet.plan.singleReadReason)
-        XCTAssertEqual(try names(readSet), [["r1/1", "r1/2", "r2/1", "r2/2"]])
+    /// Final review A, S4. The child of a repair derivative carries only
+    /// `repair` in its lineage, and a subset of a merge derivative carries a
+    /// merge. A child that holds only pairs is one interleaved pair, with no
+    /// reason, because its whole file holds no read without a mate. It used to
+    /// run every mate single-end with the reason that the sample held single
+    /// reads. A child that also holds an orphan still runs single-end.
+    func testAVirtualChildThatHoldsOnlyPairsIsOneInterleavedPairWhateverItsLineageSays() async throws {
+        let cases: [(URL, [String])] = [
+            (fixtures.subsetOfRepair, ["r1/1", "r1/2", "r2/1", "r2/2"]),
+            (fixtures.subsetOfMerge, ["u1/1", "u1/2"]),
+        ]
+        for (bundle, reads) in cases {
+            for consumerID in [EsVirituConfig.readPairingConsumerID, TaxTriageReadSetPlanner.consumerID] {
+                let label = "\(bundle.lastPathComponent) \(consumerID)"
+                let readSet = try await plan(bundle, consumerID: consumerID, reads: reads)
+                guard case .interleaved = readSet.reads else { return XCTFail("\(label): \(readSet.reads)") }
+                XCTAssertNil(readSet.plan.singleReadReason, label)
+                XCTAssertFalse(readSet.plan.sampleHoldsPairsAndSingleReads, label)
+                XCTAssertEqual(try names(readSet), [reads], label)
+            }
+        }
+
+        let withOrphan = try await plan(fixtures.subsetOfRepair, reads: ["r1/1", "r1/2", "r2/1", "r2/2", "o1"])
+        guard case .singleEnd = withOrphan.reads else { return XCTFail("\(withOrphan.reads)") }
+        XCTAssertNotNil(withOrphan.plan.singleReadReason)
+        XCTAssertEqual(try names(withOrphan), [["r1/1", "r1/2", "r2/1", "r2/2", "o1"]])
+    }
+
+    /// Plans `bundle` with a materializer that writes `reads` for it.
+    private func plan(
+        _ bundle: URL,
+        consumerID: String = EsVirituConfig.readPairingConsumerID,
+        reads: [String]
+    ) async throws -> SamplesheetReadSet {
+        try await SamplesheetReadSetPlanner.plan(
+            input: bundle,
+            consumerID: consumerID,
+            materializationDirectory: scratch(),
+            materializer: ReadSetFixtures.StubMaterializer(readsByBundlePath: [
+                bundle.standardizedFileURL.path: ReadSetFixtures.fastq(reads),
+            ])
+        )
     }
 
     // MARK: - EsViritu configuration

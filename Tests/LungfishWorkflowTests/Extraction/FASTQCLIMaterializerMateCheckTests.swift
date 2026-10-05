@@ -5,8 +5,10 @@
 // The materializer interleaved the R1 and R2 files of a paired or mixed
 // bundle with reformat.sh by position and never checked mate names, so an R2
 // file out of step with its R1 gave mis-paired reads (Phase 1.5 lane A7, Lead
-// A review R2). It now interleaves with FASTQPairInterleaver and requires
-// mates, so such a bundle throws. The output for files in step is the bytes
+// A review R2). It now interleaves with FASTQPairInterleaver and checks every
+// pair of names that carry a mate number, so such a bundle throws. Names that
+// carry none are paired by position with a warning, as reformat.sh paired
+// them (final review A, N2). The output for files in step is the bytes
 // reformat.sh wrote.
 
 import Foundation
@@ -61,10 +63,57 @@ final class FASTQCLIMaterializerMateCheckTests: XCTestCase {
         return bundle
     }
 
-    private func materialize(_ bundle: URL) async throws -> URL {
+    private func materialize(_ bundle: URL, progress: (@Sendable (String) -> Void)? = nil) async throws -> URL {
         let work = root.appendingPathComponent("work-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        return try await FASTQCLIMaterializer(runner: .shared).materialize(bundleURL: bundle, tempDirectory: work)
+        return try await FASTQCLIMaterializer(runner: .shared).materialize(bundleURL: bundle, tempDirectory: work, progress: progress)
+    }
+
+    private func pairedBundle(_ name: String, r1: [String], r2: [String]) throws -> URL {
+        try makeBundle(
+            name,
+            payload: .fullPaired(r1Filename: "R1.fastq", r2Filename: "R2.fastq"),
+            files: ["R1.fastq": Self.fastq(r1), "R2.fastq": Self.fastq(r2)]
+        )
+    }
+
+    /// Final review A, N2. A legacy paired derivative may name its mates in
+    /// a form `areMates` does not read, such as `x.1` and `x.2`. reformat.sh
+    /// interleaved such a bundle by position before Phase 1.5, and the mate
+    /// check made it throw. The `.1` `.2` and `_1` `_2` suffixes are mates
+    /// like `/1` `/2` and Casava comments, so they interleave with no
+    /// warning. Names that say nothing about mates are paired by position,
+    /// as reformat.sh paired them, and the run is warned.
+    func testALegacyPairedDerivativeWithOtherMateNamesMaterializesAgain() async throws {
+        let namings: [(name: String, r1: [String], r2: [String], warns: Bool)] = [
+            ("dot", ["x.1", "y.1"], ["x.2", "y.2"], false),
+            ("underscore", ["x_1", "y_1"], ["x_2", "y_2"], false),
+            ("slash", ["x/1", "y/1"], ["x/2", "y/2"], false),
+            ("casava", ["x 1:N:0:1", "y 1:N:0:1"], ["x 2:N:0:1", "y 2:N:0:1"], false),
+            ("sra-dot", ["SRR1.7.1", "SRR1.8.1"], ["SRR1.7.2", "SRR1.8.2"], false),
+            ("unmarked", ["read-a", "read-b"], ["mate-a", "mate-b"], true),
+        ]
+        for naming in namings {
+            let bundle = try pairedBundle(naming.name, r1: naming.r1, r2: naming.r2)
+            let messages = MessageLog()
+            let materialized = try await materialize(bundle, progress: { messages.append($0) })
+            let interleaved = zip(naming.r1, naming.r2).flatMap { [$0, $1] }
+            XCTAssertEqual(try ReadSetFixtures.readNames(in: materialized), interleaved, naming.name)
+            let warnings = messages.lines.filter { $0.contains("paired by position") }
+            XCTAssertEqual(warnings.count, naming.warns ? 1 : 0, "\(naming.name): \(messages.lines)")
+        }
+    }
+
+    /// Mates paired by position need the same number of records in each
+    /// file, so a count mismatch still throws.
+    func testALegacyPairedDerivativeWhoseFilesHoldDifferentCountsThrows() async throws {
+        let bundle = try pairedBundle("uneven", r1: ["read-a", "read-b"], r2: ["mate-a"])
+        do {
+            _ = try await materialize(bundle)
+            XCTFail("files with different record counts must throw")
+        } catch let error as FASTQPairInterleaver.InterleaveError {
+            guard case .mateCountMismatch(_, 2, _, 1) = error else { return XCTFail("\(error)") }
+        }
     }
 
     private func assertMateMismatch(_ bundle: URL, file: StaticString = #filePath, line: UInt = #line) async {
@@ -154,5 +203,17 @@ final class FASTQCLIMaterializerMateCheckTests: XCTestCase {
             XCTAssertTrue(result.isSuccess, result.stderr)
             XCTAssertEqual(try Data(contentsOf: materialized), try Data(contentsOf: reference), name)
         }
+    }
+}
+
+/// The progress lines a materialization reported, in order.
+private final class MessageLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    var lines: [String] { lock.withLock { recorded } }
+
+    func append(_ line: String) {
+        lock.withLock { recorded.append(line) }
     }
 }

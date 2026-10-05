@@ -3452,7 +3452,7 @@ Runs amplicon genotyping on Oxford Nanopore or Illumina reads, matching reads ex
 lungfish-cli fastq genotype [<options>] <inputs> ... --output-dir <output-dir>
 ```
 
-`--mode` is the only way to override the platform the window infers from the reads. Each `.lungfishfastq` bundle is one sample named for the bundle, and every read it holds is genotyped. A paired bundle's mates go into the merge side by side, a merge or repair bundle adds its merged reads or orphans, and a virtual bundle is materialized first rather than read from its preview. In the sample-bundle modes, a bundle imported as several separate files is refused. Passing `--reference` together with `--preset mcm-mhc-miseq` is an error. With a miSeq reference outside the project, `--project` imports it into the project first.
+`--mode` is the only way to override the platform the window infers from the reads. Each `.lungfishfastq` bundle is one sample named for the bundle, and every read it holds is genotyped. A paired bundle's mates go into the merge side by side, a merge or repair bundle adds its merged reads or orphans, and a virtual bundle is materialized first rather than read from its preview. A bundle imported as several separate files is one sample of every file, joined in import order, with `--mode ont-sample-bundles`, and is refused with `--mode illumina-paired`. Passing `--reference` together with `--preset mcm-mhc-miseq` is an error. With a miSeq reference outside the project, `--project` imports it into the project first.
 
 | Argument or flag | What it does |
 |---|---|

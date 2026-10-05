@@ -91,6 +91,53 @@ final class GenotypingInputReadSetTests: XCTestCase {
         }
     }
 
+    // MARK: - ONT sample bundles of several files
+
+    /// Final review A, S2. An ONT import of a barcode with several files is a
+    /// chunked root. Genotyped as ONT sample bundles, each bundle is one
+    /// sample named for the bundle, holding every chunk joined in import
+    /// order, and the join is a `cat` provenance step whose inputs are the
+    /// chunks. Two or more such bundles used to stop the run with a message
+    /// that told an ONT user to import R1 and R2 reads with an Illumina recipe.
+    func testEachONTChunkedRootIsOneSampleOfEveryChunkJoinedInImportOrder() async throws {
+        let fixtures = try ReadSetFixtures(in: root)
+        let staging = root.appendingPathComponent("staging-ont", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let bundles = [fixtures.nanoporeChunkedRoot, fixtures.chunkedRoot]
+        let samples = try await ONTBarcodeDemuxGenotypingPipeline.resolveIlluminaSampleInputsForTesting(
+            from: bundles,
+            stagingDirectory: staging,
+            readType: .ont
+        )
+
+        XCTAssertEqual(samples.map(\.sampleID), ["nanopore", "chunked"])
+        XCTAssertEqual(samples.map(\.sourceURL), bundles.map(\.standardizedFileURL))
+        let expected: [(reads: [String], chunks: [String])] = [
+            (["o-a", "o-b", "o-c"], ["x_1.fastq", "x_2.fastq"]),
+            (["c1", "c2", "c3"], ["run_0.fastq", "run_1.fastq"]),
+        ]
+        for (sample, expected) in zip(samples, expected) {
+            XCTAssertEqual(try ReadSetFixtures.readNames(in: sample.fastqURL), expected.reads, sample.sampleID)
+            XCTAssertEqual(sample.readCount, expected.reads.count, sample.sampleID)
+            let steps = try XCTUnwrap(sample.inputReads, sample.sampleID).provenanceSteps(workflowVersion: "test")
+            XCTAssertEqual(steps.map(\.toolName), [SequenceInputConcatenation.toolName], sample.sampleID)
+            XCTAssertEqual(steps.first?.inputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }, expected.chunks, sample.sampleID)
+            XCTAssertEqual(steps.first?.outputs.map(\.path), [sample.fastqURL.path], sample.sampleID)
+        }
+    }
+
+    /// The chunks of an Illumina chunked root may be R1 and R2, so Illumina
+    /// genotyping still refuses one rather than join its mates end to end.
+    func testAnIlluminaChunkedRootIsStillRefused() async throws {
+        let fixtures = try ReadSetFixtures(in: root)
+        do {
+            _ = try await sampleInputs([fixtures.chunkedRoot])
+            XCTFail("an Illumina chunked root must be refused")
+        } catch let error as ONTBarcodeDemuxGenotypingError {
+            XCTAssertEqual(error, .unsupportedIlluminaInput(fixtures.chunkedRoot.standardizedFileURL))
+        }
+    }
+
     // MARK: - Virtual bundles are materialized (seqkit)
 
     /// L6. Before: the preview, `f1` alone. The subset lists fragments f1 and

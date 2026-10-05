@@ -363,7 +363,6 @@ struct MapCommand: AsyncParsableCommand {
 
         let request = resolution.request
         let layoutResolution = resolution.layoutResolution
-        let effectivePairedEnd = request.pairedEnd
         let readLayoutPlan = request.readLayoutPlan
         Self.printCompatibilityWarnings(for: request)
         // `--format json` prints one JSON document at the end; the text
@@ -378,7 +377,7 @@ struct MapCommand: AsyncParsableCommand {
             ("Mapper", selectedTool.displayName),
             ("Mode", selectedMode.displayName),
             ("Input files", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
-            ("Paired-end", effectivePairedEnd ? "yes" : "no"),
+            ("Paired-end", Self.pairedEndSummary(for: request)),
             ("Read layout", "\(readLayoutPlan.layout.displayName) (\(layoutResolution.source.rawValue))"),
             ("Layout handling", readLayoutPlan.handling.displayName),
             ("Reference", referenceURL.lastPathComponent),
@@ -608,6 +607,17 @@ struct MapCommand: AsyncParsableCommand {
             case .mixed: return .mixedMergedAndPairs
             }
         }
+    }
+
+    /// The Paired-end row of the run summary: the pairing of the run's read
+    /// layout plan, the value the Map Reads window's Run Settings show
+    /// (`MappingReadLayoutPlan.pairedEndDescription`), in the table's lower
+    /// case. It read the R1 and R2 flag, so a sample of merged reads and
+    /// pairs whose pairs map as pairs, and an interleaved file, said "no"
+    /// (final review A, N6).
+    static func pairedEndSummary(for request: MappingRunRequest) -> String {
+        let description = request.readLayoutPlan.pairedEndDescription
+        return description.prefix(1).lowercased() + description.dropFirst()
     }
 
     static func parseExtraArgs(_ extraArgs: String, deprecatedAdvancedOptions: String) throws -> [String] {

@@ -8,7 +8,8 @@
 // which plans a `.lungfishfastq` bundle with ReadSetResolver
 // (docs/contracts/READ-PAIRING.md). Illumina reads reach the pair merger as
 // one stream with every pair adjacent and every single read after the pairs.
-// ONT reads arrive as every read on its own. A virtual bundle is
+// ONT reads arrive as every read on its own, and an ONT sample bundle of
+// several chunks is its chunks joined in import order. A virtual bundle is
 // materialized first and never read from its preview.
 
 import Foundation
@@ -114,6 +115,8 @@ struct GenotypingInputReads: Sendable {
     let plan: ReadSetPlan?
     /// The interleave that made one stream of a plan of several files.
     let streamStep: ReadSetStep?
+    /// The join of every chunk of a chunked root read as one sample.
+    var concatenation: SequenceInputConcatenation? = nil
     /// When the resolver ran, which covers the materialization of a virtual bundle.
     let planStartedAt: Date
     let planEndedAt: Date
@@ -126,7 +129,7 @@ struct GenotypingInputReads: Sendable {
     /// Whether the planning wrote a file the run reads. A bundle of one file
     /// read in place writes none, so its run records nothing new.
     var wroteFiles: Bool {
-        (plan?.wasMaterialized ?? false) || !steps.isEmpty
+        (plan?.wasMaterialized ?? false) || !steps.isEmpty || concatenation != nil
     }
 
     /// The file a virtual bundle was materialized to.
@@ -167,11 +170,19 @@ struct GenotypingInputReads: Sendable {
     }
 
     /// The canonical provenance steps of the files the planning wrote: the
-    /// materialization of a virtual bundle, then each split and interleave
-    /// with its record counts. Empty when it wrote none.
+    /// `cat` join of a chunked root, the materialization of a virtual
+    /// bundle, then each split and interleave with its record counts. Empty
+    /// when it wrote none.
     func provenanceSteps(workflowVersion: String) throws -> [ProvenanceStep] {
         guard wroteFiles else { return [] }
         var result: [ProvenanceStep] = []
+        if let concatenation {
+            result.append(ProvenanceStep(stepExecution: try concatenation.stepExecution(
+                toolVersion: workflowVersion,
+                startedAt: planStartedAt,
+                endedAt: planEndedAt
+            )))
+        }
         if let materialized = materializedURL {
             let command = CLISequenceInputMaterialization.materializationCommand(
                 originalURL: inputURL,
@@ -226,15 +237,34 @@ extension ONTBarcodeDemuxGenotypingPipeline {
     ///
     /// A loose file, a file inside a bundle, a folder, a chunked root and a
     /// FASTA payload are read as ``resolveInputFASTQURLs(for:)`` lists them.
+    /// With `joinsChunks`, a chunked root of several chunks is one sample
+    /// instead, every chunk joined in import order by the join the
+    /// materializer and the other one-run consumers use
+    /// (``ResolvedSequenceInputs/concatenateMultiFileBundle(_:into:)``), and
+    /// the join is a `cat` provenance step. ONT sample bundles ask for it,
+    /// since each ONT read stands alone. Illumina chunks may be the two mates
+    /// of each pair, so they are never joined end to end (final review A, S2).
     static func plannedInputReads(
         for inputURL: URL,
         readType: AmpliconGenotypingReadType,
         workDirectory: URL,
+        joinsChunks: Bool = false,
         materializer: any CLISequenceInputMaterializing & Sendable = FASTQCLIMaterializer(runner: .shared)
     ) async throws -> GenotypingInputReads {
         let standardized = inputURL.standardizedFileURL
         let startedAt = Date()
         guard plansThroughResolver(standardized) else {
+            if joinsChunks, let joined = try ResolvedSequenceInputs.concatenateMultiFileBundle(standardized, into: workDirectory) {
+                return GenotypingInputReads(
+                    inputURL: standardized,
+                    fastqURLs: [joined.outputURL],
+                    plan: nil,
+                    streamStep: nil,
+                    concatenation: joined,
+                    planStartedAt: startedAt,
+                    planEndedAt: Date()
+                )
+            }
             return GenotypingInputReads(
                 inputURL: standardized,
                 fastqURLs: try resolveInputFASTQURLs(for: standardized),

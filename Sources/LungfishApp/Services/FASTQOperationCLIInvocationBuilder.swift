@@ -406,10 +406,13 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         case .subsampleCount(let count):
             return ["subsample", inputURL.path, "--count", "\(count)"] + pairingArguments + ["-o", outputTarget]
         case .lengthFilter(let min, let max):
+            // `fastq length-filter` splits a mixed file by name and filters
+            // its pairs as pairs, so a merge bundle is told `interleaved`
+            // (final review A, N7). `single` ran every record on its own.
             var arguments = ["length-filter", inputURL.path]
             if let min { arguments += ["--min", "\(min)"] }
             if let max { arguments += ["--max", "\(max)"] }
-            arguments += pairingArguments
+            arguments += byNamePairingArguments
             arguments += ["-o", outputTarget]
             return arguments
         case .searchText(let query, let field, let regex):

@@ -45,7 +45,8 @@ final class ReadPairingCapabilityRegistryTests: XCTestCase {
             "genotype.ont-mhc": .singleReadsOnly,
             "twelve-s.amplicon-matching": .singleReadsOnly,
             "fastq.merge": .bothInOneRunAsNameInterleavedStream,
-            "fastq.length-filter": .singleReadsOnly,
+            "fastq.length-filter": .bothInOneRunAsNameInterleavedStream,
+            "fastq.error-correct": .singleReadsOnly,
         ]
         for (id, capability) in expected {
             XCTAssertEqual(ReadPairingCapabilityRegistry.capability(for: id), capability, id)
