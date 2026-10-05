@@ -1855,7 +1855,7 @@ public final class GenotypeAnnotationStore {
         )
     }
 
-    private func settingsSummary(_ settings: GenotypeAnnotationSidecar.Settings) -> String {
+    func settingsSummary(_ settings: GenotypeAnnotationSidecar.Settings) -> String {
         let overrides = settings.locusFractionOverrides?
             .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
             .map { "\($0.key):\($0.value)" }
@@ -1877,7 +1877,7 @@ public final class GenotypeAnnotationStore {
         ].joined(separator: "; ")
     }
 
-    private func mhcCandidateDisplaySummary(_ display: ONTMHCCandidateDisplaySettings) -> String {
+    func mhcCandidateDisplaySummary(_ display: ONTMHCCandidateDisplaySettings) -> String {
         let tintSummary = ONTMHCCandidateTintCategory.allCases.map { category in
             let color = display.tints[category]
                 ?? ONTMHCCandidateDisplaySettings.defaultTints[category]!
@@ -1895,7 +1895,7 @@ public final class GenotypeAnnotationStore {
         "{red=\(color.red),green=\(color.green),blue=\(color.blue),alpha=\(color.alpha),hexRGB=\(color.hexString)}"
     }
 
-    private func smartCohortSummary(_ cohort: GenotypeCohortSmartFilter) -> String {
+    func smartCohortSummary(_ cohort: GenotypeCohortSmartFilter) -> String {
         [
             "name=\(cohort.name)",
             "scope=\(cohort.scope)",
@@ -1909,7 +1909,7 @@ public final class GenotypeAnnotationStore {
         value.map { "\($0)" } ?? "nil"
     }
 
-    private func matrixStyleSummary(_ style: GenotypeAnnotationSidecar.MatrixStyle?) -> String? {
+    func matrixStyleSummary(_ style: GenotypeAnnotationSidecar.MatrixStyle?) -> String? {
         guard let style else { return nil }
         var parts: [String] = []
         if let fill = style.fillColor {
