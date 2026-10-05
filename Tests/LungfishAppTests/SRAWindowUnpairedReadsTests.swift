@@ -301,7 +301,10 @@ final class SRAWindowUnpairedReadsTests: XCTestCase {
             recipeName: nil,
             qualityBinning: "none",
             optimizeStorage: false,
-            compressionLevel: "fast"
+            compressionLevel: "fast",
+            // Never `swift build --show-bin-path`, which waits on the build
+            // lock `swift test` holds.
+            cliBinaryPath: { URL(fileURLWithPath: "/injected/lungfish-cli") }
         )
         return try XCTUnwrap(ProvenanceRecorder.load(from: bundle))
     }

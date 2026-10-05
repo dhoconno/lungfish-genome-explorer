@@ -10,6 +10,10 @@ import LungfishWorkflow
 /// Writes the provenance of one SRA run the window downloaded and imported.
 /// Internal, not private, so tests can read what it records.
 ///
+/// `cliBinaryPath` names the CLI in the import step. Tests pass a fixed
+/// path, because the default can run `swift build --show-bin-path`, which
+/// waits on the build lock `swift test` holds.
+///
 /// `stagedReadCounts` gives the reads each staged file held for a run that
 /// imported unpaired reads beside its pairs, recorded under
 /// `stagingInputReadCounts`. Any other run passes nil and records nothing new.
@@ -18,6 +22,7 @@ func writeGUISRAFASTQImportProvenance(
     readRecord: ENAReadRecord?,
     downloadSource: String,
     preferredSource: SRADownloadSourcePreference = .ena,
+    layoutWarning: String? = nil,
     enaDownloadSteps: [StepExecution],
     toolkitDownloadTraces: [SRAService.FASTQDownloadStepTrace],
     cliArguments: [String],
@@ -31,7 +36,8 @@ func writeGUISRAFASTQImportProvenance(
     recipeName: String?,
     qualityBinning: String,
     optimizeStorage: Bool,
-    compressionLevel: String
+    compressionLevel: String,
+    cliBinaryPath: () -> URL? = { CLIImportRunner.cliBinaryPath() }
 ) throws {
     let existingCLIProvenance = ProvenanceRecorder.load(from: bundleURL)
     var steps = enaDownloadSteps
@@ -62,7 +68,7 @@ func writeGUISRAFASTQImportProvenance(
             StepExecution(
                 toolName: CLICommandIdentity.executableName,
                 toolVersion: WorkflowRun.currentAppVersion,
-                command: [CLIImportRunner.cliBinaryPath()?.path ?? CLICommandIdentity.executableName] + cliArguments,
+                command: [cliBinaryPath()?.path ?? CLICommandIdentity.executableName] + cliArguments,
                 inputs: stagedFASTQFiles.map {
                     ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
                 },
@@ -102,6 +108,9 @@ func writeGUISRAFASTQImportProvenance(
         "finalBundlePath": .string(bundleURL.standardizedFileURL.path),
         "finalFASTQPath": .string(finalFASTQURL.standardizedFileURL.path)
     ]
+    if let layoutWarning {
+        parameters["layoutWarning"] = .string(layoutWarning)
+    }
     if let stagedReadCounts {
         parameters["stagingInputReadCounts"] = .dictionary(Dictionary(
             stagedReadCounts.map { ($0.key.standardizedFileURL.path, ParameterValue.integer($0.value)) },

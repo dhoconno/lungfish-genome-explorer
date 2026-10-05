@@ -622,6 +622,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Retains the exact imported query for retry without changing ordinary accession searches.
     private var importedGenBankQuery: String?
 
+    /// Where the SRA "Download source" setting is stored, and NCBI's run info from the last SRA search.
+    nonisolated let sraDownloadSuiteName: String? // nil is the standard defaults
+    var sraNCBIRunsFromSearch: [String: SRARunInfo] = [:]
     /// Maximum number of SRA results to return for non-accession queries
     @Published var sraResultLimit: Int = 50
 
@@ -1144,9 +1147,11 @@ public class DatabaseBrowserViewModel: ObservableObject {
         ncbiService: NCBIService = NCBIService(),
         enaService: ENAService = ENAService(),
         automationBackend: DatabaseSearchAutomationBackend? = nil,
-        largeResultActionProvider: (@Sendable (_ totalCount: Int, _ sourceLabel: String) async -> LargeResultAction)? = nil
+        largeResultActionProvider: (@Sendable (_ totalCount: Int, _ sourceLabel: String) async -> LargeResultAction)? = nil,
+        sraDownloadSuiteName: String? = nil
     ) {
         self.source = source
+        self.sraDownloadSuiteName = sraDownloadSuiteName
         self.ncbiService = ncbiService
         self.enaService = enaService
         self.automationBackend = automationBackend
@@ -1580,6 +1585,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 var searchResults: SearchResults
                 // One line saying an archive failed while the other answered.
                 var searchNotice: String?
+                var ncbiRunsFromSearch: [String: SRARunInfo] = [:]
 
                 switch currentSource {
                 case .ncbi:
@@ -1939,6 +1945,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         mergedSRASearchResultRecord(accession: run.accession, enaRecord: run.enaRecord, ncbiRun: run.ncbiRun)
                     }
                     searchNotice = lookup.notice
+                    ncbiRunsFromSearch = Self.ncbiRunsByAccession(in: lookup)
                     if let searchNotice {
                         logger.warning("performSearch: \(searchNotice, privacy: .public)")
                     }
@@ -2111,9 +2118,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 try Task.checkCancellation()
 
                 // Update UI with results via RunLoop for modal compatibility
-                performOnMainRunLoop { [weak self, searchNotice] in
+                performOnMainRunLoop { [weak self, searchNotice, ncbiRunsFromSearch] in
                     guard let self = self else { return }
                     self.applySearchUpdate(for: searchToken) {
+                        self.sraNCBIRunsFromSearch = ncbiRunsFromSearch
                         self.errorMessage = searchNotice
                         self.results = searchResults.records
                         self.totalResultCount = searchResults.totalCount
@@ -2779,37 +2787,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// confirms import settings. Downloads FASTQ files from ENA, then runs
     /// `CLIImportRunner` to create `.lungfishfastq` bundles, and finally augments
     /// each bundle's metadata sidecar with ENA provenance info.
-    /// The `lungfish-cli import fastq` argv for one downloaded SRA/ENA run.
-    ///
-    /// Built from the same sheet configuration the file-drop import uses, so
-    /// the Compression Tool popup (`clumpingTool`) and the Pairing popup are
-    /// honoured here too; before 2026-09-24 this path dropped the clumping
-    /// tool and always ran the platform default. The pairing choice applies
-    /// when the run downloaded a single file (single-end versus interleaved);
-    /// a run that arrived as R1/R2 imports as one paired sample, with the
-    /// file of reads whose mate is missing when the run has one.
-    nonisolated static func sraImportCLIArguments(
-        importConfig: FASTQImportConfiguration,
-        r1: URL,
-        r2: URL?,
-        unpaired: URL? = nil,
-        projectDirectory: URL
-    ) -> [String] {
-        CLIImportRunner.buildCLIArguments(
-            r1: r1,
-            r2: r2,
-            unpaired: unpaired,
-            projectDirectory: projectDirectory,
-            platform: importConfig.cliPlatformValue,
-            recipeName: FASTQIngestionService.resolvedRecipeName(for: importConfig),
-            qualityBinning: importConfig.qualityBinning.rawValue,
-            optimizeStorage: !importConfig.skipClumpify,
-            clumpingTool: importConfig.clumpingTool,
-            pairingMode: r2 == nil ? importConfig.cliPairingMode : .pairedEnd,
-            compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced"
-        )
-    }
-
     private func startENADownloadTask(
         records: [SearchResultRecord],
         importConfig: FASTQImportConfiguration,
@@ -2828,6 +2805,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
         let enaRouteContext = routeContext
         let projectURL = enaRouteContext?.projectURL
+        let ncbiRunsFromSearch = sraNCBIRunsFromSearch
 
         Task.detached {
             var downloadedURLs: [URL] = []
@@ -2878,23 +2856,16 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         )
                     }
 
-                    // An ENA error, a run ENA lacks or a record without FASTQ links
-                    // takes the SRA Toolkit route, which fetches the run from NCBI.
-                    let route = try await ena.fastqDownloadRoute(forRun: record.accession)
-                    let readRecord = route.enaRecord
-
                     let toolkitTraceCollector = SRAGUIDownloadTraceCollector()
-
-                    func downloadViaToolkit(statusDetail: String, into folder: URL) async throws -> [URL] {
+                    func logLine(_ line: String, _ level: OperationLogLevel) {
                         performOnMainRunLoop {
-                            // Logged, so the row's history keeps why ENA was skipped.
-                            _ = DownloadCenter.shared.updateWithLog(
-                                id: downloadCenterTaskID,
-                                progress: progressFraction,
-                                detail: statusDetail,
-                                level: .warning
-                            )
+                            _ = DownloadCenter.shared.updateWithLog(id: downloadCenterTaskID, progress: progressFraction, detail: line, level: level)
                         }
+                    }
+
+                    func downloadViaToolkit(status: SRAWindowToolkitStatus, into folder: URL) async throws -> [URL] {
+                        // Logged, so the row's history keeps the route and why.
+                        logLine(status.line, status.level)
                         return try await sra.downloadFASTQ(
                             accession: record.accession,
                             outputDir: folder,
@@ -2916,13 +2887,16 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         )
                     }
 
-                    // 2. Download the run's FASTQ files into its own folder of the batch
-                    let totalExpectedBytes = readRecord?.totalFileSizeBytes.map { Int64($0) }
-                    let staged = try await SRAWindowRunDownload.stage(
-                        accession: record.accession,
-                        route: route, preference: .stored(), // The window's "Download source" setting
+                    // 2. Download the run's FASTQ files into its own folder of the batch.
+                    // An ENA error, a run ENA lacks or a record without FASTQ links
+                    // takes the SRA Toolkit route, which fetches the run from NCBI.
+                    let accession = record.accession
+                    let staged = try await self.stageSRARun(
+                        accession: accession,
+                        ncbiRun: ncbiRunsFromSearch[accession],
                         in: batchDir,
-                        mirrorFile: { fastqURL, fileExpectedBytes, priorBytes in
+                        lookUpRoute: { try await ena.fastqDownloadRoute(forRun: accession) },
+                        mirrorFile: { fastqURL, fileExpectedBytes, priorBytes, totalExpectedBytes in
                             try await streamingDownload(
                                 url: fastqURL,
                                 totalBytes: fileExpectedBytes,
@@ -2938,9 +2912,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                 }
                             )
                         },
-                        toolkit: { try await downloadViaToolkit(statusDetail: $0, into: $1) },
-                        log: { line in performOnMainRunLoop { _ = DownloadCenter.shared.updateWithLog(id: downloadCenterTaskID, progress: progressFraction, detail: line, level: .warning) } }
+                        toolkit: { try await downloadViaToolkit(status: $0, into: $1) },
+                        log: { logLine($0, .warning) }
                     )
+                    let readRecord = staged.download.enaRecord
                     // Removed after the import or on failure, so no file of
                     // this run reaches the next one.
                     defer { staged.removeFolder() }
@@ -3016,6 +2991,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     }) {
                         var metadata = FASTQMetadataStore.load(for: fastqURL) ?? PersistedFASTQMetadata()
                         metadata.enaReadRecord = readRecord
+                        metadata.sraRunInfo = metadata.sraRunInfo ?? (readRecord == nil ? staged.ncbiRun : nil)
                         metadata.downloadDate = Date()
                         metadata.downloadSource = downloadSource
                         FASTQMetadataStore.save(metadata, for: fastqURL)
@@ -3023,7 +2999,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         try writeGUISRAFASTQImportProvenance(
                             accession: record.accession,
                             readRecord: readRecord,
-                            downloadSource: downloadSource, preferredSource: staged.download.preference,
+                            downloadSource: downloadSource, preferredSource: staged.download.preference, layoutWarning: staged.layoutWarning,
                             enaDownloadSteps: enaDownloadSteps,
                             toolkitDownloadTraces: toolkitTraceCollector.steps,
                             cliArguments: args,

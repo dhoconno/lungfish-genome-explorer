@@ -11,12 +11,13 @@ public extension SRAService {
     /// Downloads one run's FASTQ files from the archive `preference` names
     /// first, as `lungfish-cli fetch sra download --prefer-source` does.
     ///
-    /// `.ena` is `downloadFASTQWithFallback`, unchanged. `.ncbi` looks the
-    /// run up on ENA, plans the transfers with
-    /// `SRAFASTQDownloadRoute.plan(preferring:)`, and fetches the run with
-    /// the SRA Toolkit. When the toolkit is not installed or fails, the reads
-    /// it wrote are removed and ENA's mirror serves the run, if ENA lists
-    /// FASTQ files for it. A cancellation stops the download.
+    /// `.ena` is `downloadFASTQWithFallback`, unchanged. `.ncbi` fetches the
+    /// run with the SRA Toolkit without asking ENA anything first. When the
+    /// toolkit is not installed or fails, the reads it wrote are removed,
+    /// the run is looked up on ENA, and ENA's mirror serves it if ENA lists
+    /// FASTQ files for it. This is the order
+    /// `SRAFASTQDownloadRoute.plan(preferring: .ncbi)` gives. A cancellation
+    /// stops the download.
     ///
     /// - Parameters:
     ///   - onFallback: Called once with the line to log when the download
@@ -44,8 +45,8 @@ public extension SRAService {
             )
         }
 
-        let route = try await ENAService(httpClient: httpClient).fastqDownloadRoute(forRun: accession)
-        let plan = route.plan(preferring: .ncbi)
+        // ENA is not asked about the run until the toolkit has failed. ENA
+        // can be slow, which is why a user prefers NCBI.
         let toolkit: DownloadStrategy = toolkitDownloader ?? { acc, dir in
             try await self.downloadFASTQ(accession: acc, outputDir: dir, progress: progress, trace: trace)
         }
@@ -58,10 +59,6 @@ public extension SRAService {
         } catch let toolkitError {
             guard let source = SRAFASTQDownloadSource.enaFallback(afterToolkitError: toolkitError) else {
                 throw toolkitError
-            }
-            guard plan.transfers.contains(.enaMirror) else {
-                let enaReason = route.toolkitReason ?? "ENA lists no FASTQ files for \(accession)"
-                throw SRAError.downloadFailed("Toolkit: \(toolkitError.localizedDescription); ENA: \(enaReason)")
             }
             for file in runFiles.writtenFASTQFiles() {
                 try? FileManager.default.removeItem(at: file)

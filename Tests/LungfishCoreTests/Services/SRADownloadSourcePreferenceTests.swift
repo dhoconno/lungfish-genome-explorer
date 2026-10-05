@@ -93,6 +93,37 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
         }
     }
 
+    /// ENA can be slow, which is why the owner prefers NCBI, so a toolkit
+    /// success must not wait on ENA's portal at all.
+    func testNCBIToolkitSuccessMakesNoENARequest() async throws {
+        for portal in [ScriptedPortal.listsFiles, .listsNoFiles, .outage] {
+            let outcome = try await download(preferring: .ncbi, portal: portal, toolkit: .recorded)
+            XCTAssertEqual(outcome.sources, [.sraToolkit], "\(portal)")
+            XCTAssertEqual(outcome.portalRequests, 0, "\(portal)")
+        }
+    }
+
+    /// Only when the toolkit is missing or fails is the run looked up on
+    /// ENA, once, and served from ENA's mirror.
+    func testNCBIToolkitFailureLooksTheRunUpOnENAAndFallsBack() async throws {
+        for toolkit in [ScriptedToolkit.missing, .failsAfterWritingAMate] {
+            let outcome = try await download(preferring: .ncbi, portal: .listsFiles, toolkit: toolkit)
+            XCTAssertEqual(outcome.portalRequests, 1, "\(toolkit)")
+            XCTAssertEqual(outcome.mirrorRequests, 2, "\(toolkit)")
+            XCTAssertEqual(outcome.files, ["\(Self.run)_1.fastq.gz", "\(Self.run)_2.fastq.gz"], "\(toolkit)")
+        }
+    }
+
+    func testNCBICancelledToolkitMakesNoENARequest() async throws {
+        let client = ScriptedPortalClient(portal: .listsFiles, run: Self.run)
+        do {
+            _ = try await download(preferring: .ncbi, client: client, toolkit: .cancelled)
+            XCTFail("a cancelled toolkit run must not fall back")
+        } catch is CancellationError {}
+        let portalRequests = await client.portalRequests
+        XCTAssertEqual(portalRequests, 0)
+    }
+
     func testNCBIWithoutTheToolkitFallsBackToENAAndSaysWhy() async throws {
         let outcome = try await download(preferring: .ncbi, portal: .listsFiles, toolkit: .missing)
         XCTAssertEqual(outcome.files, ["\(Self.run)_1.fastq.gz", "\(Self.run)_2.fastq.gz"])
@@ -162,6 +193,7 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
         let sources: [SRAFASTQDownloadSource]
         let fallbackMessages: [String]
         let mirrorRequests: Int
+        let portalRequests: Int
         let folderFASTQ: [String]
     }
 
@@ -170,9 +202,20 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
         portal: ScriptedPortal,
         toolkit: ScriptedToolkit
     ) async throws -> Outcome {
+        try await download(
+            preferring: preference,
+            client: ScriptedPortalClient(portal: portal, run: Self.run),
+            toolkit: toolkit
+        )
+    }
+
+    private func download(
+        preferring preference: SRADownloadSourcePreference,
+        client: ScriptedPortalClient,
+        toolkit: ScriptedToolkit
+    ) async throws -> Outcome {
         let folder = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let client = ScriptedPortalClient(portal: portal, run: Self.run)
         let emptyHome = root.appendingPathComponent("home-\(UUID().uuidString)", isDirectory: true)
         let service = SRAService(
             ncbiService: NCBIService(httpClient: client, environment: [:]),
@@ -196,6 +239,7 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
             sources: sources.values,
             fallbackMessages: messages.values,
             mirrorRequests: await client.mirrorRequests,
+            portalRequests: await client.portalRequests,
             folderFASTQ: folderFASTQ
         )
     }
@@ -266,6 +310,7 @@ private actor ScriptedPortalClient: HTTPClient {
     let portal: ScriptedPortal
     let run: String
     private(set) var mirrorRequests = 0
+    private(set) var portalRequests = 0
 
     init(portal: ScriptedPortal, run: String) {
         self.portal = portal
@@ -277,6 +322,7 @@ private actor ScriptedPortalClient: HTTPClient {
         guard url.absoluteString.contains("portal/api") else {
             throw URLError(.cannotFindHost)
         }
+        portalRequests += 1
         let size = ENAFASTQDownloadValidatorTests.gzipFixture.count
         let folder = "ftp.sra.ebi.ac.uk/vol1/fastq/ERR123/094/\(run)"
         switch portal {
