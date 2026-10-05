@@ -1400,6 +1400,31 @@ final class MSACommandTests: XCTestCase {
         XCTAssertEqual(options["gapPolicy"] as? String, "pairwise-delete")
         XCTAssertEqual(options["order"] as? String, "alignment")
         XCTAssertEqual(options["alphabet"] as? String, "nucleotide")
+        XCTAssertNil(options["retainedColumnCount"], "pairwise deletion keeps every column, so no count is recorded")
+    }
+
+    /// Finding S2: the CLI drops whitespace inside sequence lines exactly as the GUI viewport
+    /// and MSAAlignedRecord.parseAlignedFASTA do, so a hand-edited bundle gives the same matrix.
+    func testDistanceSubcommandIgnoresWhitespaceInsideSequenceLines() throws {
+        let tempDir = try makeDistanceTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bundleURL = try makeMSABundle(in: tempDir, contents: ">a\nACGT\n>b\nACGA\n", name: "distance-whitespace")
+        try ">a\nAC GT\n>b\nA CGA\n".write(
+            to: bundleURL.appendingPathComponent("alignment/primary.aligned.fasta"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let outputURL = tempDir.appendingPathComponent("whitespace.tsv")
+
+        try MSACommand.DistanceSubcommand.parse([bundleURL.path, "--output", outputURL.path, "--quiet"])
+            .executeForTesting { _ in }
+
+        XCTAssertEqual(
+            try String(contentsOf: outputURL, encoding: .utf8),
+            "row\ta\tb\na\t1.000000\t0.750000\nb\t0.750000\t1.000000\n"
+        )
+        let options = try XCTUnwrap(try distanceProvenance(for: outputURL)["options"] as? [String: Any])
+        XCTAssertEqual(options["selectedColumnCount"] as? Int, 4)
     }
 
     /// Rulings P1, P4, P5: jc69 over complete deletion in UPGMA order, end to end.
@@ -1443,6 +1468,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertEqual(options["undefinedPairCount"] as? Int, 0)
         XCTAssertEqual(options["saturatedPairCount"] as? Int, 0)
         XCTAssertEqual(options["selectedColumnCount"] as? Int, 5)
+        XCTAssertEqual(options["retainedColumnCount"] as? Int, 4, "finding S3: complete deletion drops the gapped column")
         let argv = try XCTUnwrap(provenance["argv"] as? [String])
         XCTAssertEqual(Array(argv.dropFirst()), [
             "msa", "distance", bundleURL.path,

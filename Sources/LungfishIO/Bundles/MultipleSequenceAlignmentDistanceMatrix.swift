@@ -17,9 +17,17 @@ public struct MSAAlignedRecord: Sendable, Equatable {
         self.sequence = sequence
     }
 
-    /// Parses aligned FASTA text. Whitespace inside sequence lines is dropped; a record with
-    /// an empty header keeps the empty name. Returns an empty array for text without records.
-    public static func parseAlignedFASTA(_ text: String) -> [MSAAlignedRecord] {
+    /// Parses aligned FASTA text. Whitespace inside sequence lines is dropped, as the GUI
+    /// viewport does. A record with an empty header keeps the empty name. Returns an empty
+    /// array for text without records.
+    ///
+    /// `keepingInteriorWhitespace` preserves the older CLI reading, which kept interior
+    /// whitespace as sequence characters. Only the msa subcommands whose output predates
+    /// finding S2 pass true, so their files stay byte-identical.
+    public static func parseAlignedFASTA(
+        _ text: String,
+        keepingInteriorWhitespace: Bool = false
+    ) -> [MSAAlignedRecord] {
         var records: [MSAAlignedRecord] = []
         var currentName: String?
         var currentSequence = ""
@@ -37,7 +45,7 @@ public struct MSAAlignedRecord: Sendable, Equatable {
                 currentName = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
                 currentSequence = ""
             } else {
-                currentSequence += line.filter { !$0.isWhitespace }
+                currentSequence += keepingInteriorWhitespace ? line : line.filter { !$0.isWhitespace }
             }
         }
         flush()

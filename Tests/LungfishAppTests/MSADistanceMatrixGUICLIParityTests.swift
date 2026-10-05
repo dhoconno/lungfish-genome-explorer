@@ -165,4 +165,67 @@ final class MSADistanceMatrixGUICLIParityTests: XCTestCase {
         )
         try await assertParity(bundleURL: bundleURL, alphabet: .protein)
     }
+
+    /// Finding S2: a primary alignment with whitespace inside sequence lines (a hand-edited
+    /// bundle) gives the same matrix in the pane and in the CLI.
+    func testPaneMatchesCLIWhenSequenceLinesContainWhitespace() async throws {
+        let bundleURL = try bundle(">w1\nACGTACGTAC\n>w2\nACGAACGTAC\n>w3\nTCGAACGTCC\n", name: "whitespace")
+        try ">w1\nACG TACG\nTAC\n>w2\nA CGAACGTA C\n>w3\nTCGAAC\tGTCC\n".write(
+            to: bundleURL.appendingPathComponent("alignment/primary.aligned.fasta"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try await assertParity(bundleURL: bundleURL, alphabet: .nucleotide)
+    }
+
+    /// Finding N3: nan (an all-gap row) and inf (a saturating pair) cells format the same in
+    /// the pane and the CLI. Complete deletion has no column left, so both sides must fail.
+    func testPaneMatchesCLIForNaNAndInfinityCells() async throws {
+        let bundleURL = try bundle(
+            """
+            >base
+            AAAAAAAA
+            >saturated
+            CCCCCCAA
+            >near
+            AAAAGAAA
+            >allgap
+            --------
+
+            """,
+            name: "nonvalues"
+        )
+        let controller = try await controller(bundleURL)
+        let model = controller.bottomPane.distancePane.model
+        var sawNaN = false
+        var sawInfinity = false
+        for distanceModel in MSADistanceModel.models(for: .nucleotide) {
+            for order in MSADistanceOrder.allCases {
+                model.model = distanceModel
+                model.gaps = .pairwise
+                model.order = order
+                let wanted = MSADistanceOptions(model: distanceModel, gaps: .pairwise, order: order, alphabet: .nucleotide)
+                await LungfishTestSupport.waitUntil(timeout: .seconds(20)) { model.status == .ready && model.matrix?.options == wanted }
+                XCTAssertEqual(model.status, .ready, "status for \(wanted)")
+                let gui = try XCTUnwrap(controller.bottomPane.distancePane.matrixTSV, "\(wanted)")
+                let tag = "nonvalues-\(distanceModel.rawValue)-\(order.rawValue)"
+                let cli = try cliTSV(bundleURL: bundleURL, options: model.options, tag: tag)
+                XCTAssertEqual(gui, cli, "GUI and CLI differ for \(tag)")
+                sawNaN = sawNaN || cli.contains("\tnan")
+                sawInfinity = sawInfinity || cli.contains("\tinf")
+            }
+        }
+        XCTAssertTrue(sawNaN, "the all-gap row must produce nan cells")
+        XCTAssertTrue(sawInfinity, "the saturating pair must produce inf cells under jc69 and k2p")
+
+        model.gaps = .complete
+        await LungfishTestSupport.waitUntil(timeout: .seconds(20)) {
+            if case .failed = model.status { return true }
+            return false
+        }
+        guard case .failed = model.status else {
+            return XCTFail("complete deletion with an all-gap row must fail in the pane, got \(model.status)")
+        }
+        XCTAssertThrowsError(try cliTSV(bundleURL: bundleURL, options: model.options, tag: "nonvalues-complete"))
+    }
 }

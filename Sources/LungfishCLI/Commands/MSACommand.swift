@@ -1966,6 +1966,8 @@ struct MSAFileExportProvenance: Codable, Equatable {
         let ambiguityPolicy: String?
         let undefinedPairCount: Int?
         let saturatedPairCount: Int?
+        // Columns left after complete deletion. Nil, and so absent from the sidecar, otherwise.
+        let retainedColumnCount: Int?
 
         init(
             outputFormat: String,
@@ -1983,13 +1985,15 @@ struct MSAFileExportProvenance: Codable, Equatable {
             alphabet: String? = nil,
             ambiguityPolicy: String? = nil,
             undefinedPairCount: Int? = nil,
-            saturatedPairCount: Int? = nil
+            saturatedPairCount: Int? = nil,
+            retainedColumnCount: Int? = nil
         ) {
             self.order = order
             self.alphabet = alphabet
             self.ambiguityPolicy = ambiguityPolicy
             self.undefinedPairCount = undefinedPairCount
             self.saturatedPairCount = saturatedPairCount
+            self.retainedColumnCount = retainedColumnCount
             self.outputFormat = outputFormat
             self.rows = rows
             self.columns = columns
@@ -2149,34 +2153,16 @@ private struct MSATrimMetadata: Codable, Equatable {
     }
 }
 
-func parseAlignedFASTA(at url: URL) throws -> [AlignedFASTARecord] {
+/// Reads aligned FASTA through the shared LungfishIO parser. Interior whitespace is kept by
+/// default so the subcommands that predate finding S2 write the same files. `msa distance`
+/// passes false to match the GUI.
+func parseAlignedFASTA(at url: URL, keepingInteriorWhitespace: Bool = true) throws -> [AlignedFASTARecord] {
     let text = try String(contentsOf: url, encoding: .utf8)
-    var records: [AlignedFASTARecord] = []
-    var currentName: String?
-    var currentSequence = ""
-
-    func flush() {
-        guard let currentName else { return }
-        records.append(AlignedFASTARecord(name: currentName, sequence: currentSequence))
-    }
-
-    for rawLine in text.split(whereSeparator: \.isNewline) {
-        let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard line.isEmpty == false else { continue }
-        if line.hasPrefix(">") {
-            flush()
-            currentName = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-            currentSequence = ""
-        } else {
-            currentSequence += line
-        }
-    }
-    flush()
-
+    let records = MSAAlignedRecord.parseAlignedFASTA(text, keepingInteriorWhitespace: keepingInteriorWhitespace)
     guard records.isEmpty == false else {
         throw ValidationError("MSA bundle does not contain aligned FASTA records.")
     }
-    return records
+    return records.map { AlignedFASTARecord(name: $0.name, sequence: $0.sequence) }
 }
 
 func selectAlignedRecords(
