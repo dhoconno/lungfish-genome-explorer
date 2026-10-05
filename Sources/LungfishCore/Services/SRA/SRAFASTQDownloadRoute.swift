@@ -97,6 +97,12 @@ public enum SRAFASTQDownloadSource: String, Sendable, CaseIterable {
     /// the SRA Toolkit fetched the whole run.
     case sraToolkitAfterFailedTransfer = "SRA Toolkit (ENA transfer failed)"
 
+    /// Whether the SRA Toolkit fetched the reads. Its `prefetch` and
+    /// `fasterq-dump` run in the managed sra-tools environment.
+    public var usesSRAToolkit: Bool {
+        self != .ena
+    }
+
     /// The source a download records when its ENA download failed with
     /// `error` and the SRA Toolkit fetches the whole run instead, or nil for
     /// a cancellation, which stops the download.

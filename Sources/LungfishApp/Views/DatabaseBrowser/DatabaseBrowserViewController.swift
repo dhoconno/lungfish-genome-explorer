@@ -168,7 +168,9 @@ private func performOnMainRunLoopAsync<T: Sendable>(_ block: @escaping @MainActo
     }
 }
 
-private func writeGUISRAFASTQImportProvenance(
+/// Writes the provenance of one SRA run the window downloaded and imported.
+/// Internal, not private, so tests can read what it records.
+func writeGUISRAFASTQImportProvenance(
     accession: String,
     readRecord: ENAReadRecord?,
     downloadSource: String,
@@ -244,7 +246,10 @@ private func writeGUISRAFASTQImportProvenance(
         "optimizeStorage": .boolean(optimizeStorage),
         "compression": .string(compressionLevel),
         "containerRuntime": .string("none"),
-        "condaEnvironment": .string(downloadSource == "SRA Toolkit" ? "managed sra-tools" : "none"),
+        // Every SRA Toolkit source ran in the managed sra-tools environment.
+        "condaEnvironment": .string(
+            SRAFASTQDownloadSource(rawValue: downloadSource)?.usesSRAToolkit == true ? "managed sra-tools" : "none"
+        ),
         "stagingInputs": .array(stagedFASTQFiles.map { .string($0.standardizedFileURL.path) }),
         "finalBundlePath": .string(bundleURL.standardizedFileURL.path),
         "finalFASTQPath": .string(finalFASTQURL.standardizedFileURL.path)

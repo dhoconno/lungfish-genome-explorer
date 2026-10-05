@@ -42,6 +42,14 @@ final class SRAFASTQDownloadSourceTests: XCTestCase {
         XCTAssertNil(SRAFASTQDownloadSource.toolkitFallback(after: DatabaseServiceError.cancelled))
     }
 
+    func testEverySRAToolkitSourceUsesTheSRAToolsEnvironment() {
+        XCTAssertEqual(
+            SRAFASTQDownloadSource.allCases.filter(\.usesSRAToolkit).map(\.rawValue),
+            ["SRA Toolkit", "SRA Toolkit (ENA mirror incomplete)", "SRA Toolkit (ENA transfer failed)"]
+        )
+        XCTAssertFalse(SRAFASTQDownloadSource.ena.usesSRAToolkit)
+    }
+
     func testCLIDownloadRecordsAFailedTransferWhenTheMirrorAnswersAnHTTPError() async throws {
         let sources = try await Self.recordedSources(mirror: { url in
             url.lastPathComponent.hasSuffix("_2.fastq.gz") ? .status(500) : .gzip
