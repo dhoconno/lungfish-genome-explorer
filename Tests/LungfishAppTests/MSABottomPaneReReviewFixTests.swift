@@ -105,6 +105,39 @@ final class MSABottomPaneReReviewFixTests: XCTestCase {
         XCTAssertEqual(grid.selection.focus, target)
     }
 
+    // MARK: GUI walk: the Distances tab opens tall enough for its header and rows
+
+    private func chromePlusMatrix(_ pane: MSABottomPaneView, rows: Int) throws -> CGFloat {
+        let fit = try XCTUnwrap(pane.distancePane.fittingHeight(rows: rows))
+        return AnnotationDrawerSizing.dividerHeight + MSABottomPaneView.headerHeight + fit
+    }
+
+    func testFirstOpenFitsTheColumnHeaderAndSixRows() async throws {
+        let controller = try await controller()
+        _ = try await readyMatrix(controller)
+        let pane = controller.bottomPane
+        let wanted = try chromePlusMatrix(pane, rows: 6)
+        XCTAssertGreaterThan(wanted, MSABottomPaneView.defaultHeight, "the fixture needs a header taller than the old default allows")
+        XCTAssertEqual(pane.heightConstraint.constant, min(wanted, 700 - MSABottomPaneView.reservedAlignmentHeight), accuracy: 0.5)
+        XCTAssertEqual(defaults.double(forKey: MSABottomPaneView.DefaultsKey.height), 0, "the grown height is not stored")
+    }
+
+    func testAShortStoredHeightGrowsToTwoRows() async throws {
+        defaults.set(Double(MSABottomPaneView.minimumHeight), forKey: MSABottomPaneView.DefaultsKey.height)
+        let controller = try await controller()
+        _ = try await readyMatrix(controller)
+        let pane = controller.bottomPane
+        XCTAssertEqual(pane.heightConstraint.constant, try chromePlusMatrix(pane, rows: 2), accuracy: 0.5)
+        XCTAssertEqual(defaults.double(forKey: MSABottomPaneView.DefaultsKey.height), Double(MSABottomPaneView.minimumHeight))
+    }
+
+    func testATallStoredHeightStays() async throws {
+        defaults.set(500.0, forKey: MSABottomPaneView.DefaultsKey.height)
+        let controller = try await controller()
+        _ = try await readyMatrix(controller)
+        XCTAssertEqual(controller.bottomPane.heightConstraint.constant, 500, accuracy: 0.5)
+    }
+
     // MARK: SF-A Tab from the grid leaves the pane
 
     func testTabFromTheGridLeavesThePaneInTheRealHierarchy() async throws {

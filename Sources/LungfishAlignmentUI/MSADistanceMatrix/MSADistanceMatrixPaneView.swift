@@ -22,6 +22,19 @@ public final class MSADistanceMatrixPaneView: NSView {
     public var onExportRequested: ((MSADistanceOptions) -> Void)?
     /// Focused pair breakdown for the Inspector: detail, row name, column name.
     public var onFocusedPairChanged: ((MSAPairDetail?, String, String) -> Void)?
+    /// A new matrix is on screen, so `fittingHeight(rows:)` can answer.
+    public var onMatrixShown: (() -> Void)?
+
+    /// The pane height that shows the button bar, the rotated column header,
+    /// `rows` matrix rows (at most the matrix size) and the footer. Nil until
+    /// a matrix is ready, since the header height depends on its names.
+    public func fittingHeight(rows: Int) -> CGFloat? {
+        guard let matrix = model.matrix, !columnHeaderView.names.isEmpty else { return nil }
+        let barHeight = ceil(max(28, headerBar.fittingSize.height))
+        let footerHeight = ceil(max(20, footerLabel.fittingSize.height + 4))
+        let shownRows = CGFloat(min(max(rows, 1), matrix.names.count))
+        return barHeight + columnHeaderView.preferredHeight() + shownRows * gridView.cellSide + footerHeight
+    }
 
     public var maxRowsForInlineMatrix: Int {
         get { model.maxRowsForInlineMatrix }
@@ -324,7 +337,9 @@ public final class MSADistanceMatrixPaneView: NSView {
         showValuesCheckbox.state = model.showsValues ? .on : .off
 
         let matrix = model.matrix
-        if model.matrixRevision != shownMatrixRevision {
+        let showsNewMatrix = model.matrixRevision != shownMatrixRevision
+        defer { if showsNewMatrix, matrix != nil { onMatrixShown?() } }
+        if showsNewMatrix {
             shownMatrixRevision = model.matrixRevision
             gridView.setMatrix(matrix)
             rowHeaderView.names = matrix?.names ?? []

@@ -206,6 +206,7 @@ final class MSABottomPaneView: NSView {
         divider.onResize = { [weak self] delta in self?.resize(by: delta, persist: false) }
         divider.onFinishResize = { [weak self] in self?.persistHeight() }
         divider.currentHeight = { [weak self] in self?.heightConstraint.constant ?? 0 }
+        distancePane.onMatrixShown = { [weak self] in self?.growToFitDistances() }
 
         headerStrip.translatesAutoresizingMaskIntoConstraints = false
         headerStrip.clipsToBounds = true
@@ -279,6 +280,36 @@ final class MSABottomPaneView: NSView {
         return stored >= Self.minimumHeight ? stored : Self.defaultHeight
     }
 
+    /// Matrix rows the Distances tab shows on first open, before the user
+    /// has chosen a height.
+    static let firstOpenDistanceRows = 6
+    /// Matrix rows the Distances tab always shows, even at a stored height.
+    static let minimumDistanceRows = 2
+
+    private var hasStoredHeight: Bool {
+        CGFloat(defaults.double(forKey: DefaultsKey.height)) >= Self.minimumHeight
+    }
+
+    /// The open height the Distances tab needs to show its column header and
+    /// enough rows: six before the user picks a height, two after. Nil while
+    /// no matrix is on screen. Not clamped.
+    var distancesFittingHeight: CGFloat? {
+        let rows = hasStoredHeight ? Self.minimumDistanceRows : Self.firstOpenDistanceRows
+        guard let fit = distancePane.fittingHeight(rows: rows) else { return nil }
+        return AnnotationDrawerSizing.dividerHeight + Self.headerHeight + fit
+    }
+
+    /// Grows an open Distances tab that is too short for its column header
+    /// and rows. A taller height, stored or dragged, stays. The grown height
+    /// is not stored, so it never overrides the user's own choice.
+    func growToFitDistances() {
+        guard isOpen, visibleTab == .distances, let fit = distancesFittingHeight else { return }
+        let target = Self.clampedHeight(fit, hostHeight: hostHeight)
+        guard heightConstraint.constant < target else { return }
+        heightConstraint.constant = target
+        superview?.layoutSubtreeIfNeeded()
+    }
+
     /// The visible tab: Distances falls back to Annotations while unavailable.
     var visibleTab: Tab {
         selectedTab == .distances && !isDistancesAvailable ? .annotations : selectedTab
@@ -300,6 +331,7 @@ final class MSABottomPaneView: NSView {
     }
 
     func select(_ tab: Tab) {
+        defer { growToFitDistances() }
         guard tab != selectedTab else {
             showContent()
             return
@@ -329,7 +361,9 @@ final class MSABottomPaneView: NSView {
         let changed = open != isOpen
         isOpen = open
         if persist { defaults.set(open, forKey: DefaultsKey.isOpen) }
-        let target = open ? Self.clampedHeight(preferredOpenHeight, hostHeight: hostHeight) : 0
+        var openHeight = preferredOpenHeight
+        if visibleTab == .distances, let fit = distancesFittingHeight { openHeight = max(openHeight, fit) }
+        let target = open ? Self.clampedHeight(openHeight, hostHeight: hostHeight) : 0
         if open { isHidden = false }
         let duration = animated && !reduceMotion() ? Self.animationDuration : 0
         lastAnimationDuration = duration
