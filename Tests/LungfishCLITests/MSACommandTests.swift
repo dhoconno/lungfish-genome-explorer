@@ -1369,6 +1369,177 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(isDirectory.boolValue)
     }
 
+    private func makeDistanceTempDir() throws -> URL {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/MSACommandTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        return tempDir
+    }
+
+    private func distanceProvenance(for outputURL: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: outputURL.appendingPathExtension("lungfish-provenance.json"))
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// Ruling P3: N is missing data, so N against A is neither a match nor a mismatch.
+    func testDistanceSubcommandSkipsAmbiguityCodes() throws {
+        let tempDir = try makeDistanceTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bundleURL = try makeMSABundle(in: tempDir, contents: ">a\nACGTN\n>b\nACGTA\n", name: "distance-ambiguity")
+        let outputURL = tempDir.appendingPathComponent("ambiguity.tsv")
+
+        try MSACommand.DistanceSubcommand.parse([bundleURL.path, "--output", outputURL.path, "--quiet"])
+            .executeForTesting { _ in }
+
+        XCTAssertEqual(
+            try String(contentsOf: outputURL, encoding: .utf8),
+            "row\ta\tb\na\t1.000000\t1.000000\nb\t1.000000\t1.000000\n"
+        )
+        let options = try XCTUnwrap(try distanceProvenance(for: outputURL)["options"] as? [String: Any])
+        XCTAssertEqual(options["ambiguityPolicy"] as? String, "skip")
+        XCTAssertEqual(options["gapPolicy"] as? String, "pairwise-delete")
+        XCTAssertEqual(options["order"] as? String, "alignment")
+        XCTAssertEqual(options["alphabet"] as? String, "nucleotide")
+    }
+
+    /// Rulings P1, P4, P5: jc69 over complete deletion in UPGMA order, end to end.
+    func testDistanceSubcommandWritesNonDefaultOptionsAndProvenance() throws {
+        let tempDir = try makeDistanceTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bundleURL = try makeMSABundle(
+            in: tempDir,
+            contents: ">r0\nAAAA-\n>r1\nAACCA\n>r2\nAAACA\n>r3\nAAAGA\n",
+            name: "distance-options"
+        )
+        let outputURL = tempDir.appendingPathComponent("jc69.tsv")
+        let recorder = LineRecorder()
+
+        try MSACommand.DistanceSubcommand.parse([
+            bundleURL.path,
+            "--model", "jc69",
+            "--gaps", "complete",
+            "--order", "average-linkage",
+            "--output", outputURL.path,
+            "--format", "json",
+        ]).executeForTesting { recorder.append($0) }
+
+        XCTAssertEqual(
+            try String(contentsOf: outputURL, encoding: .utf8),
+            """
+            row\tr0\tr2\tr3\tr1
+            r0\t0.000000\t0.304099\t0.304099\t0.823959
+            r2\t0.304099\t0.000000\t0.304099\t0.304099
+            r3\t0.304099\t0.304099\t0.000000\t0.823959
+            r1\t0.823959\t0.304099\t0.823959\t0.000000
+
+            """
+        )
+        let provenance = try distanceProvenance(for: outputURL)
+        let options = try XCTUnwrap(provenance["options"] as? [String: Any])
+        XCTAssertEqual(options["distanceModel"] as? String, "jc69")
+        XCTAssertEqual(options["gapPolicy"] as? String, "complete-delete")
+        XCTAssertEqual(options["order"] as? String, "average-linkage")
+        XCTAssertEqual(options["ambiguityPolicy"] as? String, "skip")
+        XCTAssertEqual(options["undefinedPairCount"] as? Int, 0)
+        XCTAssertEqual(options["saturatedPairCount"] as? Int, 0)
+        XCTAssertEqual(options["selectedColumnCount"] as? Int, 5)
+        let argv = try XCTUnwrap(provenance["argv"] as? [String])
+        XCTAssertEqual(Array(argv.dropFirst()), [
+            "msa", "distance", bundleURL.path,
+            "--model", "jc69",
+            "--gaps", "complete",
+            "--order", "average-linkage",
+            "--output", outputURL.path,
+            "--format", "json",
+        ])
+        XCTAssertEqual(provenance["warnings"] as? [String], [])
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
+    }
+
+    /// Ruling P2: saturated pairs are written as inf, counted, and warned about.
+    func testDistanceSubcommandWarnsAboutSaturatedAndUndefinedPairs() throws {
+        let tempDir = try makeDistanceTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bundleURL = try makeMSABundle(
+            in: tempDir,
+            contents: ">a\nAAAA\n>b\nCCTT\n>c\n----\n",
+            name: "distance-saturated"
+        )
+        let outputURL = tempDir.appendingPathComponent("k2p.tsv")
+        let recorder = LineRecorder()
+
+        try MSACommand.DistanceSubcommand.parse([bundleURL.path, "--model", "k2p", "--output", outputURL.path])
+            .executeForTesting { recorder.append($0) }
+
+        XCTAssertEqual(
+            try String(contentsOf: outputURL, encoding: .utf8),
+            "row\ta\tb\tc\na\t0.000000\tinf\tnan\nb\tinf\t0.000000\tnan\nc\tnan\tnan\tnan\n"
+        )
+        let provenance = try distanceProvenance(for: outputURL)
+        let options = try XCTUnwrap(provenance["options"] as? [String: Any])
+        XCTAssertEqual(options["saturatedPairCount"] as? Int, 1)
+        XCTAssertEqual(options["undefinedPairCount"] as? Int, 2)
+        let warnings = try XCTUnwrap(provenance["warnings"] as? [String])
+        XCTAssertEqual(warnings.count, 2)
+        let output = recorder.joined()
+        XCTAssertTrue(output.contains("Warning: 2 pairs have no comparable sites and are written as nan."), output)
+        XCTAssertTrue(output.contains("Warning: 1 pair is saturated under k2p"), output)
+
+        let jsonOutputURL = tempDir.appendingPathComponent("k2p-json.tsv")
+        let jsonRecorder = LineRecorder()
+        try MSACommand.DistanceSubcommand.parse([
+            bundleURL.path, "--model", "k2p", "--output", jsonOutputURL.path, "--format", "json",
+        ]).executeForTesting { jsonRecorder.append($0) }
+        XCTAssertTrue(jsonRecorder.joined().contains("saturated under k2p"), jsonRecorder.joined())
+    }
+
+    /// Ruling P1: corrected nucleotide models are rejected for a protein bundle, naming the alphabet.
+    func testDistanceSubcommandRejectsModelInvalidForManifestAlphabet() throws {
+        let tempDir = try makeDistanceTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bundleURL = try makeMSABundle(in: tempDir, contents: ">p1\nMKVLEW\n>p2\nMKILEW\n", name: "distance-protein")
+        let outputURL = tempDir.appendingPathComponent("protein.tsv")
+
+        XCTAssertThrowsError(
+            try MSACommand.DistanceSubcommand.parse([bundleURL.path, "--model", "jc69", "--output", outputURL.path])
+                .executeForTesting { _ in }
+        ) { error in
+            XCTAssertTrue("\(error)".contains("not valid for a protein alignment"), "\(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+
+        try MSACommand.DistanceSubcommand.parse([bundleURL.path, "--model", "poisson", "--output", outputURL.path, "--quiet"])
+            .executeForTesting { _ in }
+        XCTAssertEqual(
+            try String(contentsOf: outputURL, encoding: .utf8),
+            "row\tp1\tp2\np1\t0.000000\t0.182322\np2\t0.182322\t0.000000\n"
+        )
+    }
+
+    /// Ruling P4: complete deletion with nothing left is a clear error, not a matrix of nan.
+    func testDistanceSubcommandFailsWhenCompleteDeletionLeavesNoSites() throws {
+        let tempDir = try makeDistanceTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bundleURL = try makeMSABundle(in: tempDir, contents: ">a\nA-\n>b\n-A\n", name: "distance-empty")
+        let outputURL = tempDir.appendingPathComponent("empty.tsv")
+
+        XCTAssertThrowsError(
+            try MSACommand.DistanceSubcommand.parse([bundleURL.path, "--gaps", "complete", "--output", outputURL.path])
+                .executeForTesting { _ in }
+        ) { error in
+            XCTAssertTrue("\(error)".contains("Complete deletion left no comparable sites"), "\(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertThrowsError(
+            try MSACommand.DistanceSubcommand.parse([bundleURL.path, "--gaps", "listwise", "--output", outputURL.path])
+                .executeForTesting { _ in }
+        )
+        XCTAssertThrowsError(
+            try MSACommand.DistanceSubcommand.parse([bundleURL.path, "--order", "nj", "--output", outputURL.path])
+                .executeForTesting { _ in }
+        )
+    }
+
     func testAnnotateAddSubcommandWritesSQLiteAnnotationStoreAndProvenance() throws {
         let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".build/test-artifacts/MSACommandTests-\(UUID().uuidString)", isDirectory: true)

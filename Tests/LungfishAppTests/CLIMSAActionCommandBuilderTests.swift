@@ -7,12 +7,49 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
         let bundle = URL(fileURLWithPath: "/project/example.lungfishmsa")
         let output = URL(fileURLWithPath: "/exports/example-identity.tsv")
         XCTAssertEqual(
-            CLIMSAActionCommandBuilder.buildDistanceArguments(bundleURL: bundle, model: .identity, outputURL: output),
+            CLIMSAActionCommandBuilder.buildDistanceArguments(bundleURL: bundle, options: MSADistanceOptions(), outputURL: output),
             ["msa", "distance", bundle.path, "--model", "identity", "--output", output.path, "--force", "--format", "json"]
         )
         XCTAssertEqual(
-            CLIMSAActionCommandBuilder.buildDistanceArguments(bundleURL: bundle, model: .pDistance, outputURL: output, force: false),
+            CLIMSAActionCommandBuilder.buildDistanceArguments(
+                bundleURL: bundle,
+                options: MSADistanceOptions(model: .pDistance),
+                outputURL: output,
+                force: false
+            ),
             ["msa", "distance", bundle.path, "--model", "p-distance", "--output", output.path, "--format", "json"]
+        )
+    }
+
+    /// Non-default gap policy and order are passed in the CLI's canonical spelling and order.
+    /// The alphabet never is, because the CLI reads it from the bundle manifest.
+    func testDistanceMatrixExportPassesNonDefaultGapsAndOrder() {
+        let bundle = URL(fileURLWithPath: "/project/example.lungfishmsa")
+        let output = URL(fileURLWithPath: "/exports/example-k2p.tsv")
+        XCTAssertEqual(
+            CLIMSAActionCommandBuilder.buildDistanceArguments(
+                bundleURL: bundle,
+                options: MSADistanceOptions(model: .k2p, gaps: .complete, order: .averageLinkage),
+                outputURL: output
+            ),
+            [
+                "msa", "distance", bundle.path,
+                "--model", "k2p",
+                "--gaps", "complete",
+                "--order", "average-linkage",
+                "--output", output.path,
+                "--force",
+                "--format", "json",
+            ]
+        )
+        XCTAssertEqual(
+            CLIMSAActionCommandBuilder.buildDistanceArguments(
+                bundleURL: bundle,
+                options: MSADistanceOptions(model: .poisson, alphabet: .protein),
+                outputURL: output,
+                force: false
+            ),
+            ["msa", "distance", bundle.path, "--model", "poisson", "--output", output.path, "--format", "json"]
         )
     }
 
