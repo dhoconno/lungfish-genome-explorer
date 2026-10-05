@@ -74,7 +74,7 @@ extension TreeCommand {
         @Option(
             name: .customLong("extra-args"),
             parsing: .unconditional,
-            help: "Additional IQ-TREE arguments passed verbatim. Flags that have a curated option (-s, --prefix, -m, -T, -nt, --seed, -B, --alrt, -alrt, -o, -st, --seqtype) are rejected."
+            help: "Additional IQ-TREE arguments passed verbatim. Flags that have a curated option (-s, --prefix, -pre, -m, -T, -nt, --seed, -seed, -B, -bb, --ufboot, --alrt, -alrt, -o, -st, --seqtype) are rejected."
         )
         var extraArgs: String = ""
 
@@ -223,25 +223,51 @@ extension TreeCommand {
                     throw ValidationError("IQ-TREE did not produce \(treefileURL.lastPathComponent).")
                 }
                 let runLog = (try? String(contentsOf: stagingURL.appendingPathComponent("run.log"), encoding: .utf8)) ?? ""
+                let runReport = (try? String(contentsOf: stagingURL.appendingPathComponent("run.iqtree"), encoding: .utf8)) ?? ""
+                let supportLabels = iqtreeSupportLabels(alrt: alrt, bootstrap: bootstrap, advancedArguments: advancedArguments)
+                let effectiveSeed = seed.map(String.init) ?? parseIQTreeSeed(log: runLog)
 
-                emitter.emitProgress(0.66, message: "Mapping tip IDs back to MSA names.")
-                let labelled = try labelledTreefile(
+                emitter.emitProgress(0.66, message: "Rooting the tree on the outgroup.")
+                let rooting = try rootedTreefile(
                     treefileURL: treefileURL,
-                    stagedRows: stagedRows,
                     outgroupRows: outgroupRows,
+                    supportLabels: supportLabels,
                     iqtreeOutput: runLog + "\n" + runResult.stdout,
                     stagingURL: stagingURL
                 )
                 var warnings: [String] = []
-                if let warning = labelled.outgroupWarning {
+                if let warning = rooting.outgroupWarning {
                     warnings.append(warning)
                     emitter.emitLog(.warning, warning)
                 }
 
-                let argv = canonicalArgv(msaBundleURL: msaBundleURL, projectURL: projectURL, outputURL: outputURL)
-                emitter.emitProgress(0.72, message: "Creating native .lungfishtree bundle.")
+                let argv = canonicalArgv(
+                    msaBundleURL: msaBundleURL,
+                    projectURL: projectURL,
+                    outputURL: outputURL,
+                    sequenceType: normalizedSequenceType
+                )
+                let inference = iqtreeInferenceSummary(
+                    report: runReport,
+                    run: IQTreeInferenceRunDetails(
+                        programVersion: toolVersion,
+                        requestedModel: model,
+                        sequenceType: normalizedSequenceType,
+                        effectiveSeed: effectiveSeed,
+                        threads: globalOptions.threads,
+                        outgroupRows: outgroupRows,
+                        outgroupWarning: rooting.outgroupWarning,
+                        msaBundleURL: msaBundleURL,
+                        msaManifest: bundle.manifest,
+                        selectedRowCount: stagedRows.count,
+                        selectedColumns: columns,
+                        selectedAlignedLength: selectedAlignedLength
+                    )
+                )
+                emitter.emitProgress(0.72, message: "Creating native .lungfishtree bundle with MSA tip names.")
+                // Ruling C3: the importer swaps the safe tip IDs back to MSA display names.
                 _ = try PhylogeneticTreeBundleImporter.importTree(
-                    from: labelled.url,
+                    from: rooting.url,
                     to: buildTargetURL,
                     options: .init(
                         name: name ?? outputURL.deletingPathExtension().lastPathComponent,
@@ -249,7 +275,11 @@ extension TreeCommand {
                         command: treeCLIShellCommand(argv),
                         sourceFormat: "newick",
                         toolName: wrapperToolName,
-                        toolVersion: wrapperToolVersion
+                        toolVersion: wrapperToolVersion,
+                        supportLabels: supportLabels,
+                        branchLengthUnit: "substitutions per site",
+                        inference: inference,
+                        tipLabelMap: Dictionary(uniqueKeysWithValues: stagedRows.map { ($0.tipID, $0.displayName) })
                     )
                 )
 
@@ -260,13 +290,13 @@ extension TreeCommand {
                     prefixURL.path: outputURL.appendingPathComponent("artifacts/iqtree/run").path,
                 ]
                 var runOptions: [String: String] = [:]
-                if let effectiveSeed = seed.map(String.init) ?? parseIQTreeSeed(log: runLog) {
+                if let effectiveSeed {
                     runOptions["effectiveSeed"] = effectiveSeed
                 }
                 if let outgroup, outgroupRows.isEmpty == false {
                     runOptions["outgroup"] = outgroup
                     runOptions["outgroupTipIDs"] = outgroupRows.map(\.tipID).joined(separator: ",")
-                    runOptions["rooting"] = labelled.rooted ? "outgroup" : "unrooted"
+                    runOptions["rooting"] = rooting.rooted ? "outgroup" : "unrooted"
                 }
                 try rewriteManifestAndProvenance(
                     bundleURL: buildTargetURL,
@@ -344,7 +374,9 @@ extension TreeCommand {
             }
         }
 
-        private func canonicalArgv(msaBundleURL: URL, projectURL: URL, outputURL: URL) -> [String] {
+        /// `sequenceType` is the normalized value (ruling C7), so the recorded command, the
+        /// provenance options and the IQ-TREE argv spell it the same way.
+        private func canonicalArgv(msaBundleURL: URL, projectURL: URL, outputURL: URL, sequenceType: String?) -> [String] {
             var argv = [
                 CLICommandIdentity.executableName,
                 "tree",
@@ -355,8 +387,7 @@ extension TreeCommand {
                 "--output", outputURL.path,
                 "--model", model,
             ]
-            if sequenceType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-               sequenceType.lowercased() != "auto" {
+            if let sequenceType {
                 argv += ["--sequence-type", sequenceType]
             }
             if let rows {
@@ -502,11 +533,15 @@ extension TreeCommand {
         static let reservedIQTreeFlags: [String: String] = [
             "-s": "the input bundle argument",
             "--prefix": "--output",
+            "-pre": "--output",
             "-m": "--model",
             "-T": "--threads",
             "-nt": "--threads",
             "--seed": "--seed",
+            "-seed": "--seed",
             "-B": "--bootstrap",
+            "-bb": "--bootstrap",
+            "--ufboot": "--bootstrap",
             "--alrt": "--alrt",
             "-alrt": "--alrt",
             "-o": "--outgroup",
@@ -561,46 +596,41 @@ extension TreeCommand {
             return matched
         }
 
-        /// Roots the IQ-TREE tree on the outgroup when it is a clade, then swaps the safe tip IDs
-        /// back to MSA display names (rulings C3 and C4). The labelled file keeps the name
-        /// run.treefile so the manifest's source file name matches the IQ-TREE artifact.
-        private func labelledTreefile(
+        /// Roots the IQ-TREE tree on the outgroup when it is a clade (ruling C4). The reroot runs on
+        /// the tip-ID tree, and the importer relabels the result afterwards. A rooted file keeps
+        /// the name run.treefile so the manifest's source file name matches the IQ-TREE artifact.
+        private func rootedTreefile(
             treefileURL: URL,
-            stagedRows: [IQTreeStagedRow],
             outgroupRows: [IQTreeStagedRow],
+            supportLabels: [String]?,
             iqtreeOutput: String,
             stagingURL: URL
         ) throws -> (url: URL, rooted: Bool, outgroupWarning: String?) {
-            var newick = try String(contentsOf: treefileURL, encoding: .utf8)
-            var rooted = false
-            var warning: String?
-            if outgroupRows.isEmpty == false {
-                let idTree = try PhylogeneticTreeBundleImporter.importTree(
-                    from: treefileURL,
-                    to: stagingURL.appendingPathComponent("tip-ids.lungfishtree", isDirectory: true)
-                )
-                let rootNodeID = iqtreeOutput.contains("Branch separating outgroup is not found")
-                    ? nil
-                    : iqtreeOutgroupRootNodeID(tipIDs: Set(outgroupRows.map(\.tipID)), in: idTree.normalizedTree)
-                if let rootNodeID {
-                    let rerooted = try idTree.rerootedBundle(
-                        on: rootNodeID,
-                        to: stagingURL.appendingPathComponent("rooted.lungfishtree", isDirectory: true),
-                        provenance: .init(toolName: "lungfish tree infer iqtree", argv: [])
-                    )
-                    newick = try String(contentsOf: rerooted.url.appendingPathComponent("tree/primary.nwk"), encoding: .utf8)
-                    rooted = true
-                } else {
-                    let names = outgroupRows.map(\.displayName).joined(separator: ", ")
-                    warning = "The outgroup (\(names)) is not monophyletic in the inferred tree, so the tree was saved unrooted."
-                }
+            guard outgroupRows.isEmpty == false else {
+                return (treefileURL, false, nil)
             }
-            let labels = Dictionary(uniqueKeysWithValues: stagedRows.map { ($0.tipID, $0.displayName) })
-            let labelledDirectory = stagingURL.appendingPathComponent("labelled", isDirectory: true)
-            try FileManager.default.createDirectory(at: labelledDirectory, withIntermediateDirectories: true)
-            let url = labelledDirectory.appendingPathComponent("run.treefile")
-            try relabelIQTreeTips(in: newick, labels: labels).write(to: url, atomically: true, encoding: .utf8)
-            return (url, rooted, warning)
+            let idTree = try PhylogeneticTreeBundleImporter.importTree(
+                from: treefileURL,
+                to: stagingURL.appendingPathComponent("tip-ids.lungfishtree", isDirectory: true),
+                options: .init(supportLabels: supportLabels)
+            )
+            let rootNodeID = iqtreeOutput.contains("Branch separating outgroup is not found")
+                ? nil
+                : iqtreeOutgroupRootNodeID(tipIDs: Set(outgroupRows.map(\.tipID)), in: idTree.normalizedTree)
+            guard let rootNodeID else {
+                let names = outgroupRows.map(\.displayName).joined(separator: ", ")
+                return (treefileURL, false, "The outgroup (\(names)) is not monophyletic in the inferred tree, so the tree was saved unrooted.")
+            }
+            let rerooted = try idTree.rerootedBundle(
+                on: rootNodeID,
+                to: stagingURL.appendingPathComponent("rooted.lungfishtree", isDirectory: true),
+                provenance: .init(toolName: "lungfish tree infer iqtree", argv: [])
+            )
+            let rootedDirectory = stagingURL.appendingPathComponent("rooted", isDirectory: true)
+            try FileManager.default.createDirectory(at: rootedDirectory, withIntermediateDirectories: true)
+            let url = rootedDirectory.appendingPathComponent("run.treefile")
+            try FileManager.default.copyItem(at: rerooted.url.appendingPathComponent("tree/primary.nwk"), to: url)
+            return (url, true, nil)
         }
 
         private func combinedExtraArgumentText() -> String {

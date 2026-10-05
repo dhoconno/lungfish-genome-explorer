@@ -103,35 +103,6 @@ func writeIQTreeTipMap(_ rows: [IQTreeStagedRow], to url: URL) throws {
     try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
 }
 
-/// Replaces safe tip IDs in a Newick string with quoted display names. Tip labels follow `(` or
-/// `,`, and the IDs never need quoting, so a token match is exact.
-func relabelIQTreeTips(in newick: String, labels: [String: String]) throws -> String {
-    let regex = try NSRegularExpression(pattern: #"(?<=[(,])t[0-9]{4,}(?=[:,);\[])"#)
-    let source = newick as NSString
-    var result = ""
-    var cursor = 0
-    for match in regex.matches(in: newick, range: NSRange(location: 0, length: source.length)) {
-        let tipID = source.substring(with: match.range)
-        guard let label = labels[tipID] else {
-            throw TreeCommandRuntimeError("IQ-TREE wrote an unknown tip \(tipID).")
-        }
-        result += source.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
-        result += newickQuotedLabel(label)
-        cursor = match.range.location + match.range.length
-    }
-    result += source.substring(from: cursor)
-    return result
-}
-
-/// Quotes a Newick label unless it is plain letters, digits, `_`, `.` or `-`.
-func newickQuotedLabel(_ label: String) -> String {
-    let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
-    if label.isEmpty == false, label.unicodeScalars.allSatisfy({ safe.contains($0) }) {
-        return label
-    }
-    return "'" + label.replacingOccurrences(of: "'", with: "''") + "'"
-}
-
 /// The node to root on so the outgroup tips form one side of the root (ruling C4), or nil when
 /// the outgroup is not a clade of the unrooted tree. The drawn root of an IQ-TREE tree is
 /// arbitrary, so a clade whose complement is a drawn subtree counts too.

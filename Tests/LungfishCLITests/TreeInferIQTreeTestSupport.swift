@@ -7,7 +7,8 @@ import XCTest
 ///
 /// The fake records its argv in `iqtree-args.txt`, writes a star tree over the staged
 /// FASTA headers (or `fake-tree.nwk` when a test supplies one), and writes a run.log
-/// with a `Seed:` line (or `fake-log.txt` when a test supplies one).
+/// with a `Seed:` line (or `fake-log.txt` when a test supplies one). Its run.iqtree is a stub
+/// unless a test supplies `fake-report.txt`.
 struct IQTreeTestProject {
     let directory: URL
     let projectURL: URL
@@ -84,6 +85,10 @@ struct IQTreeTestProject {
         try newick.write(to: directory.appendingPathComponent("fake-tree.nwk"), atomically: true, encoding: .utf8)
     }
 
+    func setFakeReport(_ text: String) throws {
+        try text.write(to: directory.appendingPathComponent("fake-report.txt"), atomically: true, encoding: .utf8)
+    }
+
     func setFakeLog(_ text: String) throws {
         try text.write(to: directory.appendingPathComponent("fake-log.txt"), atomically: true, encoding: .utf8)
     }
@@ -124,7 +129,11 @@ struct IQTreeTestProject {
       tips=$(grep '^>' "$input" | sed -e 's/^>//' -e 's/$/:0.1/' | paste -sd, -)
       printf '(%s);\\n' "$tips" > "$prefix.treefile"
     fi
-    printf 'IQ-TREE report\\n' > "$prefix.iqtree"
+    if [ -f "$dir/fake-report.txt" ]; then
+      cp "$dir/fake-report.txt" "$prefix.iqtree"
+    else
+      printf 'IQ-TREE report\\n' > "$prefix.iqtree"
+    fi
     if [ -f "$dir/fake-log.txt" ]; then
       cp "$dir/fake-log.txt" "$prefix.log"
     else
