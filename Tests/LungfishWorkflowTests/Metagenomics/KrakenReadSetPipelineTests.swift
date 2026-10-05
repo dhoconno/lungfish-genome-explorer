@@ -115,7 +115,9 @@ final class KrakenReadSetPipelineTests: XCTestCase {
         )
         var config = makeConfig(inputFiles: [interleaved])
         let before = config
-        XCTAssertThrowsError(try KrakenReadSetPlanner.apply(plan, to: &config), "the single reads would be left out")
+        XCTAssertThrowsError(try KrakenReadSetPlanner.apply(plan, to: &config)) { error in
+            XCTAssertEqual(error as? KrakenReadSetPlannerError, .singleReadsBesideAnInterleavedPair(count: 1))
+        }
         XCTAssertEqual(config, before, "the config is left as it was")
     }
 

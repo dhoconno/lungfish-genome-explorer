@@ -107,6 +107,7 @@ public enum KrakenReadSetPreview: Sendable, Equatable {
 
 public enum KrakenReadSetPlannerError: LocalizedError, Sendable, Equatable {
     case severalMatePairs(count: Int)
+    case singleReadsBesideAnInterleavedPair(count: Int)
     case noMaterializedInput(bundlePath: String)
     case unpairedNeedsAPair
 
@@ -114,6 +115,8 @@ public enum KrakenReadSetPlannerError: LocalizedError, Sendable, Equatable {
         switch self {
         case .severalMatePairs(let count):
             return "The sample holds \(count) separate R1 and R2 pairs of files. Kraken2 classifies one pair of files per sample, so the run stops rather than leave reads out."
+        case .singleReadsBesideAnInterleavedPair(let count):
+            return "The sample holds an interleaved file of pairs and \(count) file(s) of single reads. Kraken2 splits an interleaved file by position and runs it alone, so the run stops rather than leave the single reads out."
         case .noMaterializedInput(let bundlePath):
             return "The virtual bundle \(bundlePath) was not materialized before it was planned."
         case .unpairedNeedsAPair:
@@ -260,7 +263,12 @@ public enum KrakenReadSetPlanner {
         }
         switch pair.files {
         case .interleaved(let url):
-            // An interleaved file keeps today's positional split.
+            // An interleaved file keeps today's positional split. kraken2
+            // reads it alone, so no file of single reads can run beside it,
+            // and the run stops rather than leave them out (final review N3).
+            guard plan.singleReads.isEmpty else {
+                throw KrakenReadSetPlannerError.singleReadsBesideAnInterleavedPair(count: plan.singleReads.count)
+            }
             let before = config
             config.inputFiles = [url]
             config.isPairedEnd = false
