@@ -365,7 +365,6 @@ extension ImportCommand {
             let projectURL = URL(fileURLWithPath: project)
             let logDirURL = logDir.map { URL(fileURLWithPath: $0) }
             let threadCount = globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount
-            let effectiveOptimizeStorage = !noOptimizeStorage && requestedClumpingTool != ClumpingTool.none
 
             let config = FASTQBatchImporter.ImportConfig(
                 projectDirectory: projectURL,
@@ -373,7 +372,10 @@ extension ImportCommand {
                 recipe: oldRecipe,
                 newRecipe: newRecipe,
                 qualityBinning: binningScheme,
-                optimizeStorage: effectiveOptimizeStorage,
+                optimizeStorage: Self.requestedOptimizeStorage(
+                    noOptimizeStorage: noOptimizeStorage,
+                    clumpingTool: requestedClumpingTool
+                ),
                 clumpingTool: requestedClumpingTool,
                 compressionLevel: compLevel,
                 threads: threadCount,
@@ -480,6 +482,15 @@ extension ImportCommand {
             }
 
             return (nil, try FASTQBatchImporter.resolveRecipe(named: name))
+        }
+
+        /// What the storage flags ask for, or nil when they ask nothing.
+        /// `--no-optimize-storage` and `--clumping-tool` are requests, and the
+        /// import sheet passes `--clumping-tool` when its box is ticked. With
+        /// neither, the platform decides. Short reads are reordered, and
+        /// Unknown and long reads are not.
+        static func requestedOptimizeStorage(noOptimizeStorage: Bool, clumpingTool: ClumpingTool?) -> Bool? {
+            noOptimizeStorage ? false : clumpingTool.map(\.isClumpingEnabled)
         }
 
         static func parseClumpingTool(_ value: String) throws -> ClumpingTool {

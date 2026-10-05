@@ -122,12 +122,18 @@ extension FASTQBatchImporter {
             self.requestedCompressionLevel = compressionLevel
             // Default resolution: explicit value > recipe suggestion > platform default
             self.qualityBinning = qualityBinning ?? newRecipe?.qualityBinning ?? .none
-            let platformSupportsClumping = sequencingPlatform.supportsStorageClumping
-            let resolvedOptimizeStorage = platformSupportsClumping && (
-                optimizeStorage
-                    ?? clumpingTool.map(\.isClumpingEnabled)
-                    ?? platformSupportsClumping
-            )
+            // Short reads are reordered for storage unless asked not to.
+            // Unknown reads only when asked (optimizeStorage or a clumping
+            // tool), since they may be long. Long reads never are.
+            let requestedClumping = optimizeStorage ?? clumpingTool.map(\.isClumpingEnabled)
+            let resolvedOptimizeStorage: Bool
+            if sequencingPlatform.supportsStorageClumping {
+                resolvedOptimizeStorage = requestedClumping ?? true
+            } else if sequencingPlatform == .unknown {
+                resolvedOptimizeStorage = requestedClumping ?? false
+            } else {
+                resolvedOptimizeStorage = false
+            }
             self.optimizeStorage = resolvedOptimizeStorage
             self.clumpingTool = resolvedOptimizeStorage ? (clumpingTool ?? .default) : .none
             self.compressionLevel = compressionLevel ?? .balanced

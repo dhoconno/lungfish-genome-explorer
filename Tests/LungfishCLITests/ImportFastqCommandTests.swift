@@ -188,6 +188,20 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertFalse(command.force)
     }
 
+    /// With no storage flag the import asks nothing, so the platform decides
+    /// and an Unknown import is not reordered. Before the fix the command
+    /// passed an explicit request even with no flag, so an Unknown import
+    /// that was asked could not be told from one that was not.
+    func testOnlyAStorageFlagIsAStorageRequest() {
+        let request = ImportCommand.FastqSubcommand.requestedOptimizeStorage
+        XCTAssertNil(request(false, nil))
+        XCTAssertEqual(request(false, .bbtools), true)
+        XCTAssertEqual(request(false, .trimGalore), true)
+        XCTAssertEqual(request(false, .auto), true)
+        XCTAssertEqual(request(false, ClumpingTool.none), false)
+        XCTAssertEqual(request(true, ClumpingTool.none), false)
+    }
+
     func testParseClumpingToolAliases() throws {
         XCTAssertEqual(try ImportCommand.FastqSubcommand.parseClumpingTool("auto"), .auto)
         XCTAssertEqual(try ImportCommand.FastqSubcommand.parseClumpingTool("clumpify.sh"), .bbtools)
