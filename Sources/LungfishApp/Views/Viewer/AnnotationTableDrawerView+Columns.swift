@@ -864,7 +864,7 @@ extension AnnotationTableDrawerView {
         // Enable/disable samples tab based on whether samples exist
         tabControl.setEnabled(!allSampleNames.isEmpty, forSegment: 2)
         // Show the tab control only when we have at least one type of data
-        tabControl.isHidden = totalVariantCount == 0 && allSampleNames.isEmpty
+        tabControl.isHidden = hidesTabControl || (totalVariantCount == 0 && allSampleNames.isEmpty)
 
         // Reconfigure columns if we're already on the variants tab so INFO columns appear
         if activeTab == .annotations {
