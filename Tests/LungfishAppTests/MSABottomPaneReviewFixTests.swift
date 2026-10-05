@@ -107,6 +107,7 @@ final class MSABottomPaneReviewFixTests: XCTestCase {
         defer { window.close() }
         let pane = controller.bottomPane
         let distances = pane.distancePane
+        pane.select(.distances)
         XCTAssertTrue(controller.alignmentKeyView.nextKeyView === pane.divider)
         XCTAssertTrue(pane.divider.nextKeyView === pane.tabControl)
         XCTAssertTrue(pane.tabControl.nextKeyView === distances.firstKeyView)
@@ -126,9 +127,9 @@ final class MSABottomPaneReviewFixTests: XCTestCase {
         XCTAssertTrue(controller.alignmentKeyView.previousKeyView === previous, "the alignment keeps its previous view")
     }
 
-    /// Re-review SF2: with no original next view the grid hands Tab back to
-    /// the window's loop instead of cycling to the alignment.
-    func testKeyViewLoopWithoutANextViewLeavesTheAlignmentAlone() async throws {
+    /// Re-review SF2 and SF-A: with no original next view the grid hands
+    /// Tab back to the alignment, and the alignment keeps its previous view.
+    func testKeyViewLoopWithoutANextViewReturnsToTheAlignment() async throws {
         let controller = try await controller()
         let previous = NSButton(title: "Before", target: nil, action: nil)
         previous.nextKeyView = controller.alignmentKeyView
@@ -137,14 +138,15 @@ final class MSABottomPaneReviewFixTests: XCTestCase {
         defer { window.close() }
         let pane = controller.bottomPane
         XCTAssertTrue(controller.alignmentKeyView.nextKeyView === pane.divider)
-        XCTAssertNil(pane.distancePane.gridView.nextKeyView)
+        XCTAssertTrue(pane.distancePane.gridView.nextKeyView === controller.alignmentKeyView)
         XCTAssertTrue(controller.alignmentKeyView.previousKeyView === previous)
 
         // Moving to another window does not splice the pane in twice.
         let other = host(controller)
         defer { other.close() }
         XCTAssertTrue(controller.alignmentKeyView.nextKeyView === pane.divider)
-        XCTAssertNil(pane.distancePane.gridView.nextKeyView)
+        XCTAssertTrue(pane.distancePane.gridView.nextKeyView === controller.alignmentKeyView)
+        XCTAssertTrue(controller.alignmentKeyView.previousKeyView === previous)
     }
 
     // MARK: S5 reverse sync on first show

@@ -293,7 +293,6 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
     func updateSelection(_ change: (inout MSADistanceMatrixSelection) -> Void, notify: Bool = true) {
         let oldFocus = selection.focus
         let oldCells = selection.cells
-        let oldSequences = selection.sequenceIndices
         change(&selection)
         axSyncSelection(oldCells: oldCells, oldFocus: oldFocus)
         needsDisplay = true
@@ -304,8 +303,9 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
         if let focus = selection.focus {
             scrollToVisible(rect(for: focus))
         }
-        // The alignment hears only a change in the sequences it selects (review N3).
-        if notify, selection.sequenceIndices != oldSequences { onSelectionChanged?(selection) }
+        // The pane decides whether the alignment needs to hear this, against
+        // the alignment selection it last saw (review N3, re-review SF-B).
+        if notify { onSelectionChanged?(selection) }
         if selection.focus != oldFocus {
             onFocusChanged?(selection.focus)
             postFocusedCellChanged()
@@ -397,12 +397,19 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
         let focusOnly = flags.contains(.option)
         let toEdge = flags.contains(.command)
         let pageRows = max(1, Int(visibleRect.height / max(cellSide, 1)) - 1)
+        // Option moves only the focus, so the alignment selection stays put.
+        let arrow: (MSADistanceMatrixSelection.Direction) -> Void = { direction in
+            self.updateSelection(
+                { $0.move(direction, extend: extend, focusOnly: focusOnly, toEdge: toEdge) },
+                notify: !focusOnly
+            )
+        }
         if let special = event.specialKey {
             switch special {
-            case .upArrow: return updateSelection { $0.move(.up, extend: extend, focusOnly: focusOnly, toEdge: toEdge) }
-            case .downArrow: return updateSelection { $0.move(.down, extend: extend, focusOnly: focusOnly, toEdge: toEdge) }
-            case .leftArrow: return updateSelection { $0.move(.left, extend: extend, focusOnly: focusOnly, toEdge: toEdge) }
-            case .rightArrow: return updateSelection { $0.move(.right, extend: extend, focusOnly: focusOnly, toEdge: toEdge) }
+            case .upArrow: return arrow(.up)
+            case .downArrow: return arrow(.down)
+            case .leftArrow: return arrow(.left)
+            case .rightArrow: return arrow(.right)
             case .pageUp: return updateSelection { $0.page(.up, rows: pageRows, extend: extend) }
             case .pageDown: return updateSelection { $0.page(.down, rows: pageRows, extend: extend) }
             case .home: return updateSelection { $0.home(extend: extend) }

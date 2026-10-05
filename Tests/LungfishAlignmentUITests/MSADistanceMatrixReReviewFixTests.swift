@@ -1,4 +1,4 @@
-// MSADistanceMatrixReReviewFixTests.swift - Re-review fixes SF1, N1, N2 and N3 for the distance grid and pane
+// MSADistanceMatrixReReviewFixTests.swift - Re-review fixes SF1, SF-B, N1, N2 and N3 for the distance grid and pane
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -104,19 +104,61 @@ final class MSADistanceMatrixReReviewFixTests: XCTestCase {
         }
     }
 
-    // MARK: N3 selection callbacks only when the sequences change
+    // MARK: N3 and re-review SF-B: the pane forwards a selection only when the alignment would change
 
-    func testSelectionCallbackFiresOnlyWhenTheSequencesChange() {
+    func testOptionArrowMovesTheFocusWithoutReporting() {
         let grid = MSADistanceMatrixGridView(pasteboard: RecordingPasteboard())
         grid.setMatrix(StubDistanceMatrix.make(4))
         var reports: [IndexSet] = []
         grid.onSelectionChanged = { reports.append($0.sequenceIndices) }
 
         grid.updateSelection { $0.click(MSADistanceCell(row: 0, column: 1)) }
-        grid.updateSelection { $0.click(MSADistanceCell(row: 1, column: 0)) }
-        XCTAssertEqual(reports, [IndexSet([0, 1])], "the mirror cell selects the same two sequences")
+        XCTAssertEqual(reports, [IndexSet([0, 1])])
+        grid.keyDown(with: Self.arrowEvent(NSDownArrowFunctionKey, keyCode: 125, flags: .option))
+        XCTAssertEqual(grid.selection.focus, MSADistanceCell(row: 1, column: 1), "Option moves only the focus")
+        XCTAssertEqual(reports, [IndexSet([0, 1])], "a focus-only move selects nothing new")
+    }
 
-        grid.updateSelection { $0.click(MSADistanceCell(row: 2, column: 0)) }
-        XCTAssertEqual(reports, [IndexSet([0, 1]), IndexSet([0, 2])])
+    func testPaneForwardsOnlyWhenTheAlignmentSelectionWouldChange() async throws {
+        let pane = try await readyPaneWithANotDefinedCell()
+        let matrix = try XCTUnwrap(pane.model.matrix)
+        var forwarded: [IndexSet] = []
+        pane.onSequencesSelected = { forwarded.append($0) }
+        pane.onRevealPair = { _, _ in }
+        func record(_ position: Int) -> Int { matrix.recordIndices[position] }
+
+        pane.gridView.updateSelection { $0.click(MSADistanceCell(row: 2, column: 0)) }
+        pane.gridView.updateSelection { $0.click(MSADistanceCell(row: 0, column: 2)) }
+        XCTAssertEqual(forwarded, [IndexSet([record(0), record(2)])], "the mirror cell selects the same two sequences")
+
+        // A reveal of another pair moves the alignment, so the same click is news again.
+        pane.gridView.onReveal?(MSADistanceCell(row: 1, column: 0))
+        pane.gridView.updateSelection { $0.click(MSADistanceCell(row: 2, column: 0)) }
+        XCTAssertEqual(forwarded.count, 2)
+        XCTAssertEqual(forwarded.last, IndexSet([record(0), record(2)]))
+
+        // A selection made in the alignment, such as one base, is replaced by a header click on the same row.
+        pane.reflectAlignmentSelection(IndexSet(integer: record(1)))
+        pane.gridView.headerClicked(1, modifiers: [])
+        XCTAssertEqual(forwarded.count, 3, "the header click turns the alignment selection into whole rows")
+        XCTAssertEqual(forwarded.last, IndexSet(integer: record(1)))
+        pane.gridView.headerClicked(1, modifiers: [])
+        XCTAssertEqual(forwarded.count, 3, "repeating it changes nothing")
+    }
+
+    static func arrowEvent(_ key: Int, keyCode: UInt16, flags: NSEvent.ModifierFlags) -> NSEvent {
+        let characters = String(Character(UnicodeScalar(UInt32(key))!))
+        return NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: flags.union([.numericPad, .function]),
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
     }
 }

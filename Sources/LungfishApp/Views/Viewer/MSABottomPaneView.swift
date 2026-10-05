@@ -129,17 +129,41 @@ final class MSABottomPaneView: NSView {
         linkKeyViewLoop(after: anchor, before: anchor.nextKeyView)
     }
 
-    /// Links `previous` to the divider, the tab control, the Distances
-    /// controls, the grid, then `next`. A nil `next` leaves the grid's next
-    /// view unset so AppKit continues with the window's loop. Only
-    /// `next.previousKeyView` changes outside the pane, so `previous` keeps
-    /// its own previous view. Hidden content is skipped by AppKit, so the
-    /// same links serve both tabs.
+    /// Where Tab goes from the pane's last view, set when the pane is linked.
+    private weak var keyViewExit: NSView?
+    /// The anchor's previous view, kept when the exit is the anchor itself.
+    private weak var anchorPreviousKeyView: NSView?
+
+    /// Links `previous` to the divider, the tab control, the visible tab's
+    /// content, then `next`. With no `next`, Tab from the pane returns to
+    /// `previous`, so the grid and the table are never a dead end
+    /// (re-review SF-A). Outside the pane only `next.previousKeyView`
+    /// changes, and `previous` keeps its own previous view.
     func linkKeyViewLoop(after previous: NSView, before next: NSView?) {
+        let anchorPrevious = previous.previousKeyView
         previous.nextKeyView = divider
         divider.nextKeyView = tabControl
-        tabControl.nextKeyView = distancePane.firstKeyView
-        distancePane.lastKeyView.nextKeyView = next
+        keyViewExit = next ?? previous
+        anchorPreviousKeyView = next == nil ? anchorPrevious : nil
+        routeKeyViewLoopToVisibleTab()
+    }
+
+    /// Sends the tab control to the visible tab's content. The hidden tab's
+    /// last view links to the exit first, so Shift-Tab from the exit returns
+    /// to the visible one.
+    private func routeKeyViewLoopToVisibleTab() {
+        guard let exit = keyViewExit else { return }
+        let table: NSView = annotationDrawer.tableView
+        let grid = distancePane.lastKeyView
+        let showsTable = visibleTab == .annotations
+        (showsTable ? grid : table).nextKeyView = exit
+        (showsTable ? table : grid).nextKeyView = exit
+        tabControl.nextKeyView = showsTable ? table : distancePane.firstKeyView
+        if let anchorPrevious = anchorPreviousKeyView, anchorPrevious.nextKeyView === exit {
+            // Re-linking gives the exit back its own previous view.
+            anchorPrevious.nextKeyView = nil
+            anchorPrevious.nextKeyView = exit
+        }
     }
 
     var hasPendingDistanceInput: Bool { pendingDistanceInput != nil }
@@ -337,6 +361,7 @@ final class MSABottomPaneView: NSView {
         if tabControl.selectedSegment != tab.rawValue {
             tabControl.selectedSegment = tab.rawValue
         }
+        routeKeyViewLoopToVisibleTab()
     }
 
     @objc private func tabControlChanged(_ sender: NSSegmentedControl) {
