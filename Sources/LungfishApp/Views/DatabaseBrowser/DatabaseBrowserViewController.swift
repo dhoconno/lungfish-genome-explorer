@@ -1687,6 +1687,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 }
 
                 var searchResults: SearchResults
+                // One line saying an archive failed while the other answered.
+                var searchNotice: String?
 
                 switch currentSource {
                 case .ncbi:
@@ -1925,70 +1927,36 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         }
                     }
 
-                    let records: [SearchResultRecord]
+                    // ENA adds the FASTQ links and NCBI the organism and dates. Either
+                    // archive may fail, and the search fails only when both do.
+                    let runLookup = SRARunMetadataLookup(ena: ena, ncbi: ncbi)
+                    let reportENAProgress: @Sendable (Int, Int) -> Void = { [weak self] completed, total in
+                        performOnMainRunLoop { [weak self] in
+                            guard let self = self else { return }
+                            self.applySearchUpdate(for: searchToken) {
+                                self.searchPhase = .loadingAllResults(loaded: completed, total: total)
+                            }
+                        }
+                    }
+                    let lookup: SRARunMetadataLookup.Outcome
 
                     // Detect multi-accession input (paste or CSV import)
                     // Check for imported accession list first (from CSV import)
                     let parsedAccessions = !capturedImportedAccessions.isEmpty
                         ? capturedImportedAccessions
                         : SRAAccessionParser.parseAccessionList(query.term)
-                    if parsedAccessions.count >= 2 {
-                        // Batch mode: multiple accessions pasted or imported
-                        logger.info("performSearch: Batch mode with \(parsedAccessions.count) accessions")
+                    let singleAccession = query.term.trimmingCharacters(in: .whitespaces)
+                    if parsedAccessions.count >= 2 || SRAAccessionParser.accessionType(singleAccession) == .run {
+                        // An accession list, or one run: look each up in ENA and NCBI at once.
+                        let accessions = parsedAccessions.count >= 2 ? parsedAccessions : [singleAccession]
+                        logger.info("performSearch: Looking up \(accessions.count) accession(s) in ENA and NCBI")
                         performOnMainRunLoop { [weak self] in
                             guard let self = self else { return }
                             self.applySearchUpdate(for: searchToken) {
                                 self.searchPhase = .loadingDetails
                             }
                         }
-
-                        let readRecords = try await ena.searchReadsBatch(
-                            accessions: parsedAccessions,
-                            concurrency: 10,
-                            progress: { [weak self] completed, total in
-                                performOnMainRunLoop { [weak self] in
-                                    guard let self = self else { return }
-                                    self.applySearchUpdate(for: searchToken) {
-                                        self.searchPhase = .loadingAllResults(loaded: completed, total: total)
-                                    }
-                                }
-                            }
-                        )
-                        let enaByAccession = Dictionary(uniqueKeysWithValues: readRecords.map { ($0.runAccession, $0) })
-                        let ncbiRuns = try await ncbi.sraEFetchRunInfo(ids: parsedAccessions)
-                        let ncbiByAccession = Dictionary(uniqueKeysWithValues: ncbiRuns.map { ($0.accession, $0) })
-                        records = parsedAccessions.compactMap { accession in
-                            mergedSRASearchResultRecord(
-                                accession: accession,
-                                enaRecord: enaByAccession[accession],
-                                ncbiRun: ncbiByAccession[accession]
-                            )
-                        }
-
-                    } else if SRAAccessionParser.accessionType(query.term.trimmingCharacters(in: .whitespaces)) == .run {
-                        // Single accession: direct ENA filereport (fast path)
-                        logger.info("performSearch: Direct ENA lookup for single accession")
-                        performOnMainRunLoop { [weak self] in
-                            guard let self = self else { return }
-                            self.applySearchUpdate(for: searchToken) {
-                                self.searchPhase = .loadingDetails
-                            }
-                        }
-                        let accession = query.term.trimmingCharacters(in: .whitespaces)
-                        async let readRecordsTask = ena.searchReads(term: accession, limit: query.limit, offset: query.offset)
-                        async let ncbiRunsTask = ncbi.sraEFetchRunInfo(ids: [accession])
-
-                        let readRecords = try await readRecordsTask
-                        let readRecord = readRecords.first { $0.runAccession == accession } ?? readRecords.first
-                        let ncbiRuns = try await ncbiRunsTask
-                        let ncbiRun = ncbiRuns.first { $0.accession == accession } ?? ncbiRuns.first
-                        records = [
-                            mergedSRASearchResultRecord(
-                                accession: accession,
-                                enaRecord: readRecord,
-                                ncbiRun: ncbiRun
-                            )
-                        ].compactMap { $0 }
+                        lookup = try await runLookup.lookUpRuns(accessions, progress: reportENAProgress)
 
                     } else {
                         // Non-accession query (title, organism, bioproject, author, free text)
@@ -2072,30 +2040,17 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                         try Task.checkCancellation()
 
-                        // Step 3: Batch ENA lookup for FASTQ metadata
-                        let runAccessions = ncbiRuns.map(\.accession)
-                        let readRecords = try await ena.searchReadsBatch(
-                            accessions: runAccessions,
-                            concurrency: 10,
-                            progress: { [weak self] completed, total in
-                                performOnMainRunLoop { [weak self] in
-                                    guard let self = self else { return }
-                                    self.applySearchUpdate(for: searchToken) {
-                                        self.searchPhase = .loadingAllResults(loaded: completed, total: total)
-                                    }
-                                }
-                            }
-                        )
-                        let enaByAccession = Dictionary(uniqueKeysWithValues: readRecords.map { ($0.runAccession, $0) })
-                        records = ncbiRuns.compactMap { run in
-                            mergedSRASearchResultRecord(
-                                accession: run.accession,
-                                enaRecord: enaByAccession[run.accession],
-                                ncbiRun: run
-                            )
-                        }
+                        // Step 3: Batch ENA lookup for FASTQ metadata. ENA failures keep NCBI's rows.
+                        lookup = try await runLookup.addingENARecords(to: ncbiRuns, progress: reportENAProgress)
                     }
 
+                    let records = lookup.runs.compactMap { run in
+                        mergedSRASearchResultRecord(accession: run.accession, enaRecord: run.enaRecord, ncbiRun: run.ncbiRun)
+                    }
+                    searchNotice = lookup.notice
+                    if let searchNotice {
+                        logger.warning("performSearch: \(searchNotice, privacy: .public)")
+                    }
                     searchResults = SearchResults(
                         totalCount: records.count,
                         records: records,
@@ -2265,9 +2220,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 try Task.checkCancellation()
 
                 // Update UI with results via RunLoop for modal compatibility
-                performOnMainRunLoop { [weak self] in
+                performOnMainRunLoop { [weak self, searchNotice] in
                     guard let self = self else { return }
                     self.applySearchUpdate(for: searchToken) {
+                        self.errorMessage = searchNotice
                         self.results = searchResults.records
                         self.totalResultCount = searchResults.totalCount
                         self.hasMoreResults = searchResults.hasMore
