@@ -20,18 +20,53 @@ struct DatabaseBrowserPane<Accessory: View>: View {
         self.accessoryControls = accessoryControls
     }
 
+    /// Height of the header, accessory and search cards, measured so their
+    /// scroll view is never taller than they are.
+    @State private var upperContentHeight: CGFloat?
+
+    /// The results card keeps at least this height when the cards above it
+    /// scroll.
+    static var minimumResultsHeight: CGFloat { 180 }
+
+    // Lane U1: the cards above the results scroll instead of growing the
+    // sheet, so disclosing the advanced filters never pushes the footer off
+    // screen. The scroll view takes the space the results card can spare.
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            header
-            accessoryCard
-            searchControls
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    upperContent
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { upperContentHeight = $0 }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .onChange(of: viewModel.isAdvancedExpanded) { _, isExpanded in
+                    guard isExpanded else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(Self.advancedSectionScrollID, anchor: .top)
+                    }
+                }
+            }
+            .frame(maxHeight: upperContentHeight)
+            .layoutPriority(1)
             resultsSection
+                .frame(minHeight: Self.minimumResultsHeight)
         }
         .padding(16)
         .background(Color.lungfishCanvasBackground)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(databaseAccessibilityIdentifier("database-browser-pane"))
+    }
+
+    private static var advancedSectionScrollID: String { "database-search-advanced-section" }
+
+    private var upperContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header
+            accessoryCard
+            searchControls
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var header: some View {
@@ -246,6 +281,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Advanced search filters")
         .accessibilityIdentifier(databaseAccessibilityIdentifier("database-search-advanced-controls"))
+        .id(Self.advancedSectionScrollID)
     }
 
     @ViewBuilder
