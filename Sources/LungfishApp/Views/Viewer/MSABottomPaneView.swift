@@ -227,6 +227,7 @@ final class MSABottomPaneView: NSView {
         contentView.clipsToBounds = true
         annotationDrawer.translatesAutoresizingMaskIntoConstraints = false
         annotationDrawer.showsDragHandle = false
+        annotationDrawer.hidesTabControl = true
         distancePane.translatesAutoresizingMaskIntoConstraints = false
         for content in [annotationDrawer, distancePane] as [NSView] {
             contentView.addSubview(content)

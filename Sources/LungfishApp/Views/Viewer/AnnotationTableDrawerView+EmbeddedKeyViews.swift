@@ -3,8 +3,25 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import ObjectiveC
+
+@MainActor private var hidesTabControlKey: UInt8 = 0
 
 extension AnnotationTableDrawerView {
+    /// Whether the drawer hides its own "Annotations | Variants | Samples"
+    /// control. A host pane that already owns a tab strip, such as the MSA
+    /// bottom pane, sets this to true so the tabs do not nest, with Variants
+    /// and Samples permanently disabled. Genome viewports keep the control.
+    /// The control leaves the layout, the key view route and the accessibility
+    /// tree while hidden, and the variant loader no longer re-shows it.
+    var hidesTabControl: Bool {
+        get { (objc_getAssociatedObject(self, &hidesTabControlKey) as? Bool) ?? false }
+        set {
+            objc_setAssociatedObject(self, &hidesTabControlKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            tabControl.isHidden = newValue
+        }
+    }
+
     /// The drawer's key views for a host pane, such as the MSA bottom pane:
     /// the annotation filter field, the visible search bar and header bar
     /// controls in reading order, then the table (re-review S4). Hidden
