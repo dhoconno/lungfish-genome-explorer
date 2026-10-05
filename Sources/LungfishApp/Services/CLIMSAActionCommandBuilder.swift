@@ -163,6 +163,7 @@ enum CLIMSAActionCommandBuilder {
         alrt: Int? = nil,
         seed: Int?,
         threads: Int?,
+        outgroup: [String] = [],
         safeMode: Bool = false,
         keepIdenticalSequences: Bool = false,
         extraIQTreeOptions: String? = nil,
@@ -205,6 +206,14 @@ enum CLIMSAActionCommandBuilder {
         }
         if let threads {
             args += ["--threads", String(threads)]
+        }
+        // D7. The dialog never offers a name that contains a comma, so the
+        // comma-joined list splits back into the same names.
+        let outgroupNames = outgroup
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.isEmpty == false }
+        if outgroupNames.isEmpty == false {
+            args += ["--outgroup", outgroupNames.joined(separator: ",")]
         }
         if safeMode {
             args.append("--safe")
