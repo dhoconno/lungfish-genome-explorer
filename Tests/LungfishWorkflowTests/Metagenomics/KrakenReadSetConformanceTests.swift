@@ -136,6 +136,32 @@ final class KrakenReadSetConformanceTests: XCTestCase {
         }
     }
 
+    /// Final review N1. The name the pinned kraken2 writes for each fragment,
+    /// which extraction and BLAST verification match their reads by. A
+    /// paired run, and so a merged read staged beside an empty mate, drops a
+    /// final /1 or /2 once from a name longer than two characters
+    /// (TrimPairInfo) and keeps every other name whole, so M.5, M.15, S_2 and
+    /// x.1 keep their names. A single-end run writes every ID as it is.
+    func testAPairedRunDropsOnlyAFinalSlashOneOrSlashTwoFromAReadID() async throws {
+        let database = try await requireKraken2AndViralDatabase()
+        let fixture = ConformanceFixtures.fixture("read-pairing/kraken2")
+        let names = ["M.5", "M.15", "S_2", "x.1", ".5", "A/1", "B/2", "C/3", "/1", "H/1/1"]
+        let records = try String(contentsOf: fixture.appendingPathComponent("merged.fastq"), encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+        let renamed = work.appendingPathComponent("renamed.fastq")
+        try names.enumerated().map { index, name in
+            "@\(name)\n\(records[index * 4 + 1])\n+\n\(records[index * 4 + 3])\n"
+        }.joined().write(to: renamed, atomically: true, encoding: .utf8)
+        let mate = work.appendingPathComponent("renamed.emptymate.fastq")
+        XCTAssertEqual(try ClassificationPipeline.writeEmptyMate(of: renamed, to: mate), names.count)
+
+        let single = try await kraken2(["--report-minimizer-data"], inputs: [renamed.path], database: database, name: "ids-single")
+        let paired = try await kraken2(["--report-minimizer-data", "--paired"], inputs: [renamed.path, mate.path], database: database, name: "ids-paired")
+        func ids(_ url: URL) throws -> [String] { try perReadCalls(url).map { String($0.split(separator: "\t")[1]) } }
+        XCTAssertEqual(try ids(single.output), names)
+        XCTAssertEqual(try ids(paired.output), ["M.5", "M.15", "S_2", "x.1", ".5", "A", "B", "C/3", "/1", "H/1"])
+    }
+
     // MARK: - Helpers
 
     private func requireKraken2AndViralDatabase() async throws -> URL {
