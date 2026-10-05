@@ -2423,7 +2423,7 @@ public class ViewerViewController: NSViewController {
         }
     }
 
-    private static func enclosingProjectURL(for url: URL) -> URL? {
+    static func enclosingProjectURL(for url: URL) -> URL? {
         var current = url.standardizedFileURL
         while current.path != "/" {
             if current.pathExtension.lowercased() == "lungfish" {
@@ -2434,7 +2434,7 @@ public class ViewerViewController: NSViewController {
         return nil
     }
 
-    private static func nextAvailableBundleURL(
+    static func nextAvailableBundleURL(
         suggestedName: String,
         pathExtension: String,
         in directory: URL
