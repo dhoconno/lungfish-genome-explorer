@@ -57,10 +57,10 @@ Each tool declares one capability in `ReadPairingCapabilityRegistry`, and the re
 | Capability | Meaning | Tools |
 |---|---|---|
 | Both in one run, separate files | The tool takes R1, R2 and single-read files together | bowtie2 (`-1 -2 -U`), SPAdes (`-1 -2 --merged -s`), MEGAHIT (`-1 -2 -r`), SKESA (`--reads R1,R2 --reads S`), Kraken2 (staged, below) |
-| Both in one run, one stream | The tool pairs adjacent records by name in one stream | minimap2 short-read preset, bwa-mem2 `-p`, fastp trims, deduplicate, primer removal, merge, repair, deinterleave, search, import clumpify, Illumina MHC genotyping |
+| Both in one run, one stream | The tool pairs adjacent records by name in one stream | minimap2 short-read preset, bwa-mem2 `-p`, fastp trims, deduplicate, primer removal, length filter, merge, repair, deinterleave, search, import clumpify, Illumina MHC genotyping |
 | Pairs or single reads per run | The tool takes one kind per run and the results merge exactly | BBMap (two runs, then `samtools merge`) |
 | Pairs only when every fragment is paired | The tool cannot pair part of a sample | EsViritu, TaxTriage, Viral Recon and the FASTQ operations that pair by position |
-| Single reads only | The tool reads every record on its own | Flye, hifiasm, ONT MHC genotyping, length filter, error correction, 12S matching |
+| Single reads only | The tool reads every record on its own | Flye, hifiasm, ONT MHC genotyping, error correction, 12S matching |
 
 A sample that holds only single reads or only pairs reaches every tool as it is found. The plan makes no step, so a tool that moves onto the resolver keeps its command byte for byte for such a sample.
 
@@ -77,7 +77,7 @@ A consumer whose declaration sets `adopted` resolves its inputs through `ReadSet
 | `viralrecon.illumina` | Yes | `ViralReconReadPairing.prepareIlluminaSamples` |
 | `genotype.illumina-mhc`, `genotype.ont-mhc` | Yes | `plannedInputReads` in `GenotypingInputFiles` |
 | `assemble.flye`, `assemble.hifiasm` | No | `ResolvedSequenceInputs.resolveForAssembly`, every read on its own |
-| The FASTQ operations, `ingest.clumpify` and `recipe.convert-interleaved-to-paired` | No | Each command. `fastq deduplicate` and `fastq primer-remove` split a mixed file by name through `FASTQSplitByNameRunner`, and the fastp trims through `FastpPairedRunner` |
+| The FASTQ operations, `ingest.clumpify` and `recipe.convert-interleaved-to-paired` | No | Each command. `fastq deduplicate`, `fastq primer-remove` and `fastq length-filter` split a mixed file by name through `FASTQSplitByNameRunner`, and the fastp trims through `FastpPairedRunner`. `fastq error-correct` corrects every record on its own, drops none and writes them in input order, so the mates of a pair stay side by side |
 | `twelve-s.amplicon-matching` | No | 12S matching, open for Phase 2 |
 
 ## Combining

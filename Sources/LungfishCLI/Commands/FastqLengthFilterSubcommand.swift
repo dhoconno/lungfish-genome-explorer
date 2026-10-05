@@ -42,6 +42,12 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
         )
     }
 
+    /// Runs `plan`, bbduk in its BBTools environment.
+    private static func runFilter(_ plan: FASTQLengthFilterPlan, runner: NativeToolRunner) async throws -> NativeToolResult {
+        let environment = plan.isPairAware ? await bbToolsEnvironment(runner: runner) : nil
+        return try await runner.run(plan.tool, arguments: plan.arguments, environment: environment, timeout: plan.timeout)
+    }
+
     func run() async throws {
         let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "length-filter", output: output)
         defer { resolvedInput.cleanup() }
@@ -57,22 +63,67 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
         let runner = NativeToolRunner.shared
 
         // seqkit seq judges every record alone and orphaned 1,856 mates of
-        // the HG002 fixture. bbduk interleaved=t pairs by position, so only
-        // a strictly interleaved input runs pair-aware (mixed input runs as
-        // single reads, FASTQPairingOptions).
-        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
-        let plan = plan(inputURL: inputURL, decision: pairingDecision)
+        // the HG002 fixture. bbduk interleaved=t pairs by position, so a
+        // strictly interleaved input runs it whole. A file that mixes pairs
+        // with single reads is split by name (FASTQSplitByNameRunner): its
+        // pairs run bbduk interleaved=t and its single reads seqkit, joined
+        // pairs first, so a pair is kept or dropped whole. Run per record,
+        // such a file orphaned the mate of each pair with one mate out of
+        // bounds (final review A, N7).
+        let pairingDecision = pairing.resolvePairing(
+            inputURL: inputURL,
+            pairsByName: true,
+            metadataFrom: resolvedInput.pairingMetadataURL
+        )
+        let layoutPlan = try await Task.detached(priority: .utility) {
+            try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
+        }.value
 
+        let minLength = self.minLength
+        let maxLength = self.maxLength
         let startedAt = Date()
+        let nativeTool: NativeTool
+        let nativeArguments: [String]
         let result: NativeToolResult
-        if plan.isPairAware {
-            let env = await bbToolsEnvironment(runner: runner)
-            result = try await runner.run(plan.tool, arguments: plan.arguments, environment: env, timeout: plan.timeout)
-        } else {
-            result = try await runner.run(plan.tool, arguments: plan.arguments, timeout: plan.timeout)
-        }
-        guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "\(plan.tool.executableName) length filter failed: \(result.stderr)")
+        var splitOutcome: FASTQSplitByNameRunner.Outcome?
+        switch layoutPlan {
+        case .singleEnd, .interleaved:
+            let wholePlan = FASTQLengthFilterPlan.make(
+                inputPath: inputURL.path,
+                outputPath: output.output,
+                minLength: minLength,
+                maxLength: maxLength,
+                pairAware: layoutPlan.isPaired
+            )
+            result = try await Self.runFilter(wholePlan, runner: runner)
+            guard result.isSuccess else {
+                throw CLIError.conversionFailed(reason: "\(wholePlan.tool.executableName) length filter failed: \(result.stderr)")
+            }
+            nativeTool = wholePlan.tool
+            nativeArguments = wholePlan.arguments
+        case .splitMixed(let pairs, let unpaired):
+            let outcome = try await FASTQSplitByNameRunner.run(
+                inputURL: inputURL,
+                outputPath: output.output,
+                counts: FASTQPairInterleaver.MixedCounts(pairs: pairs, unpaired: unpaired),
+                tool: .seqkit,
+                toolVersion: await runner.getToolVersion(.seqkit) ?? "unknown",
+                failureLabel: "length filter",
+                stepNamePrefix: "lungfish fastq length-filter"
+            ) { partInput, partOutput, paired in
+                let partPlan = FASTQLengthFilterPlan.make(
+                    inputPath: partInput.path,
+                    outputPath: partOutput.path,
+                    minLength: minLength,
+                    maxLength: maxLength,
+                    pairAware: paired
+                )
+                return (try await Self.runFilter(partPlan, runner: runner), partPlan.arguments)
+            }
+            nativeTool = .bbduk
+            nativeArguments = outcome.pairedRun.arguments
+            result = outcome.pairedRun.result
+            splitOutcome = outcome
         }
         var cliArguments = ["length-filter"]
         if let minLength { cliArguments += ["--min", String(minLength)] }
@@ -86,26 +137,31 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
             cliArguments.append("--compress")
         }
         let outputURL = URL(fileURLWithPath: output.output)
+        var parameters: [String: ParameterValue] = [
+            "input": .file(resolvedInput.originalURL),
+            "output": .file(outputURL),
+            "min": minLength.map(ParameterValue.integer) ?? .null,
+            "max": maxLength.map(ParameterValue.integer) ?? .null,
+            "pairing": pairing.provenanceValue,
+            "interleaved": .boolean(layoutPlan.isPaired),
+            "readLayout": pairingDecision.readLayoutProvenanceValue,
+            "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
+            "force": .boolean(output.force),
+            "compress": .boolean(output.compress)
+        ]
+        if let splitOutcome {
+            parameters["pairs"] = .integer(splitOutcome.counts.pairs)
+            parameters["unpairedReads"] = .integer(splitOutcome.counts.unpaired)
+        }
         try await recordFASTQNativeToolProvenance(
             workflowName: "lungfish fastq length-filter",
-            nativeTool: plan.tool,
+            nativeTool: nativeTool,
             cliArguments: cliArguments,
-            nativeArguments: plan.arguments,
+            nativeArguments: nativeArguments,
             result: result,
             inputURLs: [resolvedInput.originalURL],
             outputURLs: [outputURL],
-            parameters: [
-                "input": .file(resolvedInput.originalURL),
-                "output": .file(outputURL),
-                "min": minLength.map(ParameterValue.integer) ?? .null,
-                "max": maxLength.map(ParameterValue.integer) ?? .null,
-                "pairing": pairing.provenanceValue,
-                "interleaved": .boolean(plan.isPairAware),
-                "readLayout": pairingDecision.readLayoutProvenanceValue,
-                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
-                "force": .boolean(output.force),
-                "compress": .boolean(output.compress)
-            ],
+            parameters: parameters,
             defaults: [
                 "min": .null,
                 "max": .null,
@@ -116,7 +172,10 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
                 "compress": .boolean(false)
             ],
             inputRecords: try resolvedInput.inputRecords(),
-            extraSteps: try resolvedInput.materializationSteps(),
+            stepID: splitOutcome?.stepID ?? UUID(),
+            stepInputs: splitOutcome?.stepInputs,
+            stepOutputs: splitOutcome?.stepOutputs,
+            extraSteps: (splitOutcome?.extraSteps ?? []) + (try resolvedInput.materializationSteps()),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Filtered reads written to \(output.output)\n".utf8))

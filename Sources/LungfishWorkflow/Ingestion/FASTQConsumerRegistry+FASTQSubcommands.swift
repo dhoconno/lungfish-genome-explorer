@@ -88,6 +88,10 @@ extension FASTQConsumerRegistry {
                 "fastq.primer-remove", "fastq primer-remove",
                 "bbduk (ktrim=l rcomp=f with a restrictleft window) runs interleaved=t, and cutadapt linked trimming runs --interleaved -g -G --pair-filter any, on a strictly interleaved file, so a pair is kept or dropped whole. A mixed file is partitioned by name: its pairs run paired, its single reads per record, and the two outputs are joined, pairs first. Run per record, a mate the trim dropped orphaned its partner."
             ),
+            (
+                "fastq.length-filter", "fastq length-filter",
+                "bbduk minlen and maxlen run interleaved=t on a strictly interleaved file, so a pair is kept or dropped whole. A mixed file is partitioned by name: its pairs run bbduk interleaved=t, its single reads seqkit seq, and the two outputs are joined, pairs first. Run per record with seqkit, a mate out of bounds orphaned its partner (319 of 7,958 pairs of the HG002 chrM fixture with merged reads at --min 100)."
+            ),
         ]
         let byNameSplit = splitByName.map { entry in
             FASTQConsumerDeclaration(
@@ -103,23 +107,23 @@ extension FASTQConsumerRegistry {
             )
         }
 
-        let perRecord: [(id: String, name: String, tool: String, pairedFiles: FASTQReadLayoutHandling)] = [
-            ("fastq.length-filter", "fastq length-filter", "seqkit seq per record", .asSingle),
-            ("fastq.error-correct", "fastq error-correct", "tadpole interleaved=f", .asSingle),
-        ]
-        let single = perRecord.map { entry in
-            FASTQConsumerDeclaration(
-                consumerID: entry.id,
-                displayName: entry.name,
-                handling: [
-                    .singleEnd: .asSingle,
-                    .strictlyInterleaved: .asSingle,
-                    .mixedMergedAndPairs: .asSingle,
-                    .pairedFiles: entry.pairedFiles,
-                ],
-                mixedRationale: "Runs \(entry.tool); every record is treated on its own."
-            )
-        }
+        // tadpole corrects every record on its own and drops none, and
+        // ordered=t writes the reads in input order, so the mates of a pair
+        // stay side by side in any layout. Its chunks used to come out in
+        // the order its threads finished them, which separated a pair that
+        // straddled two chunks of a mixed file.
+        let errorCorrect = FASTQConsumerDeclaration(
+            consumerID: "fastq.error-correct",
+            displayName: "fastq error-correct",
+            handling: [
+                .singleEnd: .asSingle,
+                .strictlyInterleaved: .asSingle,
+                .mixedMergedAndPairs: .asSingle,
+                .pairedFiles: .asSingle,
+            ],
+            mixedRationale: "Runs tadpole interleaved=f ordered=t; every record is corrected on its own, none is dropped, and every read is written in input order, so the mates of a pair stay side by side."
+        )
+        let single = [errorCorrect]
 
         // Verified against the installed ribodetector_cpu 0.3.3 help on
         // 2026-09-27: `-i R1 R2 -o out1 out2` classifies each fragment from
