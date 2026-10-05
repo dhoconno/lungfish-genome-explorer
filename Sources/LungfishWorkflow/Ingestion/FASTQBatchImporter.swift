@@ -19,7 +19,8 @@ public enum ImportLogEvent: Sendable {
         sample: String, platform: String, source: String, confidence: String,
         readClass: String?, evidence: [String], message: String
     )
-    case sampleStart(sample: String, index: Int, total: Int, r1: String, r2: String?)
+    /// `unpaired` names a run's third file joined to the pair, and the JSON omits it otherwise.
+    case sampleStart(sample: String, index: Int, total: Int, r1: String, r2: String?, unpaired: String? = nil)
     case stepStart(sample: String, step: String, stepIndex: Int, totalSteps: Int)
     case stepComplete(sample: String, step: String, durationSeconds: Double)
     case notice(sample: String, message: String)
@@ -247,7 +248,8 @@ public enum FASTQBatchImporter {
     /// - `_1` / `_2`             (older convention)
     ///
     /// Files that don't match any R1 pattern are treated as single-end samples,
-    /// except an SRA run's reads without a mate (``joiningUnpairedReads(_:)``).
+    /// except an SRA run's reads without a mate (``joiningUnpairedReads(_:)``), a join by name
+    /// that ``checkingUnpairedReads(_:)`` keeps only when the first reads bear it out.
     public static func detectPairs(from urls: [URL]) -> [SamplePair] {
         // Patterns ordered from most to least specific
         let r1Patterns: [(r1Suffix: String, r2Suffix: String)] = [
@@ -591,13 +593,14 @@ public enum FASTQBatchImporter {
             dict["evidence"] = evidence
             dict["message"] = message
 
-        case .sampleStart(let sample, let index, let total, let r1, let r2):
+        case .sampleStart(let sample, let index, let total, let r1, let r2, let unpaired):
             dict["event"] = "sampleStart"
             dict["sample"] = sample
             dict["index"] = index
             dict["total"] = total
             dict["r1"] = r1
             if let r2 { dict["r2"] = r2 }
+            if let unpaired { dict["unpaired"] = unpaired }
 
         case .stepStart(let sample, let step, let stepIndex, let totalSteps):
             dict["event"] = "stepStart"
@@ -824,11 +827,8 @@ public enum FASTQBatchImporter {
     ) async -> Result<URL, Error> {
         let sampleStart = Date()
         log?(.sampleStart(
-            sample: pair.sampleName,
-            index: sampleIndex,
-            total: totalSamples,
-            r1: pair.r1.lastPathComponent,
-            r2: pair.r2?.lastPathComponent
+            sample: pair.sampleName, index: sampleIndex, total: totalSamples, r1: pair.r1.lastPathComponent,
+            r2: pair.r2?.lastPathComponent, unpaired: pair.unpaired?.lastPathComponent
         ))
 
         let originalBytes = fileSizeSum(pair.inputFiles)
@@ -1214,7 +1214,7 @@ public enum FASTQBatchImporter {
     }
 
     private static func validateRecipeApplicability(pair: SamplePair, config: ImportConfig) throws {
-        try validateRecipeKeepsUnpairedReads(pair: pair, config: config)
+        try validateImportKeepsUnpairedReads(pair: pair, config: config)
         if let recipe = config.newRecipe {
             try validateNewRecipeInputRequirement(recipe, pair: pair)
         }
@@ -2921,13 +2921,13 @@ public enum FASTQBatchImporter {
         do {
             try FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
             let logFile = logDir.appendingPathComponent("\(pair.sampleName).import.log")
-            let entry: [String: Any] = [
+            let entry: [String: Any] = unpairedReadsLogEntry(of: pair).merging([
                 "sample": pair.sampleName,
                 "r1": pair.r1.lastPathComponent,
                 "r2": pair.r2?.lastPathComponent ?? NSNull(),
                 "bundle": bundleURL.lastPathComponent,
                 "timestamp": ISO8601DateFormatter().string(from: Date()),
-            ]
+            ]) { unpaired, _ in unpaired }
             let data = try JSONSerialization.data(withJSONObject: entry, options: [.prettyPrinted, .sortedKeys])
             try data.write(to: logFile, options: .atomic)
         } catch {

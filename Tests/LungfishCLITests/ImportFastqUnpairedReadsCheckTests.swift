@@ -89,6 +89,24 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports").path))
     }
 
+    func testNameStillNeedsOneSampleAndTheWarningSaysWhyThereAreTwo() async throws {
+        let folder = try writeRun("SRR126", files: [
+            "SRR126_1.fastq": Self.records([("SRR126.1.1", 1)], bases: "ACGTACGT"),
+            "SRR126_2.fastq": Self.records([("SRR126.1.2", 1)], bases: "TTGGCCAA"),
+            "SRR126.fastq": Self.records([("SRR126.2.1", 2)], bases: "GATTACAG"),
+        ])
+
+        let run = try await runImport([folder.path], ["--name", "Patient7"])
+
+        // As before the join, the pair and the third file are two samples,
+        // and --name takes one. The warning comes first and says why.
+        XCTAssertNotNil(run.error, run.output)
+        let warning = try XCTUnwrap(run.output.range(of: "SRR126.fastq was not joined to SRR126_1.fastq and SRR126_2.fastq"), run.output)
+        let refusal = try XCTUnwrap(run.output.range(of: "--name requires exactly one detected sample (found 2)."), run.output)
+        XCTAssertLessThan(warning.lowerBound, refusal.lowerBound)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports").path))
+    }
+
     func testTheWindowsJSONOutputCarriesTheWarningAsANoticeEvent() async throws {
         let folder = try writeRun("SRR125", files: [
             "SRR125_1.fastq": Self.records([("SRR125.1.1", 1), ("SRR125.2.1", 2)], bases: "ACGTACGT"),

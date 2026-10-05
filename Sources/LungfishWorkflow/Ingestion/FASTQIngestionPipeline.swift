@@ -387,7 +387,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                 provenanceSteps.append(contentsOf: record.steps)
                 wasClumpified = true
             } catch {
-                throw FASTQIngestionError.clumpifyFailed(error.localizedDescription)
+                throw (error as? FASTQIngestionError) ?? FASTQIngestionError.clumpifyFailed(error.localizedDescription)
             }
         case .auto:
             preconditionFailure("ClumpingTool.auto must resolve to a concrete tool")
