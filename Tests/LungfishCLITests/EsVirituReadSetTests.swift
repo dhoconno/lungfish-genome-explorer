@@ -112,6 +112,25 @@ final class EsVirituReadSetTests: XCTestCase {
         try assertReasonRecorded(run)
     }
 
+    /// Phase 1.5 lane F6, re-review SHOULD-FIX 1. The materialized file of a subset of
+    /// a merge derivative holds only the unmerged pair. The layout scan reads
+    /// the merge in its lineage as proof of single reads, and EsViritu ran
+    /// `-p unpaired` on both mates. The plan reads the whole file and finds
+    /// no read without a mate, so the run is `-p interleaved` and its recorded
+    /// layout is not mixed.
+    func testAVirtualSubsetOfAMergeDerivativeThatHoldsOnlyPairsRunsInterleaved() async throws {
+        let materializer = ReadSetFixtures.StubMaterializer(readsByBundlePath: [
+            fixtures.subsetOfMerge.standardizedFileURL.path: ReadSetFixtures.fastq(["u1/1", "u1/2"]),
+        ])
+        let run = try await detect(fixtures.subsetOfMerge, materializer: materializer)
+        XCTAssertEqual(run.formatSeen, "interleaved")
+        XCTAssertEqual(run.filesSeen, [["u1/1", "u1/2"]])
+        XCTAssertNil(run.plan, "a sample of pairs only records no plan")
+        XCTAssertEqual(run.parameters?["readFormat"], .string("interleaved"))
+        XCTAssertNil(run.parameters?["requestedReadFormat"], "the run was not changed after it was asked for")
+        XCTAssertNotEqual(run.parameters?["inputReadLayout"], .string("mixed_interleaved"))
+    }
+
     // MARK: - Chunks of single reads are joined
 
     /// L4. Before: `-r run_0 run_1 -p unpaired`, refused. After: one file
@@ -161,7 +180,11 @@ final class EsVirituReadSetTests: XCTestCase {
     /// Runs `lungfish-cli esviritu detect --input <input> --read-format
     /// <readFormat>` through the command's own resolution with a stand-in
     /// EsViritu. A virtual bundle is written by the fixtures' stub.
-    private func detect(_ input: URL, readFormat: String = "auto") async throws -> DetectRun {
+    private func detect(
+        _ input: URL,
+        readFormat: String = "auto",
+        materializer: (any CLISequenceInputMaterializing & Sendable)? = nil
+    ) async throws -> DetectRun {
         let runRoot = root.appendingPathComponent("run-\(UUID().uuidString)", isDirectory: true)
         let esviritu = try StandInEsViritu(root: runRoot)
         let outputDirectory = runRoot.appendingPathComponent("esviritu/sample", isDirectory: true)
@@ -178,7 +201,7 @@ final class EsVirituReadSetTests: XCTestCase {
         let command = try XCTUnwrap(parsed as? EsVirituCommand.DetectSubcommand)
         try await command.execute(
             pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
-            materializer: fixtures.materializer
+            materializer: materializer ?? fixtures.materializer
         )
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: outputDirectory))
         return DetectRun(
