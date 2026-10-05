@@ -67,6 +67,9 @@ public struct MSADistanceMatrix: Sendable, Equatable {
     public let undefinedPairCount: Int
     /// Off-diagonal unordered pairs whose corrected distance saturated.
     public let saturatedPairCount: Int
+    /// Aligned columns left after complete deletion, or nil under pairwise deletion, where
+    /// each pair keeps its own sites.
+    public let retainedColumnCount: Int?
 
     // Per-pair counts in input order, upper triangle including the diagonal.
     private let comparableCounts: [Int32]
@@ -98,6 +101,7 @@ public struct MSADistanceMatrix: Sendable, Equatable {
         // Complete deletion keeps only the columns where every row has a comparable residue.
         var columnGapSkips = 0
         var columnAmbiguitySkips = 0
+        var retainedColumns: Int?
         if options.gaps == .complete, codes.isEmpty == false {
             var keep = [Bool](repeating: true, count: alignedLength)
             for column in 0..<alignedLength {
@@ -123,6 +127,7 @@ public struct MSADistanceMatrix: Sendable, Equatable {
                 throw MSADistanceMatrixError.noComparableSitesAfterCompleteDeletion
             }
             codes = codes.map { row in row.indices.compactMap { keep[$0] ? row[$0] : nil } }
+            retainedColumns = alignedLength - columnGapSkips - columnAmbiguitySkips
         }
 
         let count = records.count
@@ -190,6 +195,7 @@ public struct MSADistanceMatrix: Sendable, Equatable {
         self.values = order.map { row in order.map { column in inputValues[row * count + column] } }
         self.undefinedPairCount = undefined
         self.saturatedPairCount = saturated
+        self.retainedColumnCount = retainedColumns
         self.comparableCounts = comparable
         self.differenceCounts = differences
         self.transitionCounts = transitions
@@ -357,6 +363,8 @@ public struct MSADistanceMatrix: Sendable, Equatable {
         case .identity:
             return Double(comparable - differences) / sites
         case .pDistance:
+            // Deliberately 1 - (L - D) / L rather than D / L. The two can differ in the last
+            // bit, and this form keeps the TSV byte-identical to the earlier CLI output.
             return 1 - Double(comparable - differences) / sites
         case .jc69:
             // 1 - (4/3) p = (3L - 4D) / (3L), decided in integers so p = 0.75 saturates exactly.
