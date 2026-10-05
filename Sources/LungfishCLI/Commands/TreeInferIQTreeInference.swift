@@ -34,6 +34,8 @@ struct IQTreeInferenceRunDetails {
     let sequenceType: String?
     let effectiveSeed: String?
     let threads: Int?
+    let ufBootReplicates: Int?
+    let shALRTReplicates: Int?
     let outgroupRows: [IQTreeStagedRow]
     let outgroupWarning: String?
     let msaBundleURL: URL
@@ -59,6 +61,8 @@ func iqtreeInferenceSummary(report: String, run: IQTreeInferenceRunDetails) -> P
         logLikelihood: fields.logLikelihood,
         logLikelihoodStandardError: fields.logLikelihoodStandardError,
         freeParameters: fields.freeParameters,
+        ufBootReplicates: run.ufBootReplicates,
+        shALRTReplicates: run.shALRTReplicates,
         sequenceType: run.sequenceType ?? "auto",
         seed: run.effectiveSeed.flatMap { Int($0) },
         threads: run.threads,

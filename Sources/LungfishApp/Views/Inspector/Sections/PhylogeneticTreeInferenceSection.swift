@@ -59,9 +59,16 @@ enum PhylogeneticTreeInferenceRows {
         var rows: [(String, String)] = [
             ("Program", "\(inference.program) \(inference.programVersion)"),
             ("Model requested", requestedModelText(inference.requestedModel)),
-            ("Best-fit model", bestFitModelText(inference)),
+        ]
+        if let bestFit = bestFitModelText(inference) {
+            rows.append(("Best-fit model", bestFit))
+        }
+        if let substitution = inference.substitutionModel, !substitution.isEmpty {
+            rows.append(("Model of substitution", substitution))
+        }
+        rows += [
             ("Sequence type", sequenceTypeText(inference.sequenceType)),
-            ("Branch support", branchSupportText(manifest.supportLabels ?? [])),
+            ("Branch support", branchSupportText(manifest.supportLabels ?? [], inference: inference)),
             ("Outgroup", inference.outgroup.flatMap { $0.isEmpty ? nil : $0.joined(separator: ", ") } ?? "None"),
         ]
         if let warning = inference.outgroupWarning, !warning.isEmpty {
@@ -81,16 +88,18 @@ enum PhylogeneticTreeInferenceRows {
         return rows
     }
 
+    /// IQ-TREE's own wording: "MFP (ModelFinder)" for a ModelFinder request, the literal model otherwise.
     static func requestedModelText(_ model: String) -> String {
         model.uppercased().hasPrefix("MFP") ? "\(model) (ModelFinder)" : model
     }
 
-    /// The fitted model with its criterion, "Fixed" for a fixed model.
-    static func bestFitModelText(_ inference: PhylogeneticTreeInferenceSummary) -> String {
-        let usedModelFinder = inference.requestedModel.uppercased().hasPrefix("MFP")
-        guard usedModelFinder else { return "Fixed" }
-        guard let model = inference.substitutionModel ?? inference.bestFitModel else { return "Not recorded" }
-        guard let criterion = inference.modelSelectionCriterion, !criterion.isEmpty else { return model }
+    /// The ModelFinder choice with its criterion, for example "TIM2+ASC (BIC)". Nil when ModelFinder
+    /// did not run or the report carried no "Best-fit model according to" line.
+    static func bestFitModelText(_ inference: PhylogeneticTreeInferenceSummary) -> String? {
+        guard let model = inference.bestFitModel, !model.isEmpty else { return nil }
+        guard let criterion = inference.modelSelectionCriterion, !criterion.isEmpty, criterion != "fixed" else {
+            return model
+        }
         return "\(model) (\(criterion))"
     }
 
@@ -104,9 +113,21 @@ enum PhylogeneticTreeInferenceRows {
         }
     }
 
-    static func branchSupportText(_ labels: [String]) -> String {
+    /// For example "SH-aLRT 1000, UFBoot 1000. Node labels read SH-aLRT/UFBoot." Replicate counts
+    /// appear when the summary recorded them. "None" when no support was requested.
+    static func branchSupportText(_ labels: [String], inference: PhylogeneticTreeInferenceSummary) -> String {
         guard !labels.isEmpty else { return "None" }
-        return "\(labels.joined(separator: ", ")), labels read \(labels.joined(separator: "/"))"
+        let counts = labels.map { label -> String in
+            switch label {
+            case PhylogeneticTreeSupportLabel.shALRT:
+                return inference.shALRTReplicates.map { "\(label) \($0)" } ?? label
+            case PhylogeneticTreeSupportLabel.ufBoot:
+                return inference.ufBootReplicates.map { "\(label) \($0)" } ?? label
+            default:
+                return label
+            }
+        }
+        return "\(counts.joined(separator: ", ")). Node labels read \(labels.joined(separator: "/"))."
     }
 
     static func inputText(_ inference: PhylogeneticTreeInferenceSummary) -> String {

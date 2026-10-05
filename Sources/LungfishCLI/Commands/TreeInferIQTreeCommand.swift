@@ -255,6 +255,8 @@ extension TreeCommand {
                         sequenceType: normalizedSequenceType,
                         effectiveSeed: effectiveSeed,
                         threads: globalOptions.threads,
+                        ufBootReplicates: bootstrap,
+                        shALRTReplicates: alrt,
                         outgroupRows: outgroupRows,
                         outgroupWarning: rooting.outgroupWarning,
                         msaBundleURL: msaBundleURL,

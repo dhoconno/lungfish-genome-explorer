@@ -19,14 +19,15 @@ final class PhylogeneticTreeInferenceSectionTests: XCTestCase {
         XCTAssertEqual(state.visibleSectionOrder, [.header, .inference, .treeSummary, .warnings, .sourceArtifacts])
         let rows = Dictionary(uniqueKeysWithValues: state.inferenceRows)
         XCTAssertEqual(state.inferenceRows.map(\.0), [
-            "Program", "Model requested", "Best-fit model", "Sequence type", "Branch support",
+            "Program", "Model requested", "Best-fit model", "Model of substitution", "Sequence type", "Branch support",
             "Outgroup", "Outgroup warning", "Seed", "Threads", "Input", "Log-likelihood", "Branch lengths",
         ])
         XCTAssertEqual(rows["Program"], "IQ-TREE 3.1.3")
         XCTAssertEqual(rows["Model requested"], "MFP (ModelFinder)")
-        XCTAssertEqual(rows["Best-fit model"], "TIM2+F+ASC (BIC)")
+        XCTAssertEqual(rows["Best-fit model"], "TIM2+ASC (BIC)")
+        XCTAssertEqual(rows["Model of substitution"], "TIM2+F+ASC")
         XCTAssertEqual(rows["Sequence type"], "DNA")
-        XCTAssertEqual(rows["Branch support"], "SH-aLRT, UFBoot, labels read SH-aLRT/UFBoot")
+        XCTAssertEqual(rows["Branch support"], "SH-aLRT 1000, UFBoot 1000. Node labels read SH-aLRT/UFBoot.")
         XCTAssertEqual(rows["Outgroup"], "Danio rerio")
         XCTAssertEqual(rows["Outgroup warning"], "Outgroup is not monophyletic. The tree is left unrooted.")
         XCTAssertEqual(rows["Seed"], "12345")
@@ -61,7 +62,7 @@ final class PhylogeneticTreeInferenceSectionTests: XCTestCase {
         XCTAssertTrue(state.contextRows.contains { $0.0 == "Rooting" && $0.1 == "Rooted" })
     }
 
-    func testFixedModelAndAllColumnsWording() {
+    func testFixedModelAndAllColumnsWording() throws {
         let inference = PhylogeneticTreeInferenceSummary(
             program: "IQ-TREE",
             programVersion: "3.1.3",
@@ -72,11 +73,16 @@ final class PhylogeneticTreeInferenceSectionTests: XCTestCase {
             totalRowCount: 6,
             alignedLength: 48
         )
-        XCTAssertEqual(PhylogeneticTreeInferenceRows.bestFitModelText(inference), "Fixed")
+        let fixedRows = PhylogeneticTreeInferenceRows.rows(for: inference, manifest: try makeBundle(inference: inference).manifest)
+        XCTAssertEqual(fixedRows.map(\.0).filter { $0.contains("model") || $0.contains("Model") }, ["Model requested", "Model of substitution"])
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: fixedRows)["Model of substitution"], "HKY+F+G4")
         XCTAssertEqual(PhylogeneticTreeInferenceRows.requestedModelText("HKY+F+G4"), "HKY+F+G4")
         XCTAssertEqual(PhylogeneticTreeInferenceRows.sequenceTypeText("CODON2"), "Codon (Vertebrate mitochondrial)")
         XCTAssertEqual(PhylogeneticTreeInferenceRows.inputText(inference), "Alignment, 6 of 6 sequences, all columns")
-        XCTAssertEqual(PhylogeneticTreeInferenceRows.branchSupportText([]), "None")
+        XCTAssertEqual(PhylogeneticTreeInferenceRows.branchSupportText([], inference: inference), "None")
+        XCTAssertEqual(
+            PhylogeneticTreeInferenceRows.branchSupportText(["SH-aLRT", "UFBoot"], inference: inference),
+            "SH-aLRT, UFBoot. Node labels read SH-aLRT/UFBoot.")
         XCTAssertEqual(PhylogeneticTreeInferenceRows.accessibilityText(label: "Seed", value: "7"), "Seed, 7")
     }
 
@@ -93,6 +99,8 @@ final class PhylogeneticTreeInferenceSectionTests: XCTestCase {
             logLikelihood: -173.4941,
             logLikelihoodStandardError: 7.9018,
             freeParameters: 15,
+            ufBootReplicates: 1000,
+            shALRTReplicates: 1000,
             sequenceType: "DNA",
             seed: 12345,
             threads: 1,
