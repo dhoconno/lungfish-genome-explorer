@@ -22,7 +22,7 @@ Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift 1162
 Sources/LungfishApp/ViewModels/SequenceExtractionPipeline.swift 833
 Sources/LungfishApp/Views/AI/AIAssistantPanel.swift 1011
 Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift 1114
-Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 3367
+Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 2958
 Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift 1069
 Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2343
 Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
