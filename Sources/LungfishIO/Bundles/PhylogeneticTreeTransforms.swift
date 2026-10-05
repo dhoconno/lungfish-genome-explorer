@@ -76,11 +76,7 @@ struct PhylogeneticTreeSubtreeExporter {
     }
 
     private func escapedLabel(_ label: String) -> String {
-        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
-        if label.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
-            return label
-        }
-        return "'" + label.replacingOccurrences(of: "'", with: "''") + "'"
+        NewickLabel.quotedIfNeeded(label)
     }
 }
 
@@ -226,11 +222,7 @@ struct PhylogeneticTreeRerooter {
     }
 
     private func escapedLabel(_ label: String) -> String {
-        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
-        if label.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
-            return label
-        }
-        return "'" + label.replacingOccurrences(of: "'", with: "''") + "'"
+        NewickLabel.quotedIfNeeded(label)
     }
 }
 
@@ -281,11 +273,7 @@ struct PhylogeneticTreeRelabeler {
     }
 
     private func escapedLabel(_ label: String) -> String {
-        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
-        if label.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
-            return label
-        }
-        return "'" + label.replacingOccurrences(of: "'", with: "''") + "'"
+        NewickLabel.quotedIfNeeded(label)
     }
 }
 
