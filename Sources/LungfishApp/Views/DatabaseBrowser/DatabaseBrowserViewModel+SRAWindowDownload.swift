@@ -57,8 +57,11 @@ extension DatabaseBrowserViewModel {
         let enaRouteContext = routeContext
         let projectURL = enaRouteContext?.projectURL
         let ncbiRunsFromSearch = sraNCBIRunsFromSearch
+        // One snapshot for the whole batch, so a change mid-batch does not
+        // split it between archives.
+        let sourcePreference = sraDownloadPreference()
 
-        Task.detached {
+        let downloadTask = Task.detached {
             var downloadedURLs: [URL] = []
             var failedCount = 0
             var failureDetails: [String] = []
@@ -87,6 +90,9 @@ extension DatabaseBrowserViewModel {
             logger.info("startENADownloadTask: Created batch directory at \(batchDir.path, privacy: .public)")
 
             for (index, record) in records.enumerated() {
+                // A cancel from the Operations panel stops the batch before
+                // the next run.
+                if Task.isCancelled { break }
                 let progressFraction = Double(index) / Double(totalCount)
                 performOnMainRunLoop {
                     _ = DownloadCenter.shared.update(
@@ -144,6 +150,7 @@ extension DatabaseBrowserViewModel {
                     let accession = record.accession
                     let staged = try await self.stageSRARun(
                         accession: accession,
+                        preference: sourcePreference,
                         ncbiRun: ncbiRunsFromSearch[accession],
                         in: batchDir,
                         lookUpRoute: { try await ena.fastqDownloadRoute(forRun: accession) },
@@ -251,6 +258,7 @@ extension DatabaseBrowserViewModel {
                             accession: record.accession,
                             readRecord: readRecord,
                             downloadSource: downloadSource, preferredSource: staged.download.preference, layoutWarning: staged.layoutWarning,
+                            fallbackMessage: staged.download.fallbackMessage,
                             enaDownloadSteps: enaDownloadSteps,
                             toolkitDownloadTraces: toolkitTraceCollector.steps,
                             cliArguments: args,
@@ -282,6 +290,12 @@ extension DatabaseBrowserViewModel {
                     }
 
                 } catch {
+                    // A cancelled run is not a failure. Its folder is already
+                    // removed, and the batch folder goes below.
+                    if Task.isCancelled {
+                        logger.info("startENADownloadTask: Cancelled during \(record.accession, privacy: .public)")
+                        break
+                    }
                     logger.error("startENADownloadTask: Failed for \(record.accession, privacy: .public): \(error, privacy: .public)")
                     failedCount += 1
                     failureDetails.append("\(record.accession): \(error.localizedDescription)")
@@ -298,6 +312,15 @@ extension DatabaseBrowserViewModel {
             // Clean up the batch staging directory (each run's folder is already removed)
             try? FileManager.default.removeItem(at: batchDir)
             logger.info("startENADownloadTask: Cleaned up batch staging dir")
+
+            if Task.isCancelled {
+                // The row is already cancelling, so OperationCenter records
+                // this as cancelled. Bundles imported before the cancel stay.
+                performOnMainRunLoop {
+                    _ = DownloadCenter.shared.fail(id: downloadCenterTaskID, detail: "Cancelled by user")
+                }
+                return
+            }
 
             // Complete — bundles were already delivered incrementally via onBundleReady
             let finalDownloadedCount = downloadedURLs.count
@@ -333,6 +356,9 @@ extension DatabaseBrowserViewModel {
                 logger.info("startENADownloadTask: Complete - \(finalDownloadedCount) downloaded, \(finalFailedCount) failed")
             }
         }
+        // The Operations panel's Cancel stops the download, the toolkit and
+        // the import of the run in progress.
+        DownloadCenter.shared.setCancelCallback(for: downloadCenterTaskID) { downloadTask.cancel() }
     }
 }
 
@@ -412,9 +438,22 @@ private func streamingDownload(
     let delegate = Delegate(knownTotal: totalBytes, progress: progressHandler)
     let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
 
-    let tempURL: URL = try await withCheckedThrowingContinuation { continuation in
-        delegate.continuation = continuation
-        session.downloadTask(with: request).resume()
+    // Cancelling a task that has not resumed yet is safe, and it then ends
+    // at once with a cancellation error.
+    let transfer = session.downloadTask(with: request)
+    let tempURL: URL
+    do {
+        tempURL = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.continuation = continuation
+                transfer.resume()
+            }
+        } onCancel: {
+            transfer.cancel()
+        }
+    } catch {
+        session.invalidateAndCancel()
+        throw error
     }
     session.invalidateAndCancel()
 
