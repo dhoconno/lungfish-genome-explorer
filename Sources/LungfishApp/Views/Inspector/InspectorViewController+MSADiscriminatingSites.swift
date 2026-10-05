@@ -50,12 +50,27 @@ extension InspectorViewController {
     }
 
     /// Asks the alignment viewport to select and centre a 1-based column.
+    ///
+    /// The viewport selects the column while the notification is posted and
+    /// reports the selection back at once, so the hold keeps the Bundle tab and
+    /// the section on screen. The hold is cleared afterwards in case the column
+    /// was out of range and no selection came back.
     func broadcastMSAFocusAlignmentColumn(_ column: Int) {
+        holdsTabOnNextMSASelection = true
+        defer { holdsTabOnNextMSASelection = false }
         NotificationCenter.default.post(
             name: .msaFocusAlignmentColumnRequested,
             object: self,
             userInfo: windowScopedUserInfo([NotificationUserInfoKey.msaAlignmentColumn: column])
         )
+    }
+
+    /// Clears the alignment-selection tab hold and returns whether it was set.
+    /// A selection the Inspector caused, or the automatic one an alignment makes
+    /// as it opens, keeps the current tab. A user's selection shows Selected Item.
+    func takeMSASelectionTabHold() -> Bool {
+        defer { holdsTabOnNextMSASelection = false }
+        return holdsTabOnNextMSASelection
     }
 
     // MARK: - Running

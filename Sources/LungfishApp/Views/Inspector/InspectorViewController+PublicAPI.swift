@@ -240,6 +240,7 @@ extension InspectorViewController {
             displayName: manifest.name
         )
         viewModel.selectedTab = .bundle
+        holdsTabOnNextMSASelection = true
         // Loading an alignment drops the Analysis tab, so make sure the
         // selection still names a tab the picker lists.
         viewModel.reconcileSelectedTab()
@@ -905,13 +906,11 @@ extension InspectorViewController {
             .deletingLastPathComponent()
     }
 
-    /// Updates the Selected Item inspector with MSA row/site/range metadata.
+    /// Updates the Selected Item inspector with MSA row/site/range metadata, and shows it unless held.
     func updateMultipleSequenceAlignmentSelection(_ state: MultipleSequenceAlignmentSelectionState?) {
         viewModel.selectedAnnotation = nil
         viewModel.selectionSectionViewModel.select(multipleSequenceAlignmentSelection: state)
-        if state != nil {
-            viewModel.selectedTab = .selectedItem
-        }
+        if !takeMSASelectionTabHold(), state != nil { viewModel.selectedTab = .selectedItem }
     }
 
     /// Updates the Selected Item inspector with phylogenetic-tree node metadata.

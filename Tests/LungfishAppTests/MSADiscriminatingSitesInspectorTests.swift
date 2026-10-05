@@ -6,6 +6,7 @@ import AppKit
 import SwiftUI
 import XCTest
 import LungfishKit
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 @testable import LungfishCLI
@@ -450,8 +451,8 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
                 }
 
                 let offered = inspectorWidth - 32
-                let controller = NSHostingController(rootView: MSADiscriminatingSitesSection(
-                    model: model, isExpanded: .constant(true)))
+                model.isExpanded = true
+                let controller = NSHostingController(rootView: MSADiscriminatingSitesSection(model: model))
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: offered, height: 900),
                                       styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
@@ -528,6 +529,103 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
         XCTAssertEqual(model.highlight?.columns.count, 11)
         XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.appendingPathExtension("lungfish-provenance.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: MSADiscriminatingSitesRequest.defaultWindowsOutputURL(for: outputURL).path))
+    }
+
+    // MARK: - Bundle tab (lane D, 2026-10-05)
+
+    // The section lives on the Bundle tab. Opening an alignment auto-selects its
+    // first cell, and jumping to a site selects that column, and both used to
+    // flip the Inspector to Selected Item, so the section was never on screen
+    // when the alignment opened and its tables vanished the moment a row was
+    // clicked. A real click in the alignment still switches tabs.
+
+    func testOpeningAnAlignmentKeepsTheBundleTabButAUserSelectionStillSwitches() async throws {
+        let (bundle, viewport, inspector) = try await makeWiredInspector(named: "open-tab")
+        // The order MainSplitViewController.displayMultipleSequenceAlignmentBundleFromSidebar uses.
+        inspector.updateMultipleSequenceAlignmentDocument(bundle)
+        viewport.onSelectionStateChanged = { inspector.updateMultipleSequenceAlignmentSelection($0) }
+        viewport.notifySelectionStateIfAvailable()
+        XCTAssertEqual(inspector.viewModel.selectedTab, .bundle, "the automatic first-cell selection keeps the Bundle tab")
+
+        viewport.notifySelectionStateIfAvailable()
+        XCTAssertEqual(inspector.viewModel.selectedTab, .selectedItem, "a later selection change still shows Selected Item")
+    }
+
+    func testJumpingToASiteKeepsTheBundleTab() async throws {
+        let (bundle, viewport, inspector) = try await makeWiredInspector(named: "jump-tab")
+        let viewer = ViewerViewController()
+        viewer.loadViewIfNeeded()
+        let scope = WindowStateScope()
+        viewer.windowStateScope = scope
+        inspector.windowStateScope = scope
+        viewer.multipleSequenceAlignmentViewController = viewport
+        inspector.updateMultipleSequenceAlignmentDocument(bundle)
+        viewport.onSelectionStateChanged = { inspector.updateMultipleSequenceAlignmentSelection($0) }
+        viewport.notifySelectionStateIfAvailable()
+        inspector.viewModel.selectedTab = .bundle
+        let model = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.msaDiscriminatingSites)
+
+        model.jump(toColumn: 5)
+        XCTAssertEqual(viewport.testingSelectedAlignmentColumn, 5, "the jump reached the viewport")
+        XCTAssertEqual(inspector.viewModel.selectedTab, .bundle, "a site jump keeps the section on screen")
+
+        model.jump(toColumn: 99)
+        viewport.notifySelectionStateIfAvailable()
+        XCTAssertEqual(inspector.viewModel.selectedTab, .selectedItem, "an ignored jump leaves no hold behind")
+    }
+
+    func testSectionStaysExpandedAcrossATabSwitch() async throws {
+        let (bundle, _, inspector) = try await makeWiredInspector(named: "expanded-tab")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 1400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = inspector.view
+        inspector.updateMultipleSequenceAlignmentDocument(bundle)
+        inspector.viewModel.selectedTab = .bundle
+        let model = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.msaDiscriminatingSites)
+        XCTAssertFalse(model.isExpanded)
+        model.isExpanded = true
+        let expanded = await showsRoleMenus(bundle.rows.count, in: inspector.view)
+        XCTAssertTrue(expanded, "the expanded section shows one role menu per row")
+
+        inspector.viewModel.selectedTab = .selectedItem
+        let hidden = await showsRoleMenus(0, in: inspector.view)
+        XCTAssertTrue(hidden, "the Selected Item tab removes the section")
+        inspector.viewModel.selectedTab = .bundle
+        let restored = await showsRoleMenus(bundle.rows.count, in: inspector.view)
+        XCTAssertTrue(restored, "returning to Bundle finds the section still open")
+    }
+
+    private func makeWiredInspector(
+        named name: String
+    ) async throws -> (MultipleSequenceAlignmentBundle, MultipleSequenceAlignmentViewController, InspectorViewController) {
+        let bundleURL = try makeBundle(named: name, contents: """
+        >t1
+        ACGTACGT
+        >t2
+        ACGTACGT
+        >x1
+        GCGTGCGT
+        """)
+        let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
+        let viewport = MultipleSequenceAlignmentViewController()
+        _ = viewport.view
+        _ = try await viewport.displayBundle(at: bundleURL)
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+        return (bundle, viewport, inspector)
+    }
+
+    /// Waits until the rendered Inspector shows exactly `count` per-row role menus.
+    private func showsRoleMenus(_ count: Int, in view: NSView) async -> Bool {
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        return await waitUntil(timeout: .seconds(5)) {
+            view.layoutSubtreeIfNeeded()
+            return all(view).compactMap { $0 as? NSPopUpButton }
+                .filter { $0.itemTitles == ["Target", "Exclusion", "Skip"] }
+                .count == count
+        }
     }
 
     // MARK: - Helpers

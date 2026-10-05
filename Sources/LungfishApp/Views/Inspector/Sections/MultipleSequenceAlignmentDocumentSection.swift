@@ -14,7 +14,6 @@ struct MultipleSequenceAlignmentDocumentSection: View {
     @State private var isWarningsExpanded = true
     @State private var isArtifactsExpanded = true
     @State private var isPairwiseIdentityExpanded = false
-    @State private var isDiscriminatingSitesExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -33,7 +32,7 @@ struct MultipleSequenceAlignmentDocumentSection: View {
             if let discriminatingSites {
                 Divider()
 
-                MSADiscriminatingSitesSection(model: discriminatingSites, isExpanded: $isDiscriminatingSitesExpanded)
+                MSADiscriminatingSitesSection(model: discriminatingSites)
             }
 
             Divider()
