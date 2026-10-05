@@ -45,7 +45,7 @@ extension DatabaseBrowserViewModel {
         totalCount: Int
     ) {
         let ena = enaService
-        let sra = SRAService(ncbiService: ncbiService)
+        let sra = SRAWindowDownloadSeams.sraService ?? SRAService(ncbiService: ncbiService)
         // Recorded in the GUI provenance envelope; the argv itself comes from
         // `sraImportCLIArguments` so the two never disagree.
         let platformStr = importConfig.cliPlatformValue
@@ -340,6 +340,14 @@ extension DatabaseBrowserViewModel {
         // the import of the run in progress.
         DownloadCenter.shared.setCancelCallback(for: downloadCenterTaskID) { downloadTask.cancel() }
     }
+}
+
+/// What the window's SRA download task uses in place of the real thing.
+/// Only tests set it, so a batch runs without the real SRA Toolkit.
+enum SRAWindowDownloadSeams {
+    /// The SRA service for the SRA Toolkit route, read once when a batch
+    /// starts.
+    @TaskLocal static var sraService: SRAService?
 }
 
 // MARK: - Streaming Download Helper
