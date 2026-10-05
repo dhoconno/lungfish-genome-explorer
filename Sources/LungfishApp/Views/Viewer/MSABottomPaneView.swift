@@ -72,11 +72,13 @@ final class MSABottomPaneView: NSView {
     private(set) var lastAnimationDuration: TimeInterval = 0
     private(set) lazy var heightConstraint: NSLayoutConstraint = heightAnchor.constraint(equalToConstant: 0)
 
-    /// The Distances tab needs a stored bundle; a read-only alignment has none.
-    var isDistancesAvailable = true {
+    /// The Distances tab needs a stored bundle, and a read-only alignment has
+    /// none. Unavailable until the host hands the pane a bundle.
+    var isDistancesAvailable = false {
         didSet {
             tabControl.setEnabled(isDistancesAvailable, forSegment: Tab.distances.rawValue)
             showContent()
+            if isDistancesAvailable != oldValue { applyDefaultOpenState() }
         }
     }
 
@@ -242,16 +244,22 @@ final class MSABottomPaneView: NSView {
         addSubview(divider)
         addSubview(headerStrip)
         addSubview(contentView)
+        // The fixed heights rank below the pane height, so a closed pane
+        // collapses to zero instead of keeping its divider and header.
+        let dividerHeight = divider.heightAnchor.constraint(equalToConstant: AnnotationDrawerSizing.dividerHeight)
+        let headerHeight = headerStrip.heightAnchor.constraint(equalToConstant: Self.headerHeight)
+        dividerHeight.priority = .defaultHigh
+        headerHeight.priority = .defaultHigh
         NSLayoutConstraint.activate([
+            dividerHeight,
+            headerHeight,
             divider.topAnchor.constraint(equalTo: topAnchor),
             divider.leadingAnchor.constraint(equalTo: leadingAnchor),
             divider.trailingAnchor.constraint(equalTo: trailingAnchor),
-            divider.heightAnchor.constraint(equalToConstant: AnnotationDrawerSizing.dividerHeight),
 
             headerStrip.topAnchor.constraint(equalTo: divider.bottomAnchor),
             headerStrip.leadingAnchor.constraint(equalTo: leadingAnchor),
             headerStrip.trailingAnchor.constraint(equalTo: trailingAnchor),
-            headerStrip.heightAnchor.constraint(equalToConstant: Self.headerHeight),
             tabControl.leadingAnchor.constraint(equalTo: headerStrip.leadingAnchor, constant: 8),
             tabControl.centerYAnchor.constraint(equalTo: headerStrip.centerYAnchor),
 
@@ -260,8 +268,7 @@ final class MSABottomPaneView: NSView {
             contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        // Lower than required so a zero height while closed never conflicts
-        // with the fixed divider and header heights inside.
+        // Lower than required, above the divider and header heights.
         heightConstraint.priority = .defaultHigh + 1
         heightConstraint.isActive = true
     }
@@ -275,10 +282,18 @@ final class MSABottomPaneView: NSView {
         selectedTab = storedTab ?? .distances
         tabControl.selectedSegment = selectedTab.rawValue
         showContent()
-        // With no stored choice the pane starts open. An explicit hide or tab
-        // pick is stored and wins on later opens.
-        let storedOpen = defaults.object(forKey: DefaultsKey.isOpen) as? Bool
-        applyOpen(storedOpen ?? true, animated: false, persist: false)
+        // An explicit show, hide or tab pick is stored and wins on later opens.
+        applyOpen(storedOpen ?? isDistancesAvailable, animated: false, persist: false)
+    }
+
+    private var storedOpen: Bool? { defaults.object(forKey: DefaultsKey.isOpen) as? Bool }
+
+    /// With no stored choice the pane is open exactly while the Distances tab
+    /// is available, so a read-only alignment opens no empty drawer (review
+    /// U3-1). The default is never stored.
+    private func applyDefaultOpenState() {
+        guard storedOpen == nil else { return }
+        applyOpen(isDistancesAvailable, animated: false, persist: false)
     }
 
     /// The height the pane opens to, from the defaults.
@@ -325,6 +340,7 @@ final class MSABottomPaneView: NSView {
         isDistancesGrowPending = false
         let target = Self.clampedHeight(fit, hostHeight: hostHeight)
         guard heightConstraint.constant < target else { return }
+        requestedOpenHeight = max(requestedOpenHeight, fit)
         heightConstraint.constant = target
         superview?.layoutSubtreeIfNeeded()
     }
@@ -343,6 +359,45 @@ final class MSABottomPaneView: NSView {
     private var hostHeight: CGFloat {
         let height = superview?.bounds.height ?? 0
         return height > 0 ? height : .greatestFiniteMagnitude
+    }
+
+    /// The open height before the host clamps it. A taller host gives it
+    /// back. Never stored.
+    private var requestedOpenHeight: CGFloat = 0
+    private weak var observedHost: NSView?
+
+    /// The first open happens before the pane has a host, so the height is
+    /// clamped again once it has one (review U3-1).
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        let center = NotificationCenter.default
+        if let old = observedHost {
+            center.removeObserver(self, name: NSView.frameDidChangeNotification, object: old)
+        }
+        observedHost = superview
+        if let host = superview {
+            host.postsFrameChangedNotifications = true
+            center.addObserver(
+                self,
+                selector: #selector(hostFrameDidChange(_:)),
+                name: NSView.frameDidChangeNotification,
+                object: host
+            )
+        }
+        clampToHost()
+    }
+
+    @objc private func hostFrameDidChange(_ notification: Notification) {
+        clampToHost()
+    }
+
+    /// Fits the open pane to the host, leaving the alignment its reserve,
+    /// without storing the clamped height.
+    func clampToHost() {
+        guard isOpen, !isAnimatingOpen, requestedOpenHeight > 0 else { return }
+        let target = Self.clampedHeight(requestedOpenHeight, hostHeight: hostHeight)
+        guard heightConstraint.constant != target else { return }
+        heightConstraint.constant = target
     }
 
     func setOpen(_ open: Bool, animated: Bool = true) {
@@ -368,6 +423,7 @@ final class MSABottomPaneView: NSView {
     func resize(by delta: CGFloat, persist: Bool = true) {
         guard isOpen else { return }
         heightConstraint.constant = Self.clampedHeight(heightConstraint.constant + delta, hostHeight: hostHeight)
+        requestedOpenHeight = heightConstraint.constant
         superview?.layoutSubtreeIfNeeded()
         if persist { persistHeight() }
     }
@@ -386,6 +442,7 @@ final class MSABottomPaneView: NSView {
         if persist { defaults.set(open, forKey: DefaultsKey.isOpen) }
         var openHeight = preferredOpenHeight
         if visibleTab == .distances, let fit = distancesFittingHeight { openHeight = max(openHeight, fit) }
+        if open { requestedOpenHeight = openHeight }
         let target = open ? Self.clampedHeight(openHeight, hostHeight: hostHeight) : 0
         if open { isHidden = false }
         let duration = animated && !reduceMotion() ? Self.animationDuration : 0
@@ -409,7 +466,8 @@ final class MSABottomPaneView: NSView {
                     guard let self, generation == self.openAnimationGeneration else { return }
                     self.isAnimatingOpen = false
                     if self.isOpen {
-                        // A matrix that arrived mid-animation grows the pane now.
+                        // A host resize or a matrix that arrived mid-animation applies now.
+                        self.clampToHost()
                         self.growToFitDistances()
                     } else {
                         self.isHidden = true

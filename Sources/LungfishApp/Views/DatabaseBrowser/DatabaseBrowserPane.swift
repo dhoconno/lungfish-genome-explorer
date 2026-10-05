@@ -245,7 +245,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
 
                 if viewModel.hasActiveFilters {
                     Button("Clear") {
-                        withAnimation {
+                        withAnimation(reduceMotion ? nil : .default) {
                             viewModel.clearFilters()
                         }
                     }
