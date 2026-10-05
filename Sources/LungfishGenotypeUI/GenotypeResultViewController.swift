@@ -378,7 +378,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
     private var hasHaplotypingResult = false
     private var sampleMetadataStore: SampleMetadataStore?
-    private var annotationStore: GenotypeAnnotationStore?
+    private(set) var annotationStore: GenotypeAnnotationStore?
     private var manualHaplotypeEditorModel:
         GenotypeManualHaplotypeEditorModel?
     private var effectiveHaplotypeEditorModel:
@@ -1223,12 +1223,12 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         animalId: String, to value: GenotypeAnnotationSidecar.StatusValue
     ) {
         guard let store = annotationStore else { return }
-        let author = annotationAuthorProvider()
-        do {
-            try store.setSampleStatus(value, sample: animalId, author: author)
-        } catch {
-            presentSheetAlert(error: error)
-        }
+        writeSampleStatus(value, sample: animalId, bundleURL: store.bundleURL)
+    }
+
+    /// Refreshes the views that show the status of the bundle on screen.
+    func refreshAfterSampleStatusChange() {
+        guard let store = annotationStore else { return }
         // Refresh the Smart Cohort counts and any Needs Review filter so the
         // user's status change reflects in the cohort list immediately.
         rebuildOutline()
@@ -8631,7 +8631,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         )
     }
 
-    private func presentSheetAlert(error: Error) {
+    func presentSheetAlert(error: Error) {
 #if DEBUG
         if let testingSheetAlertHandler {
             testingSheetAlertHandler(error)

@@ -59,7 +59,7 @@ struct GenotypeAuditTimelineSection: View {
     private func entryRow(_ entry: GenotypeAnnotationSidecar.AuditEntry) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(displayName(for: entry.action))
+                Text(Self.displayName(for: entry.action))
                     .font(contentHeadingFont)
                     .foregroundStyle(.primary)
                 Spacer()
@@ -79,7 +79,7 @@ struct GenotypeAuditTimelineSection: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let change = changeSummary(entry) {
+            if let change = Self.changeSummary(entry) {
                 Text(change)
                     .font(contentBodyFont)
                     .foregroundStyle(.secondary)
@@ -88,7 +88,7 @@ struct GenotypeAuditTimelineSection: View {
         }
     }
 
-    private func displayName(for action: String) -> String {
+    static func displayName(for action: String) -> String {
         switch action {
         case "override":            return "Override"
         case "clearOverride":       return "Clear override"
@@ -98,6 +98,7 @@ struct GenotypeAuditTimelineSection: View {
         case "removeManualHaplotypeAssignment":
             return "Remove manual haplotype"
         case "setSampleStatus":     return "Status"
+        case "clearSampleStatus":   return "Clear status"
         case "setCallStatus":       return "Call status"
         case "setCellHighlight":    return "Highlight"
         case "addCellComment":      return "Comment"
@@ -113,12 +114,21 @@ struct GenotypeAuditTimelineSection: View {
         return parts.joined(separator: " / ")
     }
 
-    private func changeSummary(_ entry: GenotypeAnnotationSidecar.AuditEntry) -> String? {
+    /// Status actions, whose removed value reads "<before> → none". Other
+    /// actions with no `after` keep their color or rationale.
+    private static let statusActions: Set<String> = [
+        "setSampleStatus", "clearSampleStatus", "setCallStatus",
+    ]
+
+    static func changeSummary(_ entry: GenotypeAnnotationSidecar.AuditEntry) -> String? {
         if let before = entry.before, let after = entry.after {
             return "\(before) → \(after)"
         }
         if let after = entry.after {
             return "→ \(after)"
+        }
+        if let before = entry.before, statusActions.contains(entry.action) {
+            return "\(before) → none"
         }
         if let color = entry.color {
             return color
