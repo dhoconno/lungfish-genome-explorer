@@ -40,12 +40,13 @@ The resolver turns each sample into a `ReadSetPlan` for one tool. A plan holds t
 | L5b | `fullPaired` derivative | One mate pair |
 | L5c, L5d | `fullMixed` derivative from merge or repair | Its roles. R1 and R2 files form a mate pair, merged files are merged reads and unpaired files are orphans. A missing role file stops the plan. |
 | L5e | `fullFASTA` derivative | Single records |
-| L6 | Virtual derivative | Materialized first, then read whole once and scanned with the merge evidence of every bundle it derives from. A truncated or unreadable materialization stops the plan. When the whole file holds pairs and single reads, it is mixed even if the bounded scan saw only pairs. |
+| L6 | Virtual derivative | Materialized first, then read whole once and scanned with the merge evidence of every bundle it derives from. A truncated or unreadable materialization stops the plan. When the whole file holds pairs and single reads, it is mixed even if the bounded scan saw only pairs. When it holds no single read it is one interleaved pair, and when it holds no pair it is single reads, whatever merge or repair its lineage records. |
 
-Four more rules decide the edge cases.
+Five more rules decide the edge cases.
 
 - A bundle whose recorded platform is Oxford Nanopore or PacBio is never paired, by file name or by content. `MatePairFileNaming.matePair(in:sequencingPlatform:)` applies the same rule. A chunked root that records `unknown` or no platform is not paired by file name either, since no importer writes a paired chunked root.
-- A virtual child of a repair derivative carries only `repair` in its lineage. The resolver reads the parent's roles, so the child is planned as mixed and never as strict pairs.
+- A virtual child of a repair derivative carries only `repair` in its lineage. The resolver reads the parent's roles, so the reads without a mate in a child that holds pairs and single reads are orphans. A child that holds only pairs is one interleaved pair.
+- A file is mixed only when its counts show pairs and single reads. A mixed stream whose known counts show no single read is one interleaved pair, and one whose counts show no pair is single reads (`ReadSetSource.resolvingStreamsByTheirCounts`).
 - The platform is the `sequencingPlatform` field the FASTQ sidecar stores, read from the bundle or from the bundle it derives from.
 - For TaxTriage, a file the user names is read as that file, even a chunk or one mate of a bundle, except the preview of a virtual bundle, which stands for its bundle. Two or more inputs that are every member file of one bundle are that bundle (`SamplesheetReadSetPlanner.bundleNamedByEveryMemberFile`), the rule `assemble` follows through `AssemblyInputSamples`.
 
