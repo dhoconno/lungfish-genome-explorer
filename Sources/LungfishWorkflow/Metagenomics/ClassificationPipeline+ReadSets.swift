@@ -188,8 +188,9 @@ extension ClassificationPipeline {
 
         let startedAt = Date()
         let staged = try Self.stageEmptyMates(for: config)
-        let command = ["LungfishWorkflow", "stage-empty-mates"]
-            + staged.flatMap { ["--in", $0.single.path, "--out", $0.mate.path] }
+        let command = ["LungfishWorkflow", "stage-empty-mates"] + staged.flatMap { item in
+            ["--in", item.single.path] + (item.copy.map { ["--copy", $0.path] } ?? []) + ["--out", item.mate.path]
+        }
         let stepID = await recorder.recordStep(
             runID: runID,
             toolName: Self.singleReadMateStagingToolName,
@@ -202,7 +203,8 @@ extension ClassificationPipeline {
             ],
             runtimeIdentity: ProvenanceRuntimeIdentity(),
             inputs: staged.map { ProvenanceRecorder.fileRecord(url: $0.single, format: .fastq, role: .input) },
-            outputs: staged.map { ProvenanceRecorder.fileRecord(url: $0.mate, format: .fastq, role: .output) },
+            outputs: staged.flatMap { [$0.copy, $0.mate].compactMap { $0 } }
+                .map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) },
             exitCode: 0,
             wallTime: Date().timeIntervalSince(startedAt),
             dependsOn: dependsOn + stepIDs
@@ -214,14 +216,15 @@ extension ClassificationPipeline {
     /// The single-read files and their staged mates kraken2 reads beside the
     /// pair, for the kraken2 step's inputs.
     static func readSetExtraInputs(_ config: ClassificationConfig) -> [URL] {
-        config.singleReadFiles.flatMap { [$0, config.emptyMateURL(for: $0)] }
+        config.singleReadFiles.flatMap { [config.kraken2SingleReadURL(for: $0), config.emptyMateURL(for: $0)] }
     }
 
-    /// Writes the header-only mate of every file of single reads.
+    /// Writes the header-only mate of every file of single reads, and a copy
+    /// of the file in the compression of R1 when it has the other one.
     static func stageEmptyMates(
         for config: ClassificationConfig
-    ) throws -> [(single: URL, mate: URL, records: Int)] {
-        var staged: [(single: URL, mate: URL, records: Int)] = []
+    ) throws -> [(single: URL, copy: URL?, mate: URL, records: Int)] {
+        var staged: [(single: URL, copy: URL?, mate: URL, records: Int)] = []
         do {
             for single in config.singleReadFiles {
                 let mate = config.emptyMateURL(for: single)
@@ -229,8 +232,10 @@ extension ClassificationPipeline {
                     at: mate.deletingLastPathComponent(),
                     withIntermediateDirectories: true
                 )
+                let copy = config.stagedSingleReadCopyURL(for: single)
+                if let copy { try writeCopy(of: single, to: copy) }
                 let records = try writeEmptyMate(of: single, to: mate)
-                staged.append((single, mate, records))
+                staged.append((single, copy, mate, records))
             }
         } catch {
             removeStagedMates(for: config)
@@ -239,10 +244,37 @@ extension ClassificationPipeline {
         return staged
     }
 
+    /// Writes `copy` with the records of `single`, gzip-compressed when
+    /// `copy` ends in `.gz` and decompressed otherwise.
+    static func writeCopy(of single: URL, to copy: URL) throws {
+        if copy.pathExtension.lowercased() == "gz" {
+            _ = try gzipCompressFASTQ(sourceURL: single, outputURL: copy, failureDescription: "the single reads")
+            return
+        }
+        let reader = try FASTQRawLineReader(url: single)
+        defer { reader.close() }
+        FileManager.default.createFile(atPath: copy.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: copy)
+        defer { try? handle.close() }
+        while let chunk = try reader.readChunk() {
+            try handle.write(contentsOf: chunk)
+        }
+    }
+
     /// Writes `mate` with each header of `single`, in order, followed by an
-    /// empty sequence line, `+` and an empty quality line. Returns the number
-    /// of records.
+    /// empty sequence line, `+` and an empty quality line, gzip-compressed
+    /// when `mate` ends in `.gz`. Returns the number of records.
     static func writeEmptyMate(of single: URL, to mate: URL) throws -> Int {
+        guard mate.pathExtension.lowercased() == "gz" else { return try writeHeaders(of: single, to: mate) }
+        let plain = mate.deletingPathExtension()
+        defer { try? FileManager.default.removeItem(at: plain) }
+        let records = try writeHeaders(of: single, to: plain)
+        _ = try gzipCompressFASTQ(sourceURL: plain, outputURL: mate, failureDescription: "the empty mate")
+        return records
+    }
+
+    /// The plain form of ``writeEmptyMate(of:to:)``.
+    private static func writeHeaders(of single: URL, to mate: URL) throws -> Int {
         let reader = try FASTQRawLineReader(url: single)
         defer { reader.close() }
         FileManager.default.createFile(atPath: mate.path, contents: nil)
@@ -281,11 +313,12 @@ extension ClassificationPipeline {
         return records
     }
 
-    /// Removes the staged mates once kraken2 has read them.
+    /// Removes the staged mates and copies once kraken2 has read them.
     static func removeStagedMates(for config: ClassificationConfig) {
         let fm = FileManager.default
         for single in config.singleReadFiles {
             try? fm.removeItem(at: config.emptyMateURL(for: single))
+            if let copy = config.stagedSingleReadCopyURL(for: single) { try? fm.removeItem(at: copy) }
         }
         // The inputs folder goes too when the staged mates were all it held.
         if let mate = config.singleReadFiles.first.map(config.emptyMateURL(for:)) {
