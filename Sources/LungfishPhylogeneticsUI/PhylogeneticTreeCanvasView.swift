@@ -40,6 +40,8 @@ final class PhylogeneticTreeCanvasView: NSView {
     var colorMode: PhylogeneticTreeCanvasColorMode = .none {
         didSet { needsDisplay = true }
     }
+    var supportLabels: [String] = []
+    var supportTextFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize) { didSet { needsDisplay = true } }
     var layoutMode: PhylogeneticTreeCanvasLayoutMode = .phylogram {
         didSet {
             recomputeLayout()
@@ -137,7 +139,7 @@ final class PhylogeneticTreeCanvasView: NSView {
     }
 
     /// The spoken label of a node: "Homo sapiens, tip, branch length 0.0123" for a tip and
-    /// "internal node, 4 tips, support 99.9/100" for an internal node.
+    /// "internal node, 4 tips, SH-aLRT 99.9, UFBoot 100" for an internal node with recorded support labels.
     static func accessibilityLabel(for node: PhylogeneticTreeNormalizedNode) -> String {
         var parts: [String]
         if node.isTip {
@@ -149,7 +151,9 @@ final class PhylogeneticTreeCanvasView: NSView {
         if let branchLength = node.branchLength {
             parts.append("branch length \(String(format: "%.6g", branchLength))")
         }
-        if let support = node.support {
+        if !node.supportValues.isEmpty {
+            parts += node.supportValues.map { "\($0.label) \($0.rawValue)" }
+        } else if let support = node.support {
             parts.append("support \(support.rawValue)")
         }
         return parts.joined(separator: ", ")
@@ -381,12 +385,12 @@ final class PhylogeneticTreeCanvasView: NSView {
                     color: .labelColor,
                     font: .systemFont(ofSize: 11)
                 )
-            } else if let support = node.support {
+            } else if let supportText = PhylogeneticTreeSupportPresentation.supportText(for: node) {
                 drawTreeText(
-                    support.rawValue,
-                    in: NSRect(x: point.x + 5, y: point.y - 18, width: 52, height: 15),
+                    supportText,
+                    in: PhylogeneticTreeSupportPresentation.canvasTextRect(supportText, font: supportTextFont, nodePoint: point),
                     color: .secondaryLabelColor,
-                    font: .systemFont(ofSize: 9)
+                    font: supportTextFont
                 )
             }
         }
@@ -451,12 +455,7 @@ final class PhylogeneticTreeCanvasView: NSView {
         case .none:
             return node.isTip ? .labelColor : .secondaryLabelColor
         case .support:
-            guard let value = node.support?.rawValue,
-                  let numeric = Double(value) else {
-                return .tertiaryLabelColor
-            }
-            let normalized = max(0, min(1, numeric > 1 ? numeric / 100 : numeric))
-            return NSColor.systemBlue.blended(withFraction: 1 - normalized, of: .systemGray) ?? .systemBlue
+            return PhylogeneticTreeSupportPresentation.nodeColor(for: node, labels: supportLabels)
         case .branchLength:
             let length = max(0, min(1, node.branchLength ?? 0))
             return NSColor.systemGreen.blended(withFraction: 1 - CGFloat(length), of: .systemGray) ?? .systemGreen

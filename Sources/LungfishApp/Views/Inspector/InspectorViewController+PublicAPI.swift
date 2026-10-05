@@ -358,42 +358,8 @@ extension InspectorViewController {
     /// Updates the Document inspector with phylogenetic-tree bundle statistics.
     func updatePhylogeneticTreeDocument(_ bundle: PhylogeneticTreeBundle) {
         let manifest = bundle.manifest
-        let rootedText = manifest.isRooted ? "rooted" : "unrooted"
         viewModel.readStyleSectionViewModel.clear()
-        let state = PhylogeneticTreeDocumentState(
-            title: manifest.name,
-            subtitle: "\(manifest.sourceFormat) • \(rootedText)",
-            summary: "\(manifest.tipCount) tips • \(manifest.internalNodeCount) internal nodes",
-            contextRows: [
-                ("Tips", "\(manifest.tipCount)"),
-                ("Internal Nodes", "\(manifest.internalNodeCount)"),
-                ("Rooting", manifest.isRooted ? "Rooted" : "Unrooted"),
-                ("Source Format", manifest.sourceFormat),
-                ("Primary Tree", manifest.primaryTreeID),
-                ("Branch Unit", manifest.branchLengthUnit ?? "unspecified"),
-                ("Source File", manifest.sourceFileName),
-                ("Capabilities", manifest.capabilities.joined(separator: ", ")),
-            ],
-            warningRows: manifest.warnings,
-            artifactRows: [
-                PhylogeneticTreeDocumentArtifactRow(
-                    label: "Primary Newick",
-                    fileURL: bundle.url.appendingPathComponent("tree/primary.nwk")
-                ),
-                PhylogeneticTreeDocumentArtifactRow(
-                    label: "Normalized Tree",
-                    fileURL: bundle.url.appendingPathComponent("tree/primary.normalized.json")
-                ),
-                PhylogeneticTreeDocumentArtifactRow(
-                    label: "Tree Index",
-                    fileURL: bundle.url.appendingPathComponent("cache/tree-index.sqlite")
-                ),
-                PhylogeneticTreeDocumentArtifactRow(
-                    label: "Provenance",
-                    fileURL: bundle.url.appendingPathComponent(".lungfish-provenance.json")
-                ),
-            ]
-        )
+        let state = PhylogeneticTreeDocumentState(bundle: bundle)
         viewModel.documentSectionViewModel.updatePhylogeneticTreeDocument(state)
         updateProvenanceTarget(
             url: bundle.url,

@@ -72,7 +72,8 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
     public var onSelectionStateChanged: ((PhylogeneticTreeSelectionState?) -> Void)?
     public var onTreeBundleOperationRequested: ((TreeBundleOperationRequest) -> Void)?
 
-    private let summaryLabel = NSTextField(labelWithString: "")
+    let summaryLabel = NSTextField(labelWithString: "")
+    let supportLegendLabel = NSTextField(labelWithString: "")
     private let searchField = NSSearchField()
     private let fitButton = NSButton(title: "", target: nil, action: nil)
     private let resetButton = NSButton(title: "", target: nil, action: nil)
@@ -84,19 +85,19 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         target: nil,
         action: nil
     )
-    private let colorModeControl = NSSegmentedControl(
+    let colorModeControl = NSSegmentedControl(
         labels: ["None", "Support", "Branch"],
         trackingMode: .selectOne,
         target: nil,
         action: nil
     )
     private let tipLabelColumnPopup = NSPopUpButton()
-    private let nodeTableView = NSTableView()
+    let nodeTableView = NSTableView()
     private let treeCanvasView = PhylogeneticTreeCanvasView()
     private let treeScrollView = NSScrollView()
     private let detailLabel = NSTextField(labelWithString: "")
     private let nodeDrawerTitle = NSTextField(labelWithString: "Nodes")
-    private let toolbarContainer = NSView()
+    let toolbarContainer = NSView()
     private var toolbarContentView: NSView?
     private var toolbarHeightConstraint: NSLayoutConstraint?
     private var nodeDrawerHeightConstraint: NSLayoutConstraint?
@@ -165,7 +166,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             loaded.manifest.name,
             "\(loaded.manifest.tipCount) tips",
             "\(loaded.manifest.internalNodeCount) internal nodes",
-            loaded.manifest.isRooted ? "rooted" : "unrooted",
+            PhylogeneticTreeSupportPresentation.rootingText(isRooted: loaded.manifest.isRooted),
         ].joined(separator: "   ")
         summaryLabel.toolTip = summaryLabel.stringValue
         summaryLabel.setAccessibilityValue(summaryLabel.stringValue)
@@ -173,6 +174,8 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         detailLabel.stringValue = defaultDetailText(for: loaded)
         detailLabel.toolTip = detailLabel.stringValue
         detailLabel.setAccessibilityValue(detailLabel.stringValue)
+        configureSupportPresentation()
+        treeCanvasView.supportLabels = recordedSupportLabels
         treeCanvasView.configure(nodes: nodes, collapsedNodeIDs: collapsedNodeIDs)
         nodeTableView.reloadData()
         selectInitialNode()
@@ -196,7 +199,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         case "length":
             value = node.branchLength.map { String(format: "%.5g", $0) } ?? ""
         default:
-            value = node.support?.rawValue ?? ""
+            value = PhylogeneticTreeSupportPresentation.cellValue(for: node, columnID: identifier.rawValue)
         }
         let cell = tableCell(identifier: identifier, value: value)
         AccessibilityCellActions.install(accessibilityActions(forRow: row, cellView: cell), on: cell)
@@ -270,6 +273,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         toolbarContainer.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         toolbarContainer.addSubview(summaryLabel)
         toolbarContainer.addSubview(toolbar)
+        installSupportLegend()
 
         let nodeDrawer = NSView()
         nodeDrawer.translatesAutoresizingMaskIntoConstraints = false
@@ -335,13 +339,15 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         }
     }
 
-    private func applyContentTypography() {
+    func applyContentTypography() {
         captureUserColumnWidths()
         let typography = ContentTypography.current(
             preferredFontProvider: preferredFontProvider
         )
         summaryLabel.font = typography.font(for: .emphasizedBody)
         detailLabel.font = typography.font(for: .detail)
+        supportLegendLabel.font = typography.font(for: .detail)
+        treeCanvasView.supportTextFont = typography.font(for: .detail)
         nodeDrawerTitle.font = typography.font(for: .tableHeader)
         nodeTableView.rowHeight = typography.tableRowHeight()
         if let headerView = nodeTableView.headerView {
@@ -353,6 +359,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             column.headerCell.font = typography.font(for: .tableHeader)
         }
         applyAdaptiveColumnWidths(typography: typography)
+        refreshSupportLegend()
 
         let selectedRows = nodeTableView.selectedRowIndexes
         let scrollOrigin = nodeTableView.enclosingScrollView?.contentView.bounds.origin
@@ -599,6 +606,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         default:
             treeCanvasView.colorMode = .none
         }
+        refreshSupportLegend()
     }
 
     @objc private func tipLabelColumnChanged(_ sender: NSPopUpButton) {
@@ -716,10 +724,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         if let cumulativeDivergence = node.cumulativeDivergence {
             rows.append(("Cumulative Divergence", String(format: "%.6g", cumulativeDivergence)))
         }
-        if let support = node.support {
-            rows.append(("Support", support.rawValue))
-            rows.append(("Support Type", support.interpretation))
-        }
+        rows.append(contentsOf: PhylogeneticTreeSupportPresentation.detailRows(for: node))
         for key in node.metadata.keys.sorted() {
             rows.append((key, node.metadata[key] ?? ""))
         }
@@ -756,9 +761,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         if let branchLength = node.branchLength {
             parts.append("branch \(String(format: "%.5g", branchLength))")
         }
-        if let support = node.support {
-            parts.append("support \(support.rawValue) (\(support.interpretation))")
-        }
+        PhylogeneticTreeSupportPresentation.detailSummary(for: node).map { parts.append($0) }
         if !node.metadata.isEmpty {
             let metadata = node.metadata.keys.sorted().prefix(3).map { "\($0)=\(node.metadata[$0] ?? "")" }.joined(separator: ", ")
             parts.append(metadata)
@@ -1191,7 +1194,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         return ordered
     }
 
-    private func addTableColumn(id: String, title: String, width: CGFloat) {
+    func addTableColumn(id: String, title: String, width: CGFloat) {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
         column.title = title
         column.width = width
