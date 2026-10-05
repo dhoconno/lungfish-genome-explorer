@@ -609,9 +609,15 @@ struct MapCommand: AsyncParsableCommand {
         }
     }
 
-    /// The Paired-end row of the run summary.
+    /// The Paired-end row of the run summary: the pairing of the run's read
+    /// layout plan, the value the Map Reads window's Run Settings show
+    /// (`MappingReadLayoutPlan.pairedEndDescription`), in the table's lower
+    /// case. It read the R1 and R2 flag, so a sample of merged reads and
+    /// pairs whose pairs map as pairs, and an interleaved file, said "no"
+    /// (final review A, N6).
     static func pairedEndSummary(for request: MappingRunRequest) -> String {
-        request.pairedEnd ? "yes" : "no"
+        let description = request.readLayoutPlan.pairedEndDescription
+        return description.prefix(1).lowercased() + description.dropFirst()
     }
 
     static func parseExtraArgs(_ extraArgs: String, deprecatedAdvancedOptions: String) throws -> [String] {
