@@ -222,6 +222,7 @@ public enum FASTQBatchImporter {
                     sampleName: pair.sampleName,
                     r1: pair.r1,
                     r2: pair.r2,
+                    unpaired: pair.unpaired,
                     relativePath: relativePath
                 ))
             }
@@ -245,7 +246,8 @@ public enum FASTQBatchImporter {
     /// - `_R1` / `_R2`           (simplified Illumina)
     /// - `_1` / `_2`             (older convention)
     ///
-    /// Files that don't match any R1 pattern are treated as single-end samples.
+    /// Files that don't match any R1 pattern are treated as single-end samples,
+    /// except an SRA run's reads without a mate (``joiningUnpairedReads(_:)``).
     public static func detectPairs(from urls: [URL]) -> [SamplePair] {
         // Patterns ordered from most to least specific
         let r1Patterns: [(r1Suffix: String, r2Suffix: String)] = [
@@ -288,7 +290,7 @@ public enum FASTQBatchImporter {
             pairs.append(SamplePair(sampleName: name, r1: url, r2: nil))
         }
 
-        return pairs.sorted { $0.sampleName < $1.sampleName }
+        return joiningUnpairedReads(pairs).sorted { $0.sampleName < $1.sampleName }
     }
 
     /// The pairing an import records for one sample, and where it came from.
@@ -382,14 +384,14 @@ public enum FASTQBatchImporter {
 
     /// Applies a pairing choice to detected samples.
     ///
-    /// `single` and `interleaved` split every R1/R2 pair into two single-file
-    /// samples named after each file's stem (so `s_R1` and `s_R2` do not
-    /// collide); `auto` and `paired` leave the detection untouched.
+    /// `single` and `interleaved` split every R1/R2 pair, and its unpaired
+    /// reads, into single-file samples named after each file's stem (so `s_R1`
+    /// and `s_R2` do not collide); `auto` and `paired` leave the detection untouched.
     public static func applyPairing(_ pairing: ImportPairing, to pairs: [SamplePair]) -> [SamplePair] {
         guard !pairing.keepsDetectedPairs else { return pairs }
         return pairs.flatMap { pair -> [SamplePair] in
-            guard let r2 = pair.r2 else { return [pair] }
-            return [pair.r1, r2].map { url in
+            guard pair.r2 != nil else { return [pair] }
+            return pair.inputFiles.map { url in
                 SamplePair(
                     sampleName: fastqStem(url),
                     r1: url,
@@ -829,7 +831,7 @@ public enum FASTQBatchImporter {
             r2: pair.r2?.lastPathComponent
         ))
 
-        let originalBytes = fileSizeSum([pair.r1] + (pair.r2.map { [$0] } ?? []))
+        let originalBytes = fileSizeSum(pair.inputFiles)
 
         do {
             let outputDir = config.projectDirectory
@@ -965,13 +967,27 @@ public enum FASTQBatchImporter {
                 isPairedAfterRecipe = true
             }
 
+            // A run's reads without a mate join its pairs in one mixed file,
+            // whose sidecar records the reads of each kind.
+            let unpairedReads = try await writePairsThenUnpairedReads(of: processingPair, in: workspace, log: log)
+            if let unpairedReads {
+                recipeMixedLayout = unpairedReads.counts
+                recordedPairing = Self.recordedPairing(
+                    afterRecipeOutput: .mixed, mixedLayout: unpairedReads.counts, importedAs: recordedPairing
+                )
+            }
+
             // Step 2: Clumpify + compress (on recipe output, or raw input if no recipe)
-            let originalInputURLs = [pair.r1] + (pair.r2.map { [$0] } ?? [])
+            let originalInputURLs = pair.inputFiles
             let rawOriginalSizeBytes = totalFileSize(originalInputURLs)
             let clumpifyInput: [URL]
             let clumpifyPairingMode: FASTQIngestionConfig.PairingMode
             let deleteIngestionInputsAfterRun: Bool
-            if let recipeOutput = recipeOutputFASTQ {
+            if let unpairedReads {
+                clumpifyInput = [unpairedReads.file]
+                clumpifyPairingMode = recordedPairing.mode == .interleaved ? .interleaved : .singleEnd
+                deleteIngestionInputsAfterRun = true
+            } else if let recipeOutput = recipeOutputFASTQ {
                 clumpifyInput = [recipeOutput]
                 clumpifyPairingMode = isPairedAfterRecipe ? .interleaved : .singleEnd
                 deleteIngestionInputsAfterRun = true
@@ -1156,7 +1172,8 @@ public enum FASTQBatchImporter {
             try await writeImportProvenance(
                 pair: pair,
                 processingPair: processingPair,
-                materializationSteps: materialization.provenanceSteps,
+                materializationSteps: materialization.provenanceSteps + (unpairedReads.map { [$0.step] } ?? []),
+                unpairedReads: unpairedReads,
                 config: config,
                 stagingBundleURL: stagingBundleURL,
                 stagingBundleFASTQURL: stagingBundleFASTQURL,
@@ -1197,6 +1214,7 @@ public enum FASTQBatchImporter {
     }
 
     private static func validateRecipeApplicability(pair: SamplePair, config: ImportConfig) throws {
+        try validateRecipeKeepsUnpairedReads(pair: pair, config: config)
         if let recipe = config.newRecipe {
             try validateNewRecipeInputRequirement(recipe, pair: pair)
         }
@@ -1368,6 +1386,7 @@ public enum FASTQBatchImporter {
         pair: SamplePair,
         processingPair: SamplePair,
         materializationSteps: [StepExecution],
+        unpairedReads: UnpairedReadsLayout?,
         config: ImportConfig,
         stagingBundleURL: URL,
         stagingBundleFASTQURL: URL,
@@ -1380,8 +1399,8 @@ public enum FASTQBatchImporter {
         statsCompletedAt: Date,
         statsError: String?
     ) async throws {
-        let originalInputURLs = [pair.r1] + (pair.r2.map { [$0] } ?? [])
-        let processingInputURLs = [processingPair.r1] + (processingPair.r2.map { [$0] } ?? [])
+        let originalInputURLs = pair.inputFiles
+        let processingInputURLs = processingPair.inputFiles
         let sampleSheetInput = pair.sampleSheetURL.map {
             ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input)
         }
@@ -1460,7 +1479,8 @@ public enum FASTQBatchImporter {
                 bundleFASTQURL: publishedBundleFASTQURL,
                 metadataURL: publishedMetadataURL,
                 csvMetadataURL: publishedCSVMetadataURL,
-                ingestionResult: ingestionResult
+                ingestionResult: ingestionResult,
+                unpairedReads: unpairedReads
             )
         )
         .runtime(ProvenanceRuntimeIdentity())
@@ -2068,7 +2088,7 @@ public enum FASTQBatchImporter {
             "compressionLevel": .string(config.compressionLevel.rawValue),
             "threads": .integer(config.threads),
             "forceReimport": .boolean(config.forceReimport),
-        ]) { platform, _ in platform }
+        ]) { platform, _ in platform }.merging(unpairedReadsParameters(of: pair)) { _, unpaired in unpaired }
     }
 
     private static func provenanceDefaultParameters(config: ImportConfig) -> [String: ParameterValue] {
@@ -2094,9 +2114,11 @@ public enum FASTQBatchImporter {
         bundleFASTQURL: URL,
         metadataURL: URL,
         csvMetadataURL: URL,
-        ingestionResult: FASTQIngestionResult
+        ingestionResult: FASTQIngestionResult,
+        unpairedReads: UnpairedReadsLayout?
     ) -> [String: ParameterValue] {
         var parameters = provenanceParameters(pair: pair, config: config, bundleURL: bundleURL)
+        parameters["inputReadCounts"] = unpairedReads.map { .dictionary($0.inputReadCounts) }
         parameters["primaryFASTQ"] = .file(bundleFASTQURL)
         parameters["metadataJSON"] = .file(metadataURL)
         parameters["metadataCSV"] = FileManager.default.fileExists(atPath: csvMetadataURL.path)
@@ -2113,10 +2135,8 @@ public enum FASTQBatchImporter {
         parameters["clumpingHeapBytes"] = .integer(Int(ingestionResult.clumpingResolution.clumpifyHeapBytes))
         parameters["clumpingThresholdBytes"] = .integer(Int(ingestionResult.clumpingResolution.thresholdBytes))
         parameters["clumpingResolutionReason"] = .string(ingestionResult.clumpingResolution.reason)
-        parameters["originalFilenames"] = .array(([pair.r1] + (pair.r2.map { [$0] } ?? [])).map {
-            .string($0.lastPathComponent)
-        })
-        parameters["originalSizeBytes"] = .integer(Int(totalFileSize([pair.r1] + (pair.r2.map { [$0] } ?? []))))
+        parameters["originalFilenames"] = .array(pair.inputFiles.map { .string($0.lastPathComponent) })
+        parameters["originalSizeBytes"] = .integer(Int(totalFileSize(pair.inputFiles)))
         let sourceIsBAM = SequencingReadImportSource.isBAM(pair.r1)
         parameters["sourceFormat"] = .string(sourceIsBAM ? FileFormat.bam.rawValue : FileFormat.fastq.rawValue)
         parameters["materializedInputFormat"] = .string(FileFormat.fastq.rawValue)
@@ -2164,11 +2184,7 @@ public enum FASTQBatchImporter {
 
         var command = [
             CLICommandIdentity.executableName, "import", "fastq",
-            pair.r1.path,
-        ]
-        if let r2 = pair.r2 {
-            command.append(r2.path)
-        }
+        ] + pair.inputFiles.map(\.path)
         command += [
             "--project", config.projectDirectory.path,
             "--platform", platform,
@@ -2922,7 +2938,7 @@ public enum FASTQBatchImporter {
     // MARK: - Private Utilities
 
     /// Strips FASTQ extensions from a URL, returning the base stem.
-    private static func fastqStem(_ url: URL) -> String {
+    static func fastqStem(_ url: URL) -> String {
         var name = url.lastPathComponent
         let extensions = [".fastq.gz", ".fq.gz", ".fastq", ".fq", ".bam"]
         for ext in extensions {
