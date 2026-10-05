@@ -34,7 +34,7 @@ The pipeline side is in Sources/LungfishWorkflow/AGENTS.md and the CLI side in S
 
 ## Operation launch pattern for new code
 
-A standalone operation calls `OperationCenter.shared.begin` with operationType and cliCommand, then runs `lungfish-cli` through `CLISubprocessTransport` and maps events with `OperationCenterCLIBridge` (Services/OperationCenterCLIBridge.swift line 20). The reference pair is Views/Inspector/InspectorViewController+MSAPairwiseIdentity.swift line 41 and Services/CLIMSAActionRunner.swift.
+A standalone operation calls `OperationCenter.shared.begin` with operationType and cliCommand, then runs `lungfish-cli` through `CLISubprocessTransport` and maps events with `OperationCenterCLIBridge` (Services/OperationCenterCLIBridge.swift line 20). The reference pair is Services/MSADistanceMatrixExportCoordinator.swift (`run`) and Services/CLIMSAActionRunner.swift.
 
 A read tool joins the FASTQ operation dialog family instead. Its Tools menu item is generated from `FASTQOperationToolID` (Views/FASTQ/FASTQOperationDialogState.swift line 1970) and `toolIDs(for:)`, and it runs through Services/FASTQOperationPlanner.swift, FASTQOperationCLIInvocationBuilder.swift, FASTQOperationExecutionService.swift and FASTQOperationOutputImporter.swift. Dialogs live under Views/<Area>/, such as Views/Mapping/MappingWizardSheet.swift. docs/contracts/ADDING-AN-OPERATION.md has the full list.
 

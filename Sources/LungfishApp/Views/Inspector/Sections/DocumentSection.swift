@@ -47,7 +47,7 @@ public final class DocumentSectionViewModel {
     var multipleSequenceAlignmentDocument: MultipleSequenceAlignmentDocumentState?
 
     /// Pairwise identity table for the active MSA bundle; nil when no writable MSA bundle is shown.
-    var msaPairwiseIdentity: MSAPairwiseIdentityInspectorModel?
+    var msaPairwiseDistance: MSAPairwiseDistanceInspectorModel?
 
     /// Discriminating-sites picker and tables for the active MSA bundle; nil when no writable MSA bundle is shown.
     var msaDiscriminatingSites: MSADiscriminatingSitesInspectorModel?
@@ -267,7 +267,7 @@ public final class DocumentSectionViewModel {
     func updateMultipleSequenceAlignmentDocument(_ state: MultipleSequenceAlignmentDocumentState?) {
         multipleSequenceAlignmentDocument = state
         guard state != nil else {
-            msaPairwiseIdentity = nil
+            msaPairwiseDistance = nil
             msaDiscriminatingSites = nil
             return
         }
@@ -792,7 +792,7 @@ public struct DocumentSection: View {
         } else if let multipleSequenceAlignmentDocument = viewModel.multipleSequenceAlignmentDocument {
             MultipleSequenceAlignmentDocumentSection(
                 state: multipleSequenceAlignmentDocument,
-                pairwiseIdentity: viewModel.msaPairwiseIdentity,
+                pairwiseDistance: viewModel.msaPairwiseDistance,
                 discriminatingSites: viewModel.msaDiscriminatingSites
             )
         } else if let mhcReferenceBundleDocument = viewModel.mhcReferenceBundleDocument {

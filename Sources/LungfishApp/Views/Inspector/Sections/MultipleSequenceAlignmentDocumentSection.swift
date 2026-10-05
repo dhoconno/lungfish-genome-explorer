@@ -5,15 +5,14 @@ import LungfishKit
 
 struct MultipleSequenceAlignmentDocumentSection: View {
     let state: MultipleSequenceAlignmentDocumentState
-    /// Pairwise identity table state; nil hides the section (read-only alignments, tests).
-    var pairwiseIdentity: MSAPairwiseIdentityInspectorModel?
+    /// Pairwise Distance pointer and focused-pair state; nil hides the section (read-only alignments, tests).
+    var pairwiseDistance: MSAPairwiseDistanceInspectorModel?
     /// Discriminating-sites state; nil hides the section (read-only alignments, tests).
     var discriminatingSites: MSADiscriminatingSitesInspectorModel?
 
     @State private var isSummaryExpanded = true
     @State private var isWarningsExpanded = true
     @State private var isArtifactsExpanded = true
-    @State private var isPairwiseIdentityExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -23,10 +22,10 @@ struct MultipleSequenceAlignmentDocumentSection: View {
 
             summarySection
 
-            if let pairwiseIdentity {
+            if let pairwiseDistance {
                 Divider()
 
-                MSAPairwiseIdentitySection(model: pairwiseIdentity, isExpanded: $isPairwiseIdentityExpanded)
+                MSAPairwiseDistanceSection(model: pairwiseDistance)
             }
 
             if let discriminatingSites {

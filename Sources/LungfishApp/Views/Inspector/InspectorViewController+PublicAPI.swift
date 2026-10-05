@@ -220,14 +220,10 @@ extension InspectorViewController {
             consensusPreview: String(manifest.consensus.prefix(160))
         )
         viewModel.documentSectionViewModel.updateMultipleSequenceAlignmentDocument(state)
-        // Pairwise identity table (same service as `lungfish-cli msa distance`). Reuse the
-        // model across refreshes of the same bundle so an expanded table keeps its result.
-        if viewModel.documentSectionViewModel.msaPairwiseIdentity?.bundleURL != bundle.url {
-            let pairwiseIdentity = MSAPairwiseIdentityInspectorModel(bundleURL: bundle.url)
-            pairwiseIdentity.onExportRequested = { [weak self] model in
-                self?.exportMSAPairwiseIdentityMatrixViaCLI(model)
-            }
-            viewModel.documentSectionViewModel.msaPairwiseIdentity = pairwiseIdentity
+        // Pairwise Distance pointer plus the focused matrix pair (ruling U3). Reused across
+        // refreshes of the same bundle so its expanded state and focused pair survive.
+        if viewModel.documentSectionViewModel.msaPairwiseDistance?.bundleURL != bundle.url {
+            viewModel.documentSectionViewModel.msaPairwiseDistance = MSAPairwiseDistanceInspectorModel(bundleURL: bundle.url)
         }
         // Discriminating sites (same CLI as `lungfish-cli msa discriminating-sites`). Reused
         // across refreshes of the same bundle so marked roles and a result survive.

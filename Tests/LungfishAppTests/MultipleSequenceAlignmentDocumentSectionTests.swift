@@ -223,86 +223,26 @@ final class MultipleSequenceAlignmentDocumentSectionTests: XCTestCase {
         XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.url, bundleURL)
         XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.sidebarType, .multipleSequenceAlignmentBundle)
 
-        // The pairwise identity table is wired to the bundle and to the CLI export route.
-        let pairwise = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.msaPairwiseIdentity)
+        // The Pairwise Distance section is wired to the bundle (ruling U3).
+        let pairwise = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.msaPairwiseDistance)
         XCTAssertEqual(pairwise.bundleURL, bundleURL)
-        XCTAssertNotNil(pairwise.onExportRequested)
+        pairwise.isExpanded = true
         inspector.updateMultipleSequenceAlignmentDocument(bundle)
         XCTAssertTrue(
-            inspector.viewModel.documentSectionViewModel.msaPairwiseIdentity === pairwise,
-            "refreshing the same bundle keeps the table model (and any computed matrix)"
+            inspector.viewModel.documentSectionViewModel.msaPairwiseDistance === pairwise,
+            "refreshing the same bundle keeps the section model"
         )
-    }
-
-    func testPairwiseIdentityModelComputesSameMatrixAsCLIAndCopiesTSV() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("msa-pairwise-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-        let sourceURL = tempDir.appendingPathComponent("alignment.fasta")
-        try ">seq1\nACGT\n>seq2\nA-GT\n>seq3\nACAT\n".write(to: sourceURL, atomically: true, encoding: .utf8)
-        let bundleURL = tempDir.appendingPathComponent("alignment.lungfishmsa", isDirectory: true)
-        _ = try MultipleSequenceAlignmentBundle.importAlignment(from: sourceURL, to: bundleURL)
-
-        let model = MSAPairwiseIdentityInspectorModel(bundleURL: bundleURL)
-        let pasteboard = RecordingPasteboard()
-        model.pasteboard = pasteboard
-        XCTAssertEqual(model.status, .idle)
-        XCTAssertFalse(model.copyTSV(), "nothing to copy before the matrix is computed")
-
-        await model.compute()
-
-        XCTAssertEqual(model.status, .ready)
-        XCTAssertEqual(model.pairs.count, 3)
-        // Default sort: highest identity first, so seq1/seq2 (1.0) leads and seq2/seq3 (0.67) is last.
-        XCTAssertEqual(model.sortedPairs.map { "\($0.rowName)/\($0.columnName)" }, ["seq1/seq2", "seq1/seq3", "seq2/seq3"])
-        model.sortOrder = [KeyPathComparator(\.sortableValue, order: .forward)]
-        XCTAssertEqual(model.sortedPairs.first.map { "\($0.rowName)/\($0.columnName)" }, "seq2/seq3")
-
-        XCTAssertTrue(model.copyTSV())
-        XCTAssertEqual(
-            pasteboard.lastString,
-            "row\tseq1\tseq2\tseq3\nseq1\t1.000000\t1.000000\t0.750000\nseq2\t1.000000\t1.000000\t0.666667\nseq3\t0.750000\t0.666667\t1.000000\n",
-            "copied TSV is byte-identical to lungfish-cli msa distance --model identity"
+        XCTAssertTrue(pairwise.isExpanded, "the expanded state lives in the model, not view state")
+        // A focused matrix cell reaches the section without switching the Inspector's tab.
+        let tabBefore = inspector.viewModel.selectedTab
+        let detail = MSAPairDetail(value: 0.75, comparableSites: 4, differences: 1, identicalSites: 3,
+                                   transitions: 0, transversions: 1, gapSkipped: 0, ambiguitySkipped: 0)
+        inspector.updateMSAFocusedDistancePair(
+            MSAFocusedDistancePair(rowName: "seq1", columnName: "seq2", model: .identity, detail: detail)
         )
-
-        model.model = .pDistance
-        XCTAssertEqual(model.status, .idle, "switching model invalidates the matrix")
-        XCTAssertNil(model.tsv)
-        await model.compute()
-        XCTAssertEqual(model.status, .ready)
-        XCTAssertEqual(model.pairs.map(\.formattedValue), ["0.000000", "0.250000", "0.333333"])
-
-        var exported: MSADistanceModel?
-        model.onExportRequested = { exported = $0.model }
-        model.requestExport()
-        XCTAssertEqual(exported, .pDistance)
-    }
-
-    func testPairwiseIdentityModelRefusesOversizedAlignmentsInline() async {
-        let records = (0..<(MSAPairwiseIdentityInspectorModel.maxRowsForInlineTable + 1)).map {
-            MSAAlignedRecord(name: "row\($0)", sequence: "ACGT")
-        }
-        let model = MSAPairwiseIdentityInspectorModel(
-            bundleURL: URL(fileURLWithPath: "/tmp/never-read.lungfishmsa"),
-            recordLoader: { _ in records }
-        )
-
-        await model.compute()
-
-        XCTAssertEqual(model.status, .tooManyRows(records.count))
-        XCTAssertTrue(model.pairs.isEmpty)
-    }
-
-    func testPairwiseIdentityModelReportsLoadFailures() async {
-        let model = MSAPairwiseIdentityInspectorModel(
-            bundleURL: URL(fileURLWithPath: "/tmp/never-read.lungfishmsa"),
-            recordLoader: { _ in throw MSADistanceMatrixError.unequalAlignedLengths }
-        )
-
-        await model.compute()
-
-        XCTAssertEqual(model.status, .failed(MSADistanceMatrixError.unequalAlignedLengths.localizedDescription))
+        XCTAssertEqual(pairwise.focusedPair?.detail, detail)
+        XCTAssertEqual(inspector.viewModel.selectedTab, tabBefore)
+        XCTAssertFalse(pairwise.breakdownRows.contains { $0.label == "Transitions" }, "transitions show for k2p only")
     }
 
     func testInspectorMSADocumentEnablesNumberingControlsAndBroadcastsMode() throws {

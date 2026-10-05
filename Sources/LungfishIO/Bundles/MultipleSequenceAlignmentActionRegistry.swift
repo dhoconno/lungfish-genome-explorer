@@ -598,18 +598,18 @@ public enum MultipleSequenceAlignmentActionRegistry {
             "Distance or Identity Matrix",
             .phylogenetics,
             .p1,
-            "Compute pairwise identity/distance matrices from selected, visible, masked, or full rows.",
+            "Compute a pairwise identity or distance matrix (identity, p-distance, jc69 or k2p for nucleotides; identity, p-distance or poisson for proteins) with pairwise or complete gap deletion, in alignment or average-linkage order.",
             "Assess sample relatedness and alignment quality before tree inference.",
-            [.commandLine, .operationCenter, .inspector],
+            [.commandLine, .operationCenter, .viewport, .inspector],
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish-cli msa distance <bundle.lungfishmsa> --model identity|p-distance [selection options] --output <path> --format json",
+                command: "lungfish-cli msa distance <bundle.lungfishmsa> --model identity|p-distance|jc69|k2p|poisson [--gaps pairwise|complete] [--order alignment|average-linkage] [selection options] --output <path> --format json",
                 outputContract: "Writes matrix output plus provenance sidecar or derived analysis bundle."
             ),
             status: .implemented,
-            accessibility: "MSA Inspector > Pairwise Identity: model picker, sortable pair table (Sequence A, Sequence B, value, sites), Copy TSV, and Export TSV… which runs msa distance through the Operation Center. Both surfaces use MSADistanceMatrix.",
-            tests: "CLI tests cover identity and p-distance on deterministic fixtures; MultipleSequenceAlignmentDistanceMatrixTests and MultipleSequenceAlignmentDocumentSectionTests assert the Inspector table and copied TSV match the CLI output."
+            accessibility: "Distances tab under the MSA viewport (View > Show Distance Matrix, Control-Command-M): model, gaps and order popups, an AX table grid with row and column headers, Copy Matrix, and Export Matrix as TSV… which runs msa distance through the Operation Center. The Inspector's Pairwise Distance section shows the focused pair. Both surfaces use MSADistanceMatrix.",
+            tests: "MSACommandTests and MultipleSequenceAlignmentDistanceMatrixTests cover every model, gap policy and order; MSADistanceMatrixGUICLIParityTests assert the Distances pane TSV equals lungfish-cli msa distance byte for byte."
         ),
         descriptor(
             "msa.inspection.discriminating-sites",

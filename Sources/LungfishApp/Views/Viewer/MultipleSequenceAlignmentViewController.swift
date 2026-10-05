@@ -2405,6 +2405,8 @@ extension MultipleSequenceAlignmentViewController {
 
     var testingGutterWidth: CGFloat { gutterWidth }
 
+    var testingSelectedRowIndices: IndexSet { selectedRowIndices }
+
     var testingEffectiveVisibleMatrixWidth: CGFloat { effectiveVisibleMatrixWidth() }
 
     func testingSizeGutterToFitWidestLabel() { sizeGutterToFitWidestLabel() }
