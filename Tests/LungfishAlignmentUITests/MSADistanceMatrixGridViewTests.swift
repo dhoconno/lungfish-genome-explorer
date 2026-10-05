@@ -93,14 +93,31 @@ final class MSADistanceMatrixGridViewTests: XCTestCase {
         XCTAssertFalse(first === grid.accessibilityCell(forColumn: 1, row: 1) as AnyObject?)
     }
 
-    func testSelectionShowsInAXSelectedCellsAndPressSelects() throws {
+    func testSelectionShowsInAXSelectedCellsAndCustomActionsSelectTheCell() throws {
         let (grid, _, _) = makeGrid(3)
         let element = try XCTUnwrap(grid.accessibilityCell(forColumn: 0, row: 2) as? NSAccessibilityElement)
-        XCTAssertTrue(element.accessibilityPerformPress())
+        var revealed: MSADistanceCell?
+        grid.onReveal = { revealed = $0 }
+        let reveal = try XCTUnwrap(element.accessibilityCustomActions()?.first)
+        XCTAssertEqual(reveal.selector, #selector(MSADistanceAXCellActions.reveal))
+        XCTAssertTrue(try XCTUnwrap(reveal.target as? MSADistanceAXCellActions).reveal())
+        XCTAssertEqual(revealed, MSADistanceCell(row: 2, column: 0))
         XCTAssertTrue(element.isAccessibilitySelected())
+        XCTAssertTrue(element.isAccessibilityFocused())
         XCTAssertEqual(grid.accessibilitySelectedCells()?.count, 1)
-        element.setAccessibilitySelected(false)
-        XCTAssertTrue(grid.selection.cells.isEmpty)
+        grid.cancelOperation(nil)
+        XCTAssertFalse(element.isAccessibilitySelected())
+    }
+
+    func testHeaderCustomActionSelectsSequence() throws {
+        let (grid, rows, _) = makeGrid(3)
+        rows.onHeaderClick = { index, flags in grid.headerClicked(index, modifiers: flags) }
+        let header = try XCTUnwrap(rows.headerElements[1] as? NSAccessibilityElement)
+        let action = try XCTUnwrap(header.accessibilityCustomActions()?.first)
+        XCTAssertEqual(action.selector, #selector(MSADistanceAXHeaderActions.selectSequence))
+        XCTAssertTrue(try XCTUnwrap(action.target as? MSADistanceAXHeaderActions).selectSequence())
+        XCTAssertEqual(grid.selection.selectedSequences, IndexSet([1]))
+        XCTAssertTrue(header.isAccessibilitySelected())
     }
 
     // MARK: Keyboard and responder actions

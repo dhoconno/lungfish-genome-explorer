@@ -6,27 +6,6 @@ import AppKit
 import LungfishIO
 import LungfishKit
 
-@MainActor
-private final class MSADistanceObservationTokens {
-    private var tokens: [(NotificationCenter, NSObjectProtocol)] = []
-
-    func observe(
-        _ name: Notification.Name,
-        object: Any? = nil,
-        center: NotificationCenter = .default,
-        handler: @escaping @MainActor () -> Void
-    ) {
-        let token = center.addObserver(forName: name, object: object, queue: .main) { _ in
-            MainActor.assumeIsolated { handler() }
-        }
-        tokens.append((center, token))
-    }
-
-    isolated deinit {
-        for (center, token) in tokens { center.removeObserver(token) }
-    }
-}
-
 /// The self-contained Distances pane of the MSA viewport.
 ///
 /// LungfishApp hosts it in the MSA bottom pane and wires the callbacks.
@@ -76,7 +55,6 @@ public final class MSADistanceMatrixPaneView: NSView {
     static let fixedRangeUnavailableHelp =
         "Fixed 0-1 applies to identity and p-distance. Corrected distances have no upper bound."
 
-    private let observations = MSADistanceObservationTokens()
     var contentPreferredFontProvider: any ContentPreferredFontProviding = AppKitContentPreferredFontProvider()
     private(set) var typographyApplicationCount = 0
 
@@ -95,14 +73,31 @@ public final class MSADistanceMatrixPaneView: NSView {
         buildContent()
         wireModel()
         applyTypography()
-        observations.observe(.contentTextSizeDidChange) { [weak self] in self?.applyTypography() }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(contentTextSizeDidChange(_:)),
+            name: .contentTextSizeDidChange,
+            object: nil
+        )
         render()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    isolated deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     public override var isFlipped: Bool { true }
+
+    @objc private func contentTextSizeDidChange(_ notification: Notification) {
+        applyTypography()
+    }
+
+    @objc private func clipViewBoundsDidChange(_ notification: Notification) {
+        syncHeadersToScroll()
+    }
 
     // MARK: Public API
 
@@ -191,9 +186,12 @@ public final class MSADistanceMatrixPaneView: NSView {
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .textBackgroundColor
         scrollView.contentView.postsBoundsChangedNotifications = true
-        observations.observe(NSView.boundsDidChangeNotification, object: scrollView.contentView) { [weak self] in
-            self?.syncHeadersToScroll()
-        }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clipViewBoundsDidChange(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
 
         gridView.rowHeaderView = rowHeaderView
         gridView.columnHeaderView = columnHeaderView

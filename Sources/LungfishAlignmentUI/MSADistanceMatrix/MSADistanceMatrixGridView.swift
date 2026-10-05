@@ -84,7 +84,6 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
     public func setMatrix(_ newMatrix: (any MSADistanceMatrixDisplaying)?) {
         matrix = newMatrix
         selection = MSADistanceMatrixSelection(size: newMatrix?.displayCount ?? 0)
-        axCache.removeAll()
         relayout()
         NSAccessibility.post(element: self, notification: .layoutChanged)
     }
@@ -106,6 +105,8 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
         setFrameSize(NSSize(width: count * cellSide, height: count * cellSide))
         removeAllToolTips()
         addToolTip(bounds, owner: self, userData: nil)
+        // AX frames depend on the cell size, so cached elements go.
+        axCache.removeAll()
         layoutCount += 1
         needsDisplay = true
     }
@@ -262,7 +263,9 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
     /// tells the pane and VoiceOver.
     func updateSelection(_ change: (inout MSADistanceMatrixSelection) -> Void, notify: Bool = true) {
         let oldFocus = selection.focus
+        let oldCells = selection.cells
         change(&selection)
+        axSyncSelection(oldCells: oldCells, oldFocus: oldFocus)
         needsDisplay = true
         rowHeaderView?.focusedIndex = selection.focus?.row
         columnHeaderView?.focusedIndex = selection.focus?.column

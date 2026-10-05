@@ -4,55 +4,21 @@
 
 import AppKit
 
-/// A virtual AX element for one row or column name.
-final class MSADistanceAXHeaderElement: NSAccessibilityElement {
-    nonisolated(unsafe) weak var header: MSADistanceMatrixHeaderBaseView?
+/// Target of a header element's AX custom action and press.
+@MainActor
+final class MSADistanceAXHeaderActions: NSObject {
+    weak var header: MSADistanceMatrixHeaderBaseView?
     let index: Int
 
-    @MainActor
     init(header: MSADistanceMatrixHeaderBaseView, index: Int) {
         self.header = header
         self.index = index
-        super.init()
-        setAccessibilityRole(.cell)
-        setAccessibilityParent(header)
-        setAccessibilityIndex(index)
-        setAccessibilityHelp("Select Sequence in Alignment")
     }
 
-    override func accessibilityLabel() -> String? {
-        let header = self.header, index = self.index
-        return axOnMain {
-            guard let names = header?.names, names.indices.contains(index) else { return nil }
-            return names[index]
-        }
-    }
-
-    override func accessibilityFrame() -> NSRect {
-        let header = self.header, index = self.index
-        return axOnMain {
-            guard let header else { return .zero }
-            return NSAccessibility.screenRect(fromView: header, rect: header.rect(forIndex: index))
-        }
-    }
-
-    override func isAccessibilitySelected() -> Bool {
-        let header = self.header, index = self.index
-        return axOnMain { header?.selectedSequences.contains(index) ?? false }
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        let header = self.header, index = self.index
-        return axOnMain {
-            guard let header else { return false }
-            header.onHeaderClick?(index, [])
-            return true
-        }
-    }
-
-    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
-        let header = self.header, index = self.index
-        return axOnMain { header?.axSelectAction(for: index).map { [$0] } }
+    @objc func selectSequence() -> Bool {
+        guard let header else { return false }
+        header.onHeaderClick?(index, [])
+        return true
     }
 }
 
@@ -62,20 +28,41 @@ public class MSADistanceMatrixHeaderBaseView: NSView {
     public var names: [String] = [] {
         didSet {
             elements.removeAll()
+            actionTargets.removeAll()
             needsDisplay = true
         }
     }
 
-    public var cellSide: CGFloat = 22 { didSet { needsDisplay = true } }
+    public var cellSide: CGFloat = 22 {
+        didSet {
+            needsDisplay = true
+            refreshElementFrames()
+        }
+    }
+
     /// Scroll offset of the grid along this header's axis.
-    public var scrollOffset: CGFloat = 0 { didSet { needsDisplay = true } }
+    public var scrollOffset: CGFloat = 0 {
+        didSet {
+            needsDisplay = true
+            refreshElementFrames()
+        }
+    }
     public var font = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize) { didSet { needsDisplay = true } }
-    public var selectedSequences = IndexSet() { didSet { needsDisplay = true } }
+    public var selectedSequences = IndexSet() {
+        didSet {
+            needsDisplay = true
+            for (index, element) in elements {
+                element.setAccessibilitySelected(selectedSequences.contains(index))
+            }
+        }
+    }
     public var focusedIndex: Int? { didSet { if focusedIndex != oldValue { needsDisplay = true } } }
     /// Header click with modifiers. The pane forwards it to the grid.
     public var onHeaderClick: ((Int, NSEvent.ModifierFlags) -> Void)?
 
-    private var elements: [Int: MSADistanceAXHeaderElement] = [:]
+    /// Plain elements set up through their setters, with their action targets.
+    private var elements: [Int: NSAccessibilityElement] = [:]
+    private var actionTargets: [Int: MSADistanceAXHeaderActions] = [:]
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -96,7 +83,7 @@ public class MSADistanceMatrixHeaderBaseView: NSView {
             if let cached = elements[index] {
                 result.append(cached)
             } else {
-                let element = MSADistanceAXHeaderElement(header: self, index: index)
+                let element = makeElement(index)
                 elements[index] = element
                 result.append(element)
             }
@@ -106,13 +93,27 @@ public class MSADistanceMatrixHeaderBaseView: NSView {
 
     public override func accessibilityChildren() -> [Any]? { headerElements }
 
-    func axSelectAction(for index: Int) -> NSAccessibilityCustomAction? {
-        NSAccessibilityCustomAction(name: "Select Sequence in Alignment") { [weak self] in
-            guard let self else { return false }
-            return MainActor.assumeIsolated {
-                self.onHeaderClick?(index, [])
-                return true
-            }
+    private func makeElement(_ index: Int) -> NSAccessibilityElement {
+        let element = NSAccessibilityElement()
+        element.setAccessibilityParent(self)
+        element.setAccessibilityRole(.cell)
+        element.setAccessibilityIndex(index)
+        element.setAccessibilityLabel(names[index])
+        element.setAccessibilityHelp("Select Sequence in Alignment")
+        element.setAccessibilityFrameInParentSpace(rect(forIndex: index))
+        element.setAccessibilitySelected(selectedSequences.contains(index))
+        let target = MSADistanceAXHeaderActions(header: self, index: index)
+        actionTargets[index] = target
+        element.setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: "Select Sequence in Alignment", target: target, selector: #selector(MSADistanceAXHeaderActions.selectSequence)),
+        ])
+        return element
+    }
+
+    /// Header frames move with the scroll offset and cell size.
+    func refreshElementFrames() {
+        for (index, element) in elements {
+            element.setAccessibilityFrameInParentSpace(rect(forIndex: index))
         }
     }
 
@@ -152,6 +153,7 @@ public class MSADistanceMatrixHeaderBaseView: NSView {
         super.setFrameSize(newSize)
         removeAllToolTips()
         addToolTip(bounds, owner: self, userData: nil)
+        refreshElementFrames()
     }
 }
 

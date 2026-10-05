@@ -4,144 +4,126 @@
 
 import AppKit
 
-/// Lazily created AX row and cell elements, dropped when the matrix changes.
+/// Lazily created AX row and cell elements, dropped when the matrix or the
+/// cell size changes. The elements are plain `NSAccessibilityElement`s set up
+/// through their setters, like the MSA viewport overlays, so no override has
+/// to cross into main-actor state.
 @MainActor
 struct MSADistanceAXCache {
-    var rows: [Int: MSADistanceAXRowElement] = [:]
-    var cells: [MSADistanceCell: MSADistanceAXCellElement] = [:]
+    var rows: [Int: NSAccessibilityElement] = [:]
+    var cells: [MSADistanceCell: NSAccessibilityElement] = [:]
+    var actionTargets: [MSADistanceCell: MSADistanceAXCellActions] = [:]
 
     mutating func removeAll() {
         rows.removeAll()
         cells.removeAll()
+        actionTargets.removeAll()
     }
 }
 
-/// Runs AX work on the main actor. AppKit declares the NSAccessibilityElement
-/// getters outside the main actor although it always calls them on the main
-/// thread, so results cross back through an unchecked local.
-func axOnMain<T>(_ body: @MainActor () -> T) -> T {
-    nonisolated(unsafe) var result: T?
-    MainActor.assumeIsolated { result = body() }
-    return result!
-}
-
-/// A virtual AX row of the grid.
-final class MSADistanceAXRowElement: NSAccessibilityElement {
-    nonisolated(unsafe) weak var grid: MSADistanceMatrixGridView?
-    let index: Int
-
-    @MainActor
-    init(grid: MSADistanceMatrixGridView, index: Int) {
-        self.grid = grid
-        self.index = index
-        super.init()
-        setAccessibilityRole(.row)
-        setAccessibilityParent(grid)
-        setAccessibilityIndex(index)
-    }
-
-    override func accessibilityLabel() -> String? {
-        let grid = self.grid, index = self.index
-        return axOnMain { grid?.axRowLabel(index) }
-    }
-
-    override func accessibilityChildren() -> [Any]? {
-        let grid = self.grid, index = self.index
-        return axOnMain { grid?.axCells(inRow: index) ?? [] }
-    }
-
-    override func accessibilityFrame() -> NSRect {
-        let grid = self.grid, index = self.index
-        return axOnMain { grid?.axRowFrame(index) ?? .zero }
-    }
-
-    override func isAccessibilitySelected() -> Bool {
-        let grid = self.grid, index = self.index
-        return axOnMain { grid?.selection.cells.contains { $0.row == index } ?? false }
-    }
-}
-
-/// A virtual AX cell of the grid.
-final class MSADistanceAXCellElement: NSAccessibilityElement {
-    nonisolated(unsafe) weak var grid: MSADistanceMatrixGridView?
+/// Target of a cell's AX custom actions, the twins of its context menu.
+/// Each action first selects and focuses the cell.
+@MainActor
+final class MSADistanceAXCellActions: NSObject {
+    weak var grid: MSADistanceMatrixGridView?
     let cell: MSADistanceCell
 
-    @MainActor
     init(grid: MSADistanceMatrixGridView, cell: MSADistanceCell) {
         self.grid = grid
         self.cell = cell
-        super.init()
-        setAccessibilityRole(.cell)
-        setAccessibilityRowIndexRange(NSRange(location: cell.row, length: 1))
-        setAccessibilityColumnIndexRange(NSRange(location: cell.column, length: 1))
-        setAccessibilityHelp(MSADistanceMatrixText.cellHelp)
     }
 
-    override func accessibilityParent() -> Any? {
-        let grid = self.grid, row = cell.row
-        return axOnMain { grid?.axRowElement(for: row) }
-    }
-
-    override func accessibilityLabel() -> String? {
-        let grid = self.grid, cell = self.cell
-        return axOnMain { grid?.axCellLabel(cell) }
-    }
-
-    override func accessibilityFrame() -> NSRect {
-        let grid = self.grid, cell = self.cell
-        return axOnMain { grid.map { NSAccessibility.screenRect(fromView: $0, rect: $0.rect(for: cell)) } ?? .zero }
-    }
-
-    override func isAccessibilitySelected() -> Bool {
-        let grid = self.grid, cell = self.cell
-        return axOnMain { grid?.selection.cells.contains(cell) ?? false }
-    }
-
-    override func setAccessibilitySelected(_ selected: Bool) {
-        let grid = self.grid, cell = self.cell
-        axOnMain {
-            guard let grid, grid.selection.cells.contains(cell) != selected else { return }
-            grid.axToggle(cell)
+    private func prepare() -> MSADistanceMatrixGridView? {
+        guard let grid else { return nil }
+        if !grid.selection.cells.contains(cell) || grid.selection.focus != cell {
+            let cell = self.cell
+            grid.updateSelection { $0.click(cell) }
         }
+        return grid
     }
 
-    override func isAccessibilityFocused() -> Bool {
-        let grid = self.grid, cell = self.cell
-        return axOnMain { grid?.selection.focus == cell }
-    }
+    @objc func reveal() -> Bool { prepare()?.revealPairInAlignment(nil) != nil }
+    @objc func copyCells() -> Bool { prepare()?.copy(nil) != nil }
+    @objc func copyMatrix() -> Bool { prepare()?.copyMatrix(nil) != nil }
+    @objc func export() -> Bool { prepare()?.exportDistanceMatrix(nil) != nil }
+    @objc func selectRowSequences() -> Bool { prepare()?.selectRowSequences(nil) != nil }
 
-    override func accessibilityPerformPress() -> Bool {
-        let grid = self.grid, cell = self.cell
-        return axOnMain {
-            guard let grid else { return false }
-            grid.axSelectOnly(cell)
-            return true
-        }
-    }
-
-    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
-        let grid = self.grid, cell = self.cell
-        return axOnMain { grid?.axCustomActions(for: cell) }
+    var customActions: [NSAccessibilityCustomAction] {
+        [
+            NSAccessibilityCustomAction(name: "Reveal Pair in Alignment", target: self, selector: #selector(reveal)),
+            NSAccessibilityCustomAction(name: "Copy", target: self, selector: #selector(copyCells)),
+            NSAccessibilityCustomAction(name: "Copy Matrix", target: self, selector: #selector(copyMatrix)),
+            NSAccessibilityCustomAction(name: "Export Matrix as TSV…", target: self, selector: #selector(export)),
+            NSAccessibilityCustomAction(name: "Select Row's Sequences", target: self, selector: #selector(selectRowSequences)),
+        ]
     }
 }
 
 extension MSADistanceMatrixGridView {
-    func axCells(inRow row: Int) -> [Any] {
-        var cells: [Any] = []
-        for column in 0..<(matrix?.displayCount ?? 0) {
-            cells.append(axCellElement(for: MSADistanceCell(row: row, column: column)))
+    /// The row element and, with it, every cell of that row.
+    func axRowElement(for row: Int) -> NSAccessibilityElement {
+        if let cached = axCache.rows[row] { return cached }
+        let count = matrix?.displayCount ?? 0
+        let element = NSAccessibilityElement()
+        element.setAccessibilityParent(self)
+        element.setAccessibilityRole(.row)
+        element.setAccessibilityIndex(row)
+        element.setAccessibilityLabel(axRowLabel(row))
+        element.setAccessibilityFrameInParentSpace(
+            NSRect(x: 0, y: CGFloat(row) * cellSide, width: CGFloat(count) * cellSide, height: cellSide)
+        )
+        axCache.rows[row] = element
+        var children: [Any] = []
+        for column in 0..<count {
+            let cell = MSADistanceCell(row: row, column: column)
+            let cellElement = makeCellElement(cell, parent: element)
+            axCache.cells[cell] = cellElement
+            children.append(cellElement)
         }
-        return cells
+        element.setAccessibilityChildren(children)
+        return element
+    }
+
+    func axCellElement(for cell: MSADistanceCell) -> NSAccessibilityElement {
+        if let cached = axCache.cells[cell] { return cached }
+        _ = axRowElement(for: cell.row)
+        return axCache.cells[cell] ?? NSAccessibilityElement()
+    }
+
+    private func makeCellElement(_ cell: MSADistanceCell, parent: NSAccessibilityElement) -> NSAccessibilityElement {
+        let element = NSAccessibilityElement()
+        element.setAccessibilityParent(parent)
+        element.setAccessibilityRole(.cell)
+        element.setAccessibilityRowIndexRange(NSRange(location: cell.row, length: 1))
+        element.setAccessibilityColumnIndexRange(NSRange(location: cell.column, length: 1))
+        element.setAccessibilityLabel(axCellLabel(cell))
+        element.setAccessibilityHelp(MSADistanceMatrixText.cellHelp)
+        // Relative to the row element, which is one cell tall.
+        element.setAccessibilityFrameInParentSpace(
+            NSRect(x: CGFloat(cell.column) * cellSide, y: 0, width: cellSide, height: cellSide)
+        )
+        element.setAccessibilitySelected(selection.cells.contains(cell))
+        element.setAccessibilityFocused(selection.focus == cell)
+        let actions = MSADistanceAXCellActions(grid: self, cell: cell)
+        axCache.actionTargets[cell] = actions
+        element.setAccessibilityCustomActions(actions.customActions)
+        return element
+    }
+
+    /// Mirrors a selection change into the cached elements.
+    func axSyncSelection(oldCells: Set<MSADistanceCell>, oldFocus: MSADistanceCell?) {
+        for cell in oldCells.symmetricDifference(selection.cells) {
+            axCache.cells[cell]?.setAccessibilitySelected(selection.cells.contains(cell))
+        }
+        if oldFocus != selection.focus {
+            if let oldFocus { axCache.cells[oldFocus]?.setAccessibilityFocused(false) }
+            if let focus = selection.focus { axCache.cells[focus]?.setAccessibilityFocused(true) }
+        }
     }
 
     func axRowLabel(_ index: Int) -> String? {
         guard let names = matrix?.displayNames, names.indices.contains(index) else { return nil }
         return names[index]
-    }
-
-    func axRowFrame(_ index: Int) -> NSRect {
-        let rect = NSRect(x: 0, y: CGFloat(index) * cellSide, width: bounds.width, height: cellSide)
-        return NSAccessibility.screenRect(fromView: self, rect: rect)
     }
 
     func axCellLabel(_ cell: MSADistanceCell) -> String? {
@@ -155,52 +137,6 @@ extension MSADistanceMatrixGridView {
             comparableSites: matrix.displayComparableSites(row: cell.row, column: cell.column),
             isDiagonal: cell.isDiagonal
         )
-    }
-
-    /// The cell context menu as AX custom actions, in the same order.
-    func axCustomActions(for cell: MSADistanceCell) -> [NSAccessibilityCustomAction] {
-        guard matrix != nil else { return [] }
-        let entries: [(String, @MainActor (MSADistanceMatrixGridView) -> Void)] = [
-            ("Reveal Pair in Alignment", { $0.revealPairInAlignment(nil) }),
-            ("Copy", { $0.copy(nil) }),
-            ("Copy Matrix", { $0.copyMatrix(nil) }),
-            ("Export Matrix as TSV…", { $0.exportDistanceMatrix(nil) }),
-            ("Select Row's Sequences", { $0.selectRowSequences(nil) }),
-        ]
-        var actions: [NSAccessibilityCustomAction] = []
-        for (name, body) in entries {
-            actions.append(NSAccessibilityCustomAction(name: name) { [weak self] in
-                guard let self else { return false }
-                return MainActor.assumeIsolated {
-                    if !self.selection.cells.contains(cell) { self.axSelectOnly(cell) }
-                    body(self)
-                    return true
-                }
-            })
-        }
-        return actions
-    }
-
-    func axToggle(_ cell: MSADistanceCell) {
-        updateSelection { $0.commandClick(cell) }
-    }
-
-    func axSelectOnly(_ cell: MSADistanceCell) {
-        updateSelection { $0.click(cell) }
-    }
-
-    func axRowElement(for row: Int) -> MSADistanceAXRowElement {
-        if let cached = axCache.rows[row] { return cached }
-        let element = MSADistanceAXRowElement(grid: self, index: row)
-        axCache.rows[row] = element
-        return element
-    }
-
-    func axCellElement(for cell: MSADistanceCell) -> MSADistanceAXCellElement {
-        if let cached = axCache.cells[cell] { return cached }
-        let element = MSADistanceAXCellElement(grid: self, cell: cell)
-        axCache.cells[cell] = element
-        return element
     }
 
     public override func accessibilityRowCount() -> Int { matrix?.displayCount ?? 0 }
