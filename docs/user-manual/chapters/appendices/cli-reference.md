@@ -2948,7 +2948,7 @@ lungfish-cli msa trim columns [<options>] <bundle-path> --output <output>
 
 ### `msa distance`
 
-Writes a pairwise identity or p-distance matrix as TSV. In the window, the Pairwise Identity section of the alignment's Inspector shows the same identity matrix as a sortable table, and its Export TSV button runs this command. Explained in [Aligning Sequences](../02-sequences/04-aligning-sequences.md).
+Writes a pairwise identity or distance matrix as TSV, with every row and column named and the diagonal included. Gaps and ambiguity codes are missing data. A DNA position is compared only when both rows hold A, C, G, T or U there, and a protein position is skipped when either row holds X, B, Z, J, `?` or `*`. The alphabet comes from the bundle's manifest, and a model that does not fit it is refused. A pair with no position to compare is written as `nan`, a corrected distance too large to estimate is written as `inf`, and the command prints a warning counting each. In the window, the Distances tab under the alignment shows the same matrix, and its Export button and **File > Export > Distance Matrix (TSV)…** run this command with the tab's choices. Explained in [Aligning Sequences](../02-sequences/04-aligning-sequences.md#pairwise-identity).
 
 ```text
 lungfish-cli msa distance [<options>] <bundle-path> --output <output>
@@ -2957,7 +2957,9 @@ lungfish-cli msa distance [<options>] <bundle-path> --output <output>
 | Argument or flag | What it does |
 |---|---|
 | `<bundle-path>` | Input `.lungfishmsa` bundle. |
-| `--model <model>` | Distance model, one of `identity` or `p-distance`. The default is `identity`. |
+| `--model <model>` | Distance model, one of `identity`, `p-distance`, `jc69` or `k2p` for nucleotides, or `identity`, `p-distance` or `poisson` for protein. The default is `identity`. |
+| `--gaps <gaps>` | Gap and ambiguity deletion, `pairwise` to let each pair skip its own missing positions or `complete` to skip every column with a missing position in any selected row. The default is `pairwise`. |
+| `--order <order>` | Row and column order, `alignment` or `average-linkage`, the UPGMA leaf order on p-distance. The default is `alignment`. |
 | `--output <output>` | Output TSV matrix path. |
 | `--rows <rows>` | Optional comma-separated row IDs or display names. |
 | `--columns <columns>` | Optional 1-based aligned column ranges, for example 10-40,55. |

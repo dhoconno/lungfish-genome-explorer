@@ -92,9 +92,12 @@ def extract_dynamic_category_titles(text: str) -> set[str]:
 
 def load_known_titles() -> set[str]:
     titles = set()
-    if MAIN_MENU_SWIFT.is_file():
-        text = MAIN_MENU_SWIFT.read_text()
-        titles |= extract_literal_titles(text)
+    # MainMenu.swift plus its MainMenu+*.swift extension files, which build
+    # whole submenus (for example MainMenu+DistanceMatrix.swift).
+    menu_files = [MAIN_MENU_SWIFT] + sorted(MAIN_MENU_SWIFT.parent.glob("MainMenu+*.swift"))
+    for menu_file in menu_files:
+        if menu_file.is_file():
+            titles |= extract_literal_titles(menu_file.read_text())
     if TOOLS_MENU_MODEL_SWIFT.is_file():
         text = TOOLS_MENU_MODEL_SWIFT.read_text()
         titles |= extract_dynamic_category_titles(text)

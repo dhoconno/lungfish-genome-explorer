@@ -1233,9 +1233,79 @@ features:
     notes: >-
       Adds column annotations, builds consensus sequences, extracts rows and
       columns, creates masked or trimmed derivatives, and computes identity or
-      p-distance matrices. The MSA Inspector's Pairwise Identity section shows
-      the identity matrix as a sortable table with Copy TSV and Export TSV,
-      running msa distance behind the scenes.
+      distance matrices (msa distance, see msa.inspection.distance-matrix for
+      the window's Distances pane).
+  msa.inspection.distance-matrix:
+    title: Pairwise distance matrix pane for an alignment
+    entry_points:
+      - "View > Show Distance Matrix"
+      - "View > Distance Matrix > Reveal Pair in Alignment"
+      - "View > Distance Matrix > Select Row's Sequences"
+      - "View > Distance Matrix > Copy Matrix"
+      - "View > Distance Matrix > Export Matrix as TSV..."
+      - "View > Show Drawer"
+      - "File > Export > Distance Matrix (TSV)..."
+      - "MSA toolbar > Distance matrix button"
+      - "Inspector > Bundle > Pairwise Distance > Show Distance Matrix"
+      - "CLI: lungfish msa distance"
+    inputs: [lungfishmsa]
+    outputs: [distance-matrix, tsv]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixPaneView.swift
+      - Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixPaneModel.swift
+      - Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixGridView.swift
+      - Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixGridView+Accessibility.swift
+      - Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixHeaderViews.swift
+      - Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixSelection.swift
+      - Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceColorScale.swift
+      - Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixDisplaying.swift
+      - Sources/LungfishApp/Views/Viewer/MSABottomPaneView.swift
+      - Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController+BottomPane.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+MSABottomPane.swift
+      - Sources/LungfishApp/App/MainMenu+DistanceMatrix.swift
+      - Sources/LungfishApp/Views/MainWindow/MainWindowController+DistanceMatrix.swift
+      - Sources/LungfishApp/Services/MSADistanceMatrixExportCoordinator.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/MSAPairwiseDistanceSection.swift
+      - Sources/LungfishIO/Bundles/MSADistanceMatrix.swift
+      - Sources/LungfishIO/Bundles/MSADistanceModels.swift
+      - Sources/LungfishIO/Bundles/MSADistanceClustering.swift
+      - Sources/LungfishCLI/Commands/MSADistanceSubcommand.swift
+    module: [LungfishAlignmentUI, LungfishApp, LungfishIO, LungfishCLI]
+    cli:
+      - lungfish-cli msa distance
+    operation_type: multipleSequenceAlignmentAction
+    tests:
+      - Tests/LungfishAlignmentUITests/MSADistanceMatrixPaneTests.swift
+      - Tests/LungfishAlignmentUITests/MSADistanceMatrixGridViewTests.swift
+      - Tests/LungfishAlignmentUITests/MSADistanceMatrixSelectionTests.swift
+      - Tests/LungfishAlignmentUITests/MSADistanceColorScaleTests.swift
+      - Tests/LungfishAppTests/MSABottomPaneTests.swift
+      - Tests/LungfishAppTests/MSADistanceMatrixGUICLIParityTests.swift
+      - Tests/LungfishAppTests/MSADistanceMatrixMenuRoutingTests.swift
+      - Tests/LungfishIOTests/MultipleSequenceAlignmentDistanceMatrixTests.swift
+      - Tests/LungfishCLITests/MSACommandTests.swift
+    notes: >-
+      A tabbed pane under the MSA viewport, [Annotations | Distances]. View >
+      Show Distance Matrix (Control-Command-M) and the MSA toolbar's Distance
+      matrix button open the Distances tab, and View > Show Drawer
+      (Control-Command-B) opens the pane on its last tab. The Distances tab
+      draws a full square matrix (diagonal computed, neutral fill) with Model
+      (Identity, p-distance, Jukes-Cantor (JC69), Kimura 2-parameter (K2P) for
+      nucleotides, Identity, p-distance, Poisson for protein, from the
+      manifest alphabet), Gaps (Pairwise deletion, Complete deletion), Order
+      (Alignment order, Average linkage (UPGMA)), Fixed 0-1, Show Values,
+      Copy Matrix and Export.... Gaps and ambiguity codes are missing data.
+      Cells show n/a for no comparable sites and an infinity sign for
+      saturated pairs (nan and inf in TSV). Selecting cells selects the
+      union of their rows in the alignment, Return or double-click reveals
+      the pair, Space toggles a cell, Command-C copies the selected block
+      with names, and VoiceOver reads row, column, value and sites compared.
+      Alignments over 200 rows show a message and export the full matrix.
+      Options persist globally. The Inspector Bundle tab keeps a Pairwise
+      Distance section with Show Distance Matrix and the focused pair's
+      counts. Copy Matrix and Export match msa distance byte for byte.
+      Chapter: 02-sequences/04.
   msa.inspection.discriminating-sites:
     title: Find discriminating sites in an alignment
     entry_points:

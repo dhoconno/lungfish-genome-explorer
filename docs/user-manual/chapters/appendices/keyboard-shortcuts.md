@@ -105,13 +105,14 @@ The panels that frame the main viewport, plus the zoom commands. These need a pr
 | Provenance Inspector | Cmd-Opt-V | LGE's own |
 | AI Assistant | Cmd-Opt-A | LGE's own |
 | Show Drawer | Ctrl-Cmd-B | LGE's own |
+| Show Distance Matrix | Ctrl-Cmd-M | LGE's own |
 | Enter Full Screen | Ctrl-Cmd-F | Standard macOS |
 
 **Focus Viewer** hides both the sidebar and the Inspector so the viewport fills the window, and **Restore Side Panes** brings both back. **Document Inspector** has no shortcut, because macOS keeps Cmd-Opt-D for showing and hiding the Dock. **AI Assistant** reveals the Inspector's Assistant tab. **Provenance Inspector** reveals the Inspector's Provenance tab, which lists every tool run that produced the selected result. In that tab each run and each step is a button. Press Space or Return on one to open or close it, Right Arrow to open it, and Left Arrow to close it.
 
-**Show Drawer** opens the table drawer along the bottom of the viewport, and **Make Drawer Taller** and **Make Drawer Shorter**, which have no shortcut, change its height one step at a time. With the drawer's top edge selected, the Up and Down Arrow keys do the same.
+**Show Drawer** opens the table drawer along the bottom of the viewport, and **Make Drawer Taller** and **Make Drawer Shorter**, which have no shortcut, change its height one step at a time. With the drawer's top edge selected, the Up and Down Arrow keys do the same. On a multiple sequence alignment the drawer is a pane with two tabs, **Annotations** and **Distances**, and Show Drawer opens it on whichever tab was showing last. **Show Distance Matrix** opens the same pane on its Distances tab, and only an alignment enables it. The **View > Distance Matrix** submenu beside it holds the matrix commands, none of which has a shortcut.
 
-The Sidebar, Inspector and Drawer rows change their own titles as you use them. When the panel is showing, the menu reads **Hide Sidebar**, **Hide Inspector** or **Hide Drawer** instead, and the same shortcut does the hiding. The shortcut never changes.
+The Sidebar, Inspector, Drawer and Distance Matrix rows change their own titles as you use them. When the panel is showing, the menu reads **Hide Sidebar**, **Hide Inspector**, **Hide Drawer** or **Hide Distance Matrix** instead, and the same shortcut does the hiding. The shortcut never changes.
 
 The four zoom commands act on the viewport. All four are greyed out whenever nothing zoomable is on screen, meaning no sequence display and no multiple sequence alignment, such as while a read bundle or a classifier result is selected. In the taxonomy sunburst, **Zoom to Fit** returns to the full chart, as [Inside a classifier result window](#inside-a-classifier-result-window) describes.
 
@@ -275,6 +276,8 @@ The NAO-MGS result window shows the reads behind one hit in a compact read viewe
 
 A multiple sequence alignment, meaning several sequences stacked so that matching positions line up in columns, takes Cmd-C to copy the selection and Cmd-A to select the whole alignment once you have clicked into it. The arrow keys move the selection one position at a time, and holding Shift while pressing them extends the selection rather than moving it. On a trackpad, pinching zooms the alignment.
 
+The distance matrix on the Distances tab under the alignment has keys of its own once you click into it. The arrow keys move between cells, Shift with an arrow extends the selection, Opt with an arrow moves the focus without changing the selection, and Space adds or removes the focused cell. Return shows the focused pair in the alignment, Cmd-A selects every cell, Cmd-C copies the selected block with its sequence names, and Escape clears the selection. [Aligning Sequences](../02-sequences/04-aligning-sequences.md#pairwise-identity) describes the matrix.
+
 ## Inside the genotype result window
 
 The genotype result window shows the alleles LGE [called](../../GLOSSARY.md#call) for each sample. Cmd-F, which is **Edit > Find...**, moves the cursor into its quick filter search field, and with that field focused, Escape clears it.
@@ -339,6 +342,7 @@ Escape does a different job in each window.
 | Taxonomy sunburst, at the full chart | Clears the selection |
 | A hover tooltip panel | Closes the panel |
 | Manage Project Storage sheet | Closes the sheet |
+| Distance matrix under an alignment | Clears the cell selection |
 
 ## Customizing shortcuts
 
@@ -362,6 +366,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Opt-A | AI Assistant | View menu |
 | Cmd-Shift-A | Sidebar Item, Select Siblings | Selection menu, sidebar list |
 | Cmd-Shift-B | Plugin Manager... | Tools menu |
+| Ctrl-Cmd-B | Show Drawer | View menu |
 | Cmd-C | Copy | Edit menu, sequence viewport, MSA viewport |
 | Cmd-Opt-C | Selected Operation, Copy CLI Command | Operations menu |
 | Cmd-Shift-C | Copy Visible Region as FASTA | Sequence menu |
@@ -388,6 +393,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-L | Go to Location... | Sequence menu |
 | Cmd-Opt-L | Selected Operation, View Log | Operations menu |
 | Cmd-M | Minimize | Window menu |
+| Ctrl-Cmd-M | Show Distance Matrix | View menu |
 | Cmd-N | New Project | File menu |
 | Cmd-Opt-N | New Window for Current Project | Window menu |
 | Cmd-Shift-N | Sidebar Item, New Folder... | Selection menu, sidebar list |
@@ -421,6 +427,9 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Shift-slash | Lungfish Genome Explorer Help | Help menu |
 | Arrow keys | Pan sideways, zoom up and down | Sequence and BAM alignment viewports |
 | Arrow keys | Move the selection, Shift extends it | MSA viewport |
+| Arrow keys | Move between cells, Shift extends, Opt moves the focus only | Distance matrix |
+| Return | Show the focused pair in the alignment | Distance matrix |
+| Space | Add or remove the focused cell | Distance matrix |
 | Return | Recentre the viewport on the selected row | Annotation table |
 | Return | Jump to the selected chromosome | Chromosome list |
 | Return | Open the selected sequence | FASTA collection table |

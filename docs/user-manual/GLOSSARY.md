@@ -466,6 +466,8 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **JSON (JavaScript Object Notation)**{#json}. A plain text data format that stores named fields and lists in a shape a program reads directly, used across Lungfish Genome Explorer for provenance sidecars, annotation files, and the summaries every command-line exporter prints. See also provenance sidecar, annotation.
 
+**Jukes-Cantor model (JC69)**{#jukes-cantor}. The simplest correction for DNA distances, which assumes every base changes into each of the other three at the same rate and turns the share of differing positions into an estimate of how many changes really happened, including the ones hidden when one position changed twice. It is one of the distance models on LGE's Distances tab and in `msa distance`. See also p-distance, Kimura two-parameter model, saturation.
+
 ## K
 
 **Key equivalent**{#key-equivalent}. The single letter, digit, or symbol at the end of a macOS keyboard shortcut, held to the modifier keys that come before it, which is the term Apple's own frameworks use for the value a menu item stores and the term the Lungfish Genome Explorer source uses when it defines one. See also modifier key.
@@ -473,6 +475,8 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 **Keychain**{#keychain}. The macOS system store for passwords and other secrets, unlocked by your login, which is where Lungfish Genome Explorer writes an AI provider's API key so that the key survives a restart without ever entering a `.lungfish` project folder. See also API key, AI assistant.
 
 **Kilobase**{#kilobase}. A thousand bases of sequence, written kb, the unit amplicon lengths are usually quoted in once they pass a few hundred bases. See also amplicon, read length.
+
+**Kimura two-parameter model (K2P)**{#kimura-two-parameter}. A correction for DNA distances that counts transitions, swaps between bases of the same chemical shape, apart from transversions, swaps between shapes, and lets the two run at different rates. Real DNA gains transitions more readily, so it usually fits better than the Jukes-Cantor model. It is one of the distance models on LGE's Distances tab and in `msa distance`. See also Jukes-Cantor model, transition to transversion ratio, saturation.
 
 **k-mer**{#k-mer}. A substring of exactly k bases taken from a longer sequence, the unit several tools match on because comparing short fixed-length words is far faster than comparing whole sequences. bbduk spots a primer in a read by looking for the primer's k-mers. See also bbduk, minimizer, Hamming distance.
 
@@ -858,6 +862,8 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **samtools**{#samtools}. The standard toolkit for reading and writing alignment files, whose subcommands index a BAM, count its records, build a pileup, and call a consensus from one, and which Lungfish Genome Explorer installs and runs for you behind the alignment surfaces rather than asking you to type it. See also BAM, pileup, consensus sequence, mpileup.
 
+**Saturation**{#saturation}. The state of two sequences that differ at so many positions that a corrected distance can no longer be estimated, because the differences are as many as unrelated sequences would show. LGE writes such a pair as `inf` in a distance table and draws its cell as `∞` on the Distances tab. See also Jukes-Cantor model, Kimura two-parameter model.
+
 **Savont**{#savont}. The clustering program Lungfish Genome Explorer runs in Full-length ONT MHC genotyping to group each sample's near-identical long reads and turn every group into one counted consensus sequence, which is what the workflow then compares with the allele library. It also runs on its own as the Savont Clustering operation for any FASTQ, and it comes with the Full-length MHC Genotyping pack. See also clustering, consensus sequence, candidate allele.
 
 **Scaffold**{#scaffold}. A run of contigs an assembler has placed in order and orientation relative to one another using paired-end reads that bridge the gaps between them, written as one sequence in which each unresolved gap appears as a run of `N` characters of the estimated length. Lungfish Genome Explorer builds an assembly bundle from the contigs rather than the scaffolds, so a scaffold file sits in the run folder but is not what the assembly viewport shows. See also contig, paired-end, assembly bundle.
@@ -1013,6 +1019,8 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 **Unique reads**{#unique-reads}. The reads left for one organism after LGE marks duplicates, reads sharing the same start, end, and strand, which are usually PCR or optical copies of one original fragment. It is the meaning of the Unique Reads column in the EsViritu, TaxTriage, NAO-MGS, and NVD views, so in a shotgun library it should sit close to the read count, and a large gap means many copies of few fragments. See also mark duplicates, PCR duplicate, abundance.
 
 **Unitig**{#unitig}. A stretch of sequence that every read covering it agrees on and that the assembly graph joins to its neighbours in only one way, so it is the longest piece an assembler can emit without making a choice. Contigs are then built by choosing paths that link unitigs together, which is why an assembler's unitig graph is more fragmented and more trustworthy than its contig set. See also assembly graph, contig, GFA.
+
+**UPGMA (unweighted pair group method with arithmetic mean)**{#upgma}. A distance method, also called average linkage, that joins the two most similar sequences or groups again and again and averages their distances to everything else. LGE uses it only to order the rows of the Distances tab so similar sequences sit together, computed on p-distance, and never saves the result as a tree. See also p-distance, Jukes-Cantor model.
 
 ## V
 
