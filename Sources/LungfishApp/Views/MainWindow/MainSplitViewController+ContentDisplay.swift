@@ -284,11 +284,9 @@ extension MainSplitViewController {
                         settings.selectedMSAReferenceRowID = nil
                         settings.msaResidueIdentityDisplayMode = .dotsToConsensus
                     }
-                    controller.onSelectionStateChanged = { [weak self] state in
-                        guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                        self.inspectorController.updateMultipleSequenceAlignmentSelection(state)
+                    self.wireMultipleSequenceAlignmentInspector(controller) { [weak self] in
+                        self?.canCommitDisplayRequest(displayToken, identity: displayIdentity) == true
                     }
-                    controller.notifySelectionStateIfAvailable()
                 }
             } catch {
                 guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }

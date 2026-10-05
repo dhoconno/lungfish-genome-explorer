@@ -1,0 +1,308 @@
+// MSABottomPaneView.swift - Tabbed pane under the MSA viewport: annotation table and distance matrix
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import AppKit
+import LungfishAlignmentUI
+import LungfishIO
+
+/// One bottom pane under the alignment with a segmented control
+/// [Annotations | Distances] (ruling U1). The pane owns the single divider,
+/// its height, its open state and its last tab, and persists all three.
+@MainActor
+final class MSABottomPaneView: NSView {
+    enum Tab: Int, CaseIterable {
+        case annotations = 0
+        case distances = 1
+
+        var title: String {
+            switch self {
+            case .annotations: return "Annotations"
+            case .distances: return "Distances"
+            }
+        }
+
+        var defaultsValue: String {
+            switch self {
+            case .annotations: return "annotations"
+            case .distances: return "distances"
+            }
+        }
+
+        init?(defaultsValue: String) {
+            guard let tab = Tab.allCases.first(where: { $0.defaultsValue == defaultsValue }) else { return nil }
+            self = tab
+        }
+    }
+
+    enum DefaultsKey {
+        static let height = "msaBottomPane.height"
+        static let tab = "msaBottomPane.tab"
+        static let isOpen = "msaBottomPane.isOpen"
+    }
+
+    static let minimumHeight: CGFloat = 120
+    /// The alignment keeps at least this much height above the pane.
+    static let reservedAlignmentHeight: CGFloat = 140
+    static let defaultHeight: CGFloat = 260
+    static let animationDuration: TimeInterval = 0.25
+    static let headerHeight: CGFloat = 28
+
+    let divider = DrawerDividerView()
+    let tabControl = NSSegmentedControl(
+        labels: Tab.allCases.map(\.title),
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
+    let annotationDrawer: AnnotationTableDrawerView
+    let distancePane: MSADistanceMatrixPaneView
+
+    var defaults: UserDefaults {
+        didSet { restorePersistedState() }
+    }
+    /// Injected so tests can assert the Reduce Motion path.
+    var reduceMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    var onTabChanged: ((Tab) -> Void)?
+    var onOpenStateChanged: ((Bool) -> Void)?
+
+    private(set) var isOpen = false
+    private(set) var selectedTab: Tab = .annotations
+    private(set) var lastAnimationDuration: TimeInterval = 0
+    private(set) lazy var heightConstraint: NSLayoutConstraint = heightAnchor.constraint(equalToConstant: 0)
+
+    /// The Distances tab needs a stored bundle; a read-only alignment has none.
+    var isDistancesAvailable = true {
+        didSet {
+            tabControl.setEnabled(isDistancesAvailable, forSegment: Tab.distances.rawValue)
+            showContent()
+        }
+    }
+
+    /// True while the pane drives the alignment selection, so the alignment
+    /// does not echo the change back into the matrix.
+    var isDrivingAlignmentSelection = false
+
+    /// Builds the Distances input on demand, so an alignment whose matrix is
+    /// never shown is never converted or computed.
+    typealias DistanceInput = () -> (records: [MSAAlignedRecord], alphabet: MSASequenceAlphabet)
+    private var pendingDistanceInput: DistanceInput?
+
+    /// Replaces the alignment the Distances tab computes from. Nil clears it.
+    func setDistanceInput(_ input: DistanceInput?) {
+        pendingDistanceInput = input
+        if input == nil { distancePane.load(records: [], alphabet: .nucleotide) }
+    }
+
+    /// Loads the pending alignment into the Distances pane once.
+    func loadPendingDistanceInput() {
+        guard let input = pendingDistanceInput else { return }
+        pendingDistanceInput = nil
+        let (records, alphabet) = input()
+        distancePane.load(records: records, alphabet: alphabet)
+    }
+
+    var hasPendingDistanceInput: Bool { pendingDistanceInput != nil }
+
+    private let headerStrip = NSView()
+    private let contentView = NSView()
+
+    init(
+        annotationDrawer: AnnotationTableDrawerView,
+        distancePane: MSADistanceMatrixPaneView? = nil,
+        defaults: UserDefaults = .standard
+    ) {
+        self.annotationDrawer = annotationDrawer
+        self.distancePane = distancePane
+            ?? MSADistanceMatrixPaneView(model: MSADistanceMatrixPaneModel(defaults: defaults))
+        self.defaults = defaults
+        super.init(frame: .zero)
+        clipsToBounds = true
+        build()
+        restorePersistedState()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    // MARK: Building
+
+    private func build() {
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Alignment bottom pane")
+        setAccessibilityIdentifier("msa-bottom-pane")
+
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.setAccessibilityLabel("Bottom pane resize handle")
+        divider.setAccessibilityIdentifier("msa-bottom-pane-divider")
+        divider.setAccessibilityHelp(
+            "Drag vertically, or press the Up and Down Arrow keys, to resize the pane under the alignment."
+        )
+        divider.onResize = { [weak self] delta in self?.resize(by: delta, persist: false) }
+        divider.onFinishResize = { [weak self] in self?.persistHeight() }
+        divider.currentHeight = { [weak self] in self?.heightConstraint.constant ?? 0 }
+
+        headerStrip.translatesAutoresizingMaskIntoConstraints = false
+        headerStrip.clipsToBounds = true
+        tabControl.translatesAutoresizingMaskIntoConstraints = false
+        tabControl.segmentStyle = .rounded
+        tabControl.controlSize = .small
+        tabControl.target = self
+        tabControl.action = #selector(tabControlChanged(_:))
+        tabControl.setAccessibilityLabel("Bottom pane content")
+        tabControl.setAccessibilityIdentifier("msa-bottom-pane-tabs")
+        tabControl.setToolTip("Annotation table", forSegment: Tab.annotations.rawValue)
+        tabControl.setToolTip("Pairwise distance matrix (Control-Command-M)", forSegment: Tab.distances.rawValue)
+        headerStrip.addSubview(tabControl)
+
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.clipsToBounds = true
+        annotationDrawer.translatesAutoresizingMaskIntoConstraints = false
+        annotationDrawer.showsDragHandle = false
+        distancePane.translatesAutoresizingMaskIntoConstraints = false
+        for content in [annotationDrawer, distancePane] as [NSView] {
+            contentView.addSubview(content)
+            NSLayoutConstraint.activate([
+                content.topAnchor.constraint(equalTo: contentView.topAnchor),
+                content.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                content.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                content.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            ])
+        }
+
+        addSubview(divider)
+        addSubview(headerStrip)
+        addSubview(contentView)
+        NSLayoutConstraint.activate([
+            divider.topAnchor.constraint(equalTo: topAnchor),
+            divider.leadingAnchor.constraint(equalTo: leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: trailingAnchor),
+            divider.heightAnchor.constraint(equalToConstant: AnnotationDrawerSizing.dividerHeight),
+
+            headerStrip.topAnchor.constraint(equalTo: divider.bottomAnchor),
+            headerStrip.leadingAnchor.constraint(equalTo: leadingAnchor),
+            headerStrip.trailingAnchor.constraint(equalTo: trailingAnchor),
+            headerStrip.heightAnchor.constraint(equalToConstant: Self.headerHeight),
+            tabControl.leadingAnchor.constraint(equalTo: headerStrip.leadingAnchor, constant: 8),
+            tabControl.centerYAnchor.constraint(equalTo: headerStrip.centerYAnchor),
+
+            contentView.topAnchor.constraint(equalTo: headerStrip.bottomAnchor),
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        // Lower than required so a zero height while closed never conflicts
+        // with the fixed divider and header heights inside.
+        heightConstraint.priority = .defaultHigh + 1
+        heightConstraint.isActive = true
+        divider.nextKeyView = tabControl
+    }
+
+    // MARK: State
+
+    /// Reads the open state, tab and height from the defaults, without animation.
+    func restorePersistedState() {
+        let storedTab = defaults.string(forKey: DefaultsKey.tab).flatMap(Tab.init(defaultsValue:))
+        selectedTab = storedTab ?? .annotations
+        tabControl.selectedSegment = selectedTab.rawValue
+        showContent()
+        applyOpen(defaults.bool(forKey: DefaultsKey.isOpen), animated: false, persist: false)
+    }
+
+    /// The height the pane opens to, from the defaults.
+    var preferredOpenHeight: CGFloat {
+        let stored = CGFloat(defaults.double(forKey: DefaultsKey.height))
+        return stored >= Self.minimumHeight ? stored : Self.defaultHeight
+    }
+
+    /// The visible tab: Distances falls back to Annotations while unavailable.
+    var visibleTab: Tab {
+        selectedTab == .distances && !isDistancesAvailable ? .annotations : selectedTab
+    }
+
+    /// Clamps a height to at least 120pt and at most the host height minus 140pt.
+    static func clampedHeight(_ proposed: CGFloat, hostHeight: CGFloat) -> CGFloat {
+        let maximum = max(minimumHeight, hostHeight - reservedAlignmentHeight)
+        return min(max(proposed, minimumHeight), maximum)
+    }
+
+    private var hostHeight: CGFloat {
+        let height = superview?.bounds.height ?? 0
+        return height > 0 ? height : .greatestFiniteMagnitude
+    }
+
+    func setOpen(_ open: Bool, animated: Bool = true) {
+        applyOpen(open, animated: animated, persist: true)
+    }
+
+    func select(_ tab: Tab) {
+        guard tab != selectedTab else {
+            showContent()
+            return
+        }
+        selectedTab = tab
+        tabControl.selectedSegment = tab.rawValue
+        defaults.set(tab.defaultsValue, forKey: DefaultsKey.tab)
+        showContent()
+        onTabChanged?(tab)
+    }
+
+    /// Changes the open height by `delta`, clamped. Backs the divider drag,
+    /// its arrow keys and View > Make Drawer Taller / Shorter.
+    func resize(by delta: CGFloat, persist: Bool = true) {
+        guard isOpen else { return }
+        heightConstraint.constant = Self.clampedHeight(heightConstraint.constant + delta, hostHeight: hostHeight)
+        superview?.layoutSubtreeIfNeeded()
+        if persist { persistHeight() }
+    }
+
+    private func persistHeight() {
+        guard isOpen else { return }
+        defaults.set(Double(heightConstraint.constant), forKey: DefaultsKey.height)
+    }
+
+    private func applyOpen(_ open: Bool, animated: Bool, persist: Bool) {
+        let changed = open != isOpen
+        isOpen = open
+        if persist { defaults.set(open, forKey: DefaultsKey.isOpen) }
+        let target = open ? Self.clampedHeight(preferredOpenHeight, hostHeight: hostHeight) : 0
+        if open { isHidden = false }
+        let duration = animated && !reduceMotion() ? Self.animationDuration : 0
+        lastAnimationDuration = duration
+        if duration == 0 || window == nil {
+            heightConstraint.constant = target
+            superview?.layoutSubtreeIfNeeded()
+            isHidden = !open
+        } else {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.allowsImplicitAnimation = true
+                heightConstraint.animator().constant = target
+                superview?.layoutSubtreeIfNeeded()
+            } completionHandler: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, !self.isOpen else { return }
+                    self.isHidden = true
+                }
+            }
+        }
+        if changed { onOpenStateChanged?(open) }
+    }
+
+    private func showContent() {
+        let tab = visibleTab
+        annotationDrawer.isHidden = tab != .annotations
+        distancePane.isHidden = tab != .distances
+        if tabControl.selectedSegment != tab.rawValue {
+            tabControl.selectedSegment = tab.rawValue
+        }
+    }
+
+    @objc private func tabControlChanged(_ sender: NSSegmentedControl) {
+        guard let tab = Tab(rawValue: sender.selectedSegment) else { return }
+        select(tab)
+    }
+}

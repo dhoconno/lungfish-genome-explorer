@@ -9,11 +9,14 @@ import LungfishWorkflow
 /// (`emitStart(actionID:message:)`, `emitProgress`, `emitWarning`,
 /// `emitComplete`, `emitFailed`). Replaces the private per-command
 /// `msaActionStart`/`msaActionProgress`/… JSON schema with
-/// the shared `CLIEvent` wire format. `actionID`/`warningCount` are accepted
-/// for source compatibility but not part of the wire schema: no GUI caller
-/// ever read them (`CLIMSAActionRunner`'s callers all discard its result).
+/// the shared `CLIEvent` wire format. `actionID` is accepted for source
+/// compatibility only. The complete event adds a `warningCount` key beside the
+/// shared fields, which `CLIEventLineDecoder` ignores, so a script reading the
+/// JSON sees how many warnings the run printed.
 final class MSAActionCLIEventEmitter: @unchecked Sendable {
     private let emitter: CLIEventEmitter
+    private let enabled: Bool
+    private let emitLine: (String) -> Void
 
     init(
         enabled: Bool,
@@ -23,6 +26,8 @@ final class MSAActionCLIEventEmitter: @unchecked Sendable {
         fflush(stdout)
     }) {
         self.emitter = CLIEventEmitter(enabled: enabled, emit: emit)
+        self.enabled = enabled
+        self.emitLine = emit
     }
 
     func emitStart(actionID: String, message: String) {
@@ -38,7 +43,24 @@ final class MSAActionCLIEventEmitter: @unchecked Sendable {
     }
 
     func emitComplete(actionID: String, output: String, warningCount: Int) {
-        emitter.emitComplete(output: output)
+        guard enabled else { return }
+        guard let line = Self.completeLine(output: output, warningCount: warningCount) else {
+            emitter.emitComplete(output: output)
+            return
+        }
+        emitLine(line)
+    }
+
+    /// The shared complete event with `warningCount` added, keys sorted like
+    /// every other `CLIEvent` line.
+    static func completeLine(output: String, warningCount: Int) -> String? {
+        guard let data = try? JSONEncoder().encode(CLIEvent.complete(outputs: [output], message: nil)),
+              var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        object["warningCount"] = warningCount
+        guard let line = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            return nil
+        }
+        return String(data: line, encoding: .utf8)
     }
 
     func emitFailed(actionID: String, message: String) {

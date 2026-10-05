@@ -103,7 +103,7 @@ enum MultipleSequenceAlignmentColorScheme: Int, CaseIterable {
     }
 }
 
-private struct MSAAlignmentSequence: Equatable {
+struct MSAAlignmentSequence: Equatable {
     let name: String
     let sequence: [Character]
 
@@ -356,15 +356,17 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     var onAddAnnotationRequested: ((MultipleSequenceAlignmentAnnotationAddRequest) -> Void)?
     var onProjectAnnotationRequested: ((MultipleSequenceAlignmentAnnotationProjectionRequest) -> Void)?
     var onSelectionStateChanged: ((MultipleSequenceAlignmentSelectionState?) -> Void)?
+    var onExportDistanceMatrixRequested: ((URL, MSADistanceOptions) -> Void)?
+    var onFocusedDistancePairChanged: ((MSAFocusedDistancePair?) -> Void)?
 
-    private var alignmentRows: [MSAAlignmentSequence] = []
+    private(set) var alignmentRows: [MSAAlignmentSequence] = []
     private var rowIDsByIndex: [String] = []
     private var columnSummaries: [MSAColumnSummary] = []
     private var displayedColumns: [Int] = []
     private var coordinateMapsByRowID: [String: MultipleSequenceAlignmentBundle.RowCoordinateMap] = [:]
-    private var annotationStore = MultipleSequenceAlignmentBundle.AnnotationStore()
+    private(set) var annotationStore = MultipleSequenceAlignmentBundle.AnnotationStore()
     private var annotationTracks: [MSAAlignmentAnnotationTrack] = []
-    private var drawerAnnotationByResultID: [UUID: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] = [:]
+    var drawerAnnotationByResultID: [UUID: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] = [:]
     private var selectedRowIndex: Int?
     private var selectedAlignmentColumn: Int?
     private var selectedRowIndices = IndexSet()
@@ -417,8 +419,10 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         action: nil
     )
     private let alignmentScrollView = NSScrollView()
-    private let annotationDrawer = AnnotationTableDrawerView()
-    private var annotationDrawerHeightConstraint: NSLayoutConstraint?
+    let annotationDrawer = AnnotationTableDrawerView()
+    /// Bottom pane [Annotations | Distances]; reads its state from `gutterWidthDefaults`.
+    lazy var bottomPane = MSABottomPaneView(annotationDrawer: annotationDrawer, defaults: gutterWidthDefaults)
+    lazy var distanceMatrixToggleButton = makeDistanceMatrixToggleButton()
 
     // MARK: - Resizable name gutter
 
@@ -501,6 +505,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         configureCanvasViews()
         zoomToFit()
         refreshAnnotationDrawer()
+        prepareDistanceMatrix(bundleURL: url, rows: parsedRows)
         scrollSelectionIntoView()
         notifySelectionStateIfAvailable()
         return true
@@ -547,6 +552,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         configureCanvasViews()
         zoomToFit()
         refreshAnnotationDrawer()
+        prepareDistanceMatrix(bundleURL: nil, rows: parsedRows)
         updateVariableSiteButtonAvailability()
     }
 
@@ -733,24 +739,22 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
         view.addSubview(toolbar)
         view.addSubview(canvasContainer)
-        view.addSubview(annotationDrawer)
-        let drawerHeightConstraint = annotationDrawer.heightAnchor.constraint(equalToConstant: 0)
-        annotationDrawerHeightConstraint = drawerHeightConstraint
+        view.addSubview(bottomPane)
+        bottomPane.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             toolbar.heightAnchor.constraint(equalToConstant: 44),
 
-            annotationDrawer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            annotationDrawer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            annotationDrawer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            drawerHeightConstraint,
+            bottomPane.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomPane.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomPane.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             canvasContainer.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             canvasContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             canvasContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            canvasContainer.bottomAnchor.constraint(equalTo: annotationDrawer.topAnchor),
+            canvasContainer.bottomAnchor.constraint(equalTo: bottomPane.topAnchor),
         ])
     }
 
@@ -842,6 +846,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             nextVariableButton,
             colorSchemeControl,
             discriminatingLegendLabel,
+            distanceMatrixToggleButton,
         ])
         toolbar.orientation = .horizontal
         toolbar.alignment = .centerY
@@ -859,6 +864,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         for (index, view) in detachOrder.enumerated() {
             toolbar.setVisibilityPriority(NSStackView.VisibilityPriority(rawValue: Float(100 + 100 * index)), for: view)
         }
+        toolbar.setVisibilityPriority(NSStackView.VisibilityPriority(rawValue: 600), for: distanceMatrixToggleButton)
         return toolbar
     }
 
@@ -1109,7 +1115,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func configureAnnotationDrawer() {
-        annotationDrawer.isHidden = true
+        configureBottomPane()
         annotationDrawer.translatesAutoresizingMaskIntoConstraints = false
         annotationDrawer.delegate = self
         annotationDrawer.allowsAnnotationEditing = false
@@ -1407,6 +1413,33 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
     func notifySelectionStateIfAvailable() {
         onSelectionStateChanged?(selectionState())
+        syncDistanceMatrixSelection(selectedRowIndices)
+    }
+
+    /// Whole-row selection driven by the distance matrix pane (ruling U7). Rows
+    /// are alignment row indices, which equal the pane's record indices because
+    /// both come from the same parse of primary.aligned.fasta. The alignment
+    /// scrolls only when `reveal` is true, and never animates.
+    func focusAlignment() { view.window?.makeFirstResponder(alignmentMatrixView) }
+
+    func applyDistanceMatrixRowSelection(_ rows: IndexSet, reveal: Bool) {
+        let valid = rows.filteredIndexSet { alignmentRows.indices.contains($0) }
+        guard let first = valid.first else { return }
+        selectedRowIndices = valid
+        selectedRowIndex = first
+        rowSelectionAnchor = first
+        isWholeRowSelection = true
+        selectedAlignmentColumn = selectedAlignmentColumn ?? displayedColumns.first
+        selectedAlignmentColumnRange = nil
+        selectionAnchor = nil
+        applySelectionToCanvasViews()
+        if reveal, let last = valid.last, let column = selectedAlignmentColumn,
+           let top = alignmentMatrixView.rectFor(row: first, alignmentColumn: column),
+           let bottom = alignmentMatrixView.rectFor(row: last, alignmentColumn: column) {
+            alignmentMatrixView.scrollToVisible(top.union(bottom).insetBy(dx: -40, dy: -16))
+        }
+        refreshAnnotationDrawer()
+        notifySelectionStateIfAvailable()
     }
 
     private func selectionState() -> MultipleSequenceAlignmentSelectionState? {
@@ -1601,12 +1634,6 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         String(lhs).uppercased() == String(rhs).uppercased()
     }
 
-    private func refreshAnnotationDrawer() {
-        let rows = annotationDrawerRows()
-        drawerAnnotationByResultID = Dictionary(uniqueKeysWithValues: rows.map { ($0.result.id, $0.annotation) })
-        annotationDrawer.setAnnotations(rows.map(\.result))
-    }
-
     private func refreshAnnotationTracks() {
         annotationTracks = annotationStore.allAnnotations.compactMap { annotation in
             let rowIndex = rowIDsByIndex.firstIndex(of: annotation.rowID)
@@ -1617,61 +1644,6 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         alignmentMatrixView.annotationTracks = annotationTracks
         alignmentMatrixView.updateAccessibilityOverlays()
         alignmentMatrixView.needsDisplay = true
-    }
-
-    private func annotationDrawerRows() -> [(result: AnnotationSearchIndex.SearchResult, annotation: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord)] {
-        annotationStore.allAnnotations.map { annotation in
-            let resultID = UUID()
-            return (
-                AnnotationSearchIndex.SearchResult(
-                    id: resultID,
-                    name: annotation.name,
-                    chromosome: annotation.rowName,
-                    start: annotation.sourceIntervals.map(\.start).min() ?? 0,
-                    end: annotation.sourceIntervals.map(\.end).max() ?? 0,
-                    trackId: annotation.sourceTrackID,
-                    type: annotation.type,
-                    strand: annotation.strand,
-                    attributes: drawerAttributes(for: annotation)
-                ),
-                annotation
-            )
-        }
-    }
-
-    private func drawerAttributes(
-        for annotation: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord
-    ) -> [String: String] {
-        var attributes = annotation.qualifiers.mapValues { $0.joined(separator: ", ") }
-        attributes["source_coordinates"] = coordinateText(
-            sequenceName: annotation.sourceSequenceName,
-            intervals: annotation.sourceIntervals
-        )
-        attributes["alignment_columns"] = intervalText(annotation.alignedIntervals, oneBased: true)
-        attributes["consensus_columns"] = intervalText(annotation.alignedIntervals, oneBased: true)
-        attributes["alignment_row"] = annotation.rowName
-        attributes["source_sequence"] = annotation.sourceSequenceName
-        attributes["source_track"] = annotation.sourceTrackName
-        attributes["origin"] = annotation.origin.rawValue
-        return attributes
-    }
-
-    private func coordinateText(
-        sequenceName: String,
-        intervals: [AnnotationInterval]
-    ) -> String {
-        let spans = intervalText(intervals, oneBased: true)
-        return spans.isEmpty ? sequenceName : "\(sequenceName):\(spans)"
-    }
-
-    private func intervalText(
-        _ intervals: [AnnotationInterval],
-        oneBased: Bool
-    ) -> String {
-        intervals.map { interval in
-            let start = oneBased ? interval.start + 1 : interval.start
-            return "\(start)-\(interval.end)"
-        }.joined(separator: ",")
     }
 
     private func selectedAnnotations() -> [MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] {
@@ -1725,7 +1697,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         selectAnnotation(annotation, zoom: true)
     }
 
-    private func selectAnnotation(
+    func selectAnnotation(
         _ annotation: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord,
         zoom: Bool
     ) {
@@ -2073,7 +2045,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         )
     }
 
-    private static func fastaRecord(name: String, sequence: String) -> String {
+    static func fastaRecord(name: String, sequence: String) -> String {
         ">\(name)\n\(sequence)\n"
     }
 
@@ -2428,109 +2400,12 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 }
 
-extension MultipleSequenceAlignmentViewController: AnnotationTableDrawerDelegate {
-    func annotationDrawer(
-        _ drawer: AnnotationTableDrawerView,
-        didSelectAnnotation result: AnnotationSearchIndex.SearchResult
-    ) {
-        guard let annotation = drawerAnnotationByResultID[result.id] else { return }
-        selectAnnotation(annotation, zoom: false)
-    }
-
-    func annotationDrawer(
-        _ drawer: AnnotationTableDrawerView,
-        didRequestExtract annotations: [SequenceAnnotation]
-    ) {
-        var records: [String] = []
-        var extractedAnnotations: [String: [SequenceAnnotation]] = [:]
-        for annotation in annotations {
-            guard let rowName = annotation.chromosome,
-                  let row = alignmentRows.first(where: { $0.name == rowName }) else { continue }
-            let sequence = row.ungappedSequenceString
-            let intervals = annotation.intervals
-            let extracted = intervals.compactMap { interval -> String? in
-                guard interval.start >= 0,
-                      interval.end <= sequence.count,
-                      interval.end > interval.start else { return nil }
-                let startIndex = sequence.index(sequence.startIndex, offsetBy: interval.start)
-                let endIndex = sequence.index(sequence.startIndex, offsetBy: interval.end)
-                return String(sequence[startIndex..<endIndex])
-            }.joined()
-            guard !extracted.isEmpty else { continue }
-
-            let recordName = "\(rowName)_\(Self.sanitizedFASTAComponent(annotation.name))"
-            records.append(Self.fastaRecord(name: recordName, sequence: extracted))
-            extractedAnnotations[recordName] = [
-                SequenceAnnotation(
-                    type: annotation.type,
-                    name: annotation.name,
-                    chromosome: recordName,
-                    intervals: Self.rebasedIntervals(intervals),
-                    strand: annotation.strand,
-                    qualifiers: annotation.qualifiers,
-                    note: annotation.note
-                ),
-            ]
-        }
-        guard !records.isEmpty else { return }
-        onExtractAnnotatedSequenceRequested?(
-            records,
-            bundle?.manifest.name ?? "alignment-annotations",
-            extractedAnnotations
-        )
-    }
-
-    func annotationDrawerSelectedSequenceRegion(
-        _ drawer: AnnotationTableDrawerView
-    ) -> AnnotationTableDrawerSelectionRegion? {
-        nil
-    }
-
-    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didDeleteVariants count: Int) {}
-
-    func annotationDrawer(
-        _ drawer: AnnotationTableDrawerView,
-        didResolveGeneRegions regions: [GeneRegion]
-    ) {}
-
-    func annotationDrawer(
-        _ drawer: AnnotationTableDrawerView,
-        didUpdateVisibleVariantRenderKeys keys: Set<String>?
-    ) {}
-
-    func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat) {
-        guard let heightConstraint = annotationDrawerHeightConstraint else { return }
-        let availableHeight = max(160, view.bounds.height - 140)
-        heightConstraint.constant = min(max(heightConstraint.constant + deltaY, 96), availableHeight)
-        view.layoutSubtreeIfNeeded()
-    }
-
-    func annotationDrawerDidFinishDraggingDivider(_ drawer: AnnotationTableDrawerView) {}
-
-    private static func sanitizedFASTAComponent(_ value: String) -> String {
-        let replaced = value.replacingOccurrences(
-            of: "[^A-Za-z0-9._-]+",
-            with: "_",
-            options: .regularExpression
-        )
-        let trimmed = replaced.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
-        return trimmed.isEmpty ? "annotation" : trimmed
-    }
-
-    private static func rebasedIntervals(_ intervals: [AnnotationInterval]) -> [AnnotationInterval] {
-        var offset = 0
-        return intervals.map { interval in
-            let length = max(0, interval.end - interval.start)
-            defer { offset += length }
-            return AnnotationInterval(start: offset, end: offset + length)
-        }
-    }
-}
-
 extension MultipleSequenceAlignmentViewController {
     func testingSetGutterWidth(_ width: CGFloat) { setGutterWidth(width) }
 
     var testingGutterWidth: CGFloat { gutterWidth }
+
+    var testingSelectedRowIndices: IndexSet { selectedRowIndices }
 
     var testingEffectiveVisibleMatrixWidth: CGFloat { effectiveVisibleMatrixWidth() }
 

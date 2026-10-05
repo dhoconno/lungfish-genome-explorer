@@ -14,8 +14,8 @@ import XCTest
 /// reads. A `.contextActions` command must arrive as a custom action on a
 /// reachable element, not just exist as a SwiftUI modifier; the lazy
 /// containers that used to hide rows behind an opaque provider are gone;
-/// the variant selection list is capped; the MSA pairwise rows are table
-/// rows; and a Run Inputs path reads project-relative with the recorded path
+/// the variant selection list is capped; the MSA Pairwise Distance section
+/// reads its focused pair; and a Run Inputs path reads project-relative with the recorded path
 /// as its value.
 @MainActor
 final class InspectorSectionAccessibilityTests: XCTestCase {
@@ -185,76 +185,52 @@ final class InspectorSectionAccessibilityTests: XCTestCase {
         assertNoOpaqueProviderGroup(in: window)
     }
 
-    // MARK: - MSA pairwise identity
+    // MARK: - MSA pairwise distance
 
-    func testPairwiseIdentityRowsAreTableRowsReachableThroughAX() async throws {
-        let records = [
-            MSAAlignedRecord(name: "seq1", sequence: "ACGTACGTAC"),
-            MSAAlignedRecord(name: "seq2", sequence: "ACGTACGAAC"),
-            MSAAlignedRecord(name: "seq3", sequence: "ACGTTCGAAC"),
-        ]
-        let model = MSAPairwiseIdentityInspectorModel(
-            bundleURL: tempRoot.appendingPathComponent("panel.lungfishmsa"),
-            recordLoader: { _ in records }
-        )
-        model.onExportRequested = { _ in }
-        await model.compute()
-        XCTAssertEqual(model.status, .ready)
-        XCTAssertEqual(model.pairs.count, 3)
-
-        let window = host(MSAPairwiseIdentitySection(model: model, isExpanded: .constant(true)))
-        AccessibilityTreeProbe.waitUntil { tableView(in: window) != nil }
-        let table = try XCTUnwrap(tableView(in: window), "no NSTableView hosts the pairs; tree:\n" + AccessibilityTreeProbe.dump(window))
-        AccessibilityTreeProbe.waitUntil { table.numberOfRows == 3 }
-        XCTAssertEqual(table.numberOfRows, 3)
-        let rows = AccessibilityRowProbe.rowProxies(of: table)
-        XCTAssertEqual(rows.count, 3, "one AX row per pair")
-        XCTAssertEqual(table.tableColumns.map(\.title), ["Sequence A", "Sequence B", model.model.displayName, "Sites"])
-
-        // Sorting goes through the table header's AX press, as VoiceOver does.
-        let header = try XCTUnwrap(table.headerView, "the table has a header")
-        // The header cells are legacy AX proxies: read AXTitle and
-        // AXSortDirection and press them, as VoiceOver does.
-        func headerCell(_ title: String) throws -> NSObject {
-            try XCTUnwrap(
-                AccessibilityTreeProbe.children(of: header).first {
-                    ($0.accessibilityAttributeValue(.title) as? String) == title
-                },
-                "no header cell titled \(title)"
+    func testPairwiseDistanceSectionExposesShowButtonAndFocusedPairBreakdown() throws {
+        let model = MSAPairwiseDistanceInspectorModel(bundleURL: tempRoot.appendingPathComponent("panel.lungfishmsa"))
+        model.isExpanded = true
+        var showCount = 0
+        model.onShowDistanceMatrix = { showCount += 1 }
+        model.focusedPair = MSAFocusedDistancePair(
+            rowName: "seq1",
+            columnName: "seq2",
+            model: .k2p,
+            detail: MSAPairDetail(
+                value: 0.105361, comparableSites: 29_734, differences: 44, identicalSites: 29_690,
+                transitions: 30, transversions: 14, gapSkipped: 12, ambiguitySkipped: 3
             )
+        )
+        let window = host(MSAPairwiseDistanceSection(model: model))
+        func texts() -> [String] {
+            AccessibilityTreeProbe.all(in: window).compactMap {
+                AccessibilityTreeProbe.label($0) ?? AccessibilityTreeProbe.value($0)
+            }
         }
-        func sortDirection(_ cell: NSObject) -> String? {
-            cell.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: "AXSortDirection")) as? String
+        AccessibilityTreeProbe.waitUntil { texts().contains { $0.contains("Transversions") } }
+        let all = texts().joined(separator: " | ")
+        for expected in ["seq1 vs seq2", "0.105361", "29,734", "Gap-skipped", "Ambiguity-skipped", "Transitions", "Transversions"] {
+            XCTAssertTrue(all.contains(expected), "missing \(expected) in AX text: \(all)")
         }
-        func press(_ cell: NSObject) {
-            cell.accessibilityPerformAction(.press)
-        }
-        let sequenceA = try headerCell("Sequence A")
-        press(sequenceA)
-        AccessibilityTreeProbe.waitUntil { sortDirection(try! headerCell("Sequence A")) == "AXAscendingSortDirection" }
-        XCTAssertEqual(sortDirection(try headerCell("Sequence A")), "AXAscendingSortDirection", "the header exposes the sort state")
-        XCTAssertEqual(model.sortedPairs.map(\.rowName), ["seq1", "seq1", "seq2"], "sorted by Sequence A ascending")
-        // The sorted order is what the table's AX rows show.
-        let firstRow = try XCTUnwrap(AccessibilityRowProbe.rowProxies(of: table).first as? NSObject)
-        let cellTexts = AccessibilityTreeProbe.all(in: firstRow)
-            .compactMap { AccessibilityTreeProbe.value($0) ?? AccessibilityTreeProbe.label($0) }
-        XCTAssertTrue(cellTexts.contains("seq1"), "first AX row: \(cellTexts)")
-
-        // Numeric columns sort descending on their first press.
-        let sites = try headerCell("Sites")
-        press(sites)
-        AccessibilityTreeProbe.waitUntil { sortDirection(try! headerCell("Sites")) == "AXDescendingSortDirection" }
-        XCTAssertEqual(sortDirection(try headerCell("Sites")), "AXDescendingSortDirection", "a numeric column opens descending")
-
+        let button = try XCTUnwrap(
+            AccessibilityTreeProbe.all(in: window).first {
+                AccessibilityTreeProbe.role($0) == "AXButton" && AccessibilityTreeProbe.label($0) == "Show Distance Matrix"
+            },
+            "no Show Distance Matrix button; tree:\n" + AccessibilityTreeProbe.dump(window)
+        )
+        XCTAssertTrue(AccessibilityTreeProbe.press(button), "the button answers AXPress")
+        AccessibilityTreeProbe.waitUntil { showCount == 1 }
+        XCTAssertEqual(showCount, 1)
     }
 
-    private func tableView(in window: NSWindow) -> NSTableView? {
-        func find(_ view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            for child in view.subviews { if let found = find(child) { return found } }
-            return nil
+    func testPairwiseDistanceValueTextSpellsOutUndefinedAndSaturated() {
+        func detail(_ value: Double) -> MSAPairDetail {
+            MSAPairDetail(value: value, comparableSites: 0, differences: 0, identicalSites: 0,
+                          transitions: 0, transversions: 0, gapSkipped: 0, ambiguitySkipped: 0)
         }
-        return window.contentView.flatMap(find)
+        XCTAssertTrue(MSAPairwiseDistanceInspectorModel.valueText(detail: detail(.nan), model: .jc69).contains("no comparable sites"))
+        XCTAssertTrue(MSAPairwiseDistanceInspectorModel.valueText(detail: detail(.infinity), model: .jc69).hasPrefix("Saturated."))
+        XCTAssertEqual(MSAPairwiseDistanceInspectorModel.valueText(detail: detail(0.5), model: .identity), "0.500000")
     }
 
     // MARK: - Filter chips and the option picker
