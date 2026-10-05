@@ -250,19 +250,20 @@ lungfish-cli fetch sra search <query> [--limit <limit>] [--api-key <api-key>]
 
 ### `fetch sra download`
 
-Downloads a run's FASTQ files. LGE asks ENA first, so no SRA Toolkit is needed unless you add `--use-toolkit`. Explained in [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md).
+Downloads a run's FASTQ files. LGE asks ENA first by default, so the SRA Toolkit is needed only when ENA fails or you add `--prefer-source ncbi` or `--use-toolkit`. Explained in [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md).
 
 ```text
-lungfish-cli fetch sra download <accession> [--output-dir <output-dir>] [--use-toolkit]
+lungfish-cli fetch sra download <accession> [--output-dir <output-dir>] [--use-toolkit] [--prefer-source <source>]
 ```
 
-If any part of the ENA download fails, including a file that turns out to be a web page, empty, not gzip, or a different size from the one ENA advertised, the command retries the whole run through the NCBI SRA Toolkit (`prefetch`, then `fasterq-dump`). `--use-toolkit` skips ENA entirely. It writes loose files, `<run>_1.fastq.gz` and `<run>_2.fastq.gz` or `<run>.fastq.gz` for single-end reads, plus one `.lungfish-provenance.json` for the download. When ENA lists a third file for a paired run, `<run>.fastq.gz` beside the two mates, it holds the reads whose mate is missing, and the command keeps it. That record's `selectedStrategy` reads `ena-direct`, `sra-toolkit`, or `sra-toolkit-fallback`. The window's SRA download writes a bundle into the project instead.
+If any part of the ENA download fails, including a file that turns out to be a web page, empty, not gzip, or a different size from the one ENA advertised, the command retries the whole run through the NCBI SRA Toolkit (`prefetch`, then `fasterq-dump --split-3`) and prints a line naming the run and ENA's reason. `--prefer-source ncbi` reverses the order. The toolkit runs first, and ENA serves the run only when the toolkit is not installed or fails. `--use-toolkit` fetches with the toolkit only, with no fallback to ENA, and cannot be combined with `--prefer-source`. ENA's files arrive compressed, as `<run>_1.fastq.gz` and `<run>_2.fastq.gz` or `<run>.fastq.gz` for single-end reads. The toolkit writes the same names uncompressed, ending `.fastq`. Either way the command also writes one `.lungfish-provenance.json` for the download. A third file named after the run alone, beside the two mates of a paired run, holds the reads whose mate is missing, and the command keeps it. That record's `requestedStrategy` reads `ena-direct`, `sra-toolkit-first`, or `sra-toolkit`, and its `selectedStrategy` reads `ena-direct`, `sra-toolkit`, `sra-toolkit-fallback`, or `ena-fallback`. Its `preferredSource` reads `ena` or `ncbi`, or null under `--use-toolkit`. The window's SRA download writes a bundle into the project instead.
 
 | Argument or flag | What it does |
 |---|---|
 | `<accession>` | SRA run accession (for example, SRR11140748). |
 | `--output-dir <output-dir>` | Output directory for FASTQ files. The default is `.`. |
-| `--use-toolkit` | Use SRA Toolkit instead of ENA (requires prefetch/fasterq-dump). |
+| `--use-toolkit` | Fetch with the SRA Toolkit only, with no fallback to ENA (requires prefetch/fasterq-dump). |
+| `--prefer-source <source>` | Archive to try first, `ena` (the default) or `ncbi`. When the preferred source fails, the other one is tried. |
 
 ### `fetch sra info`
 

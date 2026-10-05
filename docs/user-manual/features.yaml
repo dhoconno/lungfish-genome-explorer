@@ -97,17 +97,27 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/FetchCommand.swift
       - Sources/LungfishCLI/Commands/SRADownloadSubcommand.swift
+      - Sources/LungfishCLI/Commands/SRADownloadSubcommand+PreferSource.swift
+      - Sources/LungfishCore/Services/SRA/SRADownloadSourcePreference.swift
+      - Sources/LungfishCore/Services/NCBI/SRAService+SourcePreference.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseSearchDialog.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/SRARunsSearchPane.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/SRADownloadSourcePicker.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/SRAWindowRunDownload.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
       - Sources/LungfishApp/Services/DownloadCenter.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController+OperationBegin.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift
-    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
+    module: [LungfishApp, LungfishCLI, LungfishCore, LungfishWorkflow]
     notes: >-
-      Downloads SRA reads through ENA or SRA Toolkit fallback paths and records
-      the downloader, options, produced FASTQ files, checksums, sizes, and
-      runtime details in the output directory provenance sidecar.
+      Downloads SRA reads from ENA with an SRA Toolkit fallback, or from the
+      SRA Toolkit first with an ENA fallback when the SRA window's "Download
+      source" setting is Prefer NCBI or the CLI gets --prefer-source ncbi.
+      --use-toolkit fetches with the toolkit only. fasterq-dump runs with
+      --split-3, so reads without a mate land in <run>.fastq and import as
+      unpaired reads. Records the downloader, preferredSource, options,
+      produced FASTQ files, checksums, sizes, and runtime details in the
+      output directory provenance sidecar.
   map:
     title: Map reads to a reference
     entry_points:
