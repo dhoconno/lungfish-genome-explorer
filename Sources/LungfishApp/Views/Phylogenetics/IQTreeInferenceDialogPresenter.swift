@@ -7,6 +7,10 @@ import SwiftUI
 
 @MainActor
 struct IQTreeInferenceDialogPresenter {
+    /// About 780x640 (D1). The form scrolls when the sheet is smaller.
+    static let contentSize = NSSize(width: 780, height: 640)
+    static let minimumContentSize = NSSize(width: 680, height: 480)
+
     static func present(
         from window: NSWindow,
         request: MultipleSequenceAlignmentTreeInferenceRequest,
@@ -21,7 +25,7 @@ struct IQTreeInferenceDialogPresenter {
 
         let panel = NSPanel(
             contentRect: .zero,
-            styleMask: [.titled],
+            styleMask: [.titled, .resizable],
             backing: .buffered,
             defer: true
         )
@@ -42,7 +46,8 @@ struct IQTreeInferenceDialogPresenter {
 
         let hostingController = NSHostingController(rootView: dialog)
         panel.contentViewController = hostingController
-        panel.setContentSize(NSSize(width: 980, height: 700))
+        panel.setContentSize(IQTreeInferenceDialogPresenter.contentSize)
+        panel.contentMinSize = IQTreeInferenceDialogPresenter.minimumContentSize
         window.beginSheet(panel)
     }
 }

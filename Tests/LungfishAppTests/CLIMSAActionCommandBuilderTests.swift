@@ -252,6 +252,38 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
         ])
     }
 
+    func testBuildIQTreeInferenceArgumentsJoinOutgroupNamesAfterThreads() {
+        let bundle = URL(fileURLWithPath: "/project/Multiple Sequence Alignments/example.lungfishmsa", isDirectory: true)
+        let project = URL(fileURLWithPath: "/project", isDirectory: true)
+        let output = URL(fileURLWithPath: "/project/Phylogenetic Trees/example.lungfishtree", isDirectory: true)
+
+        let args = CLIMSAActionCommandBuilder.buildIQTreeInferenceArguments(
+            bundleURL: bundle,
+            projectURL: project,
+            outputURL: output,
+            name: "example tree",
+            model: "MFP",
+            bootstrap: nil,
+            seed: 7,
+            threads: 1,
+            outgroup: ["Macaca mulatta", " ", "Mus musculus"],
+            iqtreePath: nil,
+            force: false
+        )
+
+        XCTAssertEqual(args, [
+            "tree", "infer", "iqtree", bundle.path,
+            "--project", project.path,
+            "--output", output.path,
+            "--name", "example tree",
+            "--model", "MFP",
+            "--seed", "7",
+            "--threads", "1",
+            "--outgroup", "Macaca mulatta,Mus musculus",
+            "--format", "json",
+        ])
+    }
+
     func testBuildAnnotationAddArgumentsUseCLIAnnotationSubcommandAndJSONProgress() {
         let bundle = URL(fileURLWithPath: "/project/Multiple Sequence Alignments/example.lungfishmsa", isDirectory: true)
 

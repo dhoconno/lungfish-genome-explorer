@@ -103,6 +103,7 @@ struct DatasetOperationsDialog<Detail: View>: View {
                         .background(sidebarCardBackground(for: tool))
                         .overlay(sidebarCardBorder(for: tool))
                     }
+                    .accessibilityAddTraits(selectedToolID == tool.id ? .isSelected : [])
                     .lungfishAccessibilityIdentifier(scopedID("tool-\(accessibilitySlug(for: tool.title))"))
                     .lungfishHelp(LungfishHelpContent.operationToolSidebar)
                     .buttonStyle(.plain)

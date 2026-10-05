@@ -57,26 +57,18 @@ extension ViewerViewController {
                 in: treeDirectory
             )
             let outputName = outputURL.deletingPathExtension().lastPathComponent
-            let args = CLIMSAActionCommandBuilder.buildIQTreeInferenceArguments(
+            // D5. A blank seed is drawn here, before `begin`, so the recorded
+            // command and the argv that runs both name the same --seed.
+            // Rows and columns come from the dialog's scope (K4), not the request.
+            let launch = IQTreeInferenceLaunch.make(
                 bundleURL: request.bundleURL,
                 projectURL: projectURL,
                 outputURL: outputURL,
-                rows: request.rows,
-                columns: request.columns,
-                name: outputName,
-                model: options.model,
-                sequenceType: options.sequenceType,
-                bootstrap: options.bootstrap,
-                alrt: options.alrt,
-                seed: options.seed,
-                threads: options.threads,
-                safeMode: options.safeMode,
-                keepIdenticalSequences: options.keepIdenticalSequences,
-                extraIQTreeOptions: options.extraIQTreeOptions,
-                iqtreePath: options.iqtreePath,
-                force: false
+                outputName: outputName,
+                options: options
             )
-            let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: args)
+            let args = launch.arguments
+            let cliCommand = launch.cliCommand
             let startResult = OperationCenter.shared.begin(
                 title: "Build Tree with IQ-TREE",
                 detail: "Inferring tree from \(request.displayName)...",
@@ -93,6 +85,12 @@ extension ViewerViewController {
                 // "Bundle is busy" row is already inserted; do not launch the CLI runner.
                 return
             }
+            OperationCenter.shared.log(id: opID, level: .info, message: launch.seedLogMessage)
+            OperationCenter.shared.log(
+                id: opID,
+                level: .info,
+                message: "IQ-TREE runs with \(options.threads) \(options.threads == 1 ? "thread" : "threads")."
+            )
             let runner = CLITreeRunner(label: "tree inference")
             OperationCenter.shared.setCancelCallback(for: opID) {
                 runner.cancel()
