@@ -203,7 +203,7 @@ public class DatabaseBrowserViewController: NSViewController {
     private var hostingView: NSHostingView<DatabaseSearchDialog>!
 
     /// Shared dialog state backing the hosted SwiftUI dialog.
-    private var dialogState: DatabaseSearchDialogState!
+    private(set) var dialogState: DatabaseSearchDialogState!
 
     /// Completion handler called when user cancels
     public var onCancel: (() -> Void)?
@@ -272,8 +272,7 @@ public class DatabaseBrowserViewController: NSViewController {
             }
         )
 
-        hostingView = NSHostingView(rootView: DatabaseSearchDialog(state: dialogState))
-        hostingView.frame = NSRect(x: 0, y: 0, width: 900, height: 620)
+        hostingView = Self.makeSheetHostingView(rootView: DatabaseSearchDialog(state: dialogState))
         self.view = hostingView
     }
 
