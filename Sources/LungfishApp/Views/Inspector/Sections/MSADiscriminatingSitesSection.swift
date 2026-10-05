@@ -10,13 +10,12 @@ import LungfishKit
 /// "Export JSON…" run the same command into a destination the user picks.
 struct MSADiscriminatingSitesSection: View {
     @Bindable var model: MSADiscriminatingSitesInspectorModel
-    @Binding var isExpanded: Bool
 
     private static let noTemplateTag = ""
     private static let noExclusionFileTag = ""
 
     var body: some View {
-        DisclosureGroup("Discriminating Sites", isExpanded: $isExpanded) {
+        DisclosureGroup("Discriminating Sites", isExpanded: $model.isExpanded) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Columns where every target row carries one base that the exclusion sequences do not. Anchor a primer 3′ end or a probe on one to make the assay specific.")
                     .font(LungfishInspectorStyle.controlFont)

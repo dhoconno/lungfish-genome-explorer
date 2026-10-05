@@ -126,6 +126,9 @@ public class InspectorViewController: NSViewController {
     }
     var activeContentSelectionIdentity: ContentSelectionIdentity?
     var selectedFASTQMetadataTargetBundleURLs: [URL] = []
+    /// Set while an alignment selection change is one the Inspector caused or the
+    /// alignment's load made, so the next selection update keeps the current tab.
+    var holdsTabOnNextMSASelection = false
 
     // MARK: - Lifecycle
 
