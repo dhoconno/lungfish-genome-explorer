@@ -77,3 +77,15 @@ public extension ENAService {
         return .enaMirror(record)
     }
 }
+
+/// Where one SRA run's FASTQ files came from, as the run's provenance and
+/// FASTQ metadata record it under `downloadSource`.
+public enum SRAFASTQDownloadSource: String, Sendable, CaseIterable {
+    /// ENA's mirror served every file ENA lists for the run.
+    case ena = "ENA"
+    /// The route skipped ENA, so the SRA Toolkit fetched the run from NCBI.
+    case sraToolkit = "SRA Toolkit"
+    /// A file from ENA's mirror failed the download check, so the SRA
+    /// Toolkit fetched the whole run.
+    case sraToolkitAfterIncompleteMirror = "SRA Toolkit (ENA mirror incomplete)"
+}

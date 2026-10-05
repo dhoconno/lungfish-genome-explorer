@@ -2989,11 +2989,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     let route = try await ena.fastqDownloadRoute(forRun: record.accession)
                     let readRecord = route.enaRecord
 
-                    // 2. Download each FASTQ file to the batch directory
-                    var downloadedFASTQFiles: [URL] = []
-                    var enaDownloadSteps: [StepExecution] = []
                     let toolkitTraceCollector = SRAGUIDownloadTraceCollector()
-                    var downloadSource = "ENA"
 
                     func downloadViaToolkit(statusDetail: String) async throws -> [URL] {
                         performOnMainRunLoop {
@@ -3026,104 +3022,35 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         )
                     }
 
-                    switch route {
-                    case .enaMirror(let readRecord):
-                        let fastqURLs = readRecord.fastqHTTPURLs
-                        let totalExpectedBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
-                        let perFileSizes = ENAFASTQDownloadValidator.expectedByteCounts(for: readRecord)
-
-                        var priorBytesDownloaded: Int64 = 0
-
-                        do {
-                            for (fileIdx, fastqURL) in fastqURLs.enumerated() {
-                                let filename = fastqURL.lastPathComponent
-                                let localPath = batchDir.appendingPathComponent(filename)
-                                let fileExpectedBytes = fileIdx < perFileSizes.count ? perFileSizes[fileIdx] : nil
-
-                                logger.info("startENADownloadTask: Downloading \(fastqURL.absoluteString, privacy: .public)")
-
-                                let capturedPrior = priorBytesDownloaded
-                                let capturedTotal = totalExpectedBytes
-
-                                let downloadStartedAt = Date()
-                                let data = try await streamingDownload(
-                                    url: fastqURL,
-                                    totalBytes: fileExpectedBytes,
-                                    progressHandler: { bytesWritten, _ in
-                                        let totalSoFar = capturedPrior + bytesWritten
-                                        performOnMainRunLoop {
-                                            DownloadCenter.shared.updateBytes(
-                                                id: downloadCenterTaskID,
-                                                bytesDownloaded: totalSoFar,
-                                                totalBytes: capturedTotal
-                                            )
-                                        }
+                    // 2. Download each FASTQ file to the batch directory
+                    let totalExpectedBytes = readRecord?.totalFileSizeBytes.map { Int64($0) }
+                    let runDownload = try await SRAWindowRunDownload.download(
+                        accession: record.accession,
+                        route: route,
+                        into: batchDir,
+                        mirrorFile: { fastqURL, fileExpectedBytes, priorBytes in
+                            try await streamingDownload(
+                                url: fastqURL,
+                                totalBytes: fileExpectedBytes,
+                                progressHandler: { bytesWritten, _ in
+                                    let totalSoFar = priorBytes + bytesWritten
+                                    performOnMainRunLoop {
+                                        DownloadCenter.shared.updateBytes(
+                                            id: downloadCenterTaskID,
+                                            bytesDownloaded: totalSoFar,
+                                            totalBytes: totalExpectedBytes
+                                        )
                                     }
-                                )
-
-                                try data.write(to: localPath)
-                                // ENA's mirror answers a missing mate with a 200 HTML
-                                // directory listing. Catch it here rather than in fastp.
-                                try ENAFASTQDownloadValidator.validate(
-                                    fileURL: localPath,
-                                    expectedBytes: fileExpectedBytes
-                                )
-                                let downloadCompletedAt = Date()
-                                enaDownloadSteps.append(
-                                    StepExecution(
-                                        toolName: "https-download",
-                                        toolVersion: "URLSession",
-                                        command: [
-                                            "curl",
-                                            "-L",
-                                            "--fail",
-                                            "--user-agent", "Lungfish Genome Explorer",
-                                            fastqURL.absoluteString,
-                                            "-o", localPath.path
-                                        ],
-                                        inputs: [
-                                            FileRecord(
-                                                path: fastqURL.absoluteString,
-                                                format: .fastq,
-                                                role: .input
-                                            )
-                                        ],
-                                        outputs: [
-                                            ProvenanceRecorder.fileRecord(url: localPath, format: .fastq, role: .output)
-                                        ],
-                                        exitCode: 0,
-                                        wallTime: downloadCompletedAt.timeIntervalSince(downloadStartedAt),
-                                        stderr: nil,
-                                        startTime: downloadStartedAt,
-                                        endTime: downloadCompletedAt
-                                    )
-                                )
-                                logger.info("startENADownloadTask: Saved \(filename) (\(data.count) bytes)")
-                                downloadedFASTQFiles.append(localPath)
-                                priorBytesDownloaded += fileExpectedBytes ?? Int64(data.count)
-                            }
-                            downloadSource = "ENA"
-                        } catch let mirrorFailure as ENAFASTQDownloadValidator.Failure {
-                            // The portal advertised a file the mirror does not
-                            // hold. Discard the partial pair and fetch the run
-                            // from NCBI via the SRA Toolkit instead.
-                            logger.warning("startENADownloadTask: ENA mirror incomplete for \(record.accession, privacy: .public): \(mirrorFailure.localizedDescription, privacy: .public); falling back to SRA Toolkit")
-                            for stagedURL in fastqURLs {
-                                try? FileManager.default.removeItem(at: batchDir.appendingPathComponent(stagedURL.lastPathComponent))
-                            }
-                            downloadedFASTQFiles = []
-                            enaDownloadSteps = []
-                            downloadedFASTQFiles = try await downloadViaToolkit(
-                                statusDetail: "ENA mirror is missing files for \(record.accession); using SRA Toolkit..."
+                                }
                             )
-                            downloadSource = "SRA Toolkit (ENA mirror incomplete)"
+                        },
+                        toolkit: { statusDetail in
+                            try await downloadViaToolkit(statusDetail: statusDetail)
                         }
-                    case .sraToolkit(_, let reason):
-                        downloadedFASTQFiles = try await downloadViaToolkit(
-                            statusDetail: "\(reason); using SRA Toolkit..."
-                        )
-                        downloadSource = "SRA Toolkit"
-                    }
+                    )
+                    let downloadedFASTQFiles = runDownload.fastqFiles
+                    let enaDownloadSteps = runDownload.enaSteps
+                    let downloadSource = runDownload.source.rawValue
 
                     guard !downloadedFASTQFiles.isEmpty else {
                         throw DatabaseServiceError.invalidQuery(
