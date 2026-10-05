@@ -43,7 +43,13 @@ public final class MSADistanceMatrixPaneModel {
     }
 
     public private(set) var status: Status = .idle { didSet { onChange?() } }
-    public private(set) var matrix: MSADistanceMatrix?
+    public private(set) var matrix: MSADistanceMatrix? {
+        didSet { matrixRevision += 1 }
+    }
+    /// Bumps on every assignment to `matrix`, so the pane can tell a new
+    /// result from a redraw without comparing values. A `nan` cell is never
+    /// equal to itself, so value equality is not a safe identity (review SF1).
+    public private(set) var matrixRevision = 0
     public private(set) var records: [MSAAlignedRecord] = []
     public private(set) var alphabet: MSASequenceAlphabet = .nucleotide
     public private(set) var generation = 0

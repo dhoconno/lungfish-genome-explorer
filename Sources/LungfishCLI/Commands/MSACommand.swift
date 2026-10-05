@@ -562,7 +562,7 @@ extension MSACommand {
                 emitter.emitProgress(actionID: actionID, progress: 0.15, message: "Loading MSA bundle.")
                 let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
                 let fastaURL = bundleURL.appendingPathComponent("alignment/primary.aligned.fasta")
-                let records = try parseAlignedFASTA(at: fastaURL)
+                let records = try parseAlignedFASTA(at: fastaURL, keepingInteriorWhitespace: true)
                 let selectedRecords = try selectAlignedRecords(
                     records: records,
                     bundle: bundle,
@@ -753,7 +753,7 @@ extension MSACommand {
                 let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
                 let fastaURL = bundleURL.appendingPathComponent("alignment/primary.aligned.fasta")
                 let records = try selectAlignedRecords(
-                    records: parseAlignedFASTA(at: fastaURL),
+                    records: parseAlignedFASTA(at: fastaURL, keepingInteriorWhitespace: true),
                     bundle: bundle,
                     rows: rows,
                     columns: nil,
@@ -944,7 +944,7 @@ extension MSACommand {
                 emitter.emitProgress(actionID: actionID, progress: 0.15, message: "Loading MSA bundle.")
                 let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
                 let fastaURL = bundleURL.appendingPathComponent("alignment/primary.aligned.fasta")
-                let alignedRecords = try parseAlignedFASTA(at: fastaURL)
+                let alignedRecords = try parseAlignedFASTA(at: fastaURL, keepingInteriorWhitespace: true)
                 let selectedRecords = try selectAlignedRecords(
                     records: alignedRecords,
                     bundle: bundle,
@@ -1235,7 +1235,7 @@ extension MSACommand {
                 emitter.emitProgress(actionID: actionID, progress: 0.15, message: "Loading MSA bundle.")
                 let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
                 let fastaURL = bundleURL.appendingPathComponent("alignment/primary.aligned.fasta")
-                let records = try parseAlignedFASTA(at: fastaURL)
+                let records = try parseAlignedFASTA(at: fastaURL, keepingInteriorWhitespace: true)
                 try validateRectangular(records)
                 let resolvedMask = try resolveMaskColumns(bundle: bundle, records: records)
                 let columnRanges = resolvedMask.ranges
@@ -1629,7 +1629,7 @@ extension MSACommand {
                 emitter.emitProgress(actionID: actionID, progress: 0.15, message: "Loading MSA bundle.")
                 _ = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
                 let fastaURL = bundleURL.appendingPathComponent("alignment/primary.aligned.fasta")
-                let records = try parseAlignedFASTA(at: fastaURL)
+                let records = try parseAlignedFASTA(at: fastaURL, keepingInteriorWhitespace: true)
                 try validateRectangular(records)
                 let gapFractions = try columnGapFractions(records)
                 let removedColumns: [Int]
@@ -2153,10 +2153,10 @@ private struct MSATrimMetadata: Codable, Equatable {
     }
 }
 
-/// Reads aligned FASTA through the shared LungfishIO parser. Interior whitespace is kept by
-/// default so the subcommands that predate finding S2 write the same files. `msa distance`
-/// passes false to match the GUI.
-func parseAlignedFASTA(at url: URL, keepingInteriorWhitespace: Bool = true) throws -> [AlignedFASTARecord] {
+/// Reads aligned FASTA through the shared LungfishIO parser. Every caller says whether
+/// interior whitespace is kept. The subcommands that predate finding S2 pass true so they write
+/// the same files. `msa distance` passes false to match the GUI.
+func parseAlignedFASTA(at url: URL, keepingInteriorWhitespace: Bool) throws -> [AlignedFASTARecord] {
     let text = try String(contentsOf: url, encoding: .utf8)
     let records = MSAAlignedRecord.parseAlignedFASTA(text, keepingInteriorWhitespace: keepingInteriorWhitespace)
     guard records.isEmpty == false else {

@@ -130,7 +130,7 @@ extension MSACommand {
                 emitter.emitProgress(actionID: Self.actionID, progress: 0.1, message: "Loading MSA bundle.")
                 let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
                 let alignedURL = bundleURL.appendingPathComponent("alignment/primary.aligned.fasta")
-                let bundleRows = try parseAlignedFASTA(at: alignedURL).map { (name: $0.name, sequence: $0.sequence) }
+                let bundleRows = try parseAlignedFASTA(at: alignedURL, keepingInteriorWhitespace: true).map { (name: $0.name, sequence: $0.sequence) }
 
                 let resolution: MSADiscriminatingSitesRowResolution
                 var alignmentCommand: String?

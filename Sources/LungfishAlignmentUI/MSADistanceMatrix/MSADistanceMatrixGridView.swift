@@ -293,6 +293,7 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
     func updateSelection(_ change: (inout MSADistanceMatrixSelection) -> Void, notify: Bool = true) {
         let oldFocus = selection.focus
         let oldCells = selection.cells
+        let oldSequences = selection.sequenceIndices
         change(&selection)
         axSyncSelection(oldCells: oldCells, oldFocus: oldFocus)
         needsDisplay = true
@@ -303,7 +304,8 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
         if let focus = selection.focus {
             scrollToVisible(rect(for: focus))
         }
-        if notify { onSelectionChanged?(selection) }
+        // The alignment hears only a change in the sequences it selects (review N3).
+        if notify, selection.sequenceIndices != oldSequences { onSelectionChanged?(selection) }
         if selection.focus != oldFocus {
             onFocusChanged?(selection.focus)
             postFocusedCellChanged()

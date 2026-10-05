@@ -108,11 +108,34 @@ final class MSABottomPaneView: NSView {
         }
     }
 
-    /// Links the pane into the host's key view loop (review S3): `previous`
-    /// to the divider, the tab control, the Distances controls, the grid,
-    /// then `next`. Hidden content is skipped by AppKit, so the same links
-    /// serve both tabs.
-    func linkKeyViewLoop(after previous: NSView, before next: NSView) {
+    /// The view the pane follows in the key view loop, set by the host.
+    private weak var keyViewAnchor: NSView?
+
+    /// Splices the pane into the key view loop right after `anchor` once the
+    /// pane is in a window, where the anchor's own next view is known
+    /// (review S3, re-review SF2).
+    func insertIntoKeyViewLoop(after anchor: NSView) {
+        keyViewAnchor = anchor
+        spliceIntoKeyViewLoopIfInWindow()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        spliceIntoKeyViewLoopIfInWindow()
+    }
+
+    private func spliceIntoKeyViewLoopIfInWindow() {
+        guard window != nil, let anchor = keyViewAnchor, anchor.nextKeyView !== divider else { return }
+        linkKeyViewLoop(after: anchor, before: anchor.nextKeyView)
+    }
+
+    /// Links `previous` to the divider, the tab control, the Distances
+    /// controls, the grid, then `next`. A nil `next` leaves the grid's next
+    /// view unset so AppKit continues with the window's loop. Only
+    /// `next.previousKeyView` changes outside the pane, so `previous` keeps
+    /// its own previous view. Hidden content is skipped by AppKit, so the
+    /// same links serve both tabs.
+    func linkKeyViewLoop(after previous: NSView, before next: NSView?) {
         previous.nextKeyView = divider
         divider.nextKeyView = tabControl
         tabControl.nextKeyView = distancePane.firstKeyView

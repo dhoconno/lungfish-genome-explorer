@@ -152,8 +152,8 @@ public final class MSADistanceMatrixPaneView: NSView {
         // The pane lays the bar out by frame, and its frame starts empty, so
         // the stack clips its controls instead of breaking its own required
         // spacing (orchestrator item b, "Conflicting constraints detected").
-        headerBar.setClippingResistancePriority(.defaultHigh, for: .horizontal)
-        headerBar.setClippingResistancePriority(.defaultHigh, for: .vertical)
+        headerBar.setClippingResistancePriority(.defaultHigh - 1, for: .horizontal)
+        headerBar.setClippingResistancePriority(.defaultHigh - 1, for: .vertical)
 
         modelPopup.setAccessibilityLabel("Distance model")
         modelPopup.toolTip = "Distance model (--model)"
@@ -225,8 +225,8 @@ public final class MSADistanceMatrixPaneView: NSView {
         statusStack.alignment = .centerX
         statusStack.spacing = 8
         statusStack.clipsToBounds = true
-        statusStack.setClippingResistancePriority(.defaultHigh, for: .horizontal)
-        statusStack.setClippingResistancePriority(.defaultHigh, for: .vertical)
+        statusStack.setClippingResistancePriority(.defaultHigh - 1, for: .horizontal)
+        statusStack.setClippingResistancePriority(.defaultHigh - 1, for: .vertical)
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = true
@@ -265,7 +265,11 @@ public final class MSADistanceMatrixPaneView: NSView {
         gridView.onFocusChanged = { [weak self] focus in self?.focusChanged(focus) }
         gridView.onReveal = { [weak self] cell in
             guard let self, let matrix = self.model.matrix else { return }
-            self.onRevealPair?(matrix.recordIndices[cell.row], matrix.recordIndices[cell.column])
+            let first = matrix.recordIndices[cell.row]
+            let second = matrix.recordIndices[cell.column]
+            // The reveal selects both rows in the alignment (review N1).
+            self.alignmentSelection = IndexSet([first, second])
+            self.onRevealPair?(first, second)
         }
         gridView.onCopyMatrix = { [weak self] in self?.copyMatrixPressed(nil) }
         gridView.onExport = { [weak self] in self?.exportPressed(nil) }
@@ -286,7 +290,8 @@ public final class MSADistanceMatrixPaneView: NSView {
 
     // MARK: Rendering
 
-    private var shownMatrix: MSADistanceMatrix?
+    /// The model's matrix revision the grid shows. Nil before the first render.
+    private var shownMatrixRevision: Int?
 
     /// Pushes model state into the controls and the grid.
     func render() {
@@ -302,8 +307,8 @@ public final class MSADistanceMatrixPaneView: NSView {
         showValuesCheckbox.state = model.showsValues ? .on : .off
 
         let matrix = model.matrix
-        if matrix != shownMatrix {
-            shownMatrix = matrix
+        if model.matrixRevision != shownMatrixRevision {
+            shownMatrixRevision = model.matrixRevision
             gridView.setMatrix(matrix)
             rowHeaderView.names = matrix?.names ?? []
             columnHeaderView.names = matrix?.names ?? []
