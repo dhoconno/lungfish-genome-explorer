@@ -358,7 +358,7 @@ LGE saves for you, and there is no Save command to look for. A change is stored 
 
 <!-- SHOT: file-export-menu -->
 
-Exports write separate files and never change the project. The **File > Export** submenu offers Sequences (FASTA/GenBank), Annotations (GFF3), FASTQ, Project Sample Metadata (CSV), Image (PNG), and Image (PDF), with a Provenance submenu underneath. If you have selected an item in the sidebar, that item is what gets exported. If you have selected nothing, LGE exports whatever the viewport currently shows. An annotation export with several sources selected asks you to choose one, and it never merges annotations from different sources. To hand a run to someone else as a script or a workflow, see [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md#procedure).
+Exports write separate files and never change the project. The **File > Export** submenu offers Sequences (FASTA/GenBank), Annotations (GFF3), FASTQ, and Project Sample Metadata (CSV), then 12S Result and Distance Matrix (TSV), which work only while a 12S result or an alignment is showing, then Image (PNG) and Image (PDF), with a Provenance submenu underneath. If you have selected an item in the sidebar, that item is what gets exported. If you have selected nothing, LGE exports whatever the viewport currently shows. An annotation export with several sources selected asks you to choose one, and it never merges annotations from different sources. To hand a run to someone else as a script or a workflow, see [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md#procedure).
 
 ## Searching the project
 

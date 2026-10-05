@@ -3,7 +3,7 @@ title: Aligning Sequences
 chapter_id: 02-sequences/04-aligning-sequences
 audience: bench-scientist
 prereqs: [01-foundations/01-what-is-a-genome, 02-sequences/01-importing-and-viewing]
-estimated_reading_min: 24
+estimated_reading_min: 28
 task: Align a set of related sequences with MAFFT, read the alignment in the alignment viewport, and export the result.
 tags: [sequences, msa, mafft, alignment, conservation, export]
 tools: [mafft]
@@ -14,6 +14,9 @@ entry_points:
   - File > Import Center... > Alignments > Multiple Sequence Alignments
   - "CLI: lungfish-cli align mafft"
   - "CLI: lungfish-cli msa export"
+  - View > Show Distance Matrix
+  - File > Export > Distance Matrix (TSV)...
+  - "CLI: lungfish-cli msa distance"
 shots:
   - id: mafft-dialog
     caption: "The MAFFT pane of the operations dialog, with the scope summary line above the Strategy popup and the collapsed Advanced Options group."
@@ -26,7 +29,7 @@ illustrations:
     caption: "Three sequences before and after alignment, showing how MAFFT inserts gaps so homologous bases share a column."
   - id: mafft-progressive-alignment
     brief: "How a progressive aligner builds an alignment, in three panels read left to right. Panel 1 is a guide tree over three short DNA sequences labelled A, B, and C, with A and B joined first because they look most alike. Panel 2 shows A and B aligned as a pair with one gap placed in B, then C added to that fixed pair, so C must fit around the gap already there. Panel 3 shows one round of iterative refinement, the alignment split into the group A and B against C, realigned, and kept because it scores better, with a caption noting that plain progressive alignment would never have moved the early gap. Use IBM Plex Mono for the bases, Deep Ink for letters and labels, Lungfish Creamsicle for the tree branches and the moved gap, Warm Grey for the discarded arrangement."
-glossary_refs: [msa, mafft, guide-tree, progressive-alignment, iterative-refinement, local-alignment, alignment-column, gap, conservation, consensus-sequence, homologous, fasta, accession, mitochondrial-genome, p-distance, percent-identity, plugin-pack, provenance, checksum, bundle, sidebar, inspector, operations-panel, import-center, variable-site, reverse-complement]
+glossary_refs: [msa, mafft, guide-tree, progressive-alignment, iterative-refinement, local-alignment, alignment-column, gap, conservation, consensus-sequence, homologous, fasta, accession, mitochondrial-genome, p-distance, percent-identity, iupac-ambiguity-code, jukes-cantor, kimura-two-parameter, transition-transversion-ratio, saturation, upgma, plugin-pack, provenance, checksum, bundle, sidebar, inspector, operations-panel, import-center, variable-site, reverse-complement]
 features_refs: []
 fixtures_refs: [primate-mito]
 brand_reviewed: false
@@ -195,6 +198,20 @@ These nine controls change what you see and never change the bundle on disk. Num
 
 **Bundle name.** Names the new bundle and appears only for Save as Bundle. The default is the current alignment name, and the Create Bundle button stays greyed out while the field is blank. Change it whenever the export is a subset, so the name says what the subset is. On the command line this is `--name` on `msa extract`.
 
+### Distances pane
+
+The controls above the matrix on the Distances tab change what the matrix measures and how it looks, and never change the bundle on disk. LGE remembers them between alignments and between sessions.
+
+**Model.** Chooses what each cell measures. A DNA alignment offers Identity, p-distance, Jukes-Cantor (JC69), and Kimura 2-parameter (K2P), and a protein alignment offers Identity, p-distance, and Poisson, so the popup lists only the models that fit the alignment. The default is Identity, the share of compared positions that agree, and [p-distance](../../GLOSSARY.md#p-distance) is the share that differ. The other three are corrected distances. Over long spans of time one position can change more than once, so the differences you can count fall short of the changes that happened, and a correction estimates the true number. [Jukes-Cantor](../../GLOSSARY.md#jukes-cantor) treats every change between bases as equally likely, [Kimura 2-parameter](../../GLOSSARY.md#kimura-two-parameter) lets [transitions](../../GLOSSARY.md#transition-transversion-ratio) run at a different rate from transversions, and Poisson applies the same kind of correction to amino acids. Choose a corrected distance when the sequences are distant, such as the ape-to-monkey pairs here, and stay with Identity for close relatives. A cell reads `n/a` when the pair shares no position to compare, and `∞` when the pair differs at so many positions that the correction has no answer, a state called [saturation](../../GLOSSARY.md#saturation). The written table spells these `nan` and `inf`. On the command line this is `--model`.
+
+**Gaps.** Chooses which positions each pair compares, from Pairwise deletion and Complete deletion. The default is Pairwise deletion, which skips a position only for a pair in which one of the two rows has a gap or an ambiguity code there, so each pair uses as much of the alignment as it can. Complete deletion drops every column in which any row has a gap or an ambiguity code, so all pairs are measured over the same columns. Choose it when the pairs must be compared on equal terms, and expect an error when every column holds a gap somewhere. On the command line this is `--gaps`.
+
+**Order.** Chooses the order of the rows and columns, from Alignment order and Average linkage (UPGMA). The default is Alignment order, the order of the rows above. [UPGMA](../../GLOSSARY.md#upgma) joins the most alike sequences step by step, and choosing it places those sequences next to each other, so groups show as dark blocks. It only reorders the matrix and saves no tree. On the command line this is `--order`.
+
+**Fixed 0-1.** Stretches the colour scale from 0 to 1 instead of from the lowest to the highest value in the matrix. The default is off, which spends the whole scale on the values present, so small differences between close relatives still show. Turn it on to compare the colours of two alignments by eye. It is greyed out for the corrected distances, which have no upper limit. This setting has no command-line flag.
+
+**Show Values.** Prints each cell's value inside it. The default is on. Turn it off to shrink the cells to small squares, so a large matrix fits on screen as a pattern of colour, and read a value by clicking its cell. This setting has no command-line flag.
+
 The Multiple Sequence Alignments import card has no settings.
 
 ## Reading the results
@@ -219,11 +236,21 @@ The consensus row is 17,247 characters long with 479 of them masked as `N` at th
 
 ### Pairwise identity
 
-The clearest single check is a pairwise identity matrix, which reports for every pair of rows the fraction of compared positions at which they agree. It is the same arithmetic as [percent identity](../../GLOSSARY.md#percent-identity), taken across the whole alignment, and a position where either row has a gap is left out of that pair's count.
+The clearest single check is a pairwise identity matrix, which reports for every pair of rows the fraction of compared positions at which they agree. It is the same arithmetic as [percent identity](../../GLOSSARY.md#percent-identity), taken across the whole alignment. A position where either row has a gap is left out of that pair's count, and so is a position where either row has an [ambiguity code](../../GLOSSARY.md#iupac-ambiguity-code) such as `N`, because neither one says which base is really there.
 
-With the alignment open, the Inspector's **Bundle** tab holds a **Pairwise Identity** section. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden, and click the section's triangle to expand it. LGE computes the matrix and lists every pair as a row with Sequence A, Sequence B, Identity, and Sites columns, sorted with the most alike pair first. Sites is the number of positions compared for that pair. A popup above the table switches between Identity and p-distance, the share of compared positions that differ. **Copy TSV** puts the whole matrix on the clipboard as tab-separated text, and **Export TSV…** writes it to a file with a provenance record through the Operations Panel. Both give the same table `lungfish-cli msa distance` writes, and the line under the table says so.
+The matrix lives on the **Distances** tab of the pane under the alignment.
 
-The two macaques come out at 0.926, or 92.6 percent identical, the highest pair in the matrix. Human and chimpanzee come out at 0.913, and human and gorilla at 0.894. Human against either macaque falls to about 0.789.
+1. With the alignment open, choose **View > Show Distance Matrix** (Ctrl-Cmd-M), or click the **Distance matrix** button, a small grid icon, on the alignment's toolbar. The pane opens under the alignment on its Distances tab, and LGE computes the matrix.
+2. Leave the first popup above the grid on **Identity**. Every row of the alignment appears once down the left and once across the top, so each cell is one pair. The diagonal compares each sequence with itself and is drawn without colour. Elsewhere a darker cell holds a higher value, and every cell also prints its value to four decimal places.
+3. Click a cell. The line under the grid names the pair and gives its value, the number of positions compared, how many of those differ, and how many were skipped for a gap or an ambiguity code. The two sequences are selected in the alignment above.
+4. Press Return, or double-click the cell, to scroll the alignment to that pair.
+5. Click **Copy Matrix** to put the whole matrix on the clipboard as tab-separated text, or **Export…** to write it to a file with a provenance record through the Operations Panel. Both give the same table `lungfish-cli msa distance` writes for the same choices.
+
+The arrow keys move between cells once the grid has the focus, Shift with an arrow extends the selection, and Space adds or removes the focused cell. Cmd-A selects every cell, and Cmd-C copies the selected block with its sequence names. Clicking a name in either header selects that sequence in the alignment. VoiceOver reads each cell as its row name, its column name, its value, and the number of sites compared. **View > Distance Matrix** repeats the cell commands in the menu bar, and **File > Export > Distance Matrix (TSV)…** exports even while the pane is closed, opening it first. **View > Show Drawer** (Ctrl-Cmd-B) opens the same pane on whichever tab was last showing, and its other tab, **Annotations**, holds the annotation table.
+
+The Inspector's **Bundle** tab keeps a short **Pairwise Distance** section. Its **Show Distance Matrix** button opens the pane, and once you click a cell it lists the same counts as the line under the grid, one per row. An alignment of more than 200 sequences shows a message instead of the grid, and its export still writes the full matrix.
+
+The two macaques come out at 0.926, or 92.6 percent identical, the highest pair off the diagonal. Human and chimpanzee come out at 0.913, and human and gorilla at 0.894. Human against either macaque falls to about 0.789.
 
 Those numbers are the finding. The pair within one genus is most alike, human and chimpanzee come next, gorilla sits a little further from both, and the ape-to-monkey pairs are lowest. That ordering is the known primate relationship recovered from the alignment alone, which tells you the run worked. A matrix where the two macaques were not the closest pair would point to a mislabelled input, not a discovery.
 
@@ -251,7 +278,7 @@ Confirm the column count sits within about 10 percent of the longest input, as 1
 
 Confirm the conservation overview strip is mostly tall bars. Every column that is not variable, 12,194 of the 17,247 here or about 70 percent, has a conservation of 1, so most of the strip should sit at or near full height, broken by shorter stretches. The strip packs many columns into each bar at full width, so expect a mostly tall strip rather than an exact count. An even wash of low bars across the whole width means the rows are not meaningfully aligned.
 
-Confirm the pairwise identities put the pairs in the order biology predicts. The Pairwise Identity section of the Inspector's Bundle tab lists the most alike pair first, and here that is the two macaques at 0.926. When they do not lead, suspect the inputs before the aligner.
+Confirm the pairwise identities put the pairs in the order biology predicts. On the Distances tab under the alignment, with **Identity** chosen, the darkest cell off the diagonal is the most alike pair, and here that is the two macaques at 0.926. When they do not lead, suspect the inputs before the aligner.
 
 The alignment's [provenance](../../GLOSSARY.md#provenance) record, which [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read, names the MAFFT version and the strategy MAFFT reported.
 
@@ -272,12 +299,16 @@ lungfish-cli align mafft "$PROJECT/Practice Data/primate-mito/primate-mito.fasta
 # Write the pairwise identity matrix as a table.
 lungfish-cli msa distance "$MSA" --output "$HOME/Desktop/primate-mito-identity.tsv"
 
+# Write a Kimura 2-parameter distance matrix with similar rows grouped together.
+lungfish-cli msa distance "$MSA" --model k2p --order average-linkage \
+  --output "$HOME/Desktop/primate-mito-k2p.tsv"
+
 # Export the alignment as PHYLIP for a tree program.
 lungfish-cli msa export "$MSA" \
   --output-format phylip --output "$HOME/Desktop/primate-mito.phy"
 ```
 
-One default differs from the app. The export sheet keeps gaps by default, but `msa export` defaults to plain `fasta`, which strips them, so an aligned FASTA export on the command line needs `--output-format aligned-fasta` written out.
+When a pair comes out `nan` or `inf`, `msa distance` prints a warning saying how many pairs did, and its provenance record counts them as well. One default differs from the app. The export sheet keeps gaps by default, but `msa export` defaults to plain `fasta`, which strips them, so an aligned FASTA export on the command line needs `--output-format aligned-fasta` written out.
 
 ## Next
 
