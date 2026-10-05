@@ -158,12 +158,19 @@ final class MSABottomPaneReReviewFixTests: XCTestCase {
 
     func testTabFromTheGridLeavesThePaneInTheRealHierarchy() async throws {
         let controller = try await controller()
+        let alignmentPrevious = controller.alignmentKeyView.previousKeyView
         let window = host(controller)
         defer { window.close() }
         controller.showDistanceMatrix()
         let pane = controller.bottomPane
         let exit = try XCTUnwrap(pane.distancePane.gridView.nextValidKeyView, "Tab from the grid goes somewhere")
         XCTAssertFalse(exit.isDescendant(of: pane), "and that view is outside the pane")
+        // Re-review N4: linking the pane leaves the alignment's own previous view.
+        XCTAssertTrue(
+            controller.alignmentKeyView.previousKeyView === alignmentPrevious,
+            "Shift-Tab from the alignment still goes where it went before the pane was linked"
+        )
+        XCTAssertFalse(controller.alignmentKeyView.previousKeyView?.isDescendant(of: pane) ?? false)
     }
 
     // MARK: Annotations tab key view route
@@ -180,7 +187,10 @@ final class MSABottomPaneReReviewFixTests: XCTestCase {
         let table = pane.annotationDrawer.tableView
 
         pane.select(.annotations)
-        XCTAssertTrue(pane.tabControl.nextKeyView === table, "the annotation table has a keyboard route")
+        XCTAssertTrue(
+            pane.tabControl.nextKeyView === pane.annotationDrawer.annotationFilterField,
+            "the Annotations route starts at the filter field (third review S4)"
+        )
         XCTAssertTrue(table.nextKeyView === next, "and Tab from the table leaves the pane")
         XCTAssertTrue(next.previousKeyView === table, "Shift-Tab from the next view returns to the table")
 
