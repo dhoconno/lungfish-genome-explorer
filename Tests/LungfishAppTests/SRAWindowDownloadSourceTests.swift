@@ -6,6 +6,7 @@ import SwiftUI
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
@@ -44,6 +45,57 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
         storage.wrappedValue = .ncbi
         XCTAssertEqual(SRADownloadSourcePreference.stored(in: defaults), .ncbi)
         XCTAssertEqual(SRADownloadSourcePicker.storage(in: defaults).wrappedValue, .ncbi, "the choice persists")
+    }
+
+    /// VoiceOver read "Download source, Download source" in the orchestrator's
+    /// GUI walk. The popup carries the label once, and the visible caption
+    /// above it is not a second element saying the same thing.
+    @MainActor
+    func testVoiceOverReadsThePopupLabelOnce() throws {
+        let suite = "sra-window-download-source-ax-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        NSApplication.shared.accessibilitySetValue(
+            true,
+            forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        )
+        let host = NSHostingView(rootView: SRADownloadSourcePicker(store: defaults))
+        host.frame = NSRect(x: 0, y: 0, width: 420, height: 200)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+
+        func all(_ element: NSObject) -> [NSObject] {
+            let modern = ((element as AnyObject).accessibilityChildren?() ?? nil) ?? []
+            let children = modern.isEmpty
+                ? ((element.accessibilityAttributeValue(.children) as? [Any]) ?? [])
+                : modern
+            return [element] + children.compactMap { $0 as? NSObject }.flatMap(all)
+        }
+        func identifier(_ element: NSObject) -> String? { (element as AnyObject).accessibilityIdentifier?() ?? nil }
+        func labels(_ element: NSObject) -> [String] {
+            [((element as AnyObject).accessibilityLabel?() ?? nil),
+             element.accessibilityAttributeValue(.description) as? String,
+             element.accessibilityAttributeValue(.title) as? String].compactMap { $0 }.filter { !$0.isEmpty }
+        }
+
+        let deadline = Date().addingTimeInterval(5)
+        var popup: NSObject?
+        while popup == nil, Date() < deadline {
+            popup = all(window).first { identifier($0) == SRADownloadSourcePicker.accessibilityIdentifier }
+            if popup == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        }
+        let element = try XCTUnwrap(popup, "the popup must be in the AX tree")
+        let popupLabels = labels(element)
+        XCTAssertFalse(popupLabels.isEmpty, "the popup must be labelled")
+        for label in popupLabels {
+            XCTAssertEqual(label, SRADownloadSourcePicker.title, "the label is read once, got \(popupLabels)")
+        }
+        let echoes = all(window).filter { $0 !== element && labels($0).contains(SRADownloadSourcePicker.title) }
+        XCTAssertTrue(echoes.isEmpty, "no other element repeats the popup's label, got \(echoes.map(labels))")
     }
 
     func testThePopupNamesItsChoicesAndTheTradeOff() {
@@ -134,13 +186,146 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
             recipeName: nil,
             qualityBinning: "none",
             optimizeStorage: false,
-            compressionLevel: "fast"
+            compressionLevel: "fast",
+            // Never `swift build --show-bin-path`, which waits on the build
+            // lock `swift test` holds.
+            cliBinaryPath: { URL(fileURLWithPath: "/injected/lungfish-cli") }
         )
 
         let run = try XCTUnwrap(ProvenanceRecorder.load(from: bundle))
+        XCTAssertEqual(run.steps.last?.command.first, "/injected/lungfish-cli", "the import step names the injected CLI")
         XCTAssertEqual(run.parameters["preferredSource"], .string("ncbi"))
         XCTAssertEqual(run.parameters["downloadSource"], .string("ENA (SRA Toolkit not installed)"))
         XCTAssertEqual(run.parameters["condaEnvironment"], .string("none"))
+    }
+
+    // MARK: - The window's download path
+
+    /// The window's own download path reads the setting from the defaults
+    /// it was given, so Prefer NCBI reaches the run's download.
+    func testTheWindowDownloadPathReadsTheStoredSetting() async throws {
+        let suite = "sra-window-download-path-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        SRADownloadSourcePreference.ncbi.store(in: defaults)
+        let viewModel = await MainActor.run {
+            DatabaseBrowserViewModel(source: .ena, sraDownloadSuiteName: suite)
+        }
+
+        let statuses = Statuses()
+        let runner = recorded.runner
+        let staged = try await viewModel.stageSRARun(
+            accession: Self.run,
+            ncbiRun: nil,
+            in: root.appendingPathComponent("batch", isDirectory: true),
+            lookUpRoute: { .enaMirror(try Self.pairedRecord()) },
+            mirrorFile: { _, _, _, _ in
+                XCTFail("Prefer NCBI with a working toolkit fetches nothing from ENA's mirror")
+                return Self.gzipStream
+            },
+            toolkit: { status, folder in
+                statuses.append(status)
+                return try await SRAService(toolkitRunner: runner).downloadFASTQ(accession: Self.run, outputDir: folder)
+            },
+            log: { _ in }
+        )
+        defer { staged.removeFolder() }
+        XCTAssertEqual(staged.download.preference, .ncbi)
+        XCTAssertEqual(staged.download.source, .sraToolkit)
+        XCTAssertEqual(statuses.values.map(\.level), [.info], "the chosen route is logged as information, not a warning")
+    }
+
+    /// ENA can be slow, so under Prefer NCBI the toolkit starts while ENA's
+    /// lookup is still running, and the bundle still gets ENA's record.
+    func testPreferNCBIStartsTheToolkitBeforeASlowENALookupAnswers() async throws {
+        let events = Lines()
+        let runner = recorded.runner
+        let toolkitStarted = Flag()
+        let staged = try await SRAWindowRunDownload.stage(
+            accession: Self.run,
+            preference: .ncbi,
+            in: root.appendingPathComponent("batch", isDirectory: true),
+            lookUpRoute: {
+                // Answers only once the toolkit has started.
+                while !toolkitStarted.isSet { try await Task.sleep(for: .milliseconds(10)) }
+                events.append("lookup answered")
+                return .enaMirror(try Self.pairedRecord())
+            },
+            enaRecordWait: .seconds(30),
+            mirrorFile: { _, _, _ in Self.gzipStream },
+            toolkit: { _, folder in
+                events.append("toolkit started")
+                toolkitStarted.set()
+                return try await SRAService(toolkitRunner: runner).downloadFASTQ(accession: Self.run, outputDir: folder)
+            }
+        )
+        defer { staged.removeFolder() }
+        XCTAssertEqual(events.values, ["toolkit started", "lookup answered"])
+        XCTAssertEqual(staged.download.source, .sraToolkit)
+        XCTAssertEqual(staged.download.enaRecord?.instrumentPlatform, "ILLUMINA", "ENA's record reaches the bundle's metadata")
+        XCTAssertNotNil(staged.reads.r2, "the run imports as pairs")
+    }
+
+    /// When ENA never answers, the import waits a bounded time, then NCBI's
+    /// record from the search gives the run's layout and metadata, and the
+    /// row says so.
+    func testPreferNCBIFallsBackToNCBIsRecordWhenENANeverAnswers() async throws {
+        let lines = Lines()
+        let runner = recorded.runner
+        let ncbiRun = try JSONDecoder().decode(SRARunInfo.self, from: Data("""
+        {"accession": "\(Self.run)", "platform": "ILLUMINA", "libraryLayout": "PAIRED"}
+        """.utf8))
+        let staged = try await SRAWindowRunDownload.stage(
+            accession: Self.run,
+            preference: .ncbi,
+            ncbiRun: ncbiRun,
+            in: root.appendingPathComponent("batch", isDirectory: true),
+            lookUpRoute: {
+                try await Task.sleep(for: .seconds(600))
+                return .enaMirror(try Self.pairedRecord())
+            },
+            enaRecordWait: .milliseconds(200),
+            mirrorFile: { _, _, _ in Self.gzipStream },
+            toolkit: { _, folder in
+                try await SRAService(toolkitRunner: runner).downloadFASTQ(accession: Self.run, outputDir: folder)
+            },
+            log: { lines.append($0) }
+        )
+        defer { staged.removeFolder() }
+        XCTAssertNil(staged.download.enaRecord)
+        XCTAssertEqual(staged.ncbiRun?.platform, "ILLUMINA", "NCBI's record reaches the bundle's metadata")
+        XCTAssertNotNil(staged.reads.r2, "NCBI's layout keeps the run paired")
+        XCTAssertTrue(lines.values.contains { $0.contains("NCBI's record gives the run's layout") }, "\(lines.values)")
+    }
+
+    /// When the toolkit fails, the download waits for ENA's lookup and the
+    /// mirror serves the run.
+    func testPreferNCBIWaitsForTheLookupWhenTheToolkitFails() async throws {
+        let staged = try await SRAWindowRunDownload.stage(
+            accession: Self.run,
+            preference: .ncbi,
+            in: root.appendingPathComponent("batch", isDirectory: true),
+            lookUpRoute: {
+                try await Task.sleep(for: .milliseconds(100))
+                return .enaMirror(try Self.pairedRecord())
+            },
+            mirrorFile: { _, _, _ in Self.gzipStream },
+            toolkit: { _, _ in throw SRAError.toolkitNotFound }
+        )
+        defer { staged.removeFolder() }
+        XCTAssertEqual(staged.download.source, .enaAfterMissingToolkit)
+        XCTAssertNotNil(staged.download.enaRecord)
+    }
+
+    private static func pairedRecord() throws -> ENAReadRecord {
+        let folder = "ftp.sra.ebi.ac.uk/vol1/fastq/ERR123/094/\(run)"
+        let size = gzipStream.count
+        let json = """
+        {"run_accession": "\(run)", "library_layout": "PAIRED", "instrument_platform": "ILLUMINA",
+         "fastq_ftp": "\(folder)/\(run)_1.fastq.gz;\(folder)/\(run)_2.fastq.gz",
+         "fastq_bytes": "\(size);\(size)"}
+        """
+        return try JSONDecoder().decode(ENAReadRecord.self, from: Data(json.utf8))
     }
 
     // MARK: - Helpers
@@ -235,4 +420,18 @@ private final class Lines: @unchecked Sendable {
     private var stored: [String] = []
     var values: [String] { lock.withLock { stored } }
     func append(_ line: String) { lock.withLock { stored.append(line) } }
+}
+
+private final class Statuses: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [SRAWindowToolkitStatus] = []
+    var values: [SRAWindowToolkitStatus] { lock.withLock { stored } }
+    func append(_ status: SRAWindowToolkitStatus) { lock.withLock { stored.append(status) } }
+}
+
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
 }

@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishCore
+import LungfishKit
 @testable import LungfishApp
 
 /// The window downloads each SRA run through `SRAWindowRunDownload.download`.
@@ -137,8 +138,11 @@ final class SRAWindowRunDownloadTests: XCTestCase {
             route: try route ?? .enaMirror(pairedRecord()),
             into: batchDir,
             mirrorFile: { url, _, _ in try await mirror(url) },
-            toolkit: { statusDetail in
-                toolkitStatusLines.append(statusDetail)
+            toolkit: { status in
+                // Under Prefer ENA the toolkit only ever runs as a fallback,
+                // which the Operations panel logs as a warning.
+                XCTAssertEqual(status.level, .warning, status.line)
+                toolkitStatusLines.append(status.line)
                 return toolkitFiles
             }
         )

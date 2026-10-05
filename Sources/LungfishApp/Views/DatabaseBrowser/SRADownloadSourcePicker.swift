@@ -34,6 +34,8 @@ struct SRADownloadSourcePicker: View {
             Text(Self.title)
                 .font(.caption)
                 .foregroundStyle(Color.lungfishSecondaryText)
+                // The popup carries this label, so VoiceOver reads it once.
+                .accessibilityHidden(true)
             Picker(Self.title, selection: $preference) {
                 ForEach(SRADownloadSourcePreference.allCases, id: \.self) { choice in
                     Text(choice.menuTitle).tag(choice)
@@ -42,7 +44,6 @@ struct SRADownloadSourcePicker: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .fixedSize()
-            .accessibilityLabel(Self.title)
             .accessibilityHint(SRADownloadSourcePreference.tradeOff)
             .accessibilityIdentifier(Self.accessibilityIdentifier)
             .help(SRADownloadSourcePreference.tradeOff)
