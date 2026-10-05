@@ -10,8 +10,8 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | Target | Kind | Path | Swift files | Lines | Public types | Internal dependencies |
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
-| LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2852 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 604 | 233325 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 605 | 233396 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1996 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 210 | 62052 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
@@ -33,8 +33,8 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
-| LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 8 | 1450 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | 626 | 163767 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1562 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 627 | 163988 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 35 | 18863 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 6 | 5531 | LungfishApp, LungfishKitTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
@@ -70,7 +70,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishAlignmentUI
-- Swift files. 9, lines 2852
+- Swift files. 9, lines 2858
 - Depends on. LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow
 - External products. none
 - Used by. LungfishApp
@@ -80,7 +80,7 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| MSADistanceMatrix | 8 | 2552 |
+| MSADistanceMatrix | 8 | 2558 |
 
 ### Public types
 
@@ -93,7 +93,7 @@ None.
 - `MSADistanceMatrixDisplaying` protocol, `Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixDisplaying.swift:10`
 - `MSADistanceMatrixGridView` class, `Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixGridView.swift:13`
 - `MSADistanceMatrixHeaderBaseView` class, `Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixHeaderViews.swift:27`
-- `MSADistanceMatrixLegendView` class, `Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixPaneView.swift:540`
+- `MSADistanceMatrixLegendView` class, `Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixPaneView.swift:546`
 - `MSADistanceMatrixPaneModel` class, `Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixPaneModel.swift:24`
 - `MSADistanceMatrixPaneView` class, `Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixPaneView.swift:14`
 - `MSADistanceMatrixRowHeaderView` class, `Sources/LungfishAlignmentUI/MSADistanceMatrix/MSADistanceMatrixHeaderViews.swift:189`
@@ -107,7 +107,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 604, lines 233325
+- Swift files. 605, lines 233396
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -118,13 +118,13 @@ None.
 | Subdirectory | Swift files | Lines |
 |---|---|---|
 | App | 65 | 23273 |
-| Services | 134 | 34600 |
+| Services | 134 | 34603 |
 | Services/AI | 4 | 1929 |
 | StateManagement | 7 | 595 |
 | Support | 2 | 94 |
 | UITestSupport | 4 | 485 |
 | ViewModels | 4 | 2397 |
-| Views | 388 | 171881 |
+| Views | 389 | 171949 |
 | Views/AI | 1 | 1011 |
 | Views/Assembly | 5 | 2077 |
 | Views/BAM | 12 | 1580 |
@@ -136,7 +136,7 @@ None.
 | Views/FASTQ | 9 | 5258 |
 | Views/Help | 1 | 576 |
 | Views/ImportCenter | 6 | 1769 |
-| Views/Inspector | 56 | 23401 |
+| Views/Inspector | 56 | 23400 |
 | Views/Layout | 3 | 293 |
 | Views/MainWindow | 23 | 10036 |
 | Views/Mapping | 4 | 2205 |
@@ -153,7 +153,7 @@ None.
 | Views/Shared | 8 | 1038 |
 | Views/Sidebar | 18 | 9139 |
 | Views/TranslationTool | 1 | 213 |
-| Views/Viewer | 111 | 66735 |
+| Views/Viewer | 112 | 66804 |
 | Views/Welcome | 1 | 1827 |
 | Views/WorkflowLibrary | 3 | 1050 |
 | Views/WorkflowOperations | 5 | 4294 |
