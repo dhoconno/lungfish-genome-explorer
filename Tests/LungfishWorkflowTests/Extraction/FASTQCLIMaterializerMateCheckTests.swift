@@ -5,8 +5,10 @@
 // The materializer interleaved the R1 and R2 files of a paired or mixed
 // bundle with reformat.sh by position and never checked mate names, so an R2
 // file out of step with its R1 gave mis-paired reads (Phase 1.5 lane A7, Lead
-// A review R2). It now interleaves with FASTQPairInterleaver and requires
-// mates, so such a bundle throws. The output for files in step is the bytes
+// A review R2). It now interleaves with FASTQPairInterleaver and checks every
+// pair of names that carry a mate number, so such a bundle throws. Names that
+// carry none are paired by position with a warning, as reformat.sh paired
+// them (final review A, N2). The output for files in step is the bytes
 // reformat.sh wrote.
 
 import Foundation
