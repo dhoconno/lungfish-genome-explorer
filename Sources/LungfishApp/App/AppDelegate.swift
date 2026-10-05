@@ -1596,30 +1596,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         return Self.loadReferenceBundle(at: bundleURL)
     }
 
-    /// Order of preference: what the viewer actually displays (either display
-    /// route, then a mapping result's reference copy), then a single sidebar
-    /// candidate. Several sidebar candidates are ambiguous and resolve to `nil`.
-    static func resolveReferenceBundleURL(
-        currentReferenceBundleURL: URL?,
-        currentBundleURL: URL?,
-        referenceViewportRenderedBundleURL: URL?,
-        mappingResultRenderedBundleURL: URL?,
-        selectedBundleURLs: [URL] = []
-    ) -> URL? {
-        let displayed = currentReferenceBundleURL
-            ?? currentBundleURL
-            ?? referenceViewportRenderedBundleURL
-            ?? mappingResultRenderedBundleURL
-        if let displayed, displayed.pathExtension.lowercased() == "lungfishref" {
-            return displayed
-        }
-        var unique: [URL] = []
-        for url in selectedBundleURLs.map(\.standardizedFileURL) where !unique.contains(url) {
-            unique.append(url)
-        }
-        return unique.count == 1 ? unique[0] : nil
-    }
-
     /// The reference bundles a sidebar selection stands for: a selected
     /// `.lungfishref` itself, or a selected mapping result's reference copy
     /// (read from its `mapping-result.json`). Anything else contributes nothing.
