@@ -2127,9 +2127,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     /// disambiguation behavior can be exercised in isolation.
     static func resolveIlluminaSampleInputsForTesting(
         from urls: [URL],
-        stagingDirectory: URL
+        stagingDirectory: URL, readType: AmpliconGenotypingReadType = .illumina
     ) async throws -> [IlluminaSampleInput] {
-        try await resolveIlluminaSampleInputs(from: urls, stagingDirectory: stagingDirectory)
+        try await resolveIlluminaSampleInputs(from: urls, stagingDirectory: stagingDirectory, readType: readType)
     }
 
     private static func countWeightedFASTQRecords(in sourceURL: URL) async throws -> Int {
