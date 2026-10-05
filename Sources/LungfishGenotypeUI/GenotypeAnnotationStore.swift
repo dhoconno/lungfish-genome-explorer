@@ -343,7 +343,7 @@ public final class GenotypeAnnotationStore {
 
     // MARK: - Lightweight status/annotation mutators (R3-R3ML-9)
     //
-    // confirmCall, setSampleStatus, setCallStatus, setCellHighlight, and addCellComment
+    // confirmCall, setSampleStatus, clearSampleStatus, setCallStatus, setCellHighlight, and addCellComment
     // below mutate the in-memory sidecar directly and persist via the generic
     // persist(action:) path, which retains the staleRevision optimistic-concurrency
     // guard (safe against concurrent external writers) and an audit-log entry for
@@ -398,17 +398,36 @@ public final class GenotypeAnnotationStore {
     ) throws {
         let author = editAuthor ?? self.author
         let timestamp = now()
+        let previous = sidecar.sampleStatusFlags.first { $0.sample == sample }?.value
         sidecar.sampleStatusFlags.removeAll { $0.sample == sample }
         sidecar.sampleStatusFlags.append(.init(
             sample: sample, value: value, author: author, timestamp: timestamp
         ))
         sidecar.append(audit: .init(
             action: "setSampleStatus", sample: sample, locus: nil, slot: nil,
-            before: nil, after: value.rawValue,
+            before: previous?.rawValue, after: value.rawValue,
             color: nil, reason: nil, rationale: nil,
             author: author, timestamp: timestamp
         ))
         try persist(action: "setSampleStatus")
+    }
+
+    /// Removes the sample's status flag and records the removed value as the
+    /// audit entry's `before`. A sample without a flag is left alone.
+    func clearSampleStatus(sample: String, author editAuthor: String? = nil) throws {
+        guard let previous = sidecar.sampleStatusFlags.first(where: { $0.sample == sample }) else {
+            return
+        }
+        let author = editAuthor ?? self.author
+        let timestamp = now()
+        sidecar.sampleStatusFlags.removeAll { $0.sample == sample }
+        sidecar.append(audit: .init(
+            action: "clearSampleStatus", sample: sample, locus: nil, slot: nil,
+            before: previous.value.rawValue, after: nil,
+            color: nil, reason: nil, rationale: nil,
+            author: author, timestamp: timestamp
+        ))
+        try persist(action: "clearSampleStatus")
     }
 
     func setCallStatus(_ value: GenotypeAnnotationSidecar.StatusValue,
@@ -416,6 +435,9 @@ public final class GenotypeAnnotationStore {
                        author editAuthor: String? = nil) throws {
         let author = editAuthor ?? self.author
         let timestamp = now()
+        let previous = sidecar.callStatusFlags.first {
+            $0.sample == sample && $0.locus == locus && $0.slot == slot
+        }?.value
         sidecar.callStatusFlags.removeAll {
             $0.sample == sample && $0.locus == locus && $0.slot == slot
         }
@@ -425,7 +447,7 @@ public final class GenotypeAnnotationStore {
         ))
         sidecar.append(audit: .init(
             action: "setCallStatus", sample: sample, locus: locus, slot: slot,
-            before: nil, after: value.rawValue,
+            before: previous?.rawValue, after: value.rawValue,
             color: nil, reason: nil, rationale: nil,
             author: author, timestamp: timestamp
         ))
