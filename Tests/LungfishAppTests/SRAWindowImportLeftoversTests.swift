@@ -33,36 +33,22 @@ final class SRAWindowImportLeftoversTests: XCTestCase {
         try await super.tearDown()
     }
 
-    // MARK: - Telling the run's leftovers apart
+    // MARK: - Telling the run's bundle apart
 
-    func testOnlyTheRunsNewStagingFoldersAreItsOwn() throws {
-        let older = try makeFolder(".\(Self.run).building-older")
+    func testOnlyTheRunsNewBundleIsItsOwn() throws {
         let leftovers = SRAWindowImportLeftovers(projectDirectory: project, accession: Self.run, files: Self.files)
-        let ours = try makeFolder(".\(Self.run).building-ours")
-        let another = try makeFolder(".SRR9000002.building-another")
+        _ = try makeFolder(".SRR9000002.building-another")
         let bundle = try makeFolder("\(Self.run).lungfishfastq")
-
-        XCTAssertEqual(leftovers.stagingFolders().map(\.lastPathComponent), [ours.lastPathComponent])
         XCTAssertEqual(leftovers.publishedBundle()?.lastPathComponent, bundle.lastPathComponent)
-
-        leftovers.removeStagingFolders()
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: ours.path), "the run's staging folder is removed")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: older.path), "a folder that was there before stays")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: another.path), "another sample's folder stays")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.path), "the published bundle stays")
     }
 
-    func testAFolderCreatedBeforeTheLaunchIsNotTheRunsEvenIfItIsNew() throws {
+    func testABundleCreatedBeforeTheLaunchIsNotTheRunsEvenIfItIsNew() throws {
         let launchedAt = Date().addingTimeInterval(60)
         let leftovers = SRAWindowImportLeftovers(
             projectDirectory: project, accession: Self.run, files: Self.files, launchedAt: launchedAt
         )
-        let early = try makeFolder(".\(Self.run).building-early")
-
-        XCTAssertTrue(leftovers.stagingFolders().isEmpty, "made before the launch, so not provably the run's")
-        leftovers.removeStagingFolders()
-        XCTAssertTrue(FileManager.default.fileExists(atPath: early.path))
+        _ = try makeFolder("\(Self.run).lungfishfastq")
+        XCTAssertNil(leftovers.publishedBundle(), "made before the launch, so not provably the run's")
     }
 
     func testABundleThatWasThereBeforeIsNotTheRuns() throws {
@@ -90,21 +76,26 @@ final class SRAWindowImportLeftoversTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: imports.path), [], "no bundle")
     }
 
-    /// S4-S3 backstop: a CLI killed before its own cleanup ran leaves its
-    /// staging folder, and the window removes it.
-    func testAfterACancelTheWindowRemovesTheStagingFolderTheCLILeft() async throws {
+    /// Orchestrator ruling: the window never removes a `.building-` folder,
+    /// since it cannot tell one from a concurrent import's. A same-named
+    /// folder the window did not create survives a cancelled import.
+    func testASameNamedStagingFolderTheWindowDidNotCreateSurvivesACancel() async throws {
         let marker = project.deletingLastPathComponent().appendingPathComponent("launched")
-        let staging = imports.appendingPathComponent(".\(Self.run).building-killed", isDirectory: true)
+        let concurrent = imports.appendingPathComponent(".\(Self.run).building-concurrent", isDirectory: true)
+        let killed = imports.appendingPathComponent(".\(Self.run).building-killed", isDirectory: true)
         try useFakeCLI("""
         #!/bin/sh
-        mkdir -p "\(staging.path)"
+        mkdir -p "\(killed.path)"
         touch "\(marker.path)"
         while true; do sleep 0.1; done
         """)
+        // Another import of the same sample, started before this one.
+        try FileManager.default.createDirectory(at: concurrent, withIntermediateDirectories: true)
         let outcome = await importRun(cancelWhen: { FileManager.default.fileExists(atPath: marker.path) })
 
         XCTAssertEqual(outcome, "cancelled")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path), "the window removed the CLI's leftover")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: concurrent.path), "the other import's folder survives")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: killed.path), "the window removes no staging folder")
     }
 
     /// S4-S3: a cancel that lands after the CLI published the bundle but

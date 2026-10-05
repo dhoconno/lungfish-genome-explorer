@@ -16,13 +16,13 @@ private final class SRAWindowImportResult: Sendable {
     func setError(_ message: String) { state.withLock { $0.error = message } }
 }
 
-/// What one run's `lungfish-cli import fastq` left in `<project>/Imports/`,
+/// What one run's `lungfish-cli import fastq` published in `<project>/Imports/`,
 /// told apart from everything else there by name and by time.
 ///
-/// `lungfish-cli` removes its own staging bundle when a cancel reaches it.
-/// When it is killed before it can, its hidden `.<sample>.building-<UUID>/`
-/// folder stays. This is the window's backstop for that case. An entry is
-/// this run's only when all of these hold:
+/// `lungfish-cli` removes its own hidden `.<sample>.building-<UUID>/` staging
+/// folder when a cancel reaches it. The window never removes such a folder,
+/// because it cannot tell one from a concurrent import's in-progress folder.
+/// A published bundle is this run's only when all of these hold:
 /// - it was not in `Imports/` before the CLI launched,
 /// - its name carries one of the run's sample names,
 /// - it was created after the CLI launched.
@@ -45,13 +45,6 @@ struct SRAWindowImportLeftovers {
         entriesBefore = Set((try? FileManager.default.contentsOfDirectory(atPath: importsFolder.path)) ?? [])
     }
 
-    /// The hidden staging folders this run's import left.
-    func stagingFolders() -> [URL] {
-        newEntries { name in
-            sampleNames.contains { name.hasPrefix(".\($0).building-") }
-        }
-    }
-
     /// The bundle this run's import published, when there is exactly one.
     ///
     /// A cancel can land after the CLI published the bundle but before it
@@ -64,20 +57,13 @@ struct SRAWindowImportLeftovers {
         return bundles.count == 1 ? bundles[0] : nil
     }
 
-    /// Removes the hidden staging folders this run's import left.
-    func removeStagingFolders() {
-        for folder in stagingFolders() {
-            try? FileManager.default.removeItem(at: folder)
-        }
-    }
-
     /// Imports one staged run with `lungfish-cli import fastq` and returns
     /// the bundle it made.
     ///
     /// A cancel before the launch throws before the CLI runs. After a cancel
-    /// during the import, the run's staging folders are removed, and a
-    /// bundle the CLI published before the cancel reached it is returned so
-    /// the window records its SRA metadata. The operation row is left to the
+    /// during the import, a bundle the CLI published before the cancel
+    /// reached it is returned so the window records its SRA metadata.
+    /// Staging folders are left to the CLI. The operation row is left to the
     /// caller, which ends it once its own cleanup has run.
     static func importRun(
         arguments: [String],
@@ -101,8 +87,6 @@ struct SRAWindowImportLeftovers {
         )
         var bundleURL = tracker.bundle
         if Task.isCancelled {
-            // Backstop for a CLI killed before its own cleanup ran.
-            leftovers.removeStagingFolders()
             bundleURL = bundleURL ?? leftovers.publishedBundle()
         }
         if let bundleURL { return bundleURL }
