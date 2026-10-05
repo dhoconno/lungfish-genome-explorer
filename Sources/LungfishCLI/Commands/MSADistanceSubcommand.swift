@@ -86,7 +86,7 @@ extension MSACommand {
                 let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
                 let fastaURL = bundleURL.appendingPathComponent("alignment/primary.aligned.fasta")
                 let records = try selectAlignedRecords(
-                    records: parseAlignedFASTA(at: fastaURL),
+                    records: parseAlignedFASTA(at: fastaURL, keepingInteriorWhitespace: false),
                     bundle: bundle,
                     rows: rows,
                     columns: columns,
@@ -157,7 +157,8 @@ extension MSACommand {
                                 alphabet: alphabet.rawValue,
                                 ambiguityPolicy: "skip",
                                 undefinedPairCount: matrix.undefinedPairCount,
-                                saturatedPairCount: matrix.saturatedPairCount
+                                saturatedPairCount: matrix.saturatedPairCount,
+                                retainedColumnCount: matrix.retainedColumnCount
                             ),
                             exitStatus: 0,
                             wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),

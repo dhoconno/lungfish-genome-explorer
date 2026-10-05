@@ -234,6 +234,18 @@ final class MultipleSequenceAlignmentDistanceMatrixTests: XCTestCase {
         XCTAssertFalse(try matrix(["AAAA", "GAAA"], MSADistanceOptions(model: .k2p)).detail(row: 0, column: 1).isSaturated)
     }
 
+    /// Finding S1: three transversions in four sites leave 1 - 2P - Q = 1/4 positive, so only
+    /// the second guard (1 - 2Q = -1/2) saturates the pair.
+    func testK2PSaturatesOnTheTransversionGuardAlone() throws {
+        let matrix = try matrix(["AAAA", "CCCA"], MSADistanceOptions(model: .k2p))
+        let detail = matrix.detail(row: 0, column: 1)
+        XCTAssertEqual(detail.transversions, 3)
+        XCTAssertEqual(detail.transitions, 0)
+        XCTAssertTrue(detail.isSaturated)
+        XCTAssertEqual(matrix.saturatedPairCount, 1)
+        XCTAssertEqual(matrix.undefinedPairCount, 0)
+    }
+
     func testPoissonSaturatesWhenEverySiteDiffers() throws {
         let matrix = try matrix(["MK", "LV"], MSADistanceOptions(model: .poisson, alphabet: .protein))
         XCTAssertTrue(matrix.detail(row: 0, column: 1).isSaturated)
@@ -295,6 +307,13 @@ final class MultipleSequenceAlignmentDistanceMatrixTests: XCTestCase {
             }
         }
         XCTAssertEqual(complete.values[0][1], 1.0, accuracy: 1e-12)
+    }
+
+    /// Finding S3: complete deletion reports how many aligned columns it kept, pairwise does not.
+    func testRetainedColumnCountIsReportedOnlyForCompleteDeletion() throws {
+        let sequences = ["ACGTA", "AC-TA", "ACGNA"]
+        XCTAssertNil(try matrix(sequences).retainedColumnCount)
+        XCTAssertEqual(try matrix(sequences, MSADistanceOptions(gaps: .complete)).retainedColumnCount, 3)
     }
 
     func testCompleteDeletionWithNoSitesLeftThrows() {
@@ -363,6 +382,11 @@ final class MultipleSequenceAlignmentDistanceMatrixTests: XCTestCase {
             MSAAlignedRecord(name: "y", sequence: "--GT"),
         ])
         XCTAssertTrue(MSAAlignedRecord.parseAlignedFASTA("").isEmpty)
+        XCTAssertEqual(
+            MSAAlignedRecord.parseAlignedFASTA(">x\nAC GT\n", keepingInteriorWhitespace: true),
+            [MSAAlignedRecord(name: "x", sequence: "AC GT")],
+            "the older CLI reading keeps interior whitespace for the subcommands that predate finding S2"
+        )
 
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("msa-distance-\(UUID().uuidString)", isDirectory: true)
