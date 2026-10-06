@@ -124,6 +124,7 @@ extension TreeCommand {
                 guard FileManager.default.fileExists(atPath: msaBundleURL.path) else {
                     throw ValidationError("Input MSA bundle not found: \(msaBundleURL.path)")
                 }
+                try validateOutputNameLength(outputURL)
                 let outputExisted = FileManager.default.fileExists(atPath: outputURL.path)
                 if outputExisted, force == false {
                     throw ValidationError("Output tree bundle already exists: \(outputURL.path). Use --force to overwrite.")

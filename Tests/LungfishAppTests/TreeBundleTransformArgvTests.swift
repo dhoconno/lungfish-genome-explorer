@@ -101,6 +101,56 @@ final class TreeBundleTransformArgvTests: XCTestCase {
         XCTAssertEqual(TreeBundleTransformCommand.subtreeNameStem(tipLabels: [], fallback: "  "), "clade")
     }
 
+    private static let longTipA = "NC_076998_Human_CSF-associated_densovirus_putative_nonstructural_protein_NS1_QKT79_gp1_nonstructural_protein_NS2_QKT79_gp2_nonstructural_protein_NS3_QKT79_gp3_and_structural_protein_VP_QKT79_gp4_genes_complete_cds."
+    private static let longTipB = "OQ835745_Densovirinae_sp._strain_Cameroon_U172329_2017_complete_genome."
+
+    func testOutputStemExtractSubtreeWithTwoLongTipLabelsFitsFilenameLimit() throws {
+        let stem = try XCTUnwrap(TreeBundleTransformCommand.outputStem(
+            for: request(operation: .extractSubtree, tipLabels: [Self.longTipA, Self.longTipB])
+        ))
+        XCTAssertLessThanOrEqual((stem + "-99.lungfishtree").utf8.count, 255)
+        XCTAssertTrue(stem.hasSuffix("-subtree"))
+        XCTAssertTrue(stem.hasPrefix("NC_076998"))
+    }
+
+    @MainActor func testNextAvailableBundleURLBoundsLongSuggestedName() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("TreeNames-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let name = "\(Self.longTipA)-\(Self.longTipB)-subtree.lungfishtree"
+        let url = ViewerViewController.nextAvailableBundleURL(suggestedName: name, pathExtension: "lungfishtree", in: dir)
+        XCTAssertLessThanOrEqual(url.lastPathComponent.utf8.count, 255)
+        XCTAssertNoThrow(try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false))
+    }
+
+    @MainActor func testOutputStemRerootOfLongSourceStemFitsFilenameLimit() throws {
+        let longRequest = PhylogeneticTreeViewController.TreeBundleOperationRequest(
+            operation: .reroot,
+            bundleURL: URL(fileURLWithPath: "/proj/\(String(repeating: "x", count: 240)).lungfishtree", isDirectory: true),
+            nodeID: "n",
+            nodeLabel: "n",
+            tipLabels: []
+        )
+        let stem = try XCTUnwrap(TreeBundleTransformCommand.outputStem(for: longRequest))
+        let url = ViewerViewController.nextAvailableBundleURL(
+            suggestedName: "\(stem).lungfishtree",
+            pathExtension: "lungfishtree",
+            in: FileManager.default.temporaryDirectory
+        )
+        XCTAssertLessThanOrEqual(url.lastPathComponent.utf8.count, 255)
+        XCTAssertTrue(url.lastPathComponent.hasPrefix("xxxx"))
+    }
+
+    @MainActor func testTreeOutputURLIsUnderAnalysesAndUnique() throws {
+        let project = FileManager.default.temporaryDirectory.appendingPathComponent("P-\(UUID().uuidString).lungfish", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: project) }
+        let first = ViewerViewController.treeOutputURL(projectURL: project, suggestedName: "X.lungfishtree")
+        XCTAssertEqual(first.path, project.appendingPathComponent("Analyses/Phylogenetic Trees/X.lungfishtree").path)
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        let second = ViewerViewController.treeOutputURL(projectURL: project, suggestedName: "X.lungfishtree")
+        XCTAssertNotEqual(first.path, second.path)
+    }
+
     func testTitleAndDetail() {
         XCTAssertEqual(TreeBundleTransformCommand.title(for: .reroot), "Re-root Tree")
         XCTAssertEqual(TreeBundleTransformCommand.title(for: .extractSubtree), "Extract Subtree")

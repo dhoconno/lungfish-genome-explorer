@@ -46,16 +46,14 @@ extension ViewerViewController {
         guard canWriteProjectOutputs(projectURL: projectURL, workflowName: "Tree inference") else { return }
 
         do {
-            let treeDirectory = projectURL.appendingPathComponent("Phylogenetic Trees", isDirectory: true)
-            try FileManager.default.createDirectory(at: treeDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: PhylogeneticTreeOutputLocation.defaultDirectory(projectURL: projectURL),
+                withIntermediateDirectories: true
+            )
             let suggestedName = options.outputName.hasSuffix(".lungfishtree")
                 ? options.outputName
                 : "\(options.outputName).lungfishtree"
-            let outputURL = Self.nextAvailableBundleURL(
-                suggestedName: suggestedName,
-                pathExtension: "lungfishtree",
-                in: treeDirectory
-            )
+            let outputURL = Self.treeOutputURL(projectURL: projectURL, suggestedName: suggestedName)
             let outputName = outputURL.deletingPathExtension().lastPathComponent
             // D5. A blank seed is drawn here, before `begin`, so the recorded
             // command and the argv that runs both name the same --seed.

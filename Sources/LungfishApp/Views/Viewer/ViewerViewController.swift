@@ -1837,7 +1837,7 @@ public class ViewerViewController: NSViewController {
         return "selected-sequences"
     }
 
-    private static func sanitizedFilesystemStem(_ value: String) -> String {
+    static func sanitizedFilesystemStem(_ value: String) -> String {
         let trimmed = value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "[^A-Za-z0-9._-]+", with: "-", options: .regularExpression)
@@ -2249,13 +2249,8 @@ public class ViewerViewController: NSViewController {
         guard canWriteProjectOutputs(projectURL: projectURL, workflowName: workflowName) else { return }
 
         do {
-            let treeDirectory = projectURL.appendingPathComponent("Phylogenetic Trees", isDirectory: true)
-            try FileManager.default.createDirectory(at: treeDirectory, withIntermediateDirectories: true)
-            let outputURL = Self.nextAvailableBundleURL(
-                suggestedName: "\(outputStem).lungfishtree",
-                pathExtension: "lungfishtree",
-                in: treeDirectory
-            )
+            try FileManager.default.createDirectory(at: PhylogeneticTreeOutputLocation.defaultDirectory(projectURL: projectURL), withIntermediateDirectories: true)
+            let outputURL = Self.treeOutputURL(projectURL: projectURL, suggestedName: "\(outputStem).lungfishtree")
 
             guard let args = TreeBundleTransformCommand.arguments(for: request, outputURL: outputURL) else {
                 return
@@ -2335,7 +2330,7 @@ public class ViewerViewController: NSViewController {
         let rawStem = suggestedName.lowercased().hasSuffix(".\(pathExtension)")
             ? String(suggestedName.dropLast(pathExtension.count + 1))
             : suggestedName
-        let stem = sanitizedFilesystemStem(rawStem)
+        let stem = FileNameBudget.boundedStem(sanitizedFilesystemStem(rawStem), pathExtension: pathExtension)
         let fm = FileManager.default
         var index = 1
         while true {
@@ -4244,34 +4239,6 @@ enum TreeBundleTransformCommand {
         case .collapse:
             return nil
         }
-    }
-
-    /// Names an extracted clade from its tip labels rather than the internal node's display
-    /// label (which for an unlabeled node is its support value, giving "100-subtree"). Up to
-    /// `maxListedTips` tips are joined with "+"; larger clades list the first tip and a count.
-    static let maxListedTips = 3
-
-    static func subtreeNameStem(tipLabels: [String], fallback: String) -> String {
-        let tips = tipLabels
-            .map { sanitizedFileNameComponent($0) }
-            .filter { !$0.isEmpty }
-        guard let first = tips.first else {
-            let cleaned = sanitizedFileNameComponent(fallback)
-            return cleaned.isEmpty ? "clade" : cleaned
-        }
-        if tips.count <= maxListedTips {
-            return tips.joined(separator: "+")
-        }
-        return "\(first)+\(tips.count - 1)-more"
-    }
-
-    private static func sanitizedFileNameComponent(_ label: String) -> String {
-        label
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .map { character -> Character in
-                (character == "/" || character == ":") ? "_" : character
-            }
-            .reduce(into: "") { $0.append($1) }
     }
 
     /// CLI argv for the request, or nil if the operation does not map to a CLI transform.
