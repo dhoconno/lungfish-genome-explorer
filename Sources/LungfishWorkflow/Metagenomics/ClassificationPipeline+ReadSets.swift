@@ -156,6 +156,9 @@ extension ClassificationPipeline {
     /// The provenance step that writes each header-only mate.
     static let singleReadMateStagingToolName = "Lungfish Classification Single-Read Mate Staging"
 
+    /// The provenance step that copies an input into the compression of R1.
+    static let inputCompressionStagingToolName = "Lungfish Classification Input Compression Staging"
+
     /// Records the splits the read-set plan wrote and stages a header-only
     /// mate for each file of single reads, as provenance steps. Returns the
     /// step IDs kraken2 depends on. A run of single reads or pairs only
