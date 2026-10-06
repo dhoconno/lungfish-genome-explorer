@@ -2498,7 +2498,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         if menuItem.action == #selector(showHaplotypeDefinitions(_:)) {
-            return workflowFeatureAvailabilityProvider().hasHaplotypeDefinitions
+            return MainMenu.validateHaplotypeDefinitionsItem(menuItem, available: workflowFeatureAvailabilityProvider().hasHaplotypeDefinitions)
         }
 
         if menuItem.action == #selector(launchWorkflowFromMenu(_:))

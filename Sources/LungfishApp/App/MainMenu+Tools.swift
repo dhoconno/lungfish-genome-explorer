@@ -128,6 +128,18 @@ extension MainMenu {
         }
     }
 
+    /// What a dimmed MHC Haplotype Definitions… item says turns it on.
+    static let haplotypeDefinitionsDisabledToolTip =
+        "Enable an MHC genotyping workflow in the Workflow Library to manage haplotype definitions."
+
+    /// Menu validation for MHC Haplotype Definitions…. The item is never
+    /// hidden. While no enabled workflow uses haplotype definitions it is
+    /// disabled and its tooltip says why.
+    static func validateHaplotypeDefinitionsItem(_ item: NSMenuItem, available: Bool) -> Bool {
+        item.toolTip = available ? nil : haplotypeDefinitionsDisabledToolTip
+        return available
+    }
+
     // MARK: - Workflows
 
     /// Tools > Workflows holds one item per linked workflow package, then the Workflow Library.
