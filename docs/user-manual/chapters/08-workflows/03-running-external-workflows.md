@@ -118,7 +118,7 @@ Click **Run** and watch the run in the [Operations Panel](../01-foundations/06-t
 
 The window builds its form from the package's manifest, so another package may show other pickers. These are the settings the two examples produce.
 
-**Enabled.** Turns a linked package into a runnable item in **Tools > Workflows**. The default is off, so a new link is listed there with Enable before its name until you choose otherwise. Turn it on once for each package you intend to run, and off to set one aside without unlinking it. A package whose card reads Catalog only cannot be enabled, and its item reads **Show <name> in Workflow Library...** instead. This setting has no command-line flag.
+**Enabled.** Turns a linked package into a runnable item in **Tools > Workflows**. The default is off, so a new link is listed there with Enable before its name until you choose otherwise. Turn it on once for each package you intend to run, and off to set one aside without unlinking it. A package whose card reads Catalog only cannot be enabled, and its item reads **Show <name> in Workflow Library** instead. This setting has no command-line flag.
 
 **Reference.** Supplies the reference bundle the manifest declares as a required input, from a menu of reference bundles in the project or with **Choose…** for any other location. There is no default, so the picker starts empty. Change it when the run should use a different genome. On the command line this is `--input`, repeated once per input.
 
