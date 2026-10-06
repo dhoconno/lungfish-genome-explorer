@@ -123,7 +123,9 @@ final class FastqTwelveSMatchSubcommandTests: XCTestCase {
 
         XCTAssertEqual(command.matchingMode, "illumina-exact")
         XCTAssertEqual(config.matchingMode, .illuminaExact)
-        XCTAssertFalse(config.argv.contains("--matching-mode"))
+        // The replay names the mode even when it is the default, as the app's
+        // recorded command does, so the two are one command.
+        XCTAssertEqual(config.argv.suffix(2), ["--matching-mode", "illumina-exact"])
     }
 
     func testAmbiguityResolutionDefaultsToStrict() throws {
