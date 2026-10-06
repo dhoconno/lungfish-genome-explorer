@@ -174,8 +174,9 @@ extension ClassifierReadResolver {
             progress?(baseFraction * 0.8 + 0.1 * sampleWeight, "Extracting \(sampleLabel)…")
 
             let pipeline = TaxonomyExtractionPipeline()
-            let extraction = try await pipeline.extractEachSource(
+            let extraction = try await pipeline.extractEachFile(
                 config: config,
+                files: sources.files,
                 tree: classResult.tree,
                 progress: { fraction, message in
                     progress?(baseFraction * 0.8 + fraction * 0.7 * sampleWeight, "\(sampleLabel): \(message)")

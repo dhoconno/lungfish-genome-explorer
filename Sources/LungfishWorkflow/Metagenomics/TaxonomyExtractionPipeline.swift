@@ -111,9 +111,14 @@ public actor TaxonomyExtractionPipeline {
     /// The extraction ``extract(config:tree:progress:)`` records: one output
     /// per source file of `config`, in order, nil for a source that holds
     /// none of the reads, with the tax IDs matched and the records written.
+    /// Each index of `matePairStarts` is an R1 file whose R2 file follows
+    /// it. That pair is read in step (``extractMatePairInStep(r1:r2:readIDs:to:)``)
+    /// and its output, each R1 record followed by its R2 record, takes the
+    /// R1 file's place, with nil in the R2 file's place.
     func extractEachSource(
         config: TaxonomyExtractionConfig,
         tree: TaxonTree,
+        matePairStarts: [Int] = [],
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> (outputs: [URL?], taxIds: Set<Int>, readCount: Int) {
         // Validate source/output count parity.
@@ -150,10 +155,14 @@ public actor TaxonomyExtractionPipeline {
         progress?(0.10, "Filtering \(taxIdCount) tax IDs...")
 
         // Phase 2: Build read ID set from classification output (0.10 -- 0.30)
+        // kraken2 --paired names every fragment by its R1 read with one final
+        // /1 or /2 dropped, so the IDs of a paired run are fragment names
+        // already and are matched as such, never trimmed a second time.
+        let pairedRun = KrakenResultReadSources.classifiedPairs(in: config.classificationOutput)
         let matchingReadIds = try buildReadIdSet(
             classificationURL: config.classificationOutput,
             targetTaxIds: targetTaxIds,
-            keepReadPairs: config.keepReadPairs,
+            keepReadPairs: config.keepReadPairs && !pairedRun,
             progress: progress
         )
 
@@ -173,7 +182,8 @@ public actor TaxonomyExtractionPipeline {
         let outputs = try await extractReadIDs(
             matchingReadIds,
             from: config.sourceFiles,
-            keepReadPairs: config.keepReadPairs,
+            matching: config.keepReadPairs || pairedRun ? .fragmentName : .firstWord,
+            matePairStarts: Set(matePairStarts),
             outputDirectory: config.outputFile.deletingLastPathComponent(),
             baseName: config.outputFile.deletingPathExtension().lastPathComponent,
             progress: progress
@@ -185,26 +195,37 @@ public actor TaxonomyExtractionPipeline {
     /// per source in order. One source runs as it always has. Several sources
     /// run one at a time, and a source holding none of the reads gives nil,
     /// so the R1 and R2 files of a taxon whose reads were all merged do not
-    /// fail its merged file (D7a).
+    /// fail its merged file (D7a). A pair of files that starts at an index of
+    /// `matePairStarts` is read in step instead, as kraken2 read it.
+    /// `matching` is the fragment-name rule when mates are kept together or
+    /// kraken2 named fragments, so a mate named `X/1` matches `X` (D7c).
     private func extractReadIDs(
         _ readIDs: Set<String>,
         from sources: [URL],
-        keepReadPairs: Bool,
+        matching: ReadIDMatching,
+        matePairStarts: Set<Int>,
         outputDirectory: URL,
         baseName: String,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> (urls: [URL?], readCount: Int) {
         let service = ReadExtractionService(toolRunner: NativeToolRunner.shared)
-        // The IDs are fragment names when mates are kept together, so a mate
-        // named `X/1` must match `X` (D7c).
-        let matching: ReadIDMatching = keepReadPairs ? .fragmentName : .firstWord
         func config(_ files: [URL], _ name: String) -> ReadIDExtractionConfig {
             ReadIDExtractionConfig(
                 sourceFASTQs: files,
                 readIDs: readIDs,
-                keepReadPairs: keepReadPairs,
+                keepReadPairs: matching == .fragmentName,
                 outputDirectory: outputDirectory,
                 outputBaseName: name
+            )
+        }
+        guard matePairStarts.isEmpty else {
+            return try await extractWithMatePairs(
+                readIDs, from: sources, matePairStarts: matePairStarts, outputDirectory: outputDirectory, baseName: baseName,
+                extractOne: { source, name, index in
+                    try await service.extractByReadIDs(config: config([source], name), matching: matching) { fraction, message in
+                        progress?(0.30 + (Double(index) + fraction) * 0.65 / Double(sources.count), message)
+                    }
+                }
             )
         }
         guard sources.count > 1 else {
