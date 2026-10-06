@@ -1252,7 +1252,7 @@ final class FASTQOperationDialogState {
         case .flye:
             return "Configure a Flye assembly run."
         case .hifiasm:
-            return "Configure a hifiasm assembly run."
+            return "Configure a Hifiasm assembly run."
         case .kraken2:
             return "Configure Kraken2 classification."
         case .esViritu:
@@ -1976,7 +1976,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .megahit: return "MEGAHIT"
         case .skesa: return "SKESA"
         case .flye: return "Flye"
-        case .hifiasm: return "hifiasm"
+        case .hifiasm: return "Hifiasm"
         case .kraken2: return "Kraken2"
         case .esViritu: return "EsViritu"
         case .taxTriage: return "TaxTriage"

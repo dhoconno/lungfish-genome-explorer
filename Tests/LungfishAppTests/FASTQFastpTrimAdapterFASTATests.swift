@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// A `.fastpTrim` request (fastp Adapter + Quality Trim) in adapter FASTA mode
+// A `.fastpTrim` request (fastp Adapter & Quality Trim) in adapter FASTA mode
 // names no FASTA, and `lungfish-cli fastq trim` takes none. The in-process
 // trim used to turn adapter trimming off for it and trim quality only, so the
 // derivative silently kept every adapter (R3). Neither the dialog nor the
@@ -49,6 +49,8 @@ final class FASTQFastpTrimAdapterFASTATests: XCTestCase {
         guard case FASTQDerivativeError.invalidOperation(let reason) = error else {
             return XCTFail("expected the adapter FASTA refusal, got \(error)", file: file, line: line)
         }
+        // The refusal names the operation the way the Tools menu and the dialog do.
+        XCTAssertTrue(reason.hasPrefix("fastp Adapter & Quality Trim takes no adapter FASTA file"), reason, file: file, line: line)
         XCTAssertTrue(reason.contains("adapter FASTA"), reason, file: file, line: line)
         XCTAssertTrue(reason.contains("would remove no adapters"), reason, file: file, line: line)
     }

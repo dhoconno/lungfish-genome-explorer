@@ -15,6 +15,14 @@ names, which come from `FASTQOperationCategoryID.displayName` in
 FASTQOperationsCatalog.swift, the one source the Tools menu, the dialog, the
 dataset launchers and the Workflow Library all read).
 
+This script is the quick guard that the pre-push hook runs, and it needs no
+build. The arbiter is Tests/LungfishAppViewTests/FeaturesYAMLMenuPathTests.swift.
+That suite builds the real menu bar and resolves every segment of every menu
+path, so a path that names a real title in the wrong submenu ("Tools > Mapping >
+Viral Recon" after Viral Recon moved to Variant Calling) passes here and fails
+there. Both read the same list of top-level menus, and the suite fails when
+TOP_LEVEL_MENUS and the menu bar disagree.
+
 It is intentionally conservative:
   - Only entry_points strings starting with a known top-level menu bar name
     (File, Edit, View, Sequence, Selection, Tools, Operations, Window, Help)
@@ -22,11 +30,12 @@ It is intentionally conservative:
     actions, and free-text entries ("Open a VCF dataset from the sidebar")
     are left alone since they are not NSMenu items MainMenu.swift builds.
   - Only the first two path segments are checked (e.g. "Tools > Mapping"),
-    not the full submenu depth, since deeper items (Search Online Databases
-    submenu entries, Export > Provenance > format) are numerous and mostly
-    named consistently already; the two-segment check catches the class of
-    bug described above (a whole submenu path invented) without the far
-    larger job of reproducing NSMenu's full tree structure.
+    not the full submenu depth. The two-segment check catches the class of
+    bug described above (a whole submenu path invented) without reproducing
+    NSMenu's full tree structure from Swift source text. A second-level
+    title that exists in the menu source still passes when it now sits in
+    another menu, and the segments after it are not looked at. The Swift
+    suite named above resolves the whole path against the real menu tree.
   - A trailing ellipsis (single-character U+2026 or "...") and surrounding
     whitespace are ignored when comparing titles.
 
@@ -47,6 +56,9 @@ FEATURES_YAML = REPO_ROOT / "docs/user-manual/features.yaml"
 MAIN_MENU_SWIFT = REPO_ROOT / "Sources/LungfishApp/App/MainMenu.swift"
 OPERATIONS_CATALOG_SWIFT = REPO_ROOT / "Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift"
 
+# Every menu of the bar after the application menu, whose title is the release
+# channel's name. FeaturesYAMLMenuPathTests fails when this set and the real
+# menu bar disagree, so a new menu is added here and there together.
 TOP_LEVEL_MENUS = {
     "File", "Edit", "View", "Sequence", "Selection", "Tools", "Operations",
     "Window", "Help",

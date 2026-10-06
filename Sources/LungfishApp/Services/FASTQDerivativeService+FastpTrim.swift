@@ -48,7 +48,7 @@ extension FASTQDerivativeService {
     }
 
     /// The adapter and quality trim a `.fastpTrim` request asks for (fastp
-    /// Adapter + Quality Trim), with auto-detected adapters or the manual
+    /// Adapter & Quality Trim), with auto-detected adapters or the manual
     /// adapter sequence. The request carries no adapter FASTA, and
     /// `lungfish-cli fastq trim` takes none, so a request in FASTA mode fails
     /// here (finding R3). It used to turn adapter trimming off and trim
@@ -62,7 +62,7 @@ extension FASTQDerivativeService {
     ) throws -> FastpTrimOperation {
         guard adapterMode != .fastaFile else {
             throw FASTQDerivativeError.invalidOperation(
-                "fastp Adapter + Quality Trim takes no adapter FASTA file, so in FASTA mode it would remove no adapters. "
+                "fastp Adapter & Quality Trim takes no adapter FASTA file, so in FASTA mode it would remove no adapters. "
                     + "Choose auto-detected adapters or a manual adapter sequence."
             )
         }
