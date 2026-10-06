@@ -205,6 +205,59 @@ final class DemultiplexFailedRunLeavesNoBundleTests: XCTestCase {
         XCTAssertEqual(visibleItems(in: output), [], "a failed run leaves no barcode folder in the output")
     }
 
+    /// A finished run publishes its bundles and removes its staging folder.
+    /// Outside a project a derived manifest names its root by a relative
+    /// path, which must hold from the bundle's published place.
+    func testAFinishedRunOutsideAProjectPublishesBundlesThatFindTheirRoot() async throws {
+        let rootBundle = root.appendingPathComponent("loose/raw.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootBundle, withIntermediateDirectories: true)
+        try Self.fastq([
+            (name: "r1", sequence: "ACGTACGTACGTGATTACAGATTACA"),
+            (name: "r2", sequence: "CCCCCCCCCCCCGATTACAGATTACA"),
+            (name: "r3", sequence: "ACGTACGTACGTTTGGCCAATTGGCC"),
+        ]).write(to: rootBundle.appendingPathComponent("reads.fastq"), atomically: true, encoding: .utf8)
+        let kitCSV = root.appendingPathComponent("kit.csv")
+        try "id,sequence\nBC01,ACGTACGTACGT\n".write(to: kitCSV, atomically: true, encoding: .utf8)
+        let output = root.appendingPathComponent("elsewhere/demux", isDirectory: true)
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: rootBundle.appendingPathComponent("reads.fastq"),
+                sourceBundleURL: rootBundle,
+                barcodeKit: try BarcodeKitRegistry.loadCustomKit(from: kitCSV, name: "kit"),
+                outputDirectory: output,
+                engine: .exactBareBarcode,
+                rootBundleURL: rootBundle,
+                rootFASTQFilename: "reads.fastq",
+                inputSequenceFormat: .fastq
+            ),
+            progress: { _, _ in }
+        )
+
+        let barcodeBundle = output.appendingPathComponent("BC01.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: output.path).sorted(),
+            ["BC01.lungfishfastq", DemultiplexManifest.filename, "unassigned.lungfishfastq"],
+            "the bundles and the manifest are published and the staging folder is gone"
+        )
+        XCTAssertEqual(result.outputBundleURLs.map(\.standardizedFileURL), [barcodeBundle.standardizedFileURL])
+        XCTAssertEqual(
+            result.unassignedBundleURL?.standardizedFileURL,
+            output.appendingPathComponent("unassigned.\(FASTQBundle.directoryExtension)", isDirectory: true).standardizedFileURL
+        )
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: barcodeBundle))
+        XCTAssertEqual(
+            FASTQBundle.resolveBundle(relativePath: manifest.rootBundleRelativePath, from: barcodeBundle).standardizedFileURL.path,
+            rootBundle.standardizedFileURL.path,
+            "the root path holds from the published bundle"
+        )
+        XCTAssertEqual(
+            FASTQBundle.resolveBundle(relativePath: manifest.parentBundleRelativePath, from: barcodeBundle).standardizedFileURL.path,
+            rootBundle.standardizedFileURL.path,
+            "and so does the parent path"
+        )
+    }
+
     private func makeManagedTool(root: URL, environment: String, executable: String, script: String) throws {
         let directory = root.appendingPathComponent(".lungfish/conda/envs/\(environment)/bin", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

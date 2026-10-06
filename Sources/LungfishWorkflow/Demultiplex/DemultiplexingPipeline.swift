@@ -71,10 +71,26 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         config: DemultiplexConfig,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> DemultiplexResult {
-        let startTime = Date()
-
         // Every refusal comes before the run writes anything (L5 item 0).
         try await preflight(config: config)
+        // The bundles are published only once every one is finished, and a
+        // failed run leaves none (L5 item 4).
+        let staging = try DemultiplexStagingArea(publishedDirectory: config.outputDirectory)
+        do {
+            let result = try await runEngine(config: staging.stagedConfig(config), progress: progress)
+            return try staging.publish(result)
+        } catch {
+            staging.discard()
+            throw error
+        }
+    }
+
+    /// Runs the engine `config` selects, writing into its staging folder.
+    private func runEngine(
+        config: DemultiplexConfig,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> DemultiplexResult {
+        let startTime = Date()
         let inputFASTQ = resolveInputFASTQ(config.inputURL)
 
         let fm = FileManager.default
@@ -748,12 +764,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             // Write derived manifest if root bundle info is available
             if let rootBundleURL = config.rootBundleURL,
                let rootFASTQFilename = config.rootFASTQFilename {
-                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: result.bundleURL)
-                    ?? relativePath(from: result.bundleURL, to: rootBundleURL)
+                let anchorURL = manifestAnchorURL(for: result.bundleURL, config: config)
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: anchorURL)
+                    ?? relativePath(from: anchorURL, to: rootBundleURL)
                 let parentBundleURL = config.sourceBundleURL
                 let parentRelativePath = parentBundleURL.flatMap {
-                    FASTQBundle.projectRelativePath(for: $0, from: result.bundleURL)
-                        ?? relativePath(from: result.bundleURL, to: $0)
+                    FASTQBundle.projectRelativePath(for: $0, from: anchorURL)
+                        ?? relativePath(from: anchorURL, to: $0)
                 } ?? rootRelativePath
                 let demuxOp = FASTQDerivativeOperation(
                     kind: .demultiplex,
@@ -952,12 +969,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             // Write derived manifest if root bundle info is available
             if let rootBundleURL = config.rootBundleURL,
                let rootFASTQFilename = config.rootFASTQFilename {
-                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
-                    ?? relativePath(from: bundleURL, to: rootBundleURL)
+                let anchorURL = manifestAnchorURL(for: bundleURL, config: config)
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: anchorURL)
+                    ?? relativePath(from: anchorURL, to: rootBundleURL)
                 let parentBundleURL = config.sourceBundleURL
                 let parentRelativePath = parentBundleURL.flatMap {
-                    FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
-                        ?? relativePath(from: bundleURL, to: $0)
+                    FASTQBundle.projectRelativePath(for: $0, from: anchorURL)
+                        ?? relativePath(from: anchorURL, to: $0)
                 } ?? rootRelativePath
                 let demuxOp = FASTQDerivativeOperation(
                     kind: .demultiplex,
@@ -1037,11 +1055,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
             if let rootBundleURL = config.rootBundleURL,
                let rootFASTQFilename = config.rootFASTQFilename {
-                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
-                    ?? relativePath(from: bundleURL, to: rootBundleURL)
+                let anchorURL = manifestAnchorURL(for: bundleURL, config: config)
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: anchorURL)
+                    ?? relativePath(from: anchorURL, to: rootBundleURL)
                 let parentRelativePath = config.sourceBundleURL.flatMap {
-                    FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
-                        ?? relativePath(from: bundleURL, to: $0)
+                    FASTQBundle.projectRelativePath(for: $0, from: anchorURL)
+                        ?? relativePath(from: anchorURL, to: $0)
                 } ?? rootRelativePath
                 let demuxOp = FASTQDerivativeOperation(
                     kind: .demultiplex,

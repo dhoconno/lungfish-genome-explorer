@@ -23,7 +23,15 @@ public struct DemultiplexConfig: Sendable {
     public let barcodeKit: BarcodeKitDefinition
 
     /// Output directory for per-barcode .lungfishfastq bundles.
-    public let outputDirectory: URL
+    ///
+    /// Inside a run this is the staging folder the bundles are written into,
+    /// and `publishedOutputDirectory` holds the folder they are published to.
+    public internal(set) var outputDirectory: URL
+
+    /// The folder the run publishes its bundles to, while `outputDirectory`
+    /// names its staging folder. Paths in derived manifests are relative to
+    /// a bundle's published place (L5 item 4).
+    var publishedOutputDirectory: URL?
 
     /// Where barcodes are located in the reads.
     public let barcodeLocation: BarcodeLocation

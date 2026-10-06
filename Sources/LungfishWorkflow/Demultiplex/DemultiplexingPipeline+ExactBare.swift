@@ -386,12 +386,13 @@ extension DemultiplexingPipeline {
 
             if let rootBundleURL = config.rootBundleURL,
                let rootFASTQFilename = config.rootFASTQFilename {
-                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
-                    ?? relativePath(from: bundleURL, to: rootBundleURL)
+                let anchorURL = manifestAnchorURL(for: bundleURL, config: config)
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: anchorURL)
+                    ?? relativePath(from: anchorURL, to: rootBundleURL)
                 let parentBundleURL = config.sourceBundleURL
                 let parentRelativePath = parentBundleURL.flatMap {
-                    FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
-                        ?? relativePath(from: bundleURL, to: $0)
+                    FASTQBundle.projectRelativePath(for: $0, from: anchorURL)
+                        ?? relativePath(from: anchorURL, to: $0)
                 } ?? rootRelativePath
                 let demuxOp = FASTQDerivativeOperation(
                     kind: .demultiplex,
