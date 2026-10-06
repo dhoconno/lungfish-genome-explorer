@@ -1391,18 +1391,13 @@ extension AppDelegate {
     }
 
     @objc func promptEnableWorkflowFromMenu(_ sender: NSMenuItem) {
-        let workflowTitle = sender.title.replacingOccurrences(of: " (not enabled)", with: "")
-        guard let window = activeMainWindowController(sender: sender)?.window else {
+        // The alert names the workflow from the catalog item the menu item represents, never from its title.
+        guard let alert = MainMenu.enableWorkflowAlert(for: sender.representedObject),
+              let window = activeMainWindowController(sender: sender)?.window else {
             WorkflowLibraryWindowController.show()
             return
         }
 
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = "Enable “\(workflowTitle)”?"
-        alert.informativeText = "This workflow is available but not yet enabled. Enable it in the Workflow Library?"
-        alert.addButton(withTitle: "Open Workflow Library")
-        alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { return }
             WorkflowLibraryWindowController.show()

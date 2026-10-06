@@ -1288,9 +1288,9 @@ final class FASTQOperationDialogState {
         case .demultiplexing:
             return [.demultiplexBarcodes, .ontFluidigmSampleSplit]
         case .trimmingFiltering:
-            return [.fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength]
+            return [.fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength, .removeLowComplexityReads, .removeDuplicates]
         case .decontamination:
-            return [.removeHumanReads, .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates]
+            return [.removeHumanReads, .removeRibosomalRNA, .removeContaminants]
         case .readProcessing:
             return [.mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads, .correctSequencingErrors]
         case .searchSubsetting:
@@ -1298,7 +1298,9 @@ final class FASTQOperationDialogState {
         case .alignment:
             return [.mafft]
         case .mapping:
-            return [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
+            return [.minimap2, .bwaMem2, .bowtie2, .bbmap]
+        case .variantCalling:
+            return [.viralRecon]
         case .assembly:
             return [.spades, .megahit, .skesa, .flye, .hifiasm]
         case .clustering:
@@ -2034,10 +2036,10 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .qcReporting
         case .demultiplexBarcodes, .ontFluidigmSampleSplit:
             return .demultiplexing
-        case .fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength:
-            return .trimmingFiltering
-        case .removeHumanReads, .removeRibosomalRNA, .removeContaminants,
+        case .fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength,
              .removeLowComplexityReads, .removeDuplicates:
+            return .trimmingFiltering
+        case .removeHumanReads, .removeRibosomalRNA, .removeContaminants:
             return .decontamination
         case .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads, .correctSequencingErrors:
             return .readProcessing
@@ -2047,8 +2049,10 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .alignment
         case .savont, .pbaa:
             return .clustering
-        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap:
             return .mapping
+        case .viralRecon:
+            return .variantCalling
         case .spades, .megahit, .skesa, .flye, .hifiasm:
             return .assembly
         case .kraken2, .esViritu, .taxTriage:
@@ -2307,37 +2311,6 @@ private extension AssemblyTool {
             return .ontReads
         case .hifiasm:
             return .pacBioHiFi
-        }
-    }
-}
-
-extension FASTQOperationCategoryID {
-    var defaultToolID: FASTQOperationToolID {
-        switch self {
-        case .qcReporting:
-            return .refreshQCSummary
-        case .demultiplexing:
-            return .demultiplexBarcodes
-        case .trimmingFiltering:
-            return .fastpTrim
-        case .decontamination:
-            return .removeHumanReads
-        case .readProcessing:
-            return .mergeOverlappingPairs
-        case .searchSubsetting:
-            return .subsampleByProportion
-        case .alignment:
-            return .mafft
-        case .mapping:
-            return .minimap2
-        case .assembly:
-            return .spades
-        case .clustering:
-            return .pbaa
-        case .classification:
-            return .kraken2
-        case .genotyping:
-            return .ontGenotyping
         }
     }
 }

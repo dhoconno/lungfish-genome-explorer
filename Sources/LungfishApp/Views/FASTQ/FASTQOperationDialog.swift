@@ -99,7 +99,10 @@ struct FASTQOperationDialog: View {
         switch state.selectedToolID.categoryID {
         case .assembly:
             return "fastq-operations-assembly"
-        case .mapping:
+        case .mapping, .variantCalling:
+            // Viral Recon moved from mapping to variant calling. Its dialog keeps
+            // the mapping namespace so the identifiers automation already uses
+            // for it do not change.
             return "fastq-operations-mapping"
         default:
             return nil

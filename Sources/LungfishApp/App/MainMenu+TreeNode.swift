@@ -1,4 +1,4 @@
-// MainMenu+TreeNode.swift - Selection > Tree Node submenu and the Tools > Build Tree item
+// MainMenu+TreeNode.swift - Selection > Tree Node submenu and the Build Tree item the Tools layout places
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -27,14 +27,14 @@ extension MainMenu {
 
     /// IQ-TREE is not in the FASTQ dialog family because its input is a .lungfishmsa,
     /// so the item is hand-written rather than built from FASTQOperationToolID.
-    static func addBuildTreeItem(to categoryMenu: NSMenu) {
-        categoryMenu.addItem(.separator())
+    /// `ToolsMenuLayout` places it as the trailing command of the alignment entry.
+    static func makeBuildTreeItem() -> NSMenuItem {
         let buildTreeItem = NSMenuItem(
             title: "Build Tree with IQ-TREE\u{2026}",
             action: #selector(ToolsMenuActions.showIQTreeInference(_:)),
             keyEquivalent: ""
         )
-        buildTreeItem.identifier = NSUserInterfaceItemIdentifier("tools-build-tree-iqtree")
-        categoryMenu.addItem(buildTreeItem)
+        buildTreeItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.buildTreeIQTree)
+        return buildTreeItem
     }
 }

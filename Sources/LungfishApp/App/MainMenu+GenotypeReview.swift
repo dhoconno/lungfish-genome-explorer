@@ -1,4 +1,4 @@
-// MainMenu+GenotypeReview.swift - Genotype Review submenu builder
+// MainMenu+GenotypeReview.swift - Selection > Genotype Sample and Genotype Call submenus
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -6,10 +6,10 @@ import AppKit
 import LungfishGenotypeUI
 
 extension MainMenu {
-    // MARK: - Genotype Review Submenu
+    // MARK: - Genotype Sample and Genotype Call Submenus
 
-    /// The genotype review commands (`⌘R`, `⌘K`, `⇧⌘F`, `⇧⌘O`) and the
-    /// matrix's Selected Cell commands (`⌥⌘P`, `⌥⌘X`, `⌥⌘R`).
+    /// Selection > Genotype Sample, the commands that review the sample selected
+    /// in a genotype result (`⌘R`, `⌘K`, `⇧⌘F`, `⇧⌘O`).
     ///
     /// These were previously implemented only as a
     /// `GenotypeResultViewController.performKeyEquivalent` override, which
@@ -18,62 +18,67 @@ extension MainMenu {
     /// reach the controller through the responder chain and auto-disable
     /// (via its `validateMenuItem`) when no reviewable sample is selected,
     /// matching the TaxTriage sample-stepping items in the View menu.
-    static func createGenotypeReviewMenuItem() -> NSMenuItem {
-        let reviewItem = NSMenuItem(title: "Genotype Review", action: nil, keyEquivalent: "")
-        reviewItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.genotypeReviewMenu)
-        let reviewMenu = NSMenu(title: reviewItem.title)
+    static func makeGenotypeSampleMenuItem() -> NSMenuItem {
+        let sampleItem = NSMenuItem(title: "Genotype Sample", action: nil, keyEquivalent: "")
+        sampleItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.selectionGenotypeSample)
+        let sampleMenu = NSMenu(title: sampleItem.title)
 
-        let reviewedItem = reviewMenu.addItem(
+        let reviewedItem = sampleMenu.addItem(
             withTitle: "Mark Sample Reviewed",
             action: #selector(GenotypeResultViewController.markSelectedSampleReviewed(_:)),
             keyEquivalent: "r"
         )
         reviewedItem.keyEquivalentModifierMask = [.command]
 
-        let confirmedItem = reviewMenu.addItem(
+        let confirmedItem = sampleMenu.addItem(
             withTitle: "Mark Sample Confirmed",
             action: #selector(GenotypeResultViewController.markSelectedSampleConfirmed(_:)),
             keyEquivalent: "k"
         )
         confirmedItem.keyEquivalentModifierMask = [.command]
 
-        let flagItem = reviewMenu.addItem(
+        let flagItem = sampleMenu.addItem(
             withTitle: "Flag Sample for Review",
             action: #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:)),
             keyEquivalent: "f"
         )
         flagItem.keyEquivalentModifierMask = [.command, .shift]
 
-        let detailItem = reviewMenu.addItem(
+        let detailItem = sampleMenu.addItem(
             withTitle: "Sample Detail\u{2026}",
             action: #selector(GenotypeResultViewController.openSelectedSampleDetail(_:)),
             keyEquivalent: "o"
         )
         detailItem.keyEquivalentModifierMask = [.command, .shift]
 
-        // Selected Cell: the matrix review commands. They carry the matrix's
-        // own chords (⌥⌘P, ⌥⌘X, ⌥⌘R) and are enabled only while the
-        // genotype matrix has the keyboard focus and a selection. Edit
-        // Comment stays unbound because ⌥⌘M is macOS's Minimize All.
-        reviewMenu.addItem(.separator())
-        let selectedCellItem = NSMenuItem(title: "Selected Cell", action: nil, keyEquivalent: "")
-        selectedCellItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.genotypeSelectedCellMenu)
-        let selectedCellMenu = NSMenu(title: selectedCellItem.title)
-        let cellCommands: [(String, Selector, String, NSEvent.ModifierFlags)] = [
+        sampleItem.submenu = sampleMenu
+        return sampleItem
+    }
+
+    /// Selection > Genotype Call, the matrix review commands for the call
+    /// selected in the genotype matrix. They carry the matrix's own chords
+    /// (`⌥⌘P`, `⌥⌘X`, `⌥⌘R`) and are enabled only while the genotype matrix
+    /// has the keyboard focus and a selection. Edit Comment stays unbound
+    /// because `⌥⌘M` is macOS's Minimize All. They are real nil-target menu
+    /// items for the same reason the Genotype Sample commands are.
+    static func makeGenotypeCallMenuItem() -> NSMenuItem {
+        let callItem = NSMenuItem(title: "Genotype Call", action: nil, keyEquivalent: "")
+        callItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.selectionGenotypeCall)
+        let callMenu = NSMenu(title: callItem.title)
+
+        let callCommands: [(String, Selector, String, NSEvent.ModifierFlags)] = [
             ("Mark False Positive", #selector(GenotypeMatrixReviewMenuActions.markSelectionFalsePositive(_:)), "p", [.command, .option]),
             ("Mark False Negative", #selector(GenotypeMatrixReviewMenuActions.markSelectionFalseNegative(_:)), "x", [.command, .option]),
             ("Clear Review", #selector(GenotypeMatrixReviewMenuActions.clearSelectionReview(_:)), "r", [.command, .option]),
             ("Edit Comment\u{2026}", #selector(GenotypeMatrixReviewMenuActions.editSelectionComment(_:)), "", []),
             ("Remove Comments", #selector(GenotypeMatrixReviewMenuActions.removeSelectionComments(_:)), "", []),
         ]
-        for (title, selector, key, modifiers) in cellCommands {
-            let item = selectedCellMenu.addItem(withTitle: title, action: selector, keyEquivalent: key)
+        for (title, selector, key, modifiers) in callCommands {
+            let item = callMenu.addItem(withTitle: title, action: selector, keyEquivalent: key)
             if !key.isEmpty { item.keyEquivalentModifierMask = modifiers }
         }
-        selectedCellItem.submenu = selectedCellMenu
-        reviewMenu.addItem(selectedCellItem)
 
-        reviewItem.submenu = reviewMenu
-        return reviewItem
+        callItem.submenu = callMenu
+        return callItem
     }
 }

@@ -28,9 +28,9 @@ final class MainMenuKeyEquivalentTests: XCTestCase {
     /// AppKit dispatches ⌘R / ⌘K / ⇧⌘F / ⇧⌘O through the responder chain to
     /// `GenotypeResultViewController` (a `performKeyEquivalent` override on a
     /// view controller is never reached).
-    func testGenotypeReviewCommandsAreMenuItemsWithTheDocumentedShortcuts() throws {
+    func testGenotypeSampleCommandsAreMenuItemsWithTheDocumentedShortcuts() throws {
         let menu = MainMenu.createMainMenu()
-        let review = try XCTUnwrap(item(titled: "Genotype Review", in: menu))
+        let review = try XCTUnwrap(item(titled: "Genotype Sample", in: menu))
         let submenu = try XCTUnwrap(review.submenu)
 
         let expected: [(String, String, NSEvent.ModifierFlags, Selector)] = [
@@ -39,8 +39,8 @@ final class MainMenuKeyEquivalentTests: XCTestCase {
             ("Flag Sample for Review", "f", [.command, .shift], #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:))),
             ("Sample Detail\u{2026}", "o", [.command, .shift], #selector(GenotypeResultViewController.openSelectedSampleDetail(_:))),
         ]
-        // The sample commands, then a separator and the matrix's Selected Cell submenu.
-        XCTAssertEqual(submenu.items.map(\.title), expected.map(\.0) + ["", "Selected Cell"])
+        // The four sample commands alone. The matrix commands are the Genotype Call submenu beside it.
+        XCTAssertEqual(submenu.items.map(\.title), expected.map(\.0))
         for (title, key, modifiers, action) in expected {
             let item = try XCTUnwrap(submenu.items.first { $0.title == title }, title)
             XCTAssertEqual(item.keyEquivalent, key, title)
@@ -80,8 +80,8 @@ final class MainMenuKeyEquivalentTests: XCTestCase {
         XCTAssertEqual(newWindow?.keyEquivalentModifierMask, [.command, .option])
     }
 
-    /// The genotype matrix's shortcuts are real menu items now (Tools >
-    /// Genotype Review > Selected Cell), so each matrix chord must be bound
+    /// The genotype matrix's shortcuts are real menu items now (Selection >
+    /// Genotype Call), so each matrix chord must be bound
     /// in the menu bar exactly once, to the item of the same command. The
     /// false-negative command moved from ⌥⌘N (New Window for Current Project)
     /// to ⌥⌘X earlier.

@@ -33,9 +33,10 @@ struct LungfishAppRobot {
     ) -> XCUIElement {
         app.activate()
 
-        let toolsMenu = app.menuBars.menuBarItems["Tools"]
-        XCTAssertTrue(toolsMenu.waitForExistence(timeout: 5), file: file, line: line)
-        toolsMenu.click()
+        // Search Online Databases is a File submenu, right after Import Center….
+        let fileMenu = app.menuBars.menuBarItems["File"]
+        XCTAssertTrue(fileMenu.waitForExistence(timeout: 5), file: file, line: line)
+        fileMenu.click()
 
         let searchDatabasesMenu = app.menuItems["Search Online Databases"]
         XCTAssertTrue(searchDatabasesMenu.waitForExistence(timeout: 5), file: file, line: line)

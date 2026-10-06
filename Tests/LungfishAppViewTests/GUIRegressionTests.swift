@@ -31,21 +31,27 @@ final class GUIRegressionTests: XCTestCase {
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
 
-        XCTAssertEqual(toolsMenu.items.prefix(13).map(\.title), [
-            "PCR Primer Design",
+        // The categories lead the menu in the order of the enum, which is the
+        // order of the layout. Separators between the groups are not titles.
+        XCTAssertEqual(toolsMenu.items.filter { !$0.isSeparatorItem }.prefix(13).map(\.title), [
             "QC & Reporting",
             "Demultiplexing",
             "Trimming & Filtering",
             "Decontamination",
             "Read Processing",
             "Search & Subsetting",
-            "Alignment & Phylogenetics",
             "Mapping",
+            "Variant Calling",
             "Assembly",
             "Clustering",
             "Classification",
             "Genotyping",
+            "Alignment & Phylogenetics",
         ])
+        XCTAssertEqual(
+            toolsMenu.items.filter { !$0.isSeparatorItem }.prefix(13).map(\.title),
+            FASTQOperationCategoryID.allCases.map(\.displayName)
+        )
         XCTAssertNil(toolsMenu.items.first { $0.title == "FASTQ/FASTA Operations" })
 
         let toolTitles = toolsMenu.items.map(\.title)
@@ -60,27 +66,30 @@ final class GUIRegressionTests: XCTestCase {
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
         let visibleTitles = toolsMenu.items.compactMap { $0.isSeparatorItem ? nil : $0.title }
 
+        // Call Variants… leads the Variant Calling submenu now, and Haplotype
+        // Definitions… sits in Genotyping, so neither is a Tools-level item.
         XCTAssertEqual(visibleTitles, [
-            "PCR Primer Design",
             "QC & Reporting",
             "Demultiplexing",
             "Trimming & Filtering",
             "Decontamination",
             "Read Processing",
             "Search & Subsetting",
-            "Alignment & Phylogenetics",
             "Mapping",
+            "Variant Calling",
             "Assembly",
             "Clustering",
             "Classification",
             "Genotyping",
-            "Haplotype Definitions…",
-            "Genotype Review",
-            "Call Variants…",
-            "Search Online Databases",
+            "Alignment & Phylogenetics",
+            "PCR Primer Design",
             "Workflows",
             "Plugin Manager…",
         ])
+
+        let variantCalling = try XCTUnwrap(toolsMenu.items.first { $0.title == "Variant Calling" }?.submenu)
+        XCTAssertEqual(variantCalling.items.first?.title, "Call Variants…")
+        XCTAssertEqual(variantCalling.items.first?.action, #selector(ToolsMenuActions.showBAMVariantCalling(_:)))
 
         let workflowsMenu = try XCTUnwrap(toolsMenu.items.first { $0.title == "Workflows" }?.submenu)
         XCTAssertNotNil(workflowsMenu.items.last { $0.title == "Workflow Library…" })

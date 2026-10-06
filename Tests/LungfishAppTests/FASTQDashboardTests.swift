@@ -404,6 +404,62 @@ final class FASTQDashboardTests: XCTestCase {
         XCTAssertEqual(launchedCategory, .qcReporting)
     }
 
+    /// The launcher rows are the categories in Tools menu order, each named by
+    /// the one display name, with a symbol that exists and a tooltip.
+    @MainActor
+    func testFASTQDatasetSidebarListsEveryCategoryByItsDisplayNameWithASymbolAndTooltip() throws {
+        let controller = FASTQDatasetViewController()
+        let rootView = controller.view
+        rootView.layoutSubtreeIfNeeded()
+
+        let sidebar = try XCTUnwrap(operationSidebar(in: rootView))
+        let nameColumn = try XCTUnwrap(sidebar.tableColumns.first { $0.identifier.rawValue == "name" })
+        let iconColumn = try XCTUnwrap(sidebar.tableColumns.first { $0.identifier.rawValue == "icon" })
+
+        XCTAssertEqual(controller.numberOfRows(in: sidebar), FASTQOperationCategoryID.allCases.count)
+        for (row, category) in FASTQOperationCategoryID.allCases.enumerated() {
+            let nameCell = try XCTUnwrap(controller.tableView(sidebar, viewFor: nameColumn, row: row) as? NSTextField)
+            XCTAssertEqual(nameCell.stringValue, category.displayName, "row \(row)")
+            XCTAssertFalse((nameCell.toolTip ?? "").isEmpty, "\(category.rawValue) needs a tooltip")
+
+            let iconView = try XCTUnwrap(controller.tableView(sidebar, viewFor: iconColumn, row: row) as? NSImageView)
+            XCTAssertNotNil(iconView.image, "\(category.rawValue) needs an SF Symbol that exists on macOS 26")
+        }
+
+        let variantCallingRow = try XCTUnwrap(FASTQOperationCategoryID.allCases.firstIndex(of: .variantCalling))
+        let variantCallingCell = try XCTUnwrap(
+            controller.tableView(sidebar, viewFor: nameColumn, row: variantCallingRow) as? NSTextField
+        )
+        XCTAssertEqual(
+            variantCallingCell.toolTip,
+            "Open the FASTQ/FASTA operations dialog with variant calling tools selected."
+        )
+    }
+
+    /// "Alignment & Phylogenetics" is the longest category name. At the divider
+    /// position the controller picks for a roomy window the launcher column
+    /// shows it whole. At the narrowest divider position (200 pt) the column is
+    /// 146 pt and the name needs 152 pt, so the label ends in an ellipsis there.
+    @MainActor
+    func testFASTQDatasetSidebarShowsTheLongestCategoryNameWholeAtTheInitialLayout() throws {
+        let controller = FASTQDatasetViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1100, height: 760)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let sidebar = try XCTUnwrap(operationSidebar(in: controller.view))
+        let nameColumn = try XCTUnwrap(sidebar.tableColumns.first { $0.identifier.rawValue == "name" })
+        let longest = FASTQOperationCategoryID.allCases.map(\.displayName).max { $0.count < $1.count }
+        XCTAssertEqual(longest, "Alignment & Phylogenetics")
+        let longestRow = try XCTUnwrap(FASTQOperationCategoryID.allCases.firstIndex { $0.displayName == longest })
+        let cell = try XCTUnwrap(controller.tableView(sidebar, viewFor: nameColumn, row: longestRow) as? NSTextField)
+        let textWidth = cell.attributedStringValue.size().width
+        XCTAssertGreaterThanOrEqual(
+            nameColumn.width,
+            ceil(textWidth),
+            "'\(longest ?? "")' is \(textWidth) pt wide and the name column is \(nameColumn.width) pt"
+        )
+    }
+
     func testFASTQDatasetSidebarDoesNotCarryLegacyAccordionState() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

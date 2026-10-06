@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishGenotypeUI
 import LungfishKit
 import LungfishTwelveSUI
 import XCTest
@@ -102,6 +103,78 @@ final class SelectionMenuTests: XCTestCase {
         )
         let chorded = SidebarItemAction.allCases.filter { $0.keyEquivalent != nil }
         XCTAssertEqual(Set(chorded), [.newFolder, .duplicate, .moveToTrash, .selectSiblings, .showInInspector])
+    }
+
+    // MARK: - Genotype Sample and Genotype Call
+
+    /// U2. The genotype review commands act on the selected sample or call, so
+    /// they are Selection commands. They follow Tree Node, above the shared
+    /// Show in Inspector.
+    func testSelectionMenuHoldsGenotypeSampleAndGenotypeCallAfterTreeNode() throws {
+        let menu = try submenu("Selection", in: mainMenu())
+        XCTAssertEqual(menu.items.map { $0.isSeparatorItem ? "-" : $0.title }, [
+            "Sidebar Item", "Table Row", "Tree Node", "Genotype Sample", "Genotype Call", "-", "Show in Inspector",
+        ])
+        let sample = try item(identifier: MainMenuAccessibilityID.selectionGenotypeSample, in: menu)
+        XCTAssertEqual(sample.identifier?.rawValue, "selection-menu-genotype-sample")
+        XCTAssertEqual(sample.title, "Genotype Sample")
+        let call = try item(identifier: MainMenuAccessibilityID.selectionGenotypeCall, in: menu)
+        XCTAssertEqual(call.identifier?.rawValue, "selection-menu-genotype-call")
+        XCTAssertEqual(call.title, "Genotype Call")
+
+        let tools = try submenu("Tools", in: mainMenu())
+        XCTAssertNil(tools.items.first { $0.title == "Genotype Review" }, "Tools no longer holds the review commands")
+    }
+
+    func testGenotypeSampleSubmenuKeepsTheReviewSelectorsAndChords() throws {
+        let menu = try submenu("Selection", in: mainMenu())
+        let sample = try XCTUnwrap(try item(identifier: MainMenuAccessibilityID.selectionGenotypeSample, in: menu).submenu)
+        let expected: [(String, String, NSEvent.ModifierFlags, Selector)] = [
+            ("Mark Sample Reviewed", "r", [.command], #selector(GenotypeResultViewController.markSelectedSampleReviewed(_:))),
+            ("Mark Sample Confirmed", "k", [.command], #selector(GenotypeResultViewController.markSelectedSampleConfirmed(_:))),
+            ("Flag Sample for Review", "f", [.command, .shift], #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:))),
+            ("Sample Detail\u{2026}", "o", [.command, .shift], #selector(GenotypeResultViewController.openSelectedSampleDetail(_:))),
+        ]
+        XCTAssertEqual(sample.items.map(\.title), expected.map(\.0), "four commands and no separator")
+        for (index, (title, key, modifiers, action)) in expected.enumerated() {
+            let menuItem = sample.items[index]
+            XCTAssertEqual(menuItem.keyEquivalent, key, title)
+            XCTAssertEqual(menuItem.keyEquivalentModifierMask, modifiers, title)
+            XCTAssertEqual(menuItem.action, action, title)
+            XCTAssertNil(menuItem.target, "\(title) must dispatch through the responder chain")
+        }
+    }
+
+    func testGenotypeCallSubmenuKeepsTheMatrixSelectorsAndChords() throws {
+        let menu = try submenu("Selection", in: mainMenu())
+        let call = try XCTUnwrap(try item(identifier: MainMenuAccessibilityID.selectionGenotypeCall, in: menu).submenu)
+        let expected: [(String, String, NSEvent.ModifierFlags, Selector)] = [
+            ("Mark False Positive", "p", [.command, .option], #selector(GenotypeMatrixReviewMenuActions.markSelectionFalsePositive(_:))),
+            ("Mark False Negative", "x", [.command, .option], #selector(GenotypeMatrixReviewMenuActions.markSelectionFalseNegative(_:))),
+            ("Clear Review", "r", [.command, .option], #selector(GenotypeMatrixReviewMenuActions.clearSelectionReview(_:))),
+            ("Edit Comment\u{2026}", "", [], #selector(GenotypeMatrixReviewMenuActions.editSelectionComment(_:))),
+            ("Remove Comments", "", [], #selector(GenotypeMatrixReviewMenuActions.removeSelectionComments(_:))),
+        ]
+        XCTAssertEqual(call.items.map(\.title), expected.map(\.0), "five commands and no separator")
+        for (index, (title, key, modifiers, action)) in expected.enumerated() {
+            let menuItem = call.items[index]
+            XCTAssertEqual(menuItem.keyEquivalent, key, title)
+            if !key.isEmpty { XCTAssertEqual(menuItem.keyEquivalentModifierMask, modifiers, title) }
+            XCTAssertEqual(menuItem.action, action, title)
+            XCTAssertNil(menuItem.target, "\(title) must dispatch through the responder chain")
+        }
+    }
+
+    /// With no genotype result focused, nothing answers the genotype commands.
+    func testGenotypeItemsAreDisabledWithNothingFocused() throws {
+        let menu = try submenu("Selection", in: mainMenu())
+        for identifier in [MainMenuAccessibilityID.selectionGenotypeSample, MainMenuAccessibilityID.selectionGenotypeCall] {
+            let sub = try XCTUnwrap(try item(identifier: identifier, in: menu).submenu)
+            sub.update()
+            for menuItem in sub.items where !menuItem.isSeparatorItem {
+                XCTAssertFalse(menuItem.isEnabled, "\(menuItem.title) must be disabled with no genotype result focused")
+            }
+        }
     }
 
     func testSidebarItemActionsHaveDistinctSelectorsSlugsAndTitles() {

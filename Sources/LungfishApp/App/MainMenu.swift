@@ -30,11 +30,8 @@ public final class MainMenu {
     private static let windowMenuDelegate = WindowMenuDelegate()
 
     /// Creates and returns the main menu bar.
-    public static func createMainMenu(
-        workflowFeatureAvailability: WorkflowFeatureAvailability? = nil
-    ) -> NSMenu {
+    public static func createMainMenu() -> NSMenu {
         createMainMenu(
-            workflowFeatureAvailability: workflowFeatureAvailability,
             workflowLibraryEnablementStore: .shared,
             workflowPackageStore: .shared,
             appIdentity: .current
@@ -42,13 +39,11 @@ public final class MainMenu {
     }
 
     static func createMainMenu(
-        workflowFeatureAvailability: WorkflowFeatureAvailability? = nil,
         workflowLibraryEnablementStore: WorkflowLibraryEnablementStore = .shared,
         workflowPackageStore: WorkflowLibraryImportedPackageStore = .shared,
         appIdentity: LungfishAppIdentity = .current
     ) -> NSMenu {
         let mainMenu = NSMenu()
-        let workflowFeatureAvailability = workflowFeatureAvailability ?? .current()
 
         // Application menu
         mainMenu.addItem(createApplicationMenu(appIdentity: appIdentity))
@@ -71,7 +66,6 @@ public final class MainMenu {
         // Tools menu
         mainMenu.addItem(
             createToolsMenu(
-                workflowFeatureAvailability: workflowFeatureAvailability,
                 workflowLibraryEnablementStore: workflowLibraryEnablementStore,
                 workflowPackageStore: workflowPackageStore
             )
@@ -219,6 +213,29 @@ public final class MainMenu {
         )
         importCenterItem.keyEquivalentModifierMask = [.command, .shift]
         importCenterItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.importCenter)
+
+        // Online databases. A search downloads records into the project, which is
+        // file work like Import Center, so the submenu follows it.
+        let searchDatabasesItem = NSMenuItem(title: "Search Online Databases", action: nil, keyEquivalent: "")
+        searchDatabasesItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.searchOnlineDatabases)
+        let searchDatabasesMenu = NSMenu(title: "Search Online Databases")
+        searchDatabasesMenu.addItem(
+            withTitle: "Search NCBI…",
+            action: #selector(ToolsMenuActions.searchNCBI(_:)),
+            keyEquivalent: ""
+        )
+        searchDatabasesMenu.addItem(
+            withTitle: "Search SRA…",
+            action: #selector(ToolsMenuActions.searchSRA(_:)),
+            keyEquivalent: ""
+        )
+        searchDatabasesMenu.addItem(
+            withTitle: "Search Pathoplexus…",
+            action: #selector(ToolsMenuActions.searchPathoplexus(_:)),
+            keyEquivalent: ""
+        )
+        searchDatabasesItem.submenu = searchDatabasesMenu
+        fileMenu.addItem(searchDatabasesItem)
 
         // Export submenu
         let exportItem = NSMenuItem(title: "Export", action: nil, keyEquivalent: "")
@@ -811,8 +828,10 @@ public final class MainMenu {
     ///
     /// Every item has a nil target, so it reaches whichever outline or table
     /// is first responder through the responder chain and is disabled when
-    /// none is. Show in Inspector is one item for every surface, at the top
-    /// level, so its chord (Cmd-Opt-S) is bound once.
+    /// none is. The Tree Node, Genotype Sample and Genotype Call submenus do
+    /// the same for the node, sample or call selected in a result. Show in
+    /// Inspector is one item for every surface, at the top level, so its
+    /// chord (Cmd-Opt-S) is bound once.
     private static func createSelectionMenu() -> NSMenuItem {
         let selectionMenuItem = NSMenuItem(title: "Selection", action: nil, keyEquivalent: "")
         selectionMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.selectionMenu)
@@ -837,6 +856,8 @@ public final class MainMenu {
         selectionMenu.addItem(tableRowItem)
 
         selectionMenu.addItem(makeTreeNodeMenuItem())
+        selectionMenu.addItem(makeGenotypeSampleMenuItem())
+        selectionMenu.addItem(makeGenotypeCallMenuItem())
 
         selectionMenu.addItem(.separator())
 
@@ -865,222 +886,6 @@ public final class MainMenu {
             }
         }
         return menu
-    }
-
-    // MARK: - Tools Menu
-
-    private static func createToolsMenu(
-        workflowFeatureAvailability: WorkflowFeatureAvailability,
-        workflowLibraryEnablementStore: WorkflowLibraryEnablementStore,
-        workflowPackageStore: WorkflowLibraryImportedPackageStore
-    ) -> NSMenuItem {
-        let toolsMenuItem = NSMenuItem(title: "Tools", action: nil, keyEquivalent: "")
-        toolsMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.toolsMenu)
-        let toolsMenu = NSMenu(title: "Tools")
-
-        let model = ToolsMenuModel.build(
-            isEnabled: { workflowLibraryEnablementStore.isWorkflowEnabled($0) },
-            linkedPackages: workflowPackageStore.validatedPackages(),
-            isPackageEnabled: { workflowLibraryEnablementStore.isUserWorkflowEnabled($0) }
-        )
-        let primerDesignItem = NSMenuItem(title: "PCR Primer Design", action: nil, keyEquivalent: "")
-        primerDesignItem.identifier = NSUserInterfaceItemIdentifier("tools-pcr-primer-design")
-        let primerDesignMenu = NSMenu(title: primerDesignItem.title)
-        for engine in PrimerDesignEngine.allCases {
-            let item = primerDesignMenu.addItem(
-                withTitle: "\(engine.rawValue)…",
-                action: #selector(ToolsMenuActions.showPCRPrimerDesign(_:)),
-                keyEquivalent: ""
-            )
-            item.representedObject = engine
-        }
-        primerDesignItem.submenu = primerDesignMenu
-        toolsMenu.addItem(primerDesignItem)
-        for category in model.categories {
-            toolsMenu.addItem(categoryToolsMenuItem(for: category))
-        }
-
-        if workflowFeatureAvailability.hasHaplotypeDefinitions {
-            let haplotypeDefinitionsItem = toolsMenu.addItem(
-                withTitle: "Haplotype Definitions\u{2026}",
-                action: #selector(ToolsMenuActions.showHaplotypeDefinitions(_:)),
-                keyEquivalent: ""
-            )
-            haplotypeDefinitionsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.haplotypeDefinitions)
-        }
-
-        toolsMenu.addItem(createGenotypeReviewMenuItem())
-
-        toolsMenu.addItem(.separator())
-
-        let callVariantsItem = toolsMenu.addItem(
-            withTitle: "Call Variants…",
-            action: #selector(ToolsMenuActions.showBAMVariantCalling(_:)),
-            keyEquivalent: ""
-        )
-        callVariantsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.callVariants)
-
-        toolsMenu.addItem(.separator())
-
-        // Online databases
-        let searchDatabasesItem = NSMenuItem(title: "Search Online Databases", action: nil, keyEquivalent: "")
-        let searchDatabasesMenu = NSMenu(title: "Search Online Databases")
-
-        searchDatabasesMenu.addItem(
-            withTitle: "Search NCBI…",
-            action: #selector(ToolsMenuActions.searchNCBI(_:)),
-            keyEquivalent: ""
-        )
-
-        searchDatabasesMenu.addItem(
-            withTitle: "Search SRA…",
-            action: #selector(ToolsMenuActions.searchSRA(_:)),
-            keyEquivalent: ""
-        )
-
-        searchDatabasesMenu.addItem(
-            withTitle: "Search Pathoplexus…",
-            action: #selector(ToolsMenuActions.searchPathoplexus(_:)),
-            keyEquivalent: ""
-        )
-
-        searchDatabasesItem.submenu = searchDatabasesMenu
-        toolsMenu.addItem(searchDatabasesItem)
-
-        toolsMenu.addItem(.separator())
-
-        toolsMenu.addItem(workflowsMenuItem(for: model.linkedPackages))
-
-        // Plugin Manager (Cmd-Shift-B for "Bioconda")
-        let pluginItem = toolsMenu.addItem(
-            withTitle: "Plugin Manager\u{2026}",
-            action: #selector(ToolsMenuActions.showPluginManager(_:)),
-            keyEquivalent: "b"
-        )
-        pluginItem.keyEquivalentModifierMask = [.command, .shift]
-        pluginItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.pluginManager)
-
-        toolsMenuItem.submenu = toolsMenu
-        return toolsMenuItem
-    }
-
-    private static func categoryToolsMenuItem(for category: ToolsMenuModel.Category) -> NSMenuItem {
-        let categoryItem = NSMenuItem(title: category.title, action: nil, keyEquivalent: "")
-        let categoryMenu = NSMenu(title: category.title)
-
-        for item in operationMenuItems(for: category.id) {
-            categoryMenu.addItem(item)
-        }
-
-        if category.id == .alignment {
-            addBuildTreeItem(to: categoryMenu)
-        }
-
-        if !category.workflows.isEmpty {
-            categoryMenu.addItem(.separator())
-            for workflow in category.workflows {
-                categoryMenu.addItem(workflowMenuItem(for: workflow))
-            }
-        }
-
-        categoryItem.submenu = categoryMenu
-        return categoryItem
-    }
-
-    private static func operationMenuItems(for categoryID: FASTQOperationCategoryID) -> [NSMenuItem] {
-        FASTQOperationDialogState.toolIDs(for: categoryID)
-            .filter { toolID in
-                WorkflowLibraryCatalog.item(for: toolID)?.capabilities.contains(.workflowOperations) != true
-            }
-            .map { toolID in
-                let item = NSMenuItem(
-                    title: "\(toolID.title)\u{2026}",
-                    action: #selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:)),
-                    keyEquivalent: ""
-                )
-                item.representedObject = toolID
-                return item
-            }
-    }
-
-    /// Tools > Workflows: one item per linked workflow package, then the Workflow Library.
-    ///
-    /// With no linked packages the submenu holds only "Workflow Library…".
-    static func workflowsMenuItem(for packages: [ToolsMenuModel.LinkedPackageEntry]) -> NSMenuItem {
-        let workflowsItem = NSMenuItem(title: "Workflows", action: nil, keyEquivalent: "")
-        workflowsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflows)
-        let workflowsMenu = NSMenu(title: "Workflows")
-
-        for package in packages {
-            workflowsMenu.addItem(linkedPackageMenuItem(for: package))
-        }
-        if !packages.isEmpty {
-            workflowsMenu.addItem(.separator())
-        }
-
-        let workflowLibraryItem = workflowsMenu.addItem(
-            withTitle: "Workflow Library\u{2026}",
-            action: #selector(ToolsMenuActions.showWorkflowLibrary(_:)),
-            keyEquivalent: ""
-        )
-        workflowLibraryItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowLibrary)
-
-        workflowsItem.submenu = workflowsMenu
-        return workflowsItem
-    }
-
-    private static func linkedPackageMenuItem(for package: ToolsMenuModel.LinkedPackageEntry) -> NSMenuItem {
-        let title = package.menuTitle
-        if package.isEnabled {
-            let item = NSMenuItem(
-                title: title,
-                action: #selector(ToolsMenuActions.launchLinkedWorkflowPackageFromMenu(_:)),
-                keyEquivalent: ""
-            )
-            item.representedObject = package.manifestID
-            item.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowPackage(package.manifestID))
-            return item
-        }
-
-        let item = NSMenuItem(
-            title: title,
-            action: #selector(ToolsMenuActions.revealLinkedWorkflowPackageInLibrary(_:)),
-            keyEquivalent: ""
-        )
-        item.representedObject = package.manifestID
-        item.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowPackage(package.manifestID))
-        // Disabled NSMenuItems cannot invoke actions, so this remains enabled and is styled as unavailable.
-        item.attributedTitle = NSAttributedString(
-            string: title,
-            attributes: [.foregroundColor: NSColor.disabledControlTextColor]
-        )
-        return item
-    }
-
-    private static func workflowMenuItem(for workflow: ToolsMenuModel.WorkflowEntry) -> NSMenuItem {
-        if workflow.isEnabled {
-            let item = NSMenuItem(
-                title: "\(workflow.title)\u{2026}",
-                action: #selector(ToolsMenuActions.launchWorkflowFromMenu(_:)),
-                keyEquivalent: ""
-            )
-            item.representedObject = workflow.representedObject
-            return item
-        }
-
-        let title = "\(workflow.title) (not enabled)"
-        let item = NSMenuItem(
-            title: title,
-            action: #selector(ToolsMenuActions.promptEnableWorkflowFromMenu(_:)),
-            keyEquivalent: ""
-        )
-        item.representedObject = workflow.representedObject
-        // Disabled NSMenuItems cannot invoke actions, so this remains enabled and is styled as unavailable.
-        item.attributedTitle = NSAttributedString(
-            string: title,
-            attributes: [.foregroundColor: NSColor.disabledControlTextColor]
-        )
-        return item
     }
 
     // MARK: - Operations Menu
