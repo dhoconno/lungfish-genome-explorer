@@ -18,7 +18,7 @@ Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1225
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
 Sources/LungfishApp/Services/ReferenceBundleMergeService.swift 1056
 Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift 981
-Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift 1162
+Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift 1118
 Sources/LungfishApp/ViewModels/SequenceExtractionPipeline.swift 833
 Sources/LungfishApp/Views/AI/AIAssistantPanel.swift 1011
 Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift 1114
@@ -162,7 +162,7 @@ Sources/LungfishNvdUI/NvdResultViewController.swift 3191
 Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 1613
 Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift 867
 Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 5916
-Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift 1828
+Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift 1784
 Sources/LungfishWorkflow/Alignment/Minimap2Pipeline.swift 1263
 Sources/LungfishWorkflow/Conda/CondaManager.swift 1607
 Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift 1230
@@ -215,5 +215,5 @@ Sources/LungfishWorkflow/Storage/ProjectStorageCleanupExecutor.swift 2485
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupReceiptWriter.swift 1680
 Sources/LungfishWorkflow/Storage/ProjectStorageScanner.swift 1567
 Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift 1879
-Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow.swift 1186
+Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow.swift 1015
 Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift 1716
