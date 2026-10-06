@@ -331,6 +331,43 @@ struct MetagenomicsDatabaseInstallerTests {
         #expect(try String(contentsOf: sidecar, encoding: .utf8).contains(".install-") == false)
     }
 
+    // Regression: the NCBI taxdump archive was validated as a Kraken2
+    // database, so every download failed with "missing or empty hash.k2d".
+    @Test("shared registry installs the NCBI Taxonomy taxdump archive")
+    func sharedRegistryInstallsNCBITaxonomyArchive() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let archive = fixture.root.appendingPathComponent("taxdump.tar.gz")
+        try Data("synthetic taxdump archive".utf8).write(to: archive)
+        let database = try #require(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "ncbi-taxonomy")
+        )
+        let transfer = FixtureArchiveTransfer(archive: archive) { destination in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("1\t|\troot\t|\n".utf8).write(to: destination.appendingPathComponent("names.dmp"))
+            try Data("1\t|\t1\t|\n".utf8).write(to: destination.appendingPathComponent("nodes.dmp"))
+        }
+        let installer = MetagenomicsDatabaseInstaller(
+            toolRunner: FixtureToolRunner(),
+            archiveTransfer: transfer,
+            provenanceWriter: CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
+        )
+        let registry = MetagenomicsDatabaseRegistry(
+            baseDirectory: fixture.root,
+            catalog: [database],
+            databaseInstaller: installer
+        )
+
+        let installed = try await registry.downloadDatabase(
+            name: database.name,
+            progress: { _, _ in }
+        )
+
+        #expect(FileManager.default.fileExists(atPath: installed.appendingPathComponent("names.dmp").path))
+        let stored = try #require(try await registry.installedDatabase(tool: .ncbiTaxonomy))
+        #expect(stored.status == .ready)
+    }
+
     @Test(
         "EsViritu archives reject missing, empty, or nonregular reference payloads",
         arguments: EsVirituPayloadMutation.allCases

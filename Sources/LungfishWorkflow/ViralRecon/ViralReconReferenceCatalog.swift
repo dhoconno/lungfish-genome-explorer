@@ -24,7 +24,7 @@ public enum ViralReconReferenceCatalog {
     /// The canonical bundle the project already holds, if any.
     ///
     /// Checked in order: the download location, then the project's
-    /// `Reference Sequences` folder. A bundle there named for the canonical
+    /// `Reference Sequences` folder. A bundle named for the canonical
     /// accession is used unless its index names another sequence; any other
     /// bundle there is used only when its index names MN908947.3 exactly.
     /// Without this, a project that imported the reference into
@@ -33,8 +33,15 @@ public enum ViralReconReferenceCatalog {
         inProject projectURL: URL,
         fileManager: FileManager = .default
     ) -> URL? {
+        // The download is checked too: one fetched while `fetch genome` still
+        // substituted NC_045512.2 carries the canonical name but not the
+        // canonical sequence, and every primer BED line would fail to match.
         let downloaded = bundleURL(inProject: projectURL)
-        if fileManager.fileExists(atPath: downloaded.path) { return downloaded }
+        if fileManager.fileExists(atPath: downloaded.path) {
+            let found = ViralReconReferenceAcquisition.sequenceIdentifier(
+                inBundleAt: downloaded, fileManager: fileManager)
+            if found == nil || found == canonicalAccession { return downloaded }
+        }
 
         let folder = projectURL.appendingPathComponent("Reference Sequences", isDirectory: true)
         let named = folder.appendingPathComponent(bundleFilename, isDirectory: true)

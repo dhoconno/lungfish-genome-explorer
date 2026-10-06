@@ -604,6 +604,11 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
         if tool == MetagenomicsTool.esviritu.rawValue {
             return try validateEsVirituPayload(at: root)
         }
+        // taxdump.tar.gz is name/hierarchy tables, not a Kraken2 index.
+        if tool == MetagenomicsTool.ncbiTaxonomy.rawValue {
+            for relative in ["names.dmp", "nodes.dmp"] { try validateRegularNonempty(root.appendingPathComponent(relative)) }
+            return
+        }
         for relative in ["hash.k2d", "opts.k2d", "taxo.k2d", "database150mers.kmer_distrib"] { try validateRegularNonempty(root.appendingPathComponent(relative)) }
         guard requiresSpecialEvidence else { return }
         try validateRegularNonempty(root.appendingPathComponent("taxonomy/nodes.dmp")); try validateRegularNonempty(root.appendingPathComponent("taxonomy/names.dmp"))

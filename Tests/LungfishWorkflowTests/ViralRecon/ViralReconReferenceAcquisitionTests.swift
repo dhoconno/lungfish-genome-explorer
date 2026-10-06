@@ -173,6 +173,32 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
         XCTAssertEqual(downloadCalls, 1)
     }
 
+    // Regression: a project whose Downloads bundle was fetched while `fetch
+    // genome` still substituted NC_045512.2 kept that bundle forever. It was
+    // reused without reading its index, so primer staging failed every BED
+    // line and the wizard showed "StageError error 1".
+    func testStaleDownloadedBundleHoldingTheEquivalentSequenceIsReplaced() throws {
+        let downloaded = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
+        try Self.writeBundle(at: downloaded, sequenceName: "NC_045512.2")
+        XCTAssertNil(ViralReconReferenceCatalog.existingBundleURL(inProject: projectURL))
+        var downloadCalls = 0
+
+        let outcome = try ViralReconReferenceAcquisition.acquire(
+            projectURL: projectURL,
+            downloader: { _, destination in
+                downloadCalls += 1
+                try Self.writeBundle(at: destination.appendingPathComponent(
+                    ViralReconReferenceCatalog.bundleFilename, isDirectory: true),
+                    sequenceName: "MN908947.3")
+            }
+        )
+
+        XCTAssertEqual(outcome, .downloaded(downloaded))
+        XCTAssertEqual(downloadCalls, 1)
+        XCTAssertEqual(
+            ViralReconReferenceAcquisition.sequenceIdentifier(inBundleAt: downloaded), "MN908947.3")
+    }
+
     private var referenceSequencesURL: URL {
         projectURL.appendingPathComponent("Reference Sequences", isDirectory: true)
     }

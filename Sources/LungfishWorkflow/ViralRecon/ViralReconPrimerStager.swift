@@ -2,10 +2,24 @@ import Foundation
 import LungfishIO
 
 public enum ViralReconPrimerStager {
-    public enum StageError: Error, Sendable, Equatable {
+    public enum StageError: Error, LocalizedError, Sendable, Equatable {
         case emptyReference
         case invalidBEDLine(String)
         case invalidBEDCoordinate(String)
+        case referenceSequenceMissing(contig: String, available: [String])
+
+        public var errorDescription: String? {
+            switch self {
+            case .emptyReference:
+                return "The reference FASTA holds no sequences."
+            case .invalidBEDLine(let line):
+                return "The primer BED has a line with fewer than four columns: \(line)"
+            case .invalidBEDCoordinate(let line):
+                return "The primer BED has coordinates outside the reference: \(line)"
+            case .referenceSequenceMissing(let contig, let available):
+                return "The primer scheme is written against \(contig), but the reference holds \(available.joined(separator: ", ")). Remove that reference bundle from the project and run again so LGE downloads \(contig)."
+            }
+        }
     }
 
     public static func stage(
@@ -118,7 +132,8 @@ public enum ViralReconPrimerStager {
             let columns = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard columns.count >= 4 else { throw StageError.invalidBEDLine(line) }
             guard let reference = references[columns[0]] else {
-                throw StageError.invalidBEDCoordinate(line)
+                throw StageError.referenceSequenceMissing(
+                    contig: columns[0], available: references.keys.sorted())
             }
             guard let start = Int(columns[1]), let end = Int(columns[2]),
                   start >= 0, end > start, end <= reference.count else {

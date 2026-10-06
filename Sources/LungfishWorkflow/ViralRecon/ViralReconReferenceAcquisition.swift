@@ -55,6 +55,11 @@ public enum ViralReconReferenceAcquisition {
 
         let downloadsURL = bundleURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: downloadsURL, withIntermediateDirectories: true)
+        // A bundle still here holds another sequence (the catalog refused it).
+        // It is LGE's own download, so it goes to the Trash and is fetched again.
+        if fileManager.fileExists(atPath: bundleURL.path) {
+            try fileManager.trashItem(at: bundleURL, resultingItemURL: nil)
+        }
         try downloader(ViralReconReferenceCatalog.canonicalAccession, downloadsURL)
 
         guard fileManager.fileExists(atPath: bundleURL.path) else {

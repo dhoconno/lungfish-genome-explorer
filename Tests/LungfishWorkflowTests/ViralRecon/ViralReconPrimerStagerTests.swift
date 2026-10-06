@@ -207,4 +207,34 @@ final class ViralReconPrimerStagerTests: XCTestCase {
         XCTAssertEqual(staged.leftSuffix, "_F")
         XCTAssertEqual(staged.rightSuffix, "_R")
     }
+
+    // The wizard showed "StageError error 1" when the reference held another
+    // sequence name. The message must name the contig the BED asked for.
+    func testPrimerStagerNamesTheMissingContigWhenTheReferenceDiffers() throws {
+        let tempDirectory = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let referenceFASTA = try ViralReconWorkflowTestFixtures.writeReferenceFASTA(
+            in: tempDirectory,
+            contents: """
+            >NC_045512.2
+            AAAACCCCGGGGTTTT
+            """
+        )
+        let primerBundle = try ViralReconWorkflowTestFixtures.writePrimerBundleWithoutFasta(
+            in: tempDirectory,
+            bed: "MN908947.3\t4\t8\tamplicon_1_LEFT\t1\t+\n"
+        )
+
+        XCTAssertThrowsError(try ViralReconPrimerStager.stage(
+            primerBundleURL: primerBundle,
+            referenceFASTAURL: referenceFASTA,
+            referenceName: "MN908947.3",
+            destinationDirectory: tempDirectory
+        )) { error in
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("MN908947.3"), message)
+            XCTAssertTrue(message.contains("NC_045512.2"), message)
+            XCTAssertFalse(message.contains("error 1"), message)
+        }
+    }
 }
