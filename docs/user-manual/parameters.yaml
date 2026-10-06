@@ -6028,7 +6028,7 @@ operations:
         control: text
         default: the alignment's name
         allowed: any text that is not blank
-        effect: Names the .lungfishtree bundle written into Phylogenetic Trees. If the name is taken, LGE adds -2, -3 and so on.
+        effect: Names the .lungfishtree bundle written into Analyses/Phylogenetic Trees. If the name is taken, LGE adds -2, -3 and so on.
         when_to_change: Change it when you build several trees from one alignment.
         cli_flag: --name
       - label: Seed
@@ -6116,7 +6116,7 @@ operations:
         control: text
         default: the source bundle name with -rerooted appended
         allowed: set by the app, not editable in the viewport
-        effect: Names the new .lungfishtree bundle written into the project's Phylogenetic Trees folder. The original tree is never modified.
+        effect: Names the new .lungfishtree bundle written into the project's Analyses/Phylogenetic Trees folder. The original tree is never modified.
         when_to_change: rarely, because the viewport does not offer the field and the CLI takes the path directly.
         cli_flag: --output
     cli_only: []
@@ -6153,7 +6153,7 @@ operations:
         control: text
         default: the node label with -subtree appended
         allowed: set by the app, not editable in the viewport
-        effect: Names the new .lungfishtree bundle written into the project's Phylogenetic Trees folder.
+        effect: Names the new .lungfishtree bundle written into the project's Analyses/Phylogenetic Trees folder.
         when_to_change: rarely, because the viewport does not offer the field and the CLI takes the path directly.
         cli_flag: --output
       - label: Export file name

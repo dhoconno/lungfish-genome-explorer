@@ -109,7 +109,7 @@ Install the `phylogenetics` [plugin pack](../../GLOSSARY.md#plugin-pack), a them
 
 5. Leave **Name** as `primate-mito`. In the Run group, type `1` into **Seed** so your tree matches the one in Reading the results, and leave **Threads** at 1. The line at the foot of the dialog should read `Ready to build a tree.` Click **Build Tree**.
 
-Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). Its row logs `Seed 1 was set in the dialog.` and `IQ-TREE runs with 1 thread.` before IQ-TREE starts. When the row finishes, the new bundle appears in the sidebar under `Phylogenetic Trees/`. That is a top-level project folder LGE creates the first time it writes a tree, one of the fixed homes [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) mentions. Click the bundle to open the tree viewport.
+Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). Its row logs `Seed 1 was set in the dialog.` and `IQ-TREE runs with 1 thread.` before IQ-TREE starts. When the row finishes, the new bundle appears in the sidebar under `Analyses/Phylogenetic Trees/`. That folder sits next to `Analyses/Multiple Sequence Alignments/`, and LGE creates it the first time it writes a tree, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. Trees built by earlier releases stay in the top-level `Phylogenetic Trees/` folder, and LGE does not move them. Click the bundle to open the tree viewport.
 
 With the Seed field left blank, LGE draws a random seed before the run, logs it as `Random seed N was drawn for this run and recorded in the command.`, and records it, so any run can be repeated later with the seed from its row or its Inspector.
 
@@ -117,7 +117,7 @@ With the Seed field left blank, LGE draws a random seed before the run, logs it 
 
 The outgroup boxes root the tree as it is built. A tree built with no outgroup ticked, or one imported from another program, can be rooted afterwards. Build a second tree with the same settings but no outgroup ticked and the name `primate-mito-unrooted`, and its summary line ends in `Unrooted (drawn root is arbitrary)`.
 
-Click the internal node where the rhesus macaque and cynomolgus macaque branches join, so the detail line below the tree names it. Then right-click the node and choose **Root on Selected Branch**, or choose **Selection > Tree Node > Root on Selected Branch**. No dialog opens, and a new bundle named `primate-mito-unrooted-rerooted` appears under `Phylogenetic Trees/`, leaving the original tree as it was.
+Click the internal node where the rhesus macaque and cynomolgus macaque branches join, so the detail line below the tree names it. Then right-click the node and choose **Root on Selected Branch**, or choose **Selection > Tree Node > Root on Selected Branch**. No dialog opens, and a new bundle named `primate-mito-unrooted-rerooted` appears under `Analyses/Phylogenetic Trees/`, leaving the original tree as it was.
 
 LGE places the new root on the branch above the node you chose, halfway along it. On this tree that is the long branch between the macaques and the apes. The macaque clade, the outgroup, becomes one side of the root and everything else becomes the other, which is the outgroup root a textbook draws. Branch lengths and support values are kept, and the two halves of the split branch add back up to its old length.
 
@@ -133,7 +133,7 @@ This copy groups the sequences exactly as the tree rooted in the dialog does. It
 
 ### Extract the macaque clade
 
-A [clade](../../GLOSSARY.md#clade) is an internal node together with everything descended from it. Go back to the `primate-mito` tree, click the macaque node to select it, then right-click it and choose **Extract Subtree as New Bundle...**. No dialog opens. A new two-tip bundle appears under `Phylogenetic Trees/`, named from the clade's tips joined by `+` with `-subtree` added, so this one is `RhesusMacaque_NC_005943.1+CynomolgusMacaque_NC_012670.1-subtree`. A clade of more than three tips is named after its first tip and a count, as in `<first tip>+3-more-subtree` for a clade of four tips. To hand the clade to a program outside LGE instead, choose **Export Subtree...**, which writes a plain `.nwk` Newick file through a save panel. The new bundle keeps the support values but has no Inference section in the Inspector, because the model, seed and log-likelihood describe the whole tree IQ-TREE built and not the clade on its own. A re-rooted tree keeps its Inference section and drops only the outgroup row.
+A [clade](../../GLOSSARY.md#clade) is an internal node together with everything descended from it. Go back to the `primate-mito` tree, click the macaque node to select it, then right-click it and choose **Extract Subtree as New Bundle...**. No dialog opens. A new two-tip bundle appears under `Analyses/Phylogenetic Trees/`, named from the clade's tips joined by `+` with `-subtree` added, so this one is `RhesusMacaque_NC_005943.1+CynomolgusMacaque_NC_012670.1-subtree`. A clade of more than three tips is named after its first tip and a count, as in `<first tip>+3-more-subtree` for a clade of four tips. LGE also shortens long tip labels in the name so it stays within the macOS limit of 255 bytes per file name. To hand the clade to a program outside LGE instead, choose **Export Subtree...**, which writes a plain `.nwk` Newick file through a save panel. The new bundle keeps the support values but has no Inference section in the Inspector, because the model, seed and log-likelihood describe the whole tree IQ-TREE built and not the clade on its own. A re-rooted tree keeps its Inference section and drops only the outgroup row.
 
 ### Import a tree built elsewhere
 
@@ -165,7 +165,7 @@ The Build Tree with IQ-TREE dialog holds seventeen settings in seven groups, Inp
 
 **Outgroup.** Lists every sequence in scope with a box beside it. The default is none ticked, which leaves the tree unrooted. Tick the sequences known to sit outside the group you study, such as the two macaques for a tree of apes, and the saved tree is rooted on them. The caption reads `The outgroup sets where the tree is rooted. It does not change the inferred relationships.` At least one sequence must stay outside the outgroup. If the ticked sequences do not form one group on the finished tree, LGE keeps the tree unrooted and records a warning in the Inspector. On the command line this is `--outgroup`.
 
-**Name.** Names the `.lungfishtree` bundle the run writes into `Phylogenetic Trees/`, and Build Tree stays disabled while the field is empty. The default is the alignment's name, and if a bundle of that name already exists LGE adds `-2`, `-3`, and so on rather than overwrite it. Change it when you build several trees from one alignment and want names that say how they differ. On the command line this is `--name`.
+**Name.** Names the `.lungfishtree` bundle the run writes into `Analyses/Phylogenetic Trees/`, and Build Tree stays disabled while the field is empty. The default is the alignment's name, and if a bundle of that name already exists LGE adds `-2`, `-3`, and so on rather than overwrite it. Change it when you build several trees from one alignment and want names that say how they differ. On the command line this is `--name`.
 
 **Seed.** Fixes the starting point of the random choices IQ-TREE makes, so the same alignment, settings, and seed give the same tree. The default is blank, shown as `Random`, and the caption reads `A random seed is drawn and recorded in the command.` Type a whole number, such as 1, to repeat an earlier run or to match a published tree. Text that is not a whole number blocks Build Tree. On the command line this is `--seed`, from 1 to 2147483647.
 
@@ -183,13 +183,13 @@ The Build Tree with IQ-TREE dialog holds seventeen settings in seven groups, Inp
 
 **Node to root on.** Sets the node whose branch carries the new root, which LGE places halfway along the branch between that node and its parent, so every branch is drawn leading away from it. The default is the selected node, since rooting has no dialog. Select the outgroup before you right-click, such as the macaque clade when the question is about the apes. On the command line this is `--on`.
 
-**Output bundle name.** Names the new `.lungfishtree` bundle written into `Phylogenetic Trees/`, leaving the original tree untouched. The default is the source bundle's name with `-rerooted` added, and a repeat run adds `-2`, `-3`, and so on. The viewport offers no way to change it, so set a different name only on the command line, where you give the path yourself. On the command line this is `--output`.
+**Output bundle name.** Names the new `.lungfishtree` bundle written into `Analyses/Phylogenetic Trees/`, leaving the original tree untouched. The default is the source bundle's name with `-rerooted` added, and a repeat run adds `-2`, `-3`, and so on. The viewport offers no way to change it, so set a different name only on the command line, where you give the path yourself. On the command line this is `--output`.
 
 ### Extract subtree
 
 **Node to extract.** Chooses the clade that becomes the new tree, meaning that node and everything descended from it. The default is the selected node, and everything outside the clade is left behind. Pick the node whose descendants form the group you want to study on its own, such as one well supported lineage inside a large tree. On the command line this is `--node`.
 
-**Output bundle name.** Names the bundle that **Extract Subtree as New Bundle...** writes into `Phylogenetic Trees/`. The default joins the clade's tip labels with `+` and adds `-subtree`, naming a clade of more than three tips after its first tip and a count, and a repeat run adds `-2`, `-3`, and so on. The viewport offers no way to change it, so set a different name only on the command line. On the command line this is `--output`.
+**Output bundle name.** Names the bundle that **Extract Subtree as New Bundle...** writes into `Analyses/Phylogenetic Trees/`. The default joins the clade's tip labels with `+` and adds `-subtree`, naming a clade of more than three tips after its first tip and a count, and a repeat run adds `-2`, `-3`, and so on. The viewport offers no way to change it, so set a different name only on the command line. On the command line this is `--output`.
 
 **Export file name.** Names the plain Newick file that **Export Subtree...** writes through a save panel. The default is the node's label with `.nwk` added. Change it in the save panel when another program expects a particular file name. On the command line this is `--output` on `tree export subtree`.
 
@@ -312,7 +312,7 @@ The block below follows the convention in [Reading an On the command line block]
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Genes and Sequences.lungfish"
 MSA="$PROJECT/Analyses/Multiple Sequence Alignments/primate-mito.lungfishmsa"
-TREES="$PROJECT/Phylogenetic Trees"
+TREES="$PROJECT/Analyses/Phylogenetic Trees"
 
 # Infer the tree rooted on the macaques, with both support tests,
 # a fixed seed, and one thread so a rerun gives the same tree.

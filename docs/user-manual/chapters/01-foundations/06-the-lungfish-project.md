@@ -149,7 +149,7 @@ The sidebar is the authoritative view of the project, so when it and Finder disa
 | `Extractions/` | Reads and reference regions pulled out into new bundles by an extraction |
 | `Haplotype Definitions/` | Files listing which alleles travel together on one chromosome, used by the MHC genotyping chapters |
 | `Reference allele databases/` | Allele libraries for MHC genotyping, each ending in `.lungfishmhcref` |
-| `Phylogenetic Trees/` | Tree bundles ending in `.lungfishtree` |
+| `Phylogenetic Trees/` | Imported tree bundles ending in `.lungfishtree`, and trees built by earlier releases of LGE |
 | `Classifications/` | Classification results imported from the CZ ID service |
 | `Practice Data/` | In a demo project only, copies of the fixture files the chapters ask you to import or read |
 | `Analyses/` | Every analysis result, described in the next section |
@@ -183,7 +183,8 @@ Other results have a fixed home of their own. Each chapter names the exact folde
 | Right-click a feature, choose **Extract Sequence...**, and save it as a bundle | `Reference Sequences/` |
 | Extract Contigs from an assembly | `Reference Sequences/` |
 | Multiple sequence alignment | `Analyses/Multiple Sequence Alignments/` |
-| Tree | `Phylogenetic Trees/` |
+| Tree built with IQ-TREE, or derived from one by rerooting or extracting a subtree | `Analyses/Phylogenetic Trees/` |
+| Imported tree | `Phylogenetic Trees/` |
 | Classification run (Kraken 2, EsViritu, TaxTriage) | `Analyses/<tool>-<timestamp>/` |
 | Imported Kraken 2, EsViritu, TaxTriage, or NVD results | `Imports/`, in a folder named `classification-`, `esviritu-`, `taxtriage-`, or `nvd-` followed by the name you gave |
 | Imported NAO-MGS results | `Analyses/naomgs-<name>/` |

@@ -238,7 +238,7 @@ Variants produced inside LGE do not get a bundle of their own. A variant track l
 
 ## Standard tree format
 
-A phylogenetic tree is a diagram of how a set of sequences are related by descent, and Newick is the compact text notation for one. Nested parentheses group the sequences that share a common ancestor, a number after a colon gives a branch length, measured in substitutions per aligned position, and a semicolon ends the tree. Here is the whole tree LGE inferred from the five primate mitochondrial genomes with the settings [Building Trees](../02-sequences/05-building-trees.md) uses, read from `Phylogenetic Trees/primate-mito.lungfishtree/tree/primary.nwk` in the Genes and Sequences demo project after that chapter. The file holds it as one unbroken line, and it is broken across lines here so you can see the nesting. A number right after a closing bracket, such as the `100/100` before `:0.4476367467`, is the support of that grouping, written as the SH-aLRT value, a slash, and the ultrafast bootstrap value.
+A phylogenetic tree is a diagram of how a set of sequences are related by descent, and Newick is the compact text notation for one. Nested parentheses group the sequences that share a common ancestor, a number after a colon gives a branch length, measured in substitutions per aligned position, and a semicolon ends the tree. Here is the whole tree LGE inferred from the five primate mitochondrial genomes with the settings [Building Trees](../02-sequences/05-building-trees.md) uses, read from `Analyses/Phylogenetic Trees/primate-mito.lungfishtree/tree/primary.nwk` in the Genes and Sequences demo project after that chapter. The file holds it as one unbroken line, and it is broken across lines here so you can see the nesting. A number right after a closing bracket, such as the `100/100` before `:0.4476367467`, is the support of that grouping, written as the SH-aLRT value, a slash, and the ultrafast bootstrap value.
 
 ```text
 (((Human_NC_012920.1:0.0601260596,
@@ -436,7 +436,7 @@ The aligned FASTA is `alignment/primary.aligned.fasta`, and the bundle keeps the
 
 The manifest uses camelCase keys and records `bundleKind` as `multiple-sequence-alignment`, plus `alignedLength`, `rowCount`, `variableSiteCount`, `parsimonyInformativeSiteCount`, the computed `consensus` string, a `checksums` map, and a `fileSizes` map. On the primate alignment those counts are an aligned length of 17,247, five rows, 5,053 variable sites, and 2,709 parsimony-informative sites. A variable site is a column where the rows do not all agree, and a parsimony-informative site is a variable site where at least two different bases each appear in at least two rows, the kind of column that can group sequences on a tree.
 
-A `.lungfishtree` bundle holds a phylogenetic tree and lands in a top-level `Phylogenetic Trees/` folder, whether the tree was built in the window or imported. Here is `primate-mito.lungfishtree`, which [Building Trees](../02-sequences/05-building-trees.md) writes. Its layout is parallel to the alignment bundle, and the same two root files are left out again.
+A `.lungfishtree` bundle holds a phylogenetic tree and lands in `Analyses/Phylogenetic Trees/` when the tree was built in the window, and in a top-level `Phylogenetic Trees/` folder when it was imported or built by an earlier release. Here is `primate-mito.lungfishtree`, which [Building Trees](../02-sequences/05-building-trees.md) writes. Its layout is parallel to the alignment bundle, and the same two root files are left out again.
 
 ```text
 primate-mito.lungfishtree/
