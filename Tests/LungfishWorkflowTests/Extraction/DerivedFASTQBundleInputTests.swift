@@ -29,20 +29,35 @@ final class DerivedFASTQBundleInputTests: XCTestCase {
             for: fixture.rootBundleURL.appendingPathComponent("pooled.fastq")))
     }
 
-    func testReadableURLMaterializesTheDerivedReads() async throws {
-        let url = try await DerivedFASTQBundleInput.readableURL(
+    func testReadableURLsMaterializeTheDerivedReads() async throws {
+        let urls = try await DerivedFASTQBundleInput.readableURLs(
             for: fixture.derivedBundleURL, in: directory.appendingPathComponent("work"))
-        let readableURL = try XCTUnwrap(url)
+        XCTAssertEqual(urls.count, 1)
+        let readableURL = try XCTUnwrap(urls.first)
         XCTAssertEqual(try DerivedFASTQBundleFixture.readNames(in: readableURL), ["read1", "read3"])
         XCTAssertTrue(try String(contentsOf: readableURL, encoding: .utf8)
             .contains(DerivedFASTQBundleFixture.read3ReverseComplement))
     }
 
-    func testReadableURLLeavesRootBundlesAlone() async throws {
-        let url = try await DerivedFASTQBundleInput.readableURL(
+    func testReadableURLsLeaveRootBundlesAlone() async throws {
+        let urls = try await DerivedFASTQBundleInput.readableURLs(
             for: fixture.rootBundleURL, in: directory.appendingPathComponent("work"),
             materializer: { _, _ in XCTFail("root bundles must not be materialized"); throw CancellationError() })
-        XCTAssertEqual(url?.lastPathComponent, "pooled.fastq")
+        XCTAssertEqual(urls.map(\.lastPathComponent), ["pooled.fastq"])
+    }
+
+    /// Every file of a bundle that holds several, in the order a tool reads
+    /// them, and a file inside a bundle stands for its bundle.
+    func testReadableURLsListEveryFileOfABundle() async throws {
+        let readSets = try ReadSetFixtures(in: directory.appendingPathComponent("read-sets"))
+        let work = directory.appendingPathComponent("work")
+        let chunks = try await DerivedFASTQBundleInput.readableURLs(for: readSets.chunkedRoot, in: work)
+        XCTAssertEqual(chunks.map(\.lastPathComponent), ["run_0.fastq", "run_1.fastq"])
+        let chunkInside = try await DerivedFASTQBundleInput.readableURLs(
+            for: readSets.chunkedRoot.appendingPathComponent("chunks/run_1.fastq"), in: work)
+        XCTAssertEqual(chunkInside, chunks)
+        let mates = try await DerivedFASTQBundleInput.readableURLs(for: readSets.pairedDerivative, in: work)
+        XCTAssertEqual(mates.map(\.lastPathComponent), ["sample_R1.fastq", "sample_R2.fastq"])
     }
 
     // MARK: - ONT genotyping (lungfish-cli fastq ont-genotype)
