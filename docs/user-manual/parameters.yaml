@@ -190,9 +190,9 @@ operations:
       no Output Strategy picker appears.
 
   fastq.fastp-trim:
-    title: fastp Adapter + Quality Trim
+    title: fastp Adapter & Quality Trim
     entry_points:
-      - "Tools > Trimming & Filtering > fastp Adapter + Quality Trim..."
+      - "Tools > Trimming & Filtering > fastp Adapter & Quality Trim..."
       - "CLI: lungfish-cli fastq trim <input> --output <output>"
     gating: []
     sources:
@@ -320,7 +320,7 @@ operations:
         default: "false"
         effect: Writes the trimmed FASTQ gzip-compressed.
     notes: >-
-      This operation trims quality only. Use fastp Adapter + Quality Trim to
+      This operation trims quality only. Use fastp Adapter & Quality Trim to
       remove adapters at the same time.
 
   fastq.adapter-removal:
@@ -574,9 +574,9 @@ operations:
       settings controls.
 
   fastq.remove-ribosomal-rna:
-    title: Remove ribosomal RNA sequences
+    title: Remove Ribosomal RNA Reads
     entry_points:
-      - "Tools > Decontamination > Remove ribosomal RNA sequences..."
+      - "Tools > Decontamination > Remove Ribosomal RNA Reads..."
       - "CLI: lungfish-cli fastq deacon-ribo <inputs> --output <dir>"
     gating: []
     sources:
@@ -671,9 +671,9 @@ operations:
       the Inputs section, which supplies the CLI's --ref.
 
   fastq.low-complexity-filter:
-    title: Low-Complexity Filter
+    title: Remove Low-Complexity Reads
     entry_points:
-      - "Tools > Decontamination > Low-Complexity Filter..."
+      - "Tools > Trimming & Filtering > Remove Low-Complexity Reads..."
       - "CLI: lungfish-cli fastq entropy-filter <input> --output <output>"
     gating: []
     sources:
@@ -729,9 +729,9 @@ operations:
       reads and about 89 percent of tandem-repeat reads on the benchmark dataset.
 
   fastq.remove-duplicates:
-    title: Remove Duplicates
+    title: Remove Duplicate Reads
     entry_points:
-      - "Tools > Decontamination > Remove Duplicates..."
+      - "Tools > Trimming & Filtering > Remove Duplicate Reads..."
       - "CLI: lungfish-cli fastq deduplicate <input> --output <output>"
     gating: []
     sources:
@@ -789,7 +789,9 @@ operations:
       Substitutions, Optical Duplicates, and Optical Distance appear only while
       Preset is Custom, and Optical Distance appears only while Optical
       Duplicates is on. The same preset also drives the FASTQ viewport's inline
-      parameter bar.
+      parameter bar. The operation's card in the dialog reads "Collapse PCR and
+      optical duplicate reads in shotgun libraries. Amplicon reads are
+      identical by design, so keep them."
 
   fastq.merge-overlapping-pairs:
     title: Merge Overlapping Pairs
@@ -867,9 +869,9 @@ operations:
       settings. The input must be an interleaved FASTQ.
 
   fastq.reverse-complement:
-    title: Reverse Complement
+    title: Reverse Complement All Sequences
     entry_points:
-      - "Tools > Read Processing > Reverse Complement..."
+      - "Tools > Read Processing > Reverse Complement All Sequences..."
       - "CLI: lungfish-cli fastq reverse-complement <input> --output <output>"
     gating: []
     sources:
@@ -898,9 +900,9 @@ operations:
       inline parameter bar.
 
   fastq.translate:
-    title: Translate
+    title: Translate All Sequences
     entry_points:
-      - "Tools > Read Processing > Translate..."
+      - "Tools > Read Processing > Translate All Sequences..."
       - "CLI: lungfish-cli fastq translate <input> --output <output>"
     gating: []
     sources:
@@ -2017,7 +2019,7 @@ operations:
   fetch.ncbi:
     title: Search NCBI
     entry_points:
-      - "Tools > Search Online Databases > Search NCBI..."
+      - "File > Search Online Databases > Search NCBI..."
       - "CLI: lungfish-cli fetch search <query>"
       - "CLI: lungfish-cli fetch ncbi <accession>"
       - "CLI: lungfish-cli fetch genome <accession>"
@@ -2198,7 +2200,7 @@ operations:
   fetch.sra:
     title: Search SRA
     entry_points:
-      - "Tools > Search Online Databases > Search SRA..."
+      - "File > Search Online Databases > Search SRA..."
       - "CLI: lungfish-cli fetch sra search <query>"
       - "CLI: lungfish-cli fetch sra download <accession>"
     gating: []
@@ -2285,7 +2287,7 @@ operations:
   fetch.pathoplexus:
     title: Search Pathoplexus
     entry_points:
-      - "Tools > Search Online Databases > Search Pathoplexus..."
+      - "File > Search Online Databases > Search Pathoplexus..."
     gating: []
     sources:
       - Sources/LungfishApp/Views/DatabaseBrowser/PathoplexusSearchPane.swift
@@ -3465,7 +3467,7 @@ operations:
   variants.call-lofreq:
     title: Call Variants (LoFreq)
     entry_points:
-      - "Tools > Call Variants..."
+      - "Tools > Variant Calling > Call Variants..."
       - "Inspector > Analysis > Variant Calling > Call Variants..."
       - "CLI: lungfish-cli variants call --bundle <bundle> --alignment-track <track> --caller lofreq"
     gating: [variant-calling]
@@ -3534,7 +3536,7 @@ operations:
   variants.call-ivar:
     title: Call Variants (iVar)
     entry_points:
-      - "Tools > Call Variants..."
+      - "Tools > Variant Calling > Call Variants..."
       - "Inspector > Analysis > Variant Calling > Call Variants..."
       - "CLI: lungfish-cli variants call --bundle <bundle> --alignment-track <track> --caller ivar [--ivar-primer-trimmed]"
     gating: [variant-calling]
@@ -3643,7 +3645,7 @@ operations:
   variants.call-medaka:
     title: Call Variants (Medaka)
     entry_points:
-      - "Tools > Call Variants..."
+      - "Tools > Variant Calling > Call Variants..."
       - "Inspector > Analysis > Variant Calling > Call Variants..."
       - "CLI: lungfish-cli variants call --bundle <bundle> --alignment-track <track> --caller medaka --medaka-model <model>"
     gating: [variant-calling]
@@ -3720,7 +3722,7 @@ operations:
   variants.call-bcftools:
     title: Call Variants (bcftools)
     entry_points:
-      - "Tools > Call Variants..."
+      - "Tools > Variant Calling > Call Variants..."
       - "Inspector > Analysis > Variant Calling > Call Variants..."
       - "CLI: lungfish-cli variants call --bundle <bundle> --alignment-track <track> --caller bcftools"
     gating: []
@@ -3797,7 +3799,7 @@ operations:
   variants.call-clair3:
     title: Call Variants (Clair3)
     entry_points:
-      - "Tools > Call Variants..."
+      - "Tools > Variant Calling > Call Variants..."
       - "Inspector > Analysis > Variant Calling > Call Variants..."
       - "CLI: lungfish-cli variants call --bundle <bundle> --alignment-track <track> --caller clair3 [--platform ont|hifi|ilmn] [--medaka-model <model>]"
     gating: [variant-calling]
@@ -3878,7 +3880,7 @@ operations:
   variants.call-gatk-haplotypecaller:
     title: Call Variants (GATK HaplotypeCaller)
     entry_points:
-      - "Tools > Call Variants..."
+      - "Tools > Variant Calling > Call Variants..."
       - "Inspector > Analysis > Variant Calling > Call Variants..."
       - "CLI: lungfish-cli gatk haplotype-caller --reference <fasta> --bam <bam> --output <vcf>"
     gating: [gatk-core, experimental]
@@ -3965,7 +3967,7 @@ operations:
   variants.call-gatk-whatshap-phased:
     title: Call Variants (GATK + WhatsHap Phased)
     entry_points:
-      - "Tools > Call Variants..."
+      - "Tools > Variant Calling > Call Variants..."
       - "Inspector > Analysis > Variant Calling > Call Variants..."
       - "CLI: lungfish-cli variants phase --reference <fasta> --bam <bam> --output-vcf <vcf>"
     gating: [gatk-core, phasing, experimental]
@@ -4932,8 +4934,8 @@ operations:
   classify.twelve-s-match:
     title: 12S Amplicon Matching
     entry_points:
-      - "Tools > Genotyping > 12S Amplicon Matching..."
-      - "Tools > Workflow Library... > 12S Amplicon Matching"
+      - "Tools > Classification > 12S Amplicon Matching..."
+      - "Tools > Workflows > Workflow Library... > 12S Amplicon Matching"
       - "CLI: lungfish-cli fastq 12s-match <inputs> --reference <ref> --output-dir <dir> --output-name <name>"
     gating: []
     sources:
@@ -6181,9 +6183,9 @@ operations:
       unrooted tree is marked unrooted.
 
   genotype.miseq-amplicon:
-    title: miSeq amplicon MHC genotyping
+    title: MiSeq Amplicon MHC Genotyping
     entry_points:
-      - "Tools > Genotyping > miSeq amplicon MHC genotyping..."
+      - "Tools > Genotyping > MiSeq Amplicon MHC Genotyping..."
       - "CLI: lungfish-cli fastq genotype <inputs> --reference <ref> --output-dir <dir>"
       - "CLI: lungfish-cli fastq genotype-cohort <bundles> --reference <ref> --output-dir <dir>"
     gating: [read-mapping]
@@ -6325,9 +6327,9 @@ operations:
       are listed in the CLI reference.
 
   genotype.full-length-ont:
-    title: Full-length ONT MHC genotyping
+    title: Full-Length ONT MHC Genotyping
     entry_points:
-      - "Tools > Genotyping > Full-length ONT MHC genotyping..."
+      - "Tools > Genotyping > Full-Length ONT MHC Genotyping..."
       - "CLI: lungfish-cli fastq full-length-ont-mhc-genotype <inputs> --reference <ref> --output-dir <dir>"
     gating: [read-mapping, full-length-mhc-genotyping]
     sources:
@@ -6632,9 +6634,9 @@ operations:
       smart_cohorts.csv. AI haplotyping is not exposed and is not registered.
 
   workflow.viral-recon:
-    title: Viral Recon
+    title: Viral Recon (SARS-CoV-2)
     entry_points:
-      - "Tools > Mapping > Viral Recon..."
+      - "Tools > Variant Calling > Viral Recon (SARS-CoV-2)..."
       - "CLI: lungfish-cli workflow run nf-core/viralrecon --input <samplesheet> --expected-output <path>"
     gating: [docker]
     sources:
@@ -6759,7 +6761,7 @@ operations:
   workflow.library-run:
     title: Workflow Operations
     entry_points:
-      - "Tools > Workflow Library... to link and enable a package, then Tools > <category> > <workflow name> to run it"
+      - "Tools > Workflows > Workflow Library... to link and enable a package, then Tools > Workflows > <package name>... or Tools > <category> > <workflow name>... to run it"
       - "Right-click a finished workflow row in the Operations panel > Run Again..."
       - "CLI: lungfish-cli workflow run <pipeline.nf|Snakefile> --results-dir <dir> --expected-output <path>"
       - "CLI: lungfish-cli run-headless <workflow> [workflow run options]"
