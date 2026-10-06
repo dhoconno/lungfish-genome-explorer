@@ -15,16 +15,19 @@ final class ManualMetadataConsistencyTests: XCTestCase {
         _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
+        // Viral Recon is variant calling, so it left the Mapping submenu for Variant Calling.
         let mappingMenu = try XCTUnwrap(toolsMenu.items.first { $0.title == "Mapping" }?.submenu)
-        // Enabled workflows read "Viral Recon…"; disabled ones read
-        // "Viral Recon (not enabled)" and prompt for enablement.
+        XCTAssertNil(mappingMenu.items.first { $0.title.hasPrefix("Viral Recon") })
+        let variantCallingMenu = try XCTUnwrap(toolsMenu.items.first { $0.title == "Variant Calling" }?.submenu)
         XCTAssertNotNil(
-            mappingMenu.items.first { $0.title.hasPrefix("Viral Recon") },
-            "Tools > Mapping should list Viral Recon as its own item"
+            variantCallingMenu.items.first { $0.title.hasPrefix("Viral Recon") },
+            "Tools > Variant Calling should list Viral Recon as its own item"
         )
 
         // The launch procedure lives in the Viral Recon wizard chapter. The
-        // consensus chapter only cross-references it.
+        // consensus chapter only cross-references it. The chapter still names
+        // the old Tools > Mapping path until the docs pass rewrites it, and that
+        // pass changes this line with it.
         let wizard = try readManualFile("chapters/04-alignments/05-viral-recon-wizard.md")
         XCTAssertTrue(wizard.contains("Tools > Mapping > Viral Recon"))
         let consensus = try readManualFile("chapters/05-variants/05-consensus-and-lineage.md")

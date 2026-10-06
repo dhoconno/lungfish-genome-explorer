@@ -198,6 +198,7 @@ enum MainMenuAccessibilityID {
     static let openProjectFolder = "file-menu-open-project-folder"
     static let openRecent = "file-menu-open-recent"
     static let importCenter = "file-menu-import-center"
+    static let searchOnlineDatabases = "file-menu-search-online-databases"
     static let export = "file-menu-export"
     static let exportTwelveSResult = "file-menu-export-twelve-s-result"
     static let manageProjectStorage = "file-menu-manage-project-storage"
@@ -220,6 +221,8 @@ enum MainMenuAccessibilityID {
     static let selectionSidebarItem = "selection-menu-sidebar-item"
     static let selectionTableRow = "selection-menu-table-row"
     static let selectionShowInInspector = "selection-menu-show-in-inspector"
+    static let selectionGenotypeSample = "selection-menu-genotype-sample"
+    static let selectionGenotypeCall = "selection-menu-genotype-call"
 
     /// Selection > Sidebar Item item for one sidebar command.
     static func selectionSidebarItemAction(_ action: SidebarItemAction) -> String {
@@ -234,10 +237,30 @@ enum MainMenuAccessibilityID {
     static let callVariants = "tools-menu-call-variants"
     static let freyjaDemix = "tools-menu-freyja-demix"
     static let haplotypeDefinitions = "tools-menu-haplotype-definitions"
-    static let genotypeReviewMenu = "tools-menu-genotype-review"
-    static let genotypeSelectedCellMenu = "tools-menu-genotype-selected-cell"
+    static let pcrPrimerDesign = "tools-pcr-primer-design"
+    static let buildTreeIQTree = "tools-build-tree-iqtree"
     static let workflows = "tools-menu-workflows"
     static let workflowLibrary = "tools-menu-workflow-library"
+
+    /// Tools > <category> submenu item, keyed by the category's raw value.
+    static func toolsCategory(_ category: FASTQOperationCategoryID) -> String {
+        "tools-menu-category-\(category.rawValue)"
+    }
+
+    /// Tools > <category> item for one generated read tool, keyed by its raw value.
+    static func toolsTool(_ toolID: FASTQOperationToolID) -> String {
+        "tools-menu-tool-\(toolID.rawValue)"
+    }
+
+    /// Tools > <category> item for one catalog workflow, keyed by its catalog ID.
+    static func toolsWorkflow(_ id: String) -> String {
+        "tools-menu-workflow-\(id)"
+    }
+
+    /// Tools > PCR Primer Design item for one engine.
+    static func pcrPrimerDesignEngine(_ engine: PrimerDesignEngine) -> String {
+        "tools-menu-primer-design-\(engine.rawValue.lowercased())"
+    }
 
     /// Tools > Workflows item for one linked workflow package, keyed by its manifest ID.
     static func workflowPackage(_ manifestID: String) -> String {

@@ -69,6 +69,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// not by LungfishApp, so the shared app module exposes only these closures.
     public var checkForUpdatesHandler: ((Any?) -> Void)?
     public var canCheckForUpdatesHandler: (() -> Bool)?
+    /// Which optional workflow features are enabled. Menu validation reads it to disable Haplotype Definitions, never to hide it. Tests replace it.
+    var workflowFeatureAvailabilityProvider: @MainActor () -> WorkflowFeatureAvailability = { .current() }
 
 #if DEBUG
     /// Deterministic input seam for exercising the real Go to Location menu
@@ -1561,7 +1563,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// to), and when the viewer shows nothing that is a reference bundle, a single
     /// reference bundle or mapping result selected in the sidebar counts.
     ///
-    /// The Tools > Call Variants menu item and the VCF/BAM bundle imports all go
+    /// The Tools > Variant Calling > Call Variants… menu item and the VCF/BAM bundle imports all go
     /// through this, so they agree on which bundle "the current bundle" is.
     func currentReferenceBundleURL(
         for viewerController: ViewerViewController,
@@ -1771,7 +1773,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     private func handleWorkflowLibraryEnablementChanged() {
-        NSApp.mainMenu = MainMenu.createMainMenu(workflowFeatureAvailability: .current())
+        NSApp.mainMenu = MainMenu.createMainMenu()
     }
 
     /// Linked packages were added, removed, relocated, or revalidated. Rebuilding the
@@ -2496,9 +2498,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         if menuItem.action == #selector(showHaplotypeDefinitions(_:)) {
-            let enabled = WorkflowFeatureAvailability.current().hasHaplotypeDefinitions
-            menuItem.isHidden = !enabled
-            return enabled
+            return workflowFeatureAvailabilityProvider().hasHaplotypeDefinitions
         }
 
         if menuItem.action == #selector(launchWorkflowFromMenu(_:))

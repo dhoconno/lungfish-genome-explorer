@@ -439,9 +439,9 @@ final class SequenceMenuOperationTests: XCTestCase {
 
     func testSequenceTransformMenuItemsSeparateVisibleRegionAndDatasetOperations() throws {
         let appDelegateSource = combinedAppDelegateSource()
-        let mainMenuSource = try String(
+        let toolsMenuSource = try String(
             contentsOf: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent("Sources/LungfishApp/App/MainMenu.swift"),
+                .appendingPathComponent("Sources/LungfishApp/App/MainMenu+Tools.swift"),
             encoding: .utf8
         )
         let sequenceViewerSource = combinedSequenceViewerSource()
@@ -455,7 +455,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         // Dataset-level Reverse Complement and Translate launch through the
         // generic Tools menu tool launcher; the per-tool AppDelegate handlers
         // were orphaned and removed.
-        XCTAssertTrue(mainMenuSource.contains("#selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:))"))
+        XCTAssertTrue(toolsMenuSource.contains("#selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:))"))
         XCTAssertTrue(sequenceViewerSource.contains("presentFASTAOperationDialog("))
     }
 

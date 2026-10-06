@@ -45,14 +45,117 @@ final class FASTQOperationsCatalogTests: XCTestCase {
                 "DECONTAMINATION",
                 "READ PROCESSING",
                 "SEARCH & SUBSETTING",
-                "ALIGNMENT",
                 "MAPPING",
+                "VARIANT CALLING",
                 "ASSEMBLY",
                 "CLUSTERING",
                 "CLASSIFICATION",
                 "GENOTYPING",
+                "ALIGNMENT & PHYLOGENETICS",
             ]
         )
+    }
+
+    /// Raw values are strings, so reordering the cases to the Tools menu order
+    /// changes nothing that is stored. The order itself is the menu's.
+    func testCategoryCasesFollowTheToolsMenuOrder() {
+        XCTAssertEqual(
+            FASTQOperationCategoryID.allCases.map(\.rawValue),
+            [
+                "qcReporting",
+                "demultiplexing",
+                "trimmingFiltering",
+                "decontamination",
+                "readProcessing",
+                "searchSubsetting",
+                "mapping",
+                "variantCalling",
+                "assembly",
+                "clustering",
+                "classification",
+                "genotyping",
+                "alignment",
+            ]
+        )
+    }
+
+    /// One name per category, shared by the Tools menu, the dialog header, the
+    /// dataset launchers and the Workflow Library. The dialog's uppercase
+    /// header is derived from it.
+    func testEveryCategoryHasOneDisplayNameAndTheDialogTitleDerivesFromIt() {
+        XCTAssertEqual(
+            FASTQOperationCategoryID.allCases.map(\.displayName),
+            [
+                "QC & Reporting",
+                "Demultiplexing",
+                "Trimming & Filtering",
+                "Decontamination",
+                "Read Processing",
+                "Search & Subsetting",
+                "Mapping",
+                "Variant Calling",
+                "Assembly",
+                "Clustering",
+                "Classification",
+                "Genotyping",
+                "Alignment & Phylogenetics",
+            ]
+        )
+        for category in FASTQOperationCategoryID.allCases {
+            XCTAssertEqual(category.title, category.displayName.uppercased(), "\(category.rawValue)")
+        }
+    }
+
+    func testEveryToolIsListedByExactlyTheCategoryItDeclares() {
+        var listed: [FASTQOperationToolID] = []
+        for category in FASTQOperationCategoryID.allCases {
+            for toolID in FASTQOperationDialogState.toolIDs(for: category) {
+                XCTAssertEqual(toolID.categoryID, category, "\(toolID.rawValue) is listed by \(category.rawValue)")
+                listed.append(toolID)
+            }
+        }
+        XCTAssertEqual(listed.count, Set(listed).count, "no tool is listed by two categories")
+        XCTAssertEqual(Set(listed), Set(FASTQOperationToolID.allCases), "every tool belongs to a category")
+    }
+
+    /// D1. The two filters that drop reads by their content sit with the other
+    /// trim and filter tools, so the menu, the dialog and the library agree.
+    func testTrimmingAndFilteringHoldsTheLowComplexityAndDuplicateFilters() {
+        XCTAssertEqual(
+            FASTQOperationDialogState.toolIDs(for: .trimmingFiltering),
+            [
+                .fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases,
+                .filterByReadLength, .removeLowComplexityReads, .removeDuplicates,
+            ]
+        )
+        XCTAssertEqual(
+            FASTQOperationDialogState.toolIDs(for: .decontamination),
+            [.removeHumanReads, .removeRibosomalRNA, .removeContaminants]
+        )
+        XCTAssertEqual(FASTQOperationToolID.removeLowComplexityReads.categoryID, .trimmingFiltering)
+        XCTAssertEqual(FASTQOperationToolID.removeDuplicates.categoryID, .trimmingFiltering)
+    }
+
+    /// U7. Viral Recon is variant calling, not mapping.
+    func testMappingKeepsTheFourMappersAndVariantCallingHoldsViralRecon() {
+        XCTAssertEqual(
+            FASTQOperationDialogState.toolIDs(for: .mapping),
+            [.minimap2, .bwaMem2, .bowtie2, .bbmap]
+        )
+        XCTAssertEqual(FASTQOperationDialogState.toolIDs(for: .variantCalling), [.viralRecon])
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.categoryID, .variantCalling)
+        XCTAssertEqual(FASTQOperationCategoryID.variantCalling.defaultToolID, .viralRecon)
+    }
+
+    /// U7. Moving Viral Recon into its own category must not change what gates
+    /// it, so the new category copies the mapping category's requirement.
+    func testVariantCallingRequiresTheSamePacksAsMapping() {
+        XCTAssertEqual(
+            FASTQOperationCategoryID.variantCalling.requiredPackIDs,
+            FASTQOperationCategoryID.mapping.requiredPackIDs
+        )
+        XCTAssertEqual(FASTQOperationCategoryID.variantCalling.requiredPackIDs, ["read-mapping"])
+        XCTAssertEqual(WorkflowLibraryCatalog.item(for: .viralRecon)?.requiredPluginPackIDs, ["read-mapping"])
     }
 
     func testCatalogIncludesClusteringCategory() {
@@ -95,16 +198,27 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         XCTAssertEqual(category.requiredPackIDs, ["read-mapping"])
     }
 
-    func testMappingCategoryIncludesViralReconBehindReadMappingPack() async throws {
+    func testVariantCallingCategoryIncludesViralReconBehindReadMappingPack() async throws {
         let provider = StubPackStatusProvider(states: ["read-mapping": .ready])
         let catalog = FASTQOperationsCatalog(statusProvider: provider)
 
-        let resolvedCategory = await catalog.category(id: .mapping)
+        let resolvedCategory = await catalog.category(id: .variantCalling)
         let category = try XCTUnwrap(resolvedCategory)
 
         XCTAssertTrue(category.isEnabled)
         XCTAssertEqual(category.requiredPackIDs, ["read-mapping"])
-        XCTAssertTrue(FASTQOperationDialogState.toolIDs(for: .mapping).contains(.viralRecon))
+        XCTAssertTrue(FASTQOperationDialogState.toolIDs(for: .variantCalling).contains(.viralRecon))
+        XCTAssertFalse(FASTQOperationDialogState.toolIDs(for: .mapping).contains(.viralRecon))
+
+        // Without the read-mapping pack the new category is gated exactly as mapping is.
+        let missing = StubPackStatusProvider(states: ["read-mapping": .needsInstall])
+        let missingCatalog = FASTQOperationsCatalog(statusProvider: missing)
+        let resolvedGated = await missingCatalog.category(id: .variantCalling)
+        let resolvedMappingGated = await missingCatalog.category(id: .mapping)
+        let gated = try XCTUnwrap(resolvedGated)
+        let mappingGated = try XCTUnwrap(resolvedMappingGated)
+        XCTAssertFalse(gated.isEnabled)
+        XCTAssertEqual(gated.disabledReason, mappingGated.disabledReason)
     }
 
     func testAssemblyCategoryUsesBuiltInPackNameForDisabledReason() async throws {

@@ -14,8 +14,7 @@ final class ViralReconXCUITests: XCTestCase {
 
         robot.launch(opening: projectURL, backendMode: "deterministic")
         robot.selectSidebarItem(named: "SampleA", extendingSelection: true)
-        robot.openMappingDialog()
-        robot.chooseMapper("Viral Recon")
+        robot.openViralReconDialog()
 
         let inputSummary = robot.app.descendants(matching: .any)["viral-recon-input-summary"].firstMatch
         XCTAssertTrue(inputSummary.waitForExistence(timeout: 10))
@@ -54,8 +53,7 @@ final class ViralReconXCUITests: XCTestCase {
 
         robot.launch(opening: projectURL, backendMode: "deterministic")
         robot.selectSidebarItem(named: "Barcode01", extendingSelection: true)
-        robot.openMappingDialog()
-        robot.chooseMapper("Viral Recon")
+        robot.openViralReconDialog()
         robot.clickPrimaryAction()
 
         let runBundle = waitForViralReconRunBundle(in: projectURL)

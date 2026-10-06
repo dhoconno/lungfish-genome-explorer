@@ -99,13 +99,13 @@ final class MainMenuShortcutCollisionTests: XCTestCase {
     ]
 
     /// The matrix review chords moved from a view-level key handler to
-    /// Tools > Genotype Review > Selected Cell, so the menu bar documents them.
-    func testSelectedCellReviewItemsCarryTheMatrixChords() {
+    /// Selection > Genotype Call, so the menu bar documents them.
+    func testGenotypeCallReviewItemsCarryTheMatrixChords() {
         let expected: [(String, String)] = [
             ("Mark False Positive", "p"), ("Mark False Negative", "x"),
             ("Clear Review", "r"),
         ]
-        let bound = menuBindings().filter { $0.path.contains("Genotype Review > Selected Cell") }
+        let bound = menuBindings().filter { $0.path.hasPrefix("Selection > Genotype Call > ") }
         for (title, key) in expected {
             let binding = bound.first { $0.title == title }
             XCTAssertEqual(binding?.chord, Chord(key, [.command, .option]), "\(title) must carry the matrix chord")

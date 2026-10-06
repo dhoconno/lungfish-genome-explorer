@@ -53,12 +53,13 @@ struct MappingRobot {
     /// Since the 2026-07-07 Tools-menu redesign (commit 69bf2e72), the "Mapping"
     /// submenu no longer has a single "Mapping…" launcher item: it lists each
     /// mapping tool individually (built from `FASTQOperationDialogState.toolIDs`),
-    /// because none of minimap2/BWA-MEM2/Bowtie2/BBMap/Viral Recon carry the
+    /// because none of minimap2/BWA-MEM2/Bowtie2/BBMap carry the
     /// `.workflowOperations` capability that would route them through the
     /// workflow-enablement gate instead. Clicking any one of those items opens
     /// the same shared `fastq-operations-mapping` dialog with that tool
     /// preselected, so we open via the first tool ("minimap2…") and let
-    /// `chooseMapper` reselect the desired tool afterward.
+    /// `chooseMapper` reselect the desired tool afterward. Viral Recon is in
+    /// the Variant Calling submenu, so `openViralReconDialog` opens it.
     func openMappingDialog(
         file: StaticString = #filePath,
         line: UInt = #line
@@ -76,6 +77,29 @@ struct MappingRobot {
         let mappingMenuItem = app.menuItems["minimap2…"]
         XCTAssertTrue(mappingMenuItem.waitForExistence(timeout: 5), file: file, line: line)
         mappingMenuItem.click()
+
+        XCTAssertTrue(mappingDialog.waitForExistence(timeout: 5), file: file, line: line)
+    }
+
+    /// Opens the Viral Recon dialog from Tools > Variant Calling. The dialog
+    /// keeps the `fastq-operations-mapping` identifiers.
+    func openViralReconDialog(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        app.activate()
+
+        let toolsMenu = app.menuBars.menuBarItems["Tools"]
+        XCTAssertTrue(toolsMenu.waitForExistence(timeout: 5), file: file, line: line)
+        toolsMenu.click()
+
+        let variantCallingMenu = app.menuItems["Variant Calling"]
+        XCTAssertTrue(variantCallingMenu.waitForExistence(timeout: 5), file: file, line: line)
+        variantCallingMenu.click()
+
+        let viralReconMenuItem = app.menuItems["Viral Recon…"]
+        XCTAssertTrue(viralReconMenuItem.waitForExistence(timeout: 5), file: file, line: line)
+        viralReconMenuItem.click()
 
         XCTAssertTrue(mappingDialog.waitForExistence(timeout: 5), file: file, line: line)
     }

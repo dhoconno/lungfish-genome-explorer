@@ -13,6 +13,33 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertNotNil(fileMenu.items.first(where: { $0.title == "Import Center…" }))
     }
 
+    /// U12. Searching a database downloads records into the project, which is
+    /// file work, so the submenu follows Import Center… in File.
+    func testFileMenuHoldsSearchOnlineDatabasesRightAfterImportCenter() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let fileMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "File" })?.submenu)
+        let titles = fileMenu.items.map(\.title)
+        let importCenter = try XCTUnwrap(titles.firstIndex(of: "Import Center…"))
+        XCTAssertEqual(titles[importCenter + 1], "Search Online Databases")
+        XCTAssertEqual(titles[importCenter + 2], "Export")
+
+        let searchItem = fileMenu.items[importCenter + 1]
+        XCTAssertEqual(searchItem.identifier?.rawValue, MainMenuAccessibilityID.searchOnlineDatabases)
+        XCTAssertEqual(searchItem.identifier?.rawValue, "file-menu-search-online-databases")
+        let submenu = try XCTUnwrap(searchItem.submenu)
+        XCTAssertEqual(submenu.items.map(\.title), ["Search NCBI…", "Search SRA…", "Search Pathoplexus…"])
+        XCTAssertEqual(submenu.items.map(\.action), [
+            #selector(ToolsMenuActions.searchNCBI(_:)),
+            #selector(ToolsMenuActions.searchSRA(_:)),
+            #selector(ToolsMenuActions.searchPathoplexus(_:)),
+        ])
+        XCTAssertTrue(submenu.items.allSatisfy { $0.target == nil && $0.keyEquivalent.isEmpty })
+
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Search Online Databases" }))
+    }
+
     func testApplicationMenuContainsQuitItem() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
@@ -92,12 +119,7 @@ final class ImportCenterMenuTests: XCTestCase {
 
     func testMainMenuKeyItemsExposeStableIdentifiers() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(
-            workflowFeatureAvailability: .init(
-                hasWorkflowOperations: true,
-                hasHaplotypeDefinitions: true
-            )
-        )
+        let mainMenu = MainMenu.createMainMenu()
         let appMenu = try XCTUnwrap(mainMenu.items.first?.submenu)
         let fileMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "File" })?.submenu)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
@@ -126,9 +148,13 @@ final class ImportCenterMenuTests: XCTestCase {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let callVariantsItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Call Variants…" }))
+        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Call Variants…" }), "it lives in Variant Calling now")
+        let variantCallingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Variant Calling" })?.submenu)
+        let callVariantsItem = try XCTUnwrap(variantCallingMenu.items.first)
 
+        XCTAssertEqual(callVariantsItem.title, "Call Variants…")
         XCTAssertEqual(callVariantsItem.identifier?.rawValue, MainMenuAccessibilityID.callVariants)
+        XCTAssertEqual(callVariantsItem.action, #selector(ToolsMenuActions.showBAMVariantCalling(_:)))
     }
 
 
@@ -155,12 +181,7 @@ final class ImportCenterMenuTests: XCTestCase {
 
     func testInlinedWorkflowMenuItemRoutesThroughToolsMenuActionProtocol() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(
-            workflowFeatureAvailability: .init(
-                hasWorkflowOperations: true,
-                hasHaplotypeDefinitions: false
-            )
-        )
+        let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
         let genotypingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Genotyping" })?.submenu)
         let workflowItem = try XCTUnwrap(genotypingMenu.items.first(where: {
@@ -180,47 +201,42 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(recorder.launchWorkflowInvocationCount, 1)
     }
 
-    func testWorkflowFeatureMenuItemsAreHiddenWhenNoOptionalWorkflowUsesThem() throws {
+    func testHaplotypeDefinitionsIsBuiltInGenotypingWhateverWorkflowsAreEnabled() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(
-            workflowFeatureAvailability: .init(
-                hasWorkflowOperations: false,
-                hasHaplotypeDefinitions: false
-            )
-        )
+        let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
 
         XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
-        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
+        XCTAssertNil(
+            toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }),
+            "it sits in the Genotyping submenu, not at the Tools level"
+        )
+        let genotypingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Genotyping" })?.submenu)
+        let haplotypeDefinitions = try XCTUnwrap(genotypingMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
+        XCTAssertFalse(haplotypeDefinitions.isHidden)
+        XCTAssertEqual(haplotypeDefinitions.identifier?.rawValue, MainMenuAccessibilityID.haplotypeDefinitions)
     }
 
-    func testWorkflowOperationsCanAppearWithoutHaplotypeDefinitionsForCustomWorkflows() throws {
+    func testHaplotypeDefinitionsAvailabilityComesFromEnabledWorkflowsThroughMenuValidation() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(
-            workflowFeatureAvailability: .init(
-                hasWorkflowOperations: true,
-                hasHaplotypeDefinitions: false
-            )
+        let item = NSMenuItem(
+            title: "Haplotype Definitions…",
+            action: #selector(ToolsMenuActions.showHaplotypeDefinitions(_:)),
+            keyEquivalent: ""
         )
-        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+        let delegate = AppDelegate()
 
-        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
-        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
-        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Genotyping" })?.submenu)
-    }
+        delegate.workflowFeatureAvailabilityProvider = {
+            WorkflowFeatureAvailability(hasWorkflowOperations: true, hasHaplotypeDefinitions: false)
+        }
+        XCTAssertFalse(delegate.validateMenuItem(item))
+        XCTAssertFalse(item.isHidden, "validation disables the item and never hides it")
 
-    func testHaplotypeDefinitionsAppearOnlyWhenEnabledWorkflowUsesThem() throws {
-        let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(
-            workflowFeatureAvailability: .init(
-                hasWorkflowOperations: true,
-                hasHaplotypeDefinitions: true
-            )
-        )
-        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-
-        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
-        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
+        delegate.workflowFeatureAvailabilityProvider = {
+            WorkflowFeatureAvailability(hasWorkflowOperations: true, hasHaplotypeDefinitions: true)
+        }
+        XCTAssertTrue(delegate.validateMenuItem(item))
+        XCTAssertFalse(item.isHidden)
     }
 
     func testTwelveSCapabilityDrivesWorkflowOperationsButNotHaplotypeDefinitions() throws {
@@ -303,15 +319,20 @@ final class ImportCenterMenuTests: XCTestCase {
             "BWA-MEM2\u{2026}",
             "Bowtie2\u{2026}",
             "BBMap\u{2026}",
-            "Viral Recon\u{2026}",
         ])
         XCTAssertEqual(mappingMenu.items.compactMap { $0.representedObject as? FASTQOperationToolID }, [
             .minimap2,
             .bwaMem2,
             .bowtie2,
             .bbmap,
-            .viralRecon,
         ])
+
+        let variantCallingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Variant Calling" })?.submenu)
+        XCTAssertEqual(variantCallingMenu.items.map(\.title), [
+            "Call Variants\u{2026}",
+            "Viral Recon\u{2026}",
+        ])
+        XCTAssertEqual(variantCallingMenu.items.compactMap { $0.representedObject as? FASTQOperationToolID }, [.viralRecon])
 
         let readProcessingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Read Processing" })?.submenu)
         XCTAssertTrue(readProcessingMenu.items.contains { $0.title == "Merge Overlapping Pairs\u{2026}" })

@@ -9,8 +9,16 @@ struct ToolsMenuModel: Equatable, Sendable {
         let isEnabled: Bool
         let isInstallable: Bool
 
+        /// What the menu item carries so its action can find the catalog item.
+        /// `ToolsMenuModel.catalogItem(forRepresentedObject:)` reads it back.
         var representedObject: Any {
             toolID ?? id
+        }
+
+        /// The item's title. A workflow that is not enabled offers to enable
+        /// itself, in the same type as every other item.
+        var menuTitle: String {
+            isEnabled ? "\(title)\u{2026}" : "Enable \(title)\u{2026}"
         }
     }
 
@@ -33,12 +41,26 @@ struct ToolsMenuModel: Equatable, Sendable {
         }
 
         var menuTitle: String {
-            isEnabled ? "\(title)\u{2026}" : "\(title) (not enabled)"
+            isEnabled ? "\(title)\u{2026}" : "Enable \(title)\u{2026}"
         }
     }
 
     let categories: [Category]
     let linkedPackages: [LinkedPackageEntry]
+
+    /// The catalog item a Tools menu workflow item stands for, from the
+    /// represented object `WorkflowEntry` gives it (a tool ID or a catalog item
+    /// ID). The enable prompt names the workflow from the catalog item and
+    /// never from the item's title.
+    static func catalogItem(forRepresentedObject representedObject: Any?) -> WorkflowLibraryItem? {
+        if let toolID = representedObject as? FASTQOperationToolID {
+            return WorkflowLibraryCatalog.item(for: toolID)
+        }
+        if let id = representedObject as? String {
+            return WorkflowLibraryCatalog.item(id: id)
+        }
+        return nil
+    }
 
     @MainActor
     static func build(
@@ -72,7 +94,7 @@ struct ToolsMenuModel: Equatable, Sendable {
                 }
             return Category(
                 id: categoryID,
-                title: categoryID.menuTitle,
+                title: categoryID.displayName,
                 workflows: workflows
             )
         }
@@ -92,24 +114,5 @@ struct ToolsMenuModel: Equatable, Sendable {
                 return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
             }
         return ToolsMenuModel(categories: categories, linkedPackages: packages)
-    }
-}
-
-extension FASTQOperationCategoryID {
-    var menuTitle: String {
-        switch self {
-        case .qcReporting: return "QC & Reporting"
-        case .demultiplexing: return "Demultiplexing"
-        case .trimmingFiltering: return "Trimming & Filtering"
-        case .decontamination: return "Decontamination"
-        case .readProcessing: return "Read Processing"
-        case .searchSubsetting: return "Search & Subsetting"
-        case .alignment: return "Alignment & Phylogenetics"
-        case .mapping: return "Mapping"
-        case .assembly: return "Assembly"
-        case .clustering: return "Clustering"
-        case .classification: return "Classification"
-        case .genotyping: return "Genotyping"
-        }
     }
 }

@@ -142,7 +142,7 @@ enum WorkflowLibraryCatalog {
         id: twelveSAmpliconMatchingID,
         title: "12S Amplicon Matching",
         subtitle: "Match merged 12S amplicon reads exactly to a deduplicated FASTA and review unresolved sequences.",
-        categoryID: .genotyping,
+        categoryID: .classification,
         maturity: .specialized,
         requiredPluginPackIDs: ["lungfish-tools"],
         capabilities: [.workflowOperations]
@@ -229,7 +229,7 @@ enum WorkflowLibraryCatalog {
     }
 
     private static func groupedByCategory(_ items: [WorkflowLibraryItem]) -> [WorkflowLibraryGroup] {
-        Dictionary(grouping: items) { displayTitle(for: $0.categoryID) }
+        Dictionary(grouping: items) { $0.categoryID.displayName }
             .map { category, items in
                 WorkflowLibraryGroup(
                     title: category,
@@ -239,23 +239,6 @@ enum WorkflowLibraryCatalog {
                 )
             }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-    }
-
-    private static func displayTitle(for categoryID: FASTQOperationCategoryID) -> String {
-        switch categoryID {
-        case .qcReporting: return "QC & Reporting"
-        case .demultiplexing: return "Demultiplexing"
-        case .trimmingFiltering: return "Trimming & Filtering"
-        case .decontamination: return "Decontamination"
-        case .readProcessing: return "Read Processing"
-        case .searchSubsetting: return "Search & Subsetting"
-        case .alignment: return "Alignment"
-        case .mapping: return "Mapping"
-        case .assembly: return "Assembly"
-        case .clustering: return "Clustering"
-        case .classification: return "Classification"
-        case .genotyping: return "Genotyping"
-        }
     }
 }
 

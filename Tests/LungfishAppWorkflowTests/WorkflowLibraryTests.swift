@@ -33,7 +33,7 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertNil(twelveS.toolID)
         XCTAssertEqual(twelveS.title, "12S Amplicon Matching")
         XCTAssertEqual(twelveS.maturity, .specialized)
-        XCTAssertEqual(twelveS.categoryID, .genotyping)
+        XCTAssertEqual(twelveS.categoryID, .classification, "12S identifies species, so it is classification")
         XCTAssertEqual(twelveS.requiredPluginPackIDs, ["lungfish-tools"])
     }
 
@@ -97,7 +97,22 @@ final class WorkflowLibraryTests: XCTestCase {
         let core = try XCTUnwrap(WorkflowLibraryCatalog.builtInSections.first { $0.kind == .core })
 
         XCTAssertTrue(core.groups.contains { $0.title == "Mapping" && $0.items.contains { $0.toolID == .minimap2 } })
-        XCTAssertTrue(core.groups.contains { $0.title == "Alignment" && $0.items.contains { $0.toolID == .mafft } })
+        XCTAssertFalse(core.groups.first { $0.title == "Mapping" }?.items.contains { $0.toolID == .viralRecon } ?? true)
+        XCTAssertTrue(core.groups.contains { $0.title == "Variant Calling" && $0.items.contains { $0.toolID == .viralRecon } })
+        XCTAssertTrue(core.groups.contains { $0.title == "Alignment & Phylogenetics" && $0.items.contains { $0.toolID == .mafft } })
+        XCTAssertTrue(core.groups.contains { $0.title == "Trimming & Filtering" && $0.items.contains { $0.toolID == .removeDuplicates } })
+        XCTAssertTrue(core.groups.contains { $0.title == "Trimming & Filtering" && $0.items.contains { $0.toolID == .removeLowComplexityReads } })
+        XCTAssertEqual(
+            core.groups.map(\.title),
+            core.groups.map(\.title).sorted { $0.localizedStandardCompare($1) == .orderedAscending },
+            "the library lists its groups alphabetically"
+        )
+        for group in core.groups {
+            XCTAssertTrue(
+                FASTQOperationCategoryID.allCases.contains { $0.displayName == group.title },
+                "\(group.title) is a category display name"
+            )
+        }
         XCTAssertFalse(core.groups.flatMap(\.items).contains { $0.toolID == .ontGenotyping })
         XCTAssertFalse(core.groups.flatMap(\.items).contains { $0.id == WorkflowLibraryCatalog.twelveSAmpliconMatchingID })
     }
@@ -236,6 +251,41 @@ final class WorkflowLibraryTests: XCTestCase {
         let enabled = await store.enableWorkflow(ont, using: readyProvider)
         XCTAssertEqual(enabled, .enabled)
         XCTAssertTrue(store.isWorkflowEnabled(.ontGenotyping))
+    }
+
+    /// U4. Moving 12S into Classification must not change what gates it. The
+    /// category's own pack list (the metagenomics pack) seeds only the core
+    /// tools built from a tool ID. A catalog workflow carries its own list, and
+    /// both `enableWorkflow(_:using:)` and the library view model read that
+    /// list from the item.
+    func testTwelveSEnablementIsGatedByItsOwnPackListAndNotByTheClassificationCategory() async throws {
+        let twelveS = WorkflowLibraryCatalog.twelveSAmpliconMatchingItem
+        XCTAssertEqual(twelveS.categoryID, .classification)
+        XCTAssertEqual(FASTQOperationCategoryID.classification.requiredPackIDs, ["metagenomics"])
+        XCTAssertEqual(twelveS.requiredPluginPackIDs, ["lungfish-tools"])
+        XCTAssertFalse(twelveS.requiredPluginPackIDs.contains("metagenomics"))
+
+        let defaults = try makeDefaults()
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        store.setWorkflow(twelveS, enabled: false)
+
+        // Its own pack is missing and the metagenomics pack is ready, so it stays blocked on its own pack.
+        let ownPackMissing = StubWorkflowLibraryPluginStatusProvider(states: [
+            "lungfish-tools": .needsInstall,
+            "metagenomics": .ready,
+        ])
+        let blocked = await store.enableWorkflow(twelveS, using: ownPackMissing)
+        XCTAssertEqual(blocked, .blocked(missingPackIDs: ["lungfish-tools"]))
+        XCTAssertFalse(store.isWorkflowEnabled(twelveS))
+
+        // Its own pack is ready and the metagenomics pack is missing, so it enables and that pack plays no part.
+        let ownPackReady = StubWorkflowLibraryPluginStatusProvider(states: [
+            "lungfish-tools": .ready,
+            "metagenomics": .needsInstall,
+        ])
+        let enabled = await store.enableWorkflow(twelveS, using: ownPackReady)
+        XCTAssertEqual(enabled, .enabled)
+        XCTAssertTrue(store.isWorkflowEnabled(twelveS))
     }
 
     func testEnablingFullLengthMHCWorkflowRequiresSpecializedSavontBlastPack() async throws {

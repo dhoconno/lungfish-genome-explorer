@@ -1942,35 +1942,6 @@ public final class FASTQDatasetViewController: NSViewController {
         return Self.operationCategoryLaunchers[row]
     }
 
-    private func titleForOperationCategory(_ category: FASTQOperationCategoryID) -> String {
-        switch category {
-        case .qcReporting:
-            return "QC & Reporting"
-        case .demultiplexing:
-            return "Demultiplexing"
-        case .trimmingFiltering:
-            return "Trimming & Filtering"
-        case .decontamination:
-            return "Decontamination"
-        case .readProcessing:
-            return "Read Processing"
-        case .searchSubsetting:
-            return "Search & Subsetting"
-        case .alignment:
-            return "Alignment"
-        case .mapping:
-            return "Mapping"
-        case .assembly:
-            return "Assembly"
-        case .clustering:
-            return "Clustering"
-        case .classification:
-            return "Classification"
-        case .genotyping:
-            return "Genotyping"
-        }
-    }
-
     private func symbolForOperationCategory(_ category: FASTQOperationCategoryID) -> String {
         switch category {
         case .qcReporting:
@@ -1989,6 +1960,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "text.line.first.and.arrowtriangle.forward"
         case .mapping:
             return "arrow.left.and.right.text.vertical"
+        case .variantCalling:
+            return "arrow.triangle.branch"
         case .assembly:
             return "puzzlepiece.extension"
         case .clustering:
@@ -2018,6 +1991,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Open the FASTQ/FASTA operations dialog with alignment tools selected."
         case .mapping:
             return "Open the FASTQ/FASTA operations dialog with mapping tools selected."
+        case .variantCalling:
+            return "Open the FASTQ/FASTA operations dialog with variant calling tools selected."
         case .assembly:
             return "Open the FASTQ/FASTA operations dialog with assembly tools selected."
         case .clustering:
@@ -2037,7 +2012,7 @@ public final class FASTQDatasetViewController: NSViewController {
     /// Returns the category header or operation title for a row.
     private func titleForRow(_ row: Int) -> String {
         guard let category = operationCategoryForRow(row) else { return "" }
-        return titleForOperationCategory(category)
+        return category.displayName
     }
 
     /// Returns the SF Symbol name for an operation row.
@@ -2377,7 +2352,7 @@ public final class FASTQDatasetViewController: NSViewController {
         selectedOperation = nil
         showOperationsDialogLauncherHint()
         dismissErrorBanner()
-        setStatus("Open \(titleForOperationCategory(category)) tools in the FASTQ/FASTA operations dialog.")
+        setStatus("Open \(category.displayName) tools in the FASTQ/FASTA operations dialog.")
         onLaunchFASTQOperationCategory?(category)
     }
 

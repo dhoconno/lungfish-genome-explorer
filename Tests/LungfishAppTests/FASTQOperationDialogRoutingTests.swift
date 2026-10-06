@@ -909,12 +909,20 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Entropy threshold must be between 0.3 and 0.9.")
     }
 
-    func testLowComplexityFilterAppearsInDecontaminationCategory() {
-        XCTAssertTrue(
-            FASTQOperationDialogState.toolIDs(for: .decontamination)
-                .contains(.removeLowComplexityReads)
+    func testLowComplexityFilterAndDuplicateRemovalAppearInTrimmingAndFilteringCategory() {
+        let trimmingAndFiltering = FASTQOperationDialogState.toolIDs(for: .trimmingFiltering)
+        XCTAssertEqual(
+            Array(trimmingAndFiltering.suffix(2)),
+            [.removeLowComplexityReads, .removeDuplicates],
+            "they follow Filter by Read Length"
         )
-        XCTAssertEqual(FASTQOperationToolID.removeLowComplexityReads.categoryID, .decontamination)
+        XCTAssertEqual(trimmingAndFiltering.dropLast(2).last, .filterByReadLength)
+        XCTAssertEqual(FASTQOperationToolID.removeLowComplexityReads.categoryID, .trimmingFiltering)
+        XCTAssertEqual(FASTQOperationToolID.removeDuplicates.categoryID, .trimmingFiltering)
+
+        let decontamination = FASTQOperationDialogState.toolIDs(for: .decontamination)
+        XCTAssertFalse(decontamination.contains(.removeLowComplexityReads))
+        XCTAssertFalse(decontamination.contains(.removeDuplicates))
     }
 
     func testRibosomalRNAFilterDefaultsToDeaconRiboDepletion() throws {
@@ -1410,7 +1418,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
     func testMappingCategoryExposesAllV1Mappers() {
         XCTAssertEqual(
             FASTQOperationDialogState.toolIDs(for: .mapping),
-            [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
+            [.minimap2, .bwaMem2, .bowtie2, .bbmap]
         )
     }
 
@@ -1444,11 +1452,12 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(enabledState.visibleToolIDs.contains(.ontGenotyping))
     }
 
-    func testViralReconAppearsInMappingTools() {
-        let mappingTools = FASTQOperationDialogState.toolIDs(for: .mapping)
+    func testViralReconAppearsInVariantCallingTools() {
+        let variantCallingTools = FASTQOperationDialogState.toolIDs(for: .variantCalling)
 
-        XCTAssertTrue(mappingTools.contains(.viralRecon))
-        XCTAssertEqual(FASTQOperationToolID.viralRecon.categoryID, .mapping)
+        XCTAssertEqual(variantCallingTools, [.viralRecon])
+        XCTAssertFalse(FASTQOperationDialogState.toolIDs(for: .mapping).contains(.viralRecon))
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.categoryID, .variantCalling)
         XCTAssertEqual(FASTQOperationToolID.viralRecon.title, "Viral Recon")
         XCTAssertEqual(FASTQOperationToolID.viralRecon.subtitle, "Run SARS-CoV-2 viral consensus and variant analysis.")
         XCTAssertTrue(FASTQOperationToolID.viralRecon.usesEmbeddedConfiguration)

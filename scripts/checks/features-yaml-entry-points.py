@@ -9,13 +9,16 @@ named menu paths that do not exist ("File > Open", "Tools > Freyja Demix",
 and screenshot recipes. This script is a local, best-effort guard: it does
 not build or run the app, it only checks that every top-level menu name and
 every "Menu > Item" second-level title an entry_points string opens with
-appears somewhere as a literal title in MainMenu.swift (including the
-dynamically generated FASTQ operation category titles).
+appears somewhere as a literal title in MainMenu.swift and its MainMenu+*.swift
+extensions (including the dynamically generated FASTQ operation category
+names, which come from `FASTQOperationCategoryID.displayName` in
+FASTQOperationsCatalog.swift, the one source the Tools menu, the dialog, the
+dataset launchers and the Workflow Library all read).
 
 It is intentionally conservative:
   - Only entry_points strings starting with a known top-level menu bar name
-    (File, Tools, Edit, View, Sequence, Window, Help, Operations) are
-    checked. CLI commands, Inspector panel sections, sidebar/context-menu
+    (File, Edit, View, Sequence, Selection, Tools, Operations, Window, Help)
+    are checked. CLI commands, Inspector panel sections, sidebar/context-menu
     actions, and free-text entries ("Open a VCF dataset from the sidebar")
     are left alone since they are not NSMenu items MainMenu.swift builds.
   - Only the first two path segments are checked (e.g. "Tools > Mapping"),
@@ -42,11 +45,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FEATURES_YAML = REPO_ROOT / "docs/user-manual/features.yaml"
 MAIN_MENU_SWIFT = REPO_ROOT / "Sources/LungfishApp/App/MainMenu.swift"
-TOOLS_MENU_MODEL_SWIFT = REPO_ROOT / "Sources/LungfishApp/App/ToolsMenuModel.swift"
+OPERATIONS_CATALOG_SWIFT = REPO_ROOT / "Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift"
 
 TOP_LEVEL_MENUS = {
-    "File", "Edit", "View", "Sequence", "Tools", "Operations", "Window",
-    "Help",
+    "File", "Edit", "View", "Sequence", "Selection", "Tools", "Operations",
+    "Window", "Help",
 }
 
 TITLE_PATTERN = re.compile(r'(?:withTitle|title):\s*"((?:[^"\\]|\\.)*)"')
@@ -73,18 +76,28 @@ def extract_literal_titles(text: str) -> set[str]:
 
 
 def extract_dynamic_category_titles(text: str) -> set[str]:
-    """Pull the FASTQOperationCategoryID.menuTitle switch arms - these never
-    appear as string literals matched by TITLE_PATTERN because they are
-    `return "..."` inside a computed property, not `title:`/`withTitle:`.
-    Anchor on the extension so another type's `menuTitle` (for example
-    LinkedPackageEntry's) cannot shadow the category switch."""
+    """Pull the FASTQOperationCategoryID.displayName switch arms - the one
+    source of the Tools menu's category names. They never appear as string
+    literals matched by TITLE_PATTERN because they are `return "..."` inside a
+    computed property, not `title:`/`withTitle:`. Anchor on the enum so another
+    type's `displayName` cannot shadow the category switch."""
     titles = set()
     match = re.search(
-        r"extension FASTQOperationCategoryID \{.*?var menuTitle: String \{(.*?)\n\s*\}\s*\n\}",
+        r"enum FASTQOperationCategoryID\b.*?var displayName: String \{",
         text, re.DOTALL)
     if not match:
         return titles
-    body = match.group(1)
+    # Walk to the closing brace of the property, so only its own arms count.
+    start = match.end()
+    depth = 1
+    index = start
+    while index < len(text) and depth > 0:
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+        index += 1
+    body = text[start:index - 1]
     for arm_match in MENU_TITLE_ARM_PATTERN.finditer(body):
         titles.add(normalize(arm_match.group(1)))
     return titles
@@ -98,9 +111,8 @@ def load_known_titles() -> set[str]:
     for menu_file in menu_files:
         if menu_file.is_file():
             titles |= extract_literal_titles(menu_file.read_text())
-    if TOOLS_MENU_MODEL_SWIFT.is_file():
-        text = TOOLS_MENU_MODEL_SWIFT.read_text()
-        titles |= extract_dynamic_category_titles(text)
+    if OPERATIONS_CATALOG_SWIFT.is_file():
+        titles |= extract_dynamic_category_titles(OPERATIONS_CATALOG_SWIFT.read_text())
     return titles
 
 
@@ -128,6 +140,15 @@ def main() -> int:
         return 1
 
     known_titles = load_known_titles()
+
+    # A silent miss here would turn every "Tools > <category>" path into a
+    # confusing "not found", so name the real cause.
+    if not extract_dynamic_category_titles(OPERATIONS_CATALOG_SWIFT.read_text()):
+        print(
+            f"error: no FASTQOperationCategoryID.displayName arms found in {OPERATIONS_CATALOG_SWIFT}",
+            file=sys.stderr,
+        )
+        return 1
 
     if "--list" in sys.argv:
         for title in sorted(known_titles):
