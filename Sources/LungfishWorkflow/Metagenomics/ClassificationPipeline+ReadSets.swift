@@ -187,6 +187,9 @@ extension ClassificationPipeline {
             )
             if let stepID { stepIDs.append(stepID) }
         }
+        if let stepID = try await recordInputCopyStep(config: config, runID: runID, recorder: recorder, dependsOn: dependsOn + stepIDs) {
+            stepIDs.append(stepID)
+        }
         guard !config.singleReadFiles.isEmpty else { return stepIDs }
 
         let startedAt = Date()
@@ -216,10 +219,12 @@ extension ClassificationPipeline {
         return stepIDs
     }
 
-    /// The single-read files and their staged mates kraken2 reads beside the
-    /// pair, for the kraken2 step's inputs.
+    /// The input copies in the compression of R1, and the single-read files
+    /// and their staged mates kraken2 reads beside the pair, for the kraken2
+    /// step's inputs.
     static func readSetExtraInputs(_ config: ClassificationConfig) -> [URL] {
-        config.singleReadFiles.flatMap { [config.kraken2SingleReadURL(for: $0), config.emptyMateURL(for: $0)] }
+        config.stagedInputCopies.map(\.copy)
+            + config.singleReadFiles.flatMap { [config.kraken2SingleReadURL(for: $0), config.emptyMateURL(for: $0)] }
     }
 
     /// Writes the header-only mate of every file of single reads, and a copy
@@ -323,9 +328,11 @@ extension ClassificationPipeline {
             try? fm.removeItem(at: config.emptyMateURL(for: single))
             if let copy = config.stagedSingleReadCopyURL(for: single) { try? fm.removeItem(at: copy) }
         }
-        // The inputs folder goes too when the staged mates were all it held.
-        if let mate = config.singleReadFiles.first.map(config.emptyMateURL(for:)) {
-            let folder = mate.deletingLastPathComponent()
+        let inputCopies = config.stagedInputCopies.map(\.copy)
+        for copy in inputCopies { try? fm.removeItem(at: copy) }
+        // The inputs folder goes too when the staged files were all it held.
+        if let staged = inputCopies.first ?? config.singleReadFiles.first.map(config.emptyMateURL(for:)) {
+            let folder = staged.deletingLastPathComponent()
             if (try? fm.contentsOfDirectory(atPath: folder.path))?.isEmpty == true {
                 try? fm.removeItem(at: folder)
             }

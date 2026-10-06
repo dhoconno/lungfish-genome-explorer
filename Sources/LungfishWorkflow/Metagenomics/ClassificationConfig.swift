@@ -485,9 +485,9 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         args.append("--report-minimizer-data")
         args += extraArguments
 
-        // Input files (must be last). Each file of single reads follows the
-        // pair with its staged header-only mate, both in the compression of R1.
-        for file in inputFiles {
+        // Input files (must be last), each in the compression of R1. Each file
+        // of single reads follows the pair with its staged header-only mate.
+        for file in kraken2InputURLs {
             args.append(file.path)
         }
         for file in singleReadFiles {

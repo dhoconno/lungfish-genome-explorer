@@ -591,9 +591,9 @@ public actor ClassificationPipeline {
         // Phase 3: Run kraken2 (0.30 -- 0.80)
         let kraken2Args = kraken2Config.kraken2Arguments()
         let kraken2Command = ["kraken2"] + kraken2Args
-        var durableReplayConfig = effectiveConfig
-        durableReplayConfig.inputFiles = replayInputs.inputFiles
-        let durableKraken2Command = ["kraken2"] + durableReplayConfig.kraken2Arguments()
+        let durableKraken2Command = Self.durableKraken2ReplayArgv(
+            effectiveConfig: effectiveConfig, kraken2Config: kraken2Config, replayInputFiles: replayInputs.inputFiles
+        )
         let sequenceInputRecords = (effectiveConfig.inputFiles + Self.readSetExtraInputs(kraken2Config)).map { url in
             ProvenanceRecorder.fileRecord(
                 url: url,
@@ -1383,7 +1383,7 @@ public actor ClassificationPipeline {
         effectiveConfig: ClassificationConfig,
         toolVersion: String,
         command: [String],
-        durableReplayCommand: [String],
+        durableReplayCommand: [String]?,
         inputs: [FileRecord],
         dependsOn: [UUID],
         exitCode: Int32,
