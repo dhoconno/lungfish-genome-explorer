@@ -28,7 +28,8 @@ private final class AppDelegateNotificationObserver: @unchecked Sendable {
 /// Main application delegate handling app lifecycle and global state.
 @MainActor
 public class AppDelegate: NSObject, NSApplicationDelegate,
-    FileMenuActions, ViewMenuActions, SequenceMenuActions, ToolsMenuActions, OperationsMenuActions, HelpMenuActions {
+    FileMenuActions, ViewMenuActions, SequenceMenuActions, ToolsMenuActions, OperationsMenuActions, HelpMenuActions,
+    NSMenuItemValidation {
 
     /// The shared application delegate instance
     public static var shared: AppDelegate? {
