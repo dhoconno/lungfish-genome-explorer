@@ -136,7 +136,7 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         XCTAssertEqual(FASTQOperationToolID.removeDuplicates.categoryID, .trimmingFiltering)
     }
 
-    /// U13, D2, D9, D11 and D12. The titles the Tools menu session renamed. The
+    /// U13, D2, D9 and D12. The titles the Tools menu session renamed. The
     /// menu, the dialog header and sidebar, the dataset launchers and the Workflow
     /// Library all read them from here, so one pin covers every generated copy.
     func testRenamedToolsAndWorkflowsCarryTheirNewTitles() throws {
@@ -148,7 +148,6 @@ final class FASTQOperationsCatalogTests: XCTestCase {
             (.reverseComplement, "Reverse Complement All Sequences"),
             (.translate, "Translate All Sequences"),
             (.ontGenotyping, "MiSeq Amplicon MHC Genotyping"),
-            (.hifiasm, "hifiasm"),
             (.viralRecon, "Viral Recon (SARS-CoV-2)"),
         ]
         for (toolID, title) in renamed {
@@ -169,13 +168,32 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         // Raw values are what the enablement defaults and the Tools menu identifiers store, and they never follow a title.
         XCTAssertEqual(renamed.map(\.toolID.rawValue), [
             "fastpTrim", "removeRibosomalRNA", "removeLowComplexityReads", "removeDuplicates",
-            "reverseComplement", "translate", "ontGenotyping", "hifiasm", "viralRecon",
+            "reverseComplement", "translate", "ontGenotyping", "viralRecon",
         ])
         XCTAssertEqual(
             WorkflowLibraryCatalog.fullLengthONTMHCGenotypingItem.id,
             "builtin.full-length-ont-mhc-genotyping",
             "the catalog id is stored in the enablement defaults"
         )
+    }
+
+    /// Hifiasm is not renamed. The assembler picker, the CLI output and provenance
+    /// print `AssemblyTool.displayName`, and the menu, the dialog and the library
+    /// read the same word, so the Assembly flow shows one spelling.
+    func testHifiasmKeepsTheSpellingTheAssemblerPickerUses() {
+        let spelling = AssemblyTool.hifiasm.displayName
+        XCTAssertEqual(spelling, "Hifiasm")
+        XCTAssertEqual(FASTQOperationToolID.hifiasm.title, spelling)
+        XCTAssertEqual(WorkflowLibraryCatalog.item(for: .hifiasm)?.title, spelling, "the library card")
+        XCTAssertEqual(FASTQOperationToolID.hifiasm.sidebarItem(availability: .available).title, spelling, "the dialog row")
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/long-reads.fastq")]
+        )
+        state.selectTool(.hifiasm)
+        XCTAssertEqual(state.selectedToolID, .hifiasm)
+        XCTAssertEqual(state.selectedToolSummary, "Configure a Hifiasm assembly run.")
     }
 
     /// A display rename never reaches disk. The Operations row, its log and the
