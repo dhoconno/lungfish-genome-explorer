@@ -115,18 +115,35 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
 
     /// The wording of this operation that reaches disk, in the label a batch
     /// manifest records and in the name of the folder a grouped result is
-    /// written to. The five operations the Tools menu session renamed keep the
-    /// labels they had before, so a project written today reads like one
-    /// written earlier. A display rename edits `operationLabel` and leaves
-    /// this switch alone.
+    /// written to. Every arm is written out and none falls back to
+    /// `operationLabel`, so a display rename edits `operationLabel` only and
+    /// never renames a manifest label or an output folder. Five arms keep
+    /// wording the Operations panel no longer shows.
     var persistedOperationLabel: String {
         switch self {
+        case .subsampleProportion(let p): return "Subsample \(Int(p * 100))%"
+        case .subsampleCount(let n): return "Subsample \(n) reads"
+        case .lengthFilter: return "Length Filter"
+        case .searchText: return "Search"
+        case .searchMotif: return "Motif Search"
+        case .deduplicate: return "Deduplicate"
         case .fastpTrim: return "fastp Adapter + Quality Trim"
+        case .qualityTrim: return "Quality Trim"
+        case .adapterTrim: return "Adapter Trim"
+        case .fixedTrim: return "Fixed Trim"
+        case .contaminantFilter: return "Contaminant Filter"
         case .lowComplexityFilter: return "Low-Complexity Filter"
+        case .pairedEndMerge: return "Paired-End Merge"
+        case .pairedEndRepair: return "Paired-End Repair"
+        case .primerRemoval: return "PCR Primer Trimming"
+        case .sequencePresenceFilter: return "Sequence Presence Filter"
+        case .errorCorrection: return "Error Correction"
         case .reverseComplement: return "Reverse Complement"
         case .translate: return "Translate"
+        case .demultiplex: return "Demultiplex"
+        case .orient: return "Orient Sequences"
+        case .humanReadScrub: return "Human Read Scrub"
         case .ribosomalRNAFilter: return "Remove ribosomal RNA sequences"
-        default: return operationLabel
         }
     }
 
@@ -392,12 +409,11 @@ extension FASTQDerivativeRequest {
 extension FASTQOperationLaunchRequest {
     /// The operation name that reaches disk, in the folder a grouped result or a
     /// demultiplex run is written to. A derivative names itself through
-    /// ``FASTQDerivativeRequest/persistedOperationLabel``, so a display rename
-    /// never changes a folder name. Every other launch uses its display title.
-    /// The one rename among those titles so far (MiSeq amplicon MHC genotyping)
-    /// differs from the old title in case alone, which a folder name drops.
+    /// ``FASTQDerivativeRequest/persistedOperationLabel``. Every other launch
+    /// uses the label its batch manifest records, never its display title, so a
+    /// display rename never changes a folder name.
     var persistedOperationTitle: String {
         if case .derivative(let request, _, _) = self { return request.persistedOperationLabel }
-        return operationDisplayTitle
+        return batchManifestLabel
     }
 }
