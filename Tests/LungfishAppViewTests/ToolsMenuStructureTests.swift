@@ -356,11 +356,13 @@ final class ToolsMenuStructureTests: XCTestCase {
                 genotyping.update()
                 XCTAssertFalse(item.isHidden, "validation disables the item and never hides it")
                 XCTAssertFalse(item.isEnabled)
+                XCTAssertEqual(item.toolTip, MainMenu.haplotypeDefinitionsDisabledToolTip, "a dimmed item says what turns it on")
             }
             self.withApplicationDelegate(availability: withHaplotypes) {
                 genotyping.update()
                 XCTAssertFalse(item.isHidden)
                 XCTAssertTrue(item.isEnabled)
+                XCTAssertNil(item.toolTip, "the reason goes once the item is enabled")
             }
         }
     }
@@ -612,10 +614,13 @@ final class ToolsMenuStructureTests: XCTestCase {
 
         XCTAssertEqual(model.linkedPackages.map(\.title), ["Zulu Flow", "Alpha Flow", "Command Only"])
         XCTAssertEqual(model.linkedPackages.map(\.isEnabled), [true, false, false])
+        XCTAssertEqual(model.linkedPackages.map(\.canRun), [true, true, false])
+        // A command-runner package can never be enabled, so it offers only to
+        // open its card in the Workflow Library (review S2).
         XCTAssertEqual(model.linkedPackages.map(\.menuTitle), [
             "Zulu Flow\u{2026}",
             "Enable Alpha Flow\u{2026}",
-            "Enable Command Only\u{2026}",
+            "Show Command Only in Workflow Library",
         ])
         XCTAssertEqual(model.linkedPackages.first?.workflowOperationToolID, "package.org.test.zulu")
     }
