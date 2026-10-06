@@ -75,6 +75,11 @@ extension ViewerViewController {
         guard let controller = genotypeResultViewController else { return }
         onGenotypeResultViewWillHide?(controller)
         controller.detachHostPresentationCallbacks()
+        // The window's undo manager does not retain its targets, and the viewer
+        // releases this controller below (or keeps it only for deferred matrix
+        // saves), so Undo must never reach it again. This covers the sample
+        // status and colour Undo the controller registers.
+        controller.view.window?.undoManager?.removeAllActions(withTarget: controller)
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         genotypeResultViewController = nil
