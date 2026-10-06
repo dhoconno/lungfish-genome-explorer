@@ -22,4 +22,9 @@ public struct PhylogeneticTreeManifest: Codable, Sendable, Equatable {
     public let capabilities: [String]
     public let checksums: [String: String]
     public let fileSizes: [String: Int64]
+    /// Labels for the "/"-joined values in internal node labels, in IQ-TREE's order
+    /// ("SH-aLRT", "aBayes", "UFBoot"). Nil for trees imported without recorded labels.
+    public let supportLabels: [String]?
+    /// How the tree was inferred. Nil for imported trees.
+    public let inference: PhylogeneticTreeInferenceSummary?
 }

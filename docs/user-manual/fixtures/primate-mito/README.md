@@ -130,9 +130,11 @@ matches the well-established primate phylogeny. IQ-TREE writes an
 unrooted tree so the three-way split at the root (Human, Chimp, and the
 Gorilla+macaque clade) does not imply a rooting and is not itself a
 finding. The tree file is copied from the bundle's canonical
-`tree/primary.nwk` (identical to `artifacts/iqtree/run.treefile`, per
-`manifest.json`'s `primaryTreeID`/`sourceFileName`) to
-`expected/primate-mito.treefile`.
+`tree/primary.nwk` to `expected/primate-mito.treefile`. Since the 2026-10
+IQ-TREE session, `artifacts/iqtree/run.treefile` holds IQ-TREE's own output
+with stand-in tip names (`t0001` and onward), and `primary.nwk` carries the
+MSA row names mapped back through `artifacts/iqtree/tip-map.tsv`, so the two
+files are no longer byte-identical.
 
 ## Internal consistency
 
@@ -141,11 +143,12 @@ The tree's five tip labels are exactly the five headers written by
 `Gorilla_NC_011120.1`, `RhesusMacaque_NC_005943.1`,
 `CynomolgusMacaque_NC_012670.1`), confirming the alignment and tree steps
 round-trip every input record with no drops, renames, or duplicates.
-Because MAFFT progressive alignment and IQ-TREE's numerical optimizer are
-not bit-for-bit deterministic across runs on this machine, re-running
-`regenerate.sh` reproduces the same alignment length (17,247 columns) and
-tree topology/tip set. Branch lengths can differ in the 6th-7th
-decimal place between runs, but that is expected and not a fixture defect.
+`regenerate.sh` passes no `--seed` or `--threads`, so IQ-TREE draws a seed
+and runs with `-T AUTO`. Re-running it reproduces the same alignment length
+(17,247 columns) and tree topology/tip set. Branch lengths can differ in the
+late decimal places between runs, which is expected and not a fixture
+defect. Only `--threads 1` with a fixed `--seed` reproduces the tree byte for
+byte, as the Building Trees chapter's command does.
 
 ## `--project` gotcha
 

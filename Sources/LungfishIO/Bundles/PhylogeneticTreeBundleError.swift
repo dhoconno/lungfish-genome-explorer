@@ -13,6 +13,7 @@ public enum PhylogeneticTreeBundleError: Error, LocalizedError, Sendable, Equata
     case nodeNotFound(String)
     case ambiguousNodeLabel(String)
     case cannotRootOnRootNode(String)
+    case tipLabelNotFound(String)
 
     public var errorDescription: String? {
         switch self {
@@ -34,6 +35,8 @@ public enum PhylogeneticTreeBundleError: Error, LocalizedError, Sendable, Equata
             return "Tree node label is ambiguous: \(label)"
         case .cannotRootOnRootNode(let label):
             return "Cannot root on the branch above \(label): it is already the root and has no branch above it. Select one of its child clades instead."
+        case .tipLabelNotFound(let label):
+            return "The tip label map names a tip that is not in the tree: \(label)"
         }
     }
 }

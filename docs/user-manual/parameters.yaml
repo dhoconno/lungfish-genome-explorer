@@ -5657,7 +5657,7 @@ operations:
   msa.mafft:
     title: MAFFT
     entry_points:
-      - "Tools > Multiple Sequence Alignment > MAFFT..."
+      - "Tools > Alignment & Phylogenetics > MAFFT..."
       - "Right-click a FASTA selection > Align with MAFFT..."
       - "CLI: lungfish-cli align mafft <input-files> --project <project>"
     gating: [multiple-sequence-alignment]
@@ -5937,126 +5937,159 @@ operations:
   tree.iqtree:
     title: Build Tree with IQ-TREE
     entry_points:
+      - "Tools > Alignment & Phylogenetics > Build Tree with IQ-TREE..."
       - "Right-click in the alignment viewport > Build Tree with IQ-TREE..."
       - "CLI: lungfish-cli tree infer iqtree <msa-bundle-path> --project <project> --output <output>"
     gating: [phylogenetics]
     sources:
       - Sources/LungfishApp/Views/Phylogenetics/IQTreeInferenceDialog.swift
-      - Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift
+      - Sources/LungfishApp/Views/Phylogenetics/IQTreeInferenceDialogState.swift
+      - Sources/LungfishApp/Views/Phylogenetics/IQTreeInferenceOptions.swift
+      - Sources/LungfishApp/App/AppDelegate+TreeInference.swift
+      - Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController+TreeInference.swift
+      - Sources/LungfishIO/Bundles/IQTreeOptionRules.swift
+      - Sources/LungfishCLI/Commands/TreeInferIQTreeCommand.swift
       - Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json
-      - docs/user-manual/reviews/fidelity-2026-09/cli-help/tree.txt
+      - Tests/Fixtures/golden/cli-help/lungfish-cli.tree.infer.iqtree.txt
     settings:
-      - label: Output Name
-        control: text
-        default: the alignment bundle name, with any .lungfishtree suffix removed
-        allowed: any text that is not blank
-        effect: Names the .lungfishtree bundle the run writes into the project's Phylogenetic Trees folder. Run stays disabled while the field is empty.
-        when_to_change: Change it when the tree is one of several from the same alignment and the names would otherwise collide.
-        cli_flag: --name
-      - label: Model
-        control: text
-        default: MFP
-        allowed: "MFP, or any IQ-TREE model string such as GTR+G or HKY+I+G"
-        effect: Names the substitution model, which is the set of assumptions about how one base turns into another. MFP is not a model but an instruction to test many models on your data and use the one that fits best.
-        when_to_change: Name a model directly when a reviewer or a published method requires that exact model, or when model testing takes too long on a large alignment.
-        cli_flag: --model
-      - label: Sequence Type
+      - label: Build from
         control: radio
-        default: Auto
-        allowed: "Auto, DNA, Amino Acid, Codon, Binary, Morphological, NT to AA"
-        effect: Tells IQ-TREE what the alignment characters are. Auto lets IQ-TREE decide from the residues, and NT to AA translates a nucleotide alignment before inferring the tree.
-        when_to_change: Set it by hand when the alignment is a codon alignment or when you want a protein tree from nucleotide input.
+        default: "Selected rows and columns when the dialog opens from a selection of 3 or more rows, otherwise Whole alignment"
+        allowed: "Whole alignment (N sequences, L columns), or Selected rows and columns (k sequences, columns a-b), the second offered only when the alignment has a selection"
+        effect: Chooses which sequences and columns IQ-TREE sees. Fewer than 3 sequences blocks the run, and fewer than 4 turns branch support off.
+        when_to_change: Choose Selected rows and columns to build a tree from part of an alignment, such as one gene region or a subset of samples.
+        cli_flag: --rows and --columns
+      - label: Model
+        control: popup
+        default: Find best model (ModelFinder)
+        allowed: "Find best model (ModelFinder), then JC, HKY+F+G4, GTR+F+I+G4 and GTR+F+R4 for nucleotide alignments or LG+G4, WAG+G4, JTT+G4 and LG+F+R4 for protein, then Custom…"
+        effect: Names the substitution model, the set of rates for turning one residue into another. ModelFinder (MFP) tests many models on the data and uses the best fit, chosen by BIC.
+        when_to_change: Pick a fixed model when a published method names one, or when model testing takes too long on a large alignment.
+        cli_flag: --model
+      - label: Custom model
+        control: text
+        default: empty, shown only when Model is Custom…
+        allowed: "any IQ-TREE model string except MF, TESTONLY and other strings ending in ONLY"
+        effect: Passes the typed model string to IQ-TREE.
+        when_to_change: Use it for a model the pop-up does not list, such as a codon model.
+        cli_flag: --model
+      - label: Sequence type
+        control: popup
+        default: Detect automatically
+        allowed: "Detect automatically, DNA and Codon for nucleotide alignments, Detect automatically and Protein for protein alignments"
+        effect: Tells IQ-TREE what the alignment characters are. Codon treats each block of three columns as one codon and needs a column count that is a multiple of 3.
+        when_to_change: Choose Codon for an in-frame coding alignment. Binary, morphological and translated runs are on the command line only.
         cli_flag: --sequence-type
-      - label: Ultrafast Bootstrap
+      - label: Genetic code
+        control: popup
+        default: Standard
+        allowed: "Standard (CODON1), Vertebrate mitochondrial (CODON2), shown only when Sequence type is Codon"
+        effect: Chooses the codon table IQ-TREE uses to read stop codons and amino acids.
+        when_to_change: Choose Vertebrate mitochondrial for coding genes from a human or macaque mitochondrial genome.
+        cli_flag: --sequence-type CODON1 or CODON2
+      - label: Ultrafast bootstrap (UFBoot)
         control: checkbox
-        default: "false"
+        default: "true"
         allowed: "true, false"
-        effect: Turns on branch support values from resampled alignments. A branch labelled 95 means that branch appeared in 95 percent of the resampled trees, and values at or above 95 are usually treated as well supported.
-        when_to_change: Turn it on for any tree you plan to interpret or publish, because a tree without support values cannot be read for confidence.
+        effect: Turns on ultrafast bootstrap support for every internal branch. UFBoot 95 or higher marks a well-supported clade.
+        when_to_change: Leave it on for any tree you will interpret. Turn it off only for a quick look at the topology.
         cli_flag: --bootstrap
-      - label: Replicates (Ultrafast Bootstrap)
-        control: text
+      - label: UFBoot replicates
+        control: number
         default: 1000
-        allowed: integers of 1 or more
-        effect: How many resampled alignments the ultrafast bootstrap builds. More replicates make the support numbers steadier and the run slower.
-        when_to_change: rarely, because 1000 is the value IQ-TREE's authors recommend for the ultrafast method.
+        allowed: whole numbers of 1000 or more, in steps of 1000 with the stepper
+        effect: How many bootstrap replicates IQ-TREE builds. IQ-TREE requires at least 1000.
+        when_to_change: rarely
         cli_flag: --bootstrap
-      - label: SH-aLRT
+      - label: SH-aLRT test
         control: checkbox
-        default: "false"
+        default: "true"
         allowed: "true, false"
-        effect: Turns on a second, faster branch support test that compares each branch against the alternatives around it. It reports on the same 0 to 100 scale but is calculated differently from the bootstrap.
-        when_to_change: Turn it on alongside the bootstrap when you want two independent support measures per branch.
+        effect: Turns on a second, faster support test that compares each branch with the two other ways of joining the groups around it. SH-aLRT 80 or higher marks a well-supported clade.
+        when_to_change: Leave it on, because IQ-TREE recommends reading SH-aLRT and UFBoot together.
         cli_flag: --alrt
-      - label: Replicates (SH-aLRT)
-        control: text
+      - label: SH-aLRT replicates
+        control: number
         default: 1000
-        allowed: integers of 1 or more
-        effect: How many replicates the SH-aLRT test uses. As with the bootstrap, more replicates cost time and steady the numbers.
+        allowed: whole numbers of 1 or more
+        effect: How many replicates the SH-aLRT test uses.
         when_to_change: rarely
         cli_flag: --alrt
+      - label: Outgroup
+        control: checkbox
+        default: none ticked
+        allowed: any in-scope sequences, as long as at least one stays in the ingroup
+        effect: Roots the saved tree on the branch above the outgroup. It sets where the root sits and does not change the inferred relationships.
+        when_to_change: Tick the sequences known to sit outside the group you study, such as the macaques for a tree of apes.
+        cli_flag: --outgroup
+      - label: Name
+        control: text
+        default: the alignment's name
+        allowed: any text that is not blank
+        effect: Names the .lungfishtree bundle written into Phylogenetic Trees. If the name is taken, LGE adds -2, -3 and so on.
+        when_to_change: Change it when you build several trees from one alignment.
+        cli_flag: --name
       - label: Seed
         control: text
-        default: blank, meaning no seed is passed and IQ-TREE picks one from the clock
-        allowed: blank, or an integer of 1 or more
-        effect: Fixes the starting point of the random choices IQ-TREE makes, so the same alignment and the same seed give the same tree. Leaving it blank lets IQ-TREE pick one.
-        when_to_change: Change it when you want to check that a different random start reaches the same tree.
+        default: blank (placeholder Random), meaning LGE draws a seed and records it in the command
+        allowed: blank, or a whole number from 1 to 2147483647
+        effect: Fixes the starting point of IQ-TREE's random choices. The seed is always recorded, so any run can be repeated.
+        when_to_change: Type a seed to repeat an earlier run or to match a published tree.
         cli_flag: --seed
       - label: Threads
         control: text
-        default: blank, meaning the app picks a thread count
-        allowed: blank, or an integer of 1 or more
-        effect: How many processor cores IQ-TREE may use. Leaving it blank lets the app choose.
-        when_to_change: Set a small number to keep the machine responsive while a long inference runs.
+        default: "1"
+        allowed: a whole number of 1 or more
+        effect: How many processor cores IQ-TREE uses. One thread gives the same tree on every run, and more threads give slightly different branch lengths each run.
+        when_to_change: Raise it for a large alignment when speed matters more than an exact replay.
         cli_flag: --threads
       - label: Safe numerical mode
         control: checkbox
         default: "false"
         allowed: "true, false"
         effect: Makes IQ-TREE use slower arithmetic that avoids numerical underflow. Underflow shows up as a run that stops with a likelihood error rather than a tree.
-        when_to_change: Turn it on after a run fails with a numerical error, which happens most often on very long alignments.
+        when_to_change: Turn it on after IQ-TREE reports numerical underflow, which happens most often on very long alignments.
         cli_flag: --safe
       - label: Keep identical sequences
         control: checkbox
         default: "false"
         allowed: "true, false"
-        effect: Keeps sequences that are identical to another sequence in the analysis. By default IQ-TREE removes the duplicates and puts them back on the finished tree, which is faster and gives the same topology.
-        when_to_change: Turn it on when you need every input name to appear as its own tip with its own branch length.
+        effect: Keeps every copy of an identical sequence in the search. When off, IQ-TREE drops the third and later identical copies and adds them back as zero-length tips.
+        when_to_change: Turn it on when every identical copy must take part in the search.
         cli_flag: --keep-identical
-      - label: IQ-TREE Executable
+      - label: IQ-TREE executable
         control: text
-        default: empty, meaning the iqtree3 binary from the Phylogenetics pack
+        default: empty (placeholder Bundled iqtree3), meaning the iqtree3 program from the phylogenetics pack
         allowed: a path to an iqtree3 executable
-        effect: Points the run at a specific IQ-TREE binary instead of the one the app manages.
+        effect: Points the run at a specific IQ-TREE program instead of the one LGE manages.
         when_to_change: Set it when you must reproduce a result with a particular IQ-TREE version.
         cli_flag: --iqtree-path
-      - label: IQ-TREE Parameters
+      - label: Additional IQ-TREE parameters
         control: text
         default: empty
-        allowed: any text IQ-TREE accepts on its command line
-        effect: Passes text straight to IQ-TREE after the settings above. The dialog checks that the text parses as command-line arguments before it lets the run start.
-        when_to_change: Use it for an IQ-TREE option the dialog does not expose, such as a partition file or an outgroup constraint.
-        cli_flag: --extra-iqtree-options
+        allowed: "any IQ-TREE arguments except the flags a control above already sets (-s, --msa, --aln, --prefix, -pre, -m, --model, --modelomatic, -T, --threads, -nt, --seed, -seed, -B, -bb, --ufboot, --alrt, -alrt, -o, -st, --seqtype)"
+        effect: Passes text directly to IQ-TREE after the options above. A flag that has its own control blocks the run with a message naming that control.
+        when_to_change: Use it for an IQ-TREE option the dialog does not show, such as the standard bootstrap (-b) or aBayes (--abayes).
+        cli_flag: --extra-args
     cli_only:
-      - flag: --rows
-        default: every row in the alignment
-        effect: Restricts the inference to the named rows, which is what the GUI does with the rows you selected before opening the dialog.
-      - flag: --columns
-        default: every column in the alignment
-        effect: Restricts the inference to the given 1-based column ranges, which is what the GUI does with a column selection.
-      - flag: --extra-args
-        default: empty
-        effect: Passes further arguments to IQ-TREE verbatim, in addition to those from --extra-iqtree-options.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output bundle instead of stopping.
+      - flag: --sequence-type BIN, MORPH, NT2AA and CODON3 to CODON25
+        default: auto
+        effect: Binary, morphological, translated and the other codon tables have no dialog control.
     notes: >-
-      The menu item stays disabled until at least two rows are selected in the
-      alignment, and the row and column selection carries into the run as the
-      Scope line in the dialog's Inputs section. The dialog has no outgroup
-      field, so rooting is done afterwards with Re-root Here in the tree
-      viewport. IQ-TREE Executable and IQ-TREE Parameters sit inside the
-      collapsed Advanced Options group.
+      The Tools item acts on the alignment shown in the viewport, else on
+      exactly one alignment selected in the sidebar, and is disabled with the
+      tooltip "Open or select an alignment to build a tree." otherwise. The
+      context menu item is enabled whenever an alignment is loaded. The
+      dialog groups are Inputs, Model, Branch Support, Rooting, Output, Run
+      and a collapsed Advanced group holding Safe numerical mode, Keep
+      identical sequences, IQ-TREE executable and Additional IQ-TREE
+      parameters. The footer line reads "Ready to build a tree." or a warning
+      naming what blocks Build Tree. The recorded command always carries
+      --threads and --seed. The CLI's hidden --extra-iqtree-options alias of
+      --extra-args is not documented.
 
   tree.reroot:
     title: Re-root Here

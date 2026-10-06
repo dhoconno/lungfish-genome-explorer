@@ -163,36 +163,43 @@ enum CLIMSAActionCommandBuilder {
         alrt: Int? = nil,
         seed: Int?,
         threads: Int?,
+        outgroup: [String] = [],
         safeMode: Bool = false,
         keepIdenticalSequences: Bool = false,
         extraIQTreeOptions: String? = nil,
         iqtreePath: String?,
         force: Bool
     ) -> [String] {
+        // Fix F1 (m4). The order and the standardized paths follow the CLI's
+        // canonicalArgv, so the recorded command equals the provenance argv.
         var args = [
             "tree",
             "infer",
             "iqtree",
-            bundleURL.path,
+            bundleURL.standardizedFileURL.path,
             "--project",
-            projectURL.path,
+            projectURL.standardizedFileURL.path,
             "--output",
-            outputURL.path,
+            outputURL.standardizedFileURL.path,
+            "--model",
+            model,
         ]
+        if let sequenceType,
+           sequenceType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+           sequenceType.lowercased() != "auto" {
+            args += ["--sequence-type", sequenceType]
+        }
         if let rows, rows.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             args += ["--rows", rows]
         }
         if let columns, columns.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             args += ["--columns", columns]
         }
+        if let threads {
+            args += ["--threads", String(threads)]
+        }
         if let name, name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             args += ["--name", name]
-        }
-        args += ["--model", model]
-        if let sequenceType,
-           sequenceType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-           sequenceType.lowercased() != "auto" {
-            args += ["--sequence-type", sequenceType]
         }
         if let bootstrap {
             args += ["--bootstrap", String(bootstrap)]
@@ -203,8 +210,13 @@ enum CLIMSAActionCommandBuilder {
         if let seed {
             args += ["--seed", String(seed)]
         }
-        if let threads {
-            args += ["--threads", String(threads)]
+        // D7, fix F1 (m6). The dialog passes row IDs, which the CLI resolves
+        // before display names, so a name with a comma never reaches the list.
+        let outgroupRowIDs = outgroup
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.isEmpty == false }
+        if outgroupRowIDs.isEmpty == false {
+            args += ["--outgroup", outgroupRowIDs.joined(separator: ",")]
         }
         if safeMode {
             args.append("--safe")

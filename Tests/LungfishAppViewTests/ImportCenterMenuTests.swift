@@ -476,6 +476,7 @@ private final class ToolsMenuActionRecorder: NSObject, ToolsMenuActions {
     @objc func launchLinkedWorkflowPackageFromMenu(_ sender: NSMenuItem) {}
     @objc func revealLinkedWorkflowPackageInLibrary(_ sender: NSMenuItem) {}
     @objc func showBAMVariantCalling(_ sender: Any?) {}
+    @objc func showIQTreeInference(_ sender: Any?) {}
     @objc func searchNCBI(_ sender: Any?) {}
     @objc func searchSRA(_ sender: Any?) {}
     @objc func searchPathoplexus(_ sender: Any?) {}

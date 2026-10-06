@@ -228,7 +228,7 @@ dialog.IQTreeInferenceDialog:
   chapter: 02-sequences/05-building-trees
   anchor: infer-the-tree
   scope: dialog
-  description: Infer a phylogenetic tree with IQ-TREE from an MSA.
+  description: Build Tree with IQ-TREE dialog that infers a maximum-likelihood tree from an alignment.
 
 dialog.MSAOperations:
   chapter: 02-sequences/04-aligning-sequences
@@ -486,7 +486,19 @@ menu.Tools.FASTQOperations.MSA:
   chapter: 02-sequences/04-aligning-sequences
   anchor: align-the-five-genomes
   scope: menu
-  description: Tools > Multiple Sequence Alignment > MAFFT...
+  description: Tools > Alignment & Phylogenetics > MAFFT...
+
+menu.Tools.AlignmentPhylogenetics.BuildTree:
+  chapter: 02-sequences/05-building-trees
+  anchor: infer-the-tree
+  scope: menu
+  description: Tools > Alignment & Phylogenetics > Build Tree with IQ-TREE...
+
+menu.Selection.TreeNode:
+  chapter: 02-sequences/05-building-trees
+  anchor: acting-on-a-node
+  scope: menu
+  description: Selection > Tree Node submenu, the menu-bar twins of the tree node context menu.
 
 menu.Tools.PluginManager:
   chapter: 01-foundations/07-plugin-packs
@@ -685,3 +697,9 @@ inspector.MSAPairwiseIdentity:
   anchor: pairwise-identity
   scope: inspector
   description: Sortable pairwise identity table for an alignment, with Copy TSV and Export TSV.
+
+inspector.TreeInference:
+  chapter: 02-sequences/05-building-trees
+  anchor: the-inference-section
+  scope: inspector
+  description: Inference section of a tree built with IQ-TREE, with the model, support, seed, threads and run files.

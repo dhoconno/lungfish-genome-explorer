@@ -25,7 +25,7 @@ Designing a Tiled Amplicon Scheme and Designing a PCR Assay start from an alignm
 ## A first step to try
 
 1. Open this project with **File > Open Project Folder...**.
-2. Select `mamu-a1-panel` under `Reference Sequences` and align it with **Tools > Multiple Sequence Alignment > MAFFT...**.
+2. Select `mamu-a1-panel` under `Reference Sequences` and align it with **Tools > Alignment & Phylogenetics > MAFFT...**.
 3. Select the new alignment and choose an engine from **Tools > PCR Primer Design**. The primer design chapters explain every setting.
 
 ## Before you run anything

@@ -112,7 +112,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Boolean**{#boolean}. A value that is either true or false and nothing else, written in JSON as the bare words `true` and `false`, which is the shape of the role flags on a primer scheme's reference accessions. See also JSON, manifest.
 
-**Bootstrap**{#bootstrap}. A way of measuring confidence in a phylogenetic grouping by rebuilding the tree many times from alignments resampled column by column and reporting, as a percentage, how often each grouping came back. IQ-TREE's ultrafast bootstrap is the fast approximation Lungfish Genome Explorer exposes. See also support value, IQ-TREE, SH-aLRT.
+**Bootstrap**{#bootstrap}. A way of measuring confidence in a phylogenetic grouping by rebuilding the tree many times from alignments resampled column by column and reporting, as a percentage, how often each grouping came back. IQ-TREE's ultrafast bootstrap (UFBoot) is the fast approximation Lungfish Genome Explorer runs, on by default at 1000 replicates. See also support value, IQ-TREE, SH-aLRT.
 
 **BQSR (Base Quality Score Recalibration)**{#bqsr}. The GATK preprocessing step that corrects systematic errors in a sequencer's per-base quality scores by modelling them against a set of known-variant sites, run in LGE through `lungfish-cli gatk bqsr` ahead of germline calling. See also VCF, HaplotypeCaller.
 
@@ -582,7 +582,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Mitochondrial genome**{#mitochondrial-genome}. The small circular DNA molecule carried inside the mitochondrion, the compartment that supplies a cell's chemical energy, separate from the nuclear chromosomes and present in many copies per cell, the human one being the 16,569-base record `NC_012920.1` known as the revised Cambridge Reference Sequence. See also reference genome, accession.
 
-**ModelFinder**{#modelfinder}. The model-testing step inside IQ-TREE, run when the Model field reads `MFP`, that fits many substitution models to an alignment and keeps the one that best balances fit against the number of rates it must estimate. See also substitution model, maximum likelihood.
+**ModelFinder**{#modelfinder}. The model-testing step inside IQ-TREE, run when the Model pop-up reads Find best model (ModelFinder), which is `MFP` on the command line, that fits many substitution models to an alignment and keeps the one that best balances fit against the number of rates it must estimate. See also substitution model, maximum likelihood.
 
 **Modifier key**{#modifier-key}. A key that changes what another keypress means while it is held down, which on macOS means Command, Option (labelled Alt on some keyboards), Shift, and Control, and which Lungfish Genome Explorer combines with a key equivalent to form every keyboard shortcut it defines. See also key equivalent.
 
@@ -836,7 +836,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **RID (Request ID)**{#rid}. The identifier NCBI assigns to one BLAST submission the moment it accepts the job, such as `9WZYE9M0014`, which both Lungfish Genome Explorer and NCBI's own site use to collect the result later, so a run that times out locally is still recoverable from the browser link built around its RID. See also BLAST, nt database.
 
-**Rooting**{#rooting}. Choosing which point on a phylogenetic tree stands for the oldest ancestor, which is what turns a statement about who groups with whom into a statement about which lineage came first. IQ-TREE produces unrooted trees, so rooting in Lungfish Genome Explorer is the separate **Root on Selected Branch** step, which splits the branch above the chosen node at its midpoint and places the root there, the outgroup rooting a textbook draws. See also outgroup, topology, internal node.
+**Rooting**{#rooting}. Choosing which point on a phylogenetic tree stands for the oldest ancestor, which is what turns a statement about who groups with whom into a statement about which lineage came first. IQ-TREE on its own produces unrooted trees. In Lungfish Genome Explorer you root a tree by ticking an outgroup in the Build Tree with IQ-TREE dialog, or afterwards with **Root on Selected Branch**. Both split the branch above the outgroup at its midpoint and place the root there, the outgroup rooting a textbook draws. See also outgroup, topology, internal node.
 
 **RPKMF**{#rpkmf}. Reads per kilobase of reference per million filtered reads, the abundance figure EsViritu reports for each detected virus, which divides out both the length of the reference genome and the size of the sequencing library so that a long virus and a short one, or a deep run and a shallow one, can be compared against each other. See also EsViritu, coverage, read.
 
@@ -952,7 +952,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Subsampling**{#subsampling}. Drawing a smaller set of reads at random from a larger one, so the smaller set keeps the composition of the original without anyone choosing which reads survive, used to make a fast test slice or to cut two libraries to a common depth before comparing them. See also FASTQ, read length.
 
-**Substitution model**{#substitution-model}. The set of assumed rates at which one base or residue changes into another, which a maximum-likelihood method needs before it can score a tree. IQ-TREE's default `MFP` setting is an instruction to test many models and use the best-fitting one rather than a model itself. See also maximum likelihood, IQ-TREE.
+**Substitution model**{#substitution-model}. The set of assumed rates at which one base or residue changes into another, which a maximum-likelihood method needs before it can score a tree. IQ-TREE's default `MFP` setting, Find best model (ModelFinder) in the dialog, is an instruction to test many models and use the best-fitting one rather than a model itself. See also maximum likelihood, IQ-TREE.
 
 **Supplementary alignment**{#supplementary-alignment}. An extra BAM row for a read that aligns only in pieces, such as a read crossing a large deletion or joining two distant parts of the reference, where the primary row holds one piece and a supplementary row holds each other piece. FLAG bit 2048 marks it. It is not a secondary alignment, which reports another whole place the read could have come from. See also primary alignment, secondary alignment, FLAG.
 

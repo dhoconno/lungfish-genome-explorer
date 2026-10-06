@@ -72,7 +72,9 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             workflowName: "phylogenetic-tree-extract-subtree",
             actionID: "tree.extract-subtree",
             provenance: provenance.withOptions(options),
-            isRooted: manifest.isRooted
+            isRooted: manifest.isRooted,
+            // The log-likelihood, model fit and scope describe the whole tree, not a clade (fix M1).
+            inference: nil
         )
     }
 
@@ -93,7 +95,9 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             workflowName: "phylogenetic-tree-reroot",
             actionID: "tree.reroot",
             provenance: provenance.withOptions(options),
-            isRooted: true
+            isRooted: true,
+            // The new root replaces any inference outgroup rooting (fix M1).
+            inference: manifest.inference?.clearingOutgroup()
         )
     }
 
@@ -116,8 +120,24 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             actionID: "tree.relabel",
             provenance: provenance.withOptions(options),
             isRooted: manifest.isRooted,
+            inference: relabeledInference(labelsByTip: labelsByTip),
             metadataURL: metadataURL
         )
+    }
+
+    /// The inference summary with its outgroup names mapped to the relabeled tip labels, so the
+    /// Inspector names the tips the relabeled tree shows. A tip resolves the way the relabeler
+    /// resolves it, by display label and then raw label. A name with no new label is kept.
+    private func relabeledInference(labelsByTip: [String: String]) -> PhylogeneticTreeInferenceSummary? {
+        guard let inference = manifest.inference, let outgroup = inference.outgroup else {
+            return manifest.inference
+        }
+        let names = outgroup.map { name -> String in
+            if let label = labelsByTip[name] { return label }
+            let tip = normalizedTree.nodes.first { $0.isTip && $0.displayLabel == name }
+            return tip?.rawLabel.flatMap { labelsByTip[$0] } ?? name
+        }
+        return inference.replacingOutgroup(names, outgroupWarning: inference.outgroupWarning)
     }
 
     public func resolveNode(selector: String) throws -> PhylogeneticTreeNormalizedNode {
@@ -142,6 +162,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
         actionID: String,
         provenance: PhylogeneticTreeBundleTransformProvenance,
         isRooted: Bool,
+        inference: PhylogeneticTreeInferenceSummary?,
         metadataURL: URL? = nil
     ) throws -> PhylogeneticTreeBundle {
         let started = Date()
@@ -156,7 +177,11 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             sourceURL: URL(fileURLWithPath: "derived.nwk"),
             requestedFormat: "newick"
         )
-        let normalized = TreeNormalizer.normalizedTree(from: parsed.tree, rooted: isRooted)
+        let normalized = TreeNormalizer.normalizedTree(
+            from: parsed.tree,
+            rooted: isRooted,
+            supportLabels: manifest.supportLabels
+        )
         let warnings = TreeWarningCollector.warnings(for: normalized)
         do {
             try fm.createDirectory(at: destinationURL.appendingPathComponent("tree"), withIntermediateDirectories: true)
@@ -202,7 +227,9 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
                 warnings: warnings,
                 capabilities: ["rectangular-phylogram", "metadata-inspector", "subtree-export", "tree-reroot", "tree-relabel"],
                 checksums: try treeChecksumMap(paths: payloadPaths, bundleURL: destinationURL),
-                fileSizes: try treeFileSizeMap(paths: payloadPaths, bundleURL: destinationURL)
+                fileSizes: try treeFileSizeMap(paths: payloadPaths, bundleURL: destinationURL),
+                supportLabels: self.manifest.supportLabels,
+                inference: inference
             )
             try encoder.encode(manifest).write(to: destinationURL.appendingPathComponent("manifest.json"), options: .atomic)
 
@@ -293,7 +320,14 @@ public enum PhylogeneticTreeBundleImporter {
             sourceURL: sourceURL,
             requestedFormat: options.sourceFormat
         )
-        let normalized = TreeNormalizer.normalizedTree(from: parsed.tree, rooted: parsed.isRooted)
+        if let tipLabelMap = options.tipLabelMap {
+            try TipRelabeler.apply(tipLabelMap, to: parsed.tree)
+        }
+        let normalized = TreeNormalizer.normalizedTree(
+            from: parsed.tree,
+            rooted: parsed.isRooted,
+            supportLabels: options.supportLabels
+        )
         let warnings = TreeWarningCollector.warnings(for: normalized)
         let primaryNewick = NewickWriter.write(parsed.tree) + "\n"
 
@@ -347,12 +381,14 @@ public enum PhylogeneticTreeBundleImporter {
                 isRooted: parsed.isRooted,
                 tipCount: normalized.nodes.filter(\.isTip).count,
                 internalNodeCount: normalized.nodes.filter { !$0.isTip }.count,
-                branchLengthUnit: nil,
+                branchLengthUnit: options.branchLengthUnit,
                 dateScale: nil,
                 warnings: warnings,
                 capabilities: ["rectangular-phylogram", "metadata-inspector", "subtree-export"],
                 checksums: payloadChecksums,
-                fileSizes: payloadSizes
+                fileSizes: payloadSizes,
+                supportLabels: options.supportLabels,
+                inference: options.inference
             )
             try encoder.encode(manifest).write(
                 to: destinationURL.appendingPathComponent("manifest.json"),
@@ -368,12 +404,7 @@ public enum PhylogeneticTreeBundleImporter {
                 argv: options.argv ?? defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL),
                 durableReplayArgv: options.argv ?? defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL),
                 command: options.command ?? shellCommand(defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL)),
-                options: [
-                    "sourceFormat": options.sourceFormat ?? "auto",
-                    "primaryTree": "first",
-                    "normalizeComments": "true",
-                    "writeSQLiteIndex": "true"
-                ],
+                options: provenanceOptions(options),
                 runtime: .current,
                 input: try provenanceFile(path: sourceURL.path, url: sourceURL),
                 output: PhylogeneticTreeProvenance.FileRecord(
@@ -398,6 +429,25 @@ public enum PhylogeneticTreeBundleImporter {
             try? fm.removeItem(at: destinationURL)
             throw error
         }
+    }
+
+    private static func provenanceOptions(_ options: PhylogeneticTreeImportOptions) -> [String: String] {
+        var result = [
+            "sourceFormat": options.sourceFormat ?? "auto",
+            "primaryTree": "first",
+            "normalizeComments": "true",
+            "writeSQLiteIndex": "true"
+        ]
+        if let supportLabels = options.supportLabels {
+            result["supportLabels"] = supportLabels.joined(separator: "/")
+        }
+        if let branchLengthUnit = options.branchLengthUnit {
+            result["branchLengthUnit"] = branchLengthUnit
+        }
+        if let tipLabelMap = options.tipLabelMap {
+            result["relabeledTipCount"] = "\(tipLabelMap.count)"
+        }
+        return result
     }
 
     public static func sha256Hex(for data: Data) -> String {
@@ -471,6 +521,32 @@ public enum PhylogeneticTreeBundleImporter {
     private static func bundleDigest(checksums: [String: String]) -> String {
         let joined = checksums.keys.sorted().map { "\($0)=\(checksums[$0] ?? "")" }.joined(separator: "\n")
         return sha256Hex(for: Data(joined.utf8))
+    }
+}
+
+/// Applies an import's tip label map (for example IQ-TREE staged IDs back to alignment display
+/// names). The raw source label stays in `rawLabel`. Only the display label changes.
+enum TipRelabeler {
+    static func apply(_ map: [String: String], to root: ParsedTreeNode) throws {
+        var tips: [ParsedTreeNode] = []
+        collectTips(root, into: &tips)
+        for key in map.keys.sorted() where !tips.contains(where: { $0.displayLabel == key || $0.rawLabel == key }) {
+            throw PhylogeneticTreeBundleError.tipLabelNotFound(key)
+        }
+        for tip in tips {
+            if let label = map[tip.displayLabel] ?? tip.rawLabel.flatMap({ map[$0] }) {
+                tip.displayLabel = label
+            }
+        }
+    }
+
+    private static func collectTips(_ node: ParsedTreeNode, into tips: inout [ParsedTreeNode]) {
+        if node.children.isEmpty {
+            tips.append(node)
+        }
+        for child in node.children {
+            collectTips(child, into: &tips)
+        }
     }
 }
 

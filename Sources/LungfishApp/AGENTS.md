@@ -32,6 +32,18 @@ Each leaf is wired by one `ViewerViewController+<Feature>.swift` file in Views/V
 
 The pipeline side is in Sources/LungfishWorkflow/AGENTS.md and the CLI side in Sources/LungfishCLI/AGENTS.md.
 
+## Where an IQ-TREE run starts in the GUI
+
+Line numbers in this section were checked at commit 58370dd8e.
+
+1. Tools > Alignment & Phylogenetics > Build Tree with IQ-TREE… is hand-written, not built from `FASTQOperationToolID`, because its input is a `.lungfishmsa`. `addBuildTreeItem(to:)` in App/MainMenu+TreeNode.swift adds it to the alignment category submenu, called from App/MainMenu.swift line 976.
+2. `showIQTreeInference(_:)` (App/AppDelegate+TreeInference.swift line 55) and the menu validation (App/AppDelegate.swift line 2492) share `resolveTreeInferenceBundleURL` (line 16) and `treeInferenceRequest(in:)` (line 34). The resolver takes the displayed alignment, else exactly one alignment selected in the sidebar, else nil. AppDelegate conforms to `NSMenuItemValidation` (AppDelegate.swift line 32). Before that conformance AppKit never called its `validateMenuItem`, so check it is still there when an AppDelegate menu rule seems dead.
+3. The MSA viewport's context menu and its AX custom action call the same request through `treeInferenceRequest()` in Views/Viewer/MultipleSequenceAlignmentViewController+TreeInference.swift.
+4. `inferTreeFromMSAViaCLI` (Views/Viewer/ViewerViewController+TreeInference.swift line 11) presents the dialog (Views/Phylogenetics/IQTreeInferenceDialog.swift, state and readiness rules in IQTreeInferenceDialogState.swift). On Build Tree, `runIQTreeInferenceViaCLI` (line 41) builds the argv once with `IQTreeInferenceLaunch.make` (Views/Phylogenetics/IQTreeInferenceOptions.swift), which draws a blank seed before `begin` and always records `--seed` and `--threads`, then runs `lungfish-cli tree infer iqtree` through `CLITreeRunner`. The argv order is `buildIQTreeInferenceArguments` in Services/CLIMSAActionCommandBuilder.swift line 153, which matches the CLI's canonical argv.
+5. The dialog's reserved Advanced flags and model and codon rules come from `IQTreeOptionRules` in Sources/LungfishIO/Bundles/IQTreeOptionRules.swift, the table the CLI uses.
+
+Selection > Tree Node is built by `makeTreeNodeMenuItem()` in App/MainMenu+TreeNode.swift from `PhylogeneticTreeViewController.nodeMenuBarSections` (Sources/LungfishPhylogeneticsUI/AGENTS.md). The Inspector's Inference section for trees is Views/Inspector/Sections/PhylogeneticTreeInferenceSection.swift.
+
 ## Operation launch pattern for new code
 
 A standalone operation calls `OperationCenter.shared.begin` with operationType and cliCommand, then runs `lungfish-cli` through `CLISubprocessTransport` and maps events with `OperationCenterCLIBridge` (Services/OperationCenterCLIBridge.swift line 20). The reference pair is Services/MSADistanceMatrixExportCoordinator.swift (`run`) and Services/CLIMSAActionRunner.swift.

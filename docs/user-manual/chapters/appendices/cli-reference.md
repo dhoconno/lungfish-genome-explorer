@@ -2995,29 +2995,32 @@ Name the targets and the exclusions as rows of the bundle with `--targets` and `
 
 ### `tree infer iqtree`
 
-Infers a maximum-likelihood tree from an alignment bundle with IQ-TREE. Explained in [Building Trees](../02-sequences/05-building-trees.md).
+Infers a maximum-likelihood tree from an alignment bundle with IQ-TREE. In the window, **Tools > Alignment & Phylogenetics > Build Tree with IQ-TREE…** runs this command and records it in the Operations Panel. Explained in [Building Trees](../02-sequences/05-building-trees.md).
 
 ```text
 lungfish-cli tree infer iqtree [<options>] <msa-bundle-path> --project <project> --output <output>
 ```
+
+The tips of the saved tree carry the alignment's row names, even names with spaces or brackets. With `--outgroup`, the saved tree is rooted halfway along the branch above the outgroup, which changes where the root sits but not which sequences group together. Only `--threads 1` with a fixed `--seed` gives the same tree byte for byte on every run. With more threads, or with no `--threads` at all, IQ-TREE runs with `-T AUTO` and the same seed gives slightly different branch lengths or support from run to run.
 
 | Argument or flag | What it does |
 |---|---|
 | `<msa-bundle-path>` | Input `.lungfishmsa` bundle. |
 | `--project <project>` | LGE project directory for project-local staging. |
 | `--output <output>` | Output `.lungfishtree` bundle path. |
-| `--rows <rows>` | Optional comma-separated row IDs or display names. |
+| `--rows <rows>` | Optional comma-separated row IDs or display names. At least 3 rows must be in scope, and at least 4 with `--bootstrap` or `--alrt`. |
 | `--columns <columns>` | Optional 1-based aligned column ranges, for example 10-40,55. |
 | `--name <name>` | Output tree bundle name. |
-| `--model <model>` | IQ-TREE model string. The default is `MFP`. |
-| `--sequence-type <sequence-type>` | IQ-TREE sequence type, one of `auto`, `DNA`, `AA`, `CODON`, `BIN`, `MORPH`, or `NT2AA`. The default is `auto`. |
-| `--bootstrap <bootstrap>` | Ultrafast bootstrap replicate count. |
-| `--alrt <alrt>` | SH-aLRT replicate count. |
-| `--seed <seed>` | Random seed. Leave it out and IQ-TREE picks a seed from the clock. |
+| `--model <model>` | IQ-TREE model string. The default is `MFP`, which runs ModelFinder. `MF`, `TESTONLY` and other model strings ending in `ONLY` are rejected, because they choose a model without building a tree. |
+| `--sequence-type <sequence-type>` | IQ-TREE sequence type, one of `auto`, `DNA`, `AA`, `CODON`, `CODON1` to `CODON25` (IQ-TREE's genetic code numbers, such as `CODON2` for vertebrate mitochondria), `BIN`, `MORPH`, or `NT2AA`. The default is `auto`. With a codon type the number of columns in scope must be a multiple of 3. |
+| `--bootstrap <bootstrap>` | Ultrafast bootstrap (UFBoot) replicate count, 1000 or more. |
+| `--alrt <alrt>` | SH-aLRT replicate count, 1 or more. |
+| `--seed <seed>` | Random seed from 1 to 2147483647. Leave it out and IQ-TREE draws one, which the provenance records as `effectiveSeed`. |
+| `--outgroup <outgroup>` | Optional comma-separated outgroup row IDs or display names. The saved tree is rooted on the outgroup. If the outgroup does not form one group on the tree, the tree stays unrooted and a warning is recorded. |
+| `--threads <threads>` | IQ-TREE thread count, passed as `-T`. Without it IQ-TREE runs with `-T AUTO`, which does not reproduce a tree exactly. |
 | `--safe` | Enable IQ-TREE safe numerical mode. |
 | `--keep-identical` | Keep identical sequences in the IQ-TREE analysis. |
-| `--extra-iqtree-options <extra-iqtree-options>` | Additional IQ-TREE options, written exactly as they should be passed to IQ-TREE. |
-| `--extra-args <extra-args>` | Additional IQ-TREE arguments passed verbatim. |
+| `--extra-args <extra-args>` | Additional IQ-TREE arguments passed verbatim. Flags that have their own option are rejected, namely `-s`, `--msa`, `--aln`, `--prefix`, `-pre`, `-m`, `--model`, `--modelomatic`, `-T`, `--threads`, `-nt`, `--seed`, `-seed`, `-B`, `-bb`, `--ufboot`, `--alrt`, `-alrt`, `-o`, `-st` and `--seqtype`. With `-b` or `--lbp` no support labels are recorded. |
 | `--iqtree-path <iqtree-path>` | Override path to iqtree3 executable. |
 | `--force` | Overwrite an existing output bundle. |
 
@@ -3046,7 +3049,7 @@ Roots a tree on the branch above a chosen node, the usual way to root on an outg
 lungfish-cli tree reroot --bundle <bundle> --on <on> --output <output>
 ```
 
-The new root splits the branch above the `--on` node at its midpoint, so the root has two branches, the outgroup on one side and everything else on the other, and the total tree length and the support values are kept. It is the same operation as **Root on Branch to Here** in the tree viewport, which [Building Trees](../02-sequences/05-building-trees.md) works through.
+The new root splits the branch above the `--on` node at its midpoint, so the root has two branches, the outgroup on one side and everything else on the other, and the total tree length and the support values are kept. It is the same operation as **Root on Selected Branch** in the tree viewport, which [Building Trees](../02-sequences/05-building-trees.md) works through.
 
 | Argument or flag | What it does |
 |---|---|

@@ -361,7 +361,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     var onBottomPaneStateChanged: (() -> Void)?
 
     private(set) var alignmentRows: [MSAAlignmentSequence] = []
-    private var rowIDsByIndex: [String] = []
+    var rowIDsByIndex: [String] = []
     private var columnSummaries: [MSAColumnSummary] = []
     private var displayedColumns: [Int] = []
     private var coordinateMapsByRowID: [String: MultipleSequenceAlignmentBundle.RowCoordinateMap] = [:]
@@ -370,7 +370,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     var drawerAnnotationByResultID: [UUID: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] = [:]
     private var selectedRowIndex: Int?
     private var selectedAlignmentColumn: Int?
-    private var selectedRowIndices = IndexSet()
+    var selectedRowIndices = IndexSet()
     private var rowSelectionAnchor: Int?
     private var isWholeRowSelection = false
     private var contextReferenceRowIndex: Int?
@@ -477,6 +477,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         inspectionPrimerTrack = nil
         bundleURL = url
         bundle = loaded
+        refreshTreeAccessibilityActions()
         alignmentRows = parsedRows
         rowIDsByIndex = loaded.rows.map(\.id)
         columnSummaries = Self.computeColumnSummaries(for: parsedRows)
@@ -523,6 +524,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         inspectionPrimerTrack = nil
         bundleURL = nil
         bundle = nil
+        refreshTreeAccessibilityActions()
         onAddAnnotationRequested = nil
         onProjectAnnotationRequested = nil
         onInferTreeRequested = nil
@@ -1776,7 +1778,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         alignmentClipViewBoundsDidChange(Notification(name: NSView.boundsDidChangeNotification, object: clipView))
     }
 
-    private func selectionContextMenu() -> NSMenu {
+    func selectionContextMenu() -> NSMenu {
         let menu = FASTASequenceActionMenuBuilder.buildMenu(
             selectionCount: selectedRowIndices.count,
             handlers: FASTASequenceActionHandlers(
@@ -1820,7 +1822,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             keyEquivalent: ""
         )
         treeItem.target = self
-        treeItem.isEnabled = bundleURL != nil && selectedRowIndices.count >= 2
+        treeItem.isEnabled = bundleURL != nil
         menu.addItem(treeItem)
         menu.addItem(.separator())
         let addAnnotationItem = NSMenuItem(
@@ -1896,6 +1898,16 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         )
     }
 
+    private func refreshTreeAccessibilityActions() {
+        let actions = treeAccessibilityActions()
+        alignmentMatrixView.setAccessibilityCustomActions(actions)
+        rowGutterView.setAccessibilityCustomActions(actions)
+    }
+
+    var testingTreeAccessibilityActions: (matrix: [NSAccessibilityCustomAction], gutter: [NSAccessibilityCustomAction]) {
+        (alignmentMatrixView.accessibilityCustomActions() ?? [], rowGutterView.accessibilityCustomActions() ?? [])
+    }
+
     @objc private func inferTreeFromMenu(_ sender: Any?) {
         inferTreeFromAlignment()
     }
@@ -1910,7 +1922,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         !isWholeRowSelection && (selectedRowIndices.count > 1 || (selectedAlignmentColumnRange?.count ?? 0) > 1)
     }
 
-    private var selectedExportColumns: String? {
+    var selectedExportColumns: String? {
         guard isResidueBlockSelection, let range = selectedAlignmentColumnRange else { return nil }
         return "\(range.lowerBound + 1)-\(range.upperBound + 1)"
     }
@@ -2021,28 +2033,9 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         onRunOperationRequested?(records, selectedFASTAName())
     }
 
-    private func inferTreeFromAlignment() {
-        guard let bundleURL, selectedRowIndices.count >= 2 else { return }
-        let displayName = bundle?.manifest.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? bundle?.manifest.name ?? bundleURL.deletingPathExtension().lastPathComponent
-            : bundleURL.deletingPathExtension().lastPathComponent
-        let selectedRows: String?
-        if !selectedRowIndices.isEmpty {
-            let rowIDs = selectedRowIndices.compactMap { rowIDsByIndex[safe: $0] }
-            selectedRows = rowIDs.isEmpty ? nil : rowIDs.joined(separator: ",")
-        } else {
-            selectedRows = nil
-        }
-        let selectedColumns = selectedExportColumns
-        onInferTreeRequested?(
-            MultipleSequenceAlignmentTreeInferenceRequest(
-                bundleURL: bundleURL,
-                rows: selectedRows,
-                columns: selectedColumns,
-                suggestedName: "\(displayName).lungfishtree",
-                displayName: displayName
-            )
-        )
+    func inferTreeFromAlignment() {
+        guard let request = treeInferenceRequest() else { return }
+        onInferTreeRequested?(request)
     }
 
     static func fastaRecord(name: String, sequence: String) -> String {

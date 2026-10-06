@@ -192,11 +192,11 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
             "tree", "infer", "iqtree", bundle.path,
             "--project", project.path,
             "--output", output.path,
-            "--name", "example tree",
             "--model", "GTR+G",
+            "--threads", "4",
+            "--name", "example tree",
             "--bootstrap", "1000",
             "--seed", "42",
-            "--threads", "4",
             "--iqtree-path", "/opt/lungfish/bin/iqtree3",
             "--force",
             "--format", "json",
@@ -236,19 +236,75 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
             "tree", "infer", "iqtree", bundle.path,
             "--project", project.path,
             "--output", output.path,
-            "--rows", "row-a,row-b",
-            "--columns", "10-50",
-            "--name", "example tree",
             "--model", "JC",
             "--sequence-type", "DNA",
+            "--rows", "row-a,row-b",
+            "--columns", "10-50",
+            "--threads", "2",
+            "--name", "example tree",
             "--bootstrap", "1000",
             "--alrt", "1000",
             "--seed", "12345",
-            "--threads", "2",
             "--safe",
             "--keep-identical",
             "--extra-args", "-bnni --pathogen",
             "--format", "json",
+        ])
+    }
+
+    /// Fix F1 (m4, m6): the argv follows the CLI's canonicalArgv order and
+    /// joins the outgroup row IDs after the seed.
+    func testBuildIQTreeInferenceArgumentsJoinOutgroupRowIDsAfterSeed() {
+        let bundle = URL(fileURLWithPath: "/project/Multiple Sequence Alignments/example.lungfishmsa", isDirectory: true)
+        let project = URL(fileURLWithPath: "/project", isDirectory: true)
+        let output = URL(fileURLWithPath: "/project/Phylogenetic Trees/example.lungfishtree", isDirectory: true)
+
+        let args = CLIMSAActionCommandBuilder.buildIQTreeInferenceArguments(
+            bundleURL: bundle,
+            projectURL: project,
+            outputURL: output,
+            name: "example tree",
+            model: "MFP",
+            bootstrap: nil,
+            seed: 7,
+            threads: 1,
+            outgroup: ["row-2", " ", "row-4"],
+            iqtreePath: nil,
+            force: false
+        )
+
+        XCTAssertEqual(args, [
+            "tree", "infer", "iqtree", bundle.path,
+            "--project", project.path,
+            "--output", output.path,
+            "--model", "MFP",
+            "--threads", "1",
+            "--name", "example tree",
+            "--seed", "7",
+            "--outgroup", "row-2,row-4",
+            "--format", "json",
+        ])
+    }
+
+    /// Fix F1 (m4): paths are standardized as the CLI records them.
+    func testBuildIQTreeInferenceArgumentsStandardizePaths() {
+        let args = CLIMSAActionCommandBuilder.buildIQTreeInferenceArguments(
+            bundleURL: URL(fileURLWithPath: "/project/./Analyses/../Multiple Sequence Alignments/example.lungfishmsa"),
+            projectURL: URL(fileURLWithPath: "/project/Analyses/.."),
+            outputURL: URL(fileURLWithPath: "/project/Phylogenetic Trees/./example.lungfishtree"),
+            name: nil,
+            model: "MFP",
+            bootstrap: nil,
+            seed: nil,
+            threads: nil,
+            iqtreePath: nil,
+            force: false
+        )
+
+        XCTAssertEqual(Array(args.prefix(8)), [
+            "tree", "infer", "iqtree", "/project/Multiple Sequence Alignments/example.lungfishmsa",
+            "--project", "/project",
+            "--output", "/project/Phylogenetic Trees/example.lungfishtree",
         ])
     }
 

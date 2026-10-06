@@ -60,7 +60,7 @@ The dialog reads its inputs from whatever is selected in the sidebar when it ope
 
 ### Align the twelve alleles
 
-Click `mamu-a1-panel` under `Reference Sequences` in the [sidebar](../../GLOSSARY.md#sidebar), then choose **Tools > Multiple Sequence Alignment > MAFFT…** and run it at its default settings, as [Aligning Sequences](../02-sequences/04-aligning-sequences.md#procedure) shows. The result appears at `Analyses/Multiple Sequence Alignments/mamu-a1-panel.lungfishmsa`, which means the `Multiple Sequence Alignments` folder inside `Analyses`. Click it and check that the main panel shows 12 rows and 2,953 columns, with `LR699574.1` as row 1.
+Click `mamu-a1-panel` under `Reference Sequences` in the [sidebar](../../GLOSSARY.md#sidebar), then choose **Tools > Alignment & Phylogenetics > MAFFT…** and run it at its default settings, as [Aligning Sequences](../02-sequences/04-aligning-sequences.md#procedure) shows. The result appears at `Analyses/Multiple Sequence Alignments/mamu-a1-panel.lungfishmsa`, which means the `Multiple Sequence Alignments` folder inside `Analyses`. Click it and check that the main panel shows 12 rows and 2,953 columns, with `LR699574.1` as row 1.
 
 ### Design on a single allele
 

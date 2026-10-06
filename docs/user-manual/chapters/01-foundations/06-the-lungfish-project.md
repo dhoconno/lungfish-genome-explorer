@@ -226,7 +226,7 @@ Almost every analysis starts from the **Tools** menu. Its submenus follow the or
 | Decontamination | Remove Human Reads…, Remove ribosomal RNA sequences…, Remove Contaminants…, Low-Complexity Filter…, Remove Duplicates… | [Decontamination](../03-reads/05-decontamination.md) |
 | Read Processing | Merge Overlapping Pairs…, Repair Paired-End Files…, Reverse Complement…, Translate…, Orient Reads…, Correct Sequencing Errors… | [Read Processing](../03-reads/08-read-processing.md) |
 | Search & Subsetting | Subsample by Proportion…, Subsample by Count…, Extract Reads by ID…, Extract Reads by Motif…, Select Reads by Sequence… | [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md) |
-| Multiple Sequence Alignment | MAFFT… | [Aligning Sequences](../02-sequences/04-aligning-sequences.md) |
+| Alignment & Phylogenetics | MAFFT…, Build Tree with IQ-TREE… | [Aligning Sequences](../02-sequences/04-aligning-sequences.md) and [Building Trees](../02-sequences/05-building-trees.md) |
 | Mapping | minimap2…, BWA-MEM2…, Bowtie2…, BBMap…, Viral Recon… | [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) and [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md) |
 | Assembly | SPAdes…, MEGAHIT…, SKESA…, Flye…, Hifiasm… | [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](../07-assembly/02-running-spades.md) and [Long-Read Assembly (Flye, hifiasm)](../07-assembly/03-running-flye-or-hifiasm.md) |
 | Clustering | Savont Clustering…, pbAA Amplicon Clustering… | [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md) |

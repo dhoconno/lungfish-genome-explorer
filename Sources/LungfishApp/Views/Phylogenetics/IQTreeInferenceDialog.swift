@@ -2,212 +2,14 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import Foundation
-import Observation
 import SwiftUI
 import LungfishKit
-import LungfishWorkflow
 
-enum IQTreeSequenceTypeOption: String, CaseIterable, Sendable {
-    case auto = "Auto"
-    case dna = "DNA"
-    case aminoAcid = "AA"
-    case codon = "CODON"
-    case binary = "BIN"
-    case morphological = "MORPH"
-    case nucleotideToAminoAcid = "NT2AA"
-
-    var displayName: String {
-        switch self {
-        case .auto:
-            return "Auto"
-        case .dna:
-            return "DNA"
-        case .aminoAcid:
-            return "Amino Acid"
-        case .codon:
-            return "Codon"
-        case .binary:
-            return "Binary"
-        case .morphological:
-            return "Morphological"
-        case .nucleotideToAminoAcid:
-            return "NT to AA"
-        }
-    }
-}
-
-@MainActor
-@Observable
-final class IQTreeInferenceDialogState {
-    static let toolID = "iqtree"
-
-    /// IQ-TREE's own hard minimum for `-B`/`--bootstrap` (ultrafast
-    /// bootstrap). The tool errors out below this count; validating for it
-    /// here turns a runtime IQ-TREE failure into a readiness
-    /// message before Run is ever pressed.
-    static let minimumUFBootReplicates = 1000
-
-    let request: MultipleSequenceAlignmentTreeInferenceRequest
-    let projectURL: URL
-    let sidebarItems: [DatasetOperationToolSidebarItem]
-
-    var selectedToolID: String
-    var outputName: String
-    var model: String
-    var sequenceType: IQTreeSequenceTypeOption
-    var bootstrapEnabled: Bool
-    var bootstrapReplicates: Int
-    var alrtEnabled: Bool
-    var alrtReplicates: Int
-    var seed: Int?
-    var threads: Int?
-    var safeMode: Bool
-    var keepIdenticalSequences: Bool
-    var advancedOptionsExpanded: Bool
-    var iqtreePath: String
-    var extraIQTreeOptions: String
-    var pendingOptions: IQTreeInferenceOptions?
-
-    init(
-        request: MultipleSequenceAlignmentTreeInferenceRequest,
-        projectURL: URL,
-        sidebarItems: [DatasetOperationToolSidebarItem] = [
-            DatasetOperationToolSidebarItem(
-                id: IQTreeInferenceDialogState.toolID,
-                title: "Build Tree with IQ-TREE",
-                subtitle: "Infer a maximum-likelihood phylogenetic tree from an alignment.",
-                availability: .available
-            )
-        ]
-    ) {
-        self.request = request
-        self.projectURL = projectURL
-        self.sidebarItems = sidebarItems
-        self.selectedToolID = Self.toolID
-        self.outputName = Self.normalizedOutputName(request.suggestedName)
-        self.model = "MFP"
-        self.sequenceType = .auto
-        self.bootstrapEnabled = false
-        self.bootstrapReplicates = 1000
-        self.alrtEnabled = false
-        self.alrtReplicates = 1000
-        self.seed = nil
-        self.threads = nil
-        self.safeMode = false
-        self.keepIdenticalSequences = false
-        self.advancedOptionsExpanded = AppUITestConfiguration.current.isEnabled
-        self.iqtreePath = ""
-        self.extraIQTreeOptions = ""
-        self.pendingOptions = nil
-    }
-
-    var dialogTitle: String {
-        "Phylogenetic Tree Operations"
-    }
-
-    var dialogSubtitle: String {
-        "Configure IQ-TREE for the selected multiple sequence alignment."
-    }
-
-    var datasetLabel: String {
-        request.displayName
-    }
-
-    var selectedToolSummary: String {
-        "Build a native .lungfishtree bundle with IQ-TREE through lungfish-cli. The output records resolved options, runtime identity, inputs, outputs, and command provenance."
-    }
-
-    var scopeSummary: String {
-        var parts: [String] = []
-        if let rows = request.rows?.trimmingCharacters(in: .whitespacesAndNewlines), rows.isEmpty == false {
-            let rowCount = rows.split(separator: ",").count
-            parts.append("\(rowCount) \(rowCount == 1 ? "row" : "rows")")
-        }
-        if let columns = request.columns?.trimmingCharacters(in: .whitespacesAndNewlines), columns.isEmpty == false {
-            parts.append("columns \(columns)")
-        }
-        return parts.isEmpty ? "Full alignment" : "Selected " + parts.joined(separator: ", ")
-    }
-
-    var inputSummary: String {
-        FASTQOperationDialogState.displayPath(for: request.bundleURL, relativeTo: projectURL)
-    }
-
-    var readinessText: String {
-        validationMessage ?? "Ready to build a phylogenetic tree."
-    }
-
-    var isRunEnabled: Bool {
-        validationMessage == nil
-    }
-
-    var validationMessage: String? {
-        if outputName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Enter an output name."
-        }
-        if model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Enter an IQ-TREE model or model selection preset."
-        }
-        if bootstrapEnabled && bootstrapReplicates < Self.minimumUFBootReplicates {
-            return "Enter at least \(Self.minimumUFBootReplicates) ultrafast bootstrap replicates (IQ-TREE's UFBoot minimum)."
-        }
-        if alrtEnabled && alrtReplicates <= 0 {
-            return "Enter a positive SH-aLRT replicate count."
-        }
-        if let seed, seed <= 0 {
-            return "Enter a positive seed or leave it blank."
-        }
-        if let threads, threads <= 0 {
-            return "Enter a positive thread count or leave it blank."
-        }
-        do {
-            _ = try AdvancedCommandLineOptions.parse(extraIQTreeOptions)
-        } catch {
-            return error.localizedDescription
-        }
-        return nil
-    }
-
-    func selectTool(named rawValue: String) {
-        guard rawValue == Self.toolID else { return }
-        selectedToolID = rawValue
-    }
-
-    func prepareForRun() {
-        guard isRunEnabled else {
-            pendingOptions = nil
-            return
-        }
-        pendingOptions = IQTreeInferenceOptions(
-            outputName: Self.normalizedOutputName(outputName),
-            model: model.trimmingCharacters(in: .whitespacesAndNewlines),
-            sequenceType: sequenceType.rawValue,
-            bootstrap: bootstrapEnabled ? bootstrapReplicates : nil,
-            alrt: alrtEnabled ? alrtReplicates : nil,
-            seed: seed,
-            threads: threads,
-            safeMode: safeMode,
-            keepIdenticalSequences: keepIdenticalSequences,
-            iqtreePath: trimmedOptional(iqtreePath),
-            extraIQTreeOptions: extraIQTreeOptions.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-    }
-
-    private func trimmedOptional(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func normalizedOutputName(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = trimmed.isEmpty ? "iqtree-analysis" : trimmed
-        return name.hasSuffix(".lungfishtree")
-            ? String(name.dropLast(".lungfishtree".count))
-            : name
-    }
-}
-
+/// The "Build Tree with IQ-TREE" sheet (rulings D1 to D7 and K4).
+///
+/// Every field is a titled control inside a grouped `Form`, so the visible
+/// label and the accessible name are the same string. Rules that the user
+/// needs to fill the form are visible captions, never hover-only help.
 struct IQTreeInferenceDialog: View {
     @Bindable var state: IQTreeInferenceDialogState
     let onCancel: () -> Void
@@ -222,6 +24,7 @@ struct IQTreeInferenceDialog: View {
             selectedToolID: state.selectedToolID,
             statusText: state.readinessText,
             isRunEnabled: state.isRunEnabled,
+            primaryActionTitle: state.primaryActionTitle,
             accessibilityNamespace: "iqtree-options",
             onSelectTool: state.selectTool(named:),
             onCancel: onCancel,
@@ -238,172 +41,280 @@ struct IQTreeInferenceDialog: View {
     }
 }
 
-private struct IQTreeInferenceToolPane: View {
+struct IQTreeInferenceToolPane: View {
     @Bindable var state: IQTreeInferenceDialogState
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                section(DatasetOperationSection.overview.title) {
-                    Text(state.selectedToolSummary)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                }
+    private enum FocusedControl: Hashable {
+        case model
+    }
 
-                section(DatasetOperationSection.inputs.title) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label(state.inputSummary, systemImage: "rectangle.stack")
-                            .font(.body)
-                        labeledValue("Scope", value: state.scopeSummary)
-                            .accessibilityIdentifier("iqtree-options-scope")
+    /// The sheet opens with keyboard focus on the Model pop-up, the first
+    /// choice most runs change (m12).
+    @FocusState private var focusedControl: FocusedControl?
+
+    var body: some View {
+        Form {
+            inputsSection
+            modelSection
+            branchSupportSection
+            rootingSection
+            outputSection
+            runSection
+            advancedSection
+        }
+        .formStyle(.grouped)
+        .defaultFocus($focusedControl, .model)
+        .onAppear { focusedControl = .model }
+    }
+
+    // MARK: Inputs
+
+    private var inputsSection: some View {
+        Section("Inputs") {
+            LabeledContent("Alignment") {
+                Text(state.inputSummary)
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .accessibilityIdentifier("iqtree-options-alignment")
+
+            if state.offersSelectedScope {
+                Picker("Build from", selection: $state.scope) {
+                    Text(state.wholeScopeTitle).tag(IQTreeBuildScope.whole)
+                    Text(state.selectedScopeTitle).tag(IQTreeBuildScope.selected)
+                }
+                .pickerStyle(.radioGroup)
+                .accessibilityLabel("Build from")
+                .accessibilityIdentifier("iqtree-options-scope")
+            } else {
+                LabeledContent("Build from") {
+                    Text(state.wholeScopeTitle)
+                }
+                .accessibilityIdentifier("iqtree-options-scope")
+            }
+        }
+    }
+
+    // MARK: Model
+
+    private var modelSection: some View {
+        Section("Model") {
+            Picker("Model", selection: $state.modelChoice) {
+                ForEach(state.modelChoices, id: \.self) { choice in
+                    Text(choice.title).tag(choice)
+                }
+            }
+            .accessibilityLabel("Model")
+            .accessibilityIdentifier("iqtree-options-model")
+            .focused($focusedControl, equals: .model)
+
+            if state.modelChoice == .custom {
+                labeledTextField("Custom model", text: $state.customModel, prompt: "GTR+F+I+G4", identifier: "iqtree-options-custom-model")
+                caption("Enter any IQ-TREE model string. MF, TESTONLY and other ONLY presets build no tree.")
+            }
+
+            Picker("Sequence type", selection: $state.sequenceType) {
+                ForEach(state.availableSequenceTypes, id: \.self) { type in
+                    Text(type.displayName).tag(type)
+                }
+            }
+            .accessibilityLabel("Sequence type")
+            .accessibilityIdentifier("iqtree-options-sequence-type")
+
+            if state.sequenceType == .codon {
+                Picker("Genetic code", selection: $state.geneticCode) {
+                    ForEach(IQTreeGeneticCode.allCases, id: \.self) { code in
+                        Text(code.displayName).tag(code)
                     }
                 }
+                .accessibilityLabel("Genetic code")
+                .accessibilityIdentifier("iqtree-options-genetic-code")
+            }
+        }
+    }
 
-                section(DatasetOperationSection.primarySettings.title) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        labeledTextField("Output Name", text: $state.outputName)
-                            .accessibilityIdentifier("iqtree-options-output-name")
-                        labeledTextField("Model", text: $state.model)
-                            .accessibilityIdentifier("iqtree-options-model")
+    // MARK: Branch support
 
-                        Picker("Sequence Type", selection: $state.sequenceType) {
-                            ForEach(IQTreeSequenceTypeOption.allCases, id: \.self) { type in
-                                Text(type.displayName).tag(type)
+    private var branchSupportSection: some View {
+        Section {
+            Toggle("Ultrafast bootstrap (UFBoot)", isOn: $state.bootstrapEnabled)
+                .toggleStyle(.checkbox)
+                .accessibilityLabel("Ultrafast bootstrap (UFBoot)")
+                .accessibilityIdentifier("iqtree-options-bootstrap-checkbox")
+            replicateField(
+                "UFBoot replicates",
+                text: $state.bootstrapReplicatesText,
+                stepperValue: $state.bootstrapReplicatesStepperValue,
+                range: IQTreeInferenceDialogState.ufbootRange,
+                step: IQTreeInferenceDialogState.ufbootStep,
+                isEnabled: state.isBranchSupportAvailable && state.bootstrapEnabled,
+                identifier: "iqtree-options-bootstrap-count"
+            )
+            caption(IQTreeInferenceDialogState.ufbootMinimumCaption)
+
+            Toggle("SH-aLRT test", isOn: $state.alrtEnabled)
+                .toggleStyle(.checkbox)
+                .accessibilityLabel("SH-aLRT test")
+                .accessibilityIdentifier("iqtree-options-alrt-checkbox")
+            replicateField(
+                "SH-aLRT replicates",
+                text: $state.alrtReplicatesText,
+                stepperValue: $state.alrtReplicatesStepperValue,
+                range: IQTreeInferenceDialogState.alrtRange,
+                step: IQTreeInferenceDialogState.alrtStep,
+                isEnabled: state.isBranchSupportAvailable && state.alrtEnabled,
+                identifier: "iqtree-options-alrt-count"
+            )
+
+            caption(IQTreeInferenceDialogState.branchSupportCaption)
+            if let unavailable = state.branchSupportUnavailableCaption {
+                caption(unavailable)
+                    .accessibilityIdentifier("iqtree-options-branch-support-unavailable")
+            }
+        } header: {
+            Text("Branch Support")
+        }
+        .disabled(state.isBranchSupportAvailable == false)
+    }
+
+    // MARK: Rooting
+
+    private var rootingSection: some View {
+        Section("Rooting") {
+            LabeledContent("Outgroup") {
+                if state.outgroupCandidates.isEmpty {
+                    Text("No sequences are available")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(state.outgroupCandidates, id: \.id) { row in
+                                Toggle(row.displayName, isOn: outgroupBinding(for: row.id))
+                                    .toggleStyle(.checkbox)
                             }
                         }
-                        .pickerStyle(.segmented)
-                        .accessibilityIdentifier("iqtree-options-sequence-type")
-
-                        branchSupportControls
-
-                        HStack(spacing: 12) {
-                            labeledCompactTextField("Seed", text: Self.optionalIntBinding(state, \.seed))
-                                .accessibilityIdentifier("iqtree-options-seed")
-                            labeledCompactTextField("Threads", text: Self.optionalIntBinding(state, \.threads))
-                                .accessibilityIdentifier("iqtree-options-threads")
-                        }
-
-                        Toggle("Safe numerical mode", isOn: $state.safeMode)
-                            .accessibilityIdentifier("iqtree-options-safe-mode")
-                        Toggle("Keep identical sequences", isOn: $state.keepIdenticalSequences)
-                            .accessibilityIdentifier("iqtree-options-keep-identical")
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                }
-
-                section(DatasetOperationSection.advancedSettings.title) {
-                    DisclosureGroup(isExpanded: $state.advancedOptionsExpanded) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            labeledTextField("IQ-TREE Executable", text: $state.iqtreePath)
-                                .accessibilityIdentifier("iqtree-options-executable-path")
-                            labeledTextField("IQ-TREE Parameters", text: $state.extraIQTreeOptions)
-                                .accessibilityIdentifier("iqtree-options-advanced-parameters")
-                            Text("Advanced parameters are passed directly to IQ-TREE after the curated options.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.top, 4)
-                    } label: {
-                        Text("Advanced Options")
-                            .accessibilityIdentifier("iqtree-options-advanced-disclosure")
-                    }
-                }
-
-                section(DatasetOperationSection.readiness.title) {
-                    Text(state.readinessText)
-                        .font(.callout)
-                        .foregroundStyle(state.isRunEnabled ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
+                    .frame(maxHeight: 140)
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
+            .accessibilityIdentifier("iqtree-options-outgroup")
+            caption(IQTreeInferenceDialogState.outgroupCaption)
         }
     }
 
-    private var branchSupportControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Branch Support")
-                .font(.subheadline.weight(.medium))
-            HStack(spacing: 12) {
-                Toggle("Ultrafast Bootstrap", isOn: $state.bootstrapEnabled)
-                    .accessibilityIdentifier("iqtree-options-bootstrap-checkbox")
-                labeledCompactTextField("Replicates", text: Self.intBinding(state, \.bootstrapReplicates))
-                    .accessibilityIdentifier("iqtree-options-bootstrap-count")
-            }
-            HStack(spacing: 12) {
-                Toggle("SH-aLRT", isOn: $state.alrtEnabled)
-                    .accessibilityIdentifier("iqtree-options-alrt-checkbox")
-                labeledCompactTextField("Replicates", text: Self.intBinding(state, \.alrtReplicates))
-                    .accessibilityIdentifier("iqtree-options-alrt-count")
-            }
-        }
-    }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline)
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func labeledValue(_ title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(title)
-                .frame(width: 180, alignment: .leading)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .textSelection(.enabled)
-        }
-    }
-
-    private func labeledTextField(_ title: String, text: Binding<String>) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(title)
-                .frame(width: 180, alignment: .leading)
-            TextField("", text: text)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 420)
-        }
-    }
-
-    private func labeledCompactTextField(_ title: String, text: Binding<String>) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .frame(width: 86, alignment: .leading)
-            TextField("", text: text)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 96)
-        }
-    }
-
-    private static func intBinding(
-        _ state: IQTreeInferenceDialogState,
-        _ keyPath: WritableKeyPath<IQTreeInferenceDialogState, Int>
-    ) -> Binding<String> {
+    private func outgroupBinding(for rowID: String) -> Binding<Bool> {
         Binding(
-            get: { String(state[keyPath: keyPath]) },
-            set: { newValue in
-                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                if let value = Int(trimmed) {
-                    var mutableState = state
-                    mutableState[keyPath: keyPath] = value
-                }
-            }
+            get: { state.isOutgroupSelected(rowID: rowID) },
+            set: { state.setOutgroup(rowID: rowID, selected: $0) }
         )
     }
 
-    private static func optionalIntBinding(
-        _ state: IQTreeInferenceDialogState,
-        _ keyPath: WritableKeyPath<IQTreeInferenceDialogState, Int?>
-    ) -> Binding<String> {
-        Binding(
-            get: { state[keyPath: keyPath].map(String.init) ?? "" },
-            set: { newValue in
-                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                var mutableState = state
-                mutableState[keyPath: keyPath] = trimmed.isEmpty ? nil : Int(trimmed)
+    // MARK: Output and Run
+
+    private var outputSection: some View {
+        Section("Output") {
+            labeledTextField("Name", text: $state.outputName, identifier: "iqtree-options-output-name")
+        }
+    }
+
+    private var runSection: some View {
+        Section("Run") {
+            labeledTextField(
+                "Seed",
+                text: $state.seedText,
+                prompt: IQTreeInferenceDialogState.seedPlaceholder,
+                identifier: "iqtree-options-seed"
+            )
+            caption(IQTreeInferenceDialogState.seedCaption)
+            labeledTextField("Threads", text: $state.threadsText, identifier: "iqtree-options-threads")
+            caption(IQTreeInferenceDialogState.threadsCaption)
+        }
+    }
+
+    // MARK: Advanced
+
+    private var advancedSection: some View {
+        Section {
+            DisclosureGroup(isExpanded: $state.advancedOptionsExpanded) {
+                Toggle("Safe numerical mode", isOn: $state.safeMode)
+                    .toggleStyle(.checkbox)
+                    .accessibilityLabel("Safe numerical mode")
+                    .accessibilityIdentifier("iqtree-options-safe-mode")
+                caption(IQTreeInferenceDialogState.safeModeCaption)
+                Toggle("Keep identical sequences", isOn: $state.keepIdenticalSequences)
+                    .toggleStyle(.checkbox)
+                    .accessibilityLabel("Keep identical sequences")
+                    .accessibilityIdentifier("iqtree-options-keep-identical")
+                caption(IQTreeInferenceDialogState.keepIdenticalCaption)
+                labeledTextField(
+                    "IQ-TREE executable",
+                    text: $state.iqtreePath,
+                    prompt: "Bundled iqtree3",
+                    identifier: "iqtree-options-executable-path"
+                )
+                labeledTextField(
+                    "Additional IQ-TREE parameters",
+                    text: $state.extraIQTreeOptions,
+                    identifier: "iqtree-options-advanced-parameters"
+                )
+                caption(IQTreeInferenceDialogState.advancedParametersCaption)
+                if let unorderedSupport = state.unorderedSupportCaption {
+                    caption(unorderedSupport)
+                }
+            } label: {
+                Text("Advanced")
+                    .accessibilityIdentifier("iqtree-options-advanced-disclosure")
             }
-        )
+        }
+    }
+
+    // MARK: Helpers
+
+    private func replicateField(
+        _ title: String,
+        text: Binding<String>,
+        stepperValue: Binding<Int>,
+        range: ClosedRange<Int>,
+        step: Int,
+        isEnabled: Bool,
+        identifier: String
+    ) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 6) {
+                TextField(title, text: text)
+                    .labelsHidden()
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 96)
+                    .accessibilityIdentifier(identifier)
+                Stepper(title, value: stepperValue, in: range, step: step)
+                    .labelsHidden()
+            }
+        }
+        .disabled(isEnabled == false)
+    }
+
+    /// A titled text field whose accessible name is its visible label. In a
+    /// grouped Form a bare `TextField(title, text:)` draws the title as a
+    /// separate static text and leaves the field unnamed in the AX tree.
+    private func labeledTextField(
+        _ title: String,
+        text: Binding<String>,
+        prompt: String? = nil,
+        identifier: String
+    ) -> some View {
+        LabeledContent(title) {
+            TextField(title, text: text, prompt: prompt.map { Text($0) })
+                .labelsHidden()
+                .accessibilityIdentifier(identifier)
+        }
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

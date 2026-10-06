@@ -185,6 +185,8 @@ The **Sidebar Item** submenu works while the sidebar list has focus, so click a 
 
 The **Table Row** submenu works while a result table has focus, such as the taxonomy table of a classifier result or the annotation table below a sequence. It holds the commands those tables offer on a right-click, from **Extract Reads...** and **Verify with BLAST...** to the copy commands and the NCBI and PubMed links, and each table enables only the ones it supports.
 
+The **Tree Node** submenu holds the ten commands the tree viewport offers on a right-click of a node, from **Copy Subtree as Newick** to **Root on Selected Branch** and **Extract Subtree as New Bundle...**, none with a shortcut. It works while the tree canvas or the Nodes drawer has focus and a node is selected, so click a node first. [Acting on a node](../02-sequences/05-building-trees.md#acting-on-a-node) lists the commands.
+
 **Show in Inspector** sits on its own because it means the same thing everywhere. It reveals the Inspector and shows the selected sidebar item, variant, chromosome, or tree node there.
 
 ## Tools menu

@@ -534,10 +534,7 @@ public actor CondaManager {
     }
 
     private func ensureMicromambaExecutable(at path: URL) throws {
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: path.path
-        )
+        try Self.makeExecutableIfNeeded(at: path)
     }
 
     private func resolveMicromambaVersion(

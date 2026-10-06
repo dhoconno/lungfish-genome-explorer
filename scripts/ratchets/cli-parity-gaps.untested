@@ -12,5 +12,4 @@ Sources/LungfishApp/Views/MainWindow/MainSplitViewController+PrimerAnalysis.swif
 Sources/LungfishApp/Views/Viewer/ViewerViewController+MSAExport.swift:exportMSAAlignment
 Sources/LungfishApp/Views/Viewer/ViewerViewController.swift:exportMSASelectionViaCLI
 Sources/LungfishApp/Views/Viewer/ViewerViewController.swift:performTreeBundleOperationViaCLI
-Sources/LungfishApp/Views/Viewer/ViewerViewController.swift:runIQTreeInferenceViaCLI
 Sources/LungfishApp/Views/Viewer/ViewerViewController.swift:runMSAInPlaceAnnotationAction

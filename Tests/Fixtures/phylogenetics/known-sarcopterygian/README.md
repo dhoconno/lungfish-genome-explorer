@@ -24,3 +24,5 @@ IQ-TREE emits an unrooted Newick tree by default, so the root placement can
 appear different from `expected.nwk`. The biological expectation for viewport
 testing is the visible grouping of the two lungfish tips, the human/frog pair,
 and those two pairs as sister clades.
+
+`run.iqtree` is the IQ-TREE 3.1.3 report from `iqtree3 -s alignment.fasta -m MFP -B 1000 -alrt 1000 --seed 12345 -T 1 --prefix run`, run on a scratch copy of `alignment.fasta`.

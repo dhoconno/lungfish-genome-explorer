@@ -35,7 +35,7 @@ private final class PhylogeneticContentTypographyObservation {
     }
 }
 
-private enum PhylogeneticTreeAccessibilityID {
+enum PhylogeneticTreeAccessibilityID {
     static let root = "phylogenetic-tree-bundle-view"
     static let summary = "phylogenetic-tree-summary"
     static let nodeTable = "phylogenetic-tree-node-table"
@@ -52,7 +52,7 @@ private enum PhylogeneticTreeAccessibilityID {
     static let nodeDrawerTitle = "phylogenetic-tree-node-drawer-title"
 }
 
-private enum PhylogeneticTreeCanvasMetrics {
+enum PhylogeneticTreeCanvasMetrics {
     static let marginX: CGFloat = 48
     static let marginY: CGFloat = 32
     static let tipSpacing: CGFloat = 30
@@ -72,7 +72,8 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
     public var onSelectionStateChanged: ((PhylogeneticTreeSelectionState?) -> Void)?
     public var onTreeBundleOperationRequested: ((TreeBundleOperationRequest) -> Void)?
 
-    private let summaryLabel = NSTextField(labelWithString: "")
+    let summaryLabel = NSTextField(labelWithString: "")
+    let supportLegendLabel = NSTextField(labelWithString: "")
     private let searchField = NSSearchField()
     private let fitButton = NSButton(title: "", target: nil, action: nil)
     private let resetButton = NSButton(title: "", target: nil, action: nil)
@@ -84,19 +85,19 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         target: nil,
         action: nil
     )
-    private let colorModeControl = NSSegmentedControl(
+    let colorModeControl = NSSegmentedControl(
         labels: ["None", "Support", "Branch"],
         trackingMode: .selectOne,
         target: nil,
         action: nil
     )
     private let tipLabelColumnPopup = NSPopUpButton()
-    private let nodeTableView = NSTableView()
+    let nodeTableView = NSTableView()
     private let treeCanvasView = PhylogeneticTreeCanvasView()
     private let treeScrollView = NSScrollView()
     private let detailLabel = NSTextField(labelWithString: "")
     private let nodeDrawerTitle = NSTextField(labelWithString: "Nodes")
-    private let toolbarContainer = NSView()
+    let toolbarContainer = NSView()
     private var toolbarContentView: NSView?
     private var toolbarHeightConstraint: NSLayoutConstraint?
     private var nodeDrawerHeightConstraint: NSLayoutConstraint?
@@ -165,7 +166,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             loaded.manifest.name,
             "\(loaded.manifest.tipCount) tips",
             "\(loaded.manifest.internalNodeCount) internal nodes",
-            loaded.manifest.isRooted ? "rooted" : "unrooted",
+            PhylogeneticTreeSupportPresentation.rootingText(isRooted: loaded.manifest.isRooted),
         ].joined(separator: "   ")
         summaryLabel.toolTip = summaryLabel.stringValue
         summaryLabel.setAccessibilityValue(summaryLabel.stringValue)
@@ -173,6 +174,8 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         detailLabel.stringValue = defaultDetailText(for: loaded)
         detailLabel.toolTip = detailLabel.stringValue
         detailLabel.setAccessibilityValue(detailLabel.stringValue)
+        configureSupportPresentation()
+        treeCanvasView.supportLabels = recordedSupportLabels
         treeCanvasView.configure(nodes: nodes, collapsedNodeIDs: collapsedNodeIDs)
         nodeTableView.reloadData()
         selectInitialNode()
@@ -196,7 +199,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         case "length":
             value = node.branchLength.map { String(format: "%.5g", $0) } ?? ""
         default:
-            value = node.support?.rawValue ?? ""
+            value = PhylogeneticTreeSupportPresentation.cellValue(for: node, columnID: identifier.rawValue)
         }
         let cell = tableCell(identifier: identifier, value: value)
         AccessibilityCellActions.install(accessibilityActions(forRow: row, cellView: cell), on: cell)
@@ -241,6 +244,9 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             let extending = NSApp.currentEvent?.modifierFlags.contains(.shift) == true
             self?.selectNode(id: nodeID, center: false, extendingSelection: extending)
         }
+        treeCanvasView.accessibilityActionsProvider = { [weak self] nodeID in
+            self?.canvasAccessibilityActions(forNodeID: nodeID) ?? []
+        }
 
         treeScrollView.hasVerticalScroller = true
         treeScrollView.hasHorizontalScroller = true
@@ -267,6 +273,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         toolbarContainer.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         toolbarContainer.addSubview(summaryLabel)
         toolbarContainer.addSubview(toolbar)
+        installSupportLegend()
 
         let nodeDrawer = NSView()
         nodeDrawer.translatesAutoresizingMaskIntoConstraints = false
@@ -332,13 +339,15 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         }
     }
 
-    private func applyContentTypography() {
+    func applyContentTypography() {
         captureUserColumnWidths()
         let typography = ContentTypography.current(
             preferredFontProvider: preferredFontProvider
         )
         summaryLabel.font = typography.font(for: .emphasizedBody)
         detailLabel.font = typography.font(for: .detail)
+        supportLegendLabel.font = typography.font(for: .detail)
+        treeCanvasView.supportTextFont = typography.font(for: .detail)
         nodeDrawerTitle.font = typography.font(for: .tableHeader)
         nodeTableView.rowHeight = typography.tableRowHeight()
         if let headerView = nodeTableView.headerView {
@@ -350,6 +359,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             column.headerCell.font = typography.font(for: .tableHeader)
         }
         applyAdaptiveColumnWidths(typography: typography)
+        refreshSupportLegend()
 
         let selectedRows = nodeTableView.selectedRowIndexes
         let scrollOrigin = nodeTableView.enclosingScrollView?.contentView.bounds.origin
@@ -596,6 +606,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         default:
             treeCanvasView.colorMode = .none
         }
+        refreshSupportLegend()
     }
 
     @objc private func tipLabelColumnChanged(_ sender: NSPopUpButton) {
@@ -713,10 +724,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         if let cumulativeDivergence = node.cumulativeDivergence {
             rows.append(("Cumulative Divergence", String(format: "%.6g", cumulativeDivergence)))
         }
-        if let support = node.support {
-            rows.append(("Support", support.rawValue))
-            rows.append(("Support Type", support.interpretation))
-        }
+        rows.append(contentsOf: PhylogeneticTreeSupportPresentation.detailRows(for: node))
         for key in node.metadata.keys.sorted() {
             rows.append((key, node.metadata[key] ?? ""))
         }
@@ -753,9 +761,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         if let branchLength = node.branchLength {
             parts.append("branch \(String(format: "%.5g", branchLength))")
         }
-        if let support = node.support {
-            parts.append("support \(support.rawValue) (\(support.interpretation))")
-        }
+        PhylogeneticTreeSupportPresentation.detailSummary(for: node).map { parts.append($0) }
         if !node.metadata.isEmpty {
             let metadata = node.metadata.keys.sorted().prefix(3).map { "\($0)=\(node.metadata[$0] ?? "")" }.joined(separator: ", ")
             parts.append(metadata)
@@ -895,17 +901,53 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         return menu
     }
 
+    /// One item of Selection > Tree Node: the title and responder-chain selector the
+    /// menu bar uses, shared with the context menu and the accessibility actions.
+    public struct NodeMenuBarCommand {
+        public let title: String
+        public let selector: Selector
+        public let identifierSlug: String
+    }
+
+    /// The Selection > Tree Node items in display order, one array per section.
+    /// Collapse Clade becomes Expand Clade through validation when the selected
+    /// clade is collapsed.
+    public static var nodeMenuBarSections: [[NodeMenuBarCommand]] {
+        func command(_ action: NodeAction, _ slug: String) -> NodeMenuBarCommand {
+            NodeMenuBarCommand(title: action.title, selector: action.selector, identifierSlug: slug)
+        }
+        return [
+            [command(.command(.showInInspector), "show-in-inspector")],
+            [command(.command(.copyName), "copy-name"), command(.copySubtreeNewick, "copy-subtree-newick"),
+             command(.copySelectedTipNames, "copy-selected-tip-names")],
+            [command(.rootOnSelectedBranch, "root-on-selected-branch"),
+             command(.toggleClade(collapsed: false), "toggle-clade"),
+             command(.centerNode, "center-node")],
+            [command(.extractSubtree, "extract-subtree"), command(.exportSubtree, "export-subtree")],
+            [command(.revealProvenance, "reveal-provenance")],
+        ]
+    }
+
+    private var canvasHasKeyboardFocus: Bool {
+        guard let responder = treeCanvasView.window?.firstResponder as? NSView else { return false }
+        return responder === treeCanvasView || responder.isDescendant(of: treeCanvasView)
+    }
+
     /// The context menu follows the selected node (or the clicked node row).
-    /// The menu-bar items under Selection > Table Row are enabled only while
-    /// the node table has keyboard focus.
+    /// The menu-bar items under Selection > Table Row and Tree Node are enabled
+    /// only while the node table or the canvas has keyboard focus, and the Tree
+    /// Node items also need a selected node.
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = NodeAction.action(for: menuItem.action) else { return true }
         if case .command(let command) = action, ![.showInInspector, .copyName].contains(command) { return false }
         let inContextMenu = ResultRowMenuValidation.isContextMenuItem(
             menuItem, in: [nodeTableView.menu, treeCanvasView.menu]
         )
-        guard inContextMenu || ResultRowMenuValidation.tableHasKeyboardFocus(nodeTableView) else { return false }
+        guard inContextMenu
+                || ResultRowMenuValidation.tableHasKeyboardFocus(nodeTableView)
+                || canvasHasKeyboardFocus else { return false }
         let id = targetNodeID(sender: menuItem)
+        if !inContextMenu, id == nil { return false }
         let tipCount = id == selectedNodeID ? selectedTipLabels().count : (id.flatMap { nodesByID[$0]?.isTip } == true ? 1 : 0)
         let available = availableNodeActions(forNodeID: id, selectedTipCount: tipCount)
         if case .toggleClade = action, let available = available.first(where: { $0.matches(action) }) {
@@ -928,6 +970,19 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
                       let current = AccessibilityCellActions.currentRow(of: cellView),
                       self.nodes.indices.contains(current) else { return }
                 self.selectNode(id: self.nodes[current].id, center: false)
+                _ = NSApp.sendAction(action.selector, to: self, from: nil)
+            }
+        }
+    }
+
+    /// The accessibility custom actions of a canvas node: the same commands and
+    /// titles as its row in the node table. Each handler selects the node first.
+    private func canvasAccessibilityActions(forNodeID nodeID: String) -> [NSAccessibilityCustomAction] {
+        guard let node = nodesByID[nodeID] else { return [] }
+        return availableNodeActions(forNodeID: nodeID, selectedTipCount: node.isTip ? 1 : 0).map { action in
+            AccessibilityCellActions.makeAction(name: action.title) { [weak self] in
+                guard let self else { return }
+                self.selectNode(id: nodeID, center: false)
                 _ = NSApp.sendAction(action.selector, to: self, from: nil)
             }
         }
@@ -1139,7 +1194,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         return ordered
     }
 
-    private func addTableColumn(id: String, title: String, width: CGFloat) {
+    func addTableColumn(id: String, title: String, width: CGFloat) {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
         column.title = title
         column.width = width
@@ -1351,6 +1406,13 @@ public extension PhylogeneticTreeViewController {
         nodes.filter(\.isTip).map(\.displayLabel).sorted()
     }
 
+    /// The canvas node accessibility elements, for tests.
+    var testingCanvasAccessibilityElements: [NSAccessibilityElement] {
+        (treeCanvasView.accessibilityChildren() as? [NSAccessibilityElement]) ?? []
+    }
+
+    var testingCanvasView: NSView { treeCanvasView }
+
     var testingCanvasCommandTitles: [String] {
         [fitButton.title, resetButton.title]
     }
@@ -1548,468 +1610,4 @@ public enum PhylogeneticTreeCanvasColorMode {
 public enum PhylogeneticTreeCanvasLayoutMode {
     case phylogram
     case cladogram
-}
-
-private struct PhylogeneticTreeCanvasNodeLayout {
-    let node: PhylogeneticTreeNormalizedNode
-    let point: NSPoint
-}
-
-private final class PhylogeneticTreeCanvasView: NSView {
-    var onNodeSelected: ((String) -> Void)?
-    var selectedNodeID: String? {
-        get { selectedNodeIDs.first }
-        set {
-            selectedNodeIDs = newValue.map { [$0] } ?? []
-        }
-    }
-    var selectedNodeIDs: Set<String> = [] {
-        didSet { needsDisplay = true }
-    }
-    var collapsedNodeIDs: Set<String> = [] {
-        didSet { needsDisplay = true }
-    }
-    var colorMode: PhylogeneticTreeCanvasColorMode = .none {
-        didSet { needsDisplay = true }
-    }
-    var layoutMode: PhylogeneticTreeCanvasLayoutMode = .phylogram {
-        didSet {
-            recomputeLayout()
-            needsDisplay = true
-        }
-    }
-
-    private var nodes: [PhylogeneticTreeNormalizedNode] = []
-    private var nodesByID: [String: PhylogeneticTreeNormalizedNode] = [:]
-    private var layoutByID: [String: PhylogeneticTreeCanvasNodeLayout] = [:]
-    private var zoomScale: CGFloat = 1
-    private var baseSize = NSSize(width: PhylogeneticTreeCanvasMetrics.minimumWidth, height: PhylogeneticTreeCanvasMetrics.minimumHeight)
-    private var labelWidth: CGFloat = 180
-    private var pointsPerBranchLengthUnit: CGFloat?
-    private var maxBranchLengthUnits: CGFloat = 0
-    #if DEBUG
-    private var configureCount = 0
-    private var recomputeLayoutCount = 0
-    private var fitCount = 0
-    private var resetCount = 0
-    private var zoomCount = 0
-    var testingNodeCount: Int { nodes.count }
-    var testingConfigureCount: Int { configureCount }
-    var testingRecomputeLayoutCount: Int { recomputeLayoutCount }
-    var testingFitCount: Int { fitCount }
-    var testingResetCount: Int { resetCount }
-    var testingZoomCount: Int { zoomCount }
-    var testingZoomScale: CGFloat { zoomScale }
-    var testingLayoutMode: String {
-        switch layoutMode {
-        case .phylogram:
-            return "phylogram"
-        case .cladogram:
-            return "cladogram"
-        }
-    }
-    var testingColorMode: String {
-        switch colorMode {
-        case .none:
-            return "none"
-        case .support:
-            return "support"
-        case .branchLength:
-            return "branchLength"
-        }
-    }
-    var testingScaleBarLabel: String {
-        guard layoutMode == .phylogram,
-              let pointsPerBranchLengthUnit,
-              pointsPerBranchLengthUnit > 0,
-              maxBranchLengthUnits > 0 else {
-            return ""
-        }
-        let targetPixels = min(max(bounds.width * 0.18, 72), 150)
-        let targetUnits = targetPixels / (pointsPerBranchLengthUnit * zoomScale)
-        let scaleUnits = niceScaleLength(near: targetUnits)
-        return String(format: "%.3g substitutions/site", Double(scaleUnits))
-    }
-    #endif
-
-    override var isFlipped: Bool { true }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        commonInit()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        commonInit()
-    }
-
-    private func commonInit() {
-        layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
-        setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.canvasView)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.group)
-        setAccessibilityLabel("Phylogenetic tree canvas")
-    }
-
-    override func accessibilityChildren() -> [Any]? {
-        nodes.compactMap { node in
-            guard let rect = rectForNode(id: node.id) else { return nil }
-            let element = NSAccessibilityElement()
-            element.setAccessibilityParent(self)
-            element.setAccessibilityRole(.group)
-            element.setAccessibilityIdentifier("phylogenetic-tree-node-\(sanitizedAccessibilityComponent(node.displayLabel))")
-            element.setAccessibilityLabel("\(node.displayLabel), \(node.isTip ? "tip" : "internal node")")
-            element.setAccessibilityFrameInParentSpace(rect.insetBy(dx: -6, dy: -6))
-            return element
-        }
-    }
-
-    func configure(nodes: [PhylogeneticTreeNormalizedNode], collapsedNodeIDs: Set<String>) {
-        #if DEBUG
-        configureCount += 1
-        #endif
-        self.nodes = nodes
-        self.collapsedNodeIDs = collapsedNodeIDs
-        nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
-        recomputeLayout()
-        needsDisplay = true
-    }
-
-    func fit(to visibleSize: NSSize) {
-        #if DEBUG
-        fitCount += 1
-        #endif
-        guard baseSize.width > 0, baseSize.height > 0 else { return }
-        let horizontal = visibleSize.width > 0 ? visibleSize.width / baseSize.width : 1
-        let vertical = visibleSize.height > 0 ? visibleSize.height / baseSize.height : 1
-        zoomScale = min(max(min(horizontal, vertical), 0.35), 2.5)
-        updateFrameSize()
-        needsDisplay = true
-    }
-
-    func resetView() {
-        #if DEBUG
-        resetCount += 1
-        #endif
-        zoomScale = 1
-        updateFrameSize()
-        needsDisplay = true
-    }
-
-    func zoom(by factor: CGFloat) {
-        #if DEBUG
-        zoomCount += 1
-        #endif
-        zoomScale = min(4, max(0.25, zoomScale * factor))
-        updateFrameSize()
-        needsDisplay = true
-    }
-
-    func rectForNode(id: String) -> NSRect? {
-        guard let layout = layoutByID[id] else { return nil }
-        let point = scaled(layout.point)
-        return NSRect(
-            x: point.x - PhylogeneticTreeCanvasMetrics.nodeRadius - 2,
-            y: point.y - PhylogeneticTreeCanvasMetrics.nodeRadius - 2,
-            width: (PhylogeneticTreeCanvasMetrics.nodeRadius + 2) * 2,
-            height: (PhylogeneticTreeCanvasMetrics.nodeRadius + 2) * 2
-        )
-    }
-
-    #if DEBUG
-    func testingPoint(label: String) -> NSPoint? {
-        guard let node = nodes.first(where: { $0.displayLabel == label }),
-              let layout = layoutByID[node.id] else {
-            return nil
-        }
-        return scaled(layout.point)
-    }
-    #endif
-
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.textBackgroundColor.setFill()
-        dirtyRect.fill()
-        guard !nodes.isEmpty else {
-            drawTreeText("No tree nodes loaded.", in: bounds.insetBy(dx: 16, dy: 16), color: .secondaryLabelColor)
-            return
-        }
-
-        drawEdges()
-        drawNodesAndLabels()
-        drawScaleBar()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        guard let nodeID = nodeID(at: point) else { return }
-        onNodeSelected?(nodeID)
-    }
-
-    /// A right-click selects the node under the pointer, so the menu's
-    /// commands act on it. A node already in the selection keeps the
-    /// selection, as in Finder.
-    override func menu(for event: NSEvent) -> NSMenu? {
-        let point = convert(event.locationInWindow, from: nil)
-        if let nodeID = nodeID(at: point), !selectedNodeIDs.contains(nodeID) {
-            onNodeSelected?(nodeID)
-        }
-        return super.menu(for: event)
-    }
-
-    private func recomputeLayout() {
-        #if DEBUG
-        recomputeLayoutCount += 1
-        #endif
-        guard !nodes.isEmpty else {
-            layoutByID = [:]
-            baseSize = NSSize(width: PhylogeneticTreeCanvasMetrics.minimumWidth, height: PhylogeneticTreeCanvasMetrics.minimumHeight)
-            pointsPerBranchLengthUnit = nil
-            maxBranchLengthUnits = 0
-            updateFrameSize()
-            return
-        }
-
-        let childIDsByNodeID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0.childIDs) })
-        let rootID = nodes.first(where: { $0.parentID == nil })?.id ?? nodes[0].id
-        var depthByID: [String: Int] = [:]
-        func assignDepth(_ nodeID: String, depth: Int) {
-            depthByID[nodeID] = depth
-            for childID in childIDsByNodeID[nodeID] ?? [] {
-                assignDepth(childID, depth: depth + 1)
-            }
-        }
-        assignDepth(rootID, depth: 0)
-
-        var rawXByID: [String: CGFloat] = [:]
-        for node in nodes {
-            if layoutMode == .phylogram, let divergence = node.cumulativeDivergence, divergence > 0 {
-                rawXByID[node.id] = CGFloat(divergence)
-            } else {
-                rawXByID[node.id] = CGFloat(depthByID[node.id] ?? 0)
-            }
-        }
-        let observedMaxRawX = rawXByID.values.max() ?? 0
-        let maxRawX = observedMaxRawX > 0 ? observedMaxRawX : 1
-        let tipCount = max(nodes.filter(\.isTip).count, 1)
-        labelWidth = min(
-            320,
-            max(
-                180,
-                nodes.filter(\.isTip).map {
-                    (($0.displayLabel as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11)]).width) + 18
-                }.max() ?? 180
-            )
-        )
-        baseSize = NSSize(
-            width: max(PhylogeneticTreeCanvasMetrics.minimumWidth, CGFloat(nodes.count) * 72 + labelWidth),
-            height: max(PhylogeneticTreeCanvasMetrics.minimumHeight, CGFloat(tipCount) * PhylogeneticTreeCanvasMetrics.tipSpacing + 80)
-        )
-        let drawableWidth = max(320, baseSize.width - PhylogeneticTreeCanvasMetrics.marginX * 2 - labelWidth)
-        let xScale = drawableWidth / maxRawX
-        pointsPerBranchLengthUnit = layoutMode == .phylogram ? xScale : nil
-        maxBranchLengthUnits = maxRawX
-
-        var nextTipY = PhylogeneticTreeCanvasMetrics.marginY
-        var pointByID: [String: NSPoint] = [:]
-        func assignPoint(_ nodeID: String) -> NSPoint {
-            let children = childIDsByNodeID[nodeID] ?? []
-            let y: CGFloat
-            if children.isEmpty {
-                y = nextTipY
-                nextTipY += PhylogeneticTreeCanvasMetrics.tipSpacing
-            } else {
-                let childPoints = children.map(assignPoint)
-                y = childPoints.map(\.y).reduce(0, +) / CGFloat(max(childPoints.count, 1))
-            }
-            let x = PhylogeneticTreeCanvasMetrics.marginX + (rawXByID[nodeID] ?? 0) * xScale
-            let point = NSPoint(x: x, y: y)
-            pointByID[nodeID] = point
-            return point
-        }
-        _ = assignPoint(rootID)
-
-        layoutByID = Dictionary(uniqueKeysWithValues: nodes.compactMap { node in
-            guard let point = pointByID[node.id] else { return nil }
-            return (node.id, PhylogeneticTreeCanvasNodeLayout(node: node, point: point))
-        })
-        updateFrameSize()
-    }
-
-    private func updateFrameSize() {
-        setFrameSize(NSSize(width: baseSize.width * zoomScale, height: baseSize.height * zoomScale))
-    }
-
-    private func drawEdges() {
-        NSColor.separatorColor.setStroke()
-        let path = NSBezierPath()
-        path.lineWidth = 1.2
-        for node in nodes {
-            guard let parentID = node.parentID,
-                  let parentLayout = layoutByID[parentID],
-                  let childLayout = layoutByID[node.id] else { continue }
-            let parent = scaled(parentLayout.point)
-            let child = scaled(childLayout.point)
-            path.move(to: parent)
-            path.line(to: NSPoint(x: parent.x, y: child.y))
-            path.line(to: child)
-        }
-        path.stroke()
-    }
-
-    private func drawNodesAndLabels() {
-        for node in nodes {
-            guard let layout = layoutByID[node.id] else { continue }
-            let point = scaled(layout.point)
-            let radius = PhylogeneticTreeCanvasMetrics.nodeRadius
-            nodeColor(for: node).setFill()
-            NSBezierPath(ovalIn: NSRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)).fill()
-            if selectedNodeIDs.contains(node.id) {
-                NSColor.controlAccentColor.setStroke()
-                let highlight = NSBezierPath(ovalIn: NSRect(x: point.x - radius - 4, y: point.y - radius - 4, width: radius * 2 + 8, height: radius * 2 + 8))
-                highlight.lineWidth = 2
-                highlight.stroke()
-            }
-            if collapsedNodeIDs.contains(node.id), !node.isTip {
-                NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
-                NSBezierPath(ovalIn: NSRect(x: point.x - radius - 7, y: point.y - radius - 7, width: radius * 2 + 14, height: radius * 2 + 14)).fill()
-            }
-            if node.isTip {
-                drawTreeText(
-                    node.displayLabel,
-                    in: NSRect(
-                        x: point.x + PhylogeneticTreeCanvasMetrics.labelGap,
-                        y: point.y - 8,
-                        width: labelWidth,
-                        height: 18
-                    ),
-                    color: .labelColor,
-                    font: .systemFont(ofSize: 11)
-                )
-            } else if let support = node.support {
-                drawTreeText(
-                    support.rawValue,
-                    in: NSRect(x: point.x + 5, y: point.y - 18, width: 52, height: 15),
-                    color: .secondaryLabelColor,
-                    font: .systemFont(ofSize: 9)
-                )
-            }
-        }
-    }
-
-    private func drawScaleBar() {
-        guard layoutMode == .phylogram,
-              let pointsPerBranchLengthUnit,
-              pointsPerBranchLengthUnit > 0,
-              maxBranchLengthUnits > 0 else {
-            return
-        }
-        let targetPixels = min(max(bounds.width * 0.18, 72), 150)
-        let targetUnits = targetPixels / (pointsPerBranchLengthUnit * zoomScale)
-        let scaleUnits = niceScaleLength(near: targetUnits)
-        let pixelLength = scaleUnits * pointsPerBranchLengthUnit * zoomScale
-        guard pixelLength.isFinite, pixelLength > 12 else { return }
-
-        let origin = NSPoint(
-            x: PhylogeneticTreeCanvasMetrics.marginX * zoomScale,
-            y: max(24, bounds.height - 30)
-        )
-        let path = NSBezierPath()
-        path.lineWidth = 1
-        path.move(to: origin)
-        path.line(to: NSPoint(x: origin.x + pixelLength, y: origin.y))
-        path.move(to: NSPoint(x: origin.x, y: origin.y - 4))
-        path.line(to: NSPoint(x: origin.x, y: origin.y + 4))
-        path.move(to: NSPoint(x: origin.x + pixelLength, y: origin.y - 4))
-        path.line(to: NSPoint(x: origin.x + pixelLength, y: origin.y + 4))
-        NSColor.secondaryLabelColor.setStroke()
-        path.stroke()
-
-        drawTreeText(
-            String(format: "%.3g substitutions/site", Double(scaleUnits)),
-            in: NSRect(x: origin.x, y: origin.y + 6, width: 180, height: 16),
-            color: .secondaryLabelColor,
-            font: .systemFont(ofSize: 9)
-        )
-    }
-
-    private func niceScaleLength(near value: CGFloat) -> CGFloat {
-        guard value.isFinite, value > 0 else { return 0.1 }
-        let exponent = floor(log10(Double(value)))
-        let base = CGFloat(pow(10.0, exponent))
-        let fraction = value / base
-        let niceFraction: CGFloat
-        if fraction <= 1 {
-            niceFraction = 1
-        } else if fraction <= 2 {
-            niceFraction = 2
-        } else if fraction <= 5 {
-            niceFraction = 5
-        } else {
-            niceFraction = 10
-        }
-        return niceFraction * base
-    }
-
-    private func nodeColor(for node: PhylogeneticTreeNormalizedNode) -> NSColor {
-        switch colorMode {
-        case .none:
-            return node.isTip ? .labelColor : .secondaryLabelColor
-        case .support:
-            guard let value = node.support?.rawValue,
-                  let numeric = Double(value) else {
-                return .tertiaryLabelColor
-            }
-            let normalized = max(0, min(1, numeric > 1 ? numeric / 100 : numeric))
-            return NSColor.systemBlue.blended(withFraction: 1 - normalized, of: .systemGray) ?? .systemBlue
-        case .branchLength:
-            let length = max(0, min(1, node.branchLength ?? 0))
-            return NSColor.systemGreen.blended(withFraction: 1 - CGFloat(length), of: .systemGray) ?? .systemGreen
-        }
-    }
-
-    private func nodeID(at point: NSPoint) -> String? {
-        layoutByID.min { lhs, rhs in
-            distance(from: point, to: scaled(lhs.value.point)) < distance(from: point, to: scaled(rhs.value.point))
-        }.flatMap { candidate in
-            distance(from: point, to: scaled(candidate.value.point)) <= 10 ? candidate.key : nil
-        }
-    }
-
-    private func distance(from lhs: NSPoint, to rhs: NSPoint) -> CGFloat {
-        hypot(lhs.x - rhs.x, lhs.y - rhs.y)
-    }
-
-    private func scaled(_ point: NSPoint) -> NSPoint {
-        NSPoint(x: point.x * zoomScale, y: point.y * zoomScale)
-    }
-
-    private func sanitizedAccessibilityComponent(_ value: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
-        let scalars = value.unicodeScalars.map { scalar in
-            allowed.contains(scalar) ? Character(scalar) : "-"
-        }
-        let sanitized = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
-        return sanitized.isEmpty ? "node" : sanitized
-    }
-}
-
-private func drawTreeText(
-    _ text: String,
-    in rect: NSRect,
-    color: NSColor,
-    font: NSFont = .systemFont(ofSize: 12),
-    alignment: NSTextAlignment = .left
-) {
-    let paragraph = NSMutableParagraphStyle()
-    paragraph.alignment = alignment
-    paragraph.lineBreakMode = .byTruncatingTail
-    (text as NSString).draw(
-        in: rect,
-        withAttributes: [
-            .font: font,
-            .foregroundColor: color,
-            .paragraphStyle: paragraph,
-        ]
-    )
 }

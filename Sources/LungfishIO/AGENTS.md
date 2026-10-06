@@ -22,6 +22,10 @@ LungfishCore, SystemPackage, AsyncAlgorithms, SQLite3 and system frameworks. Nev
 | `AlignmentDataProvider` | Sources/LungfishIO/Bundles/AlignmentDataProvider.swift line 87 |
 | `ProjectTempDirectory` | Sources/LungfishIO/Bundles/ProjectTempDirectory.swift line 65 |
 | Genotype results | Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift line 6 |
+| IQ-TREE option rules shared by the CLI and the Build Tree dialog, `IQTreeOptionRules` (reserved flags at line 57) | Sources/LungfishIO/Bundles/IQTreeOptionRules.swift line 51 |
+| IQ-TREE report parser, `IQTreeReportParser.parse` (best-fit model, criterion, model of substitution, log-likelihood, free parameters) | Sources/LungfishIO/Bundles/IQTreeReportParser.swift line 41 |
+| Tree inference summary stored in the tree manifest, `PhylogeneticTreeInferenceSummary`, and `clearingOutgroup()` for rerooted copies | Sources/LungfishIO/Bundles/PhylogeneticTreeInferenceSummary.swift lines 7 and 86 |
+| Support labels (`SH-aLRT`, `aBayes`, `UFBoot`) | `PhylogeneticTreeSupportLabel`, Sources/LungfishIO/Bundles/PhylogeneticTreeSupport.swift line 33 |
 
 ## Contracts this module owns
 
@@ -29,6 +33,7 @@ LungfishCore, SystemPackage, AsyncAlgorithms, SQLite3 and system frameworks. Nev
 - `AnalysesFolder.knownTools` (line 26) and `displayName` (line 82) decide whether the sidebar recognises a tool folder.
 - Streaming readers pull per demand with `AsyncThrowingStream(unfolding:)` (FASTQReader.swift line 76). An unbounded producer task is a memory bomb (memory file known-issues.md).
 - Genotype workbook and matrix exports stay byte-identical across any refactor (REVIEW.md R6).
+- A tree manifest's `supportLabels` name the tests behind "a/b[/c]" node labels in IQ-TREE's order, and normalisation splits the label against them. Without labels the old single-value guess is kept. Derived trees pass the inference summary explicitly. Reroot clears the outgroup, extract passes none and relabel keeps it. Line numbers for the IQ-TREE rows above were checked at commit 58370dd8e.
 
 ## Tests
 

@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import ViewInspector
 @testable import LungfishApp
 import LungfishKit
@@ -10,101 +11,198 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
     }
 
     @MainActor
-    private func makeDialog() -> IQTreeInferenceDialog {
+    private func makeState(
+        rows: String? = "row-1,row-2,row-3,row-4",
+        columns: String? = "10-200",
+        names: [String] = ["Homo sapiens", "Macaca mulatta", "Pan troglodytes", "Gorilla gorilla", "Mus musculus"]
+    ) -> IQTreeInferenceDialogState {
         let request = MultipleSequenceAlignmentTreeInferenceRequest(
             bundleURL: URL(fileURLWithPath: "/project/Analyses/Multiple Sequence Alignments/alignment.lungfishmsa"),
-            rows: "seq1,seq2",
-            columns: "10-200",
+            rows: rows,
+            columns: columns,
             suggestedName: "alignment-tree.lungfishtree",
             displayName: "alignment"
         )
-        let state = IQTreeInferenceDialogState(
+        return IQTreeInferenceDialogState(
             request: request,
-            projectURL: URL(fileURLWithPath: "/project")
+            projectURL: URL(fileURLWithPath: "/project"),
+            alignment: IQTreeAlignmentSummary(
+                rows: names.enumerated().map { IQTreeAlignmentSummary.Row(id: "row-\($0.offset + 1)", displayName: $0.element) },
+                alignedLength: 300,
+                alphabet: "dna"
+            )
         )
-        return IQTreeInferenceDialog(state: state, onCancel: {}, onRun: {})
     }
 
     @MainActor
-    func testIQTreeInferenceDialogExposesCuratedAndAdvancedOptions() throws {
-        let inspected = try makeDialog().inspect()
+    private func makeDialog(_ state: IQTreeInferenceDialogState) -> IQTreeInferenceDialog {
+        IQTreeInferenceDialog(state: state, onCancel: {}, onRun: {})
+    }
 
-        // Converted from source-text grep to behavioral assertions: every curated and
-        // advanced-option label below is proven to actually render in the live tree.
+    @MainActor
+    func testDialogShowsGroupsInRulingOrder() throws {
+        let state = makeState()
+        state.advancedOptionsExpanded = true
+        let inspected = try makeDialog(state).inspect()
+
+        for title in ["Inputs", "Model", "Branch Support", "Rooting", "Output", "Run", "Advanced"] {
+            _ = try inspected.find(text: title)
+        }
         for label in [
-            "Sequence Type",
-            "Ultrafast Bootstrap",
-            "SH-aLRT",
+            "Ultrafast bootstrap (UFBoot)",
+            "SH-aLRT test",
             "Safe numerical mode",
             "Keep identical sequences",
-            "Advanced Options",
         ] {
-            _ = try inspected.find(text: label)
+            _ = try inspected.find(ViewType.Toggle.self) { try $0.labelView().text().string() == label }
         }
-        _ = try inspected.find(text: "Branch Support")
         _ = try inspected.find(viewWithAccessibilityIdentifier: "iqtree-options-advanced-parameters")
+        _ = try inspected.find(text: IQTreeInferenceDialogState.branchSupportCaption)
+        _ = try inspected.find(text: IQTreeInferenceDialogState.seedCaption)
+        _ = try inspected.find(text: IQTreeInferenceDialogState.threadsCaption)
+        _ = try inspected.find(text: IQTreeInferenceDialogState.outgroupCaption)
+        _ = try inspected.find(text: IQTreeInferenceDialogState.safeModeCaption)
+        _ = try inspected.find(text: IQTreeInferenceDialogState.keepIdenticalCaption)
+    }
+
+    /// Fix G (re-review minor 6): the caption shows only while -b or --lbp is present.
+    @MainActor
+    func testAdvancedSectionShowsTheUnorderedSupportCaption() throws {
+        let state = makeState()
+        state.advancedOptionsExpanded = true
+        let caption = IQTreeInferenceDialogState.unorderedSupportCaptionText
+        XCTAssertThrowsError(try makeDialog(state).inspect().find(text: caption))
+        state.extraIQTreeOptions = "-b 100"
+        _ = try makeDialog(state).inspect().find(text: caption)
     }
 
     @MainActor
-    func testIQTreeInferenceDialogExposesScopeAndExecutableOverride() throws {
-        let inspected = try makeDialog().inspect()
+    func testDialogChromeAndPrimaryButton() throws {
+        let inspected = try makeDialog(makeState()).inspect()
+        _ = try inspected.find(text: "Build Tree with IQ-TREE")
+        _ = try inspected.find(text: "Infer a maximum-likelihood tree from an alignment.")
+        let primary = try inspected.find(viewWithAccessibilityIdentifier: "iqtree-options-primary-action").button()
+        XCTAssertEqual(try primary.labelView().text().string(), "Build Tree")
+        XCTAssertThrowsError(try inspected.find(text: "Readiness"), "The in-pane Readiness section is gone")
+        XCTAssertThrowsError(try inspected.find(text: "Phylogenetic Tree Operations"))
+    }
 
-        // Converted from source-text grep to behavioral assertions: the scope summary
-        // and executable-override field both render with their stable accessibility
-        // identifiers. `.accessibilityIdentifier("iqtree-options-executable-path")` is
-        // chained onto `labeledTextField(...)`'s returned HStack (Text + TextField), so
-        // the identifier lands on that HStack; its first child is the real
-        // "IQ-TREE Executable" label.
-        _ = try inspected.find(viewWithAccessibilityIdentifier: "iqtree-options-scope")
-        let executableGroup = try inspected
-            .find(viewWithAccessibilityIdentifier: "iqtree-options-executable-path")
-            .hStack()
-        XCTAssertEqual(try executableGroup.text(0).string(), "IQ-TREE Executable")
+    @MainActor
+    func testReadinessTextAppearsOnceInTheFooter() throws {
+        let state = makeState()
+        state.seedText = "12a"
+        let inspected = try makeDialog(state).inspect()
+        let matches = inspected.findAll(ViewType.Text.self) {
+            try $0.string().contains("Seed must be a whole number from 1 to 2147483647")
+        }
+        XCTAssertEqual(matches.count, 1)
+        XCTAssertEqual(
+            try inspected.find(viewWithAccessibilityIdentifier: "iqtree-options-status-text").text().string(),
+            "\(IQTreeInferenceDialogState.warningSymbol) Seed must be a whole number from 1 to 2147483647."
+        )
+    }
+
+    /// D1. Every text field, pop-up, stepper and check box carries its own title,
+    /// so its accessible name is never empty and equals the visible label.
+    @MainActor
+    func testEveryFieldHasANonEmptyAccessibleLabel() throws {
+        let state = makeState()
+        state.advancedOptionsExpanded = true
+        state.modelChoice = .custom
+        state.sequenceType = .codon
+        let inspected = try makeDialog(state).inspect()
+
+        let textFields = inspected.findAll(ViewType.TextField.self)
+        XCTAssertGreaterThanOrEqual(textFields.count, 8)
+        var fieldLabels: [String] = []
+        for field in textFields {
+            let label = try field.labelView().text().string()
+            XCTAssertFalse(label.trimmingCharacters(in: .whitespaces).isEmpty)
+            fieldLabels.append(label)
+        }
+        for expected in [
+            "Custom model", "UFBoot replicates", "SH-aLRT replicates", "Name", "Seed", "Threads",
+            "IQ-TREE executable", "Additional IQ-TREE parameters",
+        ] {
+            XCTAssertTrue(fieldLabels.contains(expected), "Missing field \(expected) in \(fieldLabels)")
+        }
+
+        let pickers = inspected.findAll(ViewType.Picker.self)
+        let pickerLabels = try pickers.map { try $0.labelView().text().string() }
+        for expected in ["Build from", "Model", "Sequence type", "Genetic code"] {
+            XCTAssertTrue(pickerLabels.contains(expected), "Missing pop-up \(expected) in \(pickerLabels)")
+        }
+
+        let steppers = inspected.findAll(ViewType.Stepper.self)
+        XCTAssertEqual(steppers.count, 2)
+        for stepper in steppers {
+            XCTAssertFalse(try stepper.labelView().text().string().isEmpty)
+        }
+
+        for toggle in inspected.findAll(ViewType.Toggle.self) {
+            XCTAssertFalse(try toggle.labelView().text().string().isEmpty)
+        }
+    }
+
+    @MainActor
+    func testReplicateFieldsAreDisabledWhileTheirBoxIsOff() throws {
+        let state = makeState()
+        state.bootstrapEnabled = false
+        let inspected = try makeDialog(state).inspect()
+        let ufboot = try inspected.find(ViewType.LabeledContent.self) {
+            try $0.labelView().text().string() == "UFBoot replicates"
+        }
+        XCTAssertTrue(ufboot.isDisabled())
+        let alrt = try inspected.find(ViewType.LabeledContent.self) {
+            try $0.labelView().text().string() == "SH-aLRT replicates"
+        }
+        XCTAssertFalse(alrt.isDisabled())
+    }
+
+    @MainActor
+    func testScopeRadioGroupAppearsOnlyWithSelection() throws {
+        let withSelection = try makeDialog(makeState()).inspect()
+        let picker = try withSelection.find(viewWithAccessibilityIdentifier: "iqtree-options-scope").picker()
+        XCTAssertEqual(try picker.labelView().text().string(), "Build from")
+        _ = try withSelection.find(text: "Selected rows and columns (4 sequences, columns 10-200)")
+        _ = try withSelection.find(text: "Whole alignment (5 sequences, 300 columns)")
+
+        let withoutSelection = try makeDialog(makeState(rows: nil, columns: nil)).inspect()
+        XCTAssertThrowsError(try withoutSelection.find(viewWithAccessibilityIdentifier: "iqtree-options-scope").picker())
+        _ = try withoutSelection.find(text: "Whole alignment (5 sequences, 300 columns)")
+    }
+
+    @MainActor
+    func testOutgroupListOffersInScopeNamesAsCheckboxes() throws {
+        let state = makeState(names: ["Homo sapiens", "Macaca mulatta", "Pan, troglodytes", "Gorilla gorilla", "Mus musculus"])
+        let inspected = try makeDialog(state).inspect()
+        let toggles = inspected.findAll(ViewType.Toggle.self)
+        let labels = try toggles.map { try $0.labelView().text().string() }
+        XCTAssertTrue(labels.contains("Homo sapiens"))
+        XCTAssertTrue(labels.contains("Gorilla gorilla"))
+        XCTAssertTrue(labels.contains("Pan, troglodytes"), "names with commas are listed because the outgroup passes row IDs")
+        XCTAssertFalse(labels.contains("Mus musculus"), "Mus musculus is outside the selected rows")
     }
 
     func testMSATreeInferenceRoutesThroughDialogBeforeRunner() throws {
-        let sourceURL = repositoryRoot.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift")
+        let sourceURL = repositoryRoot.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+TreeInference.swift")
         let source = try readRepositorySource(sourceURL)
 
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // runIQTreeInferenceViaCLI is a private method on ViewerViewController with no
-        // testing-prefixed wrapper (unlike AppDelegate's testing* convention), and the
-        // routing decision only manifests by presenting a real NSPanel sheet
-        // (IQTreeInferenceDialogPresenter.present calls window.beginSheet), which has no
-        // safe, deterministic runtime seam to assert against without adding one.
+        // runIQTreeInferenceViaCLI is a private method on ViewerViewController and the
+        // routing decision only manifests by presenting a real NSPanel sheet.
         XCTAssertTrue(source.contains("IQTreeInferenceDialogPresenter.present"))
-        XCTAssertFalse(source.contains("IQTreeInferenceOptionsDialog.present"))
         XCTAssertTrue(source.contains("runIQTreeInferenceViaCLI"))
+        XCTAssertTrue(source.contains("IQTreeInferenceLaunch.make"))
     }
 
     @MainActor
-    func testIQTreeInferenceUsesDatasetOperationsSheetInsteadOfAlertAccessory() throws {
-        let inspected = try makeDialog().inspect()
-
-        // Converted from source-text grep to behavioral assertions: the dialog's title,
-        // subtitle-derived tool label, and advanced-options disclosure all actually
-        // render, and the disclosure's default expanded state genuinely follows
-        // AppUITestConfiguration rather than being hardcoded.
-        _ = try inspected.find(text: "Phylogenetic Tree Operations")
-        _ = try inspected.find(text: "Build Tree with IQ-TREE")
-        _ = try inspected.find(viewWithAccessibilityIdentifier: "iqtree-options-advanced-disclosure")
-
-        let request = MultipleSequenceAlignmentTreeInferenceRequest(
-            bundleURL: URL(fileURLWithPath: "/project/alignment.lungfishmsa"),
-            rows: nil,
-            columns: nil,
-            suggestedName: "tree.lungfishtree",
-            displayName: "alignment"
-        )
-        let state = IQTreeInferenceDialogState(
-            request: request,
-            projectURL: URL(fileURLWithPath: "/project")
-        )
+    func testAdvancedDisclosureFollowsUITestConfiguration() throws {
+        let state = makeState(rows: nil, columns: nil)
         XCTAssertEqual(state.advancedOptionsExpanded, AppUITestConfiguration.current.isEnabled)
+        _ = try makeDialog(state).inspect().find(viewWithAccessibilityIdentifier: "iqtree-options-advanced-disclosure")
 
-        // "No NSAlert/accessoryView anywhere in this file" is a dead-API-absence check
-        // with no positive runtime equivalent (there's nothing to instantiate to prove a
-        // *lack* of a call site) -- kept as a source check.
+        // "No NSAlert/accessoryView anywhere in this file" is a dead-API-absence check.
         let source = try String(
             contentsOf: repositoryRoot.appendingPathComponent(
                 "Sources/LungfishApp/Views/Phylogenetics/IQTreeInferenceDialog.swift"
@@ -115,125 +213,79 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         XCTAssertFalse(source.contains("accessoryView"))
     }
 
-    func testIQTreeInferencePresenterUsesOperationsPanelSizing() throws {
-        let sourceURL = repositoryRoot.appendingPathComponent(
-            "Sources/LungfishApp/Views/Phylogenetics/IQTreeInferenceDialogPresenter.swift"
-        )
-        let source = try readRepositorySource(sourceURL)
-
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // IQTreeInferenceDialogPresenter.present(from:) constructs a real NSPanel with an
-        // observable contentSize, but calling it requires a real NSWindow that can host
-        // an actual beginSheet(_:) presentation -- there is no existing safe/deterministic
-        // pattern for this in the suite (window ordering / NSApp state), so exercising it
-        // is out of scope for this task.
-        XCTAssertTrue(source.contains("NSPanel"))
-        XCTAssertTrue(source.contains("setContentSize(NSSize(width: 980, height: 700))"))
-        XCTAssertTrue(source.contains("window.beginSheet(panel)"))
-        XCTAssertFalse(source.contains("NSAlert"))
+    @MainActor
+    func testPresenterSizesTheSheetAt780By640WithAMinimum() {
+        XCTAssertEqual(IQTreeInferenceDialogPresenter.contentSize, NSSize(width: 780, height: 640))
+        let minimum = IQTreeInferenceDialogPresenter.minimumContentSize
+        XCTAssertLessThan(minimum.width, 780)
+        XCTAssertLessThan(minimum.height, 640)
+        XCTAssertGreaterThan(minimum.width, 0)
     }
 
-
-    // Reported 2026-09-23: the dialog's own
-    // default for `seed` was the fixed value 1 even though its label says
-    // "leave blank for random". The default must be nil so a run left
-    // untouched actually gets IQ-TREE's own random seed, not a fixed one.
+    /// Fix F1 (m12): the sheet opens with keyboard focus on the Model pop-up.
+    /// AppKit lets a pop-up take focus only with Full Keyboard Access on.
     @MainActor
-    func testIQTreeInferenceDialogStateDefaultSeedIsNilForRandom() throws {
-        let request = MultipleSequenceAlignmentTreeInferenceRequest(
-            bundleURL: URL(fileURLWithPath: "/project/Analyses/Multiple Sequence Alignments/alignment.lungfishmsa"),
-            rows: "seq1,seq2",
-            columns: "10-200",
-            suggestedName: "alignment-tree.lungfishtree",
-            displayName: "alignment"
-        )
-        let state = IQTreeInferenceDialogState(
-            request: request,
-            projectURL: URL(fileURLWithPath: "/project")
-        )
+    func testInitialFocusIsTheModelPopUp() throws {
+        guard NSApplication.shared.isFullKeyboardAccessEnabled else {
+            throw XCTSkip("Pop-up buttons take keyboard focus only with Full Keyboard Access on.")
+        }
+        let window = AccessibilityTreeProbe.host(makeDialog(makeState()), size: CGSize(width: 780, height: 1200))
+        defer { window.orderOut(nil) }
+        window.makeKey()
 
-        XCTAssertNil(state.seed, "A fresh dialog must default to a random seed, not a fixed value")
-
-        state.prepareForRun()
-        let options = try XCTUnwrap(state.pendingOptions)
-        XCTAssertNil(options.seed, "An unmodified dialog must produce options with no fixed seed")
+        func focusedIdentifier() -> String? {
+            var view = window.firstResponder as? NSView
+            while let current = view {
+                let identifier = current.accessibilityIdentifier()
+                if identifier.isEmpty == false { return identifier }
+                view = current.superview
+            }
+            return nil
+        }
+        AccessibilityTreeProbe.waitUntil { focusedIdentifier() == "iqtree-options-model" }
+        XCTAssertEqual(focusedIdentifier(), "iqtree-options-model", String(describing: window.firstResponder))
     }
 
-    /// IQ-TREE's ultrafast bootstrap has a hard minimum of 1000
-    /// replicates; below that, the tool itself errors out. The dialog's
-    /// readiness check must catch this before Run is ever pressed, instead
-    /// of only checking for a positive count.
+    /// The live AX tree, as VoiceOver reads it. Every text field speaks its
+    /// visible title, and the one sidebar card reports AXSelected.
     @MainActor
-    func testBootstrapBelowUFBootMinimumDisablesRun() throws {
-        let request = MultipleSequenceAlignmentTreeInferenceRequest(
-            bundleURL: URL(fileURLWithPath: "/project/Analyses/Multiple Sequence Alignments/alignment.lungfishmsa"),
-            rows: "seq1,seq2",
-            columns: "10-200",
-            suggestedName: "alignment-tree.lungfishtree",
-            displayName: "alignment"
-        )
-        let state = IQTreeInferenceDialogState(
-            request: request,
-            projectURL: URL(fileURLWithPath: "/project")
-        )
-        state.model = "GTR+G"
-        state.bootstrapEnabled = true
-        state.bootstrapReplicates = 100
+    func testLiveAccessibilityTreeNamesFieldsAndMarksTheSelectedCard() throws {
+        let state = makeState()
+        state.advancedOptionsExpanded = true
+        let window = AccessibilityTreeProbe.host(makeDialog(state), size: CGSize(width: 780, height: 1600))
+        defer { window.orderOut(nil) }
 
-        XCTAssertFalse(state.isRunEnabled)
-        XCTAssertEqual(
-            state.validationMessage,
-            "Enter at least 1000 ultrafast bootstrap replicates (IQ-TREE's UFBoot minimum)."
+        let seedID = "iqtree-options-seed"
+        AccessibilityTreeProbe.waitUntil { AccessibilityTreeProbe.element(in: window, identifier: seedID) != nil }
+        let seed = try XCTUnwrap(AccessibilityTreeProbe.element(in: window, identifier: seedID), AccessibilityTreeProbe.dump(window))
+        XCTAssertEqual(AccessibilityTreeProbe.label(seed), "Seed")
+
+        let controlRoles: Set<String> = ["AXTextField", "AXPopUpButton", "AXCheckBox", "AXRadioGroup", "AXIncrementor"]
+        let fields = AccessibilityTreeProbe.all(in: window).filter { controlRoles.contains(AccessibilityTreeProbe.role($0) ?? "") }
+        XCTAssertFalse(fields.isEmpty, AccessibilityTreeProbe.dump(window))
+        for field in fields {
+            let label = AccessibilityTreeProbe.label(field) ?? ""
+            XCTAssertFalse(label.isEmpty, "unnamed control; tree:\n" + AccessibilityTreeProbe.dump(window))
+        }
+        for (identifier, title) in [
+            ("iqtree-options-threads", "Threads"),
+            ("iqtree-options-output-name", "Name"),
+            ("iqtree-options-bootstrap-count", "UFBoot replicates"),
+            ("iqtree-options-alrt-count", "SH-aLRT replicates"),
+            ("iqtree-options-model", "Model"),
+            ("iqtree-options-sequence-type", "Sequence type"),
+            ("iqtree-options-scope", "Build from"),
+            ("iqtree-options-bootstrap-checkbox", "Ultrafast bootstrap (UFBoot)"),
+            ("iqtree-options-advanced-parameters", "Additional IQ-TREE parameters"),
+        ] {
+            let element = try XCTUnwrap(AccessibilityTreeProbe.element(in: window, identifier: identifier), identifier)
+            XCTAssertEqual(AccessibilityTreeProbe.label(element), title)
+        }
+
+        let card = try XCTUnwrap(
+            AccessibilityTreeProbe.element(in: window, identifier: "iqtree-options-tool-build-tree-with-iq-tree"),
+            AccessibilityTreeProbe.dump(window)
         )
-
-        state.bootstrapReplicates = 1000
-        XCTAssertTrue(state.isRunEnabled)
-    }
-
-    @MainActor
-    func testIQTreeInferenceDialogStateProducesOptionsForRunner() throws {
-        let request = MultipleSequenceAlignmentTreeInferenceRequest(
-            bundleURL: URL(fileURLWithPath: "/project/Analyses/Multiple Sequence Alignments/alignment.lungfishmsa"),
-            rows: "seq1,seq2",
-            columns: "10-200",
-            suggestedName: "alignment-tree.lungfishtree",
-            displayName: "alignment"
-        )
-        let state = IQTreeInferenceDialogState(
-            request: request,
-            projectURL: URL(fileURLWithPath: "/project")
-        )
-
-        state.model = "GTR+G"
-        state.sequenceType = .dna
-        state.bootstrapEnabled = true
-        // IQ-TREE's ultrafast bootstrap has a hard minimum of 1000
-        // replicates; a lower count must fail the dialog's own readiness
-        // check rather than reach IQ-TREE and fail there instead.
-        state.bootstrapReplicates = 1500
-        state.alrtEnabled = true
-        state.alrtReplicates = 1000
-        state.seed = 42
-        state.threads = 4
-        state.safeMode = true
-        state.keepIdenticalSequences = true
-        state.iqtreePath = "/opt/iqtree/bin/iqtree2"
-        state.extraIQTreeOptions = "-bnni"
-        state.prepareForRun()
-
-        let options = try XCTUnwrap(state.pendingOptions)
-        XCTAssertEqual(options.outputName, "alignment-tree")
-        XCTAssertEqual(options.model, "GTR+G")
-        XCTAssertEqual(options.sequenceType, "DNA")
-        XCTAssertEqual(options.bootstrap, 1500)
-        XCTAssertEqual(options.alrt, 1000)
-        XCTAssertEqual(options.seed, 42)
-        XCTAssertEqual(options.threads, 4)
-        XCTAssertTrue(options.safeMode)
-        XCTAssertTrue(options.keepIdenticalSequences)
-        XCTAssertEqual(options.iqtreePath, "/opt/iqtree/bin/iqtree2")
-        XCTAssertEqual(options.extraIQTreeOptions, "-bnni")
-        XCTAssertTrue(state.scopeSummary.contains("2 rows"))
-        XCTAssertTrue(state.scopeSummary.contains("columns 10-200"))
+        XCTAssertTrue(AccessibilityTreeProbe.isSelected(card))
     }
 }
