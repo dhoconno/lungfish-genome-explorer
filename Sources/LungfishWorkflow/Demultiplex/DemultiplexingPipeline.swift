@@ -73,15 +73,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     ) async throws -> DemultiplexResult {
         let startTime = Date()
 
-        guard !config.barcodeKit.barcodes.isEmpty else {
-            throw DemultiplexError.noBarcodes
-        }
-
-        // Resolve the input FASTQ
+        // Every refusal comes before the run writes anything (L5 item 0).
+        try await preflight(config: config)
         let inputFASTQ = resolveInputFASTQ(config.inputURL)
-        guard FileManager.default.fileExists(atPath: inputFASTQ.path) else {
-            throw DemultiplexError.inputFileNotFound(inputFASTQ)
-        }
 
         let fm = FileManager.default
 
@@ -98,9 +92,6 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         }
 
         if config.engine == .exactBareBarcode {
-            guard supportsExactBareBarcodeDemux(config) else {
-                throw DemultiplexError.exactBareBarcodeUnsupported
-            }
             return try await runExactBareBarcodeDemux(
                 config: config,
                 inputFASTQ: inputFASTQ,
@@ -134,12 +125,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             workDirectory: workDir
         )
 
-        // Validate adapter FASTA is non-empty (catches upstream bugs before cutadapt fails cryptically)
-        let fastaContent = try String(contentsOf: adapterConfig.adapterFASTA, encoding: .utf8)
-        let sequences = fastaContent.split(separator: "\n").filter { !$0.hasPrefix(">") && !$0.isEmpty }
-        if sequences.isEmpty || sequences.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            throw DemultiplexError.emptyAdapterSequences(kitName: config.barcodeKit.displayName)
-        }
+        try requireAdapterSequences(in: adapterConfig.adapterFASTA, kitName: config.barcodeKit.displayName)
 
         // Step 2: Build cutadapt command (5% progress)
         progress(0.05, "Configuring cutadapt...")
@@ -1175,13 +1161,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         return FASTQMetadataStore.load(for: url)?.ingestion?.pairingMode
     }
 
-    private struct AdapterConfiguration {
+    struct AdapterConfiguration {
         let adapterFASTA: URL
         let adapterFlag: String
     }
 }
 extension DemultiplexingPipeline {
-    private func createAdapterConfiguration(
+    func createAdapterConfiguration(
         for config: DemultiplexConfig,
         workDirectory: URL
     ) async throws -> AdapterConfiguration {
@@ -1755,7 +1741,7 @@ extension DemultiplexingPipeline {
         return "N{\(distance)}"
     }
 
-    private func resolveSequence(
+    func resolveSequence(
         explicitSequence: String?,
         barcodeID: String?,
         kit: BarcodeKitDefinition
