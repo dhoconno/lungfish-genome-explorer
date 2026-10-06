@@ -34,14 +34,29 @@ struct ToolsMenuModel: Equatable, Sendable {
         let manifestID: String
         let title: String
         let isEnabled: Bool
+        /// Whether this build can run the package. A command-runner package
+        /// can only be shown in the Workflow Library, never enabled.
+        let canRun: Bool
+
+        init(manifestID: String, title: String, isEnabled: Bool, canRun: Bool = true) {
+            self.manifestID = manifestID
+            self.title = title
+            self.isEnabled = isEnabled
+            self.canRun = canRun
+        }
 
         /// The tool ID the Workflow Operations window uses for this package.
         var workflowOperationToolID: String {
             "package.\(manifestID)"
         }
 
+        /// An enabled package launches. One that can run but is not enabled
+        /// offers to enable itself. One this build cannot run only opens its
+        /// card in the Workflow Library, so its title names that and nothing
+        /// it cannot do.
         var menuTitle: String {
-            isEnabled ? "\(title)\u{2026}" : "Enable \(title)\u{2026}"
+            if isEnabled { return "\(title)\u{2026}" }
+            return canRun ? "Enable \(title)\u{2026}" : "Show \(title) in Workflow Library"
         }
     }
 
@@ -104,7 +119,8 @@ struct ToolsMenuModel: Equatable, Sendable {
                     manifestID: package.manifest.id,
                     title: package.manifest.name,
                     // A package that cannot execute is never enabled, whatever the store says.
-                    isEnabled: package.supportsWorkflowLibraryExecution && isPackageEnabled(package)
+                    isEnabled: package.supportsWorkflowLibraryExecution && isPackageEnabled(package),
+                    canRun: package.supportsWorkflowLibraryExecution
                 )
             }
             .sorted { lhs, rhs in
