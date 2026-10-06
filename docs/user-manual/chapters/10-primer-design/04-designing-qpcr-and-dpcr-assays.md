@@ -91,7 +91,7 @@ Open the Primer Design demo project, as [Demo projects](../01-foundations/06-the
 
 Install the Multiple Sequence Alignment and PCR Primer Design [plugin packs](../../GLOSSARY.md#plugin-pack) from **Tools > Plugin Manager…**, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
 
-The designs need an alignment, because the four alleles differ in length. Select `mamu-a1-001-lineage` in the [sidebar](../../GLOSSARY.md#sidebar) and align it with **Tools > Multiple Sequence Alignment > MAFFT…** at its default settings. The result is a 2,960-column alignment of 4 rows under `Analyses/Multiple Sequence Alignments/`, with `LR699574.1` as row 1. Coordinates in this chapter are 1-based and inclusive on that row, whose exon 2 runs from 205 to 474, exon 3 from 718 to 993, exon 4 from 1,590 to 1,865 and exon 5 from 1,968 to 2,084.
+The designs need an alignment, because the four alleles differ in length. Select `mamu-a1-001-lineage` in the [sidebar](../../GLOSSARY.md#sidebar) and align it with **Tools > Alignment & Phylogenetics > MAFFT…** at its default settings. The result is a 2,960-column alignment of 4 rows under `Analyses/Multiple Sequence Alignments/`, with `LR699574.1` as row 1. Coordinates in this chapter are 1-based and inclusive on that row, whose exon 2 runs from 205 to 474, exon 3 from 718 to 993, exon 4 from 1,590 to 1,865 and exon 5 from 1,968 to 2,084.
 
 The varVAMP run takes about 88 seconds, and about 82 seconds more when it also screens against the exclusion set. Each Primer3 run finishes in well under a minute.
 

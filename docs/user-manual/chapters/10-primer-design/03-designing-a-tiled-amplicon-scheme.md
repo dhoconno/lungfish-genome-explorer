@@ -91,7 +91,7 @@ The engines need an alignment of equal-length rows. The dialog does list the ref
 
 ### Align the twelve alleles
 
-Click `mamu-a1-panel` under `Reference Sequences`, choose **Tools > Multiple Sequence Alignment > MAFFT...** and run it at its default settings. Then click the result under `Analyses/Multiple Sequence Alignments/` and check that the main panel shows 12 rows and 2,953 columns.
+Click `mamu-a1-panel` under `Reference Sequences`, choose **Tools > Alignment & Phylogenetics > MAFFT...** and run it at its default settings. Then click the result under `Analyses/Multiple Sequence Alignments/` and check that the main panel shows 12 rows and 2,953 columns.
 
 ### Run PrimalScheme
 

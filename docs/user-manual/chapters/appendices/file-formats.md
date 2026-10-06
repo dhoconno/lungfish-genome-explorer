@@ -238,14 +238,14 @@ Variants produced inside LGE do not get a bundle of their own. A variant track l
 
 ## Standard tree format
 
-A phylogenetic tree is a diagram of how a set of sequences are related by descent, and Newick is the compact text notation for one. Nested parentheses group the sequences that share a common ancestor, a number after a colon gives a branch length, measured in substitutions per aligned position, and a semicolon ends the tree. Here is the whole tree LGE inferred from the five primate mitochondrial genomes with the settings [Building Trees](../02-sequences/05-building-trees.md) uses, read from `Phylogenetic Trees/primate-mito.lungfishtree/tree/primary.nwk` in the Genes and Sequences demo project after that chapter. The file holds it as one unbroken line, and it is broken across lines here so you can see the nesting. A number right after a closing bracket, such as the `100` before `:0.8982192615`, is the support value of that grouping.
+A phylogenetic tree is a diagram of how a set of sequences are related by descent, and Newick is the compact text notation for one. Nested parentheses group the sequences that share a common ancestor, a number after a colon gives a branch length, measured in substitutions per aligned position, and a semicolon ends the tree. Here is the whole tree LGE inferred from the five primate mitochondrial genomes with the settings [Building Trees](../02-sequences/05-building-trees.md) uses, read from `Phylogenetic Trees/primate-mito.lungfishtree/tree/primary.nwk` in the Genes and Sequences demo project after that chapter. The file holds it as one unbroken line, and it is broken across lines here so you can see the nesting. A number right after a closing bracket, such as the `100/100` before `:0.4476367467`, is the support of that grouping, written as the SH-aLRT value, a slash, and the ultrafast bootstrap value.
 
 ```text
-(Human_NC_012920.1:0.0601418266,
- Chimp_NC_001643.1:0.0589379456,
- (Gorilla_NC_011120.1:0.0740418399,
-  (RhesusMacaque_NC_005943.1:0.0650124299,
-   CynomolgusMacaque_NC_012670.1:0.0299194596)100:0.8982192615)100:0.0295660901);
+(((Human_NC_012920.1:0.0601260596,
+   Chimp_NC_001643.1:0.0589194438)99/100:0.0295567266,
+  Gorilla_NC_011120.1:0.0739989243)100/100:0.4476367467,
+ (RhesusMacaque_NC_005943.1:0.0650083364,
+  CynomolgusMacaque_NC_012670.1:0.0298995923)100/100:0.4476367467);
 ```
 
 This tree is unrooted, meaning it records which sequences group together but not which lineage came first. LGE reads Newick produced by IQ-TREE, the tree program the phylogenetics plugin pack installs, and stores it inside a `.lungfishtree` bundle described below.
@@ -451,13 +451,14 @@ primate-mito.lungfishtree/
       run.treefile
       run.iqtree
       run.log
+      tip-map.tsv
   cache/
     tree-index.sqlite
 ```
 
-The canonical tree is `tree/primary.nwk`. The `artifacts/iqtree/` folder keeps the inference tool's own output untouched, including its log and its full report, so you can read exactly what IQ-TREE decided rather than only LGE's summary of it. The tree manifest records `bundleKind` as `phylogenetic-tree`, plus `tipCount`, `internalNodeCount`, `treeCount`, `isRooted`, `sourceFormat`, and the same `checksums` and `fileSizes` maps the alignment manifest carries.
+The canonical tree is `tree/primary.nwk`. The `artifacts/iqtree/` folder keeps the inference tool's own output untouched, including its log and its full report, so you can read exactly what IQ-TREE decided rather than only LGE's summary of it. IQ-TREE sees each sequence under a short stand-in name, `t0001` and onward, and `tip-map.tsv` pairs each stand-in with its alignment row and row name, so the saved tree carries the alignment's own names. The tree manifest records `bundleKind` as `phylogenetic-tree`, plus `tipCount`, `internalNodeCount`, `treeCount`, `isRooted`, `sourceFormat`, and the same `checksums` and `fileSizes` maps the alignment manifest carries. A tree LGE built also records `supportLabels`, the support tests in the order IQ-TREE writes them, such as `SH-aLRT` then `UFBoot`, `branchLengthUnit` as `substitutions per site`, and an `inference` record with the model, seed, threads, outgroup, and log-likelihood that the Inspector's Inference section shows.
 
-The primate tree reports five tips, three internal nodes, one tree, and `isRooted` false. A tip is one of the input sequences at the end of a branch, and an internal node is a branching point standing for a shared ancestor. An unrooted tree of five tips has three internal nodes rather than four, since it has no separate node at the top. The copy **Root on Selected Branch** writes, `primate-mito-rerooted.lungfishtree`, reports four internal nodes and `isRooted` true, because the new root is a node of its own.
+The primate tree reports five tips, four internal nodes, one tree, and `isRooted` true. A tip is one of the input sequences at the end of a branch, and an internal node is a branching point standing for a shared ancestor. The tree is rooted because the macaques were ticked as the outgroup, and the root is a node of its own. A tree built with no outgroup reports three internal nodes and `isRooted` false, since an unrooted tree of five tips has no separate node at the top. **Root on Selected Branch** turns such a tree into a rooted copy with four internal nodes.
 
 ## The primer scheme bundle
 

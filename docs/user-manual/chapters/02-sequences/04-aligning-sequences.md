@@ -9,7 +9,7 @@ tags: [sequences, msa, mafft, alignment, conservation, export]
 tools: [mafft]
 parameters_refs: [msa.mafft, msa.view, msa.export, import.msa]
 entry_points:
-  - Tools > Multiple Sequence Alignment > MAFFT...
+  - Tools > Alignment & Phylogenetics > MAFFT...
   - Right-click a FASTA selection > Align with MAFFT...
   - File > Import Center... > Alignments > Multiple Sequence Alignments
   - "CLI: lungfish-cli align mafft"
@@ -118,7 +118,7 @@ Import the FASTA the way [Importing and Viewing a Sequence](01-importing-and-vie
 ### Align the five genomes
 
 1. Click the imported bundle in the sidebar under `Reference Sequences/`. The viewport opens on a table with one row per sequence and Sequence, Length, and Role columns, so the five primates are listed there. Click the first row and Shift-click the last to select all five, so the run covers every sequence.
-2. Choose **Tools > Multiple Sequence Alignment > MAFFT...**. The FASTQ/FASTA Operations dialog opens on the MAFFT pane. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
+2. Choose **Tools > Alignment & Phylogenetics > MAFFT...**. The FASTQ/FASTA Operations dialog opens on the MAFFT pane. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 3. Read the line at the top of the pane. Because you are aligning the whole file, it states what will run, either "Aligning all 5 sequences." or "Aligning the 5 sequences you selected." A **Sequences to align** choice takes its place only when you select some but not all of a file's sequences.
 4. Leave **Strategy** on **Automatic**, leave the Advanced Options group collapsed, and click **Run**. [Choosing a tool](#choosing-a-tool) explains when another strategy is the better choice.
 
@@ -264,7 +264,7 @@ Select rows by clicking their names in the gutter, and select columns by draggin
 
 **Use as Reference** makes the row you right-clicked the pinned comparison row, and **Use Consensus** puts the consensus back. Pair either with a dots mode in Display, and every matching position collapses to a dot so only the differences stay as letters.
 
-**Add Annotation from Selection...** records a named feature over the selected columns of one row. **Apply Annotation to Selected Rows** copies an existing annotation onto the other selected rows, and it works only when more than one row is selected and the selected columns cover an existing annotation. **Build Tree with IQ-TREE...** stays greyed out until at least two rows are selected, and the next chapter covers it.
+**Add Annotation from Selection...** records a named feature over the selected columns of one row. **Apply Annotation to Selected Rows** copies an existing annotation onto the other selected rows, and it works only when more than one row is selected and the selected columns cover an existing annotation. **Build Tree with IQ-TREE...** opens the same dialog as **Tools > Alignment & Phylogenetics > Build Tree with IQ-TREE...**, and the next chapter covers it.
 
 Copy to Clipboard on the export sheet greys itself out with an explanation when the alignment text would exceed 5 MB, rather than failing after you commit. One character of the alignment is about one byte, so 5 MB is roughly 300 rows the length of these genomes. The five primate rows come to under 90 KB.
 

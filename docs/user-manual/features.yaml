@@ -747,7 +747,7 @@ features:
   align.viral-recon:
     title: Viral consensus and reconstruction wizard
     entry_points:
-      - "Tools > Multiple Sequence Alignment…"
+      - "Tools > Mapping > Viral Recon…"
     inputs: [fastq, reference-bundle, primer-scheme]
     outputs: [bam, vcf.gz, consensus-fasta]
     viewport_class: variant
@@ -1202,7 +1202,7 @@ features:
   msa.align:
     title: Multiple sequence alignment
     entry_points:
-      - "Tools > Multiple Sequence Alignment"
+      - "Tools > Alignment & Phylogenetics > MAFFT…"
       - "CLI: lungfish align mafft"
     inputs: [fasta, sequence-collection]
     outputs: [lungfishmsa]
@@ -1358,34 +1358,98 @@ features:
   tree.infer:
     title: Infer phylogenetic trees
     entry_points:
-      - "CLI: lungfish tree infer"
+      - "Tools > Alignment & Phylogenetics > Build Tree with IQ-TREE…"
+      - "Right-click in the alignment viewport > Build Tree with IQ-TREE…"
+      - "MSA alignment matrix or row gutter > accessibility action Build Tree with IQ-TREE…"
+      - "CLI: lungfish tree infer iqtree"
       - "CLI: lungfish msa tree"
     inputs: [lungfishmsa, newick]
     outputs: [lungfishtree]
     viewport_class: none
     sources:
+      - Sources/LungfishApp/App/MainMenu+TreeNode.swift
+      - Sources/LungfishApp/App/AppDelegate+TreeInference.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+TreeInference.swift
+      - Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController+TreeInference.swift
+      - Sources/LungfishApp/Views/Phylogenetics/IQTreeInferenceDialog.swift
+      - Sources/LungfishApp/Views/Phylogenetics/IQTreeInferenceDialogState.swift
+      - Sources/LungfishApp/Views/Phylogenetics/IQTreeInferenceOptions.swift
       - Sources/LungfishCLI/Commands/TreeCommand.swift
+      - Sources/LungfishCLI/Commands/TreeInferIQTreeCommand.swift
+      - Sources/LungfishCLI/Commands/TreeInferIQTreeStaging.swift
+      - Sources/LungfishCLI/Commands/TreeInferIQTreeInference.swift
+      - Sources/LungfishIO/Bundles/IQTreeOptionRules.swift
+      - Sources/LungfishIO/Bundles/IQTreeReportParser.swift
+      - Sources/LungfishIO/Bundles/PhylogeneticTreeInferenceSummary.swift
       - Sources/LungfishCLI/Commands/MSACommand.swift
       - Sources/LungfishCLI/Commands/ImportMSATreeSubcommands.swift
-    module: [LungfishCLI]
+    module: [LungfishApp, LungfishCLI, LungfishIO]
+    cli:
+      - lungfish-cli tree infer iqtree
+    operation_type: phylogeneticTreeInference
+    tests:
+      - Tests/LungfishAppTests/IQTreeInferenceDialogStateTests.swift
+      - Tests/LungfishAppTests/IQTreeInferenceOptionsDialogTests.swift
+      - Tests/LungfishAppTests/IQTreeInferenceReplayTests.swift
+      - Tests/LungfishAppTests/TreeInferenceResolverTests.swift
+      - Tests/LungfishAppViewTests/TreeInferenceMenuTests.swift
+      - Tests/LungfishCLITests/TreeInferIQTreeImportTests.swift
+      - Tests/LungfishCLITests/TreeInferIQTreeOptionRulesTests.swift
+      - Tests/LungfishCLITests/TreeInferIQTreeTipMapTests.swift
+      - Tests/LungfishCLITests/TreeInferIQTreeValidationTests.swift
     notes: >-
       Infers a maximum-likelihood tree from a .lungfishmsa bundle with IQ-TREE
-      or imports an existing Newick tree as a .lungfishtree bundle.
+      3 or imports an existing Newick tree as a .lungfishtree bundle. The
+      Tools item acts on the alignment shown in the viewport, else on exactly
+      one alignment selected in the sidebar, and is disabled with the tooltip
+      "Open or select an alignment to build a tree." otherwise. The Build Tree
+      with IQ-TREE dialog has Inputs (Build from Whole alignment or Selected
+      rows and columns), Model (Find best model (ModelFinder), fixed models
+      for the alphabet, Custom…, Sequence type, Genetic code for Codon),
+      Branch Support (UFBoot and SH-aLRT both on at 1000), Rooting (outgroup
+      checkboxes), Output (Name), Run (Seed blank = drawn and recorded,
+      Threads 1) and a collapsed Advanced group. Tip labels are the MSA
+      display names (staged as t0001... and mapped back through
+      artifacts/iqtree/tip-map.tsv). An outgroup run saves a rooted tree. The
+      manifest records supportLabels, branchLengthUnit and an inference
+      summary the Inspector shows as its Inference section. Chapter:
+      02-sequences/05.
   viewport.phylogenetic-tree:
     title: Phylogenetic tree viewport
     entry_points:
       - "Open a tree bundle from the sidebar"
+      - "Selection > Tree Node > Show in Inspector"
+      - "Selection > Tree Node > Root on Selected Branch"
+      - "Selection > Tree Node > Extract Subtree as New Bundle…"
+      - "Selection > Tree Node > Export Subtree…"
+      - "Inspector > Inference"
     inputs: [lungfishtree]
     outputs: [newick]
     viewport_class: none
     sources:
       - Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift
+      - Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController+SupportColumns.swift
+      - Sources/LungfishPhylogeneticsUI/PhylogeneticTreeCanvasView.swift
+      - Sources/LungfishPhylogeneticsUI/PhylogeneticTreeSupportPresentation.swift
       - Sources/LungfishPhylogeneticsUI/PhylogeneticTreeSelectionState.swift
-    module: [LungfishPhylogeneticsUI]
+      - Sources/LungfishApp/App/MainMenu+TreeNode.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/PhylogeneticTreeInferenceSection.swift
+    module: [LungfishPhylogeneticsUI, LungfishApp]
+    tests:
+      - Tests/LungfishPhylogeneticsUITests/PhylogeneticTreeSupportPresentationTests.swift
+      - Tests/LungfishPhylogeneticsUITests/PhylogeneticTreeNodeMenuBarTests.swift
+      - Tests/LungfishAppTests/PhylogeneticTreeInferenceSectionTests.swift
     notes: >-
       Renders a native .lungfishtree bundle with a canvas, node table, layout and
-      color modes, search, and a node detail pane. This viewport is not one of
-      the five genomic viewport classes.
+      color modes, search, and a node detail pane. With recorded support labels
+      the node table has one column per test (SH-aLRT, UFBoot, aBayes), the
+      canvas shows the pair as IQ-TREE wrote it (99/100), Support colouring
+      uses UFBoot with a legend, and the summary reads Rooted or Unrooted
+      (drawn root is arbitrary). Selection > Tree Node holds the ten node
+      commands of the context menu, enabled while the node table or canvas has
+      focus and a node is selected. Canvas nodes are AX buttons with the same
+      commands as custom actions. This viewport is not one of the five genomic
+      viewport classes. Chapter: 02-sequences/05.
   tree.transform:
     title: Transform phylogenetic trees
     entry_points:
