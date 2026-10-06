@@ -855,9 +855,9 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             actions.append(.command(.showInInspector))
             actions.append(.command(.copyName))
             if bundle != nil { actions.append(.copySubtreeNewick) }
-            if bundleURL != nil { actions.append(.rootOnSelectedBranch) }
+            if bundleURL != nil, node?.parentID != nil { actions.append(.rootOnSelectedBranch) }
             if let node, !node.isTip { actions.append(.toggleClade(collapsed: collapsedNodeIDs.contains(node.id))) }
-            if bundleURL != nil { actions.append(.extractSubtree) }
+            if bundleURL != nil, let node, !node.isTip { actions.append(.extractSubtree) }
             if bundle != nil { actions.append(.exportSubtree) }
         }
         if selectedTipCount > 0 { actions.append(.copySelectedTipNames) }
@@ -1089,9 +1089,9 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         do {
             let export = try bundle.subtreeExport(nodeID: selectedNodeID)
             let panel = Self.makeSubtreeExportPanel(
-                suggestedName: "\(export.selectedLabel).nwk"
+                suggestedName: Self.subtreeExportSuggestedName(label: export.selectedLabel)
             )
-            let completion: (NSApplication.ModalResponse) -> Void = { response in
+            let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
                 guard response == .OK, let url = panel.url else { return }
                 do {
                     try Self.writeSubtreeExport(
@@ -1101,7 +1101,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
                         startedAt: Date()
                     )
                 } catch {
-                    NSSound.beep()
+                    self?.presentSubtreeExportFailure(error)
                 }
             }
             if let window = view.window {
@@ -1110,7 +1110,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
                 panel.begin(completionHandler: completion)
             }
         } catch {
-            NSSound.beep()
+            presentSubtreeExportFailure(error)
         }
     }
 

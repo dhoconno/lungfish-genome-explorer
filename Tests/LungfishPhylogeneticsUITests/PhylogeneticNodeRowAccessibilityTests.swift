@@ -91,6 +91,24 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
 
     // MARK: - Served actions
 
+    func testRootOnSelectedBranchUnavailableForRootNode() throws {
+        let tree = try PhylogeneticTreeBundle.load(from: directory.appendingPathComponent("tree.lungfishtree", isDirectory: true))
+        let nodes = tree.normalizedTree.nodes
+        let root = try XCTUnwrap(nodes.first { $0.parentID == nil })
+        let child = try XCTUnwrap(nodes.first { $0.parentID != nil })
+        XCTAssertFalse(controller.availableNodeActions(forNodeID: root.id, selectedTipCount: 0).contains(.rootOnSelectedBranch))
+        XCTAssertTrue(controller.availableNodeActions(forNodeID: child.id, selectedTipCount: 0).contains(.rootOnSelectedBranch))
+    }
+
+    func testExtractSubtreeUnavailableForTip() throws {
+        let tree = try PhylogeneticTreeBundle.load(from: directory.appendingPathComponent("tree.lungfishtree", isDirectory: true))
+        let nodes = tree.normalizedTree.nodes
+        let tip = try XCTUnwrap(nodes.first { $0.isTip })
+        let internalNode = try XCTUnwrap(nodes.first { !$0.isTip })
+        XCTAssertFalse(controller.availableNodeActions(forNodeID: tip.id, selectedTipCount: 1).contains(.extractSubtree))
+        XCTAssertTrue(controller.availableNodeActions(forNodeID: internalNode.id, selectedTipCount: 0).contains(.extractSubtree))
+    }
+
     func testTipRowActionsAreListedOnceUnderTheContextMenuTitles() throws {
         let served = try firstCellActions(try firstRow(isTip: true))
         XCTAssertEqual(

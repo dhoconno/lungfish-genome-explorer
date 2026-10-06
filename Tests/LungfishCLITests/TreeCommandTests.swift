@@ -658,6 +658,53 @@ final class TreeCommandTests: XCTestCase {
         return try XCTUnwrap(object as? [String: Any])
     }
 
+    func testTreeTransformRefusalPreservesExistingOutputBundle() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/TreeCommandRefusalTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleURL = try makeTreeBundle(in: tempDir, newick: "((A:0.1,B:0.2)Clade:0.3,C:0.4);")
+        try "id\tlineage\nA\tx\nB\ty\nC\tz\n".write(to: bundleURL.appendingPathComponent("metadata.tsv"), atomically: true, encoding: .utf8)
+        let commands: [(String, [String])] = [
+            ("reroot", ["--bundle", bundleURL.path, "--on", "C"]),
+            ("extract", ["--bundle", bundleURL.path, "--node", "Clade"]),
+            ("relabel", ["--bundle", bundleURL.path, "--column", "lineage"]),
+        ]
+        for (name, base) in commands {
+            let outputURL = tempDir.appendingPathComponent("Existing-\(name).lungfishtree", isDirectory: true)
+            try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+            let sentinel = outputURL.appendingPathComponent("sentinel.txt")
+            try "keep".write(to: sentinel, atomically: true, encoding: .utf8)
+            let args = base + ["--output", outputURL.path]
+            switch name {
+            case "reroot":
+                XCTAssertThrowsError(try TreeCommand.RerootSubcommand.parse(args).executeForTesting { _ in })
+            case "extract":
+                XCTAssertThrowsError(try TreeCommand.ExtractSubtreeSubcommand.parse(args).executeForTesting { _ in })
+            default:
+                XCTAssertThrowsError(try TreeCommand.RelabelSubcommand.parse(args).executeForTesting { _ in })
+            }
+            XCTAssertTrue(FileManager.default.fileExists(atPath: sentinel.path), "\(name) removed an existing bundle")
+        }
+    }
+
+    func testTreeExtractSubtreeRejectsOverlongOutputName() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/TreeCommandLongNameTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleURL = try makeTreeBundle(in: tempDir, newick: "((A:0.1,B:0.2)Clade:0.3,C:0.4);")
+        let outputDir = tempDir.appendingPathComponent("out", isDirectory: true)
+        let outputURL = outputDir.appendingPathComponent(String(repeating: "n", count: 300) + ".lungfishtree", isDirectory: true)
+        let command = try TreeCommand.ExtractSubtreeSubcommand.parse([
+            "--bundle", bundleURL.path, "--node", "Clade", "--output", outputURL.path,
+        ])
+        XCTAssertThrowsError(try command.executeForTesting { _ in }) { error in
+            XCTAssertTrue(String(describing: error).contains("255 bytes") || error.localizedDescription.contains("255 bytes"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputDir.path))
+    }
+
     private func makeTreeBundle(in directory: URL, newick: String) throws -> URL {
         let sourceURL = directory.appendingPathComponent("source-\(UUID().uuidString).nwk")
         try newick.write(to: sourceURL, atomically: true, encoding: .utf8)
