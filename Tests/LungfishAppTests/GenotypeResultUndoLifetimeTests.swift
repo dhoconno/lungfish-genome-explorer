@@ -42,20 +42,34 @@ final class GenotypeResultUndoLifetimeTests: XCTestCase {
         XCTAssertFalse(undoManager.canUndo, "the first controller's Undo went with it")
     }
 
-    func testUndoForTheControllerOnScreenSurvives() throws {
+    /// The removal is scoped to the dropped controller. Undo that the next
+    /// genotype controller or any other view registered survives the switch.
+    func testSwitchingResultsKeepsUndoThatTargetsSomethingElse() throws {
+        final class OtherUndoTarget {}
         let host = makeHostedSplit()
         defer { host.window.close() }
-        let controller = host.split.viewerController.displayGenotypeResult(Self.makeResult())
-        let undoManager = try XCTUnwrap(controller.view.window?.undoManager)
-        var undone = false
+        let first = host.split.viewerController.displayGenotypeResult(Self.makeResult())
+        let undoManager = try XCTUnwrap(first.view.window?.undoManager)
+        let other = OtherUndoTarget()
+        var otherUndone = false
         undoManager.groupsByEvent = false
         undoManager.beginUndoGrouping()
-        undoManager.registerUndo(withTarget: controller) { _ in undone = true }
+        undoManager.registerUndo(withTarget: other) { _ in otherUndone = true }
+        undoManager.endUndoGrouping()
+        registerReviewUndo(on: undoManager, target: first)
+
+        let second = host.split.viewerController.displayGenotypeResult(Self.makeResult())
+        var secondUndone = false
+        undoManager.beginUndoGrouping()
+        undoManager.registerUndo(withTarget: second) { _ in secondUndone = true }
         undoManager.endUndoGrouping()
 
         undoManager.undo()
-
-        XCTAssertTrue(undone, "only a dropped controller loses its Undo")
+        XCTAssertTrue(secondUndone, "the controller on screen keeps its Undo")
+        // The dropped controller's handler fails the test if it ever runs. Its
+        // group may linger empty, so undo until the other target's action runs.
+        while undoManager.canUndo, !otherUndone { undoManager.undo() }
+        XCTAssertTrue(otherUndone, "Undo another view registered survives the switch")
     }
 
     // MARK: - Helpers
