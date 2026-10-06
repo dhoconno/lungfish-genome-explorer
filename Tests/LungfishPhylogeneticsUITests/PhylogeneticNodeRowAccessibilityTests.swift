@@ -115,7 +115,7 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
             served,
             [
                 "Show in Inspector", "Copy Name", "Copy Subtree as Newick", "Root on Selected Branch",
-                "Extract Subtree as New Bundle\u{2026}", "Export Subtree\u{2026}", "Copy Selected Tip Names",
+                "Export Subtree\u{2026}", "Copy Selected Tip Names",
                 "Center Node", "Reveal Provenance",
             ]
         )
@@ -221,10 +221,11 @@ final class PhylogeneticNodeRowAccessibilityTests: XCTestCase {
         let mainMenu = NSMenu()
         for command in ResultRowCommand.allCases { mainMenu.addItem(menuBarItem(command)) }
         let cellNames = try firstCellActions(row)
-        // A tip cannot be collapsed, so its menu keeps the item disabled and
-        // the row serves no action for it.
+        // A tip cannot be collapsed or extracted as a subtree, so its menu
+        // keeps those items disabled and the row serves no action for them.
         ContextMenuParityAssert.assertParity(
-            contextMenu: menu, cellActionNames: cellNames, mainMenu: mainMenu, exempt: ["Collapse Clade"]
+            contextMenu: menu, cellActionNames: cellNames, mainMenu: mainMenu,
+            exempt: ["Collapse Clade", "Extract Subtree as New Bundle\u{2026}"]
         )
 
         let enabledTitles = menu.items.filter { controller.validateMenuItem($0) }.map(\.title)

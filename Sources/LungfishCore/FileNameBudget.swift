@@ -11,11 +11,13 @@ public enum FileNameBudget {
     public static let maxComponentBytes = 255
 
     /// Returns `stem` cut so that the stem, the dot and extension, and a
-    /// reserved suffix (for example "-99") fit in `maxComponentBytes`.
+    /// reserved suffix (for example "-99") fit in `maxComponentBytes`, which
+    /// defaults to 200 to leave room below the 255-byte limit.
     ///
-    /// Whole Characters are dropped from the end, so a Character is never
-    /// split. Trailing "-", "_" and "." and leading "." are then trimmed. An
-    /// empty result becomes "untitled".
+    /// A stem that already fits is returned unchanged. Otherwise whole
+    /// Characters are dropped from the end, so a Character is never split,
+    /// and the cut end is trimmed of "-", "_" and ".". An empty result
+    /// becomes "untitled".
     public static func boundedStem(
         _ stem: String,
         pathExtension: String,
@@ -26,13 +28,12 @@ public enum FileNameBudget {
         let budget = maxComponentBytes - extensionBytes - reservedSuffixBytes
         var result = Substring(stem)
         var bytes = result.utf8.count
+        guard bytes > budget else { return stem.isEmpty ? "untitled" : stem }
         while bytes > budget, let last = result.last {
             bytes -= String(last).utf8.count
             result = result.dropLast()
         }
-        let trimmed = String(result)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
-        let leadingTrimmed = String(trimmed.drop(while: { $0 == "." }))
-        return leadingTrimmed.isEmpty ? "untitled" : leadingTrimmed
+        while let last = result.last, "-_.".contains(last) { result = result.dropLast() }
+        return result.isEmpty ? "untitled" : String(result)
     }
 }

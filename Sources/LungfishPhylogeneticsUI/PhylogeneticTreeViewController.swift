@@ -1534,11 +1534,11 @@ public extension PhylogeneticTreeViewController {
     }
 
     var testingSelectedNodeTransformAvailability: [String: Bool] {
-        let selectedNode = selectedNodeID.flatMap { nodesByID[$0] }
+        let actions = availableNodeActions(forNodeID: selectedNodeID, selectedTipCount: selectedTipLabels().count)
         return [
-            "reroot": bundleURL != nil && selectedNode != nil,
-            "collapse": selectedNode?.isTip == false,
-            "extractSubtree": bundleURL != nil && selectedNode != nil,
+            "reroot": actions.contains(.rootOnSelectedBranch),
+            "collapse": selectedNodeID.flatMap { nodesByID[$0] }?.isTip == false,
+            "extractSubtree": actions.contains(.extractSubtree),
         ]
     }
 

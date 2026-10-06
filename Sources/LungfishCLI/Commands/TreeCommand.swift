@@ -92,6 +92,7 @@ struct TreeCommand: AsyncParsableCommand {
                         throw ValidationError("Pass exactly one of --node or --label for subtree export.")
                     }
                     try validateOutputNameLength(outputURL)
+                    try validateOutputNameLength(provenanceURL)
                     guard FileManager.default.fileExists(atPath: bundleURL.path) else {
                         throw ValidationError("Input tree bundle not found: \(bundleURL.path)")
                     }

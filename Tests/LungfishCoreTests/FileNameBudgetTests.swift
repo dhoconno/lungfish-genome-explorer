@@ -24,6 +24,15 @@ final class FileNameBudgetTests: XCTestCase {
 
     func testShortStemUnchanged() {
         XCTAssertEqual(FileNameBudget.boundedStem("tree-1", pathExtension: "lungfishtree"), "tree-1")
-        XCTAssertEqual(FileNameBudget.boundedStem("...", pathExtension: "x"), "untitled")
+        // Names that already fit keep their punctuation (nextAvailableBundleURL is shared).
+        XCTAssertEqual(FileNameBudget.boundedStem("_sample_", pathExtension: "lungfishref"), "_sample_")
+        XCTAssertEqual(FileNameBudget.boundedStem("", pathExtension: "x"), "untitled")
+    }
+
+    func testCutEndIsTrimmedOfSeparators() {
+        // The budget for ".lungfishtree" is 200 - 13 - 8 = 179 bytes, so the cut lands after "-_.".
+        let input = String(repeating: "a", count: 176) + "-_." + String(repeating: "b", count: 100)
+        let stem = FileNameBudget.boundedStem(input, pathExtension: "lungfishtree")
+        XCTAssertEqual(stem, String(repeating: "a", count: 176))
     }
 }
