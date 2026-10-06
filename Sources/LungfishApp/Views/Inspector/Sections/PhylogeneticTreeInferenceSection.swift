@@ -36,16 +36,15 @@ extension PhylogeneticTreeDocumentState {
             inferenceRows: manifest.inference.map {
                 PhylogeneticTreeInferenceRows.rows(for: $0, manifest: manifest)
             } ?? [],
+            // A derived tree keeps the inference summary but not the IQ-TREE files (fix M1).
             inferenceArtifactRows: manifest.inference == nil ? [] : [
-                PhylogeneticTreeDocumentArtifactRow(
-                    label: "IQ-TREE Report",
-                    fileURL: bundle.url.appendingPathComponent("artifacts/iqtree/run.iqtree")
-                ),
-                PhylogeneticTreeDocumentArtifactRow(
-                    label: "IQ-TREE Log",
-                    fileURL: bundle.url.appendingPathComponent("artifacts/iqtree/run.log")
-                ),
-            ]
+                ("IQ-TREE Report", "artifacts/iqtree/run.iqtree"),
+                ("IQ-TREE Log", "artifacts/iqtree/run.log"),
+            ].compactMap { label, path in
+                let fileURL = bundle.url.appendingPathComponent(path)
+                guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+                return PhylogeneticTreeDocumentArtifactRow(label: label, fileURL: fileURL)
+            }
         )
     }
 }
@@ -175,15 +174,28 @@ struct PhylogeneticTreeInferenceSection: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(width: 112, alignment: .trailing)
-            Text(value)
-                .font(LungfishInspectorStyle.controlFont)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            PhylogeneticTreeInferenceValueText(value: value)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(PhylogeneticTreeInferenceRows.accessibilityText(label: label, value: value))
+    }
+}
+
+/// An Inference value. It wraps onto further lines so a long model, alignment name or
+/// likelihood stays readable at the default Inspector width.
+struct PhylogeneticTreeInferenceValueText: View {
+    let value: String
+
+    /// Nil means no line limit.
+    static let lineLimit: Int? = nil
+
+    var body: some View {
+        Text(value)
+            .font(LungfishInspectorStyle.controlFont)
+            .lineLimit(Self.lineLimit)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

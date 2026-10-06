@@ -208,7 +208,10 @@ final class PhylogeneticTreeSupportLabelTests: XCTestCase {
 
     // MARK: - Transforms (item 7)
 
-    func testTransformsPreserveSupportLabelsInferenceAndBranchLengthUnit() throws {
+    /// Fix M1. Extract drops the inference summary because its likelihood and scope describe the
+    /// whole tree. Reroot keeps it but clears the outgroup, which no longer roots the tree.
+    /// Every transform keeps the support labels, which still describe the node labels.
+    func testTransformsKeepSupportLabelsAndAdjustTheInferenceSummary() throws {
         let summary = Self.sampleSummary()
         let source = try importTree(
             Self.fixtureTreefile,
@@ -218,6 +221,15 @@ final class PhylogeneticTreeSupportLabelTests: XCTestCase {
         let cladeID = try XCTUnwrap(
             node(of: source, withDescendantTips: ["Australian_lungfish", "African_lungfish", "Human", "Frog"])
         ).id
+        try """
+        id\tcommon
+        Zebrafish_outgroup\tzebrafish
+        Coelacanth\tcoelacanth
+        Australian_lungfish\tqueensland lungfish
+        African_lungfish\tmarbled lungfish
+        Human\thuman
+        Frog\tfrog
+        """.write(to: source.url.appendingPathComponent("metadata.tsv"), atomically: true, encoding: .utf8)
 
         let rerooted = try source.rerootedBundle(
             on: lungfishID,
@@ -229,19 +241,51 @@ final class PhylogeneticTreeSupportLabelTests: XCTestCase {
             to: workspaceURL.appendingPathComponent("Extracted.lungfishtree", isDirectory: true),
             provenance: .init(toolName: "lungfish tree extract-subtree", argv: [])
         )
+        let relabeled = try source.relabeledBundle(
+            column: "common",
+            to: workspaceURL.appendingPathComponent("Relabeled.lungfishtree", isDirectory: true),
+            provenance: .init(toolName: "lungfish tree relabel", argv: [])
+        )
 
-        for derived in [rerooted, extracted] {
+        XCTAssertNil(extracted.manifest.inference)
+        XCTAssertNil(try PhylogeneticTreeBundle.load(from: extracted.url).manifest.inference)
+
+        let rerootedInference = try XCTUnwrap(rerooted.manifest.inference)
+        XCTAssertNil(rerootedInference.outgroup)
+        XCTAssertNil(rerootedInference.outgroupWarning)
+        XCTAssertEqual(rerootedInference, Self.sampleSummary(outgroup: nil, outgroupWarning: nil))
+        XCTAssertEqual(try PhylogeneticTreeBundle.load(from: rerooted.url).manifest.inference, rerootedInference)
+
+        XCTAssertEqual(relabeled.manifest.inference, summary)
+        XCTAssertEqual(try PhylogeneticTreeBundle.load(from: relabeled.url).manifest.inference, summary)
+
+        for derived in [rerooted, extracted, relabeled] {
             XCTAssertEqual(derived.manifest.supportLabels, Self.pairLabels)
-            XCTAssertEqual(derived.manifest.inference, summary)
             XCTAssertEqual(derived.manifest.branchLengthUnit, "substitutions per site")
             let reloaded = try PhylogeneticTreeBundle.load(from: derived.url)
             XCTAssertEqual(reloaded.manifest.supportLabels, Self.pairLabels)
-            XCTAssertEqual(reloaded.manifest.inference, summary)
             XCTAssertEqual(reloaded.normalizedTree, derived.normalizedTree)
+        }
+        for derived in [rerooted, extracted] {
             let tetrapods = try XCTUnwrap(node(of: derived, withDescendantTips: ["Human", "Frog"]))
             XCTAssertEqual(tetrapods.supportValues.map(\.value), [0, 30])
             XCTAssertEqual(tetrapods.support?.interpretation, "UFBoot")
         }
+    }
+
+    func testRerootOfATreeWithAnOutgroupWarningClearsTheWarning() throws {
+        let summary = Self.sampleSummary(outgroupWarning: "The outgroup (Zebrafish_outgroup) is not monophyletic in the inferred tree, so the tree was saved unrooted.")
+        let source = try importTree(Self.fixtureTreefile, options: .init(supportLabels: Self.pairLabels, inference: summary))
+        let rerooted = try source.rerootedBundle(
+            on: "Coelacanth",
+            to: workspaceURL.appendingPathComponent("Rerooted.lungfishtree", isDirectory: true),
+            provenance: .init(toolName: "lungfish tree reroot", argv: [])
+        )
+        let inference = try XCTUnwrap(rerooted.manifest.inference)
+        XCTAssertNil(inference.outgroup)
+        XCTAssertNil(inference.outgroupWarning)
+        XCTAssertEqual(inference.logLikelihood, summary.logLikelihood)
+        XCTAssertEqual(inference.seed, summary.seed)
     }
 
     func testRerootKeepsPairSupportOnTheSameSplitsOfASixTaxonTree() throws {
@@ -273,7 +317,10 @@ final class PhylogeneticTreeSupportLabelTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private static func sampleSummary() -> PhylogeneticTreeInferenceSummary {
+    private static func sampleSummary(
+        outgroup: [String]? = ["Zebrafish_outgroup"],
+        outgroupWarning: String? = nil
+    ) -> PhylogeneticTreeInferenceSummary {
         PhylogeneticTreeInferenceSummary(
             program: "IQ-TREE",
             programVersion: "3.1.3",
@@ -287,8 +334,8 @@ final class PhylogeneticTreeSupportLabelTests: XCTestCase {
             sequenceType: "DNA",
             seed: 12345,
             threads: 1,
-            outgroup: ["Zebrafish_outgroup"],
-            outgroupWarning: nil,
+            outgroup: outgroup,
+            outgroupWarning: outgroupWarning,
             sourceAlignmentName: "known-sarcopterygian",
             sourceAlignmentPath: "Alignments/known-sarcopterygian.lungfishmsa",
             selectedRowCount: 6,

@@ -79,3 +79,34 @@ public struct PhylogeneticTreeInferenceSummary: Codable, Sendable, Equatable {
         self.alignedLength = alignedLength
     }
 }
+
+extension PhylogeneticTreeInferenceSummary {
+    /// The same summary without the outgroup and its warning. A rerooted tree is no longer
+    /// rooted on the inference outgroup, so neither field describes it (fix M1).
+    public func clearingOutgroup() -> PhylogeneticTreeInferenceSummary {
+        PhylogeneticTreeInferenceSummary(
+            program: program,
+            programVersion: programVersion,
+            requestedModel: requestedModel,
+            bestFitModel: bestFitModel,
+            modelSelectionCriterion: modelSelectionCriterion,
+            substitutionModel: substitutionModel,
+            logLikelihood: logLikelihood,
+            logLikelihoodStandardError: logLikelihoodStandardError,
+            freeParameters: freeParameters,
+            ufBootReplicates: ufBootReplicates,
+            shALRTReplicates: shALRTReplicates,
+            sequenceType: sequenceType,
+            seed: seed,
+            threads: threads,
+            outgroup: nil,
+            outgroupWarning: nil,
+            sourceAlignmentName: sourceAlignmentName,
+            sourceAlignmentPath: sourceAlignmentPath,
+            selectedRowCount: selectedRowCount,
+            totalRowCount: totalRowCount,
+            selectedColumns: selectedColumns,
+            alignedLength: alignedLength
+        )
+    }
+}

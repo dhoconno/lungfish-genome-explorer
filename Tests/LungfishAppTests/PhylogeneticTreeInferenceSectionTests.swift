@@ -5,11 +5,14 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+import SwiftUI
+import ViewInspector
 
 @MainActor
 final class PhylogeneticTreeInferenceSectionTests: XCTestCase {
     func testInferredTreeShowsTheInferenceSectionBeforeTreeSummary() throws {
         let bundle = try makeBundle(inference: sarcopterygianInference())
+        try writeIQTreeArtifacts(in: bundle, ["run.iqtree", "run.log"])
         let inspector = InspectorViewController()
         inspector.loadViewIfNeeded()
 
@@ -86,7 +89,60 @@ final class PhylogeneticTreeInferenceSectionTests: XCTestCase {
         XCTAssertEqual(PhylogeneticTreeInferenceRows.accessibilityText(label: "Seed", value: "7"), "Seed, 7")
     }
 
+    /// Fix M1: a derived tree keeps the inference summary but not the IQ-TREE files, so the
+    /// Report and Log rows appear only for files the bundle holds.
+    func testIQTreeArtifactRowsAppearOnlyForFilesInTheBundle() throws {
+        let bundle = try makeBundle(inference: sarcopterygianInference())
+        XCTAssertTrue(PhylogeneticTreeDocumentState(bundle: bundle).inferenceArtifactRows.isEmpty)
+        XCTAssertFalse(PhylogeneticTreeDocumentState(bundle: bundle).inferenceRows.isEmpty)
+
+        try writeIQTreeArtifacts(in: bundle, ["run.log"])
+        XCTAssertEqual(PhylogeneticTreeDocumentState(bundle: bundle).inferenceArtifactRows.map(\.label), ["IQ-TREE Log"])
+
+        let rerooted = try bundle.rerootedBundle(
+            on: "A",
+            to: bundle.url.deletingLastPathComponent().appendingPathComponent("rerooted.lungfishtree", isDirectory: true),
+            provenance: .init(toolName: "lungfish tree reroot", argv: [])
+        )
+        let rerootedState = PhylogeneticTreeDocumentState(bundle: rerooted)
+        XCTAssertFalse(rerootedState.inferenceRows.isEmpty)
+        XCTAssertTrue(rerootedState.inferenceArtifactRows.isEmpty)
+    }
+
+    /// GUI walk: long values wrap instead of middle-truncating at the default Inspector width.
+    func testInferenceValuesWrapWithoutALineLimitOrTruncation() throws {
+        let values = [
+            "SH-aLRT 1000, UFBoot 1000. Node labels read SH-aLRT/UFBoot.",
+            "RhesusMacaqueMitochondrialGenome NC_012670.1",
+            "-47913.8812 (s.e. 246.1458)",
+        ]
+        let section = PhylogeneticTreeInferenceSection(
+            rows: values.enumerated().map { ("Row \($0.offset)", $0.element) },
+            artifactRows: []
+        )
+        let inspected = try section.inspect()
+        XCTAssertNil(PhylogeneticTreeInferenceValueText.lineLimit)
+        for value in values {
+            let text = try inspected.find(text: value)
+            XCTAssertNil(try text.lineLimit(), value)
+            XCTAssertThrowsError(try text.truncationMode(), value)
+            XCTAssertEqual(try text.string(), value)
+        }
+        XCTAssertEqual(
+            try inspected.find(text: values[0]).find(ViewType.HStack.self, relation: .parent).accessibilityLabel().string(),
+            "Row 0, \(values[0])"
+        )
+    }
+
     // MARK: - Fixtures
+
+    private func writeIQTreeArtifacts(in bundle: PhylogeneticTreeBundle, _ names: [String]) throws {
+        let directory = bundle.url.appendingPathComponent("artifacts/iqtree", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for name in names {
+            try "IQ-TREE \(name)\n".write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+    }
 
     private func sarcopterygianInference() -> PhylogeneticTreeInferenceSummary {
         PhylogeneticTreeInferenceSummary(
