@@ -154,7 +154,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 storageInputSizeBytes: result.originalSizeBytes,
                 storageOutputSizeBytes: result.finalSizeBytes
             )
-            recordReadRolesAndPairing(of: result.outputFile, sourceInputURL: sourceInputURL, in: &metadata)
+            recordReadRolesAndPairing(of: result.outputFile, sourceInputURL: sourceInputURL, request: originalRequest, in: &metadata)
             FASTQMetadataStore.save(metadata, for: result.outputFile)
 
             let operation = try writeDerivedManifest(
