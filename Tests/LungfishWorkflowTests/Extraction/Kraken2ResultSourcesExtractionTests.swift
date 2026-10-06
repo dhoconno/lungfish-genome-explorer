@@ -305,10 +305,10 @@ final class Kraken2ResultSourcesExtractionTests: XCTestCase {
                 metadata: ExtractionMetadata(sourceDescription: "a3", toolName: "Kraken2", parameters: [:])
             )
         )
-        guard case .bundle(let url, _) = outcome else {
-            throw XCTSkip("expected a bundle outcome, got \(outcome)")
-        }
-        return url
+        // Another outcome is a dispatch regression, so it fails the test
+        // rather than skip it (final review B note 11).
+        let url: URL? = if case .bundle(let url, _) = outcome { url } else { nil }
+        return try XCTUnwrap(url, "expected a bundle outcome, got \(outcome)")
     }
 
     /// The record names an extraction writes, or the error it threw, so a
