@@ -2422,7 +2422,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertFalse(controller.testingCallEvidencePaneHidden)
         XCTAssertEqual(controller.testingCurrentCallEvidenceSample, "AnimalA")
         XCTAssertFalse(controller.testingSampleDetailRows(sample: "AnimalA").isEmpty)
-        // Tools > Genotype Review > Flag Sample for Review (⇧⌘F) is a
+        // Selection > Genotype Sample > Flag Sample for Review (⇧⌘F) is a
         // nil-target menu item; validation follows the selected call.
         let flagItem = NSMenuItem(
             title: "Flag Sample for Review",
@@ -2443,7 +2443,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    /// The review commands are nil-target Tools > Genotype Review menu
+    /// The review commands are nil-target Selection > Genotype Sample menu
     /// items (⌘R / ⌘K / ⇧⌘F / ⇧⌘O). `window.tryToPerform` is the same
     /// responder-chain walk AppKit performs for such an item, so this proves
     /// the real dispatch path reaches the controller, which a

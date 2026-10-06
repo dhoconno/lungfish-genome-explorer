@@ -75,7 +75,7 @@ struct ClassificationSampleReadPlan: Equatable, Sendable {
 /// ## Presentation
 ///
 /// Accessible from:
-/// - Tools menu: "Classify Reads..."
+/// - Tools > Classification > Kraken2...
 /// - Right-click on a FASTQ in sidebar: "Classify with Kraken2..."
 /// - The TaxonomyViewController (for re-running with different settings)
 ///
