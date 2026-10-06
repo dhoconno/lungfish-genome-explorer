@@ -44,6 +44,14 @@ struct IQTreeInferenceDialog: View {
 struct IQTreeInferenceToolPane: View {
     @Bindable var state: IQTreeInferenceDialogState
 
+    private enum FocusedControl: Hashable {
+        case model
+    }
+
+    /// The sheet opens with keyboard focus on the Model pop-up, the first
+    /// choice most runs change (m12).
+    @FocusState private var focusedControl: FocusedControl?
+
     var body: some View {
         Form {
             inputsSection
@@ -55,6 +63,8 @@ struct IQTreeInferenceToolPane: View {
             advancedSection
         }
         .formStyle(.grouped)
+        .defaultFocus($focusedControl, .model)
+        .onAppear { focusedControl = .model }
     }
 
     // MARK: Inputs
@@ -97,18 +107,19 @@ struct IQTreeInferenceToolPane: View {
             }
             .accessibilityLabel("Model")
             .accessibilityIdentifier("iqtree-options-model")
+            .focused($focusedControl, equals: .model)
 
             if state.modelChoice == .custom {
                 labeledTextField("Custom model", text: $state.customModel, prompt: "GTR+F+I+G4", identifier: "iqtree-options-custom-model")
                 caption("Enter any IQ-TREE model string. MF, TESTONLY and other ONLY presets build no tree.")
             }
 
-            Picker("Sequence Type", selection: $state.sequenceType) {
+            Picker("Sequence type", selection: $state.sequenceType) {
                 ForEach(state.availableSequenceTypes, id: \.self) { type in
                     Text(type.displayName).tag(type)
                 }
             }
-            .accessibilityLabel("Sequence Type")
+            .accessibilityLabel("Sequence type")
             .accessibilityIdentifier("iqtree-options-sequence-type")
 
             if state.sequenceType == .codon {
@@ -173,13 +184,13 @@ struct IQTreeInferenceToolPane: View {
         Section("Rooting") {
             LabeledContent("Outgroup") {
                 if state.outgroupCandidates.isEmpty {
-                    Text("No sequence names can be used")
+                    Text("No sequences are available")
                         .foregroundStyle(.secondary)
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
-                            ForEach(state.outgroupCandidates, id: \.self) { name in
-                                Toggle(name, isOn: outgroupBinding(for: name))
+                            ForEach(state.outgroupCandidates, id: \.id) { row in
+                                Toggle(row.displayName, isOn: outgroupBinding(for: row.id))
                                     .toggleStyle(.checkbox)
                             }
                         }
@@ -190,16 +201,13 @@ struct IQTreeInferenceToolPane: View {
             }
             .accessibilityIdentifier("iqtree-options-outgroup")
             caption(IQTreeInferenceDialogState.outgroupCaption)
-            if state.hasCommaNamesExcludedFromOutgroup {
-                caption(IQTreeInferenceDialogState.outgroupCommaCaption)
-            }
         }
     }
 
-    private func outgroupBinding(for name: String) -> Binding<Bool> {
+    private func outgroupBinding(for rowID: String) -> Binding<Bool> {
         Binding(
-            get: { state.isOutgroupSelected(name) },
-            set: { state.setOutgroup(name, selected: $0) }
+            get: { state.isOutgroupSelected(rowID: rowID) },
+            set: { state.setOutgroup(rowID: rowID, selected: $0) }
         )
     }
 

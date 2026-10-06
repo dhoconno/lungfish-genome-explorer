@@ -39,8 +39,7 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
     private func makeState(
         rows: String? = nil,
         columns: String? = nil,
-        alignment: IQTreeAlignmentSummary?,
-        performanceCoreCount: Int = 6
+        alignment: IQTreeAlignmentSummary?
     ) -> IQTreeInferenceDialogState {
         IQTreeInferenceDialogState(
             request: MultipleSequenceAlignmentTreeInferenceRequest(
@@ -51,8 +50,7 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
                 displayName: "alignment"
             ),
             projectURL: projectURL,
-            alignment: alignment,
-            performanceCoreCount: performanceCoreCount
+            alignment: alignment
         )
     }
 
@@ -197,6 +195,30 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
         let options = try preparedOptions(state)
         XCTAssertEqual(options.bootstrap, 1000)
         XCTAssertEqual(options.alrt, 1000)
+    }
+
+    /// Fix F1 (m3): growing the scope back to 4 or more sequences restores the
+    /// D4 defaults while the user has not touched either box.
+    func testGrowingScopeRestoresSupportDefaultsWhenNeverToggled() throws {
+        let state = makeState(rows: "row-1,row-2,row-3", alignment: alignment(rowCount: 6))
+        XCTAssertFalse(state.bootstrapEnabled)
+        XCTAssertFalse(state.alrtEnabled)
+        state.scope = .whole
+        XCTAssertTrue(state.bootstrapEnabled)
+        XCTAssertTrue(state.alrtEnabled)
+        let options = try preparedOptions(state)
+        XCTAssertEqual(options.bootstrap, 1000)
+        XCTAssertEqual(options.alrt, 1000)
+    }
+
+    func testGrowingScopeKeepsSupportBoxesTheUserToggled() {
+        let state = makeState(rows: "row-1,row-2,row-3", alignment: alignment(rowCount: 6))
+        state.scope = .whole
+        state.alrtEnabled = false
+        state.scope = .selected
+        state.scope = .whole
+        XCTAssertFalse(state.bootstrapEnabled)
+        XCTAssertFalse(state.alrtEnabled)
     }
 
     func testBootstrapBelowUFBootMinimumBlocksRun() {
@@ -369,26 +391,33 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
 
     // MARK: - D6 threads
 
-    func testThreadsDefaultToOneForSmallScopes() throws {
-        let state = makeState(alignment: alignment(rowCount: 49, alignedLength: 9_999), performanceCoreCount: 12)
-        XCTAssertEqual(state.threadsText, "1")
-        XCTAssertEqual(value(after: "--threads", in: launch(try preparedOptions(state)).arguments), "1")
+    /// Revised D6: one thread for every scope, because IQ-TREE with more
+    /// threads gives slightly different branch lengths on each run.
+    func testThreadsDefaultToOneForEveryScope() throws {
+        let small = makeState(alignment: alignment(rowCount: 6, alignedLength: 300))
+        XCTAssertEqual(small.threadsText, "1")
+        XCTAssertEqual(value(after: "--threads", in: launch(try preparedOptions(small)).arguments), "1")
+        let large = makeState(alignment: alignment(rowCount: 60, alignedLength: 20_000))
+        XCTAssertEqual(large.threadsText, "1")
+        XCTAssertEqual(value(after: "--threads", in: launch(try preparedOptions(large)).arguments), "1")
     }
 
-    func testThreadsDefaultToPerformanceCoresCappedAtEightForLargeScopes() {
-        XCTAssertEqual(makeState(alignment: alignment(rowCount: 50), performanceCoreCount: 12).threadsText, "8")
-        XCTAssertEqual(makeState(alignment: alignment(rowCount: 10, alignedLength: 10_000), performanceCoreCount: 6).threadsText, "6")
-    }
-
-    func testThreadDefaultFollowsScopeUntilEdited() {
+    func testEditedThreadsAreRecordedAndSurviveScopeChanges() throws {
         let names = (1...60).map { "Sequence \($0)" }
-        let state = makeState(rows: "row-1,row-2,row-3", alignment: alignment(names: names), performanceCoreCount: 4)
-        XCTAssertEqual(state.threadsText, "1")
+        let state = makeState(rows: "row-1,row-2,row-3", alignment: alignment(names: names))
         state.scope = .whole
-        XCTAssertEqual(state.threadsText, "4")
-        state.threadsText = "2"
+        XCTAssertEqual(state.threadsText, "1")
+        state.threadsText = "4"
         state.scope = .selected
-        XCTAssertEqual(state.threadsText, "2")
+        XCTAssertEqual(state.threadsText, "4")
+        XCTAssertEqual(value(after: "--threads", in: launch(try preparedOptions(state)).arguments), "4")
+    }
+
+    func testThreadsCaptionExplainsReproducibility() {
+        XCTAssertEqual(
+            IQTreeInferenceDialogState.threadsCaption,
+            "One thread gives the same tree on every run. More threads can be faster on large alignments, but IQ-TREE then gives slightly different branch lengths each run."
+        )
     }
 
     func testNonNumericThreadsBlockRun() {
@@ -401,36 +430,67 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
 
     // MARK: - D7 outgroup
 
-    func testOutgroupCandidatesAreInScopeNamesWithoutCommas() {
+    /// Fix F1 (m6): every in-scope row is a candidate, commas included, and
+    /// each one is keyed by its row ID.
+    func testOutgroupCandidatesAreEveryInScopeRow() {
         let state = makeState(
             rows: "row-1,row-2,row-3,row-4",
             alignment: alignment(names: ["Homo sapiens", "Macaca mulatta", "Pan, troglodytes", "Gorilla", "Mus musculus"])
         )
-        XCTAssertEqual(state.outgroupCandidates, ["Homo sapiens", "Macaca mulatta", "Gorilla"])
-        XCTAssertTrue(state.hasCommaNamesExcludedFromOutgroup)
+        XCTAssertEqual(state.outgroupCandidates.map(\.displayName), ["Homo sapiens", "Macaca mulatta", "Pan, troglodytes", "Gorilla"])
+        XCTAssertEqual(state.outgroupCandidates.map(\.id), ["row-1", "row-2", "row-3", "row-4"])
         state.scope = .whole
-        XCTAssertEqual(state.outgroupCandidates, ["Homo sapiens", "Macaca mulatta", "Gorilla", "Mus musculus"])
+        XCTAssertEqual(state.outgroupCandidates.map(\.id), ["row-1", "row-2", "row-3", "row-4", "row-5"])
     }
 
-    func testOutgroupArgumentListsSelectedNamesInRowOrder() throws {
-        let state = makeState(alignment: alignment(names: ["Homo sapiens", "Macaca mulatta", "Gorilla", "Mus musculus"]))
+    /// Fix F1 (m6): the outgroup reaches the CLI as row IDs in row order, so a
+    /// name with a comma is passed safely.
+    func testOutgroupArgumentListsSelectedRowIDsInRowOrder() throws {
+        let state = makeState(alignment: alignment(names: ["Homo sapiens", "Macaca mulatta", "Pan, troglodytes", "Mus musculus"]))
         XCTAssertFalse(launch(try preparedOptions(state)).arguments.contains("--outgroup"))
-        state.setOutgroup("Mus musculus", selected: true)
-        state.setOutgroup("Macaca mulatta", selected: true)
+        state.setOutgroup(rowID: "row-4", selected: true)
+        state.setOutgroup(rowID: "row-3", selected: true)
+        XCTAssertTrue(state.isOutgroupSelected(rowID: "row-3"))
         let options = try preparedOptions(state)
-        XCTAssertEqual(options.outgroup, ["Macaca mulatta", "Mus musculus"])
-        XCTAssertEqual(value(after: "--outgroup", in: launch(options).arguments), "Macaca mulatta,Mus musculus")
+        XCTAssertEqual(options.outgroup, ["row-3", "row-4"])
+        XCTAssertEqual(value(after: "--outgroup", in: launch(options).arguments), "row-3,row-4")
     }
 
-    func testScopeChangeDropsOutOfScopeOutgroupNames() throws {
+    func testScopeChangeDropsOutOfScopeOutgroupRows() throws {
         let state = makeState(
             rows: "row-1,row-2,row-3",
             alignment: alignment(names: ["Homo sapiens", "Macaca mulatta", "Gorilla", "Mus musculus"])
         )
         state.scope = .whole
-        state.setOutgroup("Mus musculus", selected: true)
+        state.setOutgroup(rowID: "row-4", selected: true)
         state.scope = .selected
         XCTAssertEqual(try preparedOptions(state).outgroup, [])
+    }
+
+    /// Fix F1 (M2): the dialog blocks what the CLI rejects at staging.
+    func testDuplicateInScopeDisplayNamesBlockRun() {
+        let state = makeState(
+            rows: "row-1,row-2,row-3,row-4",
+            alignment: alignment(names: ["Homo sapiens", "Macaca mulatta", "Homo sapiens", "Gorilla", "Macaca mulatta"])
+        )
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(
+            state.validationMessage,
+            "Rows row-1, row-3 share the display name 'Homo sapiens'. Tree tips need distinct names."
+        )
+        XCTAssertEqual(state.outgroupCandidates.map(\.id), ["row-1", "row-2", "row-3", "row-4"])
+    }
+
+    /// Fix F1 (M2): an outgroup of every in-scope row leaves no ingroup.
+    func testOutgroupCoveringEveryRowBlocksRun() {
+        let state = makeState(alignment: alignment(rowCount: 4))
+        for id in ["row-1", "row-2", "row-3"] {
+            state.setOutgroup(rowID: id, selected: true)
+        }
+        XCTAssertTrue(state.isRunEnabled)
+        state.setOutgroup(rowID: "row-4", selected: true)
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(state.validationMessage, "The outgroup must leave at least one sequence in the ingroup.")
     }
 
     /// Fix C1: the dialog splits the model on the first "+" like the CLI does.
@@ -487,20 +547,66 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
         XCTAssertTrue(parsed.keepIdenticalSequences)
     }
 
-    /// EXPECTED TO FAIL until lane B lands `--outgroup` and the CODON1..CODON25
-    /// sequence types in `lungfish-cli tree infer iqtree`. The orchestrator
-    /// re-runs this test after both lanes merge.
-    func testRecordedCommandWithLaneBOptionsParsesAfterLaneBLands() throws {
+    /// The codon genetic code and the outgroup row IDs parse with the real CLI parser.
+    func testRecordedCommandParsesCodonTypeAndOutgroupRowIDs() throws {
         let state = makeState(alignment: alignment(names: ["Homo sapiens", "Macaca mulatta", "Gorilla", "Mus musculus"]))
         state.sequenceType = .codon
         state.geneticCode = .vertebrateMitochondrial
-        state.setOutgroup("Mus musculus", selected: true)
+        state.setOutgroup(rowID: "row-4", selected: true)
         let launch = launch(try preparedOptions(state), seed: 5)
 
         let parsed = try RecordedCLICommand.parse(launch.cliCommand, as: TreeCommand.InferIQTreeSubcommand.self)
         XCTAssertEqual(parsed.sequenceType, "CODON2")
-        let mirror = Mirror(reflecting: parsed)
-        let outgroup = mirror.children.first { $0.label == "outgroup" || $0.label == "_outgroup" }
-        XCTAssertNotNil(outgroup, "lungfish-cli tree infer iqtree has no --outgroup option yet")
+        XCTAssertEqual(parsed.outgroup, "row-4")
+    }
+
+    /// The command ViewerViewController.runIQTreeInferenceViaCLI records is
+    /// `IQTreeInferenceLaunch.make(...).cliCommand`. Every option the dialog
+    /// sets parses back to the same value with the real CLI parser.
+    func testRunIQTreeInferenceViaCLIRecordsACommandThatParsesToTheOptions() throws {
+        let options = IQTreeInferenceOptions(
+            outputName: "alignment-tree",
+            rows: "row-1,row-2,row-3,row-4",
+            columns: "10-200",
+            model: "GTR+F+I+G4",
+            sequenceType: "DNA",
+            bootstrap: 2000,
+            alrt: 1000,
+            seed: 31,
+            threads: 3,
+            outgroup: ["row-2", "row-4"],
+            safeMode: true,
+            keepIdenticalSequences: true,
+            iqtreePath: "/opt/iqtree/bin/iqtree3",
+            extraIQTreeOptions: "-bnni"
+        )
+        let launch = IQTreeInferenceLaunch.make(
+            bundleURL: bundleURL,
+            projectURL: projectURL,
+            outputURL: outputURL,
+            outputName: options.outputName,
+            options: options,
+            drawSeed: { XCTFail("a set seed is never drawn"); return 1 }
+        )
+
+        let parsed = try RecordedCLICommand.parse(launch.cliCommand, as: TreeCommand.InferIQTreeSubcommand.self)
+        XCTAssertEqual(parsed.msaBundlePath, bundleURL.path)
+        XCTAssertEqual(parsed.projectPath, projectURL.path)
+        XCTAssertEqual(parsed.outputPath, outputURL.path)
+        XCTAssertEqual(parsed.name, options.outputName)
+        XCTAssertEqual(parsed.rows, options.rows)
+        XCTAssertEqual(parsed.columns, options.columns)
+        XCTAssertEqual(parsed.model, options.model)
+        XCTAssertEqual(parsed.sequenceType, options.sequenceType)
+        XCTAssertEqual(parsed.bootstrap, options.bootstrap)
+        XCTAssertEqual(parsed.alrt, options.alrt)
+        XCTAssertEqual(parsed.seed, options.seed)
+        XCTAssertEqual(parsed.globalOptions.threads, options.threads)
+        XCTAssertEqual(parsed.outgroup, options.outgroup.joined(separator: ","))
+        XCTAssertEqual(parsed.safeMode, options.safeMode)
+        XCTAssertEqual(parsed.keepIdenticalSequences, options.keepIdenticalSequences)
+        XCTAssertEqual(parsed.iqtreePath, options.iqtreePath)
+        XCTAssertEqual(parsed.extraArgs, options.extraIQTreeOptions)
+        XCTAssertFalse(parsed.force)
     }
 }

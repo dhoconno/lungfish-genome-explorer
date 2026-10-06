@@ -30,8 +30,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
                 rows: names.enumerated().map { IQTreeAlignmentSummary.Row(id: "row-\($0.offset + 1)", displayName: $0.element) },
                 alignedLength: 300,
                 alphabet: "dna"
-            ),
-            performanceCoreCount: 4
+            )
         )
     }
 
@@ -119,7 +118,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
 
         let pickers = inspected.findAll(ViewType.Picker.self)
         let pickerLabels = try pickers.map { try $0.labelView().text().string() }
-        for expected in ["Build from", "Model", "Sequence Type", "Genetic code"] {
+        for expected in ["Build from", "Model", "Sequence type", "Genetic code"] {
             XCTAssertTrue(pickerLabels.contains(expected), "Missing pop-up \(expected) in \(pickerLabels)")
         }
 
@@ -170,9 +169,8 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         let labels = try toggles.map { try $0.labelView().text().string() }
         XCTAssertTrue(labels.contains("Homo sapiens"))
         XCTAssertTrue(labels.contains("Gorilla gorilla"))
-        XCTAssertFalse(labels.contains("Pan, troglodytes"))
+        XCTAssertTrue(labels.contains("Pan, troglodytes"), "names with commas are listed because the outgroup passes row IDs")
         XCTAssertFalse(labels.contains("Mus musculus"), "Mus musculus is outside the selected rows")
-        _ = try inspected.find(text: IQTreeInferenceDialogState.outgroupCommaCaption)
     }
 
     func testMSATreeInferenceRoutesThroughDialogBeforeRunner() throws {
@@ -213,6 +211,30 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         XCTAssertGreaterThan(minimum.width, 0)
     }
 
+    /// Fix F1 (m12): the sheet opens with keyboard focus on the Model pop-up.
+    /// AppKit lets a pop-up take focus only with Full Keyboard Access on.
+    @MainActor
+    func testInitialFocusIsTheModelPopUp() throws {
+        guard NSApplication.shared.isFullKeyboardAccessEnabled else {
+            throw XCTSkip("Pop-up buttons take keyboard focus only with Full Keyboard Access on.")
+        }
+        let window = AccessibilityTreeProbe.host(makeDialog(makeState()), size: CGSize(width: 780, height: 1200))
+        defer { window.orderOut(nil) }
+        window.makeKey()
+
+        func focusedIdentifier() -> String? {
+            var view = window.firstResponder as? NSView
+            while let current = view {
+                let identifier = current.accessibilityIdentifier()
+                if identifier.isEmpty == false { return identifier }
+                view = current.superview
+            }
+            return nil
+        }
+        AccessibilityTreeProbe.waitUntil { focusedIdentifier() == "iqtree-options-model" }
+        XCTAssertEqual(focusedIdentifier(), "iqtree-options-model", String(describing: window.firstResponder))
+    }
+
     /// The live AX tree, as VoiceOver reads it. Every text field speaks its
     /// visible title, and the one sidebar card reports AXSelected.
     @MainActor
@@ -240,7 +262,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
             ("iqtree-options-bootstrap-count", "UFBoot replicates"),
             ("iqtree-options-alrt-count", "SH-aLRT replicates"),
             ("iqtree-options-model", "Model"),
-            ("iqtree-options-sequence-type", "Sequence Type"),
+            ("iqtree-options-sequence-type", "Sequence type"),
             ("iqtree-options-scope", "Build from"),
             ("iqtree-options-bootstrap-checkbox", "Ultrafast bootstrap (UFBoot)"),
             ("iqtree-options-advanced-parameters", "Additional IQ-TREE parameters"),

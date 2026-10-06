@@ -18,6 +18,7 @@ struct IQTreeInferenceOptions: Equatable, Sendable {
     var alrt: Int?
     var seed: Int?
     var threads: Int
+    /// Outgroup row IDs in row order (m6).
     var outgroup: [String]
     var safeMode: Bool
     var keepIdenticalSequences: Bool
