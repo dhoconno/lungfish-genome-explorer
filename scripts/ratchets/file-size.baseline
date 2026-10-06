@@ -24,7 +24,7 @@ Sources/LungfishApp/Views/AI/AIAssistantPanel.swift 1011
 Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift 1114
 Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 2957
 Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift 1069
-Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2316
+Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2315
 Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
 Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 1025
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 887
@@ -44,7 +44,7 @@ Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 832
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1123
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1024
 Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift 1039
-Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift 816
+Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift 813
 Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift 905
 Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerView.swift 806
 Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift 891

@@ -120,21 +120,6 @@ struct ClassificationWizardSheet: View {
     @State private var selectedDatabaseName: String = ""
     @State private var preset: ClassificationConfig.Preset = .balanced
     @State private var showAdvanced: Bool = false
-    @State private var classificationMultiBundleRunMode: MultiBundleRunMode = .perBundle
-
-    /// Kraken2/Bracken runs one classify+profile pass per sample
-    /// (MetagenomicsSampleGrouper groups the selected bundles, and
-    /// `performRun` maps each sample to its own `ClassificationConfig`).
-    /// Pooling reads across samples would conflate per-sample abundance
-    /// estimates, so there is no combined mode. For N>1 samples
-    /// `runClassificationBatch` registers ONE OperationCenter entry and
-    /// writes ONE merged classification-batch-summary.tsv, which the
-    /// lockReason states. Display-only, the per-sample fan-out is unchanged.
-    static let classificationMultiBundleRunPolicy = MultiBundleRunPolicy(
-        allowedModes: [.perBundle],
-        defaultMode: .perBundle,
-        lockReason: "Selections run as one classification batch (one operations entry, merged summary); each sample is classified separately within the batch."
-    )
 
     // Advanced settings
     @State private var confidence: Double = 0.2
@@ -162,6 +147,9 @@ struct ClassificationWizardSheet: View {
     /// Notifies the shared shell whether the current configuration can run.
     var onRunnerAvailabilityChange: ((Bool) -> Void)?
 
+    /// Reports progress text while the wizard is not ready, or nil once it is.
+    var onReadinessDetailChange: ((String?) -> Void)?
+
     // MARK: - Initialization
 
     init(
@@ -170,7 +158,8 @@ struct ClassificationWizardSheet: View {
         embeddedRunTrigger: Int = 0,
         onRun: (([ClassificationConfig]) -> Void)? = nil,
         onCancel: (() -> Void)? = nil,
-        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
+        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil,
+        onReadinessDetailChange: ((String?) -> Void)? = nil
     ) {
         self.inputFiles = inputFiles
         self.embeddedInOperationsDialog = embeddedInOperationsDialog
@@ -178,6 +167,7 @@ struct ClassificationWizardSheet: View {
         self.onRun = onRun
         self.onCancel = onCancel
         self.onRunnerAvailabilityChange = onRunnerAvailabilityChange
+        self.onReadinessDetailChange = onReadinessDetailChange
     }
 
     // MARK: - Database Loading
@@ -231,6 +221,12 @@ struct ClassificationWizardSheet: View {
     /// Whether this run is a multi-sample batch.
     private var isBatchMode: Bool {
         groupedSamples.count > 1
+    }
+
+    /// Progress text while read layouts are still being checked, nil once every sample is done.
+    private var readPlanStatusText: String? {
+        guard readPlansInputFiles != inputFiles else { return nil }
+        return "Checking read layouts (\(readPlans.count) of \(groupedSamples.count))\u{2026}"
     }
 
     /// Whether the Run button should be enabled.
@@ -314,20 +310,27 @@ struct ClassificationWizardSheet: View {
         .task(id: inputFiles) {
             let files = inputFiles
             let samples = groupedSamples
-            let plans = await Task.detached(priority: .userInitiated) {
-                var result: [String: ClassificationSampleReadPlan] = [:]
-                for sample in samples { result[sample.sampleId] = await ClassificationSampleReadPlan.planned(for: sample) }
-                return result
-            }.value
+            readPlans = [:]
+            readPlansInputFiles = nil
+            let scan = SampleReadPlanScan.stream(samples: samples) { sample in
+                await ClassificationSampleReadPlan.planned(for: sample)
+            }
+            for await (id, plan) in scan {
+                guard !Task.isCancelled else { return }
+                readPlans[id] = plan
+            }
             guard !Task.isCancelled else { return }
-            readPlans = plans
             readPlansInputFiles = files
+        }
+        .onChange(of: readPlanStatusText) { _, newValue in
+            onReadinessDetailChange?(newValue)
         }
         .onReceive(NotificationCenter.default.publisher(for: .managedResourcesDidChange)) { _ in
             Task { await loadDatabases() }
         }
         .onAppear {
             onRunnerAvailabilityChange?(canRun)
+            onReadinessDetailChange?(readPlanStatusText)
         }
         .onChange(of: canRun) { _, newValue in
             onRunnerAvailabilityChange?(newValue)
@@ -401,8 +404,8 @@ struct ClassificationWizardSheet: View {
                 Text("No databases installed")
                     .font(.caption)
                     .foregroundStyle(Color.lungfishOrangeFallback)
-            } else if !canRun, let advancedArgumentsParseError {
-                Text(advancedArgumentsParseError)
+            } else if !canRun, let message = advancedArgumentsParseError ?? readPlanStatusText {
+                Text(message)
                     .font(.caption)
                     .foregroundStyle(Color.lungfishOrangeFallback)
             }
@@ -458,15 +461,9 @@ struct ClassificationWizardSheet: View {
             Text("Batch Samples")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
-            Text("One Kraken2/Bracken run will be executed per sample.")
+            Text("LGE runs Kraken2 and Bracken on each sample and saves all results together in one batch result.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            MultiBundleRunModePicker(
-                bundleCount: groupedSamples.count,
-                policy: Self.classificationMultiBundleRunPolicy,
-                selection: $classificationMultiBundleRunMode
-            )
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(groupedSamples.prefix(8)) { sample in
