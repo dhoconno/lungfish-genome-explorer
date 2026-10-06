@@ -248,7 +248,7 @@ A tree LGE built carries an Inference section in the Inspector, above the Tree S
 | Program | IQ-TREE 3.1.3 |
 | Model requested | MFP (ModelFinder) |
 | Best-fit model | TPM2u+F+I (BIC) |
-| Model of substitution | TPM2u+F+I |
+| Substitution model | TPM2u+F+I |
 | Sequence type | Detected automatically |
 | Branch support | SH-aLRT 1000, UFBoot 1000. Node labels read SH-aLRT/UFBoot. |
 | Outgroup | RhesusMacaque_NC_005943.1, CynomolgusMacaque_NC_012670.1 |
@@ -258,7 +258,7 @@ A tree LGE built carries an Inference section in the Inspector, above the Tree S
 | Log-likelihood | -47913.8807 (s.e. 246.1459) |
 | Branch lengths | substitutions per site |
 
-Best-fit model appears only when ModelFinder ran, and a fixed model shows only Model requested and Model of substitution. An Outgroup warning row appears when the outgroup did not form one group and the tree was left unrooted. The log-likelihood is the score of the final tree, and it is useful only for comparing trees built from the same alignment. Two rows at the end, IQ-TREE Report and IQ-TREE Log, name IQ-TREE's own report and log inside the bundle, and clicking either shows the file in the Finder. The report holds the full ModelFinder table and the counts of constant and parsimony-informative sites.
+Best-fit model appears only when ModelFinder ran, and a fixed model shows only Model requested and Substitution model. An Outgroup warning row appears when the outgroup did not form one group and the tree was left unrooted. The log-likelihood is the score of the final tree, and it is useful only for comparing trees built from the same alignment. Two rows at the end, IQ-TREE Report and IQ-TREE Log, name IQ-TREE's own report and log inside the bundle, and clicking either shows the file in the Finder. The report holds the full ModelFinder table and the counts of constant and parsimony-informative sites.
 
 A rerooted copy keeps the Inference section, but its Outgroup row reads None, since the root came from a later step. An extracted clade has no Inference section, because IQ-TREE never saw that clade on its own.
 

@@ -63,7 +63,7 @@ enum PhylogeneticTreeInferenceRows {
             rows.append(("Best-fit model", bestFit))
         }
         if let substitution = inference.substitutionModel, !substitution.isEmpty {
-            rows.append(("Model of substitution", substitution))
+            rows.append(("Substitution model", substitution))
         }
         rows += [
             ("Sequence type", sequenceTypeText(inference.sequenceType)),
