@@ -35,7 +35,7 @@ A shortcut acts on the window that has focus. Focus means the window or pane you
 
 A greyed menu item is disabled, and its shortcut does nothing until the item is enabled. Nothing happens and no message appears. LGE greys items out on purpose whenever the command has nothing to act on, so the four zoom commands are disabled until a sequence or an alignment is on screen and **Cancel All Operations** is disabled until something is running.
 
-One part of the Tools menu is gated further. A Genotyping tool shows "(not enabled)" after its name, in grey, until you turn it on in the [Workflow Library](../../GLOSSARY.md#workflow-library). Choosing it, or pressing its shortcut, asks whether to open the Workflow Library rather than starting the tool, as [Turning on a specialized workflow](../01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows.
+One part of the Tools menu is gated further. A specialized workflow that is switched off, such as 12S Amplicon Matching until you first turn it on, reads Enable before its name, as in **Enable 12S Amplicon Matching...**. Choosing that item asks whether to open the [Workflow Library](../../GLOSSARY.md#workflow-library), where you turn the workflow on, rather than starting the tool, as [Turning on a specialized workflow](../01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows.
 
 Your work is saved as you go. There is no Save command and no Cmd-S in LGE, because every change is written to the project folder the moment you make it. Nothing sits in memory waiting to be saved, and closing a window loses nothing.
 
@@ -75,7 +75,7 @@ Project-level commands. All four rows need a project window open and in front.
 | Close | Cmd-W | Standard macOS |
 | Import Center... | Cmd-Shift-I | LGE's own |
 
-**Import Center...** opens the window for bringing files into the project you have open. The File menu explains the absence of Save in its own words under **About Saving...**, which has no shortcut of its own. The menu's other items, **Open Recent**, the **Export** submenu with its seven export commands and its **Provenance** submenu, and **Manage Project Storage...**, have no shortcuts. The seventh export command, **12S Result...**, opens the format list for the 12S amplicon result in front, the same list the result window's Export button offers.
+**Import Center...** opens the window for bringing files into the project you have open. The File menu explains the absence of Save in its own words under **About Saving...**, which has no shortcut of its own. The menu's other items, **Open Recent**, the **Search Online Databases** submenu with **Search NCBI...**, **Search SRA...**, and **Search Pathoplexus...**, the **Export** submenu with its seven export commands and its **Provenance** submenu, and **Manage Project Storage...**, have no shortcuts. The seventh export command, **12S Result...**, opens the format list for the 12S amplicon result in front, the same list the result window's Export button offers.
 
 ## Edit menu
 
@@ -89,6 +89,8 @@ Standard Mac editing. These six work in whatever text field, table, or viewport 
 | Copy | Cmd-C | Standard macOS |
 | Paste | Cmd-V | Standard macOS |
 | Select All | Cmd-A | Standard macOS |
+
+In a genotype result window, Undo and Redo also take back and reapply the three sample status commands, as [Inside the genotype result window](#inside-the-genotype-result-window) describes.
 
 The Find submenu at the bottom of the Edit menu holds three more, all of them standard. **Find...** is Cmd-F, **Find Next** is Cmd-G, and **Find Previous** is Cmd-Shift-G. **Delete** sits just above Select All with no shortcut.
 
@@ -171,7 +173,7 @@ These are LGE's own bindings and they do not match what other sequence viewers u
 
 ## Selection menu
 
-Commands that act on whatever you have selected in the sidebar or in a result table. The menu has two submenus, **Sidebar Item** and **Table Row**, and one command of its own, **Show in Inspector**. Every item here is the same command the right-click menu of that row offers, so you never need the mouse to reach one.
+Commands that act on whatever you have selected in the sidebar, a result table, a tree, or a genotype result. The menu has five submenus, **Sidebar Item**, **Table Row**, **Tree Node**, **Genotype Sample**, and **Genotype Call**, and one command of its own, **Show in Inspector**. Every item here is the same command the right-click menu of that row offers, so you never need the mouse to reach one.
 
 | Action | Shortcut | Origin |
 |---|---|---|
@@ -179,6 +181,13 @@ Commands that act on whatever you have selected in the sidebar or in a result ta
 | Sidebar Item > Duplicate | Cmd-D | Standard macOS (Finder) |
 | Sidebar Item > Move to Trash | Cmd-Delete | Standard macOS (Finder) |
 | Sidebar Item > Select Siblings | Cmd-Shift-A | LGE's own |
+| Genotype Sample > Mark Sample Reviewed | Cmd-R | LGE's own |
+| Genotype Sample > Mark Sample Confirmed | Cmd-K | LGE's own |
+| Genotype Sample > Flag Sample for Review | Cmd-Shift-F | LGE's own |
+| Genotype Sample > Sample Detail… | Cmd-Shift-O | LGE's own |
+| Genotype Call > Mark False Positive | Cmd-Opt-P | LGE's own |
+| Genotype Call > Mark False Negative | Cmd-Opt-X | LGE's own |
+| Genotype Call > Clear Review | Cmd-Opt-R | LGE's own |
 | Show in Inspector | Cmd-Opt-S | LGE's own |
 
 The **Sidebar Item** submenu works while the sidebar list has focus, so click a sidebar row first. Its items are greyed out whenever they do not apply to the selected rows, so **Open Bundle** stays disabled on a folder and **Reassemble...** stays disabled on anything that is not an assembly. Cmd-Shift-N New Folder, Cmd-D Duplicate, and Cmd-Delete Move to Trash carry the meanings Finder gives them. Cmd-Delete moves the selected rows to the Trash, and inside a text field it keeps its usual meaning of deleting to the start of the line, because the sidebar command is disabled while a text field has focus. **Select Siblings** selects every item beside the selected one in the same folder, which is the quick way to pick every barcode of a run.
@@ -186,6 +195,8 @@ The **Sidebar Item** submenu works while the sidebar list has focus, so click a 
 The **Table Row** submenu works while a result table has focus, such as the taxonomy table of a classifier result or the annotation table below a sequence. It holds the commands those tables offer on a right-click, from **Extract Reads...** and **Verify with BLAST...** to the copy commands and the NCBI and PubMed links, and each table enables only the ones it supports.
 
 The **Tree Node** submenu holds the ten commands the tree viewport offers on a right-click of a node, from **Copy Subtree as Newick** to **Root on Selected Branch** and **Extract Subtree as New Bundle...**, none with a shortcut. It works while the tree canvas or the Nodes drawer has focus and a node is selected, so click a node first. [Acting on a node](../02-sequences/05-building-trees.md#acting-on-a-node) lists the commands.
+
+The **Genotype Sample** and **Genotype Call** submenus act on the genotype result window, as [Inside the genotype result window](#inside-the-genotype-result-window) describes. Genotype Sample works once a sample is selected there, and Genotype Call works while the comparison matrix has focus and a selection.
 
 **Show in Inspector** sits on its own because it means the same thing everywhere. It reveals the Inspector and shows the selected sidebar item, variant, chromosome, or tree node there.
 
@@ -199,16 +210,7 @@ This row works whenever a project window is in front.
 
 The Plugin Manager installs and removes [plugin packs](../../GLOSSARY.md#plugin-pack). B is not a mnemonic.
 
-The **Genotype Review** submenu of the Tools menu holds four more, plus a **Selected Cell** submenu for the comparison matrix. They act on the genotype result window described in [Inside the genotype result window](#inside-the-genotype-result-window), and they stay greyed out until a sample is selected there.
-
-| Action | Shortcut | Origin |
-|---|---|---|
-| Mark Sample Reviewed | Cmd-R | LGE's own |
-| Mark Sample Confirmed | Cmd-K | LGE's own |
-| Flag Sample for Review | Cmd-Shift-F | LGE's own |
-| Sample Detail… | Cmd-Shift-O | LGE's own |
-
-Nothing else in the Tools menu has a shortcut, including **Call Variants...**, **Workflow Library...**, **Haplotype Definitions...**, the **Search Online Databases** submenu, and every individual tool.
+Nothing else in the Tools menu has a shortcut, including **Call Variants...**, **Workflow Library...**, **MHC Haplotype Definitions...**, and every individual tool. The genotype review shortcuts belong to the Selection menu, as [Selection menu](#selection-menu) shows.
 
 ## Operations menu
 
@@ -284,9 +286,11 @@ The distance matrix on the Distances tab under the alignment has keys of its own
 
 The genotype result window shows the alleles LGE [called](../../GLOSSARY.md#call) for each sample. Cmd-F, which is **Edit > Find...**, moves the cursor into its quick filter search field, and with that field focused, Escape clears it.
 
-The four **Genotype Review** commands in the Tools menu work once a sample is selected in the window's Review lens, or a call is selected in a MiSeq result, and stay greyed out otherwise. Cmd-R marks the sample reviewed, Cmd-K marks it confirmed, Cmd-Shift-F flags it for review, and Cmd-Shift-O opens its Sample Detail sheet.
+The four commands in **Selection > Genotype Sample** work once a sample is selected in the window's Review lens, or a call is selected in a MiSeq result, and stay greyed out otherwise. Cmd-R marks the sample reviewed, Cmd-K marks it confirmed, Cmd-Shift-F flags it for review, and Cmd-Shift-O opens its Sample Detail sheet.
 
-The comparison matrix inside that window, where each cell is one allele in one sample, has three review commands that hold Cmd and Opt together. They live in **Tools > Genotype Review > Selected Cell**, and they work only while the matrix has keyboard focus and a selection, so click a cell first. Cmd-Opt-P marks the selected cell a false positive, Cmd-Opt-X marks it a false negative, and Cmd-Opt-R clears the review mark. Edit Comment… and Remove Comments sit in the same Selected Cell menu with no shortcut, because Cmd-Opt-M belongs to macOS as Minimize All. All five also appear on the matrix's right-click menu. VoiceOver lists the commands that apply to a row, such as Select Supported Cells, Mark False Positive, Add Comment…, Hide Selected Row, and Show Only Selected Row, as actions on that row, and the **Columns** pull-down lists its items as actions on the button.
+Cmd-Z undoes the last of those status changes and Cmd-Shift-Z redoes it, and the Edit menu names the command, as in **Undo Mark Sample Confirmed**. Undo puts back the status the sample had before, or no status at all. Each change, an Undo included, adds a row to the Audit Timeline in the Inspector that shows the status before and after it, and an Undo that leaves the sample with no status reads Clear status there. The Undo history ends when the viewport shows something else, so a change made before you clicked away can no longer be undone.
+
+The comparison matrix inside that window, where each cell is one allele in one sample, has three review commands that hold Cmd and Opt together. They live in **Selection > Genotype Call**, and they work only while the matrix has keyboard focus and a selection, so click a cell first. Cmd-Opt-P marks the selected cell a false positive, Cmd-Opt-X marks it a false negative, and Cmd-Opt-R clears the review mark. Edit Comment… and Remove Comments sit in the same Genotype Call menu with no shortcut, because Cmd-Opt-M belongs to macOS as Minimize All. None of the five can be undone with Cmd-Z, so take a mark back with Clear Review and a comment with Remove Comments. All five also appear on the matrix's right-click menu. VoiceOver lists the commands that apply to a row, such as Select Supported Cells, Mark False Positive, Add Comment…, Hide Selected Row, and Show Only Selected Row, as actions on that row, and the **Columns** pull-down lists its items as actions on the button.
 
 The known-allele overview, which draws a reference allele's gene, CDS, and exon blocks, is reachable from the keyboard. Tab moves into a lane that has blocks, and the Left Arrow and Right Arrow keys move between its blocks and show each block's details. Return or Space highlights the focused block, and Escape clears the highlight. VoiceOver reads each block as a button, and pressing a block highlights it, and a **Clear Highlight** action appears while it is highlighted.
 
@@ -380,7 +384,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Escape | Clear the quick filter field | Genotype quick filter field |
 | Escape | Step back up one level | Taxonomy sunburst |
 | Cmd-F | Find... | Edit menu, genotype result window's quick filter field |
-| Cmd-Shift-F | Flag Sample for Review | Tools menu, Genotype Review |
+| Cmd-Shift-F | Genotype Sample, Flag Sample for Review | Selection menu, genotype result window |
 | Cmd-Opt-F | Focus Viewer | View menu |
 | Ctrl-Cmd-F | Enter Full Screen | View menu |
 | Ctrl-Cmd-Opt-F | Restore Side Panes | View menu |
@@ -391,7 +395,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Opt-H | Hide Others | Application menu |
 | Cmd-Opt-I | Show Inspector | View menu |
 | Cmd-Shift-I | Import Center... | File menu |
-| Cmd-K | Mark Sample Confirmed | Tools menu, Genotype Review |
+| Cmd-K | Genotype Sample, Mark Sample Confirmed | Selection menu, genotype result window |
 | Cmd-L | Go to Location... | Sequence menu |
 | Cmd-Opt-L | Selected Operation, View Log | Operations menu |
 | Cmd-M | Minimize | Window menu |
@@ -401,12 +405,12 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Shift-N | Sidebar Item, New Folder... | Selection menu, sidebar list |
 | Cmd-O | Open Project Folder... | File menu |
 | Cmd-Opt-O | Selected Operation, Reveal Output Files | Operations menu |
-| Cmd-Shift-O | Sample Detail… | Tools menu, Genotype Review |
-| Cmd-Opt-P | Selected Cell, Mark False Positive | Tools menu, Genotype Review, genotype comparison matrix |
+| Cmd-Shift-O | Genotype Sample, Sample Detail… | Selection menu, genotype result window |
+| Cmd-Opt-P | Genotype Call, Mark False Positive | Selection menu, genotype comparison matrix |
 | Cmd-Shift-P | Show Operations Panel | Operations menu |
 | Cmd-Q | Quit Lungfish Genome Explorer | Application menu |
-| Cmd-R | Mark Sample Reviewed | Tools menu, Genotype Review |
-| Cmd-Opt-R | Selected Cell, Clear Review | Tools menu, Genotype Review, genotype comparison matrix |
+| Cmd-R | Genotype Sample, Mark Sample Reviewed | Selection menu, genotype result window |
+| Cmd-Opt-R | Genotype Call, Clear Review | Selection menu, genotype comparison matrix |
 | Cmd-Shift-R | Reverse Complement... | Sequence menu |
 | Ctrl-Cmd-S | Show Sidebar | View menu |
 | Cmd-Opt-S | Show in Inspector | Selection menu, sidebar list and result tables |
@@ -416,9 +420,9 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Opt-V | Provenance Inspector | View menu |
 | Cmd-W | Close | File menu |
 | Cmd-X | Cut | Edit menu |
-| Cmd-Opt-X | Selected Cell, Mark False Negative | Tools menu, Genotype Review, genotype comparison matrix |
-| Cmd-Z | Undo | Edit menu |
-| Cmd-Shift-Z | Redo | Edit menu |
+| Cmd-Opt-X | Genotype Call, Mark False Negative | Selection menu, genotype comparison matrix |
+| Cmd-Z | Undo, including a genotype sample status change | Edit menu |
+| Cmd-Shift-Z | Redo, including a genotype sample status change | Edit menu |
 | Cmd-comma | Settings... | Application menu |
 | Cmd-plus | Zoom In | View menu, sequence and BAM alignment viewports, classifier read viewer |
 | Cmd-Opt-plus | Content Text Size, Larger | View menu |

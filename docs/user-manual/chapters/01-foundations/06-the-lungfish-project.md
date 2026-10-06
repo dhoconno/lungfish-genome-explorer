@@ -215,30 +215,28 @@ A result remembers the data it was made from, such as the reads a classifier ran
 
 ## The Tools menu
 
-Almost every analysis starts from the **Tools** menu. Its submenus follow the order of the work, and the table maps each one to the chapter that covers it. Read it as an index when you meet a menu item and want its chapter.
+Almost every analysis starts from the **Tools** menu. Its submenus follow the order of the work, and separators split them into four groups. The first prepares reads, the second analyses them, the third works with sequences and alignments, and the last runs workflows and plug-ins. The table maps each submenu or item to the chapter that covers it. Read it as an index when you meet a menu item and want its chapter. **File > Search Online Databases** holds Search NCBI…, Search SRA…, and Search Pathoplexus…, which [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) and [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) cover.
 
 | Tools submenu or item | What it holds | Chapter |
 |---|---|---|
-| PCR Primer Design | Primer3…, PrimalScheme…, Olivar…, varVAMP… | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) and the rest of the Primer Design part |
 | QC & Reporting | Refresh QC Summary… | [Quality Control for Reads](../03-reads/03-quality-control.md) |
 | Demultiplexing | Demultiplex Barcodes…, ONT Fluidigm Sample Split… | [Oxford Nanopore Runs](../03-reads/07-ont-runs.md) |
-| Trimming & Filtering | fastp Adapter + Quality Trim…, Quality Trim…, Adapter Removal…, Primer Trimming…, Trim Fixed Bases…, Filter by Read Length… | [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md) |
-| Decontamination | Remove Human Reads…, Remove ribosomal RNA sequences…, Remove Contaminants…, Low-Complexity Filter…, Remove Duplicates… | [Decontamination](../03-reads/05-decontamination.md) |
-| Read Processing | Merge Overlapping Pairs…, Repair Paired-End Files…, Reverse Complement…, Translate…, Orient Reads…, Correct Sequencing Errors… | [Read Processing](../03-reads/08-read-processing.md) |
+| Trimming & Filtering | fastp Adapter & Quality Trim…, Quality Trim…, Adapter Removal…, Primer Trimming…, Trim Fixed Bases…, Filter by Read Length…, Remove Low-Complexity Reads…, Remove Duplicate Reads… | [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md), with the last two in [Decontamination](../03-reads/05-decontamination.md) |
+| Decontamination | Remove Human Reads…, Remove Ribosomal RNA Reads…, Remove Contaminants… | [Decontamination](../03-reads/05-decontamination.md) |
+| Read Processing | Merge Overlapping Pairs…, Repair Paired-End Files…, Reverse Complement All Sequences…, Translate All Sequences…, Orient Reads…, Correct Sequencing Errors… | [Read Processing](../03-reads/08-read-processing.md) |
 | Search & Subsetting | Subsample by Proportion…, Subsample by Count…, Extract Reads by ID…, Extract Reads by Motif…, Select Reads by Sequence… | [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md) |
-| Alignment & Phylogenetics | MAFFT…, Build Tree with IQ-TREE… | [Aligning Sequences](../02-sequences/04-aligning-sequences.md) and [Building Trees](../02-sequences/05-building-trees.md) |
-| Mapping | minimap2…, BWA-MEM2…, Bowtie2…, BBMap…, Viral Recon… | [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) and [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md) |
+| Mapping | minimap2…, BWA-MEM2…, Bowtie2…, BBMap… | [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) |
+| Variant Calling | Call Variants…, Viral Recon (SARS-CoV-2)… | [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) and [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md) |
 | Assembly | SPAdes…, MEGAHIT…, SKESA…, Flye…, Hifiasm… | [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](../07-assembly/02-running-spades.md) and [Long-Read Assembly (Flye, hifiasm)](../07-assembly/03-running-flye-or-hifiasm.md) |
 | Clustering | Savont Clustering…, pbAA Amplicon Clustering… | [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md) |
-| Classification | Kraken2…, EsViritu…, TaxTriage… | [What Is Read Classification](../06-classification/01-what-is-classification.md) |
-| Genotyping | miSeq amplicon MHC genotyping…, Full-length ONT MHC genotyping…, 12S Amplicon Matching… | [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md) and [12S Amplicon Metabarcoding](../06-classification/10-twelve-s-metabarcoding.md) |
-| Haplotype Definitions… | The window that lists, imports, and edits haplotype definition sets | [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md) |
-| Call Variants… | The Call Variants dialog | [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) |
-| Search Online Databases | Search NCBI…, Search SRA…, Search Pathoplexus… | [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) and [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) |
-| Workflows | Workflow Library…, and one item for each workflow package you link | [Running External Workflows](../08-workflows/03-running-external-workflows.md) |
+| Classification | Kraken2…, EsViritu…, TaxTriage…, 12S Amplicon Matching… | [What Is Read Classification](../06-classification/01-what-is-classification.md) and [12S Amplicon Metabarcoding](../06-classification/10-twelve-s-metabarcoding.md) |
+| Genotyping | MiSeq Amplicon MHC Genotyping…, Full-Length ONT MHC Genotyping…, MHC Haplotype Definitions… | [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md) |
+| Alignment & Phylogenetics | MAFFT…, Build Tree with IQ-TREE… | [Aligning Sequences](../02-sequences/04-aligning-sequences.md) and [Building Trees](../02-sequences/05-building-trees.md) |
+| PCR Primer Design | Primer3…, PrimalScheme…, Olivar…, varVAMP… | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) and the rest of the Primer Design part |
+| Workflows | One item for each workflow package you link, then Workflow Library… | [Running External Workflows](../08-workflows/03-running-external-workflows.md) |
 | Plugin Manager… | The window that installs tool packs and databases | [Plugin Packs](07-plugin-packs.md) |
 
-A workflow that is switched off appears in pale grey with "(not enabled)" after its name. Choosing it offers to open the Workflow Library, where [Turning on a specialized workflow](07-plugin-packs.md#turning-on-a-specialized-workflow) shows the switch. Haplotype Definitions… appears only while a workflow that uses haplotype definitions is switched on, which the miSeq amplicon workflow is from the start.
+A workflow that is switched off reads Enable before its name, such as Enable 12S Amplicon Matching… in the Classification submenu. Choosing it offers to open the Workflow Library, where [Turning on a specialized workflow](07-plugin-packs.md#turning-on-a-specialized-workflow) shows the switch. MHC Haplotype Definitions… opens the window that lists, imports, and edits haplotype definition sets. It stays greyed out until a workflow that uses haplotype definitions is switched on, which MiSeq Amplicon MHC Genotyping is from the start.
 
 ## The Import Center
 

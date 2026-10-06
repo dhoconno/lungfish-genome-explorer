@@ -39,7 +39,7 @@ The second is a CSV or TSV table, a plain text file with one row per sample and 
 
 The third is a set of LabKey files. LabKey is a laboratory data server many primate centres use, and its import expects long-format tables, meaning one row per fact rather than one column per sample. This export also comes from the command line only.
 
-Each export records the calls, the read counts, and the notes and review marks you added in the window. The [genotype matrix](../../GLOSSARY.md#genotype-matrix), the grid of allele targets by samples, is read and annotated as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md) shows. This chapter starts where that one ends. The haplotype definitions a run used are managed separately, in the Haplotype Definitions window that [Where haplotype definitions come from](02-running-genotyping.md#where-haplotype-definitions-come-from) describes, and **Export** there writes a definition set to a file of its own.
+Each export records the calls, the read counts, and the notes and review marks you added in the window. The [genotype matrix](../../GLOSSARY.md#genotype-matrix), the grid of allele targets by samples, is read and annotated as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md) shows. This chapter starts where that one ends. The haplotype definitions a run used are managed separately, in the MHC Haplotype Definitions window that [Where haplotype definitions come from](02-running-genotyping.md#where-haplotype-definitions-come-from) describes, and **Export** there writes a definition set to a file of its own.
 
 ## Why you would do this
 
@@ -151,7 +151,7 @@ A LabKey export writes five files into the folder you name. Each is long format,
 | `audit_log.csv` | Recorded review action, the [audit log](../../GLOSSARY.md#audit-log) |
 | `smart_cohorts.csv` | Saved [smart cohort](../../GLOSSARY.md#smart-cohort) |
 
-A file with only its header row is expected when the result carries no facts of that kind, such as `overrides.csv` for a result nobody corrected. On the demo result `haplotype_calls.csv` holds 12 rows, two slots for each of three regions in two samples, and `allele_read_counts.csv` holds 6. The other three files hold only their headers. A genotype-only result writes `haplotype_calls.csv` with only its header, since it carries no calls.
+In `audit_log.csv` a sample status row carries the status it replaced in its `before` column, and an Undo that left a sample with no status is a row whose `action` is `clearSampleStatus`. A file with only its header row is expected when the result carries no facts of that kind, such as `overrides.csv` for a result nobody corrected. On the demo result `haplotype_calls.csv` holds 12 rows, two slots for each of three regions in two samples, and `allele_read_counts.csv` holds 6. The other three files hold only their headers. A genotype-only result writes `haplotype_calls.csv` with only its header, since it carries no calls.
 
 ## What good looks like
 

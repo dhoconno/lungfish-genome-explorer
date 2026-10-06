@@ -111,7 +111,7 @@ A virus grown in cell culture from a macaque sample and sequenced on a nanopore 
 
 A bacterial isolate sequenced only on nanopore goes to Flye for the same reason.
 
-In a macaque MHC region, the highly variable immune gene cluster, similar genes can collapse into one contig in any assembler. For allele calls, use [Full-length ONT MHC genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#choosing-a-tool) rather than assembly.
+In a macaque MHC region, the highly variable immune gene cluster, similar genes can collapse into one contig in any assembler. For allele calls, use [Full-Length ONT MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#choosing-a-tool) rather than assembly.
 
 The human-mito fixture is Illumina reads from one small circular genome, so [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](02-running-spades.md) uses the Isolate profile. [Long-Read Assembly (Flye, hifiasm)](03-running-flye-or-hifiasm.md) assembles long reads from the same person's mitochondrion, the hg002-long-reads fixture. Citations are in the [Tool Bibliography](../appendices/bibliography.md#tools-installed-by-a-plugin-pack), with the mode papers under [Assembler modes with their own papers](../appendices/bibliography.md#assembler-modes-with-their-own-papers).
 

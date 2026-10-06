@@ -122,7 +122,7 @@ chapter has a result to photograph.
 
 1. Start Docker Desktop and wait for it to report that the engine is running.
 2. Open the demo project in the app.
-3. Choose Tools then Mapping then Viral Recon.
+3. Choose Tools then Variant Calling then Viral Recon (SARS-CoV-2).
 4. Pick the `SRR36291587` sample and the MN908947.3 reference.
 5. Run the wizard and leave the app open until the operation finishes.
 

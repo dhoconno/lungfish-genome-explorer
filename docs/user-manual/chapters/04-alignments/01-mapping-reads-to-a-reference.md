@@ -17,7 +17,7 @@ entry_points:
   - "CLI: lungfish-cli map, lungfish-cli bam adopt-mapping, lungfish-cli import bam"
 shots:
   - id: tools-mapping-submenu
-    caption: "The Tools menu with its Mapping submenu open, listing the minimap2, BWA-MEM2, Bowtie2, BBMap, and Viral Recon items."
+    caption: "The Tools menu with its Mapping submenu open, listing the minimap2, BWA-MEM2, Bowtie2, and BBMap items."
   - id: mapping-wizard-overview
     caption: "The FASTQ/FASTA Operations dialog with minimap2 chosen in the tool list, the chr20_10.0-10.5Mb reference and the Short-read preset selected, HG002 minimap2 typed into the Output Track section's Track name (--track-name) field, the Input Compatibility readout reporting Ready, and the Read Group and Advanced Settings disclosures collapsed."
   - id: mapping-wizard-advanced

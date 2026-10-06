@@ -11,8 +11,8 @@ parameters_refs: [fastq.merge-overlapping-pairs, fastq.repair-paired-end-files, 
 entry_points:
   - "Tools > Read Processing > Merge Overlapping Pairs..."
   - "Tools > Read Processing > Repair Paired-End Files..."
-  - "Tools > Read Processing > Reverse Complement..."
-  - "Tools > Read Processing > Translate..."
+  - "Tools > Read Processing > Reverse Complement All Sequences..."
+  - "Tools > Read Processing > Translate All Sequences..."
   - "Tools > Read Processing > Orient Reads..."
   - "Tools > Read Processing > Correct Sequencing Errors..."
   - "CLI: lungfish-cli fastq merge, repair, reverse-complement, translate, orient, error-correct"
@@ -40,7 +40,7 @@ A [read](../../GLOSSARY.md#read) is the record a sequencer writes for one DNA fr
 
 A [paired-end](../../GLOSSARY.md#paired-end) run gives two mates per DNA fragment, as [Importing Sequencing Reads](01-importing-fastq.md) explains. Two of the operations work on those pairs. Merge Overlapping Pairs performs [read merging](../../GLOSSARY.md#read-merging), joining the two mates of a fragment into one longer sequence where they overlap in the middle. Repair Paired-End Files puts mates back next to each other when an earlier program has pulled them out of step.
 
-Two operations rewrite each read on its own. Reverse Complement flips every read onto the opposite DNA strand, which means reversing the bases and swapping A with T and C with G. Translate turns the bases into the protein they would encode. The last two use outside information. [Orient Reads](../../GLOSSARY.md#orient-reads) compares each read with a reference sequence, flips the reads that came off the other strand, and drops any read it cannot place. Correct Sequencing Errors compares every read with the rest of the data set to repair bases that look like instrument mistakes.
+Two operations rewrite each read on its own. Reverse Complement All Sequences flips every read onto the opposite DNA strand, which means reversing the bases and swapping A with T and C with G. Translate All Sequences turns the bases into the protein they would encode. This chapter calls them Reverse Complement and Translate for short. The last two use outside information. [Orient Reads](../../GLOSSARY.md#orient-reads) compares each read with a reference sequence, flips the reads that came off the other strand, and drops any read it cannot place. Correct Sequencing Errors compares every read with the rest of the data set to repair bases that look like instrument mistakes.
 
 <!-- SHOT: read-processing-menu -->
 
@@ -130,7 +130,7 @@ Select the bundle, choose **Tools > Read Processing > Correct Sequencing Errors.
 
 ### Flipping and translating
 
-Reverse Complement and Translate have nothing to set. Select the bundle, choose **Tools > Read Processing > Reverse Complement...** or **Tools > Read Processing > Translate...**, and click Run. Translate always reads each sequence from its first base, and its pane says "Frame 1 translation is used for this operation."
+Reverse Complement and Translate have nothing to set. Select the bundle, choose **Tools > Read Processing > Reverse Complement All Sequences...** or **Tools > Read Processing > Translate All Sequences...**, and click Run. Translate always reads each sequence from its first base, and its pane says "Frame 1 translation is used for this operation."
 
 ### Orienting reads
 

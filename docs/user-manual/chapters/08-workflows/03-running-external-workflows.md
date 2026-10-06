@@ -34,7 +34,7 @@ A [workflow engine](../../GLOSSARY.md#workflow-engine) is a program that reads a
 
 A [workflow package](../../GLOSSARY.md#workflow-package) is a folder ending in `.lungfishflowpkg` that holds a pipeline file and a `manifest.json` describing it. The manifest names the pipeline, gives its version, and declares which engine runs it, what it needs as input, and what it produces. LGE builds the run window from those declarations, so a package that declares a reference bundle and a read bundle gets a reference picker and a reads picker without anyone writing a dialog. A reference bundle, `.lungfishref`, holds a genome sequence, and a read bundle, `.lungfishfastq`, holds one sample's sequencing reads.
 
-Two windows matter, and both sit under **Tools > Workflows**. **Tools > Workflows > Workflow Library...** is where a package is linked and switched on, and it runs nothing. The **Workflow Operations** window is where a run is set up and started. Every linked package gets its own item in **Tools > Workflows**, named after the package. An enabled package's item opens the Workflow Operations window with that package selected. A package that is not yet enabled is listed as "<name> (not enabled)", and choosing it opens the Workflow Library at that package's card. With nothing linked, the submenu holds only the Workflow Library item. The command line reaches the same engines with `lungfish-cli workflow run`, which takes a bare pipeline file instead of a package.
+Two windows matter, and both sit under **Tools > Workflows**. **Tools > Workflows > Workflow Library...** is where a package is linked and switched on, and it runs nothing. The **Workflow Operations** window is where a run is set up and started. Every linked package gets its own item in **Tools > Workflows**, named after the package. An enabled package's item opens the Workflow Operations window with that package selected. A package that is not yet enabled is listed as "Enable <name>...", and choosing it opens the Workflow Library at that package's card. A package this build cannot run, one whose card reads Catalog only, is listed as "Show <name> in Workflow Library..." and opens the same card. With nothing linked, the submenu holds only the Workflow Library item. The command line reaches the same engines with `lungfish-cli workflow run`, which takes a bare pipeline file instead of a package.
 
 ## Three kinds of workflow
 
@@ -94,7 +94,7 @@ The Execution row reads **Runnable** or **Catalog only**. A package is Runnable 
 
 ### Enable the workflow
 
-Turn the card's **Enabled** switch on. Until you do, the package appears in **Tools > Workflows** greyed out as "Hello World Nextflow (not enabled)", and choosing that item brings you back to this card rather than opening a run window. The Workflow Operations window likewise lists it marked "Enable in Library" and will not let you choose it.
+Turn the card's **Enabled** switch on. Until you do, the package appears in **Tools > Workflows** as **Enable Hello World Nextflow...**, and choosing that item brings you back to this card rather than opening a run window. The Workflow Operations window likewise lists it marked "Enable in Library" and will not let you choose it.
 
 Nextflow and Snakemake arrive with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE. If a card's dependency row names a missing pack, install it from **Tools > Plugin Manager...** before enabling that workflow.
 
@@ -118,7 +118,7 @@ Click **Run** and watch the run in the [Operations Panel](../01-foundations/06-t
 
 The window builds its form from the package's manifest, so another package may show other pickers. These are the settings the two examples produce.
 
-**Enabled.** Turns a linked package into a runnable item in **Tools > Workflows**. The default is off, so a new link is listed there greyed out until you choose otherwise. Turn it on once for each package you intend to run, and off to hide one without unlinking it. A package whose card reads Catalog only cannot be enabled. This setting has no command-line flag.
+**Enabled.** Turns a linked package into a runnable item in **Tools > Workflows**. The default is off, so a new link is listed there with Enable before its name until you choose otherwise. Turn it on once for each package you intend to run, and off to set one aside without unlinking it. A package whose card reads Catalog only cannot be enabled, and its item reads **Show <name> in Workflow Library...** instead. This setting has no command-line flag.
 
 **Reference.** Supplies the reference bundle the manifest declares as a required input, from a menu of reference bundles in the project or with **Choose…** for any other location. There is no default, so the picker starts empty. Change it when the run should use a different genome. On the command line this is `--input`, repeated once per input.
 

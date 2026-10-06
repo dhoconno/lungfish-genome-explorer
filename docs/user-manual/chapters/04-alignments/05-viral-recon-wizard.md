@@ -9,11 +9,11 @@ tags: [alignments, workflows, viralrecon, nf-core, nextflow, amplicon, consensus
 tools: [nextflow, nf-core/viralrecon, bowtie2, ivar, bcftools, pangolin, nextclade]
 parameters_refs: [workflow.viral-recon]
 entry_points:
-  - "Tools > Mapping > Viral Recon..."
+  - "Tools > Variant Calling > Viral Recon (SARS-CoV-2)..."
   - "CLI: lungfish-cli workflow run nf-core/viralrecon"
 shots:
   - id: viral-recon-menu-item
-    caption: "The open Tools > Mapping submenu, with Viral Recon... as its fifth item below minimap2, BWA-MEM2, Bowtie2, and BBMap."
+    caption: "The open Tools > Variant Calling submenu, with Viral Recon (SARS-CoV-2)... as its second item below Call Variants..."
   - id: viral-recon-wizard-overview
     caption: "The Viral Recon sheet, showing the Viral Recon header and its Docker Desktop note above the Inputs section with its read-layout caption, the Primer Scheme menu reading Choose a scheme..., Minimum mapped reads, the collapsed Advanced disclosure, and the Readiness section."
   - id: viral-recon-advanced-open
@@ -85,7 +85,7 @@ The first run downloads two things over the internet. LGE fetches the `MN908947.
 
 1. Click the SRR36291587 read bundle once in the sidebar to select it. The wizard takes the selected bundles as its input. With nothing selected, its Readiness line reads "Select at least one FASTQ bundle."
 
-2. Choose **Tools > Mapping > Viral Recon...**. It sits among the mappers because it produces an alignment as they do. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
+2. Choose **Tools > Variant Calling > Viral Recon (SARS-CoV-2)...**. It sits beside Call Variants... because it ends in variant calls and a consensus genome. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 
     <!-- SHOT: viral-recon-menu-item -->
 

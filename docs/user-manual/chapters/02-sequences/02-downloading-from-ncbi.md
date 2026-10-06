@@ -9,9 +9,9 @@ tags: [sequences, ncbi, download, fasta, gff3, genbank, accession, pathoplexus, 
 tools: []
 parameters_refs: [fetch.ncbi, fetch.pathoplexus]
 entry_points:
-  - Tools > Search Online Databases > Search NCBI...
-  - Tools > Search Online Databases > Search SRA...
-  - Tools > Search Online Databases > Search Pathoplexus...
+  - File > Search Online Databases > Search NCBI...
+  - File > Search Online Databases > Search SRA...
+  - File > Search Online Databases > Search Pathoplexus...
   - "CLI: lungfish-cli fetch ncbi <accession>"
   - "CLI: lungfish-cli fetch search <query>"
   - "CLI: lungfish-cli fetch genome <accession>"
@@ -70,7 +70,7 @@ One habit is worth forming now. Type the version suffix, the `.1` in `NC_012920.
 
 ## Procedure
 
-1. Choose **Tools > Search Online Databases > Search NCBI...**. The database search dialog slides down over the project window, open on its GenBank & Genomes pane. Leave **Mode** on Nucleotide and leave **Include GFF3 Annotations** ticked, which are both the defaults.
+1. Choose **File > Search Online Databases > Search NCBI...**. The database search dialog slides down over the project window, open on its GenBank & Genomes pane. Leave **Mode** on Nucleotide and leave **Include GFF3 Annotations** ticked, which are both the defaults.
 
     <!-- SHOT: ncbi-search-dialog -->
 
@@ -206,7 +206,7 @@ One route still reaches the assembly collection with whatever you type. The dial
 
 ## Searching Pathoplexus
 
-Pathoplexus is an open database for pathogen genomes. Choose **Tools > Search Online Databases > Search Pathoplexus...** to open the same dialog on its Pathoplexus pane. It is viral by design and holds ten pathogens, which are Crimean-Congo hemorrhagic fever, Sudan ebolavirus, Zaire ebolavirus, Human metapneumovirus, Marburg virus, Measles virus, Mpox virus, RSV-A, RSV-B, and West Nile virus. Reach for it when a genome has not reached NCBI, or when you want the surveillance details Pathoplexus keeps, such as clade and collection date.
+Pathoplexus is an open database for pathogen genomes. Choose **File > Search Online Databases > Search Pathoplexus...** to open the same dialog on its Pathoplexus pane. It is viral by design and holds ten pathogens, which are Crimean-Congo hemorrhagic fever, Sudan ebolavirus, Zaire ebolavirus, Human metapneumovirus, Marburg virus, Measles virus, Mpox virus, RSV-A, RSV-B, and West Nile virus. Reach for it when a genome has not reached NCBI, or when you want the surveillance details Pathoplexus keeps, such as clade and collection date.
 
 The first time you open the pane it shows a notice titled Pathoplexus Access and Benefit Sharing, and nothing else on the pane works until you click **I Understand and Agree**. LGE remembers your answer. The notice exists because submitters share these genomes on stated terms, which ask you to use the data as the terms allow and to credit the people who generated it.
 
@@ -218,7 +218,7 @@ What arrives is a `.lungfishref` bundle like the one this chapter's procedure pr
 
 ## Searching SRA
 
-**Tools > Search Online Databases > Search SRA...** opens the same dialog on its SRA Runs pane, which [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) covers in full.
+**File > Search Online Databases > Search SRA...** opens the same dialog on its SRA Runs pane, which [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) covers in full.
 
 ## On the command line
 

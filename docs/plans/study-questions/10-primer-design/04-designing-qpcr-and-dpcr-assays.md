@@ -172,7 +172,7 @@ The thing the table cannot tell you is whether the pair is specific, meaning whe
 
 Laboratories that measure how much of a gene is expressed compare it against a gene whose level barely changes, and human ACTB is one of the commonest such reference genes. This project designs a dye assay on it.
 
-1. Make a new project with **File > New Project**, then choose **Tools > Search Online Databases > Search NCBI...**, type `NM_001101.5`, and download the record, as [Downloading from NCBI](../../chapters/02-sequences/02-downloading-from-ncbi.md) shows. It is 1,812 bases.
+1. Make a new project with **File > New Project**, then choose **File > Search Online Databases > Search NCBI...**, type `NM_001101.5`, and download the record, as [Downloading from NCBI](../../chapters/02-sequences/02-downloading-from-ncbi.md) shows. It is 1,812 bases.
 2. Select the new bundle in the sidebar and choose **Tools > PCR Primer Design > Primer3…**.
 3. Set **Assay** to **qPCR · intercalating dye**, leave **Amplify a specific region** off, set **Candidate pairs** to 5, and name the analysis `ACTB qPCR dye`. Click **Run**. The first run prepares the Primer3 environment, so allow about a minute.
 4. Open the analysis under `Analyses` and read the Results tab. Write down the five pairs with their product sizes and both melting temperatures.

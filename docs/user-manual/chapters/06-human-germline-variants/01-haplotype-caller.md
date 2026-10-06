@@ -9,7 +9,7 @@ tags: [gatk, haplotypecaller, germline, experimental, cli, gui]
 tools: [gatk, whatshap]
 parameters_refs: [variants.call-gatk-haplotypecaller, variants.call-gatk-whatshap-phased]
 entry_points:
-  - "GUI: Tools > Call Variants... > GATK HaplotypeCaller"
+  - "GUI: Tools > Variant Calling > Call Variants... > GATK HaplotypeCaller"
   - "CLI: lungfish-cli gatk haplotype-caller"
   - "CLI: lungfish-cli variants phase"
 shots:
@@ -83,7 +83,7 @@ Install the `phasing` pack as well for the phased route, from the Plugin Manager
 ### Open the Call Variants dialog
 
 1. Click the HG002 mapping result under Analyses in the sidebar, then click the one row in the table of mapped contigs the viewport shows. That loads the reference bundle inside the mapping result, the bundle that owns the `HG002 minimap2` track, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) describes.
-2. Choose **Tools > Call Variants...**. The same dialog opens from the **Call Variants...** button in the **Variant Calling** tab of the Inspector's **Analysis** section. Both are greyed out until the loaded bundle holds a sorted and indexed BAM track, which a track mapped in LGE already is.
+2. Choose **Tools > Variant Calling > Call Variants...**. The same dialog opens from the **Call Variants...** button in the **Variant Calling** tab of the Inspector's **Analysis** section. Both are greyed out until the loaded bundle holds a sorted and indexed BAM track, which a track mapped in LGE already is.
 
 ### Select GATK HaplotypeCaller and read the dialog
 

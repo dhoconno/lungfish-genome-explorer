@@ -461,8 +461,12 @@ features:
     title: Trim and filter reads
     entry_points:
       - "Tools > Trimming & Filtering…"
+      - "Tools > Trimming & Filtering > Remove Low-Complexity Reads…"
+      - "Tools > Trimming & Filtering > Remove Duplicate Reads…"
       - "CLI: lungfish fastq adapter-trim"
       - "CLI: lungfish fastq sequence-filter"
+      - "CLI: lungfish fastq entropy-filter"
+      - "CLI: lungfish fastq deduplicate"
     inputs: [fastq, fastq.gz]
     outputs: [fastq, fastq.gz]
     viewport_class: none
@@ -478,10 +482,18 @@ features:
       - Sources/LungfishCLI/Commands/FastqLengthFilterSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqSubsampleSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqSequenceFilterSubcommand.swift
-    module: [LungfishApp, LungfishCLI]
+      - Sources/LungfishCLI/Commands/FastqEntropyFilterSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqDeduplicateSubcommand.swift
+      - Sources/LungfishIO/Formats/FASTQ/FASTQEntropyFilter.swift
+    module: [LungfishCLI, LungfishApp, LungfishIO]
     notes: >-
       Trims adapters and low-quality bases with fastp, trims fixed base counts,
-      filters by read length, and subsamples by proportion or count.
+      filters by read length, removes low-complexity reads (homopolymers and
+      tandem repeats) with the bbduk entropy filter at a default threshold of
+      0.6, window 50, k-mer 5, collapses duplicate reads with clumpify, and
+      subsamples by proportion or count. Remove Duplicate Reads is for shotgun
+      libraries, and its dialog card says to keep amplicon reads. The manual
+      covers the last two tools in 03-reads/05-decontamination.
   fastq.decontaminate:
     title: Decontaminate reads
     entry_points:
@@ -489,7 +501,6 @@ features:
       - "CLI: lungfish fastq scrub-human"
       - "CLI: lungfish fastq deacon-ribo"
       - "CLI: lungfish fastq contaminant-filter"
-      - "CLI: lungfish fastq entropy-filter"
     inputs: [fastq, fastq.gz]
     outputs: [fastq, fastq.gz]
     viewport_class: none
@@ -499,19 +510,14 @@ features:
       - Sources/LungfishCLI/Commands/FastqRiboDetectorSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
       - Sources/LungfishCLI/Commands/FastqContaminantFilterSubcommand.swift
-      - Sources/LungfishCLI/Commands/FastqEntropyFilterSubcommand.swift
-      - Sources/LungfishIO/Formats/FASTQ/FASTQEntropyFilter.swift
-    module: [LungfishCLI, LungfishIO]
+    module: [LungfishCLI]
     notes: >-
-      Removes human reads, ribosomal RNA with Deacon and BBMap ribokmers,
-      contaminant reads with bbduk, and low-complexity reads (homopolymers and
-      tandem repeats) with the bbduk entropy filter at a default threshold of
-      0.6, window 50, k-mer 5.
+      Removes human reads, ribosomal RNA with Deacon and BBMap ribokmers, and
+      contaminant reads with bbduk.
   fastq.read-processing:
     title: Read processing operations
     entry_points:
       - "Tools > Read Processing…"
-      - "CLI: lungfish fastq deduplicate"
       - "CLI: lungfish fastq error-correct"
     inputs: [fastq, fastq.gz]
     outputs: [fastq, fastq.gz]
@@ -523,15 +529,14 @@ features:
       - Sources/LungfishCLI/Commands/FastqReverseComplementSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqMergeSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqErrorCorrectSubcommand.swift
-      - Sources/LungfishCLI/Commands/FastqDeduplicateSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqRepairSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqInterleaveSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqDeinterleaveSubcommand.swift
     module: [LungfishApp, LungfishCLI]
     notes: >-
       Reverse-complements, merges overlapping pairs with bbmerge, corrects
-      errors with tadpole, deduplicates with clumpify, and repairs, interleaves,
-      or deinterleaves paired reads.
+      errors with tadpole, and repairs, interleaves, or deinterleaves paired
+      reads.
   fastq.search-subset:
     title: Search and subset reads
     entry_points:
@@ -929,6 +934,7 @@ features:
   classify.twelve-s:
     title: 12S amplicon metabarcoding
     entry_points:
+      - "Tools > Classification > 12S Amplicon Matching…"
       - "Workflow Library > 12S Amplicon Matching"
       - "CLI: lungfish fastq 12s-match"
     inputs: [fastq, twelve-s-reference-fasta]
@@ -1092,7 +1098,8 @@ features:
   genotype.amplicon:
     title: Amplicon MHC genotyping
     entry_points:
-      - "Workflow Library > miSeq amplicon MHC genotyping"
+      - "Tools > Genotyping > MiSeq Amplicon MHC Genotyping…"
+      - "Workflow Library > MiSeq Amplicon MHC Genotyping"
       - "CLI: lungfish fastq ont-genotype"
       - "CLI: lungfish fastq genotype"
     inputs: [fastq, fastq.gz, mhc-reference-bundle]
@@ -1109,9 +1116,10 @@ features:
       allele library for ONT barcode-demux, ONT sample bundles, or Illumina
       paired reads, across single samples or cohorts.
   genotype.full-length-ont-mhc:
-    title: Full-length ONT MHC genotyping
+    title: Full-Length ONT MHC Genotyping
     entry_points:
-      - "Workflow Library > Full-length ONT MHC genotyping"
+      - "Tools > Genotyping > Full-Length ONT MHC Genotyping…"
+      - "Workflow Library > Full-Length ONT MHC Genotyping"
       - "CLI: lungfish fastq full-length-ont-mhc-genotype"
       - "CLI: lungfish fastq pbaa-cluster"
     inputs: [fastq, fastq.gz, mhc-reference-bundle]
@@ -1148,6 +1156,8 @@ features:
     title: Genotype comparison viewport
     entry_points:
       - "Open a genotype result bundle from the sidebar"
+      - "Selection > Genotype Sample"
+      - "Selection > Genotype Call"
     inputs: [genotype-bundle]
     outputs: [xlsx, csv, tsv]
     viewport_class: none
@@ -1156,11 +1166,20 @@ features:
       - Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift
       - Sources/LungfishGenotypeUI/GenotypeHaplotypeTapeView.swift
       - Sources/LungfishGenotypeUI/GenotypeCohortSummaryPanelView.swift
-    module: [LungfishGenotypeUI]
+      - Sources/LungfishGenotypeUI/GenotypeResultViewController+SampleStatusUndo.swift
+      - Sources/LungfishGenotypeUI/GenotypeAuditTimelineSection.swift
+      - Sources/LungfishApp/App/MainMenu+GenotypeReview.swift
+    module: [LungfishGenotypeUI, LungfishApp]
     notes: >-
       Presents a genotype comparison matrix, haplotype tape, cohort summary, and
       per-sample call evidence with manual haplotyping and annotation overrides.
       This dashboard is not one of the five genomic viewport classes.
+      Selection > Genotype Sample holds the sample status commands (Cmd-R,
+      Cmd-K, Cmd-Shift-F) and Sample Detail (Cmd-Shift-O). Undo and Redo
+      reverse a status change, and every change, an Undo included, writes an
+      audit entry whose before value is the replaced status (clearSampleStatus
+      when an Undo leaves no status). Selection > Genotype Call holds the
+      matrix review commands, which are not undoable.
   genotype.export:
     title: Export genotype results
     entry_points:
@@ -1184,7 +1203,8 @@ features:
   genotype.haplotype-definitions:
     title: Manage haplotype definitions
     entry_points:
-      - "Genotype viewport > Haplotype Definitions"
+      - "Tools > Genotyping > MHC Haplotype Definitions…"
+      - "Workflow Operations > Haplotype Definition > Manage…"
       - "CLI: lungfish haplotypes"
     inputs: [haplotype-definitions]
     outputs: [haplotype-definitions]
@@ -1196,7 +1216,9 @@ features:
     module: [LungfishGenotypeUI, LungfishCLI]
     notes: >-
       Defines and edits named haplotypes from aligned marker columns and applies
-      them to genotype calls.
+      them to genotype calls. The MHC Haplotype Definitions window is always in
+      Tools > Genotyping and is disabled while no enabled workflow uses
+      haplotype definitions.
 
   # --- Multiple sequence alignment and phylogenetics ---
   msa.align:

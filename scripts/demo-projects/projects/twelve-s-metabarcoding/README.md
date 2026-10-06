@@ -34,7 +34,7 @@ RefSeq records and GIAB reference materials are U.S. government work in the publ
 
 1. Open this project with **File > Open Project Folder...**.
 2. Turn 12S Amplicon Matching on once in the Workflow Library, which **Tools > Workflows > Workflow Library...** opens.
-3. Choose **Tools > Genotyping > 12S Amplicon Matching...**, click **Choose...** under Reference, pick `primate-12s-dedup.fasta` from `Practice Data/primate-12s`, and confirm the `SIMULATED-12S-mixture-oriented` bundle is listed. The chapter carries on from its step 3.
+3. Choose **Tools > Classification > 12S Amplicon Matching...**, click **Choose...** under Reference, pick `primate-12s-dedup.fasta` from `Practice Data/primate-12s`, and confirm the `SIMULATED-12S-mixture-oriented` bundle is listed. The chapter carries on from its step 3.
 
 ## Before you run anything
 

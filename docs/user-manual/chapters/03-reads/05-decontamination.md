@@ -10,18 +10,18 @@ tools: [deacon, bbduk, clumpify]
 parameters_refs: [fastq.remove-human-reads, fastq.remove-ribosomal-rna, fastq.remove-contaminants, fastq.low-complexity-filter, fastq.remove-duplicates]
 entry_points:
   - "Tools > Decontamination > Remove Human Reads..."
-  - "Tools > Decontamination > Remove ribosomal RNA sequences..."
+  - "Tools > Decontamination > Remove Ribosomal RNA Reads..."
   - "Tools > Decontamination > Remove Contaminants..."
-  - "Tools > Decontamination > Low-Complexity Filter..."
-  - "Tools > Decontamination > Remove Duplicates..."
+  - "Tools > Trimming & Filtering > Remove Low-Complexity Reads..."
+  - "Tools > Trimming & Filtering > Remove Duplicate Reads..."
   - "CLI: lungfish-cli fastq scrub-human, deacon-ribo, contaminant-filter, entropy-filter, deduplicate"
 shots:
   - id: human-scrub-dialog
     caption: "The Remove Human Reads pane, with only the selected read bundle in the Inputs section and a line of text in place of settings controls, because the operation always uses the managed human index."
   - id: low-complexity-pane
-    caption: "The Low-Complexity Filter pane, showing the Entropy Threshold slider at 0.60 with the Advanced disclosure open on the Window and K-mer fields."
+    caption: "The Remove Low-Complexity Reads pane, showing the Entropy Threshold slider at 0.60 with the Advanced disclosure open on the Window and K-mer fields."
   - id: remove-duplicates-preset-picker
-    caption: "The Remove Duplicates pane with the Preset picker open on its six choices, Exact PCR selected."
+    caption: "The Remove Duplicate Reads pane with the Preset picker open on its six choices, Exact PCR selected."
 illustrations: []
 glossary_refs: [fastq, read, bundle, paired-end, deacon, bbduk, clumpify, k-mer, minimizer, hamming-distance, ribosomal-rna, phix, pcr-duplicate, optical-duplicate, shannon-entropy, host-depletion, required-setup-pack, provenance, checksum, depth, coverage-breadth, amplicon, primer-scheme, shotgun, variant-caller, fastp, mark-duplicates, samtools]
 features_refs: []
@@ -36,15 +36,15 @@ Decontamination here is a computational step, not a bench one. It throws away se
 
 There are two ways to recognise an unwanted read. The first compares it against a reference, a stored collection of sequence such as the human genome. The second needs no reference. A read made almost entirely of one short repeated unit carries little information whatever it came from, and a read identical to another read in the same file is usually a copy rather than an independent observation.
 
-Lungfish Genome Explorer (LGE) offers five operations under **Tools > Decontamination**. Three match against a reference and two do not.
+Lungfish Genome Explorer (LGE) offers five operations for this. The three under **Tools > Decontamination** match against a reference. The two that do not, Remove Low-Complexity Reads and Remove Duplicate Reads, sit at the foot of **Tools > Trimming & Filtering**.
 
 | Operation | Tool | What it matches against |
 |---|---|---|
 | Remove Human Reads | Deacon | Managed human index |
-| Remove ribosomal RNA sequences | Deacon | Managed ribosomal index |
+| Remove Ribosomal RNA Reads | Deacon | Managed ribosomal index |
 | Remove Contaminants | bbduk | Bundled PhiX, or a FASTA file of sequences you supply |
-| Low-Complexity Filter | bbduk | Nothing, it scores how varied each read is |
-| Remove Duplicates | clumpify | Nothing, it compares reads to each other |
+| Remove Low-Complexity Reads | bbduk | Nothing, it scores how varied each read is |
+| Remove Duplicate Reads | clumpify | Nothing, it compares reads to each other |
 
 Managed means LGE stores the reference for you. [Deacon](../../GLOSSARY.md#deacon) matches short fingerprints of each read, called [minimizers](../../GLOSSARY.md#minimizer), against a prebuilt index. [bbduk](../../GLOSSARY.md#bbduk) and [clumpify](../../GLOSSARY.md#clumpify) come from the BBTools suite. A control genome is sequence added to a run on purpose so the instrument has something known to calibrate against. A cloning vector is the small circular DNA a fragment was carried in before sequencing, and carrier DNA is bulk DNA added to a low-input sample so there is enough material to build a library.
 
@@ -66,14 +66,14 @@ Check what the host is and whether the library is amplicon or shotgun, as [Know 
 
 ### Matching unwanted reads against a reference
 
-**Deacon** reduces every read to its [minimizers](../../GLOSSARY.md#minimizer), compact fingerprints made by keeping the smallest k-mer in each stretch of the read, and looks each one up in a prebuilt index. [Three ways to match a read](../06-classification/01-what-is-classification.md#three-ways-to-match-a-read) works through this kind of word lookup. A read counts as a match when enough of its minimizers hit. Remove Human Reads keeps Deacon's defaults, at least two hits that make up at least 1 percent of the read's minimizers. Remove ribosomal RNA sequences uses looser settings, one hit with no share required, as its provenance record shows. LGE hands Deacon both mates of a pair, so the two are kept or removed together. Deacon handles short and long reads, with lower accuracy on very short ones.
+**Deacon** reduces every read to its [minimizers](../../GLOSSARY.md#minimizer), compact fingerprints made by keeping the smallest k-mer in each stretch of the read, and looks each one up in a prebuilt index. [Three ways to match a read](../06-classification/01-what-is-classification.md#three-ways-to-match-a-read) works through this kind of word lookup. A read counts as a match when enough of its minimizers hit. Remove Human Reads keeps Deacon's defaults, at least two hits that make up at least 1 percent of the read's minimizers. Remove Ribosomal RNA Reads uses looser settings, one hit with no share required, as its provenance record shows. LGE hands Deacon both mates of a pair, so the two are kept or removed together. Deacon handles short and long reads, with lower accuracy on very short ones.
 
 **bbduk** takes every 31-base [k-mer](../../GLOSSARY.md#k-mer) of the reference each time it runs and removes any read that shares one, allowing one mismatched base. That is quick for the 5,386-base PhiX genome or a cloning vector and impractical for a whole genome.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
 | Deacon, Remove Human Reads | Removing human host reads | A human patient or wastewater sample in which a pathogen is the target | The human genome is what you study, or the host is not human |
-| Deacon, Remove ribosomal RNA sequences | Removing ribosomal RNA | An RNA library swamped by ribosomal reads | A DNA library, where it removes little |
+| Deacon, Remove Ribosomal RNA Reads | Removing ribosomal RNA | An RNA library swamped by ribosomal reads | A DNA library, where it removes little |
 | bbduk, Remove Contaminants | Removing a small known sequence | The run carries PhiX, a vector, or carrier DNA | The unwanted sequence is a whole genome |
 | None for macaque host reads | LGE ships no macaque host index | No LGE route exists | Map straight to the pathogen's reference instead |
 
@@ -83,7 +83,7 @@ Check what the host is and whether the library is amplicon or shotgun, as [Know 
 
 A [PCR duplicate](../../GLOSSARY.md#pcr-duplicate) is a copy of one original fragment made during amplification, and counting copies as separate reads overstates the evidence at a position.
 
-**Clumpify**, behind Remove Duplicates, works on the FASTQ file before any mapping. It collapses reads whose sequences match exactly, or within the one or two mismatches a preset allows, and needs no reference. On paired reads it compares whole pairs, so a pair is kept or removed as one. In a bundle that mixes pairs with merged reads, the pairs are deduplicated as pairs and the merged reads on their own, and the two parts are joined again with the pairs first. Exact copies are rare among nanopore reads, whose errors differ from copy to copy.
+**Clumpify**, behind Remove Duplicate Reads, works on the FASTQ file before any mapping. It collapses reads whose sequences match exactly, or within the one or two mismatches a preset allows, and needs no reference. On paired reads it compares whole pairs, so a pair is kept or removed as one. In a bundle that mixes pairs with merged reads, the pairs are deduplicated as pairs and the merged reads on their own, and the two parts are joined again with the pairs first. Exact copies are rare among nanopore reads, whose errors differ from copy to copy.
 
 **samtools markdup**, behind Mark Duplicates in the Inspector once reads are mapped, calls two pairs duplicates when their mates map to the same positions on the same strands, whatever their sequence. It flags the extra copies rather than deleting them, as [Alignment Quality](../04-alignments/04-alignment-quality.md#mark-duplicates) shows.
 
@@ -91,7 +91,7 @@ A [PCR duplicate](../../GLOSSARY.md#pcr-duplicate) is a copy of one original fra
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
-| clumpify, Remove Duplicates | Reads that will not be mapped first | You want a smaller FASTQ before assembly or classification | The reads are headed for mapping and variant calling |
+| clumpify, Remove Duplicate Reads | Reads that will not be mapped first | You want a smaller FASTQ before assembly or classification | The reads are headed for mapping and variant calling |
 | samtools markdup, Mark Duplicates | Duplicates judged by mapped position | Shotgun human or macaque data headed for variant calling | The library is amplicon data |
 | fastp dedup, VSP2 recipe | Short-insert viral target enrichment | You import VSP2 libraries | Any other library |
 
@@ -129,17 +129,17 @@ Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-projec
 
 ### The other four operations
 
-Select the HG002 bundle and open each operation from its own item under **Tools > Decontamination**. What follows is only what a first run needs.
+Select the HG002 bundle and open each operation from its own item, under **Tools > Decontamination** for the first two below and under **Tools > Trimming & Filtering** for the last two. What follows is only what a first run needs.
 
-**Remove ribosomal RNA sequences** shows one **Retain Reads** control, three joined buttons labelled non-rRNA, rRNA, and Both. The label names what is kept. It starts on non-rRNA, which keeps every read that is not ribosomal, so a first run needs no change.
+**Remove Ribosomal RNA Reads** shows one **Retain Reads** control, three joined buttons labelled non-rRNA, rRNA, and Both. The label names what is kept. It starts on non-rRNA, which keeps every read that is not ribosomal, so a first run needs no change.
 
 **Remove Contaminants** shows a **Contaminant Mode** control set to PhiX, a **K-mer** field at 31, and a **Hamming Distance** field at 1. PhiX mode needs nothing else. Switching to Custom Reference adds a **Contaminant Reference** row to the Inputs section, where you choose the FASTA to match against.
 
-**Low-Complexity Filter** shows an **Entropy Threshold** slider at 0.60 with a number field beside it, and **Window** and **K-mer** fields inside an Advanced disclosure.
+**Remove Low-Complexity Reads** shows an **Entropy Threshold** slider at 0.60 with a number field beside it, and **Window** and **K-mer** fields inside an Advanced disclosure.
 
 <!-- SHOT: low-complexity-pane -->
 
-**Remove Duplicates** shows a **Preset** picker set to Exact PCR. Its last choice, Custom, reveals the controls the other five presets set for you.
+**Remove Duplicate Reads** shows a **Preset** picker set to Exact PCR. Its last choice, Custom, reveals the controls the other five presets set for you. The operation's card in the tool sidebar reads "Collapse PCR and optical duplicate reads in shotgun libraries. Amplicon reads are identical by design, so keep them." [What good looks like](#what-good-looks-like) explains why.
 
 <!-- SHOT: remove-duplicates-preset-picker -->
 
@@ -149,7 +149,7 @@ Select the HG002 bundle and open each operation from its own item under **Tools 
 
 This operation has no controls of its own. The Remove Human Reads pane shows none of Deacon's matching settings, and only its Output Strategy, described at the end of this section, can be changed. It always uses the managed human index, panhuman-1, which Deacon's authors built from many human genome assemblies, so it recognises human variation that no single genome carries. They also report that accuracy drops on very short reads, such as the 50-base reads of older Illumina runs. The two import recipes that remove human reads run Deacon with the same index.
 
-### Remove ribosomal RNA sequences
+### Remove Ribosomal RNA Reads
 
 **Retain Reads.** Chooses which class of reads is written out, offering non-rRNA, rRNA, and Both. [Ribosomal RNA](../../GLOSSARY.md#ribosomal-rna) is the structural RNA of the ribosome and usually swamps an RNA library, so the default of non-rRNA keeps everything else and discards it. Choose rRNA to inspect what was removed, and Both to get two bundles, one holding each class, from one run of the operation. On the command line this is `--retain`.
 
@@ -165,7 +165,7 @@ Two of these settings work on k-mers. A [k-mer](../../GLOSSARY.md#k-mer) is a su
 
 **Hamming Distance.** Sets how many mismatched bases a k-mer match may contain and still count. [Hamming distance](../../GLOSSARY.md#hamming-distance) is the number of positions at which two equal-length sequences differ, and the default of 1 lets one sequencing error pass without letting unrelated sequence through. Raise it for error-prone reads, and lower it to 0 when real sample reads are being discarded. On the command line this is `--hdist`.
 
-### Low-Complexity Filter
+### Remove Low-Complexity Reads
 
 **Entropy Threshold.** Sets the score below which a read is discarded as repetitive. [Shannon entropy](../../GLOSSARY.md#shannon-entropy) measures how varied a stretch of sequence is, from 0 when the window repeats one short word to 1 when every 5-base word in it is different, and the default of 0.60 is the value the pane reports as removing about 4 percent of reads and about 89 percent of tandem-repeat reads on a benchmark set of reads the pane does not name. A clean human library loses far less, 68 reads of 91,148 on this fixture. Raise it when repeats still inflate depth after filtering, and lower it when the removal rate looks too aggressive for the sample. On the command line this is `--entropy`.
 
@@ -175,7 +175,7 @@ Two of these settings work on k-mers. A [k-mer](../../GLOSSARY.md#k-mer) is a su
 
 A tandem repeat, the target of this filter, is a short unit repeated back to back, as `CAG` is in the earlier example. The slider runs from 0.3 to 0.9 in steps of 0.05, and you can also type a value into the number field beside it.
 
-### Remove Duplicates
+### Remove Duplicate Reads
 
 **Preset.** Picks a ready-made group of clumpify settings for one common kind of duplicate, offering Exact PCR, Near Duplicate 1, Near Duplicate 2, Optical HiSeq, Optical NovaSeq, and Custom. The default is Exact PCR, which merges only reads with identical sequence, the safest setting. Choose Near Duplicate 1 or 2 to allow one or two mismatches, an Optical preset for a patterned flowcell, and Custom to set the three controls below yourself. This setting has no command-line flag.
 
@@ -191,7 +191,7 @@ A flowcell is the glass slide the sequencing happens on. An Illumina instrument 
 
 **Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default, and see [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) for the two choices. This setting has no command-line flag.
 
-Four of the five dialogs show this control. Remove ribosomal RNA sequences does not.
+Four of the five dialogs show this control. Remove Ribosomal RNA Reads does not.
 
 ## Reading the results
 
@@ -211,11 +211,11 @@ The table below comes from running each operation on the HG002 bundle, 91,148 re
 
 | Operation and setting | Reads kept | Removed |
 |---|---|---|
-| Remove ribosomal RNA sequences, non-rRNA | 90,912 | 236 (0.26%) |
+| Remove Ribosomal RNA Reads, non-rRNA | 90,912 | 236 (0.26%) |
 | Remove Contaminants, PhiX | 91,148 | 0 (0.00%) |
 | Remove Contaminants, the fixture's chr20 FASTA as a custom reference (a deliberate mistake) | 0 | 91,148 (100%) |
-| Low-Complexity Filter, threshold 0.60 | 91,080 | 68 (0.07%) |
-| Remove Duplicates, Exact PCR | 91,148 | 0 (0.00%) |
+| Remove Low-Complexity Reads, threshold 0.60 | 91,080 | 68 (0.07%) |
+| Remove Duplicate Reads, Exact PCR | 91,148 | 0 (0.00%) |
 
 Every row but the third is what a clean human library looks like. A little ribosomal sequence turns up in any whole-genome library, since the ribosomal genes are part of the genome. No PhiX is expected when the sequencing centre did not spike the run, and 68 low-complexity reads, 34 pairs, says this slice carries little repeat content.
 

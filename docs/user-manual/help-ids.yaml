@@ -422,29 +422,41 @@ inspector.VariantSection:
 
 # === Menu items (Tools menu and friends) ===
 
-menu.Tools.SearchOnlineDatabases.NCBI:
+menu.File.SearchOnlineDatabases.NCBI:
   chapter: 02-sequences/02-downloading-from-ncbi
   anchor: procedure
   scope: menu
-  description: Tools > Search Online Databases > Search NCBI...
+  description: File > Search Online Databases > Search NCBI...
 
-menu.Tools.SearchOnlineDatabases.SRA:
+menu.File.SearchOnlineDatabases.SRA:
   chapter: 03-reads/02-downloading-from-sra
   anchor: procedure
   scope: menu
-  description: Tools > Search Online Databases > Search SRA...
+  description: File > Search Online Databases > Search SRA...
 
-menu.Tools.SearchOnlineDatabases.Pathoplexus:
+menu.File.SearchOnlineDatabases.Pathoplexus:
   chapter: 02-sequences/02-downloading-from-ncbi
   anchor: searching-pathoplexus
   scope: menu
-  description: Tools > Search Online Databases > Search Pathoplexus...
+  description: File > Search Online Databases > Search Pathoplexus...
 
 menu.Tools.FASTQOperations.Mapping:
   chapter: 04-alignments/01-mapping-reads-to-a-reference
   anchor: procedure
   scope: menu
-  description: Tools > FASTQ/FASTA Operations > Mapping...
+  description: Tools > Mapping > minimap2... / BWA-MEM2... / Bowtie2... / BBMap...
+
+menu.Tools.VariantCalling.CallVariants:
+  chapter: 05-variants/01-calling-variants-from-amplicons
+  anchor: open-the-call-variants-dialog
+  scope: menu
+  description: Tools > Variant Calling > Call Variants...
+
+menu.Tools.VariantCalling.ViralRecon:
+  chapter: 04-alignments/05-viral-recon-wizard
+  anchor: opening-the-wizard
+  scope: menu
+  description: Tools > Variant Calling > Viral Recon (SARS-CoV-2)...
 
 menu.Tools.FASTQOperations.Classification:
   chapter: 06-classification/01-what-is-classification
@@ -456,31 +468,37 @@ menu.Tools.FASTQOperations.Assembly:
   chapter: 07-assembly/01-when-to-assemble
   anchor: how-the-sheet-decides-what-you-may-run
   scope: menu
-  description: Tools > FASTQ/FASTA Operations > Assembly...
+  description: Tools > Assembly > SPAdes... / MEGAHIT... / SKESA... / Flye... / Hifiasm...
 
 menu.Tools.FASTQOperations.QC:
   chapter: 03-reads/03-quality-control
   anchor: procedure
   scope: menu
-  description: Tools > FASTQ/FASTA Operations > QC & Reporting > Refresh QC Summary
+  description: Tools > QC & Reporting > Refresh QC Summary...
 
 menu.Tools.FASTQOperations.Trim:
   chapter: 03-reads/04-trimming-and-filtering
   anchor: procedure
   scope: menu
-  description: Tools > FASTQ/FASTA Operations > Trimming & Filtering submenu
+  description: Tools > Trimming & Filtering submenu
 
 menu.Tools.FASTQOperations.Decontamination:
   chapter: 03-reads/05-decontamination
   anchor: procedure
   scope: menu
-  description: Tools > FASTQ/FASTA Operations > Decontamination submenu
+  description: Tools > Decontamination submenu
 
 menu.Tools.FASTQOperations.Subsetting:
   chapter: 03-reads/06-subsetting-and-extraction
   anchor: procedure
   scope: menu
-  description: Tools > FASTQ/FASTA Operations > Search & Subsetting submenu
+  description: Tools > Search & Subsetting submenu
+
+menu.Tools.Genotyping.HaplotypeDefinitions:
+  chapter: 09-genotyping/02-running-genotyping
+  anchor: where-haplotype-definitions-come-from
+  scope: menu
+  description: Tools > Genotyping > MHC Haplotype Definitions..., greyed out until an MHC genotyping workflow is switched on.
 
 menu.Tools.FASTQOperations.MSA:
   chapter: 02-sequences/04-aligning-sequences
@@ -499,6 +517,18 @@ menu.Selection.TreeNode:
   anchor: acting-on-a-node
   scope: menu
   description: Selection > Tree Node submenu, the menu-bar twins of the tree node context menu.
+
+menu.Selection.GenotypeSample:
+  chapter: appendices/keyboard-shortcuts
+  anchor: inside-the-genotype-result-window
+  scope: menu
+  description: Selection > Genotype Sample submenu, the sample status commands (Cmd-R, Cmd-K, Cmd-Shift-F, undoable with Cmd-Z) and Sample Detail (Cmd-Shift-O).
+
+menu.Selection.GenotypeCall:
+  chapter: 09-genotyping/03-reading-the-genotype-comparison
+  anchor: annotate-what-you-find
+  scope: menu
+  description: Selection > Genotype Call submenu, the matrix review commands (Cmd-Opt-P, Cmd-Opt-X, Cmd-Opt-R) for the selected calls.
 
 menu.Tools.PluginManager:
   chapter: 01-foundations/07-plugin-packs

@@ -10,11 +10,11 @@ tools: [blast, vsearch]
 parameters_refs: [classify.twelve-s-match]
 entry_points:
   - "Tools > Workflows > Workflow Library..."
-  - "Tools > Genotyping > 12S Amplicon Matching..."
+  - "Tools > Classification > 12S Amplicon Matching..."
   - "CLI: lungfish-cli fastq 12s-match"
 shots:
   - id: twelve-s-workflow-library
-    caption: "The Workflow Library window with the 12S Amplicon Matching card under Specialized Workflows, showing its Specialized badge, its dependency row for the Third-Party Tools pack, and the Enabled switch."
+    caption: "The Workflow Library window with the 12S Amplicon Matching card under Specialized Workflows and its Classification heading, showing its Specialized badge, its dependency row for the Third-Party Tools pack, and the Enabled switch."
   - id: twelve-s-dialog-inputs
     caption: "The Workflow Operations dialog on 12S Amplicon Matching, showing the Reference picker with its Create 12S Reference... button, the Analysis Metadata picker with its Choose Metadata... button, and the FASTQ Bundles list."
   - id: twelve-s-dialog-options
@@ -61,7 +61,7 @@ This chapter uses the primate 12S fixture. Download `primate-12s-dedup.fasta`, `
 
 The matcher reads one strand only and does not merge read pairs. Orienting flips every read so that all of them run in the same direction along the gene, and [Orienting reads](../03-reads/08-read-processing.md#orienting-reads) shows how to do it for short amplicon reads against a 12S reference. Merging joins the two overlapping [mates](../../GLOSSARY.md#mate) of a pair into one read that spans the amplicon, as [Merging the overlapping pairs](../03-reads/08-read-processing.md#merging-the-overlapping-pairs) shows. Do both to your own reads before you match them. Both fixture read sets are already oriented, and each read already spans its whole amplicon, so there is nothing to merge.
 
-12S Amplicon Matching is a specialized workflow, so the Tools menu shows it as "12S Amplicon Matching (not enabled)" until you turn it on once in the [Workflow Library](../../GLOSSARY.md#workflow-library), as [Turning on a specialized workflow](../01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows. Its chimera check uses [vsearch](../../GLOSSARY.md#vsearch), a sequence-comparison program that arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE.
+12S Amplicon Matching is a specialized workflow, so **Tools > Classification** shows it as **Enable 12S Amplicon Matching...** until you turn it on once in the [Workflow Library](../../GLOSSARY.md#workflow-library), as [Turning on a specialized workflow](../01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows. Its chimera check uses [vsearch](../../GLOSSARY.md#vsearch), a sequence-comparison program that arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE.
 
 <!-- SHOT: twelve-s-workflow-library -->
 
@@ -73,7 +73,7 @@ Six of this workflow's settings live in the Inspector rather than the run dialog
 
 The workflow takes its reference in either of two forms. A plain deduplicated FASTA works, and you can point a run at it directly. A `.lungfish12sref` bundle holds the sequences and their species table together, and only the bundle fills the species table's Tax ID and Group columns for every species. A [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, as [What bundle means](../01-foundations/06-the-lungfish-project.md#what-bundle-means) explains. This chapter builds the bundle, because a roster without taxonomy IDs is harder to report.
 
-Choose **Tools > Genotyping > 12S Amplicon Matching...** and click **Create 12S Reference...** beside the Reference picker. The sheet asks for a **Name**, the **Deduplicated FASTA**, the **Target Metadata** table, and an **Output Bundle**, which defaults to `12S reference.lungfish12sref` in the project's `Reference Sequences` folder. A **Source Files** row and a **Replace Existing Bundle** checkbox sit below them. Type `Primate 12S` as the name, pick `primate-12s-dedup.fasta` and `primate-12s-midori.tsv` from `Practice Data/primate-12s`, and create the bundle.
+Choose **Tools > Classification > 12S Amplicon Matching...** and click **Create 12S Reference...** beside the Reference picker. The sheet asks for a **Name**, the **Deduplicated FASTA**, the **Target Metadata** table, and an **Output Bundle**, which defaults to `12S reference.lungfish12sref` in the project's `Reference Sequences` folder. A **Source Files** row and a **Replace Existing Bundle** checkbox sit below them. Type `Primate 12S` as the name, pick `primate-12s-dedup.fasta` and `primate-12s-midori.tsv` from `Practice Data/primate-12s`, and create the bundle.
 
 Each FASTA name line must read as a common name followed by the scientific name in parentheses, for example `>Rhesus macaque (Macaca mulatta)`. One of the fixture's six records carries a second species after the name, `>Rhesus macaque (Macaca mulatta)|also_matches=Japanese macaque (Macaca fuscata)`, because its 60 bases occur in both macaques. That is how a deduplicated reference records a sequence two species share, and it is the source of the Alternates figure you read later. The metadata table is a tab-separated file in the MIDORI style, named after a public database of animal mitochondrial marker sequences. It needs all seven of these columns:
 
@@ -85,7 +85,7 @@ The `taxid` column holds the [taxonomy ID](../../GLOSSARY.md#taxonomy-id), the n
 
 ### Set the inputs and run the match
 
-Choose **Tools > Genotyping > 12S Amplicon Matching...** again if the dialog closed. The Workflow Operations dialog opens with the workflow selected, laid out as [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
+Choose **Tools > Classification > 12S Amplicon Matching...** again if the dialog closed. The Workflow Operations dialog opens with the workflow selected, laid out as [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 
 1. Under **Reference**, open the **Project Reference** menu and choose the bundle you built. The menu lists it by its path, `Reference Sequences/12S reference.lungfish12sref`, not by the name you typed. It lists only reference bundles already saved in the project, and **Choose...** picks a plain FASTA instead.
 2. Leave **Analysis Metadata** reading "No analysis metadata selected". The fixture does not need it.

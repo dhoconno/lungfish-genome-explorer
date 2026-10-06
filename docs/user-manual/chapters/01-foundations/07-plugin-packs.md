@@ -98,14 +98,14 @@ Install an experimental pack from the Plugin Manager. The command line's `lungfi
 
 ### Turning on a specialized workflow
 
-A specialized workflow is a multi-step analysis built for one kind of study, such as MHC genotyping or 12S amplicon matching. LGE lists them in the Workflow Library, and all but one start switched off, because each needs outside programs from one or more packs. A switched-off workflow appears in its **Tools** submenu in pale grey with "(not enabled)" after its name, and choosing it offers to open the Workflow Library. Nothing is broken when you see that label.
+A specialized workflow is a multi-step analysis built for one kind of study, such as MHC genotyping or 12S amplicon matching. LGE lists them in the Workflow Library, and all but one start switched off, because each needs outside programs from one or more packs. A switched-off workflow appears in its **Tools** submenu with Enable before its name, such as **Enable 12S Amplicon Matching...**, and choosing it offers to open the Workflow Library. Nothing is broken when you see that item.
 
 1. Choose **Tools > Workflows > Workflow Library...**. The window lists Core Tools first and Specialized Workflows below them, grouped by kind of work.
 2. Find the workflow's card under **Specialized Workflows**. Each card carries a Specialized badge, a one-line description, and one dependency row for each pack the workflow needs, reading **Ready** or **Needs install**.
 3. If any row reads Needs install, click **Install Dependencies** on the card. LGE installs the missing packs and then switches the workflow on.
 4. If every row reads Ready, turn on the card's **Enabled** switch instead.
 
-The workflow's menu item now appears in ordinary type and opens its dialog. Three specialized workflows ship with LGE. miSeq amplicon MHC genotyping is on from the start. Full-length ONT MHC genotyping and 12S Amplicon Matching start switched off, and all three sit under **Tools > Genotyping**. Turning a switch off hides the workflow again without removing any pack. Workflow packages you link yourself appear under User Workflows in the same window, as [Running External Workflows](../08-workflows/03-running-external-workflows.md) shows.
+The workflow's menu item now reads its plain name and opens its dialog. Three specialized workflows ship with LGE. MiSeq Amplicon MHC Genotyping is on from the start. Full-Length ONT MHC Genotyping and 12S Amplicon Matching start switched off. The two MHC workflows sit under **Tools > Genotyping** and 12S Amplicon Matching under **Tools > Classification**. Turning a switch off puts Enable back before the workflow's name without removing any pack. Workflow packages you link yourself appear under User Workflows in the same window, as [Running External Workflows](../08-workflows/03-running-external-workflows.md) shows.
 
 ### Tools that run in containers
 

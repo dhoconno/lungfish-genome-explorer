@@ -57,7 +57,7 @@ referenced by path.
   genotyping, 970 allele targets.
 - **`Analyses/Amplicon genotyping results/amplicon-genotyping.lungfishgenotype`**
   is the single genotype result bundle, a genotyping-only run of all 30
-  samples with the miSeq amplicon workflow at its default settings
+  samples with the MiSeq amplicon workflow at its default settings
   (minimum supporting reads 1, no haplotype definition).
 - **`Primer Schemes/`** is empty. No `.lungfishprimers` bundle is staged, so
   screenshots should not assume a populated primer scheme list.

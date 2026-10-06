@@ -9,13 +9,13 @@ tags: [variants, medaka, clair3, nanopore, ont, long-read, mitochondrial]
 tools: [medaka, clair3, minimap2, samtools, bcftools]
 parameters_refs: [variants.call-medaka, variants.call-clair3]
 entry_points:
-  - "Tools > Call Variants..."
+  - "Tools > Variant Calling > Call Variants..."
   - "Inspector > Analysis > Variant Calling > Call Variants..."
   - "CLI: lungfish-cli variants call --caller medaka"
   - "CLI: lungfish-cli variants call --caller clair3"
 shots:
   - id: tools-mapping-submenu
-    caption: "The Tools menu with its Mapping submenu open, listing the minimap2, BWA-MEM2, Bowtie2, BBMap, and Viral Recon items."
+    caption: "The Tools menu with its Mapping submenu open, listing the minimap2, BWA-MEM2, Bowtie2, and BBMap items."
   - id: call-variants-dialog-medaka
     caption: "The Call Variants dialog with Medaka selected in the tool sidebar, showing the two-column layout and the Medaka Settings section holding its single empty Medaka Model field and the caption beneath it."
   - id: medaka-model-field
