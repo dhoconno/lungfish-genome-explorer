@@ -46,6 +46,74 @@ final class DatabaseSearchSheetLayoutTests: XCTestCase {
         )
     }
 
+    func testAvailableSheetSizeStopsAtTheVisibleFrameBottom() {
+        let visible = NSRect(x: 0, y: 80, width: 1440, height: 800)
+        // The parent's content runs below the Dock, so the visible frame wins.
+        let parentContent = NSRect(x: 100, y: 0, width: 800, height: 450)
+        let size = DatabaseBrowserViewController.availableSheetSize(
+            parentContent: parentContent,
+            visibleFrame: visible
+        )
+        XCTAssertEqual(size.width, 800)
+        XCTAssertEqual(size.height, 370)
+        // Fully on screen, the parent's content area wins.
+        let onScreen = NSRect(x: 100, y: 300, width: 800, height: 450)
+        XCTAssertEqual(
+            DatabaseBrowserViewController.availableSheetSize(parentContent: onScreen, visibleFrame: visible),
+            CGSize(width: 800, height: 450)
+        )
+    }
+
+    func testBeginSheetOnASmallParentKeepsTheSheetAndFooterInside() throws {
+        NSApplication.shared.accessibilitySetValue(
+            true,
+            forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        )
+        let parent = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 450),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        parent.isReleasedWhenClosed = false
+        parent.center()
+        parent.orderFront(nil)
+        defer { parent.orderOut(nil) }
+
+        let controller = DatabaseBrowserViewController(source: .ena)
+        let sheet = NSWindow(contentViewController: controller)
+        sheet.isReleasedWhenClosed = false
+        parent.beginSheet(sheet)
+        defer { parent.endSheet(sheet) }
+        controller.dialogState!.sraRunsViewModel.isAdvancedExpanded = true
+        AccessibilityTreeProbe.waitUntil {
+            AccessibilityTreeProbe.element(in: sheet, identifier: "database-search-primary-action") != nil
+        }
+        sheet.layoutIfNeeded()
+
+        XCTAssertNotNil(sheet.sheetParent)
+        let visible = try XCTUnwrap(parent.screen?.visibleFrame)
+        let parentContent = parent.convertToScreen(parent.contentLayoutRect)
+        XCTAssertLessThanOrEqual(sheet.frame.height, parentContent.height + 0.5)
+        XCTAssertLessThanOrEqual(sheet.frame.width, parentContent.width + 0.5)
+        XCTAssertTrue(parent.frame.insetBy(dx: -1, dy: -1).contains(sheet.frame), "sheet \(sheet.frame) outside parent \(parent.frame)")
+        XCTAssertTrue(visible.insetBy(dx: -1, dy: -1).contains(sheet.frame), "sheet \(sheet.frame) outside \(visible)")
+        for identifier in ["database-search-cancel", "database-search-primary-action"] {
+            let button = try XCTUnwrap(AccessibilityTreeProbe.element(in: sheet, identifier: identifier), identifier)
+            let frame = (button as AnyObject).accessibilityFrame?() ?? .zero
+            XCTAssertFalse(frame.isEmpty, identifier)
+            XCTAssertTrue(sheet.frame.contains(frame), "\(identifier) at \(frame) outside the sheet \(sheet.frame)")
+        }
+
+        // A shorter parent clamps the open sheet again.
+        var shorter = parent.frame
+        shorter.origin.y += 100
+        shorter.size.height -= 100
+        parent.setFrame(shorter, display: false)
+        let shorterContent = parent.convertToScreen(parent.contentLayoutRect)
+        XCTAssertLessThanOrEqual(sheet.frame.height, shorterContent.height + 0.5)
+    }
+
     private func assertFooterStaysVisible(
         source: DatabaseSource,
         disclosedControl: String? = nil,

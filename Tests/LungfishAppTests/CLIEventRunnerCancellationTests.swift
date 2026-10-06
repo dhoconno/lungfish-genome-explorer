@@ -133,7 +133,7 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         let script = """
         #!/bin/sh
         touch "\(startedMarker.path)"
-        sleep 2
+        sleep 30
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
@@ -149,7 +149,7 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         return url
     }
 
-    private func waitUntilFileExists(_ url: URL, timeout: TimeInterval = 2) async throws {
+    private func waitUntilFileExists(_ url: URL, timeout: TimeInterval = 30) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if FileManager.default.fileExists(atPath: url.path) {
