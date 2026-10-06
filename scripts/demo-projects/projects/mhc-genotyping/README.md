@@ -10,7 +10,7 @@ This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. 
 | `Imports/SIMULATED-MHC-B-pairs.lungfishfastq` | Simulated sample B, 172 read pairs imported as interleaved mates |
 | `Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref` | The three-allele library, with gene and allele names on each record, the reference the genotyping dialog lists for a genotyping-only run |
 | `Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref` | The same three alleles bundled with a small MCM haplotype definition set (M4 at MHC-A, M7 at MHC-DR, M1 at MHC-DP), the reference to pick for a Deterministic haplotyping run |
-| `Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json` | The definition set as a bare JSON file, the form the Haplotype Definitions window imports and exports |
+| `Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json` | The definition set as a bare JSON file, the form the MHC Haplotype Definitions window imports and exports |
 
 Each bundle holds one sample, which is the rule that keeps samples apart in a genotyping run.
 
@@ -32,7 +32,7 @@ Reading the Genotype Comparison and Exporting Genotypes start from the result th
 
 1. Open this project with **File > Open Project Folder...**.
 2. Turn the genotyping workflow on once in the Workflow Library, which **Tools > Workflows > Workflow Library...** opens.
-3. Select both `SIMULATED-MHC` bundles under `Imports`, choose **Tools > Genotyping > miSeq amplicon MHC genotyping...**, and pick `SIMULATED-MHC-annotated-reference` from the **Project Reference** menu. Running Amplicon MHC Genotyping explains every setting.
+3. Select both `SIMULATED-MHC` bundles under `Imports`, choose **Tools > Genotyping > MiSeq Amplicon MHC Genotyping...**, and pick `SIMULATED-MHC-annotated-reference` from the **Project Reference** menu. Running Amplicon MHC Genotyping explains every setting.
 
 ## Before you run anything
 

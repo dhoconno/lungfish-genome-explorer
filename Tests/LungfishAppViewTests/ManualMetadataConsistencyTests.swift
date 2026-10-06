@@ -24,12 +24,12 @@ final class ManualMetadataConsistencyTests: XCTestCase {
             "Tools > Variant Calling should list Viral Recon as its own item"
         )
 
-        // The launch procedure lives in the Viral Recon wizard chapter. The
-        // consensus chapter only cross-references it. The chapter still names
-        // the old Tools > Mapping path until the docs pass rewrites it, and that
-        // pass changes this line with it.
+        // The launch procedure lives in the Viral Recon wizard chapter, which
+        // names the Variant Calling path. The consensus chapter only
+        // cross-references it.
         let wizard = try readManualFile("chapters/04-alignments/05-viral-recon-wizard.md")
-        XCTAssertTrue(wizard.contains("Tools > Mapping > Viral Recon"))
+        XCTAssertTrue(wizard.contains("Tools > Variant Calling > Viral Recon (SARS-CoV-2)"))
+        XCTAssertFalse(wizard.contains("Tools > Mapping > Viral Recon"))
         let consensus = try readManualFile("chapters/05-variants/05-consensus-and-lineage.md")
         XCTAssertTrue(consensus.contains("(../04-alignments/05-viral-recon-wizard.md)"))
 

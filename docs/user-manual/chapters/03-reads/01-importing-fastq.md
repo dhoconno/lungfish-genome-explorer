@@ -69,7 +69,7 @@ A paired bundle is only useful while every mate still sits beside its partner. S
 
 | What happens to pairs | Operations |
 |---|---|
-| Both mates are kept or removed together | Import, the four fastp trims, Primer Trimming, Filter by Read Length, Remove Human Reads, Remove ribosomal RNA sequences, Remove Contaminants, Low-Complexity Filter, Remove Duplicates, both subsamples, the three extraction operations, Correct Sequencing Errors, Reverse Complement, Repair Paired-End Files |
+| Both mates are kept or removed together | Import, the four fastp trims, Primer Trimming, Filter by Read Length, Remove Human Reads, Remove Ribosomal RNA Reads, Remove Contaminants, Remove Low-Complexity Reads, Remove Duplicate Reads, both subsamples, the three extraction operations, Correct Sequencing Errors, Reverse Complement All Sequences, Repair Paired-End Files |
 | A mate can be left on its own | Orient Reads, which is built for single long reads and drops any read it cannot place |
 | Pairs are joined into single reads | Merge Overlapping Pairs, the Illumina Amplicon Merge recipe, and the VSP2 Target Enrichment and Wastewater metagenomics recipes, which keep merged reads and leftover pairs in one bundle |
 

@@ -15,7 +15,7 @@ entry_points:
   - File > Import Center... (Classification Results tab)
 shots:
   - id: classification-submenu
-    caption: "The Tools menu open on its Classification submenu, showing the three runnable classifiers as separate items, Kraken2..., EsViritu..., and TaxTriage..."
+    caption: "The Tools menu open on its Classification submenu, showing the three runnable classifiers as separate items, Kraken2..., EsViritu..., and TaxTriage..., then a separator and Enable 12S Amplicon Matching..."
   - id: classification-dialog-tool-sidebar
     caption: "The FASTQ/FASTA Operations sheet opened from Tools > Classification > Kraken2..., with Kraken2 already selected and the tool sidebar listing EsViritu and TaxTriage beside it."
   - id: import-center-classification-tab
@@ -160,7 +160,7 @@ LGE draws a firm line between classifiers it launches for you and results it acc
 | [Kraken2](../../GLOSSARY.md#kraken2), which its authors write Kraken 2 | Run it from **Tools > Classification > Kraken2...** |
 | [EsViritu](../../GLOSSARY.md#esviritu) | Run it from **Tools > Classification > EsViritu...** |
 | [TaxTriage](../../GLOSSARY.md#taxtriage) | Run it from **Tools > Classification > TaxTriage...** |
-| 12S Amplicon Matching | Run it from **Tools > Genotyping** once it is turned on |
+| 12S Amplicon Matching | Run it from **Tools > Classification** once it is turned on |
 | [Freyja](../../GLOSSARY.md#freyja) | Run it with `lungfish-cli freyja`, with no menu item |
 | [CZ ID](../../GLOSSARY.md#cz-id), [NAO-MGS](../../GLOSSARY.md#nao-mgs), [NVD](../../GLOSSARY.md#nvd) | Import only |
 
@@ -168,11 +168,11 @@ For the three imports, you run the analysis elsewhere and bring its output into 
 
 <!-- SHOT: import-center-classification-tab -->
 
-12S Amplicon Matching is a specialized workflow, so the app files it under **Tools > Genotyping** rather than Classification. It shows there as "12S Amplicon Matching (not enabled)" in grey until you turn it on once in the [Workflow Library](../../GLOSSARY.md#workflow-library), as [Turning on a specialized workflow](../01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows.
+12S Amplicon Matching is a specialized workflow, listed after a separator at the foot of **Tools > Classification**. It reads **Enable 12S Amplicon Matching...** there until you turn it on once in the [Workflow Library](../../GLOSSARY.md#workflow-library), as [Turning on a specialized workflow](../01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows.
 
 ## Where the classifiers live
 
-Every runnable classifier opens from **Tools > Classification**, a submenu with three items, **Kraken2...**, **EsViritu...**, and **TaxTriage...**. You choose the tool in the menu rather than in a later dialog.
+Every runnable classifier opens from **Tools > Classification**, whose first three items are **Kraken2...**, **EsViritu...**, and **TaxTriage...**. You choose the tool in the menu rather than in a later dialog.
 
 <!-- SHOT: classification-submenu -->
 

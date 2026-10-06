@@ -254,7 +254,7 @@ else
   echo "   Docker is NOT running. Start Docker Desktop before the manual step."
 fi
 echo "   Viral Recon is not run by this script. Run it once from the app's"
-echo "   Tools > Mapping > Viral Recon wizard on the SRR36291587 sample."
+echo "   Tools > Variant Calling > Viral Recon (SARS-CoV-2) wizard on the SRR36291587 sample."
 echo "   See README.md in this directory."
 step_end
 

@@ -9,7 +9,7 @@ tags: [reads, sra, ena, download, fastq, accession, amplicon]
 tools: []
 parameters_refs: [fetch.sra]
 entry_points:
-  - Tools > Search Online Databases > Search SRA...
+  - File > Search Online Databases > Search SRA...
   - "CLI: lungfish-cli fetch sra search <query>"
   - "CLI: lungfish-cli fetch sra download <accession>"
   - "CLI: lungfish-cli fetch sra info <accession>"
@@ -67,7 +67,7 @@ You need a working internet connection. The SRA Toolkit arrives with the [Requir
 
 ## Procedure
 
-1. Choose **Tools > Search Online Databases > Search SRA...**. The Search Online Databases dialog opens on its SRA Runs pane, with the line "Search sequencing runs and import accession lists." under its heading. The list down the left side switches between GenBank & Genomes (NCBI's collection of assembled sequences), SRA Runs, and Pathoplexus (a database of pathogen genomes), and [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) covers the other two. The query field sits below the Import Accessions card, with an unlabelled scope popup at its left end that reads All Fields.
+1. Choose **File > Search Online Databases > Search SRA...**. The Search Online Databases dialog opens on its SRA Runs pane, with the line "Search sequencing runs and import accession lists." under its heading. The list down the left side switches between GenBank & Genomes (NCBI's collection of assembled sequences), SRA Runs, and Pathoplexus (a database of pathogen genomes), and [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) covers the other two. The query field sits below the Import Accessions card, with an unlabelled scope popup at its left end that reads All Fields.
 
 2. Set the scope popup to **Accession**, so the query matches the run identifier and nothing else.
 

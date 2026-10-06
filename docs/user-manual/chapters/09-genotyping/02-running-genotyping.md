@@ -9,22 +9,22 @@ tags: [genotyping, mhc, amplicon, miseq, ont, macaque, haplotype, savont]
 tools: [minimap2, samtools, bbmerge, savont]
 parameters_refs: [genotype.miseq-amplicon, genotype.full-length-ont]
 entry_points:
-  - "Tools > Genotyping > miSeq amplicon MHC genotyping..."
-  - "Tools > Genotyping > Full-length ONT MHC genotyping..."
-  - "Tools > Haplotype Definitions..."
+  - "Tools > Genotyping > MiSeq Amplicon MHC Genotyping..."
+  - "Tools > Genotyping > Full-Length ONT MHC Genotyping..."
+  - "Tools > Genotyping > MHC Haplotype Definitions..."
   - "CLI: lungfish-cli fastq genotype-cohort"
   - "CLI: lungfish-cli fastq genotype"
   - "CLI: lungfish-cli fastq full-length-ont-mhc-genotype"
   - "CLI: lungfish-cli haplotypes"
 shots:
   - id: genotyping-run-dialog
-    caption: "The Workflow Operations dialog on miSeq amplicon MHC genotyping, showing the Reference group with its Project Reference menu, the FASTQ Bundles group, the Report group with Report Name, and the Run Parameters group with Threads and Minimum supporting reads above the read-only mode caption."
+    caption: "The Workflow Operations dialog on MiSeq Amplicon MHC Genotyping, showing the Reference group with its Project Reference menu, the FASTQ Bundles group, the Report group with Report Name, and the Run Parameters group with Threads and Minimum supporting reads above the read-only mode caption."
   - id: genotyping-analysis-mode
     caption: "The dialog's Haplotyping group with the Analysis Mode segmented picker set to Deterministic haplotyping, and the Haplotype Definition group reading Definitions supplied by the selected reference bundle."
   - id: genotyping-advanced-options
-    caption: "The dialog's Advanced Options disclosure expanded on the miSeq workflow, showing the minimap2 arguments field and the Keep Intermediates checkbox above the Directory group."
+    caption: "The dialog's Advanced Options disclosure expanded on the MiSeq workflow, showing the minimap2 arguments field and the Keep Intermediates checkbox above the Directory group."
   - id: genotyping-full-length-dialog
-    caption: "The Workflow Operations dialog on Full-length ONT MHC genotyping, showing the Length Filter group with Min Length and Max Length, the Call Thresholds group with its Locus % field, the Haplotype Definition group, and the Advanced Options disclosure holding Orient Reference, Forward Primers, and Reverse Primers."
+    caption: "The Workflow Operations dialog on Full-Length ONT MHC Genotyping, showing the Length Filter group with Min Length and Max Length, the Call Thresholds group with its Locus % field, the Haplotype Definition group, and the Advanced Options disclosure holding Orient Reference, Forward Primers, and Reverse Primers."
 illustrations: []
 glossary_refs: [adapter, allele, allele-target, amplicon, bam, bbmerge, blast, bundle, cdna, clustering, cohort, consensus-sequence, fasta, fastq, genotype-result-bundle, haplotype, insert-size, ipd-mhc, json, locus, mcm, mhc, minimap2, miseq, nanopore-sequencing, operations-panel, paired-end, pbaa, plugin-pack, primer, provenance, read, read-merging, reference-bundle, retained-read, sample-depth, savont, wall-time, workflow-library]
 features_refs: []
@@ -39,7 +39,7 @@ A genotyping run takes the sequencing reads from one or more animals, one read b
 
 The output is a [genotype result bundle](../../GLOSSARY.md#genotype-result-bundle), a `.lungfishgenotype` folder LGE shows as one item. It holds the counts as CSV tables, an Excel workbook, and a [BAM](../../GLOSSARY.md#bam) alignment file of the retained reads.
 
-LGE offers two genotyping operations, and your sequencing platform decides which you use. The miSeq amplicon operation handles short amplicons, as Illumina [paired-end](../../GLOSSARY.md#paired-end) reads or as short Oxford Nanopore reads. The full-length ONT operation handles long Oxford [Nanopore](../../GLOSSARY.md#nanopore-sequencing) reads that span a whole allele, and it first groups near-identical reads into [consensus sequences](../../GLOSSARY.md#consensus-sequence), one cleaned-up sequence standing for each group. Both sit under **Tools > Genotyping** and write the same shape of result.
+LGE offers two genotyping operations, and your sequencing platform decides which you use. The MiSeq amplicon operation handles short amplicons, as Illumina [paired-end](../../GLOSSARY.md#paired-end) reads or as short Oxford Nanopore reads. The full-length ONT operation handles long Oxford [Nanopore](../../GLOSSARY.md#nanopore-sequencing) reads that span a whole allele, and it first groups near-identical reads into [consensus sequences](../../GLOSSARY.md#consensus-sequence), one cleaned-up sequence standing for each group. Both sit under **Tools > Genotyping** and write the same shape of result.
 
 Either operation can also assign [haplotypes](../../GLOSSARY.md#haplotype) from the allele calls when you give it haplotype definitions, and this chapter's run does. A haplotype definition set is a small [JSON](../../GLOSSARY.md#json) file, structured text that lists, for each region, the haplotypes of one population and the diagnostic alleles that mark each one. [Where haplotype definitions come from](#where-haplotype-definitions-come-from) shows how a set reaches a project.
 
@@ -68,7 +68,7 @@ Install the `read-mapping` [plugin pack](../../GLOSSARY.md#plugin-pack), a theme
 
 ## Procedure
 
-The procedure runs the miSeq amplicon workflow on the demo project with haplotyping on. [What changes on the full-length ONT route](#6-what-changes-on-the-full-length-ont-route) covers the other workflow.
+The procedure runs the MiSeq amplicon workflow on the demo project with haplotyping on. [What changes on the full-length ONT route](#6-what-changes-on-the-full-length-ont-route) covers the other workflow.
 
 ### Select the samples you want to genotype
 
@@ -78,7 +78,7 @@ When you select several bundles, the dialog's FASTQ Bundles group says they will
 
 ### Open the dialog and set the reference
 
-1. Choose **Tools > Genotyping > miSeq amplicon MHC genotyping...**. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, and it opens with this workflow selected.
+1. Choose **Tools > Genotyping > MiSeq Amplicon MHC Genotyping...**. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, and it opens with this workflow selected.
 2. In the **Reference** group, open the **Project Reference** menu, which lists the reference bundles LGE found in the project, and choose `SIMULATED-MHC-MCM-teaching.lungfishmhcref` under Reference allele databases. For a library outside the project, click **Choose…** beside the menu.
 3. Check that the **FASTQ Bundles** group lists the two samples. Below it, **Report Name** arrives filled in as `amplicon-genotyping`. Change it to `simulated-mhc`, the name the later chapters use.
 
@@ -112,7 +112,7 @@ When the row turns green, the result appears in the sidebar under `Analyses/Ampl
 
 ### Where haplotype definitions come from
 
-The demo project's definitions arrive inside the `.lungfishmhcref` bundle, which is the form the dialog reads without asking. A definition set can also reach a project on its own, and the **Haplotype Definitions** window manages both kinds. Open it with **Tools > Haplotype Definitions...** or with the **Manage…** button in the dialog's Haplotype Definition group.
+The demo project's definitions arrive inside the `.lungfishmhcref` bundle, which is the form the dialog reads without asking. A definition set can also reach a project on its own, and the **MHC Haplotype Definitions** window manages both kinds. Open it with **Tools > Genotyping > MHC Haplotype Definitions...** or with the **Manage…** button in the dialog's Haplotype Definition group. The menu item stays greyed out until an MHC genotyping workflow is switched on, and hovering over it says so.
 
 The window lists the definition sets held in the project's reference bundles, with columns for **Definition**, **Assay**, **Species**, **Source**, and **Status**. On the demo project it lists one set, "MCM haplotypes for the mhc-simulated reference (teaching set)", with the id `mhc-simulated-mcm-teaching`, the assay `SIMULATED-MHC-three-amplicon`, and the species `MCM`. Selecting a row shows its details, including the bundle and reference FASTA it belongs to and its loci, here MHC-A, MHC-DR, and MHC-DP. The toolbar's **Import** button brings in a definition file or a whole `.lungfishmhcref` bundle, **New** starts an empty definition, and **Export** writes the selected set to a file. The detail pane's **Edit** button opens a definition for changes.
 
@@ -129,7 +129,7 @@ The G gene sits in the MHC-A region, beside the A genes, which is why the Mafa-G
 
 ### What changes on the full-length ONT route {#6-what-changes-on-the-full-length-ont-route}
 
-Choose **Tools > Genotyping > Full-length ONT MHC genotyping...** when your reads are long Nanopore reads that each span a whole allele. The Reference, FASTQ Bundles, Report Name, Threads, and Directory groups work as in the procedure above. Four things differ.
+Choose **Tools > Genotyping > Full-Length ONT MHC Genotyping...** when your reads are long Nanopore reads that each span a whole allele. The Reference, FASTQ Bundles, Report Name, Threads, and Directory groups work as in the procedure above. Four things differ.
 
 First, reads are clustered before anything is compared to the library. [Clustering](../../GLOSSARY.md#clustering) groups near-identical reads and derives one consensus sequence from each group, and the consensus sequences are what get genotyped. Nanopore reads carry a higher per-base error rate than Illumina reads, so a true allele matched read by read would scatter into near-misses. LGE always clusters with [Savont](../../GLOSSARY.md#savont) on this route. [pbAA](../../GLOSSARY.md#pbaa), another clustering program, is a separate operation whose saved output this workflow can reuse.
 
@@ -153,19 +153,19 @@ Each control is documented once, with a note of which workflow shows it. Every f
 
 **Include subfolders.** Adds bundles nested inside further folders when you selected a folder, on both workflows. It is off by default, so a folder contributes only the bundles directly inside it. Turn it on when a sequencing run wrote each sample into its own subfolder. This setting has no command-line flag.
 
-**Report Name.** Names the result bundle and the files inside it, on both workflows. On the miSeq route it starts as `amplicon-genotyping`. On the full-length route one input gives a name built from that file's name, and several inputs give `full-length-ont-mhc-genotyping`. Change it when the suggested name will not tell you later which plate the run covered. On the command line this is `--output-name`.
+**Report Name.** Names the result bundle and the files inside it, on both workflows. On the MiSeq route it starts as `amplicon-genotyping`. On the full-length route one input gives a name built from that file's name, and several inputs give `full-length-ont-mhc-genotyping`. Change it when the suggested name will not tell you later which plate the run covered. On the command line this is `--output-name`.
 
 **Threads.** Sets how many processor cores the run uses at once, on both workflows. The default is your Mac's processor count. Lower it to keep the Mac responsive during a long run. On the command line this is `--threads`.
 
-**Minimum supporting reads.** Sets the fewest retained reads an allele needs before the haplotype caller counts it as evidence, on the miSeq workflow. It starts at 1, because an exact full-length match is strict enough that one read means something. It removes no rows from the report files or the workbook, which always list every retained allele, so it matters only with Deterministic haplotyping, where [Reading the results](#reading-the-results) shows it changing a call. On the command line this is `--min-support`.
+**Minimum supporting reads.** Sets the fewest retained reads an allele needs before the haplotype caller counts it as evidence, on the MiSeq workflow. It starts at 1, because an exact full-length match is strict enough that one read means something. It removes no rows from the report files or the workbook, which always list every retained allele, so it matters only with Deterministic haplotyping, where [Reading the results](#reading-the-results) shows it changing a call. On the command line this is `--min-support`.
 
-**Analysis Mode.** Decides whether the run stops at allele calls or goes on to assign haplotypes, as a two-segment picker on the miSeq workflow. It starts on **Genotyping only**, which reports detected alleles and their supporting reads. **Deterministic haplotyping** also matches the diagnostic alleles to the haplotype definitions you choose. On the command line `--genotype-only` forces genotyping only, and `--haplotype-definition` names a definition set.
+**Analysis Mode.** Decides whether the run stops at allele calls or goes on to assign haplotypes, as a two-segment picker on the MiSeq workflow. It starts on **Genotyping only**, which reports detected alleles and their supporting reads. **Deterministic haplotyping** also matches the diagnostic alleles to the haplotype definitions you choose. On the command line `--genotype-only` forces genotyping only, and `--haplotype-definition` names a definition set.
 
-**Haplotype Definition.** Chooses the haplotype definitions the caller uses, with **Assay**, **Species**, and **Definition** menus and a **Manage…** button that opens the Haplotype Definitions window, which [Where haplotype definitions come from](#where-haplotype-definitions-come-from) describes. It appears on the miSeq workflow under Deterministic haplotyping and always on the full-length workflow, and when the reference is a `.lungfishmhcref` bundle it reads "Definitions supplied by the selected reference bundle." and needs no choice. The default is no definition, so no haplotypes are called. Pick one only when you want haplotype calls, which [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md#haplotype-calls) explains. On the command line these are `--haplotype-assay`, `--haplotype-species`, and `--haplotype-definition`, and a `.lungfishmhcref` reference supplies its own definition unless `--genotype-only` is given.
+**Haplotype Definition.** Chooses the haplotype definitions the caller uses, with **Assay**, **Species**, and **Definition** menus and a **Manage…** button that opens the MHC Haplotype Definitions window, which [Where haplotype definitions come from](#where-haplotype-definitions-come-from) describes. It appears on the MiSeq workflow under Deterministic haplotyping and always on the full-length workflow, and when the reference is a `.lungfishmhcref` bundle it reads "Definitions supplied by the selected reference bundle." and needs no choice. The default is no definition, so no haplotypes are called. Pick one only when you want haplotype calls, which [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md#haplotype-calls) explains. On the command line these are `--haplotype-assay`, `--haplotype-species`, and `--haplotype-definition`, and a `.lungfishmhcref` reference supplies its own definition unless `--genotype-only` is given.
 
 **Locus %.** Sets the smallest share an allele must hold of the sample's retained reads at its own source locus before the haplotype caller uses it, on the full-length workflow. The default is 1 percent, which drops stray low-level hits without touching real alleles. Raise it when background clusters are producing extra haplotype matches. It applies only when a haplotype definition is chosen, and it is fixed into the result, unlike the display filters of the result window. On the command line this is `--haplotype-min-locus-percent`, whose default there is 0.
 
-**minimap2 arguments.** Passes extra arguments to minimap2 after LGE's own mapping preset, on the miSeq workflow, inside **Advanced Options**. It starts empty, which is right for almost every run. Use it only for a minimap2 option you have read about in [the minimap2 documentation](https://lh3.github.io/minimap2/minimap2.html). On the command line this is `--extra-args`.
+**minimap2 arguments.** Passes extra arguments to minimap2 after LGE's own mapping preset, on the MiSeq workflow, inside **Advanced Options**. It starts empty, which is right for almost every run. Use it only for a minimap2 option you have read about in [the minimap2 documentation](https://lh3.github.io/minimap2/minimap2.html). On the command line this is `--extra-args`.
 
 **Keep Intermediates.** Keeps the large working files a run produces instead of deleting them at the end, inside **Advanced Options** on both workflows. It is off by default, as the dialog's own caption recommends, because the merged reads and unfiltered alignments are large and can be regenerated. Turn it on only when a run gave an unexpected result and you want the files behind it. On the command line this is `--keep-intermediates`.
 
@@ -179,7 +179,7 @@ Each control is documented once, with a note of which workflow shows it. Every f
 
 **Reverse Primers.** Names the primer sequences trimmed from the end of each read, on the full-length workflow, and partners the setting above. It arrives filled when LGE finds a reverse-primer FASTA in the project. Supply it when your reads still carry their PCR primers. On the command line this is `--reverse-primer`.
 
-**Directory.** Chooses where the result bundle is written, on both workflows. It points at `Analyses/Amplicon genotyping results` for the miSeq route and `Analyses/Full-length ONT MHC genotyping results` for the full-length route. Change it only when the result belongs outside the project. On the command line this is `--output-dir`.
+**Directory.** Chooses where the result bundle is written, on both workflows. It points at `Analyses/Amplicon genotyping results` for the MiSeq route and `Analyses/Full-length ONT MHC genotyping results` for the full-length route. Change it only when the result belongs outside the project. On the command line this is `--output-dir`.
 
 ## Reading the results
 
@@ -245,7 +245,7 @@ The `lungfish-cli` program ships inside LGE, and [Finding the program](../append
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/MHC Genotyping.lungfish"
 
-# miSeq amplicon genotyping with the bundled MCM definitions
+# MiSeq amplicon genotyping with the bundled MCM definitions
 lungfish-cli fastq genotype-cohort \
   "$PROJECT/Imports/SIMULATED-MHC-A-pairs.lungfishfastq" \
   "$PROJECT/Imports/SIMULATED-MHC-B-pairs.lungfishfastq" \

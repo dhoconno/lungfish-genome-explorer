@@ -86,7 +86,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **bbduk**{#bbduk}. A read-filtering and trimming program from the BBTools suite that matches a supplied sequence against reads as k-mers, used in Lungfish Genome Explorer for read-level primer trimming with a literal primer sequence and for contaminant filtering. See also k-mer, Hamming distance, primer trim.
 
-**BBMerge**{#bbmerge}. The BBTools program that joins the two mates of a paired-end read into one longer fragment wherever they overlap. Lungfish Genome Explorer runs it in the Merge Overlapping Pairs operation, and inside miSeq amplicon MHC genotyping when paired reads arrive without the Illumina Amplicon Merge import recipe, so that amplicons longer than a single mate can still be spanned end to end. See also read merging, paired-end, allele target.
+**BBMerge**{#bbmerge}. The BBTools program that joins the two mates of a paired-end read into one longer fragment wherever they overlap. Lungfish Genome Explorer runs it in the Merge Overlapping Pairs operation, and inside MiSeq Amplicon MHC Genotyping when paired reads arrive without the Illumina Amplicon Merge import recipe, so that amplicons longer than a single mate can still be spanned end to end. See also read merging, paired-end, allele target.
 
 **BCF**{#bcf}. The compact binary form of VCF, holding the same rows and header but packed for machines. Lungfish Genome Explorer reads an imported BCF with a CSI index beside it, but stores the variant tracks it writes as a bgzip-compressed VCF with a tabix index under the bundle's `variants/` folder, alongside a SQLite sidecar that indexes the same rows. See also VCF, CSI, tabix.
 
@@ -174,7 +174,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Classifier**{#classifier}. Software that decides which organism each read in a sequencing run came from, by comparing the read against a database of known genomes, so that a FASTQ of mixed reads becomes a list of the organisms present and how many reads support each. Kraken 2, EsViritu, TaxTriage, and NAO-MGS are the classifiers Lungfish Genome Explorer runs. See also read classification, taxon, Kraken 2.
 
-**Clumpify**{#clumpify}. A program from the BBTools suite that reorders reads so that reads sharing sequence content sit next to each other, and that can collapse those matching reads into one, which is what backs the Remove Duplicates operation in Lungfish Genome Explorer. See also PCR duplicate, optical duplicate, read clumping.
+**Clumpify**{#clumpify}. A program from the BBTools suite that reorders reads so that reads sharing sequence content sit next to each other, and that can collapse those matching reads into one, which is what backs the Remove Duplicate Reads operation in Lungfish Genome Explorer. See also PCR duplicate, optical duplicate, read clumping.
 
 **Clustering**{#clustering}. Grouping near-identical reads into representative consensus sequences before genotyping, used for full-length ONT MHC amplicons. See also pbAA, Savont.
 
@@ -864,7 +864,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Saturation**{#saturation}. The state of two sequences that differ at so many positions that a corrected distance can no longer be estimated, because the differences are as many as unrelated sequences would show. LGE writes such a pair as `inf` in a distance table and draws its cell as `∞` on the Distances tab. See also Jukes-Cantor model, Kimura two-parameter model.
 
-**Savont**{#savont}. The clustering program Lungfish Genome Explorer runs in Full-length ONT MHC genotyping to group each sample's near-identical long reads and turn every group into one counted consensus sequence, which is what the workflow then compares with the allele library. It also runs on its own as the Savont Clustering operation for any FASTQ, and it comes with the Full-length MHC Genotyping pack. See also clustering, consensus sequence, candidate allele.
+**Savont**{#savont}. The clustering program Lungfish Genome Explorer runs in Full-Length ONT MHC Genotyping to group each sample's near-identical long reads and turn every group into one counted consensus sequence, which is what the workflow then compares with the allele library. It also runs on its own as the Savont Clustering operation for any FASTQ, and it comes with the Full-length MHC Genotyping pack. See also clustering, consensus sequence, candidate allele.
 
 **Scaffold**{#scaffold}. A run of contigs an assembler has placed in order and orientation relative to one another using paired-end reads that bridge the gaps between them, written as one sequence in which each unresolved gap appears as a run of `N` characters of the estimated length. Lungfish Genome Explorer builds an assembly bundle from the contigs rather than the scaffolds, so a scaffold file sits in the run folder but is not what the assembly viewport shows. See also contig, paired-end, assembly bundle.
 
@@ -1054,7 +1054,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Workflow engine**{#workflow-engine}. A program that reads a description of an analysis, works out which step must happen before which other step, and then runs them in that order, of which Lungfish Genome Explorer drives two, Nextflow pinned at version 26.04.6 and Snakemake pinned at version 9.25.2. See also Nextflow, Snakemake, workflow package.
 
-**Workflow Library**{#workflow-library}. The window opened with **Tools > Workflows > Workflow Library...** that lists every specialized workflow and every linked workflow package as a card with an Enabled switch, and which is the only place a specialized workflow, such as MHC genotyping or 12S metabarcoding, can be turned on before its Tools menu item stops reading `(not enabled)`, as [Turning on a specialized workflow](chapters/01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows. See also workflow package, plugin pack.
+**Workflow Library**{#workflow-library}. The window opened with **Tools > Workflows > Workflow Library...** that lists every specialized workflow and every linked workflow package as a card with an Enabled switch, and which is the only place a specialized workflow, such as MHC genotyping or 12S metabarcoding, can be turned on, after which its Tools menu item no longer reads Enable before its name, as [Turning on a specialized workflow](chapters/01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows. See also workflow package, plugin pack.
 
 **Workflow lineage**{#workflow-lineage}. The ordered chain of tool invocations an LGE run record holds, shown as the Lineage block of the Inspector's Provenance section, where each numbered step expands to its own command, inputs, outputs, exit status, and wall time. Distinct from a viral lineage, which names a subgroup of a virus species. See also run record, provenance sidecar.
 

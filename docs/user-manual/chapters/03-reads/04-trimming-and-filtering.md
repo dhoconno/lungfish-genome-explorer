@@ -13,7 +13,7 @@ entry_points:
   - "CLI: lungfish-cli fastq trim, quality-trim, adapter-trim, primer-remove, fixed-trim, length-filter"
 shots:
   - id: trimming-dialog
-    caption: "The FASTQ/FASTA Operations window on the fastp Adapter + Quality Trim pane at its defaults, with Threshold 20, Window Size 4, Mode on Cut Right, and Adapter Mode on Auto-Detect."
+    caption: "The FASTQ/FASTA Operations window on the fastp Adapter & Quality Trim pane at its defaults, with Threshold 20, Window Size 4, Mode on Cut Right, and Adapter Mode on Auto-Detect."
   - id: primer-trimming-literal-pane
     caption: "The Primer Trimming pane with Primer Source on Literal Sequence, showing the Primer Sequence field above the three compact fields labelled k, mink, and hdist."
   - id: length-filter-readiness
@@ -36,7 +36,7 @@ The second is adapter. [Library preparation](../../GLOSSARY.md#library-prep), th
 
 The third is [primer](../../GLOSSARY.md#primer) sequence, the short synthetic DNA that started each PCR product, which appears only in libraries built by PCR. The fourth is reads too short to place on a genome with confidence.
 
-Lungfish Genome Explorer (LGE) gives each problem its own operation. Six operations sit under **Tools > Trimming & Filtering**. They are fastp Adapter + Quality Trim, Quality Trim, Adapter Removal, Primer Trimming, Trim Fixed Bases, and Filter by Read Length. Each reads a [FASTQ](../../GLOSSARY.md#fastq) bundle and writes a new one. The input is never changed, so a trim you regret costs disk space and nothing else.
+Lungfish Genome Explorer (LGE) gives each problem its own operation. Eight operations sit under **Tools > Trimming & Filtering**, and this chapter covers the first six. They are fastp Adapter & Quality Trim, Quality Trim, Adapter Removal, Primer Trimming, Trim Fixed Bases, and Filter by Read Length. The last two, Remove Low-Complexity Reads and Remove Duplicate Reads, drop whole reads rather than trimming them, so [Decontamination](05-decontamination.md) covers them. Each reads a [FASTQ](../../GLOSSARY.md#fastq) bundle and writes a new one. The input is never changed, so a trim you regret costs disk space and nothing else.
 
 Four programs do the work behind those six operations, which is why the settings change from one pane to the next.
 
@@ -110,7 +110,7 @@ This chapter's example runs the combined fastp pass on the imported bundle, then
 
 1. Click the `HG002.chr20.10.0-10.5Mb` bundle in the sidebar.
 
-2. Choose **Tools > Trimming & Filtering > fastp Adapter + Quality Trim...**.
+2. Choose **Tools > Trimming & Filtering > fastp Adapter & Quality Trim...**.
 
     <!-- SHOT: trimming-dialog -->
 
@@ -164,13 +164,13 @@ The combined operation does both jobs in one fastp pass and is the right first c
 
 ### FASTA input
 
-Adapter Removal, Primer Trimming, Trim Fixed Bases, and Filter by Read Length also accept FASTA files, which hold sequence without quality scores. When every file you selected is FASTA, fastp Adapter + Quality Trim and Quality Trim leave the list altogether, because there are no quality scores for them to read.
+Adapter Removal, Primer Trimming, Trim Fixed Bases, and Filter by Read Length also accept FASTA files, which hold sequence without quality scores. When every file you selected is FASTA, fastp Adapter & Quality Trim and Quality Trim leave the list altogether, because there are no quality scores for them to read.
 
 ## Settings
 
 Several labels appear on more than one pane. Each is described once, and the heading above it names the panes that show it.
 
-### Quality settings (fastp Adapter + Quality Trim, Quality Trim)
+### Quality settings (fastp Adapter & Quality Trim, Quality Trim)
 
 **Threshold.** Sets the lowest Phred score a base may have before fastp treats it as unreliable. The default is 20, one expected error in a hundred bases, the usual floor for Illumina data. Raise it toward 30 when you need very clean bases for variant calling, and lower it when trimming discards too much of every read. On the command line this is `--threshold`.
 
@@ -191,7 +191,7 @@ Threshold and Window Size must both be above 0. Otherwise the readiness line rea
 
 Two fastp behaviours sit outside these controls. fastp trims poly-G tails on its own when the read names show a NextSeq or NovaSeq instrument, and LGE leaves that in place. These instruments read the base G as the absence of light, so a read whose signal fades ends in a false run of Gs. LGE also switches off fastp's own minimum-length and read-quality filters, which is why a trimmed bundle can hold one-base reads and why Filter by Read Length is a separate step.
 
-### Adapter settings (fastp Adapter + Quality Trim, Adapter Removal)
+### Adapter settings (fastp Adapter & Quality Trim, Adapter Removal)
 
 **Adapter Mode.** Chooses whether fastp works out the adapter from the reads or uses a sequence you type, offering Auto-Detect and Manual Sequence. The default is Auto-Detect, which looks for sequence shared by many reads and is right whenever you do not know your kit's adapter. Use Manual Sequence when you know the exact adapter from the kit and auto-detection misses it. On the command line this is `--adapter`.
 
@@ -243,7 +243,7 @@ Click the bundle to open the FASTQ viewport, whose summary cards [Quality Contro
 
 [Quality Control for Reads](03-quality-control.md) judged these reads fine, so the trim here is practice. You need to know what a trim costs on clean data before you can recognise one that has gone wrong. The table gives the figures for the procedure's two steps on the paired bundle. They come from a run of the same fastp and bbduk commands the window runs, on the bundle's own file.
 
-| Measure | Imported bundle | After fastp Adapter + Quality Trim | After Filter by Read Length, minimum 50 |
+| Measure | Imported bundle | After fastp Adapter & Quality Trim | After Filter by Read Length, minimum 50 |
 |---|---|---|---|
 | Reads | 91,148 | 90,556 | 86,410 |
 | Pairs | 45,574 | 45,278 | 43,205 |

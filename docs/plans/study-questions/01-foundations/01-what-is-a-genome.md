@@ -114,7 +114,7 @@ A complete answer shows the subtraction and the division rather than only the th
 Hemoglobin E is a common variant of the same gene the chapter follows. Clinical reports write it `c.79G>A`. This project finds that base on a different record from the chapter's, the HBB messenger RNA.
 
 1. Make a new project with **File > New Project** and name it something like `HbE`.
-2. Choose **Tools > Search Online Databases > Search NCBI...**, type `NM_000518.5`, and download the record, as [Downloading from NCBI](../../chapters/02-sequences/02-downloading-from-ncbi.md) shows. It is 628 bases and arrives in seconds.
+2. Choose **File > Search Online Databases > Search NCBI...**, type `NM_000518.5`, and download the record, as [Downloading from NCBI](../../chapters/02-sequences/02-downloading-from-ncbi.md) shows. It is 628 bases and arrives in seconds.
 3. Click the new bundle in the sidebar and write down two things from the Inspector. The record's length, and the range of its CDS feature, which the annotation track draws below the bases.
 4. The CDS starts at position 51. Work out the record position of coding position 79 with the method from Question B3, then type that position into the location field to see it.
 5. Read the three bases of the codon it falls in, and say which amino acid the codon specifies and which it becomes after the change. The chapter's codon table covers both.

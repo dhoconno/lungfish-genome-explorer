@@ -29,9 +29,9 @@ Never name another product on screen. Each video shows where a familiar task liv
 | # | Video | Demo project | Beats |
 |---|---|---|---|
 | S01 | Open a GenBank record and annotate it | Genes and Sequences | Import Center drop; features with the record; Go to Gene; Translate; Add Annotation; export FASTA, GenBank or GFF3 |
-| S02 | Align sequences with MAFFT | Genes and Sequences (primate mito) | select rows; Tools > Multiple Sequence Alignment > MAFFT; Operations log; Variable Sites; pairwise identity; export PHYLIP, NEXUS or Clustal |
+| S02 | Align sequences with MAFFT | Genes and Sequences (primate mito) | select rows; Tools > Alignment & Phylogenetics > MAFFT; Operations log; Variable Sites; pairwise identity; export PHYLIP, NEXUS or Clustal |
 | S03 | Build and root a tree | same alignment | IQ-TREE with model test and bootstrap; support colouring; Root on Selected Branch; extract a clade |
-| S04 | Map reads and call variants | Human Mapping and Variants (with results) | Tools > Mapping; pileup; Tools > Call Variants (bcftools or LoFreq); click a variant; provenance |
+| S04 | Map reads and call variants | Human Mapping and Variants (with results) | Tools > Mapping; pileup; Tools > Variant Calling > Call Variants (bcftools or LoFreq); click a variant; provenance |
 | S05 | Assemble reads de novo | Long Reads and Assembly | Tools > Assembly; assembler choice; contig table and Nx; open a contig |
 | S06 | Design PCR primers | Primer Design | MAFFT then Primer3; binding inspection; order sheet |
 
