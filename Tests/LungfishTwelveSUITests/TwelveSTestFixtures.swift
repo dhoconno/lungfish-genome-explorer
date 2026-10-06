@@ -9,7 +9,11 @@ import Foundation
 enum TwelveSFixtures {
     /// - Parameter referenceURL: optional override for the reference FASTA
     ///   artifact, so reference-sequence tests can point at a real file.
-    static func twoSampleResult(referenceURL: URL? = nil) -> TwelveSAmpliconResultBundleData {
+    static func twoSampleResult(
+        referenceURL: URL? = nil,
+        discordantPairs: Int = 0,
+        discordantPairsByReason: [String: Int] = [:]
+    ) -> TwelveSAmpliconResultBundleData {
         let bundleURL = URL(fileURLWithPath: "/tmp/fixture.lungfish12s")
         let manifest = TwelveSAmpliconResultBundleManifest(
             outputName: "fixture",
@@ -80,7 +84,9 @@ enum TwelveSFixtures {
                 exactMatchReads: 65,
                 unresolvedReads: 35,
                 ambiguousExactReads: 0,
-                chimeraCandidateReads: 3
+                chimeraCandidateReads: 3,
+                discordantPairs: discordantPairs,
+                discordantPairsByReason: discordantPairsByReason
             ),
             unresolvedSequences: [
                 TwelveSUnresolvedSequence(

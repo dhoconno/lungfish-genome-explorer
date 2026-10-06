@@ -600,42 +600,6 @@ final class WorkflowOperationExecutionService {
         return !visibleContents.isEmpty
     }
 
-    func twelveSAmpliconMatchingArguments(for configuration: TwelveSAmpliconMatchingConfiguration) -> [String] {
-        var arguments = ["fastq", "12s-match"] + configuration.inputFASTQs.map(\.path)
-        let referenceURL = configuration.referenceBundleURL ?? configuration.referenceFASTA
-        arguments += [
-            "--reference", referenceURL.path,
-        ]
-        if let referenceMetadata = configuration.referenceMetadata,
-           !Self.isBundledTwelveSReferenceMetadata(referenceMetadata, bundleURL: configuration.referenceBundleURL) {
-            arguments += ["--reference-metadata", referenceMetadata.path]
-        }
-        if let sampleMetadata = configuration.sampleMetadata {
-            arguments += ["--sample-metadata", sampleMetadata.path]
-        }
-        arguments += [
-            "--output-dir", configuration.outputDirectory.path,
-            "--output-name", configuration.outputName,
-        ]
-        if configuration.minimumSoftClipBases != 1 {
-            arguments += ["--min-soft-clip", String(configuration.minimumSoftClipBases)]
-        }
-        if configuration.maximumIndelBases != 3 {
-            arguments += ["--max-indels", String(configuration.maximumIndelBases)]
-        }
-        arguments += ["--matching-mode", configuration.matchingMode.rawValue]
-        if configuration.threads != 1 {
-            arguments += ["--threads", String(configuration.threads)]
-        }
-        if !configuration.runChimeraReview {
-            arguments.append("--no-chimera-review")
-        }
-        if configuration.forceOverwrite {
-            arguments.append("--force")
-        }
-        return arguments
-    }
-
     func twelveSReferenceBundleArguments(for configuration: TwelveSReferenceBundleBuildConfiguration) -> [String] {
         var arguments = [
             "fastq", "12s-reference-bundle",
@@ -657,14 +621,6 @@ final class WorkflowOperationExecutionService {
             arguments.append("--force")
         }
         return arguments
-    }
-
-    private static func isBundledTwelveSReferenceMetadata(_ metadataURL: URL, bundleURL: URL?) -> Bool {
-        guard let bundleURL,
-              let bundledURL = TwelveSReferenceBundle.targetMetadataURL(in: bundleURL) else {
-            return false
-        }
-        return metadataURL.standardizedFileURL == bundledURL.standardizedFileURL
     }
 
     private func ontGenotypingOutputURLs(

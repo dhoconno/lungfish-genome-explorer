@@ -506,7 +506,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         ).subtracting(winners)
         rebuildAllTargetSampleRows()
         titleLabel.stringValue = "\(result.manifest.outputName) 12S Matches"
-        summaryLabel.stringValue = Self.summaryText(for: result)
+        summaryLabel.stringValue = TwelveSReadFateSummary.statusText(for: result)
         titleLabel.toolTip = titleLabel.stringValue
         titleLabel.setAccessibilityValue(titleLabel.stringValue)
         summaryLabel.toolTip = summaryLabel.stringValue
@@ -1608,22 +1608,6 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         isBlastDrawerOpen = true
     }
 
-    private static func summaryText(for result: TwelveSAmpliconResultBundleData) -> String {
-        let chimeraText = result.chimeraCandidateCount == 1
-            ? "1 chimera candidate"
-            : "\(result.chimeraCandidateCount) chimera candidates"
-        return [
-            "\(result.samples.count) samples",
-            "\(result.readFate.exactMatchReads) exact reads",
-            "\(formatPercent(result.readFate.unresolvedPercent)) unresolved",
-            chimeraText,
-        ].joined(separator: " | ")
-    }
-
-    private static func formatPercent(_ value: Double) -> String {
-        String(format: "%.1f%%", value)
-    }
-
     private func showExportMenu() {
         let menu = buildExportMenu()
         let point = NSPoint(x: actionBar.exportButton.bounds.minX, y: actionBar.exportButton.bounds.maxY)
@@ -1798,31 +1782,3 @@ extension TwelveSAmpliconResultViewController: NSPopoverDelegate {
     }
 }
 
-private struct TwelveSProvenanceSummaryView: View {
-    let result: TwelveSAmpliconResultBundleData
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("12S Result Provenance", systemImage: "info.circle")
-                .font(.headline)
-            Divider()
-            LabeledContent("Analysis", value: result.manifest.analysisName)
-            LabeledContent("Samples", value: "\(result.samples.count)")
-            LabeledContent("Exact Reads", value: "\(result.readFate.exactMatchReads)")
-            LabeledContent("Unmatched", value: Self.percentText(result.readFate.unresolvedPercent))
-            LabeledContent("Created", value: result.manifest.createdAt ?? "Unknown")
-            Divider()
-            Text(result.artifacts.provenanceURL.path)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
-        }
-        .padding(14)
-        .frame(minWidth: 320, alignment: .leading)
-    }
-
-    private static func percentText(_ value: Double) -> String {
-        String(format: "%.1f%%", value)
-    }
-}

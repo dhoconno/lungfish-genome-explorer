@@ -347,6 +347,12 @@ public enum TwelveSAmpliconResultBundle {
                 column: "reassigned_reads",
                 file: url.lastPathComponent
             ) ?? 0
+            // Results written before fragment counting have no such column.
+            let discordantPairs = try optionalInt(
+                row["discordant_pairs"],
+                column: "discordant_pairs",
+                file: url.lastPathComponent
+            ) ?? 0
             return TwelveSAmpliconSampleResult(
                 sampleID: sampleID,
                 displayName: nonEmpty(row["display_name"]) ?? nonEmpty(row["sample_name"]) ?? sampleID,
@@ -356,6 +362,7 @@ public enum TwelveSAmpliconResultBundle {
                 ambiguousExactReads: ambiguousExactReads,
                 chimeraCandidateReads: chimeraCandidateReads,
                 reassignedReads: reassignedReads,
+                discordantPairs: discordantPairs,
                 exactMatchPercent: optionalDouble(row["exact_match_percent"]) ?? percent(exactMatchReads, inputReads),
                 unresolvedPercent: optionalDouble(row["unresolved_percent"]) ?? percent(unresolvedReads, inputReads)
             )

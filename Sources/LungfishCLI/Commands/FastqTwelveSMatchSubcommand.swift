@@ -56,12 +56,10 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
     )
     var ambiguityResolution: String = "strict"
 
-    /// Maps the flag to a reassignment policy.
+    /// The policy the flag names, through the one mapping the app's recorded
+    /// command and the workflow's replay also use.
     var resolutionPolicy: TwelveSAbundanceReassigner.ResolutionPolicy {
-        switch ambiguityResolution.lowercased() {
-        case "conservative": return .conservative(minFoldRatio: 2.0, absoluteFloor: 10)
-        default: return .anyNonzeroLead
-        }
+        TwelveSAbundanceReassigner.ResolutionPolicy(cliValue: ambiguityResolution) ?? .anyNonzeroLead
     }
 
     @OptionGroup var globalOptions: GlobalOptions
@@ -79,7 +77,7 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
         guard TwelveSAmpliconMatchingMode.cliValue(matchingMode) != nil else {
             throw ValidationError("--matching-mode must be 'illumina-exact' or 'ont-indel'.")
         }
-        guard ["strict", "conservative"].contains(ambiguityResolution.lowercased()) else {
+        guard TwelveSAbundanceReassigner.ResolutionPolicy(cliValue: ambiguityResolution) != nil else {
             throw ValidationError("--ambiguity-resolution must be 'strict' or 'conservative'.")
         }
         guard globalOptions.threads.map({ $0 > 0 }) ?? true else {
@@ -154,18 +152,18 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
         if maximumIndelBases != 3 {
             argv += ["--max-indels", String(maximumIndelBases)]
         }
+        // The mode is always named, as the app's recorded command names it, so
+        // the Operations panel row and the provenance argv are one command.
         let resolvedMatchingMode = TwelveSAmpliconMatchingMode.cliValue(matchingMode) ?? .illuminaExact
-        if resolvedMatchingMode != .illuminaExact {
-            argv += ["--matching-mode", resolvedMatchingMode.rawValue]
-        }
+        argv += ["--matching-mode", resolvedMatchingMode.rawValue]
         if let threads = globalOptions.threads {
             argv += ["--threads", String(threads)]
         }
         if !chimeraReview {
             argv.append("--no-chimera-review")
         }
-        if ambiguityResolution.lowercased() != "strict" {
-            argv += ["--ambiguity-resolution", ambiguityResolution.lowercased()]
+        if resolutionPolicy != .anyNonzeroLead {
+            argv += ["--ambiguity-resolution", resolutionPolicy.cliValue]
         }
         if force {
             argv.append("--force")

@@ -152,3 +152,35 @@ public enum TwelveSAbundanceReassigner {
         }
     }
 }
+
+extension TwelveSAbundanceReassigner.ResolutionPolicy {
+    /// The spelling `lungfish-cli fastq 12s-match --ambiguity-resolution`
+    /// takes for the default policy.
+    public static let strictCLIValue = "strict"
+    /// The spelling of the conservative profile.
+    public static let conservativeCLIValue = "conservative"
+    /// The conservative profile. The winner needs twice the runner-up's reads
+    /// and ten reads of its own, the field standard for abundance-wins rules.
+    public static let conservativeProfile = TwelveSAbundanceReassigner.ResolutionPolicy
+        .conservative(minFoldRatio: 2.0, absoluteFloor: 10)
+
+    /// The policy a CLI spelling names, case-insensitively, or nil for any
+    /// other text. The app and the CLI both resolve the user's choice here,
+    /// so neither can drift from the other.
+    public init?(cliValue: String) {
+        switch cliValue.lowercased() {
+        case Self.strictCLIValue: self = .anyNonzeroLead
+        case Self.conservativeCLIValue: self = Self.conservativeProfile
+        default: return nil
+        }
+    }
+
+    /// The CLI spelling of this policy, recorded in provenance and in every
+    /// replay command.
+    public var cliValue: String {
+        switch self {
+        case .anyNonzeroLead: return Self.strictCLIValue
+        case .conservative: return Self.conservativeCLIValue
+        }
+    }
+}

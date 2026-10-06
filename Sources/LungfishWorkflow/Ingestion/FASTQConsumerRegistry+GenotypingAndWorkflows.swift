@@ -38,11 +38,11 @@ extension FASTQConsumerRegistry {
                 displayName: "12S amplicon matching",
                 handling: [
                     .singleEnd: .asSingle,
-                    .strictlyInterleaved: .asSingle,
-                    .mixedMergedAndPairs: .asSingle,
-                    .pairedFiles: .asSingle,
+                    .strictlyInterleaved: .asPairs,
+                    .mixedMergedAndPairs: .asPairs,
+                    .pairedFiles: .asPairs,
                 ],
-                mixedRationale: "Reads are matched record by record in process; each mate counts on its own."
+                mixedRationale: "Fragments are matched in process through the read-set resolver. A merged read counts once, an unmerged pair counts once when both mates give the identical call, and a pair whose mates disagree is left out and tallied."
             ),
             FASTQConsumerDeclaration(
                 consumerID: ViralReconReadPairing.consumerID,

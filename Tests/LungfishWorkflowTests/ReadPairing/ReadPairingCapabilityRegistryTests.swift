@@ -43,7 +43,7 @@ final class ReadPairingCapabilityRegistryTests: XCTestCase {
             "assemble.flye": .singleReadsOnly,
             "assemble.hifiasm": .singleReadsOnly,
             "genotype.ont-mhc": .singleReadsOnly,
-            "twelve-s.amplicon-matching": .singleReadsOnly,
+            "twelve-s.amplicon-matching": .bothInOneRunAsSeparateFiles,
             "fastq.merge": .bothInOneRunAsNameInterleavedStream,
             "fastq.length-filter": .bothInOneRunAsNameInterleavedStream,
             "fastq.error-correct": .singleReadsOnly,
@@ -64,6 +64,7 @@ final class ReadPairingCapabilityRegistryTests: XCTestCase {
             "assemble.spades", "assemble.megahit", "assemble.skesa",
             "map.minimap2", "map.bwa-mem2", "map.bowtie2", "map.bbmap",
             "viralrecon.illumina", "genotype.illumina-mhc", "genotype.ont-mhc",
+            "twelve-s.amplicon-matching",
         ])
     }
 
