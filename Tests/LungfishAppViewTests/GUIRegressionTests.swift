@@ -1174,7 +1174,7 @@ final class FASTQOperationsPanelTests: XCTestCase {
             "PCR Primer Trimming",
             "Filter by Read Length",
             "Contaminant Filter",
-            "Remove Duplicates",
+            "Remove Duplicate Reads",
             "Filter by Sequence",
             "Error Correction",
             "Orient Reads",
@@ -1202,7 +1202,7 @@ final class FASTQOperationsPanelTests: XCTestCase {
             "PCR Primer Trimming",       // 19
             "Filter by Read Length",     // 20
             "Contaminant Filter",        // 18
-            "Remove Duplicates",         // 17
+            "Remove Duplicate Reads",    // 22
             "Filter by Sequence",        // 17
             "Error Correction",          // 16
             "Orient Reads",              // 12

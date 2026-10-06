@@ -56,7 +56,7 @@ final class ToolsMenuStructureTests: XCTestCase {
         XCTAssertTrue(classification.workflows.allSatisfy { !$0.isEnabled && $0.isInstallable })
 
         let genotyping = try XCTUnwrap(model.categories.first { $0.id == .genotyping })
-        XCTAssertEqual(genotyping.workflows.map(\.title), ["Full-length ONT MHC genotyping"])
+        XCTAssertEqual(genotyping.workflows.map(\.title), ["Full-Length ONT MHC Genotyping"])
         XCTAssertEqual(genotyping.workflows.compactMap(\.toolID), [])
         XCTAssertTrue(genotyping.workflows.allSatisfy { !$0.isEnabled && $0.isInstallable })
     }
@@ -214,7 +214,7 @@ final class ToolsMenuStructureTests: XCTestCase {
                     "\(WorkflowLibraryCatalog.fullLengthONTMHCGenotypingItem.title)\u{2026}",
                     tool(.ontGenotyping),
                     "-",
-                    "Haplotype Definitions\u{2026}",
+                    "MHC Haplotype Definitions\u{2026}",
                 ]
             )
             XCTAssertEqual(
@@ -234,7 +234,7 @@ final class ToolsMenuStructureTests: XCTestCase {
                     "Enable \(WorkflowLibraryCatalog.fullLengthONTMHCGenotypingItem.title)\u{2026}",
                     "Enable \(FASTQOperationToolID.ontGenotyping.title)\u{2026}",
                     "-",
-                    "Haplotype Definitions\u{2026}",
+                    "MHC Haplotype Definitions\u{2026}",
                 ]
             )
         }
@@ -309,7 +309,7 @@ final class ToolsMenuStructureTests: XCTestCase {
             "\(FASTQOperationToolID.ontGenotyping.title)\u{2026}",
             "Enable \(WorkflowLibraryCatalog.fullLengthONTMHCGenotypingItem.title)\u{2026}",
             "-",
-            "Haplotype Definitions\u{2026}",
+            "MHC Haplotype Definitions\u{2026}",
         ])
     }
 
@@ -346,7 +346,7 @@ final class ToolsMenuStructureTests: XCTestCase {
         let withHaplotypes = WorkflowFeatureAvailability(hasWorkflowOperations: true, hasHaplotypeDefinitions: true)
         try withMainMenu(everyWorkflowEnabled: false) { mainMenu in
             let genotyping = try self.categoryMenu(.genotyping, in: try self.toolsMenu(in: mainMenu))
-            let item = try XCTUnwrap(genotyping.items.first { $0.title == "Haplotype Definitions\u{2026}" })
+            let item = try XCTUnwrap(genotyping.items.first { $0.title == "MHC Haplotype Definitions\u{2026}" })
             XCTAssertEqual(item.identifier?.rawValue, MainMenuAccessibilityID.haplotypeDefinitions)
             XCTAssertEqual(item.action, #selector(ToolsMenuActions.showHaplotypeDefinitions(_:)))
             XCTAssertEqual(genotyping.items.last, item, "it closes the Genotyping submenu, in a section of its own")
@@ -514,7 +514,7 @@ final class ToolsMenuStructureTests: XCTestCase {
             + submenu("Assembly", [tool(.spades), tool(.megahit), tool(.skesa), tool(.flye), tool(.hifiasm)])
             + submenu("Clustering", [tool(.savont), tool(.pbaa)])
             + submenu("Classification", [tool(.kraken2), tool(.esViritu), tool(.taxTriage), "---", classificationWorkflow])
-            + submenu("Genotyping", genotyping + ["---", "Haplotype Definitions\u{2026}"])
+            + submenu("Genotyping", genotyping + ["---", "MHC Haplotype Definitions\u{2026}"])
             + separator
             + submenu("Alignment & Phylogenetics", [tool(.mafft), "---", "Build Tree with IQ-TREE\u{2026}"])
             + submenu("PCR Primer Design", PrimerDesignEngine.allCases.map { "\($0.rawValue)\u{2026}" })

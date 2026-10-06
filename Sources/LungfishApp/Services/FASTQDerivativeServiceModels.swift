@@ -82,6 +82,9 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
     case ribosomalRNAFilter(retention: FASTQRiboDetectorRetention, ensure: FASTQRiboDetectorEnsure)
 
     /// Human-readable label for this operation, used in the Operations panel.
+    ///
+    /// It follows the tool's title, so a display rename edits this switch.
+    /// ``persistedOperationLabel`` is the wording that reaches disk.
     var operationLabel: String {
         switch self {
         case .subsampleProportion(let p): return "Subsample \(Int(p * 100))%"
@@ -90,23 +93,40 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .searchText: return "Search"
         case .searchMotif: return "Motif Search"
         case .deduplicate: return "Deduplicate"
-        case .fastpTrim: return "fastp Adapter + Quality Trim"
+        case .fastpTrim: return "fastp Adapter & Quality Trim"
         case .qualityTrim: return "Quality Trim"
         case .adapterTrim: return "Adapter Trim"
         case .fixedTrim: return "Fixed Trim"
         case .contaminantFilter: return "Contaminant Filter"
-        case .lowComplexityFilter: return "Low-Complexity Filter"
+        case .lowComplexityFilter: return "Remove Low-Complexity Reads"
         case .pairedEndMerge: return "Paired-End Merge"
         case .pairedEndRepair: return "Paired-End Repair"
         case .primerRemoval: return "PCR Primer Trimming"
         case .sequencePresenceFilter: return "Sequence Presence Filter"
         case .errorCorrection: return "Error Correction"
-        case .reverseComplement: return "Reverse Complement"
-        case .translate: return "Translate"
+        case .reverseComplement: return "Reverse Complement All Sequences"
+        case .translate: return "Translate All Sequences"
         case .demultiplex: return "Demultiplex"
         case .orient: return "Orient Sequences"
         case .humanReadScrub: return "Human Read Scrub"
+        case .ribosomalRNAFilter: return "Remove Ribosomal RNA Reads"
+        }
+    }
+
+    /// The wording of this operation that reaches disk, in the label a batch
+    /// manifest records and in the name of the folder a grouped result is
+    /// written to. The five operations the Tools menu session renamed keep the
+    /// labels they had before, so a project written today reads like one
+    /// written earlier. A display rename edits `operationLabel` and leaves
+    /// this switch alone.
+    var persistedOperationLabel: String {
+        switch self {
+        case .fastpTrim: return "fastp Adapter + Quality Trim"
+        case .lowComplexityFilter: return "Low-Complexity Filter"
+        case .reverseComplement: return "Reverse Complement"
+        case .translate: return "Translate"
         case .ribosomalRNAFilter: return "Remove ribosomal RNA sequences"
+        default: return operationLabel
         }
     }
 
@@ -116,7 +136,8 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         return false
     }
 
-    /// Human-readable label for batch operation records.
+    /// Human-readable label for batch operation records. The batch manifest
+    /// stores it, so it keeps the wording of ``persistedOperationLabel``.
     var batchLabel: String {
         switch self {
         case .lengthFilter(let min, let max):
@@ -129,7 +150,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .subsampleCount(let n):
             return "Subsample \(n) reads"
         default:
-            return operationLabel
+            return persistedOperationLabel
         }
     }
 
@@ -365,5 +386,18 @@ extension FASTQDerivativeRequest {
             text.removeLast(2)
         }
         return text
+    }
+}
+
+extension FASTQOperationLaunchRequest {
+    /// The operation name that reaches disk, in the folder a grouped result or a
+    /// demultiplex run is written to. A derivative names itself through
+    /// ``FASTQDerivativeRequest/persistedOperationLabel``, so a display rename
+    /// never changes a folder name. Every other launch uses its display title.
+    /// The one rename among those titles so far (MiSeq amplicon MHC genotyping)
+    /// differs from the old title in case alone, which a folder name drops.
+    var persistedOperationTitle: String {
+        if case .derivative(let request, _, _) = self { return request.persistedOperationLabel }
+        return operationDisplayTitle
     }
 }

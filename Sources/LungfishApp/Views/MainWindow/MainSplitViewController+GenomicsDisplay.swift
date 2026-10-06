@@ -1221,7 +1221,7 @@ extension MainSplitViewController {
            !preferredFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             stem = FASTQDemultiplexOutputFolderName.sanitize(preferredFolderName)
         } else {
-            let baseName = request.operationDisplayTitle
+            let baseName = request.persistedOperationTitle
                 .lowercased()
                 .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "-"))

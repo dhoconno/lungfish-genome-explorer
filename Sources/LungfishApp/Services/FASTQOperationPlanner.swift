@@ -816,7 +816,7 @@ extension FASTQOperationLaunchRequest {
         case .pbaa:
             return "pbAA Amplicon Clustering"
         case .ontGenotyping:
-            return "miSeq amplicon MHC genotyping"
+            return "miSeq amplicon MHC genotyping" // a batch manifest label, so it keeps its wording from before the rename
         }
     }
 

@@ -39,8 +39,8 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(titles.contains("Find ORFs\u{2026}"))
         XCTAssertFalse(titles.contains("Annotate Translations\u{2026}"))
         XCTAssertFalse(titles.contains("Find Restriction Sites..."))
-        XCTAssertTrue(fastqTitles.contains("Reverse Complement\u{2026}"))
-        XCTAssertTrue(fastqTitles.contains("Translate\u{2026}"))
+        XCTAssertTrue(fastqTitles.contains("Reverse Complement All Sequences\u{2026}"))
+        XCTAssertTrue(fastqTitles.contains("Translate All Sequences\u{2026}"))
     }
 
     func testFindPreviousKeepsStandardShortcutAndGoToGeneUsesNonconflictingShortcut() throws {
