@@ -103,10 +103,12 @@ final class TreeInferIQTreeValidationTests: XCTestCase {
         XCTAssertEqual(options["threads"], "AUTO")
     }
 
-    func testThreadsHelpSaysAutoIsNotReproducible() {
+    func testThreadsHelpSaysOnlyOneThreadReproducesATree() {
         let help = TreeCommand.InferIQTreeSubcommand.helpMessage()
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         XCTAssertTrue(help.contains("AUTO"), help)
-        XCTAssertTrue(help.contains("not reproducible"), help)
+        XCTAssertTrue(help.contains("Only --threads 1"), help)
+        XCTAssertTrue(help.contains("reproduces a tree byte for byte"), help)
     }
 
     func testExtraIQTreeOptionsFoldsIntoExtraArgsAndIsHidden() async throws {

@@ -107,7 +107,8 @@ final class ExtraArgsWrappedToolsTests: XCTestCase {
         let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         let msaSourceURL = tempDir.appendingPathComponent("input.aligned.fasta")
-        try ">A\nACGT\n>B\nACGA\n".write(to: msaSourceURL, atomically: true, encoding: .utf8)
+        // IQ-TREE needs at least 3 sequences (ruling C5).
+        try ">A\nACGT\n>B\nACGA\n>C\nACTA\n".write(to: msaSourceURL, atomically: true, encoding: .utf8)
         let msaBundleURL = projectURL.appendingPathComponent("Input.lungfishmsa", isDirectory: true)
         _ = try MultipleSequenceAlignmentBundle.importAlignment(
             from: msaSourceURL,
@@ -252,7 +253,8 @@ private func writeFakeIQTreeExecutable(in directory: URL) throws -> URL {
           ;;
       esac
     done
-    echo "(A:0.1,B:0.2);" > "$prefix.treefile"
+    # Staged tips are safe IDs (ruling C3), mapped back to A, B and C at import.
+    echo "(t0001:0.1,t0002:0.2,t0003:0.3);" > "$prefix.treefile"
     echo "fake iqtree stdout"
     echo "fake iqtree stderr" >&2
     exit 0
