@@ -393,9 +393,24 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 }
 
                 // Replace the original per-barcode output with only both-end reads.
+                // Pass 2a trimmed their 5' construct whatever the setting, so a run
+                // that keeps barcodes takes them whole from pass 1 (L5 item 2).
+                var bothEndReads = bothEndFile
+                if !config.trimBarcodes, fileSize(bothEndFile) > 20 {
+                    let whole = barcodeDir.appendingPathComponent("both-end-whole.fastq.gz")
+                    if try await recoverReadsByID(
+                        from: outputFile,
+                        matching: bothEndFile,
+                        to: whole,
+                        workingDirectory: barcodeDir,
+                        idListFilename: "both-end-ids.txt"
+                    ) {
+                        bothEndReads = whole
+                    }
+                }
                 try fm.removeItem(at: outputFile)
-                if fm.fileExists(atPath: bothEndFile.path), fileSize(bothEndFile) > 20 {
-                    try fm.moveItem(at: bothEndFile, to: outputFile)
+                if fm.fileExists(atPath: bothEndReads.path), fileSize(bothEndReads) > 20 {
+                    try fm.moveItem(at: bothEndReads, to: outputFile)
                 }
             }
 
@@ -603,6 +618,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                             }
                         }
                     }
+                    // cutadapt's info file lists every barcode match whatever
+                    // --action was, so a run that keeps barcodes trims its reads
+                    // only as its input was trimmed. The matches still annotate
+                    // the barcodes (L5 item 2).
+                    let bundleTrimEntries = capturedTrimBarcodes
+                        ? allTrimEntries
+                        : self.parentTrimEntries(for: orderedReadIDs, parentTrimMap: capturedParentTrimMap)
 
                     if capturedIsVirtual {
                         // Virtual mode: create a small preview alongside the read ID list,
@@ -621,7 +643,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                             }
                         }
 
-                        try self.writeTrimPositions(allTrimEntries, to: bundleURL)
+                        try self.writeTrimPositions(bundleTrimEntries, to: bundleURL)
                         try self.writeOrientMap(finalOrientMap: finalOrientMap, orderedReadIDs: orderedReadIDs, to: bundleURL)
 
                         // Generate read-level annotations for barcode matches
@@ -674,7 +696,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         let destURL = bundleURL.appendingPathComponent(destFilename)
                         try FileManager.default.moveItem(at: file.url, to: destURL)
 
-                        try self.writeTrimPositions(allTrimEntries, to: bundleURL)
+                        try self.writeTrimPositions(bundleTrimEntries, to: bundleURL)
                         try self.writeOrientMap(finalOrientMap: finalOrientMap, orderedReadIDs: orderedReadIDs, to: bundleURL)
                     }
 
@@ -691,7 +713,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                             VirtualBarcodeRebuild(
                                 orderedReadIDs: orderedReadIDs,
                                 previewReadIDs: Array(orderedReadIDs.prefix(1000)),
-                                trimEntries: allTrimEntries,
+                                trimEntries: bundleTrimEntries,
                                 orientMap: finalOrientMap,
                                 previewURL: bundleURL.appendingPathComponent("preview.fastq"),
                                 statisticsURL: workDir.appendingPathComponent("stats-\(file.baseName)-\(UUID().uuidString).fastq")
@@ -1866,9 +1888,10 @@ extension DemultiplexingPipeline {
         from source: URL,
         matching trimmedRejects: URL,
         to destination: URL,
-        workingDirectory: URL
+        workingDirectory: URL,
+        idListFilename: String = "rejected-3prime-ids.txt"
     ) async throws -> Bool {
-        let idListURL = workingDirectory.appendingPathComponent("rejected-3prime-ids.txt")
+        let idListURL = workingDirectory.appendingPathComponent(idListFilename)
         let idResult = try await runner.run(
             .seqkit,
             arguments: ["seq", "--name", "--only-id", trimmedRejects.path, "-o", idListURL.path],
