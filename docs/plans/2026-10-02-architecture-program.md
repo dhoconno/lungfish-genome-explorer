@@ -164,6 +164,23 @@ Exit criteria. Classifier CLI parity test green, Process() count outside Native/
 
 Phase 1.5 (owner decisions of 2026-10-03, shipped before Phase 2 in Preview 2026.10.2). A read-pairing contract (unmerged pairs go to every tool as pairs, merged reads and singletons single-end), Kraken2 classifying pairs as pairs alongside merged reads in one result, platform inference at import, and a CLI equivalent for every operation by contract (docs/contracts). Phase 2 builds on those contracts. Its 2d migration keeps the pairing and CLI-equivalence tests green, and the genotype first slice (2g) was brought forward from Phase 4a by the owner. The rest of the genotype decomposition stays in 4a.
 
+Sub-phases (owner directive of 2026-10-05). Phase 2 runs as twelve small sub-phases, one session each, and each sub-phase ends with a Preview release that serves as its rewind point.
+
+| Id | Scope | Depends on | Owner decisions needed first |
+|---|---|---|---|
+| 2.1 | Phase 1.5 follow-ups that change results: SRA `--split-3` and download checks, bundle and import follow-ups, 12S fragment counting, primer read-through trim, demultiplexing (mate-aware and `--no-trim`), Kraken2 wrapper edges | Phase 1.5 | none |
+| 2.2 | Per-tool golden outputs (the Phase 2 entry criterion), then 2a: one ToolProcess primitive with adapters | 2.1 | none |
+| 2.3 | 2g: genotype characterization tests, LungfishGenotypeUI type-per-file moves, export coordinator extracted | 2.1 (any time after) | [6] GEN tags, only if the lane touches those notes |
+| 2.4 | 2b: one provenance recorder, legacy sidecar readers under fixture tests | 2.2 | none |
+| 2.5 | 2c: AnalysisToolDescriptor and a registry decoded from the lock | 2.2 | none |
+| 2.6 | 2f: CLIEvent v2 and a BundleKind registry, plus sidebar routing fixes | 2.2 | [12] `classify` alias |
+| 2.7 | 2d, part 1: AnalysisRunExecutor with Kraken2 and EsViritu, the GUI through the CLI | 2.2, 2.4, 2.5 | none |
+| 2.8 | 2d, part 2: TaxTriage, the operations dialog's dispatcher, `assemble` provenance | 2.7 | [5] joined input copies |
+| 2.9 | 2e: AppKit-free services into a UI-free target, leftover moves, one path per operation | 2.8 | [12] target or folders (required), [7], [8] |
+| 2.10 | CLI commands for in-process operations, batch 1 (L1, L5, L6, L2, L3, L10) | 2.9 | none |
+| 2.11 | Batch 2 (L4, L7, L8a, L8b) | 2.10 | none |
+| 2.12 | Batch 3 (L9, L11, QR), the remaining recorded-command gaps, and the Phase 2 exit review | 2.11 | [9] translate headers |
+
 ## Phase 3, the surface contract in code (weeks 5 to 8)
 
 Entry criteria. Phase 2 exit and the routing table test from R1 captured against current behaviour.
