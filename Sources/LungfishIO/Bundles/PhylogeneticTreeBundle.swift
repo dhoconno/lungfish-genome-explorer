@@ -72,7 +72,9 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             workflowName: "phylogenetic-tree-extract-subtree",
             actionID: "tree.extract-subtree",
             provenance: provenance.withOptions(options),
-            isRooted: manifest.isRooted
+            isRooted: manifest.isRooted,
+            // The log-likelihood, model fit and scope describe the whole tree, not a clade (fix M1).
+            inference: nil
         )
     }
 
@@ -93,7 +95,9 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             workflowName: "phylogenetic-tree-reroot",
             actionID: "tree.reroot",
             provenance: provenance.withOptions(options),
-            isRooted: true
+            isRooted: true,
+            // The new root replaces any inference outgroup rooting (fix M1).
+            inference: manifest.inference?.clearingOutgroup()
         )
     }
 
@@ -116,6 +120,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             actionID: "tree.relabel",
             provenance: provenance.withOptions(options),
             isRooted: manifest.isRooted,
+            inference: manifest.inference,
             metadataURL: metadataURL
         )
     }
@@ -142,6 +147,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
         actionID: String,
         provenance: PhylogeneticTreeBundleTransformProvenance,
         isRooted: Bool,
+        inference: PhylogeneticTreeInferenceSummary?,
         metadataURL: URL? = nil
     ) throws -> PhylogeneticTreeBundle {
         let started = Date()
@@ -208,7 +214,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
                 checksums: try treeChecksumMap(paths: payloadPaths, bundleURL: destinationURL),
                 fileSizes: try treeFileSizeMap(paths: payloadPaths, bundleURL: destinationURL),
                 supportLabels: self.manifest.supportLabels,
-                inference: self.manifest.inference
+                inference: inference
             )
             try encoder.encode(manifest).write(to: destinationURL.appendingPathComponent("manifest.json"), options: .atomic)
 

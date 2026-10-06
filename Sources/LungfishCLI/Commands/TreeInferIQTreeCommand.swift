@@ -49,7 +49,7 @@ extension TreeCommand {
         @Option(name: .customLong("alrt"), help: "SH-aLRT replicate count (1 or more)")
         var alrt: Int?
 
-        @Option(name: .customLong("seed"), help: "Random seed (default: IQ-TREE draws one, and provenance records it as effectiveSeed)")
+        @Option(name: .customLong("seed"), help: "Random seed from 1 to 2147483647 (default: IQ-TREE draws one, and provenance records it as effectiveSeed)")
         var seed: Int?
 
         @Option(
@@ -74,7 +74,7 @@ extension TreeCommand {
         @Option(
             name: .customLong("extra-args"),
             parsing: .unconditional,
-            help: "Additional IQ-TREE arguments passed verbatim. Flags that have a curated option (-s, --prefix, -pre, -m, -T, -nt, --seed, -seed, -B, -bb, --ufboot, --alrt, -alrt, -o, -st, --seqtype) are rejected."
+            help: "Additional IQ-TREE arguments passed verbatim. Flags that have a curated option (-s, --msa, --aln, --prefix, -pre, -m, --model, --modelomatic, -T, --threads, -nt, --seed, -seed, -B, -bb, --ufboot, --alrt, -alrt, -o, -st, --seqtype) are rejected. With -b or --lbp no support labels are recorded."
         )
         var extraArgs: String = ""
 
@@ -146,7 +146,11 @@ extension TreeCommand {
                     throw ValidationError("Tree inference selection produced zero aligned columns.")
                 }
                 try validateTreeAlignedRecords(stagedRecords)
-                try validateScope(rowCount: stagedRows.count, alignedLength: selectedAlignedLength, sequenceType: normalizedSequenceType)
+                try validateScope(
+                    rowCount: stagedRows.count,
+                    columnRanges: try codonFrameRanges(alignedLength: bundle.manifest.alignedLength),
+                    sequenceType: normalizedSequenceType
+                )
                 let outgroupRows = try resolvedOutgroup(in: stagedRows, bundle: bundle)
 
                 try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -224,7 +228,11 @@ extension TreeCommand {
                 }
                 let runLog = (try? String(contentsOf: stagingURL.appendingPathComponent("run.log"), encoding: .utf8)) ?? ""
                 let runReport = (try? String(contentsOf: stagingURL.appendingPathComponent("run.iqtree"), encoding: .utf8)) ?? ""
-                let supportLabels = iqtreeSupportLabels(alrt: alrt, bootstrap: bootstrap, advancedArguments: advancedArguments)
+                // Fix F2 (m8): -b and --lbp add support values in an order LGE does not know.
+                let addsUnorderedSupport = IQTreeOptionRules.addsUnorderedSupport(advancedArguments)
+                let supportLabels = addsUnorderedSupport
+                    ? nil
+                    : iqtreeSupportLabels(alrt: alrt, bootstrap: bootstrap, advancedArguments: advancedArguments)
                 let effectiveSeed = seed.map(String.init) ?? parseIQTreeSeed(log: runLog)
 
                 emitter.emitProgress(0.66, message: "Rooting the tree on the outgroup.")
@@ -236,6 +244,10 @@ extension TreeCommand {
                     stagingURL: stagingURL
                 )
                 var warnings: [String] = []
+                if addsUnorderedSupport {
+                    warnings.append(IQTreeOptionRules.unorderedSupportWarning)
+                    emitter.emitLog(.warning, IQTreeOptionRules.unorderedSupportWarning)
+                }
                 if let warning = rooting.outgroupWarning {
                     warnings.append(warning)
                     emitter.emitLog(.warning, warning)
@@ -530,27 +542,6 @@ extension TreeCommand {
             )
         }
 
-        /// IQ-TREE flags that a curated option already sets, mapped to that option (ruling C6).
-        /// Extra text that repeats one would silently override the curated value.
-        static let reservedIQTreeFlags: [String: String] = [
-            "-s": "the input bundle argument",
-            "--prefix": "--output",
-            "-pre": "--output",
-            "-m": "--model",
-            "-T": "--threads",
-            "-nt": "--threads",
-            "--seed": "--seed",
-            "-seed": "--seed",
-            "-B": "--bootstrap",
-            "-bb": "--bootstrap",
-            "--ufboot": "--bootstrap",
-            "--alrt": "--alrt",
-            "-alrt": "--alrt",
-            "-o": "--outgroup",
-            "-st": "--sequence-type",
-            "--seqtype": "--sequence-type",
-        ]
-
         /// Ruling C5. Checks that need only the options, run before the bundle is read.
         private func validateCuratedOptions() throws {
             if let bootstrap, bootstrap < 1000 {
@@ -559,28 +550,34 @@ extension TreeCommand {
             if let alrt, alrt < 1 {
                 throw ValidationError("--alrt must be 1 or more, got \(alrt).")
             }
-            let base = model.trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: "+", maxSplits: 1)
-                .first
-                .map { $0.uppercased() } ?? ""
-            if base == "MF" || base.hasSuffix("ONLY") {
-                throw ValidationError("--model \(model) is not allowed. MF/TESTONLY select a model without a tree search, use MFP or TEST.")
+            if let seed, (1...Int(Int32.max)).contains(seed) == false {
+                throw ValidationError("--seed must be 1 to 2147483647, got \(seed).")
+            }
+            if IQTreeOptionRules.isModelSelectionOnly(model) {
+                throw ValidationError("--model \(model) is not allowed. MF and TESTONLY select a model without a tree search. Use MFP or TEST.")
             }
         }
 
         /// Ruling C5 row minimums and the C7 codon frame check, on the in-scope rows and columns.
-        private func validateScope(rowCount: Int, alignedLength: Int, sequenceType: String?) throws {
+        private func validateScope(rowCount: Int, columnRanges: [ClosedRange<Int>], sequenceType: String?) throws {
             if rowCount < 3 {
                 throw ValidationError("IQ-TREE needs at least 3 sequences, but the selection has \(rowCount).")
             }
             if bootstrap != nil || alrt != nil, rowCount < 4 {
                 throw ValidationError("Branch support (--bootstrap or --alrt) needs at least 4 sequences, but the selection has \(rowCount).")
             }
-            if let sequenceType, sequenceType.hasPrefix("CODON"), alignedLength % 3 != 0 {
-                throw ValidationError(
-                    "Codon sequence types need whole codons, so the in-scope column count must be a multiple of 3 (got \(alignedLength))."
-                )
+            if let sequenceType, sequenceType.hasPrefix("CODON"),
+               let message = IQTreeOptionRules.codonFrameMessage(columnRanges: columnRanges) {
+                throw ValidationError(message)
             }
+        }
+
+        /// The 1-based in-scope column ranges in --columns order, or the whole alignment as one
+        /// range from column 1 (fix F2, m9).
+        private func codonFrameRanges(alignedLength: Int) throws -> [ClosedRange<Int>] {
+            let ranges = try parseTreeColumnRanges(columns, alignedLength: alignedLength)
+                .map { ($0.lowerBound + 1)...($0.upperBound + 1) }
+            return ranges.isEmpty ? [1...alignedLength] : ranges
         }
 
         /// Ruling C4. Outgroup names resolve against the in-scope rows the way --rows does.
@@ -644,11 +641,8 @@ extension TreeCommand {
 
         private func parsedAdvancedArguments() throws -> [String] {
             let arguments = try AdvancedCommandLineOptions.parse(combinedExtraArgumentText())
-            for argument in arguments {
-                let flag = String(argument.split(separator: "=", maxSplits: 1).first ?? "")
-                if let curated = Self.reservedIQTreeFlags[flag] {
-                    throw ValidationError("--extra-args must not set \(flag). Use \(curated) instead.")
-                }
+            if let reserved = IQTreeOptionRules.firstReservedFlag(in: arguments) {
+                throw ValidationError("--extra-args must not set \(reserved.flag). Use \(reserved.option.cliName) instead.")
             }
             return arguments
         }
