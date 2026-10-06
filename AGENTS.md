@@ -54,7 +54,7 @@ LungfishCLI sits beside the UI stack and imports only Core, IO and Workflow. Lun
 | File formats | `Sources/LungfishIO/Formats` and `Sources/LungfishIO/Registry/FormatRegistry.swift` |
 | Sidebar routing | `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift` and `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift` |
 | Viewer slots | `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift` and its `ViewerViewController+<Feature>.swift` extensions |
-| Menus | `Sources/LungfishApp/App/MainMenu.swift`. Tools menu read tools are generated from `FASTQOperationToolID` in `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift` through `WorkflowLibraryCatalog.builtIn` and `ToolsMenuModel.build`, so add a case and a `toolIDs(for:)` entry, never a menu item |
+| Menus | `Sources/LungfishApp/App/MainMenu.swift` and its `MainMenu+<Menu>.swift` extensions. The Tools menu is built by `Sources/LungfishApp/App/MainMenu+Tools.swift` from the groups in `Sources/LungfishApp/App/ToolsMenuLayout.swift`. Its read tools are generated from `FASTQOperationToolID` in `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift` through `WorkflowLibraryCatalog.builtIn` and `ToolsMenuModel.build`, so a new tool is a case plus a `toolIDs(for:)` entry, never a menu item. A new `FASTQOperationCategoryID` also needs a `displayName` arm in `Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift` and an entry in `ToolsMenuLayout.groups`, and `Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift` fails until the layout lists it |
 | Test helpers | `Tests/Support/LungfishTestSupport` |
 
 ## Binding rules
