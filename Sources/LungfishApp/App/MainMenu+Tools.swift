@@ -163,9 +163,10 @@ extension MainMenu {
         return workflowsItem
     }
 
-    /// A linked package that is enabled launches. One that is not enabled reads
-    /// "Enable <name>…" in normal type and reveals its card in the Workflow
-    /// Library, where it is enabled.
+    /// A linked package that is enabled launches. One that can run but is not
+    /// enabled reads "Enable <name>…" in normal type and reveals its card in the
+    /// Workflow Library, where it is enabled. One this build cannot run reads
+    /// "Show <name> in Workflow Library" and reveals the same card.
     private static func linkedPackageMenuItem(for package: ToolsMenuModel.LinkedPackageEntry) -> NSMenuItem {
         let item = NSMenuItem(
             title: package.menuTitle,

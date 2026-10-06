@@ -410,8 +410,10 @@ extension FASTQOperationLaunchRequest {
     /// The operation name that reaches disk, in the folder a grouped result or a
     /// demultiplex run is written to. A derivative names itself through
     /// ``FASTQDerivativeRequest/persistedOperationLabel``. Every other launch
-    /// uses the label its batch manifest records, never its display title, so a
-    /// display rename never changes a folder name.
+    /// uses the label its batch manifest records. Those labels are literals,
+    /// except that classify and assemble use the tool's own name, so
+    /// FASTQPersistedOperationLabelTests pins every folder name and fails if a
+    /// rename would move one.
     var persistedOperationTitle: String {
         if case .derivative(let request, _, _) = self { return request.persistedOperationLabel }
         return batchManifestLabel
