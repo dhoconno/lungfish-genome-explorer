@@ -357,33 +357,13 @@ final class IQTreeInferenceDialogState {
     /// tree, so they are rejected in the Custom field (D2).
     /// The base is the part before the first "+", as the CLI reads it (C5).
     static func isModelSelectionOnly(_ model: String) -> Bool {
-        let base = model.trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: "+", maxSplits: 1)
-            .first
-            .map { $0.uppercased() } ?? ""
-        return base == "MF" || base.hasSuffix("ONLY")
+        IQTreeOptionRules.isModelSelectionOnly(model)
     }
 
     /// IQ-TREE flags a curated control already sets, mapped to that control's
-    /// dialog name. The CLI rejects them in the extra arguments (C6).
-    static let reservedAdvancedFlags: [String: String] = [
-        "-s": "the alignment",
-        "--prefix": "Output name",
-        "-pre": "Output name",
-        "-m": "Model",
-        "-T": "Threads",
-        "-nt": "Threads",
-        "--seed": "Seed",
-        "-seed": "Seed",
-        "-B": "UFBoot",
-        "-bb": "UFBoot",
-        "--ufboot": "UFBoot",
-        "--alrt": "SH-aLRT",
-        "-alrt": "SH-aLRT",
-        "-o": "Outgroup",
-        "-st": "Sequence type",
-        "--seqtype": "Sequence type",
-    ]
+    /// dialog name. The CLI rejects the same table in the extra arguments (C6).
+    static let reservedAdvancedFlags: [String: String] =
+        IQTreeOptionRules.reservedFlags.mapValues(\.dialogName)
 
     // MARK: - Branch support steppers
 
@@ -467,8 +447,13 @@ final class IQTreeInferenceDialogState {
         if let message = modelValidationMessage {
             return message
         }
-        if sequenceType == .codon && columnCount % 3 != 0 {
-            return "Codon models need a column count that is a multiple of 3. This scope has \(columnCount) columns."
+        if sequenceType == .codon,
+           let ranges = IQTreeOptionRules.columnRanges(
+               effectiveScope == .selected ? request.columns : nil,
+               alignedLength: alignment?.alignedLength ?? columnCount
+           ),
+           let message = IQTreeOptionRules.codonFrameMessage(columnRanges: ranges) {
+            return message
         }
         if isBranchSupportAvailable && bootstrapEnabled {
             guard let value = Self.wholeNumber(bootstrapReplicatesText) else {

@@ -56,7 +56,7 @@ final class TreeInferIQTreeValidationTests: XCTestCase {
         for model in ["MF", "mf", "TESTONLY", "MFONLY", "TESTNEWONLY", "testmergeonly"] {
             let message = await project.failure(["--model", model])
             XCTAssertTrue(
-                message.contains("MF/TESTONLY select a model without a tree search, use MFP or TEST"),
+                message.contains("MF and TESTONLY select a model without a tree search. Use MFP or TEST."),
                 "\(model): \(message)"
             )
         }

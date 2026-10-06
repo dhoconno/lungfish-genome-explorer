@@ -303,15 +303,32 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
         XCTAssertEqual(try preparedOptions(protein).sequenceType, "AA")
     }
 
+    /// Fix F2 (m9): the dialog uses the CLI's codon reading-frame rule and message.
     func testCodonNeedsColumnCountMultipleOfThree() {
         let state = makeState(rows: "row-1,row-2,row-3,row-4", columns: "1-100", alignment: alignment(alignedLength: 300))
         state.sequenceType = .codon
-        XCTAssertEqual(
-            state.validationMessage,
-            "Codon models need a column count that is a multiple of 3. This scope has 100 columns."
-        )
+        XCTAssertEqual(state.validationMessage, IQTreeOptionRules.codonFrameMessage(columnRanges: [1...100]))
+        XCTAssertTrue(state.validationMessage?.contains("but 1-100 does not") == true)
         state.scope = .whole
         XCTAssertTrue(state.isRunEnabled)
+    }
+
+    func testCodonColumnsMustStartOnACodonBoundary() {
+        let shifted = makeState(rows: "row-1,row-2,row-3,row-4", columns: "2-10", alignment: alignment(alignedLength: 300))
+        shifted.sequenceType = .codon
+        XCTAssertEqual(shifted.validationMessage, IQTreeOptionRules.codonFrameMessage(columnRanges: [2...10]))
+
+        let split = makeState(rows: "row-1,row-2,row-3,row-4", columns: "1-4,5-9", alignment: alignment(alignedLength: 300))
+        split.sequenceType = .codon
+        XCTAssertTrue(split.validationMessage?.contains("but 1-4 does not") == true)
+
+        let framed = makeState(rows: "row-1,row-2,row-3,row-4", columns: "4-9,1-3", alignment: alignment(alignedLength: 300))
+        framed.sequenceType = .codon
+        XCTAssertTrue(framed.isRunEnabled, framed.validationMessage ?? "")
+
+        let whole = makeState(alignment: alignment(alignedLength: 301))
+        whole.sequenceType = .codon
+        XCTAssertTrue(whole.validationMessage?.contains("but 1-301 does not") == true)
     }
 
     func testCodonHidesNucleotideFixedModels() {
@@ -460,6 +477,33 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
         XCTAssertTrue(state.readinessText.contains("Remove -T from the additional parameters. Use Threads instead."))
         state.extraIQTreeOptions = "-b=100 -bnni"
         XCTAssertTrue(state.isRunEnabled)
+    }
+
+    /// Fix F2 (m2): the dialog and the CLI read one reserved-flag table.
+    func testAdvancedParametersBlockLongAliasesFromTheSharedTable() {
+        XCTAssertEqual(
+            IQTreeInferenceDialogState.reservedAdvancedFlags,
+            IQTreeOptionRules.reservedFlags.mapValues(\.dialogName)
+        )
+        let state = makeState(alignment: alignment())
+        for (flag, control) in [("--msa", "the alignment"), ("--aln", "the alignment"), ("--model", "Model"),
+                                ("--modelomatic", "Model"), ("--threads", "Threads")] {
+            state.extraIQTreeOptions = "\(flag) 4"
+            XCTAssertFalse(state.isRunEnabled, flag)
+            XCTAssertTrue(state.readinessText.contains("Remove \(flag) from the additional parameters. Use \(control) instead."), flag)
+        }
+        state.extraIQTreeOptions = "--boot 100 --lbp 1000"
+        XCTAssertTrue(state.isRunEnabled)
+    }
+
+    func testModelSelectionOnlyIsTheSharedRule() {
+        for model in ["MF", "MF+MERGE", "testonly", "MFP", "TEST", "GTR+F"] {
+            XCTAssertEqual(
+                IQTreeInferenceDialogState.isModelSelectionOnly(model),
+                IQTreeOptionRules.isModelSelectionOnly(model),
+                model
+            )
+        }
     }
 
     // MARK: - Recorded command
