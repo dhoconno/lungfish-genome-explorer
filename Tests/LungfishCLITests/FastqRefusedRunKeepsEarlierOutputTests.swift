@@ -42,9 +42,13 @@ final class FastqRefusedRunKeepsEarlierOutputTests: XCTestCase {
         root.appendingPathComponent("typo-missing.fastq").path
     }
 
-    /// An earlier demultiplex output folder with one barcode bundle and a manifest.
-    private func writeEarlierDemultiplexOutput() throws -> (folder: URL, files: [URL: Data]) {
-        let folder = root.appendingPathComponent("demux-out", isDirectory: true)
+    /// An earlier demultiplex output folder with one barcode bundle and a
+    /// manifest, inside a project when `inProject`, which the cutadapt engine
+    /// needs for its work folder.
+    private func writeEarlierDemultiplexOutput(inProject: Bool = false) throws -> (folder: URL, files: [URL: Data]) {
+        let folder = inProject
+            ? root.appendingPathComponent("Project.lungfish/Analyses/demux-out", isDirectory: true)
+            : root.appendingPathComponent("demux-out", isDirectory: true)
         let bundle = folder.appendingPathComponent("BC01.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         let reads = bundle.appendingPathComponent("reads.fastq")
@@ -124,6 +128,112 @@ final class FastqRefusedRunKeepsEarlierOutputTests: XCTestCase {
             XCTFail("an unknown kit must refuse the run")
         } catch let error as ValidationError {
             XCTAssertTrue(error.message.contains("no-such-kit"), error.message)
+        }
+        assertUnchanged(earlier.files)
+    }
+
+    // MARK: - demultiplex --replace refuses before it deletes (L5 item 0)
+
+    /// `--replace` deleted the output folder before the pipeline's own
+    /// refusals ran, and a run whose input sat inside that folder deleted
+    /// the input with it.
+    private func assertRefusedBecauseInsideOutput(
+        _ arguments: [String],
+        naming path: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        do {
+            try await runDemultiplex(arguments)
+            XCTFail("a run that would delete its own input must refuse", file: file, line: line)
+        } catch CLIError.outputWriteFailed(_, let reason) {
+            XCTAssertTrue(reason.contains(path.lastPathComponent), reason, file: file, line: line)
+            XCTAssertFalse(reason.contains("\n"), "the reason is one line: \(reason)", file: file, line: line)
+        }
+    }
+
+    func testDemultiplexReplaceWithTheInputInsideTheOutputKeepsTheInput() async throws {
+        let earlier = try writeEarlierDemultiplexOutput()
+        let input = earlier.folder.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGTACGTACGTAAAA\n+\nIIIIIIIIIIIIIIIIIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        let inputBytes = try Data(contentsOf: input)
+        try await assertRefusedBecauseInsideOutput(
+            [input.path, "--kit", kitCSV.path, "--output", earlier.folder.path, "--replace"],
+            naming: input
+        )
+        XCTAssertEqual(FileManager.default.contents(atPath: input.path), inputBytes, "the input survives")
+        assertUnchanged(earlier.files)
+    }
+
+    func testDemultiplexReplaceWithAnInputBundleInsideTheOutputKeepsTheBundle() async throws {
+        let earlier = try writeEarlierDemultiplexOutput()
+        let bundle = earlier.folder.appendingPathComponent("raw.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let reads = bundle.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGTACGTACGTAAAA\n+\nIIIIIIIIIIIIIIIIIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        let readBytes = try Data(contentsOf: reads)
+        try await assertRefusedBecauseInsideOutput(
+            [bundle.path, "--kit", kitCSV.path, "--output", earlier.folder.path, "--replace"],
+            naming: bundle
+        )
+        XCTAssertEqual(FileManager.default.contents(atPath: reads.path), readBytes, "the input bundle survives")
+        assertUnchanged(earlier.files)
+    }
+
+    func testDemultiplexReplaceWithACustomKitInsideTheOutputKeepsTheKit() async throws {
+        let earlier = try writeEarlierDemultiplexOutput()
+        let kit = earlier.folder.appendingPathComponent("kit.csv")
+        try FileManager.default.copyItem(at: kitCSV, to: kit)
+        let input = root.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGTACGTACGTAAAA\n+\nIIIIIIIIIIIIIIIIIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        try await assertRefusedBecauseInsideOutput(
+            [input.path, "--kit", kit.path, "--output", earlier.folder.path, "--replace"],
+            naming: kit
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: kit.path), "the custom kit survives")
+        assertUnchanged(earlier.files)
+    }
+
+    /// The cutadapt engine makes its work folder in the output's project and
+    /// refuses an output outside one.
+    func testDemultiplexReplaceOutsideAProjectKeepsTheEarlierOutput() async throws {
+        let earlier = try writeEarlierDemultiplexOutput()
+        let input = root.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGTACGTACGTAAAA\n+\nIIIIIIIIIIIIIIIIIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        do {
+            try await runDemultiplex([input.path, "--kit", kitCSV.path, "--output", earlier.folder.path, "--replace"])
+            XCTFail("the cutadapt engine refuses an output outside a project")
+        } catch ProjectTempError.projectContextRequired {
+        }
+        assertUnchanged(earlier.files)
+    }
+
+    /// PacBio Sequel kits pair two barcodes per sample and need sample
+    /// assignments, which the command cannot take.
+    func testDemultiplexReplaceWithACombinatorialKitKeepsTheEarlierOutput() async throws {
+        let earlier = try writeEarlierDemultiplexOutput(inProject: true)
+        let input = root.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGTACGTACGTAAAA\n+\nIIIIIIIIIIIIIIIIIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        do {
+            try await runDemultiplex([input.path, "--kit", "pacbio-sequel-16-v3", "--output", earlier.folder.path, "--replace"])
+            XCTFail("a combinatorial kit without sample assignments must refuse the run")
+        } catch DemultiplexError.combinatorialRequiresSampleAssignments {
+        }
+        assertUnchanged(earlier.files)
+    }
+
+    func testDemultiplexReplaceWithAnExactBareDualIndexKitKeepsTheEarlierOutput() async throws {
+        let earlier = try writeEarlierDemultiplexOutput()
+        let dualKit = root.appendingPathComponent("dual.csv")
+        try "id,sequence,secondary_sequence\nBC01,ACGTACGTACGT,TTGGCCAATTGG\n".write(to: dualKit, atomically: true, encoding: .utf8)
+        let input = root.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGTACGTACGTAAAA\n+\nIIIIIIIIIIIIIIIIIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        do {
+            try await runDemultiplex([
+                input.path, "--kit", dualKit.path, "--output", earlier.folder.path, "--engine", "exact-bare", "--replace",
+            ])
+            XCTFail("the exact-bare engine cannot run a dual-index kit")
+        } catch DemultiplexError.exactBareBarcodeUnsupported {
         }
         assertUnchanged(earlier.files)
     }
