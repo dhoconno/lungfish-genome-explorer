@@ -164,7 +164,7 @@ Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift 867
 Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 5916
 Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift 1828
 Sources/LungfishWorkflow/Alignment/Minimap2Pipeline.swift 1263
-Sources/LungfishWorkflow/Conda/CondaManager.swift 1619
+Sources/LungfishWorkflow/Conda/CondaManager.swift 1607
 Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift 1230
 Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift 1552
 Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1708
