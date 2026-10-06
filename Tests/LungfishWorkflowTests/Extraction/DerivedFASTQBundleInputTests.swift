@@ -53,6 +53,25 @@ final class DerivedFASTQBundleInputTests: XCTestCase {
         XCTAssertEqual(try DerivedFASTQBundleFixture.readNames(in: url), ["read1", "read3"])
     }
 
+    /// The hidden `fastq ont-genotype` maps every read a bundle holds, every
+    /// chunk of a chunked root joined in import order and both mate files of
+    /// a paired derivative, each read on its own. Before, it read the
+    /// bundle's first file, chunk 0 or R1 (Phase 1 note N1).
+    func testONTGenotypingMapsEveryFileOfABundle() async throws {
+        let readSets = try ReadSetFixtures(in: directory.appendingPathComponent("read-sets"))
+        let cases: [(bundle: URL, reads: [String])] = [
+            (readSets.chunkedRoot, ["c1", "c2", "c3"]),
+            (readSets.pairedDerivative, ["p1/1", "p2/1", "p1/2", "p2/2"]),
+        ]
+        for testCase in cases {
+            let url = try await ONTGenotypingPipeline.executionInputFASTQ(
+                for: testCase.bundle,
+                sampleDirectory: directory.appendingPathComponent("sample-\(testCase.bundle.lastPathComponent)")
+            )
+            XCTAssertEqual(try ReadSetFixtures.readNames(in: url), testCase.reads, testCase.bundle.lastPathComponent)
+        }
+    }
+
     // MARK: - Full-length ONT MHC genotyping and Savont clustering
 
     func testFullLengthMaterializationUsesTheDerivedReadsNotThePreview() async throws {

@@ -55,7 +55,8 @@ final class FASTQOperationOutputImporterMergeLineageTests: XCTestCase {
         named name: String,
         of source: URL,
         fixtures: ReadSetFixtures,
-        root: URL
+        root: URL,
+        request: FASTQDerivativeRequest = .lengthFilter(min: 5, max: 40)
     ) async throws -> (bundle: URL, payload: URL) {
         let staging = root.appendingPathComponent("work-\(name)", isDirectory: true)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
@@ -78,7 +79,7 @@ final class FASTQOperationOutputImporterMergeLineageTests: XCTestCase {
             sourceURL: staged,
             bundleURL: derived.appendingPathComponent("\(name).\(FASTQBundle.directoryExtension)"),
             originalRequest: .derivative(
-                request: .lengthFilter(min: 5, max: 40),
+                request: request,
                 inputURLs: [source],
                 outputMode: .perInput
             ),
@@ -258,6 +259,146 @@ final class FASTQOperationOutputImporterMergeLineageTests: XCTestCase {
             XCTAssertNil(sidecar.readClassification, name)
             XCTAssertEqual(sidecar.ingestion?.pairingMode, pairing, name)
             XCTAssertEqual(FASTQBundle.loadDerivedManifest(in: output.bundle)?.pairingMode, pairing, name)
+        }
+    }
+
+    // MARK: - Phase 2.1 lane L3
+
+    /// The plan the read-set resolver makes for `bundle` for a tool that
+    /// pairs reads only when every fragment of the sample is a pair.
+    private static func pairsOnlyWhenAllPairedPlan(
+        _ bundle: URL,
+        fixtures: ReadSetFixtures,
+        in directory: URL
+    ) async throws -> ReadSetPlan {
+        try await ReadSetResolver(materializationDirectory: directory, materializer: fixtures.materializer)
+            .plan(for: bundle, capability: .pairsOnlyWhenAllPaired)
+    }
+
+    /// A grandchild that holds more pair records than the 100,000 the layout
+    /// scan reads, then a read without its mate, scans as strict pairs. Its
+    /// whole-file count shows the read without a mate, and its label follows
+    /// that count, so it is recorded single-end beside its count of pairs and
+    /// a single read, in its sidecar and in its manifest. Before, it was
+    /// labelled interleaved beside that count, which the Inspector showed and
+    /// bundle combine read (re-review F8-N1).
+    func testAMixedGrandchildWhoseSingleReadLiesPastTheScanIsLabelledSingleEnd() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let child = try await Self.importFilterOutput(
+            Self.childPairs, named: "merge-pairs", of: fixtures.mergeDerivative, fixtures: fixtures, root: root
+        )
+        let pairCount = FASTQReadLayoutClassifier.defaultRecordLimit / 2
+        var records = (0..<pairCount).flatMap { index in
+            [(id: "p\(index)/1", sequence: "ACGTACGTAC"), (id: "p\(index)/2", sequence: "ACGTACGTAC")]
+        }
+        records.append((id: "o1/1", sequence: "ACGTACGTAC"))
+        let grandchild = try await Self.importFilterOutput(
+            records, named: "merge-long-mixed", of: child.bundle, fixtures: fixtures, root: root
+        )
+
+        let sidecar = try XCTUnwrap(FASTQMetadataStore.load(for: grandchild.payload))
+        let roles = sidecar.readClassification?.files
+        XCTAssertEqual(roles?.map(\.role), [.pairedR1, .pairedR2, .unpaired])
+        XCTAssertEqual(roles?.map(\.readCount), [pairCount, pairCount, 1])
+        XCTAssertEqual(sidecar.ingestion?.pairingMode, .singleEnd)
+        XCTAssertEqual(FASTQBundle.loadDerivedManifest(in: grandchild.bundle)?.pairingMode, .singleEnd)
+
+        let plan = try await Self.pairsOnlyWhenAllPairedPlan(
+            grandchild.bundle, fixtures: fixtures, in: root.appendingPathComponent("plan", isDirectory: true)
+        )
+        XCTAssertTrue(plan.sampleHoldsPairsAndSingleReads)
+        XCTAssertEqual(plan.composition.pairedFragments, pairCount)
+        XCTAssertEqual(plan.composition.orphanReads, 1)
+    }
+
+    /// Every later generation of pairs from a merge bundle records its count
+    /// of only pairs and the interleaved label, and runs as pairs. That holds
+    /// for a grandchild of a child that still carries the single-end label F6
+    /// wrote beside its count, and for the grandchild's own child. This
+    /// closes the generations re-review F6-S1 named (F8-N4 listed both as
+    /// untested).
+    func testEveryLaterGenerationOfPairsFromAMergeBundleRunsAsPairs() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let child = try await Self.importFilterOutput(
+            Self.childPairs, named: "merge-pairs", of: fixtures.mergeDerivative, fixtures: fixtures, root: root
+        )
+        try Self.labelSingleEnd(child)
+        let onePair = Array(Self.childPairs.prefix(2))
+        let grandchild = try await Self.importFilterOutput(
+            onePair, named: "merge-pairs-2", of: child.bundle, fixtures: fixtures, root: root
+        )
+        let greatGrandchild = try await Self.importFilterOutput(
+            onePair, named: "merge-pairs-3", of: grandchild.bundle, fixtures: fixtures, root: root
+        )
+
+        for generation in [grandchild, greatGrandchild] {
+            let name = generation.bundle.lastPathComponent
+            XCTAssertTrue(
+                FASTQBundle.loadDerivedManifest(in: generation.bundle)?.lineage.contains { $0.kind == .pairedEndMerge } ?? false,
+                name
+            )
+            let sidecar = try XCTUnwrap(FASTQMetadataStore.load(for: generation.payload), name)
+            XCTAssertEqual(sidecar.readClassification?.files.map(\.role), [.pairedR1, .pairedR2], name)
+            XCTAssertEqual(sidecar.readClassification?.files.map(\.readCount), [1, 1], name)
+            XCTAssertEqual(sidecar.ingestion?.pairingMode, .interleaved, name)
+            let plan = try await Self.pairsOnlyWhenAllPairedPlan(
+                generation.bundle, fixtures: fixtures, in: root.appendingPathComponent("plan-\(name)", isDirectory: true)
+            )
+            XCTAssertEqual(plan.sourceLayout, .interleavedFile, name)
+            XCTAssertNil(plan.singleReadReason, name)
+            XCTAssertEqual(plan.matePairs.count, 1, name)
+        }
+    }
+
+    /// A dialog merge writes the reads it merged, then the pairs it could not
+    /// merge, then the reads its source held without a mate. Its single reads
+    /// are therefore merged reads, except the orphans the source records.
+    /// Before, the import named every single read from the source's roles,
+    /// so a merge of a child that lists no merged read, or of an interleaved
+    /// root, recorded the merged reads as orphans, and a merge of a repair
+    /// derivative recorded the merged reads as orphans too (re-review F8-N3).
+    func testADialogMergeRecordsTheReadsItMergedAsMergedReads() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let child = try await Self.importFilterOutput(
+            Self.childPairs, named: "merge-pairs", of: fixtures.mergeDerivative, fixtures: fixtures, root: root
+        )
+        let merge = FASTQDerivativeRequest.pairedEndMerge(strictness: .normal, minOverlap: 12)
+        let mergedOutput: [(id: String, sequence: String)] = [
+            (id: "u1", sequence: "ACGTACGTACGTAC"),
+            (id: "u2/1", sequence: "ACGTACGTAC"), (id: "u2/2", sequence: "ACGTACGTAC"),
+        ]
+        let cases: [(source: URL, name: String, records: [(id: String, sequence: String)], merged: Int, orphans: Int)] = [
+            (child.bundle, "child-merged", mergedOutput, 1, 0),
+            (fixtures.interleavedRoot, "interleaved-merged", mergedOutput, 1, 0),
+            (fixtures.repairDerivative, "repair-merged", [
+                (id: "r1", sequence: "ACGTACGTACGTAC"),
+                (id: "r2/1", sequence: "ACGTACGTAC"), (id: "r2/2", sequence: "ACGTACGTAC"),
+                (id: "o1", sequence: "ACGTACGTAC"),
+            ], 1, 1),
+        ]
+        for testCase in cases {
+            let output = try await Self.importFilterOutput(
+                testCase.records, named: testCase.name, of: testCase.source, fixtures: fixtures, root: root, request: merge
+            )
+            let roles = try XCTUnwrap(FASTQMetadataStore.load(for: output.payload)?.readClassification, testCase.name)
+            XCTAssertEqual(roles.pairedReadCount, 2, testCase.name)
+            XCTAssertEqual(roles.mergedReadCount, testCase.merged, testCase.name)
+            XCTAssertEqual(roles.unpairedReadCount, testCase.orphans, testCase.name)
+            XCTAssertEqual(FASTQBundle.loadDerivedManifest(in: output.bundle)?.pairingMode, .singleEnd, testCase.name)
+
+            let plan = try await ReadSetResolver(
+                materializationDirectory: root.appendingPathComponent("plan-\(testCase.name)", isDirectory: true),
+                materializer: fixtures.materializer
+            ).plan(for: output.bundle, capability: .bothInOneRunAsSeparateFiles)
+            // Merged reads alone reach an assembler as merged reads. Merged
+            // reads beside orphans in one file are merged or orphan reads.
+            XCTAssertEqual(plan.composition.pairedFragments, 1, testCase.name)
+            XCTAssertEqual(
+                plan.singleReads.map(\.role),
+                [testCase.orphans == 0 ? .merged : .mergedOrOrphan],
+                testCase.name
+            )
+            XCTAssertEqual(plan.singleReads.map(\.readCount), [testCase.merged + testCase.orphans], testCase.name)
         }
     }
 }

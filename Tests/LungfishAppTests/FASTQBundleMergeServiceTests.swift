@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 @MainActor
@@ -281,6 +282,87 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    // MARK: - What the read-set resolver needs (Phase 2.1 lane L3, re-review F8-N2)
+
+    /// Combining an interleaved root with a merge recipe's root, which holds
+    /// merged reads and pairs and records their counts, writes one file of
+    /// pairs and merged reads. The combined bundle records the counts of that
+    /// file by role, in the form the merge recipe wrote, and the label that
+    /// follows them, so the resolver plans it from its counts. Before, it
+    /// recorded only `interleaved` and no count, so a bounded scan that saw
+    /// only pairs could plan the merged reads as pairs.
+    func testCombiningKeepsTheCountsOfEveryInputByRole() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixtures = try ReadSetFixtures(in: root)
+
+        let combined = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: [fixtures.interleavedRoot, fixtures.mixedRoot],
+            outputDirectory: fixtures.importsURL,
+            bundleName: "Combined"
+        )
+
+        let file = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: combined))
+        XCTAssertEqual(
+            try ReadSetFixtures.readNames(in: file),
+            ["i1/1", "i1/2", "i2/1", "i2/2", "m1", "m2", "m3", "p1/1", "p1/2", "p2/1", "p2/2"]
+        )
+        let sidecar = try XCTUnwrap(FASTQMetadataStore.load(for: file))
+        let roles = try XCTUnwrap(sidecar.readClassification)
+        XCTAssertEqual(Set(roles.files.map(\.filename)), [file.lastPathComponent])
+        XCTAssertEqual(roles.pairedReadCount, 8)
+        XCTAssertEqual(roles.mergedReadCount, 3)
+        XCTAssertEqual(roles.unpairedReadCount, 0)
+        XCTAssertEqual(sidecar.ingestion?.pairingMode, .singleEnd)
+
+        let plan = try await ReadSetResolver(materializationDirectory: root.appendingPathComponent("plan", isDirectory: true))
+            .plan(for: combined, capability: .pairsOnlyWhenAllPaired)
+        XCTAssertTrue(plan.sampleHoldsPairsAndSingleReads)
+        XCTAssertEqual(plan.composition.pairedFragments, 4)
+        XCTAssertEqual(plan.composition.mergedReads, 3)
+        XCTAssertNotNil(plan.singleReadReason)
+    }
+
+    /// A root recorded single-end whose file holds pairs is scanned by the
+    /// resolver, which plans its pairs as pairs. Combining it used to link its
+    /// file into a chunked root, whose chunks the resolver reads as single
+    /// reads, so its pairs ran as single reads. It is now joined into one
+    /// file whose counts are recorded.
+    func testCombiningARootWhoseFileHoldsPairsKeepsThemPairs() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let single = try makeBundle(
+            root: root,
+            name: "Single",
+            fastqName: "reads.fastq",
+            contents: ReadSetFixtures.fastq(["s1", "s2"]),
+            pairing: .singleEnd
+        )
+        let mixed = try makeBundle(
+            root: root,
+            name: "Mixed",
+            fastqName: "reads.fastq",
+            contents: ReadSetFixtures.fastq(["m1", "p1/1", "p1/2"]),
+            pairing: .singleEnd
+        )
+
+        let combined = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: [single, mixed],
+            outputDirectory: root,
+            bundleName: "Combined"
+        )
+
+        XCTAssertFalse(FASTQSourceFileManifest.exists(in: combined))
+        let file = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: combined))
+        let roles = try XCTUnwrap(FASTQMetadataStore.load(for: file)?.readClassification)
+        XCTAssertEqual(roles.pairedReadCount, 2)
+        XCTAssertEqual(roles.unpairedReadCount, 3)
+        let plan = try await ReadSetResolver(materializationDirectory: root.appendingPathComponent("plan", isDirectory: true))
+            .plan(for: combined, capability: .bothInOneRunAsSeparateFiles)
+        XCTAssertEqual(plan.matePairs.map(\.pairCount), [1])
+        XCTAssertEqual(plan.singleReads.map(\.readCount), [3])
     }
 
     private func assertProvenanceInputs(

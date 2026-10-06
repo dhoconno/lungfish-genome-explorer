@@ -1,6 +1,7 @@
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class MAFFTAlignmentPipelineTests: XCTestCase {
@@ -452,6 +453,38 @@ final class MAFFTAlignmentPipelineTests: XCTestCase {
         XCTAssertTrue(text.contains(">read2\nCGGGTT\n"), text)
         XCTAssertFalse(text.contains("TTTTTT"), text)
         XCTAssertFalse(text.contains("AACCCG"), text)
+    }
+
+    /// MAFFT aligns every record a FASTQ bundle holds, every chunk of a
+    /// chunked root and both mate files of a paired derivative. Before, it
+    /// read the bundle's first file, chunk 0 or R1 (Phase 1 note N1).
+    func testStageInputFASTAReadsEveryFileOfABundle() async throws {
+        let workspace = try makeWorkspace()
+        let readSets = try ReadSetFixtures(in: workspace)
+        let cases: [(bundle: URL, rows: [String])] = [
+            (readSets.chunkedRoot, ["c1", "c2", "c3"]),
+            (readSets.pairedDerivative, ["p1/1", "p2/1", "p1/2", "p2/2"]),
+        ]
+        for testCase in cases {
+            let name = testCase.bundle.deletingPathExtension().lastPathComponent
+            let request = MSAAlignmentRunRequest(
+                tool: .mafft,
+                inputSequenceURLs: [testCase.bundle],
+                projectURL: readSets.projectURL,
+                outputBundleURL: readSets.projectURL.appendingPathComponent("\(name).lungfishmsa", isDirectory: true),
+                name: name,
+                threads: nil,
+                allowFASTQAssemblyInputs: true
+            )
+            let staged = workspace.appendingPathComponent("\(name)/staged.fasta")
+            try fileManager.createDirectory(at: staged.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+            let result = try await MAFFTAlignmentPipeline()
+                .testingStageInputFASTA([testCase.bundle], to: staged, request: request)
+
+            XCTAssertEqual(result.recordCount, testCase.rows.count, name)
+            XCTAssertEqual(result.sourceRowMetadata.map(\.originalName), testCase.rows, name)
+        }
     }
 
     private func makeWorkspace() throws -> URL {
