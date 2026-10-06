@@ -113,8 +113,26 @@ final class TreeInferIQTreeTipMapTests: XCTestCase {
         XCTAssertEqual(argv.firstIndex(of: "--outgroup").map { argv[$0 + 1] }, "C,D")
         let options = try XCTUnwrap(provenance["options"] as? [String: String])
         XCTAssertEqual(options["outgroup"], "C,D")
+        // Fix G (re-review minor 3): the display names sit beside the raw selectors.
+        XCTAssertEqual(options["outgroupNames"], "C, D")
         XCTAssertEqual(options["rooting"], "outgroup")
         XCTAssertEqual((provenance["warnings"] as? [String]) ?? [], [])
+    }
+
+    /// Fix G (re-review minor 3): the dialog passes row IDs, and provenance still names the rows.
+    func testRowIDOutgroupRecordsDisplayNamesInProvenance() async throws {
+        let project = try IQTreeTestProject.make(fasta: fourRowFASTA)
+        defer { project.remove() }
+        try project.setFakeTree("(t0001:0.1,t0002:0.2,(t0003:0.3,t0004:0.4)90:0.05);\n")
+        let rows = try MultipleSequenceAlignmentBundle.load(from: project.msaBundleURL).rows
+        let rowIDs = try ["C", "D"].map { name in try XCTUnwrap(rows.first { $0.displayName == name }?.id) }
+
+        try await project.run(["--outgroup", rowIDs.joined(separator: ",")])
+
+        let options = try XCTUnwrap(try project.provenance()["options"] as? [String: String])
+        XCTAssertEqual(options["outgroup"], rowIDs.joined(separator: ","))
+        XCTAssertEqual(options["outgroupNames"], "C, D")
+        XCTAssertEqual(options["outgroupTipIDs"], "t0003,t0004")
     }
 
     func testSingleTipOutgroupRootsOnThatTip() async throws {

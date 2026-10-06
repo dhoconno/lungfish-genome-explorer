@@ -118,6 +118,7 @@ final class IQTreeInferenceDialogState {
     static let safeModeCaption = "Slower. Use it if IQ-TREE reports numerical underflow."
     static let keepIdenticalCaption = "When off, IQ-TREE drops third and later identical copies from the search and adds them back as zero-length tips."
     static let advancedParametersCaption = "Advanced parameters are passed directly to IQ-TREE after the curated options."
+    static let unorderedSupportCaptionText = "With -b or --lbp, LGE cannot tell which support value is which, so the tree records no support labels."
 
     let request: MultipleSequenceAlignmentTreeInferenceRequest
     let projectURL: URL
@@ -423,6 +424,16 @@ final class IQTreeInferenceDialogState {
     /// field stays editable and the count is always recorded.
     static let defaultThreadCount = 1
 
+    /// The -b and --lbp notice under the additional parameters, or nil when neither is there.
+    /// The CLI records no support labels for these flags (review m8).
+    var unorderedSupportCaption: String? {
+        guard let arguments = try? AdvancedCommandLineOptions.parse(extraIQTreeOptions),
+              IQTreeOptionRules.addsUnorderedSupport(arguments) else {
+            return nil
+        }
+        return Self.unorderedSupportCaptionText
+    }
+
     // MARK: - Readiness
 
     var validationMessage: String? {
@@ -451,12 +462,13 @@ final class IQTreeInferenceDialogState {
         if let message = modelValidationMessage {
             return message
         }
+        let columnText = effectiveScope == .selected ? request.columns : nil
         if sequenceType == .codon,
-           let ranges = IQTreeOptionRules.columnRanges(
-               effectiveScope == .selected ? request.columns : nil,
-               alignedLength: alignment?.alignedLength ?? columnCount
-           ),
-           let message = IQTreeOptionRules.codonFrameMessage(columnRanges: ranges) {
+           let ranges = IQTreeOptionRules.columnRanges(columnText, alignedLength: alignment?.alignedLength ?? columnCount),
+           let message = IQTreeOptionRules.codonFrameMessage(
+               columnRanges: ranges,
+               wholeAlignment: (columnText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+           ) {
             return message
         }
         if isBranchSupportAvailable && bootstrapEnabled {
@@ -477,7 +489,7 @@ final class IQTreeInferenceDialogState {
         }
         if seedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             guard let seed = Self.wholeNumber(seedText), seed >= 1, seed <= Int(Int32.max) else {
-                return "Seed must be a whole number."
+                return "Seed must be a whole number from 1 to 2147483647."
             }
         }
         guard let threads = Self.wholeNumber(threadsText), threads >= 1 else {

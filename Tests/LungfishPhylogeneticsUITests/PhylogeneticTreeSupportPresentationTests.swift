@@ -83,7 +83,23 @@ final class PhylogeneticTreeSupportPresentationTests: XCTestCase {
     func testCanvasDrawsTheStandardFocusRing() {
         let canvas = PhylogeneticTreeCanvasView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         XCTAssertTrue(canvas.acceptsFirstResponder)
-        XCTAssertEqual(canvas.focusRingMaskBounds, canvas.bounds)
+        XCTAssertFalse(canvas.focusRingMaskBounds.isEmpty)
+    }
+
+    /// Fix G (re-review minor 1): the canvas is a scroll view's document view, so a ring around
+    /// its whole bounds is clipped. The mask follows the visible part of the canvas instead.
+    func testFocusRingMaskStaysInsideTheVisibleRect() {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let canvas = PhylogeneticTreeCanvasView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800))
+        scrollView.documentView = canvas
+        for origin in [NSPoint(x: 0, y: 0), NSPoint(x: 300, y: 250)] {
+            canvas.scroll(origin)
+            let mask = canvas.focusRingMaskBounds
+            XCTAssertFalse(mask.isEmpty, "\(origin)")
+            XCTAssertTrue(canvas.visibleRect.contains(mask), "\(mask) not inside \(canvas.visibleRect)")
+            XCTAssertNotEqual(mask, canvas.bounds)
+        }
+        XCTAssertTrue(canvas.focusRingMaskBounds.contains(NSPoint(x: 320, y: 270)))
     }
 
     func testRootingText() {

@@ -238,11 +238,35 @@ final class PhylogeneticTreeCanvasView: NSView {
     /// menu-bar items validate against it.
     override var acceptsFirstResponder: Bool { true }
 
-    /// The standard focus ring, so keyboard users see where focus is.
-    override var focusRingMaskBounds: NSRect { bounds }
+    /// The standard focus ring, so keyboard users see where focus is. The canvas is a scroll
+    /// view's document view, so a ring around its whole bounds would be clipped. The mask is the
+    /// visible part of the canvas, inset so the ring drawn outside it stays on screen.
+    override var focusRingMaskBounds: NSRect {
+        let visible = visibleRect.isEmpty ? bounds : visibleRect
+        return visible.insetBy(dx: Self.focusRingInset, dy: Self.focusRingInset)
+    }
+
+    private static let focusRingInset: CGFloat = 4
 
     override func drawFocusRingMask() {
-        bounds.fill()
+        focusRingMaskBounds.fill()
+    }
+
+    /// Scrolling or resizing the clip view moves the visible rect, so the ring is redrawn there.
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        let center = NotificationCenter.default
+        center.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
+        center.removeObserver(self, name: NSView.frameDidChangeNotification, object: nil)
+        guard let clipView = superview as? NSClipView else { return }
+        clipView.postsBoundsChangedNotifications = true
+        clipView.postsFrameChangedNotifications = true
+        center.addObserver(self, selector: #selector(clipViewGeometryDidChange(_:)), name: NSView.boundsDidChangeNotification, object: clipView)
+        center.addObserver(self, selector: #selector(clipViewGeometryDidChange(_:)), name: NSView.frameDidChangeNotification, object: clipView)
+    }
+
+    @objc private func clipViewGeometryDidChange(_ notification: Notification) {
+        noteFocusRingMaskChanged()
     }
 
     override func mouseDown(with event: NSEvent) {

@@ -75,6 +75,19 @@ final class IQTreeOptionRulesTests: XCTestCase {
         XCTAssertNotNil(IQTreeOptionRules.codonFrameMessage(columnRanges: [1...11]))
     }
 
+    /// Fix G (re-review minor 5): with no columns chosen, the message talks about the whole
+    /// alignment length instead of column ranges.
+    func testCodonFrameMessageForTheWholeAlignmentNamesItsLength() {
+        XCTAssertNil(IQTreeOptionRules.codonFrameMessage(columnRanges: [1...9], wholeAlignment: true))
+        XCTAssertEqual(
+            IQTreeOptionRules.codonFrameMessage(columnRanges: [1...11], wholeAlignment: true),
+            "Codon sequence types need whole codons, so the alignment length must be a multiple of 3 (got 11)."
+        )
+        XCTAssertTrue(
+            IQTreeOptionRules.codonFrameMessage(columnRanges: [1...11])?.contains("but 1-11 does not") == true
+        )
+    }
+
     func testColumnRangesReadTextInOrderAndBlankAsTheWholeAlignment() {
         XCTAssertEqual(IQTreeOptionRules.columnRanges(nil, alignedLength: 12), [1...12])
         XCTAssertEqual(IQTreeOptionRules.columnRanges(" ", alignedLength: 12), [1...12])

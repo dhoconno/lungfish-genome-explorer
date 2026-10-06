@@ -120,9 +120,24 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             actionID: "tree.relabel",
             provenance: provenance.withOptions(options),
             isRooted: manifest.isRooted,
-            inference: manifest.inference,
+            inference: relabeledInference(labelsByTip: labelsByTip),
             metadataURL: metadataURL
         )
+    }
+
+    /// The inference summary with its outgroup names mapped to the relabeled tip labels, so the
+    /// Inspector names the tips the relabeled tree shows. A tip resolves the way the relabeler
+    /// resolves it, by display label and then raw label. A name with no new label is kept.
+    private func relabeledInference(labelsByTip: [String: String]) -> PhylogeneticTreeInferenceSummary? {
+        guard let inference = manifest.inference, let outgroup = inference.outgroup else {
+            return manifest.inference
+        }
+        let names = outgroup.map { name -> String in
+            if let label = labelsByTip[name] { return label }
+            let tip = normalizedTree.nodes.first { $0.isTip && $0.displayLabel == name }
+            return tip?.rawLabel.flatMap { labelsByTip[$0] } ?? name
+        }
+        return inference.replacingOutgroup(names, outgroupWarning: inference.outgroupWarning)
     }
 
     public func resolveNode(selector: String) throws -> PhylogeneticTreeNormalizedNode {

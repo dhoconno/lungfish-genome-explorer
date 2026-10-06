@@ -260,6 +260,9 @@ struct IQTreeInferenceToolPane: View {
                     identifier: "iqtree-options-advanced-parameters"
                 )
                 caption(IQTreeInferenceDialogState.advancedParametersCaption)
+                if let unorderedSupport = state.unorderedSupportCaption {
+                    caption(unorderedSupport)
+                }
             } label: {
                 Text("Advanced")
                     .accessibilityIdentifier("iqtree-options-advanced-disclosure")

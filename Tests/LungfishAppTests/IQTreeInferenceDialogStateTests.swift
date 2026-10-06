@@ -95,7 +95,7 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
 
         state.seedText = "12a"
         XCTAssertFalse(state.isRunEnabled)
-        XCTAssertEqual(state.readinessText, "\(IQTreeInferenceDialogState.warningSymbol) Seed must be a whole number.")
+        XCTAssertEqual(state.readinessText, "\(IQTreeInferenceDialogState.warningSymbol) Seed must be a whole number from 1 to 2147483647.")
     }
 
     func testUnreadableAlignmentBlocksRun() {
@@ -335,6 +335,35 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
         XCTAssertTrue(state.isRunEnabled)
     }
 
+    /// Fix G (re-review minor 5): the Whole scope talks about the alignment length.
+    func testCodonWholeAlignmentMessageNamesTheAlignmentLength() {
+        let state = makeState(rows: "row-1,row-2,row-3,row-4", columns: "1-50", alignment: alignment(alignedLength: 100))
+        state.sequenceType = .codon
+        state.scope = .whole
+        XCTAssertEqual(
+            state.validationMessage,
+            "Codon sequence types need whole codons, so the alignment length must be a multiple of 3 (got 100)."
+        )
+        state.scope = .selected
+        XCTAssertTrue(state.validationMessage?.contains("but 1-50 does not") == true)
+    }
+
+    /// Fix G (re-review minor 6): -b and --lbp in the extra parameters show a caption.
+    func testUnorderedSupportCaptionFollowsTheExtraParameters() {
+        let state = makeState(alignment: alignment())
+        XCTAssertNil(state.unorderedSupportCaption)
+        for text in ["-b 100", "--boot 100", "--lbp 1000", "-lbp=1000", "--abayes -b 100"] {
+            state.extraIQTreeOptions = text
+            XCTAssertEqual(state.unorderedSupportCaption, IQTreeInferenceDialogState.unorderedSupportCaptionText, text)
+        }
+        state.extraIQTreeOptions = "--abayes -bnni"
+        XCTAssertNil(state.unorderedSupportCaption)
+        XCTAssertEqual(
+            IQTreeInferenceDialogState.unorderedSupportCaptionText,
+            "With -b or --lbp, LGE cannot tell which support value is which, so the tree records no support labels."
+        )
+    }
+
     func testCodonColumnsMustStartOnACodonBoundary() {
         let shifted = makeState(rows: "row-1,row-2,row-3,row-4", columns: "2-10", alignment: alignment(alignedLength: 300))
         shifted.sequenceType = .codon
@@ -350,7 +379,7 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
 
         let whole = makeState(alignment: alignment(alignedLength: 301))
         whole.sequenceType = .codon
-        XCTAssertTrue(whole.validationMessage?.contains("but 1-301 does not") == true)
+        XCTAssertTrue(whole.validationMessage?.contains("alignment length must be a multiple of 3 (got 301)") == true)
     }
 
     func testCodonHidesNucleotideFixedModels() {
@@ -400,9 +429,9 @@ final class IQTreeInferenceDialogStateTests: XCTestCase {
 
     func testNonNumericSeedBlocksRun() {
         let state = makeState(alignment: alignment())
-        for text in ["12a", "-5", "0", "1.5"] {
+        for text in ["12a", "-5", "0", "1.5", "2147483648", "3000000000"] {
             state.seedText = text
-            XCTAssertEqual(state.validationMessage, "Seed must be a whole number.", text)
+            XCTAssertEqual(state.validationMessage, "Seed must be a whole number from 1 to 2147483647.", text)
         }
     }
 
