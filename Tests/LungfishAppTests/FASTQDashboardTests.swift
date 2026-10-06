@@ -286,9 +286,10 @@ final class FASTQDashboardTests: XCTestCase {
             115,
             accuracy: 0.001
         )
+        // The floor shows the longest launcher name whole, as the test below pins.
         XCTAssertEqual(
             controller.splitView(middleSplit, constrainMinCoordinate: 0, ofSubviewAt: 0),
-            200,
+            208,
             accuracy: 0.001
         )
         XCTAssertEqual(
@@ -438,8 +439,7 @@ final class FASTQDashboardTests: XCTestCase {
 
     /// "Alignment & Phylogenetics" is the longest category name. At the divider
     /// position the controller picks for a roomy window the launcher column
-    /// shows it whole. At the narrowest divider position (200 pt) the column is
-    /// 146 pt and the name needs 152 pt, so the label ends in an ellipsis there.
+    /// shows it whole. The narrowest divider position is pinned separately below.
     @MainActor
     func testFASTQDatasetSidebarShowsTheLongestCategoryNameWholeAtTheInitialLayout() throws {
         let controller = FASTQDatasetViewController()
@@ -458,6 +458,61 @@ final class FASTQDashboardTests: XCTestCase {
             ceil(textWidth),
             "'\(longest ?? "")' is \(textWidth) pt wide and the name column is \(nameColumn.width) pt"
         )
+    }
+
+    /// At the narrowest sidebar the divider allows, the longest category name is
+    /// still drawn whole. The test draws the real launcher label at the width its
+    /// table cell has and compares its ink with the same label drawn with room
+    /// to spare. A label that ends in an ellipsis loses at least a few percent.
+    @MainActor
+    func testFASTQDatasetSidebarShowsTheLongestCategoryNameWholeAtTheNarrowestSidebar() throws {
+        let controller = FASTQDatasetViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1100, height: 760)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let sidebar = try XCTUnwrap(operationSidebar(in: controller.view))
+        let middleSplit = try XCTUnwrap(allSplitViews(in: controller.view).first { split in
+            split.isVertical && split.subviews.first.map { !allTableViews(in: $0).isEmpty } == true
+        })
+        // The split view's delegate holds the divider at the sidebar floor, whatever is asked.
+        middleSplit.setPosition(0, ofDividerAt: 0)
+        controller.view.layoutSubtreeIfNeeded()
+        let sidebarWidth = try XCTUnwrap(middleSplit.subviews.first).frame.width
+        XCTAssertGreaterThan(sidebarWidth, 0)
+        XCTAssertLessThan(sidebarWidth, 232, "this test runs at the narrowest sidebar, not a roomy one")
+
+        let nameColumn = try XCTUnwrap(sidebar.tableColumns.first { $0.identifier.rawValue == "name" })
+        let nameColumnIndex = try XCTUnwrap(sidebar.tableColumns.firstIndex(of: nameColumn))
+        let longest = try XCTUnwrap(FASTQOperationCategoryID.allCases.map(\.displayName).max { $0.count < $1.count })
+        let longestRow = try XCTUnwrap(FASTQOperationCategoryID.allCases.firstIndex { $0.displayName == longest })
+        let cell = try XCTUnwrap(controller.tableView(sidebar, viewFor: nameColumn, row: longestRow) as? NSTextField)
+        let cellWidth = sidebar.frameOfCell(atColumn: nameColumnIndex, row: longestRow).width
+        let roomy = try XCTUnwrap(controller.tableView(sidebar, viewFor: nameColumn, row: longestRow) as? NSTextField)
+
+        cell.frame = NSRect(x: 0, y: 0, width: cellWidth, height: 24)
+        roomy.frame = NSRect(x: 0, y: 0, width: 400, height: 24)
+        let drawn = inkWeight(of: cell)
+        let whole = inkWeight(of: roomy)
+        XCTAssertGreaterThan(whole, 0)
+        XCTAssertGreaterThanOrEqual(
+            Double(drawn) / Double(max(whole, 1)),
+            0.98,
+            "'\(longest)' is cut short in a \(cellWidth) pt cell at a \(sidebarWidth) pt sidebar"
+        )
+    }
+
+    /// The summed alpha of everything a view draws, as a measure of how much text it shows.
+    @MainActor
+    private func inkWeight(of view: NSView) -> Int {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return 0 }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        var total = 0
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                total += Int((rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) * 255)
+            }
+        }
+        return total
     }
 
     func testFASTQDatasetSidebarDoesNotCarryLegacyAccordionState() throws {
