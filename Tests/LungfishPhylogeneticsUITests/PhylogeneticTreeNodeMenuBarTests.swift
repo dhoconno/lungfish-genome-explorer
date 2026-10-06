@@ -59,9 +59,13 @@ final class PhylogeneticTreeNodeMenuBarTests: XCTestCase {
     func testTreeNodeItemsAreEnabledWithTableFocusAndASelectedNode() throws {
         controller.testingSelectNode(label: "tipA")
         XCTAssertTrue(window.makeFirstResponder(controller.testingNodeTableView))
-        for item in treeNodeItems where item.title != "Expand Clade" && item.title != "Collapse Clade" {
+        // A tip has no clade to expand, collapse or extract as a subtree.
+        let tipExempt: Set<String> = ["Expand Clade", "Collapse Clade", "Extract Subtree as New Bundle\u{2026}"]
+        for item in treeNodeItems where !tipExempt.contains(item.title) {
             XCTAssertTrue(controller.validateMenuItem(item), item.title)
         }
+        let extract = try XCTUnwrap(treeNodeItems.first { $0.title == "Extract Subtree as New Bundle\u{2026}" })
+        XCTAssertFalse(controller.validateMenuItem(extract), "a tip cannot be extracted as a subtree")
     }
 
     func testTreeNodeItemsAreEnabledWithCanvasFocus() throws {
