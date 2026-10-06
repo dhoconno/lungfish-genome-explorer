@@ -439,7 +439,7 @@ final class OperationRoutingTests: XCTestCase {
         let viewerSource = try readRepositorySource(viewerURL)
         let actionBody = try sourceFunctionBody(
             named: "private func runMSAInPlaceAnnotationAction",
-            endingBefore: "func inferTreeFromMSAViaCLI",
+            endingBefore: "func performTreeBundleOperationViaCLI",
             in: viewerSource
         )
         XCTAssertTrue(actionBody.contains("canWriteProjectOutputs(projectURL: projectURL, workflowName: title)"))

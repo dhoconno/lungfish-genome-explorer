@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import Darwin
 import Foundation
 import Observation
 import LungfishIO
@@ -114,9 +113,8 @@ final class IQTreeInferenceDialogState {
     static let branchSupportCaption = "UFBoot 95 or higher and SH-aLRT 80 or higher indicate a well-supported clade."
     static let ufbootMinimumCaption = "IQ-TREE requires at least 1000."
     static let seedCaption = "A random seed is drawn and recorded in the command."
-    static let threadsCaption = "The same seed and thread count reproduce the same tree."
+    static let threadsCaption = "One thread gives the same tree on every run. More threads can be faster on large alignments, but IQ-TREE then gives slightly different branch lengths each run."
     static let outgroupCaption = "The outgroup sets where the tree is rooted. It does not change the inferred relationships."
-    static let outgroupCommaCaption = "Names that contain a comma cannot be used as an outgroup and are not listed."
     static let safeModeCaption = "Slower. Use it if IQ-TREE reports numerical underflow."
     static let keepIdenticalCaption = "When off, IQ-TREE drops third and later identical copies from the search and adds them back as zero-length tips."
     static let advancedParametersCaption = "Advanced parameters are passed directly to IQ-TREE after the curated options."
@@ -125,7 +123,6 @@ final class IQTreeInferenceDialogState {
     let projectURL: URL
     let alignment: IQTreeAlignmentSummary?
     let sidebarItems: [DatasetOperationToolSidebarItem]
-    private let performanceCoreCount: Int
 
     var selectedToolID: String
     var scope: IQTreeBuildScope {
@@ -136,13 +133,18 @@ final class IQTreeInferenceDialogState {
     var customModel: String
     var sequenceType: IQTreeSequenceTypeOption
     var geneticCode: IQTreeGeneticCode
-    var bootstrapEnabled: Bool
+    var bootstrapEnabled: Bool {
+        didSet { noteSupportBoxChange() }
+    }
     var bootstrapReplicatesText: String
-    var alrtEnabled: Bool
+    var alrtEnabled: Bool {
+        didSet { noteSupportBoxChange() }
+    }
     var alrtReplicatesText: String
     var seedText: String
     var threadsText: String
-    private(set) var selectedOutgroupNames: Set<String>
+    /// Row IDs, so names with commas or shared names never reach the CLI (m6).
+    private(set) var selectedOutgroupRowIDs: Set<String>
     var safeMode: Bool
     var keepIdenticalSequences: Bool
     var advancedOptionsExpanded: Bool
@@ -150,9 +152,10 @@ final class IQTreeInferenceDialogState {
     var extraIQTreeOptions: String
     var pendingOptions: IQTreeInferenceOptions?
 
-    /// The thread default last written into `threadsText`. A scope change
-    /// rewrites the field only while it still holds this value.
-    private var appliedDefaultThreads: String
+    /// True once the user checks or unchecks a support box. Until then a
+    /// scope that grows to 4 or more sequences restores the D4 defaults (m3).
+    @ObservationIgnored private var supportBoxesWereToggled = false
+    @ObservationIgnored private var isApplyingScopeRules = false
 
     convenience init(
         request: MultipleSequenceAlignmentTreeInferenceRequest,
@@ -161,8 +164,7 @@ final class IQTreeInferenceDialogState {
         self.init(
             request: request,
             projectURL: projectURL,
-            alignment: IQTreeAlignmentSummary.load(bundleURL: request.bundleURL),
-            performanceCoreCount: Self.systemPerformanceCoreCount()
+            alignment: IQTreeAlignmentSummary.load(bundleURL: request.bundleURL)
         )
     }
 
@@ -170,7 +172,6 @@ final class IQTreeInferenceDialogState {
         request: MultipleSequenceAlignmentTreeInferenceRequest,
         projectURL: URL,
         alignment: IQTreeAlignmentSummary?,
-        performanceCoreCount: Int,
         sidebarItems: [DatasetOperationToolSidebarItem] = [
             DatasetOperationToolSidebarItem(
                 id: IQTreeInferenceDialogState.toolID,
@@ -183,7 +184,6 @@ final class IQTreeInferenceDialogState {
         self.request = request
         self.projectURL = projectURL
         self.alignment = alignment
-        self.performanceCoreCount = max(1, performanceCoreCount)
         self.sidebarItems = sidebarItems
         self.selectedToolID = Self.toolID
         let requestRowCount = Self.selectorTokens(request.rows).count
@@ -198,15 +198,14 @@ final class IQTreeInferenceDialogState {
         self.alrtEnabled = true
         self.alrtReplicatesText = "1000"
         self.seedText = ""
-        self.threadsText = ""
-        self.selectedOutgroupNames = []
+        self.threadsText = String(Self.defaultThreadCount)
+        self.selectedOutgroupRowIDs = []
         self.safeMode = false
         self.keepIdenticalSequences = false
         self.advancedOptionsExpanded = AppUITestConfiguration.current.isEnabled
         self.iqtreePath = ""
         self.extraIQTreeOptions = ""
         self.pendingOptions = nil
-        self.appliedDefaultThreads = ""
         applyScopeRules()
     }
 
@@ -399,52 +398,50 @@ final class IQTreeInferenceDialogState {
 
     // MARK: - Outgroup (D7)
 
-    var outgroupCandidates: [String] {
-        var seen = Set<String>()
-        return inScopeRows
-            .map(\.displayName)
-            .filter { $0.contains(",") == false && seen.insert($0).inserted }
+    /// Every in-scope row. The dialog lists display names and the CLI gets row
+    /// IDs, which it resolves before names.
+    var outgroupCandidates: [IQTreeAlignmentSummary.Row] {
+        inScopeRows
     }
 
-    var hasCommaNamesExcludedFromOutgroup: Bool {
-        inScopeRows.contains { $0.displayName.contains(",") }
+    func isOutgroupSelected(rowID: String) -> Bool {
+        selectedOutgroupRowIDs.contains(rowID)
     }
 
-    func isOutgroupSelected(_ name: String) -> Bool {
-        selectedOutgroupNames.contains(name)
-    }
-
-    func setOutgroup(_ name: String, selected: Bool) {
-        guard outgroupCandidates.contains(name) else { return }
+    func setOutgroup(rowID: String, selected: Bool) {
+        guard outgroupCandidates.contains(where: { $0.id == rowID }) else { return }
         if selected {
-            selectedOutgroupNames.insert(name)
+            selectedOutgroupRowIDs.insert(rowID)
         } else {
-            selectedOutgroupNames.remove(name)
+            selectedOutgroupRowIDs.remove(rowID)
         }
     }
 
-    private var orderedOutgroup: [String] {
-        outgroupCandidates.filter { selectedOutgroupNames.contains($0) }
+    private var orderedOutgroupRowIDs: [String] {
+        outgroupCandidates.map(\.id).filter { selectedOutgroupRowIDs.contains($0) }
     }
 
-    // MARK: - Threads (D6)
-
-    /// 1 thread when the scope has fewer than 50 sequences and fewer than
-    /// 10,000 columns, otherwise the performance core count capped at 8.
-    var defaultThreadCount: Int {
-        let columns = inScopeColumnCount ?? 0
-        if inScopeSequenceCount < 50 && columns < 10_000 { return 1 }
-        return min(performanceCoreCount, 8)
-    }
-
-    static func systemPerformanceCoreCount() -> Int {
-        var count: Int32 = 0
-        var size = MemoryLayout<Int32>.size
-        if sysctlbyname("hw.perflevel0.physicalcpu", &count, &size, nil, 0) == 0, count > 0 {
-            return Int(count)
+    /// The first in-scope display name that two or more rows share, with
+    /// those rows' IDs. The CLI rejects such a scope (C3).
+    private var duplicateInScopeDisplayName: (name: String, rowIDs: [String])? {
+        var idsByName: [String: [String]] = [:]
+        for row in inScopeRows {
+            idsByName[row.displayName, default: []].append(row.id)
         }
-        return max(1, ProcessInfo.processInfo.activeProcessorCount)
+        for row in inScopeRows {
+            if let ids = idsByName[row.displayName], ids.count > 1 {
+                return (row.displayName, ids)
+            }
+        }
+        return nil
     }
+
+    // MARK: - Threads (D6, revised)
+
+    /// One thread for every scope. With more threads IQ-TREE 3 gives slightly
+    /// different branch lengths on each run, even with the same seed. The
+    /// field stays editable and the count is always recorded.
+    static let defaultThreadCount = 1
 
     // MARK: - Readiness
 
@@ -460,6 +457,13 @@ final class IQTreeInferenceDialogState {
         }
         if inScopeSequenceCount < 3 {
             return "IQ-TREE needs at least 3 sequences. This scope has \(inScopeSequenceCount)."
+        }
+        if let duplicate = duplicateInScopeDisplayName {
+            let ids = duplicate.rowIDs.joined(separator: ", ")
+            return "Rows \(ids) share the display name '\(duplicate.name)'. Tree tips need distinct names."
+        }
+        if orderedOutgroupRowIDs.count >= inScopeSequenceCount {
+            return "The outgroup must leave at least one sequence in the ingroup."
         }
         guard let columnCount = inScopeColumnCount, columnCount > 0 else {
             return "The selected columns could not be read."
@@ -557,7 +561,7 @@ final class IQTreeInferenceDialogState {
             alrt: supportAvailable && alrtEnabled ? Self.wholeNumber(alrtReplicatesText) : nil,
             seed: Self.wholeNumber(seedText),
             threads: threads,
-            outgroup: orderedOutgroup,
+            outgroup: orderedOutgroupRowIDs,
             safeMode: safeMode,
             keepIdenticalSequences: keepIdenticalSequences,
             iqtreePath: trimmedOptional(iqtreePath),
@@ -568,20 +572,26 @@ final class IQTreeInferenceDialogState {
     // MARK: - Scope rules
 
     private func applyScopeRules() {
+        isApplyingScopeRules = true
+        defer { isApplyingScopeRules = false }
         if isBranchSupportAvailable == false {
             bootstrapEnabled = false
             alrtEnabled = false
+        } else if supportBoxesWereToggled == false {
+            bootstrapEnabled = true
+            alrtEnabled = true
         }
-        let candidates = Set(outgroupCandidates)
-        let kept = selectedOutgroupNames.intersection(candidates)
-        if kept != selectedOutgroupNames {
-            selectedOutgroupNames = kept
+        let candidates = Set(outgroupCandidates.map(\.id))
+        let kept = selectedOutgroupRowIDs.intersection(candidates)
+        if kept != selectedOutgroupRowIDs {
+            selectedOutgroupRowIDs = kept
         }
-        let newDefault = String(defaultThreadCount)
-        if threadsText == appliedDefaultThreads {
-            threadsText = newDefault
+    }
+
+    private func noteSupportBoxChange() {
+        if isApplyingScopeRules == false {
+            supportBoxesWereToggled = true
         }
-        appliedDefaultThreads = newDefault
     }
 
     // MARK: - Helpers
