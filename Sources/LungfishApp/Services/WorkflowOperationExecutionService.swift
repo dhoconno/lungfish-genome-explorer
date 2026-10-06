@@ -280,8 +280,8 @@ final class WorkflowOperationExecutionService {
             record: AnalysisRunRecord(analysisName: "Amplicon genotyping", command: cliCommand)
         )
         let startResult = operationCenter.begin(
-            title: "miSeq amplicon MHC genotyping",
-            detail: "Running miSeq amplicon MHC genotyping workflow",
+            title: "MiSeq Amplicon MHC Genotyping",
+            detail: "Running MiSeq Amplicon MHC Genotyping workflow",
             operationType: .workflow,
             targetBundleURL: request.outputDirectory,
             cliCommand: cliCommand,
@@ -300,7 +300,7 @@ final class WorkflowOperationExecutionService {
         _ = operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
-            detail: "Launching lungfish-cli for miSeq amplicon MHC genotyping..."
+            detail: "Launching lungfish-cli for MiSeq Amplicon MHC Genotyping..."
         )
         // Registering a cancel callback is what makes the Operations panel
         // show a Cancel button. Without it a stalled cohort could only be
@@ -330,12 +330,12 @@ final class WorkflowOperationExecutionService {
                 logProcessOutput(result, operationID: operationID)
             }
             if result.exitCode != 0 {
-                let failureDetail = "miSeq amplicon MHC genotyping failed with exit code \(result.exitCode)"
+                let failureDetail = "MiSeq Amplicon MHC Genotyping failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: failureDetail)
                 _ = operationCenter.fail(
                     id: operationID,
                     detail: failureDetail,
-                    errorMessage: "miSeq amplicon MHC genotyping failed",
+                    errorMessage: "MiSeq Amplicon MHC Genotyping failed",
                     errorDetail: failureDiagnostics(
                         result: result,
                         cliCommand: cliCommand
@@ -381,7 +381,7 @@ final class WorkflowOperationExecutionService {
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
             guard operationCenter.complete(
                 id: operationID,
-                detail: "miSeq amplicon MHC genotyping completed. Output: \(request.outputDirectory.path)",
+                detail: "MiSeq Amplicon MHC Genotyping completed. Output: \(request.outputDirectory.path)",
                 outputURLs: outputURLs
             ) else { throw CancellationError() }
             await resultRefresher.refresh(
@@ -395,8 +395,8 @@ final class WorkflowOperationExecutionService {
         } catch {
             _ = operationCenter.fail(
                 id: operationID,
-                detail: "miSeq amplicon MHC genotyping failed",
-                errorMessage: "miSeq amplicon MHC genotyping failed",
+                detail: "MiSeq Amplicon MHC Genotyping failed",
+                errorMessage: "MiSeq Amplicon MHC Genotyping failed",
                 errorDetail: error.localizedDescription
             )
             throw error
@@ -415,8 +415,8 @@ final class WorkflowOperationExecutionService {
             arguments: arguments
         )
         let startResult = operationCenter.begin(
-            title: "Full-length ONT MHC genotyping",
-            detail: "Running full-length ONT MHC genotyping workflow",
+            title: "Full-Length ONT MHC Genotyping",
+            detail: "Running Full-Length ONT MHC Genotyping workflow",
             operationType: .workflow,
             targetBundleURL: request.outputDirectory,
             cliCommand: cliCommand,
@@ -429,7 +429,7 @@ final class WorkflowOperationExecutionService {
         _ = operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
-            detail: "Launching lungfish-cli for full-length ONT MHC genotyping..."
+            detail: "Launching lungfish-cli for Full-Length ONT MHC Genotyping..."
         )
         // Without a cancel callback the Operations panel shows no
         // Cancel button for this row, and a stalled run can only be ended by
@@ -459,12 +459,12 @@ final class WorkflowOperationExecutionService {
                 logProcessOutput(result, operationID: operationID)
             }
             if result.exitCode != 0 {
-                let failureDetail = "Full-length ONT MHC genotyping failed with exit code \(result.exitCode)"
+                let failureDetail = "Full-Length ONT MHC Genotyping failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: failureDetail)
                 _ = operationCenter.fail(
                     id: operationID,
                     detail: failureDetail,
-                    errorMessage: "Full-length ONT MHC genotyping failed",
+                    errorMessage: "Full-Length ONT MHC Genotyping failed",
                     errorDetail: failureDiagnostics(result: result, cliCommand: cliCommand)
                 )
                 throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
@@ -474,7 +474,7 @@ final class WorkflowOperationExecutionService {
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
             _ = operationCenter.complete(
                 id: operationID,
-                detail: "Full-length ONT MHC genotyping completed. Output: \(request.outputDirectory.path)",
+                detail: "Full-Length ONT MHC Genotyping completed. Output: \(request.outputDirectory.path)",
                 outputURLs: outputURLs
             )
             await resultRefresher.refresh(
@@ -485,8 +485,8 @@ final class WorkflowOperationExecutionService {
         } catch {
             _ = operationCenter.fail(
                 id: operationID,
-                detail: "Full-length ONT MHC genotyping failed",
-                errorMessage: "Full-length ONT MHC genotyping failed",
+                detail: "Full-Length ONT MHC Genotyping failed",
+                errorMessage: "Full-Length ONT MHC Genotyping failed",
                 errorDetail: error.localizedDescription
             )
             throw error

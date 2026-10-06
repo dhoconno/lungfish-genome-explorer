@@ -143,7 +143,7 @@ private final class GenotypeMatrixPaneDivider: NSView {
 @MainActor
 /// The review commands the genotype matrix answers from the menu bar.
 ///
-/// Tools > Genotype Review > Selected Cell sends these to the first responder
+/// Selection > Genotype Call sends these to the first responder
 /// with a nil target, so they reach the matrix only while it has the keyboard
 /// focus. The protocol is public so the menu bar can name the selectors
 /// without the matrix view itself being public.
@@ -3948,11 +3948,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     // MARK: - Review commands in the menu bar
 
-    // The review chords (⌥⌘P, ⌥⌘X, ⌥⌘R) belong to Tools > Genotype
-    // Review > Selected Cell. The matrix does not claim them in
-    // `performKeyEquivalent`, so the key reaches the menu bar and the menu
-    // item reaches this view through the responder chain, which enables it
-    // only while the matrix (or one of its tables) has the keyboard focus.
+    // The review chords (⌥⌘P, ⌥⌘X, ⌥⌘R) belong to Selection > Genotype Call.
+    // The matrix does not claim them in `performKeyEquivalent`, so the key
+    // reaches the menu bar and the menu item reaches this view through the
+    // responder chain, which enables it only while the matrix (or one of its
+    // tables) has the keyboard focus.
 
     @objc func markSelectionFalsePositive(_ sender: Any?) {
         performContextCommand(.markFalsePositive)

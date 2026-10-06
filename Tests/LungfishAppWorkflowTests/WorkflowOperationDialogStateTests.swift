@@ -17,7 +17,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             packageStore: packageStore
         )
 
-        let ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon MHC genotyping" })
+        let ont = try XCTUnwrap(state.tools.first { $0.title == "MiSeq Amplicon MHC Genotyping" })
         XCTAssertEqual(ont.availability, .available)
     }
 
@@ -260,7 +260,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         // dialog reflects a library-store change made after it was created.
         let twelveSItem = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
         libraryStore.setWorkflow(twelveSItem, enabled: true)
-        var ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon MHC genotyping" })
+        var ont = try XCTUnwrap(state.tools.first { $0.title == "MiSeq Amplicon MHC Genotyping" })
         XCTAssertEqual(ont.availability, .available)
         var twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         XCTAssertEqual(twelveS.availability, .available)
@@ -268,7 +268,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         libraryStore.setWorkflow(.ontGenotyping, enabled: false)
         libraryStore.setWorkflow(twelveSItem, enabled: false)
 
-        ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon MHC genotyping" })
+        ont = try XCTUnwrap(state.tools.first { $0.title == "MiSeq Amplicon MHC Genotyping" })
         XCTAssertEqual(ont.availability, .disabled(reason: "Enable in Library"))
         twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         XCTAssertEqual(twelveS.availability, .disabled(reason: "Enable in Library"))
@@ -276,7 +276,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         libraryStore.setWorkflow(.ontGenotyping, enabled: true)
         libraryStore.setWorkflow(twelveSItem, enabled: true)
 
-        ont = try XCTUnwrap(state.tools.first { $0.title == "miSeq amplicon MHC genotyping" })
+        ont = try XCTUnwrap(state.tools.first { $0.title == "MiSeq Amplicon MHC Genotyping" })
         XCTAssertEqual(ont.availability, .available)
         twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
         XCTAssertEqual(twelveS.availability, .available)

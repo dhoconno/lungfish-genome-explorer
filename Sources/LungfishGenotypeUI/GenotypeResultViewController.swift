@@ -1146,9 +1146,9 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     /// on this view controller. AppKit dispatches key equivalents down the
     /// view hierarchy from the window's content view and never to view
     /// controllers, so ⌘R / ⌘K / ⇧⌘F / ⇧⌘O never fired from a real keypress.
-    /// They are now real `Tools > Genotype Review` menu items with a nil
-    /// target (see `MainMenu.swift`), dispatched through the responder chain
-    /// to the `@objc` actions below, the same pattern
+    /// They are now real `Selection > Genotype Sample` menu items with a nil
+    /// target (see `MainMenu+GenotypeReview.swift`), dispatched through the
+    /// responder chain to the `@objc` actions below, the same pattern
     /// `TaxTriageResultViewController.selectNextSample(_:)` uses.
     var reviewCommandTargetSample: String? {
         let hasSelectedMiSeqCall =
@@ -5875,7 +5875,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         container.addArrangedSubview(label)
 
         let hint = NSTextField(wrappingLabelWithString:
-            "Manage haplotype definitions from Tools \u{203A} Haplotype Definitions\u{2026}. Each definition is a project .lungfishmhcref bundle that pairs its diagnostic alleles with a reference FASTA."
+            "Manage haplotype definitions from Tools \u{203A} Genotyping \u{203A} MHC Haplotype Definitions\u{2026}. Each definition is a project .lungfishmhcref bundle that pairs its diagnostic alleles with a reference FASTA."
         )
         hint.font = NSFont.systemFont(ofSize: 10)
         hint.textColor = .secondaryLabelColor
@@ -5915,7 +5915,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         container.addArrangedSubview(summary)
 
         let hint = NSTextField(wrappingLabelWithString:
-            "These thresholds affect haplotype assignment only. Genotyping worksheets and call evidence keep all retained reads. Rerun miSeq amplicon MHC genotyping to change haplotype thresholds."
+            "These thresholds affect haplotype assignment only. Genotyping worksheets and call evidence keep all retained reads. Rerun MiSeq Amplicon MHC Genotyping to change haplotype thresholds."
         )
         hint.font = NSFont.systemFont(ofSize: 10)
         hint.textColor = .secondaryLabelColor

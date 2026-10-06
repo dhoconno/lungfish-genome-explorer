@@ -39,7 +39,7 @@ final class HaplotypeDefinitionManagerWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Haplotype Definitions"
+        window.title = "MHC Haplotype Definitions"
         window.contentViewController = hosting
         window.isReleasedWhenClosed = false
         window.center()

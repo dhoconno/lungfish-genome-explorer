@@ -208,11 +208,11 @@ final class ImportCenterMenuTests: XCTestCase {
 
         XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
         XCTAssertNil(
-            toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }),
+            toolsMenu.items.first(where: { $0.title == "MHC Haplotype Definitions…" }),
             "it sits in the Genotyping submenu, not at the Tools level"
         )
         let genotypingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Genotyping" })?.submenu)
-        let haplotypeDefinitions = try XCTUnwrap(genotypingMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
+        let haplotypeDefinitions = try XCTUnwrap(genotypingMenu.items.first(where: { $0.title == "MHC Haplotype Definitions…" }))
         XCTAssertFalse(haplotypeDefinitions.isHidden)
         XCTAssertEqual(haplotypeDefinitions.identifier?.rawValue, MainMenuAccessibilityID.haplotypeDefinitions)
     }
@@ -220,7 +220,7 @@ final class ImportCenterMenuTests: XCTestCase {
     func testHaplotypeDefinitionsAvailabilityComesFromEnabledWorkflowsThroughMenuValidation() throws {
         let _ = NSApplication.shared
         let item = NSMenuItem(
-            title: "Haplotype Definitions…",
+            title: "MHC Haplotype Definitions…",
             action: #selector(ToolsMenuActions.showHaplotypeDefinitions(_:)),
             keyEquivalent: ""
         )
@@ -287,10 +287,10 @@ final class ImportCenterMenuTests: XCTestCase {
         let operationsMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Read Processing" })?.submenu)
 
         let reverseComplement = try XCTUnwrap(
-            operationsMenu.items.first(where: { $0.title == "Reverse Complement\u{2026}" })
+            operationsMenu.items.first(where: { $0.title == "Reverse Complement All Sequences\u{2026}" })
         )
         let translate = try XCTUnwrap(
-            operationsMenu.items.first(where: { $0.title == "Translate\u{2026}" })
+            operationsMenu.items.first(where: { $0.title == "Translate All Sequences\u{2026}" })
         )
 
         XCTAssertEqual(reverseComplement.action, #selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:)))
@@ -330,18 +330,18 @@ final class ImportCenterMenuTests: XCTestCase {
         let variantCallingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Variant Calling" })?.submenu)
         XCTAssertEqual(variantCallingMenu.items.map(\.title), [
             "Call Variants\u{2026}",
-            "Viral Recon\u{2026}",
+            "Viral Recon (SARS-CoV-2)\u{2026}",
         ])
         XCTAssertEqual(variantCallingMenu.items.compactMap { $0.representedObject as? FASTQOperationToolID }, [.viralRecon])
 
         let readProcessingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Read Processing" })?.submenu)
         XCTAssertTrue(readProcessingMenu.items.contains { $0.title == "Merge Overlapping Pairs\u{2026}" })
         XCTAssertNotNil(readProcessingMenu.items.first {
-            $0.title == "Reverse Complement\u{2026}"
+            $0.title == "Reverse Complement All Sequences\u{2026}"
                 && $0.representedObject as? FASTQOperationToolID == .reverseComplement
         })
         XCTAssertNotNil(readProcessingMenu.items.first {
-            $0.title == "Translate\u{2026}"
+            $0.title == "Translate All Sequences\u{2026}"
                 && $0.representedObject as? FASTQOperationToolID == .translate
         })
     }

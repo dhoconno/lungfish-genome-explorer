@@ -1612,7 +1612,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         dedupDistLabel.textColor = dedupDistField.isEnabled ? .secondaryLabelColor : .quaternaryLabelColor
 
         let descriptions: [FASTQDeduplicatePreset: String] = [
-            .exactPCR: "Remove identical read pairs (subs=0). Best for amplicon/PCR duplicate removal.",
+            .exactPCR: "Remove identical reads or read pairs only (subs=0). For shotgun libraries, not amplicon data.",
             .nearDuplicate1: "Allow 1 substitution between duplicates. Tolerates single sequencing errors.",
             .nearDuplicate2: "Allow 2 substitutions (BBTools default). Good general-purpose deduplication.",
             .opticalHiSeq: "Remove optical duplicates from patterned flowcells (HiSeq 3000/4000/X, dupedist=40).",

@@ -313,7 +313,7 @@ extension FASTQOperationLaunchRequest {
         case .pbaa:
             return "pbAA Amplicon Clustering"
         case .ontGenotyping:
-            return "miSeq amplicon MHC genotyping"
+            return "MiSeq Amplicon MHC Genotyping"
         }
     }
 }

@@ -1458,7 +1458,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(variantCallingTools, [.viralRecon])
         XCTAssertFalse(FASTQOperationDialogState.toolIDs(for: .mapping).contains(.viralRecon))
         XCTAssertEqual(FASTQOperationToolID.viralRecon.categoryID, .variantCalling)
-        XCTAssertEqual(FASTQOperationToolID.viralRecon.title, "Viral Recon")
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.title, "Viral Recon (SARS-CoV-2)")
         XCTAssertEqual(FASTQOperationToolID.viralRecon.subtitle, "Run SARS-CoV-2 viral consensus and variant analysis.")
         XCTAssertTrue(FASTQOperationToolID.viralRecon.usesEmbeddedConfiguration)
         XCTAssertEqual(FASTQOperationToolID.viralRecon.embeddedReadinessText, "Complete the viral recon settings to continue.")

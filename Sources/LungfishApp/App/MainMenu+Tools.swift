@@ -117,7 +117,7 @@ extension MainMenu {
             // Always built. Menu validation disables it, and never hides it, while no
             // enabled workflow uses haplotype definitions.
             let item = NSMenuItem(
-                title: "Haplotype Definitions\u{2026}",
+                title: "MHC Haplotype Definitions\u{2026}",
                 action: #selector(ToolsMenuActions.showHaplotypeDefinitions(_:)),
                 keyEquivalent: ""
             )

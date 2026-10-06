@@ -97,7 +97,7 @@ struct MappingRobot {
         XCTAssertTrue(variantCallingMenu.waitForExistence(timeout: 5), file: file, line: line)
         variantCallingMenu.click()
 
-        let viralReconMenuItem = app.menuItems["Viral Recon…"]
+        let viralReconMenuItem = app.menuItems["Viral Recon (SARS-CoV-2)…"]
         XCTAssertTrue(viralReconMenuItem.waitForExistence(timeout: 5), file: file, line: line)
         viralReconMenuItem.click()
 

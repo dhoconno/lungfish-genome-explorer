@@ -13,7 +13,7 @@ public enum FASTQSearchField: String, Codable, Sendable, CaseIterable {
 
 /// Deduplication preset for clumpify.sh.
 public enum FASTQDeduplicatePreset: String, Codable, Sendable, CaseIterable {
-    /// Remove exact PCR duplicates (subs=0). Default for amplicon sequencing.
+    /// Remove exact duplicates only (subs=0).
     case exactPCR
     /// Allow 1 substitution for sequencing error tolerance.
     case nearDuplicate1

@@ -136,6 +136,106 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         XCTAssertEqual(FASTQOperationToolID.removeDuplicates.categoryID, .trimmingFiltering)
     }
 
+    /// U13, D2, D9, D11 and D12. The titles the Tools menu session renamed. The
+    /// menu, the dialog header and sidebar, the dataset launchers and the Workflow
+    /// Library all read them from here, so one pin covers every generated copy.
+    func testRenamedToolsAndWorkflowsCarryTheirNewTitles() throws {
+        let renamed: [(toolID: FASTQOperationToolID, title: String)] = [
+            (.fastpTrim, "fastp Adapter & Quality Trim"),
+            (.removeRibosomalRNA, "Remove Ribosomal RNA Reads"),
+            (.removeLowComplexityReads, "Remove Low-Complexity Reads"),
+            (.removeDuplicates, "Remove Duplicate Reads"),
+            (.reverseComplement, "Reverse Complement All Sequences"),
+            (.translate, "Translate All Sequences"),
+            (.ontGenotyping, "MiSeq Amplicon MHC Genotyping"),
+            (.hifiasm, "hifiasm"),
+            (.viralRecon, "Viral Recon (SARS-CoV-2)"),
+        ]
+        for (toolID, title) in renamed {
+            XCTAssertEqual(toolID.title, title, "\(toolID.rawValue)")
+            XCTAssertEqual(WorkflowLibraryCatalog.item(for: toolID)?.title, title, "the library card of \(toolID.rawValue)")
+            XCTAssertEqual(toolID.sidebarItem(availability: .available).title, title, "the dialog row of \(toolID.rawValue)")
+        }
+        XCTAssertEqual(WorkflowLibraryCatalog.fullLengthONTMHCGenotypingItem.title, "Full-Length ONT MHC Genotyping")
+
+        // D2. Removing duplicates is advice for shotgun libraries, and the subtitle says why amplicon reads stay.
+        XCTAssertEqual(
+            FASTQOperationToolID.removeDuplicates.subtitle,
+            "Collapse PCR and optical duplicate reads in shotgun libraries. Amplicon reads are identical by design, so keep them."
+        )
+        // D12. The subtitle spells the assay the way its title does.
+        XCTAssertTrue(FASTQOperationToolID.ontGenotyping.subtitle.contains("MiSeq amplicon MHC genotyping"))
+        XCTAssertFalse(FASTQOperationToolID.ontGenotyping.subtitle.contains("miSeq"))
+        // Raw values are what the enablement defaults and the Tools menu identifiers store, and they never follow a title.
+        XCTAssertEqual(renamed.map(\.toolID.rawValue), [
+            "fastpTrim", "removeRibosomalRNA", "removeLowComplexityReads", "removeDuplicates",
+            "reverseComplement", "translate", "ontGenotyping", "hifiasm", "viralRecon",
+        ])
+        XCTAssertEqual(
+            WorkflowLibraryCatalog.fullLengthONTMHCGenotypingItem.id,
+            "builtin.full-length-ont-mhc-genotyping",
+            "the catalog id is stored in the enablement defaults"
+        )
+    }
+
+    /// A display rename never reaches disk. The Operations row, its log and the
+    /// preview follow the new titles. The label a batch manifest records and the
+    /// folder a grouped result is written to keep the wording these operations had
+    /// before, so a project written today reads like one written earlier.
+    func testDisplayRenamesLeaveWhatIsWrittenToDiskAlone() throws {
+        let input = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let derivatives: [(request: FASTQDerivativeRequest, display: String, onDisk: String, folder: String)] = [
+            (
+                .fastpTrim(threshold: 20, windowSize: 4, mode: .cutRight, adapterMode: .autoDetect, adapterSequence: nil),
+                "fastp Adapter & Quality Trim", "fastp Adapter + Quality Trim", "fastp-adapter-quality-trim"
+            ),
+            (
+                .lowComplexityFilter(entropy: 0.6, window: 50, kmer: 5),
+                "Remove Low-Complexity Reads", "Low-Complexity Filter", "low-complexity-filter"
+            ),
+            (
+                .ribosomalRNAFilter(retention: .nonRRNA, ensure: .none),
+                "Remove Ribosomal RNA Reads", "Remove ribosomal RNA sequences", "remove-ribosomal-rna-sequences"
+            ),
+            (.reverseComplement, "Reverse Complement All Sequences", "Reverse Complement", "reverse-complement"),
+            (.translate(frameOffset: 0), "Translate All Sequences", "Translate", "translate"),
+        ]
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("display-rename-folders-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let controller = MainSplitViewController()
+        for (request, display, onDisk, folder) in derivatives {
+            XCTAssertEqual(request.operationLabel, display, "the Operations label")
+            XCTAssertEqual(request.batchLabel, onDisk, "the label a batch manifest records for \(display)")
+            let launch = FASTQOperationLaunchRequest.derivative(request: request, inputURLs: [input], outputMode: .groupedResult)
+            XCTAssertEqual(launch.operationDisplayTitle, display, "the Operations row title")
+            let outputFolder = controller.uniqueFASTQOperationOutputDirectory(in: parent, request: launch)
+            XCTAssertEqual(outputFolder.lastPathComponent, folder, "the folder a grouped \(display) result is written to")
+        }
+
+        // Labels that carry run parameters, and operations nobody renamed, keep their own wording.
+        XCTAssertEqual(FASTQDerivativeRequest.lengthFilter(min: 50, max: 100).batchLabel, "Filter by Length (50-100 bp)")
+        XCTAssertEqual(
+            FASTQDerivativeRequest.deduplicate(preset: .exactPCR, substitutions: 0, optical: false, opticalDistance: 40).batchLabel,
+            "Deduplicate"
+        )
+
+        let genotyping = FASTQOperationLaunchRequest.ontGenotyping(request: ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [input],
+            referenceSourceURL: input,
+            outputDirectory: parent.appendingPathComponent("genotype", isDirectory: true),
+            outputName: "genotype",
+            analysisName: "genotype",
+            threads: 1,
+            minSupport: 1,
+            mode: .ontSampleBundles,
+            readType: .ont
+        ))
+        XCTAssertEqual(genotyping.operationDisplayTitle, "MiSeq Amplicon MHC Genotyping")
+    }
+
     /// U7. Viral Recon is variant calling, not mapping.
     func testMappingKeepsTheFourMappersAndVariantCallingHoldsViralRecon() {
         XCTAssertEqual(

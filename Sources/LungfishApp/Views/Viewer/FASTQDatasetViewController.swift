@@ -84,7 +84,8 @@ public final class FASTQDatasetViewController: NSViewController {
         static let sparklineHeight: CGFloat = 64
         static let topPaneBottomPadding: CGFloat = 1
 
-        static let minSidebarWidth: CGFloat = 200
+        /// Wide enough to show "Alignment & Phylogenetics" whole at 12 pt, with a little tightening.
+        static let minSidebarWidth: CGFloat = 208
         static let maxSidebarWidth: CGFloat = 320
         static let preferredSidebarFraction: CGFloat = 0.22
         static let minGeometryForInitialLayout: CGFloat = 300
@@ -2418,9 +2419,8 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
         cell.font = .systemFont(ofSize: 12)
         cell.textColor = .labelColor
         cell.lineBreakMode = .byTruncatingTail
-        if let category = operationCategoryForRow(row) {
-            cell.toolTip = tooltipForOperationCategory(category)
-        }
+        cell.allowsDefaultTighteningForTruncation = true
+        cell.toolTip = operationCategoryForRow(row).map { tooltipForOperationCategory($0) }
         return cell
     }
 

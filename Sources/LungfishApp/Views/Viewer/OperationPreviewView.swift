@@ -1134,7 +1134,7 @@ final class OperationPreviewView: NSView {
         ]
         let passing = reads.filter { !$0.isLowComplexity }.count
         let summary = NSAttributedString(
-            string: "Low-Complexity Filter: \(passing) of \(reads.count) reads pass",
+            string: "Remove Low-Complexity Reads: \(passing) of \(reads.count) reads pass",
             attributes: summaryAttrs
         )
         summary.draw(at: CGPoint(x: rect.midX - summary.size().width / 2, y: rect.minY))

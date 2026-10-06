@@ -69,7 +69,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(bamImporter.invocations.isEmpty)
 
         let item = try XCTUnwrap(operationCenter.items.first)
-        XCTAssertEqual(item.title, "miSeq amplicon MHC genotyping")
+        XCTAssertEqual(item.title, "MiSeq Amplicon MHC Genotyping")
         XCTAssertEqual(item.state, .completed)
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq genotype") == true)
         XCTAssertTrue(item.outputURLs.contains(request.workbookURL.standardizedFileURL))
@@ -232,7 +232,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
 
         let item = try XCTUnwrap(operationCenter.items.first)
         XCTAssertEqual(operationCenter.items.count, 1)
-        XCTAssertEqual(item.title, "miSeq amplicon MHC genotyping")
+        XCTAssertEqual(item.title, "MiSeq Amplicon MHC Genotyping")
         XCTAssertEqual(item.state, .completed)
         XCTAssertEqual(aiHaplotyper.invocations.first?.parentOperationID, item.id)
         XCTAssertEqual(aiHaplotyper.invocations.first?.bundleURL, request.outputDirectory.standardizedFileURL)
@@ -314,7 +314,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(outputs.contains(request.outputDirectory.standardizedFileURL))
 
         let item = try XCTUnwrap(operationCenter.items.first)
-        XCTAssertEqual(item.title, "Full-length ONT MHC genotyping")
+        XCTAssertEqual(item.title, "Full-Length ONT MHC Genotyping")
         XCTAssertEqual(item.state, .completed)
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq full-length-ont-mhc-genotype") == true)
         XCTAssertEqual(resultRefresher.invocations, [request.outputDirectory.standardizedFileURL])
@@ -502,8 +502,8 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let item = try XCTUnwrap(operationCenter.items.first)
         XCTAssertEqual(item.state, .failed)
         XCTAssertEqual(item.progress, 0.45, accuracy: 0.001)
-        XCTAssertEqual(item.detail, "miSeq amplicon MHC genotyping failed with exit code 5")
-        XCTAssertEqual(item.errorMessage, "miSeq amplicon MHC genotyping failed")
+        XCTAssertEqual(item.detail, "MiSeq Amplicon MHC Genotyping failed with exit code 5")
+        XCTAssertEqual(item.errorMessage, "MiSeq Amplicon MHC Genotyping failed")
         XCTAssertTrue(item.errorDetail?.contains("exit code 5") == true)
         XCTAssertTrue(item.errorDetail?.contains("could not load resource bundle") == true)
         XCTAssertTrue(item.logEntries.contains { $0.message == "Mapping ONT reads with minimap2." })
