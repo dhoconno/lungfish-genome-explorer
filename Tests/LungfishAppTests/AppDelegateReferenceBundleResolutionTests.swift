@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Tools > Call Variants... checked only `ViewerViewController.currentReferenceBundle`,
+// Tools > Variant Calling > Call Variants… checked only `ViewerViewController.currentReferenceBundle`,
 // which the `.browse` display route (every production `displayBundle(at:)` call) never
 // sets and `clearBundleDisplay` clears, so the item was permanently disabled. File >
 // Import Center > VCF Variants checked `currentBundleURL`, nil for the same reason and
