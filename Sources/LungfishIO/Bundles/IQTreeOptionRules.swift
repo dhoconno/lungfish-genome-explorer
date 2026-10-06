@@ -114,10 +114,15 @@ public enum IQTreeOptionRules {
 
     /// The message for a codon sequence type whose in-scope columns break the reading frame,
     /// or nil when every range starts on a codon boundary and spans whole codons. Ranges are
-    /// 1-based and inclusive. The whole alignment counts as one range from column 1.
-    public static func codonFrameMessage(columnRanges: [ClosedRange<Int>]) -> String? {
+    /// 1-based and inclusive. The whole alignment counts as one range from column 1. Pass
+    /// `wholeAlignment` when no columns were chosen, so the message names the alignment length.
+    public static func codonFrameMessage(columnRanges: [ClosedRange<Int>], wholeAlignment: Bool = false) -> String? {
         guard let broken = columnRanges.first(where: { ($0.lowerBound - 1) % 3 != 0 || $0.count % 3 != 0 }) else {
             return nil
+        }
+        if wholeAlignment {
+            return "Codon sequence types need whole codons, so the alignment length must be a multiple of 3 "
+                + "(got \(broken.count))."
         }
         let rangeText = broken.lowerBound == broken.upperBound
             ? "\(broken.lowerBound)"

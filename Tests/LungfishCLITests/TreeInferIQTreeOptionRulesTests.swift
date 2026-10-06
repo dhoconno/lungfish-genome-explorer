@@ -84,7 +84,10 @@ final class TreeInferIQTreeOptionRulesTests: XCTestCase {
         let elevenColumns = try IQTreeTestProject.make(fasta: ">A\nACGTACGTACG\n>B\nACGTACGTACA\n>C\nACGAACGTACG\n>D\nTCGTACGTACG\n")
         defer { elevenColumns.remove() }
         let message = await elevenColumns.failure(["--sequence-type", "CODON"])
-        XCTAssertTrue(message.contains("but 1-11 does not"), message)
+        // Fix G (re-review minor 5): no --columns means the message names the alignment length.
+        XCTAssertTrue(message.contains("the alignment length must be a multiple of 3 (got 11)"), message)
+        let explicit = await elevenColumns.failure(["--sequence-type", "CODON", "--columns", "1-11"])
+        XCTAssertTrue(explicit.contains("but 1-11 does not"), explicit)
 
         let twelveColumns = try IQTreeTestProject.make(fasta: fourRowFASTA)
         defer { twelveColumns.remove() }

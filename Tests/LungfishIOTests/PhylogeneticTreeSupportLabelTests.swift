@@ -256,8 +256,10 @@ final class PhylogeneticTreeSupportLabelTests: XCTestCase {
         XCTAssertEqual(rerootedInference, Self.sampleSummary(outgroup: nil, outgroupWarning: nil))
         XCTAssertEqual(try PhylogeneticTreeBundle.load(from: rerooted.url).manifest.inference, rerootedInference)
 
-        XCTAssertEqual(relabeled.manifest.inference, summary)
-        XCTAssertEqual(try PhylogeneticTreeBundle.load(from: relabeled.url).manifest.inference, summary)
+        // Fix G (re-review minor 2): relabel maps the outgroup names to the new tip labels.
+        let relabeledSummary = Self.sampleSummary(outgroup: ["zebrafish"])
+        XCTAssertEqual(relabeled.manifest.inference, relabeledSummary)
+        XCTAssertEqual(try PhylogeneticTreeBundle.load(from: relabeled.url).manifest.inference, relabeledSummary)
 
         for derived in [rerooted, extracted, relabeled] {
             XCTAssertEqual(derived.manifest.supportLabels, Self.pairLabels)

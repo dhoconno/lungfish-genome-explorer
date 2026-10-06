@@ -311,6 +311,7 @@ extension TreeCommand {
                 if let outgroup, outgroupRows.isEmpty == false {
                     runOptions["outgroup"] = outgroup
                     runOptions["outgroupTipIDs"] = outgroupRows.map(\.tipID).joined(separator: ",")
+                    runOptions["outgroupNames"] = outgroupRows.map(\.displayName).joined(separator: ", ")
                     runOptions["rooting"] = rooting.rooted ? "outgroup" : "unrooted"
                 }
                 try rewriteManifestAndProvenance(
@@ -568,7 +569,10 @@ extension TreeCommand {
                 throw ValidationError("Branch support (--bootstrap or --alrt) needs at least 4 sequences, but the selection has \(rowCount).")
             }
             if let sequenceType, sequenceType.hasPrefix("CODON"),
-               let message = IQTreeOptionRules.codonFrameMessage(columnRanges: columnRanges) {
+               let message = IQTreeOptionRules.codonFrameMessage(
+                   columnRanges: columnRanges,
+                   wholeAlignment: (columns ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+               ) {
                 throw ValidationError(message)
             }
         }

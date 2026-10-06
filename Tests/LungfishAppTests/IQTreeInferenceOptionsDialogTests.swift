@@ -65,6 +65,17 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         _ = try inspected.find(text: IQTreeInferenceDialogState.keepIdenticalCaption)
     }
 
+    /// Fix G (re-review minor 6): the caption shows only while -b or --lbp is present.
+    @MainActor
+    func testAdvancedSectionShowsTheUnorderedSupportCaption() throws {
+        let state = makeState()
+        state.advancedOptionsExpanded = true
+        let caption = IQTreeInferenceDialogState.unorderedSupportCaptionText
+        XCTAssertThrowsError(try makeDialog(state).inspect().find(text: caption))
+        state.extraIQTreeOptions = "-b 100"
+        _ = try makeDialog(state).inspect().find(text: caption)
+    }
+
     @MainActor
     func testDialogChromeAndPrimaryButton() throws {
         let inspected = try makeDialog(makeState()).inspect()
@@ -82,12 +93,12 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         state.seedText = "12a"
         let inspected = try makeDialog(state).inspect()
         let matches = inspected.findAll(ViewType.Text.self) {
-            try $0.string().contains("Seed must be a whole number")
+            try $0.string().contains("Seed must be a whole number from 1 to 2147483647")
         }
         XCTAssertEqual(matches.count, 1)
         XCTAssertEqual(
             try inspected.find(viewWithAccessibilityIdentifier: "iqtree-options-status-text").text().string(),
-            "\(IQTreeInferenceDialogState.warningSymbol) Seed must be a whole number."
+            "\(IQTreeInferenceDialogState.warningSymbol) Seed must be a whole number from 1 to 2147483647."
         )
     }
 

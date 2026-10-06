@@ -84,6 +84,11 @@ extension PhylogeneticTreeInferenceSummary {
     /// The same summary without the outgroup and its warning. A rerooted tree is no longer
     /// rooted on the inference outgroup, so neither field describes it (fix M1).
     public func clearingOutgroup() -> PhylogeneticTreeInferenceSummary {
+        replacingOutgroup(nil, outgroupWarning: nil)
+    }
+
+    /// The same summary with another outgroup and warning, for example after a relabel.
+    public func replacingOutgroup(_ outgroup: [String]?, outgroupWarning: String?) -> PhylogeneticTreeInferenceSummary {
         PhylogeneticTreeInferenceSummary(
             program: program,
             programVersion: programVersion,
@@ -99,8 +104,8 @@ extension PhylogeneticTreeInferenceSummary {
             sequenceType: sequenceType,
             seed: seed,
             threads: threads,
-            outgroup: nil,
-            outgroupWarning: nil,
+            outgroup: outgroup,
+            outgroupWarning: outgroupWarning,
             sourceAlignmentName: sourceAlignmentName,
             sourceAlignmentPath: sourceAlignmentPath,
             selectedRowCount: selectedRowCount,
