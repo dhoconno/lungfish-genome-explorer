@@ -238,6 +238,43 @@ final class TwelveSAmpliconResultBundleTests: XCTestCase {
         }
     }
 
+    /// Results written before fragment counting have no discordant pairs.
+    func testResultsWrittenBeforeFragmentCountingLoadWithNoDiscordantPairs() throws {
+        let bundleURL = try makeSyntheticBundle()
+
+        let result = try TwelveSAmpliconResultBundle.loadResult(from: bundleURL)
+
+        XCTAssertEqual(result.samples.map(\.discordantPairs), [0, 0])
+        XCTAssertEqual(result.readFate.discordantPairs, 0)
+        XCTAssertEqual(result.readFate.discordantPairsByReason, [:])
+    }
+
+    func testLoadsDiscordantPairsFromTheSampleTableAndTheReadFate() throws {
+        let bundleURL = try makeSyntheticBundle()
+        try """
+        sample_id\tdisplay_name\tinput_reads\texact_match_reads\tunresolved_reads\tambiguous_exact_reads\tchimera_candidate_reads\texact_match_percent\tunresolved_percent\treassigned_reads\tdiscordant_pairs
+        HI_Hilo_F09\tHI Hilo F09\t50\t18\t29\t0\t1\t36.0\t58.0\t0\t3
+        ExtractionBlank\tExtraction Blank\t18\t2\t16\t0\t0\t11.111111\t88.888889\t0\t0
+        """.write(to: bundleURL.appendingPathComponent("samples.tsv"), atomically: true, encoding: .utf8)
+        try """
+        {
+          "totalReads": 68,
+          "exactMatchReads": 20,
+          "unresolvedReads": 45,
+          "ambiguousExactReads": 0,
+          "chimeraCandidateReads": 1,
+          "discordantPairs": 3,
+          "discordantPairsByReason": {"different_targets": 2, "one_mate_unresolved": 1}
+        }
+        """.write(to: bundleURL.appendingPathComponent("read-fate.json"), atomically: true, encoding: .utf8)
+
+        let result = try TwelveSAmpliconResultBundle.loadResult(from: bundleURL)
+
+        XCTAssertEqual(result.samples.map(\.discordantPairs), [3, 0])
+        XCTAssertEqual(result.readFate.discordantPairs, 3)
+        XCTAssertEqual(result.readFate.discordantPairsByReason, ["different_targets": 2, "one_mate_unresolved": 1])
+    }
+
     private func makeSyntheticBundle() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwelveSAmpliconResultBundleTests-\(UUID().uuidString)", isDirectory: true)

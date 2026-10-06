@@ -277,6 +277,9 @@ public struct TwelveSAmpliconSampleResult: Codable, Equatable, Sendable {
     public let ambiguousExactReads: Int
     public let chimeraCandidateReads: Int
     public let reassignedReads: Int
+    /// Unmerged pairs whose two mates gave different calls. They are counted
+    /// in `inputReads` and nowhere else.
+    public let discordantPairs: Int
     public let exactMatchPercent: Double
     public let unresolvedPercent: Double
 
@@ -289,6 +292,7 @@ public struct TwelveSAmpliconSampleResult: Codable, Equatable, Sendable {
         ambiguousExactReads: Int,
         chimeraCandidateReads: Int,
         reassignedReads: Int = 0,
+        discordantPairs: Int = 0,
         exactMatchPercent: Double,
         unresolvedPercent: Double
     ) {
@@ -300,8 +304,24 @@ public struct TwelveSAmpliconSampleResult: Codable, Equatable, Sendable {
         self.ambiguousExactReads = ambiguousExactReads
         self.chimeraCandidateReads = chimeraCandidateReads
         self.reassignedReads = reassignedReads
+        self.discordantPairs = discordantPairs
         self.exactMatchPercent = exactMatchPercent
         self.unresolvedPercent = unresolvedPercent
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sampleID = try container.decode(String.self, forKey: .sampleID)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        inputReads = try container.decode(Int.self, forKey: .inputReads)
+        exactMatchReads = try container.decode(Int.self, forKey: .exactMatchReads)
+        unresolvedReads = try container.decode(Int.self, forKey: .unresolvedReads)
+        ambiguousExactReads = try container.decode(Int.self, forKey: .ambiguousExactReads)
+        chimeraCandidateReads = try container.decode(Int.self, forKey: .chimeraCandidateReads)
+        reassignedReads = try container.decodeIfPresent(Int.self, forKey: .reassignedReads) ?? 0
+        discordantPairs = try container.decodeIfPresent(Int.self, forKey: .discordantPairs) ?? 0
+        exactMatchPercent = try container.decode(Double.self, forKey: .exactMatchPercent)
+        unresolvedPercent = try container.decode(Double.self, forKey: .unresolvedPercent)
     }
 }
 
@@ -311,19 +331,40 @@ public struct TwelveSAmpliconReadFate: Codable, Equatable, Sendable {
     public let unresolvedReads: Int
     public let ambiguousExactReads: Int
     public let chimeraCandidateReads: Int
+    /// Unmerged pairs whose two mates gave different calls, left out of every
+    /// count but `totalReads`. Results written before fragment counting have none.
+    public let discordantPairs: Int
+    /// The pairs left out, by the raw value of the reason that left them out.
+    /// Empty when no pair was left out.
+    public let discordantPairsByReason: [String: Int]
 
     public init(
         totalReads: Int,
         exactMatchReads: Int,
         unresolvedReads: Int,
         ambiguousExactReads: Int,
-        chimeraCandidateReads: Int
+        chimeraCandidateReads: Int,
+        discordantPairs: Int = 0,
+        discordantPairsByReason: [String: Int] = [:]
     ) {
         self.totalReads = totalReads
         self.exactMatchReads = exactMatchReads
         self.unresolvedReads = unresolvedReads
         self.ambiguousExactReads = ambiguousExactReads
         self.chimeraCandidateReads = chimeraCandidateReads
+        self.discordantPairs = discordantPairs
+        self.discordantPairsByReason = discordantPairsByReason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        totalReads = try container.decode(Int.self, forKey: .totalReads)
+        exactMatchReads = try container.decode(Int.self, forKey: .exactMatchReads)
+        unresolvedReads = try container.decode(Int.self, forKey: .unresolvedReads)
+        ambiguousExactReads = try container.decode(Int.self, forKey: .ambiguousExactReads)
+        chimeraCandidateReads = try container.decode(Int.self, forKey: .chimeraCandidateReads)
+        discordantPairs = try container.decodeIfPresent(Int.self, forKey: .discordantPairs) ?? 0
+        discordantPairsByReason = try container.decodeIfPresent([String: Int].self, forKey: .discordantPairsByReason) ?? [:]
     }
 
     public var exactMatchPercent: Double {
