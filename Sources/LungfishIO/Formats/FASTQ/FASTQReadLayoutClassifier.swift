@@ -275,18 +275,27 @@ public enum FASTQReadLayoutClassifier {
 
     /// Gathers pairing and merge evidence from bundle and sidecar metadata.
     ///
-    /// A merge in a derivative's lineage, or merged or unpaired reads in a
-    /// manifest, only say that single reads may be in the file. The file's own
-    /// sidecar can say more. A read classification that names this file and
-    /// counts only paired reads, no merged and no unpaired read, is an exact
-    /// count of what the file holds, so it outranks that evidence and the
-    /// hints carry no merge evidence. The FASTQ operations dialog's import
-    /// records such a count for an output of a merge bundle that kept only the
-    /// unmerged pairs, and a merge recipe that left no merged read records it
-    /// too (Phase 1.5 lane F6, coordinator ruling on re-review SHOULD-FIX 2).
+    /// A merge in a derivative's lineage, or a merge step in the recipe an
+    /// import applied, only says that single reads may be in the file. The
+    /// file's own sidecar can say more. A read classification that names this
+    /// file and counts only pairs, as many R1 reads as R2 reads and no merged
+    /// or unpaired read, is an exact count of what the file holds, so it
+    /// outranks the lineage and the recipe, and the hints carry neither. The
+    /// FASTQ operations dialog's import records such a count for an output of
+    /// a merge bundle that kept only the unmerged pairs, and a merge recipe
+    /// that left no merged read records it too (Phase 1.5 lane F6, coordinator
+    /// ruling on re-review SHOULD-FIX 2).
+    ///
+    /// The count reaches no further than the file it counts (re-review F6-N1).
+    /// It clears nothing when the file is not every read of its bundle, the
+    /// first chunk of a chunked root for one, and it never clears a count of
+    /// merged or unpaired reads that a manifest records for the bundle,
+    /// because two counts that disagree leave the file mixed.
     public static func metadataHints(for inputURL: URL) -> FASTQPairingMetadataHints {
         var hints = FASTQPairingMetadataHints()
-        var evidence: [String] = []
+        // Each piece of evidence, with whether the file's own count of only
+        // pairs outranks it.
+        var evidence: [(text: String, outrankedByACountOfPairs: Bool)] = []
         var countedPairsOnly = false
 
         let bundleURL: URL? = FASTQBundle.isBundleURL(inputURL)
@@ -301,17 +310,17 @@ public enum FASTQReadLayoutClassifier {
                 hints.pairingMode = manifest.pairingMode
                 if let classification = manifest.readClassification,
                    classification.mergedReadCount > 0 || classification.unpairedReadCount > 0 {
-                    evidence.append("derived manifest: \(classification.compositionLabel)")
+                    evidence.append(("derived manifest: \(classification.compositionLabel)", false))
                 }
                 if manifest.lineage.contains(where: { $0.kind == .pairedEndMerge })
                     || manifest.operation.kind == .pairedEndMerge {
-                    evidence.append("paired-end merge in derivative lineage")
+                    evidence.append(("paired-end merge in derivative lineage", true))
                 }
             }
             if let readManifest = ReadManifest.load(from: bundleURL) {
                 let classification = readManifest.classification
                 if classification.mergedReadCount > 0 || classification.unpairedReadCount > 0 {
-                    evidence.append("read manifest: \(classification.compositionLabel)")
+                    evidence.append(("read manifest: \(classification.compositionLabel)", false))
                 }
             }
         }
@@ -329,25 +338,65 @@ public enum FASTQReadLayoutClassifier {
             }
             if let classification = sidecar.readClassification {
                 if classification.mergedReadCount > 0 || classification.unpairedReadCount > 0 {
-                    evidence.append("sidecar: \(classification.compositionLabel)")
-                } else if classification.pairedReadCount > 0,
-                          classification.files.allSatisfy({ $0.filename == fastqURL.lastPathComponent }) {
+                    evidence.append(("sidecar: \(classification.compositionLabel)", false))
+                } else if countsOnlyPairs(classification, of: fastqURL),
+                          holdsEveryRead(fastqURL, ofBundle: bundleURL) {
                     // The file's own counts say it holds pairs and no read
-                    // without a mate, which outranks the merge evidence of
-                    // its lineage and manifests.
+                    // without a mate, which outranks the merge its lineage
+                    // or its recipe records.
                     countedPairsOnly = true
                 }
             }
             if let recipe = sidecar.ingestion?.recipeApplied,
                recipe.stepResults.contains(where: { $0.stepName.lowercased().contains("merge") }) {
-                evidence.append("recipe \(recipe.recipeName) merges overlapping pairs")
+                evidence.append(("recipe \(recipe.recipeName) merges overlapping pairs", true))
             }
         }
 
-        if !evidence.isEmpty, !countedPairsOnly {
+        let standing = evidence.filter { !(countedPairsOnly && $0.outrankedByACountOfPairs) }.map(\.text)
+        if !standing.isEmpty {
             hints.hasMergedOrUnpairedReads = true
-            hints.mergeEvidence = evidence.joined(separator: "; ")
+            hints.mergeEvidence = standing.joined(separator: "; ")
         }
         return hints
+    }
+
+    /// Whether `classification` counts only pairs of `fastqURL`. Every role
+    /// names the file, it lists as many R1 reads as R2 reads and at least
+    /// one, and it lists no merged or unpaired read.
+    static func countsOnlyPairs(_ classification: ReadClassification, of fastqURL: URL) -> Bool {
+        func count(_ role: ReadClassification.FileRole) -> Int {
+            classification.files.filter { $0.role == role }.reduce(0) { $0 + $1.readCount }
+        }
+        let r1 = count(.pairedR1)
+        return r1 > 0
+            && r1 == count(.pairedR2)
+            && classification.mergedReadCount == 0
+            && classification.unpairedReadCount == 0
+            && classification.files.allSatisfy { $0.filename == fastqURL.lastPathComponent }
+    }
+
+    /// Whether `fastqURL` holds every read of `bundleURL`, so that a count of
+    /// the file is a count of the bundle. A file outside a bundle holds its
+    /// own reads. A derived bundle's reads are the one file of its `full`
+    /// payload. A root's reads are its one FASTQ file beside its preview, and
+    /// a chunked root (`source-files.json`) holds several.
+    static func holdsEveryRead(_ fastqURL: URL, ofBundle bundleURL: URL?) -> Bool {
+        guard let bundleURL else { return true }
+        let name = fastqURL.lastPathComponent
+        if let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
+            guard case .full(let fastqFilename) = manifest.payload else { return false }
+            return fastqFilename == name
+        }
+        guard !FASTQBundle.isMultiFileBundle(bundleURL) else { return false }
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: bundleURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        let readFiles = contents
+            .filter { FASTQBundle.isFASTQFileURL($0) && $0.lastPathComponent != "preview.fastq" }
+            .map(\.lastPathComponent)
+        return readFiles == [name]
     }
 }
