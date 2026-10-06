@@ -1162,7 +1162,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         return url
     }
 
-    private func inferredPairingMode(from url: URL) -> IngestionMetadata.PairingMode? {
+    func inferredPairingMode(from url: URL) -> IngestionMetadata.PairingMode? {
         if FASTQBundle.isBundleURL(url) {
             if let manifest = FASTQBundle.loadDerivedManifest(in: url), let pairingMode = manifest.pairingMode {
                 return pairingMode
@@ -1179,20 +1179,19 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let adapterFASTA: URL
         let adapterFlag: String
     }
-
-    private struct ExactBareBarcodeMatch: Sendable {
+}
+extension DemultiplexingPipeline {
+    struct ExactBareBarcodeMatch: Sendable {
         let barcodeIndex: Int
         let start: Int
         let length: Int
     }
-
-    private struct ExactBareBarcodeAssignment: Sendable {
+    struct ExactBareBarcodeAssignment: Sendable {
         let barcodeIndex: Int
         let trim5p: Int
         let trim3p: Int
     }
-
-    private struct ExactBareBarcodeAccumulator: Sendable {
+    struct ExactBareBarcodeAccumulator: Sendable {
         let barcodeID: String
         var readIDs: [String] = []
         var previewRecords: [FASTQRawRecord] = []
@@ -1244,8 +1243,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             readCount > 0 ? minReadLength : 0
         }
     }
-
-    private struct ExactBareBarcodeShardResult: Sendable {
+    struct ExactBareBarcodeShardResult: Sendable {
         let shardIndex: Int
         let barcodeAccumulators: [ExactBareBarcodeAccumulator]
         let unassigned: ExactBareBarcodeAccumulator
@@ -1253,7 +1251,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let assignedReads: Int
     }
 
-    private struct ExactBareBarcodeMatcher: Sendable {
+    struct ExactBareBarcodeMatcher: Sendable {
         struct Candidate: Sendable {
             let barcodeIndex: Int
         }
@@ -1394,7 +1392,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         }
     }
 
-    private func supportsExactBareBarcodeDemux(_ config: DemultiplexConfig) -> Bool {
+    func supportsExactBareBarcodeDemux(_ config: DemultiplexConfig) -> Bool {
         guard config.sampleAssignments.isEmpty,
               !config.barcodeKit.isDualIndexed,
               config.barcodeKit.pairingMode == .singleEnd || config.barcodeKit.pairingMode == .symmetric,
@@ -1409,14 +1407,14 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         return true
     }
 
-    private func shouldSearchBareBarcodeReverseComplements(_ config: DemultiplexConfig) -> Bool {
+    func shouldSearchBareBarcodeReverseComplements(_ config: DemultiplexConfig) -> Bool {
         config.searchReverseComplement
             || config.symmetryMode == .symmetric
             || config.barcodeKit.kitType == .fluidigmAccessArray
             || config.barcodeKit.vendor == "custom"
     }
 
-    private final class ExactBareFASTQOutputCache {
+    final class ExactBareFASTQOutputCache {
         private let limit: Int
         private var handles: [String: FileHandle] = [:]
         private var usageOrder: [String] = []
@@ -1475,8 +1473,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             usageOrder.append(key)
         }
     }
-
-    private func runExactBareBarcodeDemux(
+}
+extension DemultiplexingPipeline {
+    func runExactBareBarcodeDemux(
         config: DemultiplexConfig,
         inputFASTQ: URL,
         startTime: Date,
@@ -1998,7 +1997,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             nativeCommand: nil
         )
     }
-
+}
+extension DemultiplexingPipeline {
     private func createAdapterConfiguration(
         for config: DemultiplexConfig,
         workDirectory: URL
@@ -2600,7 +2600,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         sanitizedSampleIdentifier(value).lowercased()
     }
 
-    private func saveRequiredDerivedManifest(
+    func saveRequiredDerivedManifest(
         _ manifest: FASTQDerivedBundleManifest,
         in bundleURL: URL,
         barcode: String
@@ -2638,7 +2638,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         resolveSequence(explicitSequence: explicit, barcodeID: id, kit: kit)
     }
 
-    private func barcodeSequenceInfo(
+    func barcodeSequenceInfo(
         for outputName: String,
         kit: BarcodeKitDefinition,
         sampleAssignments: [FASTQSampleBarcodeAssignment]
@@ -3206,7 +3206,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     }
 
     /// Writes demux trim positions to a TSV file in the bundle.
-    private func writeTrimPositions(_ entries: [DemuxTrimEntry], to bundleURL: URL) throws {
+    func writeTrimPositions(_ entries: [DemuxTrimEntry], to bundleURL: URL) throws {
         guard !entries.isEmpty else { return }
         let trimURL = bundleURL.appendingPathComponent("trim-positions.tsv")
         var trimContent = "#format lungfish-demux-trim-v1\nread_id\tmate\ttrim_5p\ttrim_3p\n"
