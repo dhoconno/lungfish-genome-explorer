@@ -40,6 +40,27 @@ final class ViewerRegressionTests: XCTestCase {
         XCTAssertEqual(roundTrip.compositeSampleNames, plan.compositeSampleNames)
     }
 
+    /// D2. Removing exact duplicates is advice for shotgun libraries. The drawer's
+    /// Exact PCR description no longer calls it the best choice for amplicon data.
+    func testFASTQMetadataDrawerExactPCRDescriptionKeepsAmpliconDataOut() {
+        _ = NSApplication.shared
+        let drawer = FASTQMetadataDrawerView()
+        drawer.frame = NSRect(x: 0, y: 0, width: 800, height: 500)
+        drawer.selectDedupTab()
+        drawer.layoutSubtreeIfNeeded()
+
+        func labelTexts(in view: NSView) -> [String] {
+            let own = (view as? NSTextField).map { [$0.stringValue] } ?? []
+            return own + view.subviews.flatMap { labelTexts(in: $0) }
+        }
+        let texts = labelTexts(in: drawer)
+        XCTAssertTrue(
+            texts.contains("Remove identical reads or read pairs only (subs=0). For shotgun libraries, not amplicon data."),
+            "the Exact PCR description is missing from \(texts)"
+        )
+        XCTAssertFalse(texts.contains { $0.contains("Best for amplicon") })
+    }
+
     func testFASTQMetadataDrawerDividerExposesStableAccessibilityIdentifier() {
         let drawer = FASTQMetadataDrawerView()
 
