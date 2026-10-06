@@ -173,17 +173,15 @@ enum FASTQBundleMergeService {
 
     private static func determineMode(for bundleURLs: [URL]) -> MergeMode {
         for bundleURL in bundleURLs {
-            if FASTQBundle.isDerivedBundle(bundleURL) {
-                return .physical
-            }
-            if FASTQBundle.classifiedFileURLs(for: bundleURL) != nil {
+            if FASTQBundle.isDerivedBundle(bundleURL) || FASTQBundle.classifiedFileURLs(for: bundleURL) != nil {
                 return .physical
             }
             let physicalURLs = physicalFASTQURLs(in: bundleURL)
             guard physicalURLs.count == 1 else {
                 return .physical
             }
-            if inferredPairingMode(for: bundleURL, fastqURLs: physicalURLs) != .singleEnd {
+            if inferredPairingMode(for: bundleURL, fastqURLs: physicalURLs) != .singleEnd
+                || !readSetResolverReadsOnlySingleReads(in: physicalURLs[0]) {
                 return .physical
             }
         }
@@ -318,7 +316,7 @@ enum FASTQBundleMergeService {
             outputMetadata.sequencingPlatform = displayMetadata.sequencingPlatform
             outputMetadata.assemblyReadType = displayMetadata.assemblyReadType
         }
-        FASTQMetadataStore.save(outputMetadata, for: outputFASTQ)
+        try save(outputMetadata, recordingTheRolesOf: resolvedInputs.map(\.fastqURLs), from: sourceBundleURLs, for: outputFASTQ)
         try FASTQBundleCSVMetadata.save(
             FASTQSampleMetadata(sampleName: bundleName).toLegacyCSV(),
             to: bundleURL
