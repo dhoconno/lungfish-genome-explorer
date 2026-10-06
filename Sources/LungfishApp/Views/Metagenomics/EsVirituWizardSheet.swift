@@ -213,38 +213,15 @@ struct EsVirituWizardSheet: View {
     @State private var sampleName: String = ""
     @State private var qualityFilter: Bool = true
     @State private var showAdvanced: Bool = false
-    @State private var esVirituMultiBundleRunMode: MultiBundleRunMode = .perBundle
-
-    /// EsViritu already runs one detection pass per sample
-    /// (MetagenomicsSampleGrouper groups the selected FASTQ bundles into
-    /// samples, and `performRun` maps each sample to its own
-    /// `EsVirituConfig` -- see the "Batch Samples" section below). There is
-    /// no combined/pooled mode: pooling reads across samples before viral
-    /// detection would conflate per-sample abundance/coverage metrics.
-    /// Locked per-bundle (round-2 picker retrofit) purely to make that
-    /// existing, already-correct batch behavior visible via the same shared
-    /// picker component MAFFT/Savont/pbaa/ONT genotyping use, matching the
-    /// honest-copy standard set by the C6/commit 7a5041c6 review fix: the
-    /// lockReason describes what execution actually does today, not an
-    /// aspirational combined mode.
-    ///
-    /// Round-3 revision (item 0): the earlier copy ("Each sample already
-    /// gets its own EsViritu run") described only the per-sample half of
-    /// the truth and implied N independent runs. For N>1 samples,
-    /// `runEsVirituBatch` (AppDelegate+Classification.swift) actually
-    /// registers exactly ONE OperationCenter entry and writes ONE merged
-    /// esviritu-batch-summary.tsv across all samples, while still running
-    /// one EsViritu pass per sample inside that batch. The lockReason now
-    /// states both halves honestly.
-    /// Display-only -- `performRun`'s per-sample fan-out is unchanged.
-    static let esVirituMultiBundleRunPolicy = MultiBundleRunPolicy(
-        allowedModes: [.perBundle],
-        defaultMode: .perBundle,
-        lockReason: "Selections run as one classification batch (one operations entry, merged summary); each sample is classified separately within the batch."
-    )
 
     /// Read format per sample ID, classified off the main thread.
     @State private var readPlans: [String: EsVirituSampleReadPlan] = [:]
+    /// One sample's scan result, produced off the main thread.
+    private struct ReadScan: Sendable {
+        let plan: EsVirituSampleReadPlan
+        let advisory: EsVirituReadLengthAdvisory?
+    }
+
     /// The input list `readPlans` was computed for.
     @State private var readPlansInputFiles: [URL]?
     /// Short-read advisories per sample ID, from persisted FASTQ statistics.
@@ -275,13 +252,17 @@ struct EsVirituWizardSheet: View {
     /// Notifies the shared shell whether the current configuration can run.
     var onRunnerAvailabilityChange: ((Bool) -> Void)?
 
+    /// Reports progress text while the wizard is not ready, or nil once it is.
+    var onReadinessDetailChange: ((String?) -> Void)?
+
     init(
         inputFiles: [URL],
         embeddedInOperationsDialog: Bool = false,
         embeddedRunTrigger: Int = 0,
         onRun: (([EsVirituConfig]) -> Void)? = nil,
         onCancel: (() -> Void)? = nil,
-        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
+        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil,
+        onReadinessDetailChange: ((String?) -> Void)? = nil
     ) {
         self.inputFiles = inputFiles
         self.embeddedInOperationsDialog = embeddedInOperationsDialog
@@ -289,9 +270,16 @@ struct EsVirituWizardSheet: View {
         self.onRun = onRun
         self.onCancel = onCancel
         self.onRunnerAvailabilityChange = onRunnerAvailabilityChange
+        self.onReadinessDetailChange = onReadinessDetailChange
     }
 
     // MARK: - Computed Properties
+
+    /// Progress text while read layouts are still being checked, nil once every sample is done.
+    private var readPlanStatusText: String? {
+        guard readPlansInputFiles != inputFiles else { return nil }
+        return "Checking read layouts (\(readPlans.count) of \(groupedSamples.count))\u{2026}"
+    }
 
     /// Display name for the input dataset, stripping bundle extensions.
     private var inputDisplayName: String {
@@ -364,6 +352,7 @@ struct EsVirituWizardSheet: View {
             // Check database installation
             checkDatabaseStatus()
             onRunnerAvailabilityChange?(canRun)
+            onReadinessDetailChange?(readPlanStatusText)
         }
         .onReceive(NotificationCenter.default.publisher(for: .managedResourcesDidChange)) { _ in
             checkDatabaseStatus()
@@ -371,19 +360,25 @@ struct EsVirituWizardSheet: View {
         .task(id: inputFiles) {
             let files = inputFiles
             let samples = groupedSamples
-            let (plans, advisories) = await Task.detached(priority: .userInitiated) {
-                var plans: [String: EsVirituSampleReadPlan] = [:]
-                var advisories: [String: EsVirituReadLengthAdvisory] = [:]
-                for sample in samples {
-                    plans[sample.sampleId] = await EsVirituSampleReadPlan.planned(for: sample)
-                    advisories[sample.sampleId] = EsVirituReadLengthAdvisory.evaluate(inputURLs: sample.inputFiles)
-                }
-                return (plans, advisories)
-            }.value
+            readPlans = [:]
+            readLengthAdvisories = [:]
+            readPlansInputFiles = nil
+            let scan = SampleReadPlanScan.stream(samples: samples) { sample in
+                ReadScan(
+                    plan: await EsVirituSampleReadPlan.planned(for: sample),
+                    advisory: EsVirituReadLengthAdvisory.evaluate(inputURLs: sample.inputFiles)
+                )
+            }
+            for await (id, result) in scan {
+                guard !Task.isCancelled else { return }
+                readPlans[id] = result.plan
+                readLengthAdvisories[id] = result.advisory
+            }
             guard !Task.isCancelled else { return }
-            readPlans = plans
-            readLengthAdvisories = advisories
             readPlansInputFiles = files
+        }
+        .onChange(of: readPlanStatusText) { _, newValue in
+            onReadinessDetailChange?(newValue)
         }
         .onChange(of: canRun) { _, newValue in
             onRunnerAvailabilityChange?(newValue)
@@ -412,7 +407,7 @@ struct EsVirituWizardSheet: View {
             subtitle: "Identify viral sequences using the EsViritu pipeline",
             accessoryText: standaloneAccessoryText,
             size: WizardSheetSize(width: 520, height: 500),
-            statusText: canRun ? nil : (advancedArgumentsParseError ?? "Finish the settings above to continue"),
+            statusText: canRun ? nil : (advancedArgumentsParseError ?? readPlanStatusText ?? "Finish the settings above to continue"),
             statusColor: Color.lungfishOrangeFallback,
             isPrimaryEnabled: canRun,
             onCancel: { onCancel?() },
@@ -480,15 +475,9 @@ struct EsVirituWizardSheet: View {
                 .foregroundStyle(.secondary)
 
             if isBatchMode {
-                Text("One EsViritu run will be executed per sample.")
+                Text("LGE runs EsViritu on each sample and saves all results together in one batch result.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                MultiBundleRunModePicker(
-                    bundleCount: groupedSamples.count,
-                    policy: Self.esVirituMultiBundleRunPolicy,
-                    selection: $esVirituMultiBundleRunMode
-                )
 
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(groupedSamples.prefix(8)) { sample in

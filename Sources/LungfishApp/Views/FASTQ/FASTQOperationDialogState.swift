@@ -179,6 +179,7 @@ final class FASTQOperationDialogState {
     private let workflowLibrary: any WorkflowLibraryEnabling
     private let savontRuntimeStatusProvider: any PluginPackStatusProviding
     private var embeddedToolReady: Bool
+    private(set) var embeddedToolReadinessDetail: String?
     private var savontRuntimeReadiness: SavontRuntimeReadiness
     private var savontRuntimeCheckGeneration: UInt = 0
     private var barcodeDefinitionScanGeneration: UInt = 0
@@ -364,6 +365,11 @@ final class FASTQOperationDialogState {
     func updateEmbeddedReadiness(_ ready: Bool, for toolID: FASTQOperationToolID) {
         guard selectedToolID == toolID else { return }
         embeddedToolReady = ready
+    }
+
+    /// Publishes progress text for the selected embedded wizard, shown in place of the generic readiness text.
+    func updateEmbeddedReadinessDetail(_ detail: String?, for toolID: FASTQOperationToolID) {
+        if selectedToolID == toolID { embeddedToolReadinessDetail = detail }
     }
 
     func refreshSavontRuntimeReadiness() async {
@@ -883,10 +889,7 @@ final class FASTQOperationDialogState {
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
         pendingLaunchRequest = .map(
-            inputURLs: plan.requests.flatMap(\.inputFASTQURLs),
-            referenceURL: firstRequest.referenceFASTAURL,
-            outputMode: outputMode
-        )
+            inputURLs: plan.requests.flatMap(\.inputFASTQURLs), referenceURL: firstRequest.referenceFASTAURL, outputMode: outputMode)
         embeddedToolReady = true
     }
 
@@ -908,10 +911,7 @@ final class FASTQOperationDialogState {
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
         let assemblyOutputMode: FASTQOperationOutputMode = runMode == .combined ? .groupedResult : .perInput
-        pendingLaunchRequest = .assemble(
-            request: request,
-            outputMode: assemblyOutputMode
-        )
+        pendingLaunchRequest = .assemble(request: request, outputMode: assemblyOutputMode)
         embeddedToolReady = true
     }
 
@@ -971,9 +971,7 @@ final class FASTQOperationDialogState {
         pendingViralReconRequest = nil
         pendingLaunchRequest = .classify(
             tool: .taxTriage,
-            inputURLs: config.samples.flatMap { sample in
-                [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])
-            },
+            inputURLs: config.samples.flatMap { [$0.fastq1] + ($0.fastq2.map { [$0] } ?? []) },
             databaseName: config.kraken2DatabasePath?.lastPathComponent ?? "",
             extraArguments: config.extraArguments
         )
@@ -1033,7 +1031,7 @@ final class FASTQOperationDialogState {
         }
 
         if !embeddedToolReady {
-            return selectedToolID.embeddedReadinessText
+            return embeddedToolReadinessDetail ?? selectedToolID.embeddedReadinessText
         }
 
         if showsOutputStrategyPicker {
@@ -1598,6 +1596,7 @@ final class FASTQOperationDialogState {
         }
 
         embeddedToolReady = selectedToolID.defaultEmbeddedReadiness
+        embeddedToolReadinessDetail = nil
         embeddedRunTrigger = 0
         pendingLaunchRequest = nil
         pendingMappingRequest = nil

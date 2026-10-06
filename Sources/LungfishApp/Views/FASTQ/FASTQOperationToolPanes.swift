@@ -47,7 +47,8 @@ struct FASTQOperationToolPanes: View {
                 embeddedInOperationsDialog: true,
                 embeddedRunTrigger: state.embeddedRunTrigger,
                 onRun: state.captureClassificationConfigs(_:),
-                onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID)
+                onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID),
+                onReadinessDetailChange: { state.updateEmbeddedReadinessDetail($0, for: .kraken2) }
             )
         case .esViritu:
             EsVirituWizardSheet(
@@ -55,7 +56,8 @@ struct FASTQOperationToolPanes: View {
                 embeddedInOperationsDialog: true,
                 embeddedRunTrigger: state.embeddedRunTrigger,
                 onRun: state.captureEsVirituConfigs(_:),
-                onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID)
+                onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID),
+                onReadinessDetailChange: { state.updateEmbeddedReadinessDetail($0, for: .esViritu) }
             )
         case .taxTriage:
             TaxTriageWizardSheet(
@@ -71,9 +73,7 @@ struct FASTQOperationToolPanes: View {
     }
 
     private func readinessHandler(for toolID: FASTQOperationToolID) -> (Bool) -> Void {
-        { ready in
-            state.updateEmbeddedReadiness(ready, for: toolID)
-        }
+        { state.updateEmbeddedReadiness($0, for: toolID) }
     }
 
     private var derivativePane: some View {

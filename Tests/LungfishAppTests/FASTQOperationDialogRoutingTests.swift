@@ -1816,6 +1816,33 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(state.isRunEnabled)
     }
 
+    func testEmbeddedReadinessDetailReplacesGenericTextForSelectedTool() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .classification,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.fastq")]
+        )
+        state.selectTool(.esViritu)
+        XCTAssertEqual(state.readinessText, "Complete the classifier settings to continue.")
+
+        state.updateEmbeddedReadinessDetail("Checking read layouts (3 of 57)\u{2026}", for: .esViritu)
+        XCTAssertEqual(state.readinessText, "Checking read layouts (3 of 57)\u{2026}")
+
+        state.updateEmbeddedReadinessDetail(nil, for: .esViritu)
+        XCTAssertEqual(state.readinessText, "Complete the classifier settings to continue.")
+    }
+
+    func testEmbeddedReadinessDetailForInactiveToolIsIgnored() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .classification,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.fastq")]
+        )
+        state.selectTool(.esViritu)
+
+        state.updateEmbeddedReadinessDetail("Checking read layouts (3 of 57)\u{2026}", for: .kraken2)
+        XCTAssertNil(state.embeddedToolReadinessDetail)
+        XCTAssertEqual(state.readinessText, "Complete the classifier settings to continue.")
+    }
+
     func testCaptureMappingRequestStoresSharedMappingRequest() {
         let sampleFASTQ = illuminaFASTQFixtureURL
         let state = FASTQOperationDialogState(
