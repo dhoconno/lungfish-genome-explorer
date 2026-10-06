@@ -3,9 +3,9 @@ Sources/LungfishApp/App/AppDelegate+Classification.swift 2520
 Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3390
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1025
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 811
-Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1480
+Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1475
 Sources/LungfishApp/App/AppDelegate.swift 2695
-Sources/LungfishApp/App/MainMenu.swift 1559
+Sources/LungfishApp/App/MainMenu.swift 1364
 Sources/LungfishApp/App/VCFImportHelper.swift 1147
 Sources/LungfishApp/Services/AI/AIAssistantService.swift 901
 Sources/LungfishApp/Services/AI/AIToolRegistry.swift 951
@@ -24,7 +24,7 @@ Sources/LungfishApp/Views/AI/AIAssistantPanel.swift 1011
 Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift 1114
 Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 2957
 Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift 1069
-Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2343
+Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2316
 Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
 Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 1025
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 887
@@ -66,7 +66,7 @@ Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+TableView.swift 1089
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift 5657
 Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift 1160
 Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift 1293
-Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2678
+Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2653
 Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift 2260
 Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4218
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1828
