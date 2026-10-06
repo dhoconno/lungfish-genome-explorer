@@ -68,7 +68,7 @@ features:
   fetch.ncbi:
     title: Download a reference sequence from NCBI
     entry_points:
-      - "Tools > Search Online Databases > Search NCBI..."
+      - "File > Search Online Databases > Search NCBI…"
       - "CLI: lungfish fetch ncbi"
     inputs: [ncbi-accession]
     outputs: [fasta, genbank, provenance-sidecar]
@@ -89,7 +89,7 @@ features:
   fetch.sra:
     title: Download FASTQ reads from SRA
     entry_points:
-      - "Tools > Search Online Databases > Search SRA..."
+      - "File > Search Online Databases > Search SRA…"
       - "CLI: lungfish fetch sra download"
     inputs: [sra-run-accession]
     outputs: [fastq, fastq.gz, provenance-sidecar]
@@ -154,7 +154,7 @@ features:
   variants.call:
     title: Call variants from a bundle alignment track
     entry_points:
-      - "Tools > Call Variants…"
+      - "Tools > Variant Calling > Call Variants…"
       - "Inspector > Analysis > Call Variants…"
       - "CLI: lungfish variants call"
     inputs: [reference-bundle, bundle-alignment-track]
@@ -617,7 +617,7 @@ features:
   download.ncbi-genome:
     title: Download genome assemblies as indexed bundles
     entry_points:
-      - "Tools > Search Online Databases > Search NCBI..."
+      - "File > Search Online Databases > Search NCBI…"
       - "CLI: lungfish fetch genome"
       - "CLI: lungfish build-db"
     inputs: [ncbi-assembly-accession]
@@ -636,7 +636,7 @@ features:
   database.pathoplexus:
     title: Browse the Pathoplexus catalogue
     entry_points:
-      - "Tools > Search Online Databases > Search Pathoplexus..."
+      - "File > Search Online Databases > Search Pathoplexus…"
     inputs: [pathoplexus-query]
     outputs: [fasta, lungfishref]
     viewport_class: none
@@ -747,7 +747,7 @@ features:
   align.viral-recon:
     title: Viral consensus and reconstruction wizard
     entry_points:
-      - "Tools > Mapping > Viral Recon…"
+      - "Tools > Variant Calling > Viral Recon (SARS-CoV-2)…"
     inputs: [fastq, reference-bundle, primer-scheme]
     outputs: [bam, vcf.gz, consensus-fasta]
     viewport_class: variant
@@ -1471,7 +1471,7 @@ features:
   workflow.nextflow:
     title: Run Nextflow and nf-core pipelines
     entry_points:
-      - "Tools > Workflows > <package name>…"
+      - "Tools > Workflows"
       - "Tools > Workflows > Workflow Library…"
       - "CLI: lungfish workflow run"
     inputs: [nextflow-pipeline, nf-core-pipeline]
@@ -1490,7 +1490,7 @@ features:
   workflow.snakemake:
     title: Run Snakemake workflows
     entry_points:
-      - "Tools > Workflows > <package name>…"
+      - "Tools > Workflows"
       - "Tools > Workflows > Workflow Library…"
       - "CLI: lungfish workflow run"
     inputs: [snakemake-workflow]
@@ -1526,8 +1526,8 @@ features:
   provenance.export:
     title: Provenance reports and verification
     entry_points:
-      - "File > Export > Methods Section"
-      - "File > Export > Full Provenance (JSON)"
+      - "File > Export > Provenance > Methods Section…"
+      - "File > Export > Provenance > Full Provenance (JSON)…"
       - "CLI: lungfish provenance export"
     inputs: [provenance-sidecar, bundle]
     outputs: [methods-section, provenance-json, bibliography]
