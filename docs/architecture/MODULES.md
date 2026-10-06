@@ -25,7 +25,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 5 | 2443 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8359 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 12 | 3372 | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 687 | 223115 | 1339 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 687 | 223147 | 1339 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 31 | 5583 | 27 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -50,7 +50,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1091 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3200 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 11 | 2331 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 368 | 155459 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 368 | 155552 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -1767,7 +1767,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 687, lines 223115
+- Swift files. 687, lines 223147
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1797,7 +1797,7 @@ None.
 | Ingestion | 25 | 9618 |
 | MSA | 13 | 2610 |
 | Mapping | 24 | 9652 |
-| Metagenomics | 45 | 20107 |
+| Metagenomics | 45 | 20112 |
 | Metagenomics/CzId | 3 | 908 |
 | Native | 9 | 5115 |
 | ONTGenotyping | 156 | 48385 |
@@ -1820,7 +1820,7 @@ None.
 | ToolReference | 2 | 473 |
 | TwelveS | 9 | 4104 |
 | Variants | 32 | 7444 |
-| ViralRecon | 14 | 2916 |
+| ViralRecon | 14 | 2943 |
 | WorkflowPackages | 1 | 334 |
 | nf-core | 3 | 627 |
 
