@@ -57,12 +57,67 @@ public enum FASTQMixedLayoutHint {
         singleRole: ReadClassification.FileRole,
         filename: String
     ) -> ReadClassification? {
-        guard pairs > 0, singles > 0 else { return nil }
-        return ReadClassification(files: [
+        classification(
+            pairs: pairs,
+            merged: singleRole == .merged ? singles : 0,
+            unpaired: singleRole == .merged ? 0 : singles,
+            filename: filename
+        )
+    }
+
+    /// The roles of a file holding `pairs` pairs, `merged` merged reads and
+    /// `unpaired` reads without a mate, every role naming `filename`. Nil when
+    /// the file holds no single read or no pair, which needs no hint.
+    public static func classification(
+        pairs: Int,
+        merged: Int,
+        unpaired: Int,
+        filename: String
+    ) -> ReadClassification? {
+        guard pairs > 0, merged + unpaired > 0 else { return nil }
+        var files: [ReadClassification.FileEntry] = [
             .init(filename: filename, role: .pairedR1, readCount: pairs),
             .init(filename: filename, role: .pairedR2, readCount: pairs),
-            .init(filename: filename, role: singleRole, readCount: singles),
-        ])
+        ]
+        if merged > 0 { files.append(.init(filename: filename, role: .merged, readCount: merged)) }
+        if unpaired > 0 { files.append(.init(filename: filename, role: .unpaired, readCount: unpaired)) }
+        return ReadClassification(files: files)
+    }
+
+    /// The pairing to record beside a file whose whole-file roles are
+    /// `roles`. It is interleaved when they count pairs and no single read,
+    /// and single-end when they count a single read.
+    ///
+    /// The label follows the count in both directions, as
+    /// `TaxonomyExtractionPipeline.extractedLayout` sets it. A file that holds
+    /// pairs and single reads is labelled single-end, the contract default
+    /// for a file a positional tool must not pair, whatever a bounded scan of
+    /// its first records saw (re-review F8-N1, Phase 2.1 lane L3).
+    public static func pairingMode(recordedBeside roles: ReadClassification) -> IngestionMetadata.PairingMode {
+        pairingMode(pairs: roles.pairedReadCount / 2, singles: roles.mergedReadCount + roles.unpairedReadCount)
+    }
+
+    /// The pairing to record beside a file that holds `pairs` adjacent mate
+    /// pairs and `singles` single reads by its whole-file count, interleaved
+    /// for pairs alone and single-end otherwise.
+    public static func pairingMode(pairs: Int, singles: Int) -> IngestionMetadata.PairingMode {
+        pairs > 0 && singles == 0 ? .interleaved : .singleEnd
+    }
+
+    /// The read roles a source bundle, or a file inside one, records for its
+    /// reads. They are its derived manifest's, else the roles of a mixed
+    /// payload's files, else its primary FASTQ sidecar's. A loose file's are
+    /// its own sidecar's.
+    public static func recordedRoles(of sourceURL: URL) -> ReadClassification? {
+        let bundleURL = FASTQBundle.isBundleURL(sourceURL)
+            ? sourceURL
+            : SequenceInputResolver.enclosingFASTQBundleURL(for: sourceURL)
+        if let bundleURL, let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
+            if let roles = manifest.readClassification { return roles }
+            if case .fullMixed(let roles) = manifest.payload { return roles }
+        }
+        return FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL ?? sourceURL)
+            .flatMap { FASTQMetadataStore.load(for: $0)?.readClassification }
     }
 
     /// The roles of a file holding `pairs` pairs and no single read, every

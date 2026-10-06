@@ -13,30 +13,39 @@ private let readRolesLogger = Logger(subsystem: LogSubsystem.app, category: "FAS
 extension AppFASTQOutputBundleWriter {
 
     /// Records in `metadata`, the sidecar of a re-imported operation output,
-    /// the read roles ``outputReadRoles(of:sourceInputURL:)`` counts. A count
-    /// of only pairs also records the pairing as `interleaved`, in the sidecar
-    /// and so in the derived manifest written from it.
+    /// the read roles ``outputReadRoles(of:sourceInputURL:request:)`` counts,
+    /// and the pairing those counts give, in the sidecar and so in the
+    /// derived manifest written from it. A count of only pairs records
+    /// `interleaved`, and a count that holds a single read records
+    /// `single_end` (``FASTQMixedLayoutHint/pairingMode(recordedBeside:)``).
     ///
     /// `outputPairingMode(for:sourceInputURL:)` reads the source's merge as
-    /// proof of single reads, so it labels a merge bundle's output of only
+    /// proof of single reads, so it labelled a merge bundle's output of only
     /// pairs single-end. The Inspector then showed Single End for a file of
     /// pairs, and a later operation on it was not counted, because the label
     /// claimed no pairs and the count had cleared the merge hint (Phase 1.5
-    /// lane F8, re-review finding F6-S1).
+    /// lane F8, re-review finding F6-S1). The other way round, an output
+    /// whose first read without a mate lies past the 100,000 records its
+    /// layout scan reads scanned as strict pairs and kept the interleaved
+    /// label beside its count of pairs and a single read (re-review F8-N1,
+    /// Phase 2.1 lane L3).
     func recordReadRolesAndPairing(
         of outputFASTQ: URL,
         sourceInputURL: URL?,
+        request: FASTQOperationLaunchRequest,
         in metadata: inout PersistedFASTQMetadata
     ) {
-        guard let roles = outputReadRoles(of: outputFASTQ, sourceInputURL: sourceInputURL) else { return }
+        guard let roles = outputReadRoles(of: outputFASTQ, sourceInputURL: sourceInputURL, request: request) else {
+            return
+        }
         metadata.readClassification = roles
-        guard roles.mergedReadCount == 0, roles.unpairedReadCount == 0 else { return }
-        if metadata.ingestion?.pairingMode != .interleaved {
+        let pairing = FASTQMixedLayoutHint.pairingMode(recordedBeside: roles)
+        if metadata.ingestion?.pairingMode != pairing {
             readRolesLogger.info(
-                "importFASTQOutput: \(outputFASTQ.lastPathComponent, privacy: .public) holds only pairs by its count, so it is recorded as interleaved"
+                "importFASTQOutput: \(outputFASTQ.lastPathComponent, privacy: .public) holds \(roles.compositionLabel, privacy: .public) by its count, so it is recorded as \(pairing.rawValue, privacy: .public)"
             )
         }
-        metadata.ingestion?.pairingMode = .interleaved
+        metadata.ingestion?.pairingMode = pairing
     }
 
     /// The read roles to record beside a re-imported operation output that
@@ -71,7 +80,18 @@ extension AppFASTQOutputBundleWriter {
     /// merge from its layout hints, so a decision from the hints alone left
     /// every later generation without counts (Phase 1.5 lane F8, re-review
     /// finding F6-S1).
-    func outputReadRoles(of outputFASTQ: URL, sourceInputURL: URL?) -> ReadClassification? {
+    ///
+    /// The single reads of most outputs take the role the source records for
+    /// its own (``FASTQMixedLayoutHint/singleRole(of:)``). A paired-end merge
+    /// makes its single reads, so they are named by what it writes
+    /// (``singleReadsOfAMerge(_:sourceRoles:)``). Named from the source, the
+    /// merged reads of a merge of a source that lists no merged read were
+    /// recorded as orphans (re-review F8-N3, Phase 2.1 lane L3).
+    func outputReadRoles(
+        of outputFASTQ: URL,
+        sourceInputURL: URL?,
+        request: FASTQOperationLaunchRequest? = nil
+    ) -> ReadClassification? {
         guard let sourceInputURL else { return nil }
         let hints = FASTQReadLayoutClassifier.metadataHints(for: sourceInputURL)
         let sourceRecordsMerge = hints.hasMergedOrUnpairedReads || lineageRecordsMerge(of: sourceInputURL)
@@ -85,10 +105,19 @@ extension AppFASTQOutputBundleWriter {
             )
             return nil
         }
+        let sourceRoles = FASTQMixedLayoutHint.recordedRoles(of: sourceInputURL)
+        let singles: (merged: Int, unpaired: Int)
+        if case .derivative(.pairedEndMerge, _, _)? = request {
+            singles = Self.singleReadsOfAMerge(counts.singles, sourceRoles: sourceRoles)
+        } else {
+            singles = FASTQMixedLayoutHint.singleRole(of: sourceRoles) == .merged
+                ? (counts.singles, 0)
+                : (0, counts.singles)
+        }
         if let roles = FASTQMixedLayoutHint.classification(
             pairs: counts.pairs,
-            singles: counts.singles,
-            singleRole: FASTQMixedLayoutHint.singleRole(of: sourceReadRoles(of: sourceInputURL)),
+            merged: singles.merged,
+            unpaired: singles.unpaired,
             filename: outputFASTQ.lastPathComponent
         ) {
             return roles
@@ -99,6 +128,19 @@ extension AppFASTQOutputBundleWriter {
             singles: counts.singles,
             filename: outputFASTQ.lastPathComponent
         )
+    }
+
+    /// The merged reads and the reads without a mate among the `singles`
+    /// single reads of a paired-end merge's output. `fastq merge` writes the
+    /// reads bbmerge merged, then the pairs it could not merge, then every
+    /// read its source held without a mate, unchanged. So every single read
+    /// is a merged read except the orphans the source records.
+    static func singleReadsOfAMerge(
+        _ singles: Int,
+        sourceRoles: ReadClassification?
+    ) -> (merged: Int, unpaired: Int) {
+        let orphans = min(singles, sourceRoles?.unpairedReadCount ?? 0)
+        return (singles - orphans, orphans)
     }
 
     /// Whether the derived manifest of a source bundle, or of the bundle that
@@ -118,16 +160,5 @@ extension AppFASTQOutputBundleWriter {
         FASTQBundle.isBundleURL(sourceInputURL)
             ? sourceInputURL
             : SequenceInputResolver.enclosingFASTQBundleURL(for: sourceInputURL)
-    }
-
-    /// The recorded read roles of a source bundle or file: its derived
-    /// manifest's, else its primary FASTQ sidecar's.
-    private func sourceReadRoles(of sourceInputURL: URL) -> ReadClassification? {
-        let bundleURL = sourceBundleURL(of: sourceInputURL)
-        if let bundleURL, let roles = FASTQBundle.loadDerivedManifest(in: bundleURL)?.readClassification {
-            return roles
-        }
-        return FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL ?? sourceInputURL)
-            .flatMap { FASTQMetadataStore.load(for: $0)?.readClassification }
     }
 }

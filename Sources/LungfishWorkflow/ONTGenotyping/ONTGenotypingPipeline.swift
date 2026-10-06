@@ -223,19 +223,31 @@ public struct ONTGenotypingPipeline: Sendable {
         return ReferenceResolution(referenceFASTAURL: fastaURL.standardizedFileURL, sourceReferenceBundleURL: sourceBundle)
     }
 
-    /// The FASTQ to map for `inputURL`. A virtual derived bundle, such as a
-    /// demultiplexed barcode, is materialized into the sample directory first:
-    /// the resolver would otherwise hand back its root's pooled reads.
+    /// The FASTQ to map for `inputURL`, one file of every read it holds. A
+    /// `.lungfishfastq` bundle, or a file inside one, is read as the ONT
+    /// sample bundles of `fastq genotype` read it
+    /// (`ONTBarcodeDemuxGenotypingPipeline.plannedInputReads`). A chunked root
+    /// is every chunk joined in import order, any other bundle is the files
+    /// ``ReadSetResolver`` plans for single reads joined into one, and a
+    /// virtual derived bundle, such as a demultiplexed barcode, is
+    /// materialized first, since the resolver would otherwise hand back its
+    /// root's pooled reads. Files are written into the sample directory.
+    /// Before, a bundle of several files gave its first, chunk 0 or R1
+    /// (Phase 1 note N1, Phase 2.1 lane L3).
     static func executionInputFASTQ(
         for inputURL: URL,
         sampleDirectory: URL,
-        materializer: DerivedFASTQBundleInput.Materializer = DerivedFASTQBundleInput.defaultMaterializer
+        materializer: @escaping DerivedFASTQBundleInput.Materializer = DerivedFASTQBundleInput.defaultMaterializer
     ) async throws -> URL {
-        guard let resolved = try await DerivedFASTQBundleInput.readableURL(
-                for: inputURL,
-                in: sampleDirectory.appendingPathComponent("materialized-input", isDirectory: true),
-                materializer: materializer
-              ),
+        let input = SequenceInputResolver.enclosingFASTQBundleURL(for: inputURL) ?? inputURL.standardizedFileURL
+        let reads = try await ONTBarcodeDemuxGenotypingPipeline.plannedInputReads(
+            for: input,
+            readType: .ont,
+            workDirectory: sampleDirectory.appendingPathComponent("materialized-input", isDirectory: true),
+            joinsChunks: true,
+            materializer: DerivedFASTQBundleInput.ClosureMaterializer(materializer)
+        )
+        guard reads.fastqURLs.count == 1, let resolved = reads.fastqURLs.first,
               (SequenceInputResolver.inputSequenceFormat(for: inputURL) ?? SequenceFormat.from(url: resolved)) == .fastq else {
             throw ONTGenotypingError.missingInput(inputURL)
         }

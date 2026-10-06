@@ -231,7 +231,8 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
     private func makeMergeLineageChild(
         headers: [String],
         roles: ReadClassification?,
-        recipe: RecipeAppliedInfo? = nil
+        recipe: RecipeAppliedInfo? = nil,
+        manifestRoles: ReadClassification? = nil
     ) throws -> URL {
         let bundle = try makeTempDir().appendingPathComponent("child.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
@@ -249,6 +250,7 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
                 operation: operation,
                 cachedStatistics: .placeholder(readCount: headers.count, baseCount: Int64(headers.count * 4)),
                 pairingMode: .singleEnd,
+                readClassification: manifestRoles,
                 sequenceFormat: .fastq
             ),
             in: bundle
@@ -261,6 +263,15 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
             for: fastqURL
         )
         return bundle
+    }
+
+    /// A merge recipe step, the evidence a merge recipe import records.
+    private var mergeRecipe: RecipeAppliedInfo {
+        RecipeAppliedInfo(
+            recipeID: "illuminaVSP2TargetEnrichment",
+            recipeName: "VSP2",
+            stepResults: [RecipeStepResult(stepName: "PE merge (normal, min overlap: 12)", tool: "fastp", durationSeconds: 1)]
+        )
     }
 
     /// A merge in the lineage says single reads may be in the file, so mates
@@ -326,5 +337,99 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
             recipe: recipe
         )
         XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: counted).layout, .strictlyInterleaved)
+    }
+
+    // MARK: - How far a count of only pairs reaches (Phase 2.1 lane L3, re-review F6-N1 and F6-N4)
+
+    /// A count of only pairs clears the merge that a lineage or a recipe
+    /// records, which says only that single reads may be in the file. A count
+    /// of merged reads that the bundle's own manifest records for its reads
+    /// is a count too, so the file's count of only pairs contradicts it and
+    /// the file stays mixed. Before, the file's count cleared that evidence as
+    /// well and the file scanned as strict pairs.
+    func testACountOfOnlyPairsLeavesTheBundlesOwnCountOfMergedReadsInPlace() throws {
+        let headers = ["a/1", "a/2", "b/1", "b/2"]
+        let bundleCount = ReadClassification(files: [
+            .init(filename: "reads.fastq", role: .pairedR1, readCount: 2),
+            .init(filename: "reads.fastq", role: .pairedR2, readCount: 2),
+            .init(filename: "reads.fastq", role: .merged, readCount: 3),
+        ])
+        let bundle = try makeMergeLineageChild(
+            headers: headers,
+            roles: pairsOnlyRoles(naming: "reads.fastq", pairs: 2),
+            manifestRoles: bundleCount
+        )
+
+        let hints = FASTQReadLayoutClassifier.metadataHints(for: bundle)
+        XCTAssertTrue(hints.hasMergedOrUnpairedReads)
+        let evidence = try XCTUnwrap(hints.mergeEvidence)
+        XCTAssertTrue(evidence.contains("derived manifest"), evidence)
+        XCTAssertFalse(evidence.contains("lineage"), "the lineage merge is still cleared: \(evidence)")
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: bundle).layout, .mixedInterleaved)
+    }
+
+    /// A count of only pairs speaks for every read only when its file holds
+    /// every read of the bundle. The first chunk of a chunked root is not
+    /// the bundle, so its count leaves the recipe's merge in place for the
+    /// bundle. Before, the first chunk's count cleared it for the whole root.
+    func testACountOfOnlyPairsInTheFirstChunkDoesNotSpeakForTheBundle() throws {
+        let bundle = try makeTempDir().appendingPathComponent("chunked.lungfishfastq", isDirectory: true)
+        let chunks = bundle.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunks, withIntermediateDirectories: true)
+        let first = chunks.appendingPathComponent("run_0.fastq")
+        try fastq(["a/1", "a/2"]).write(to: first, atomically: true, encoding: .utf8)
+        try fastq(["m1", "b/1", "b/2"]).write(to: chunks.appendingPathComponent("run_1.fastq"), atomically: true, encoding: .utf8)
+        try FASTQSourceFileManifest(files: ["run_0.fastq", "run_1.fastq"].map {
+            .init(filename: "chunks/\($0)", originalPath: "/orig/\($0)", sizeBytes: 1, isSymlink: false)
+        }).save(to: bundle)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(
+                ingestion: IngestionMetadata(pairingMode: .interleaved, recipeApplied: mergeRecipe),
+                readClassification: pairsOnlyRoles(naming: "run_0.fastq", pairs: 1)
+            ),
+            for: first
+        )
+
+        let hints = FASTQReadLayoutClassifier.metadataHints(for: bundle)
+        XCTAssertTrue(hints.hasMergedOrUnpairedReads)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: bundle).layout, .mixedInterleaved)
+        // The chunk named on its own is that one file, whose count holds.
+        XCTAssertFalse(FASTQReadLayoutClassifier.metadataHints(for: first).hasMergedOrUnpairedReads)
+    }
+
+    /// A count of only pairs lists as many R1 reads as R2 reads. A count
+    /// whose mate counts differ is not a count of pairs, so it clears no
+    /// merge. Before, it cleared the lineage merge.
+    func testACountWhoseMateCountsDifferClearsNoMerge() throws {
+        let headers = ["a/1", "a/2", "b/1", "b/2"]
+        let unequal = ReadClassification(files: [
+            .init(filename: "reads.fastq", role: .pairedR1, readCount: 2),
+            .init(filename: "reads.fastq", role: .pairedR2, readCount: 1),
+        ])
+        let bundle = try makeMergeLineageChild(headers: headers, roles: unequal)
+
+        XCTAssertTrue(FASTQReadLayoutClassifier.metadataHints(for: bundle).hasMergedOrUnpairedReads)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: bundle).layout, .mixedInterleaved)
+    }
+
+    /// A root that holds its reads in one file, as a merge recipe that merged
+    /// nothing writes it, keeps its count of only pairs over the recipe's
+    /// merge. The preview beside it is not a second file of reads.
+    func testARootOfOneFileKeepsItsCountOfOnlyPairsOverTheRecipesMerge() throws {
+        let bundle = try makeTempDir().appendingPathComponent("recipe.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let fastqURL = bundle.appendingPathComponent("reads.fastq")
+        try fastq(["a/1", "a/2", "b/1", "b/2"]).write(to: fastqURL, atomically: true, encoding: .utf8)
+        try fastq(["a/1"]).write(to: bundle.appendingPathComponent("preview.fastq"), atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(
+                ingestion: IngestionMetadata(pairingMode: .interleaved, recipeApplied: mergeRecipe),
+                readClassification: pairsOnlyRoles(naming: "reads.fastq", pairs: 2)
+            ),
+            for: fastqURL
+        )
+
+        XCTAssertFalse(FASTQReadLayoutClassifier.metadataHints(for: bundle).hasMergedOrUnpairedReads)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: bundle).layout, .strictlyInterleaved)
     }
 }

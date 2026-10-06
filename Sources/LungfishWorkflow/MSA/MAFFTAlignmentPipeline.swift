@@ -326,30 +326,38 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
         var pending: [PendingRecord] = []
 
         for inputURL in inputURLs {
-            // Oriented, subset or trimmed bundles are materialized first; the
-            // resolver alone would return their root's original reads.
-            guard let fastaURL = try await DerivedFASTQBundleInput.readableURL(
-                    for: inputURL,
-                    in: stagedInputURL.deletingLastPathComponent()
-                        .appendingPathComponent("materialized-inputs", isDirectory: true),
-                    materializer: derivedBundleMaterializer
-                  ),
+            // Every file of a FASTQ bundle is read, and oriented, subset or
+            // trimmed bundles are materialized first. The one-file resolution
+            // gave a root's original reads for those, and only the first
+            // file of a chunked root or a paired derivative (Phase 1 note N1).
+            let sequenceURLs = try await DerivedFASTQBundleInput.readableURLs(
+                for: inputURL,
+                in: stagedInputURL.deletingLastPathComponent()
+                    .appendingPathComponent("materialized-inputs", isDirectory: true),
+                materializer: derivedBundleMaterializer
+            )
+            guard let firstURL = sequenceURLs.first,
                   let sequenceFormat = SequenceInputResolver.inputSequenceFormat(for: inputURL) ??
-                    SequenceInputResolver.inputSequenceFormat(for: fastaURL) else {
+                    SequenceInputResolver.inputSequenceFormat(for: firstURL) else {
                 throw MAFFTAlignmentPipelineError.unsupportedInput(inputURL)
             }
-            let records: [(name: String, sequence: String, quality: [UInt8]?)]
+            var records: [(name: String, sequence: String, quality: [UInt8]?)] = []
             switch sequenceFormat {
             case .fasta:
-                let text = try await readFASTAText(from: fastaURL)
-                records = try parseFASTA(text, sourceName: inputURL.lastPathComponent)
-                    .map { ($0.name, $0.sequence, nil) }
+                for fastaURL in sequenceURLs {
+                    let text = try await readFASTAText(from: fastaURL)
+                    let fileRecords: [(name: String, sequence: String, quality: [UInt8]?)] =
+                        try parseFASTA(text, sourceName: inputURL.lastPathComponent).map { ($0.name, $0.sequence, nil) }
+                    records += fileRecords
+                }
             case .fastq:
                 guard request.allowFASTQAssemblyInputs else {
                     throw MAFFTAlignmentPipelineError.unsupportedInput(inputURL)
                 }
                 warnings.append("FASTQ input \(inputURL.lastPathComponent) was converted to FASTA for MAFFT; quality scores are retained only as non-aligned sidecar metadata.")
-                records = try await parseFASTQRecords(from: fastaURL)
+                for fastqURL in sequenceURLs {
+                    records += try await parseFASTQRecords(from: fastqURL)
+                }
             }
             let annotationsBySequence = try await sourceAnnotationsBySequence(for: inputURL, records: records)
             for record in records {
