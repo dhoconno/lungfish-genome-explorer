@@ -101,6 +101,9 @@ final class KrakenReadSetConformanceTests: XCTestCase {
             ("gzip", gzipped),
             ("gzip-pair", [gzipped[0], gzipped[1], plain[2]]),
             ("gzip-single-reads", [plain[0], plain[1], gzipped[2]]),
+            // Phase 2.1 L6: R1 and R2 of mixed compression.
+            ("gzip-r1-only", [gzipped[0], plain[1], plain[2]]),
+            ("gzip-r2-only", [plain[0], gzipped[1], gzipped[2]]),
         ]
 
         var reports: [String: Data] = [:]
@@ -133,6 +136,38 @@ final class KrakenReadSetConformanceTests: XCTestCase {
             XCTAssertNotNil(reports[run.name], run.name)
             XCTAssertEqual(reports[run.name], reports["plain"], "\(run.name) writes the report of the plain run")
             XCTAssertEqual(calls[run.name], calls["plain"], "\(run.name) makes the calls of the plain run")
+        }
+    }
+
+    /// Phase 2.1 L6. `conda classify --paired R1 R2` with no `--unpaired`
+    /// plans nothing and has no fragment guard. With R1 and R2 of mixed
+    /// compression the real kraken2 read R2 as empty (gzip R1) or as one
+    /// garbage read (gzip R2) and exited 0. Every pair is now classified as
+    /// the plain pair is, call for call.
+    func testR1AndR2OfMixedCompressionClassifyAsThePlainPairDoes() async throws {
+        let database = try await requireKraken2AndViralDatabase()
+        let fixture = ConformanceFixtures.fixture("read-pairing/kraken2")
+        let plain = ["unmerged_R1.fastq", "unmerged_R2.fastq"].map { fixture.appendingPathComponent($0) }
+        let gzipped = try plain.map { file -> URL in
+            let copy = work.appendingPathComponent(file.lastPathComponent + ".gz")
+            _ = try gzipCompressFASTQ(sourceURL: file, outputURL: copy, failureDescription: "the test copy of")
+            return copy
+        }
+        var reports: [String: Data] = [:]
+        var calls: [String: [String]] = [:]
+        for run in [("plain", plain), ("gzip-r1-only", [gzipped[0], plain[1]]), ("gzip-r2-only", [plain[0], gzipped[1]])] {
+            let config = ClassificationConfig(
+                inputFiles: run.1, isPairedEnd: true, databaseName: "Viral", databasePath: database,
+                confidence: 0.2, minimumHitGroups: 2, outputDirectory: work.appendingPathComponent("pairs-\(run.0)", isDirectory: true)
+            )
+            let result = try await ClassificationPipeline.shared.classify(config: config)
+            XCTAssertEqual(try ClassificationPipeline.lineCount(of: result.outputURL), 23, "\(run.0): one line per pair")
+            reports[run.0] = try Data(contentsOf: result.reportURL)
+            calls[run.0] = try perReadCalls(result.outputURL)
+        }
+        for name in ["gzip-r1-only", "gzip-r2-only"] {
+            XCTAssertEqual(reports[name], reports["plain"], "\(name) writes the report of the plain pair")
+            XCTAssertEqual(calls[name], calls["plain"], "\(name) makes the calls of the plain pair")
         }
     }
 
