@@ -10,9 +10,10 @@ extension TreeCommand {
             commandName: "iqtree",
             abstract: "Infer a maximum-likelihood tree from a .lungfishmsa bundle using IQ-TREE",
             discussion: """
-            --threads sets IQ-TREE -T. Without --threads IQ-TREE runs with -T AUTO, which is \
-            not reproducible because the same seed can give different branch support. Pass \
-            --seed N with a fixed --threads N to reproduce a tree.
+            --threads sets IQ-TREE -T, and without it IQ-TREE runs with -T AUTO. Only \
+            --threads 1 with a fixed --seed reproduces a tree byte for byte. With more threads, \
+            or with AUTO, the same seed gives slightly different branch lengths or support on \
+            each run.
             """
         )
 

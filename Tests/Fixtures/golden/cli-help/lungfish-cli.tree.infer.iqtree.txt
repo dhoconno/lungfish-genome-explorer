@@ -1,6 +1,11 @@
 OVERVIEW: Infer a maximum-likelihood tree from a .lungfishmsa bundle using
 IQ-TREE
 
+--threads sets IQ-TREE -T, and without it IQ-TREE runs with -T AUTO. Only
+--threads 1 with a fixed --seed reproduces a tree byte for byte. With more
+threads, or with AUTO, the same seed gives slightly different branch lengths or
+support on each run.
+
 USAGE: lungfish-cli tree infer iqtree [<options>] <msa-bundle-path> --project <project> --output <output>
 
 ARGUMENTS:
@@ -14,19 +19,25 @@ OPTIONS:
   --name <name>           Output tree bundle name
   --model <model>         IQ-TREE model string (default: MFP)
   --sequence-type <sequence-type>
-                          IQ-TREE sequence type: auto, DNA, AA, CODON, BIN,
+                          IQ-TREE sequence type: auto, DNA, AA, CODON, CODON1
+                          to CODON25 (IQ-TREE genetic code numbers), BIN,
                           MORPH, NT2AA (default: auto)
-  --bootstrap <bootstrap> Ultrafast bootstrap replicate count
-  --alrt <alrt>           SH-aLRT replicate count
-  --seed <seed>           Random seed (default: IQ-TREE chooses a time-based
-                          random seed when omitted)
+  --bootstrap <bootstrap> Ultrafast bootstrap replicate count (1000 or more)
+  --alrt <alrt>           SH-aLRT replicate count (1 or more)
+  --seed <seed>           Random seed from 1 to 2147483647 (default: IQ-TREE
+                          draws one, and provenance records it as effectiveSeed)
+  --outgroup <outgroup>   Optional comma-separated outgroup row IDs or display
+                          names. The saved tree is rooted on the outgroup. It
+                          does not change the inferred relationships.
   --safe                  Enable IQ-TREE safe numerical mode
   --keep-identical        Keep identical sequences in the IQ-TREE analysis
-  --extra-iqtree-options <extra-iqtree-options>
-                          Additional IQ-TREE options, written exactly as they
-                          should be passed to IQ-TREE
   --extra-args <extra-args>
-                          Additional IQ-TREE arguments passed verbatim
+                          Additional IQ-TREE arguments passed verbatim. Flags
+                          that have a curated option (-s, --msa, --aln,
+                          --prefix, -pre, -m, --model, --modelomatic, -T,
+                          --threads, -nt, --seed, -seed, -B, -bb, --ufboot,
+                          --alrt, -alrt, -o, -st, --seqtype) are rejected. With
+                          -b or --lbp no support labels are recorded.
   --iqtree-path <iqtree-path>
                           Override path to iqtree3 executable
   --force                 Overwrite an existing output bundle
