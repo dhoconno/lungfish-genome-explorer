@@ -65,15 +65,25 @@ final class PhylogeneticTreeSupportPresentationTests: XCTestCase {
             supportValues: [PhylogeneticTreeSupportValue(label: "SH-aLRT", rawValue: "85", value: 85)]
         )
         XCTAssertEqual(PhylogeneticTreeSupportPresentation.strength(for: shOnly, labels: ["SH-aLRT"]), .strong)
-        XCTAssertEqual(PhylogeneticTreeSupportPresentation.legendText(labels: ["SH-aLRT"]), "SH-aLRT 80 or higher strong")
+        XCTAssertEqual(PhylogeneticTreeSupportPresentation.legendText(labels: ["SH-aLRT"]), "Color shows SH-aLRT (80 or higher strong).")
     }
 
     func testLegendNamesTheColouredLabelFirst() {
         XCTAssertEqual(
             PhylogeneticTreeSupportPresentation.legendText(labels: iqTreeLabels),
-            "UFBoot 95 or higher strong, SH-aLRT 80 or higher"
+            "Color shows UFBoot (95 or higher strong). SH-aLRT 80 or higher also indicates strong support."
         )
         XCTAssertNil(PhylogeneticTreeSupportPresentation.legendText(labels: []))
+        XCTAssertEqual(
+            PhylogeneticTreeSupportPresentation.legendText(labels: ["UFBoot"]),
+            "Color shows UFBoot (95 or higher strong)."
+        )
+    }
+
+    func testCanvasDrawsTheStandardFocusRing() {
+        let canvas = PhylogeneticTreeCanvasView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        XCTAssertTrue(canvas.acceptsFirstResponder)
+        XCTAssertEqual(canvas.focusRingMaskBounds, canvas.bounds)
     }
 
     func testRootingText() {
@@ -108,7 +118,7 @@ final class PhylogeneticTreeSupportPresentationTests: XCTestCase {
         XCTAssertTrue(controller.testingSupportLegendIsHidden)
         controller.testingSetTreeColorMode(.support)
         XCTAssertFalse(controller.testingSupportLegendIsHidden)
-        XCTAssertEqual(controller.testingSupportLegendText, "UFBoot 95 or higher strong, SH-aLRT 80 or higher")
+        XCTAssertEqual(controller.testingSupportLegendText, "Color shows UFBoot (95 or higher strong). SH-aLRT 80 or higher also indicates strong support.")
         controller.testingSetTreeColorMode(.branchLength)
         XCTAssertTrue(controller.testingSupportLegendIsHidden)
     }

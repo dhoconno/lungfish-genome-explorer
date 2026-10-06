@@ -105,21 +105,22 @@ public enum PhylogeneticTreeSupportPresentation {
         return value >= threshold.value ? .strong : .weak
     }
 
-    /// "UFBoot 95 or higher strong, SH-aLRT 80 or higher". Nil when no labels are recorded.
+    /// "Color shows UFBoot (95 or higher strong). SH-aLRT 80 or higher also indicates strong
+    /// support." Only labels present in the tree are named. Nil when no labels are recorded.
     public static func legendText(labels: [String]) -> String? {
         guard let colorLabel = colorLabel(labels: labels) else { return nil }
-        var parts: [String] = []
+        var sentences: [String] = []
         if let threshold = strongThreshold(for: colorLabel) {
-            parts.append("\(colorLabel) \(threshold.text) or higher strong")
+            sentences.append("Color shows \(colorLabel) (\(threshold.text) or higher strong).")
         } else {
-            parts.append("Color shows \(colorLabel)")
+            sentences.append("Color shows \(colorLabel).")
         }
         for label in labels where label != colorLabel {
             if let threshold = strongThreshold(for: label) {
-                parts.append("\(label) \(threshold.text) or higher")
+                sentences.append("\(label) \(threshold.text) or higher also indicates strong support.")
             }
         }
-        return parts.joined(separator: ", ")
+        return sentences.joined(separator: " ")
     }
 
     static func strengthColor(_ strength: Strength) -> NSColor {

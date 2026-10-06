@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishKit
 
 extension MultipleSequenceAlignmentViewController {
     /// K5: the accessibility twin of the context-menu "Build Tree with IQ-TREE…" item, present
@@ -10,9 +11,8 @@ extension MultipleSequenceAlignmentViewController {
     func treeAccessibilityActions() -> [NSAccessibilityCustomAction] {
         guard bundleURL != nil else { return [] }
         return [
-            NSAccessibilityCustomAction(name: "Build Tree with IQ-TREE…") { [weak self] in
-                MainActor.assumeIsolated { self?.inferTreeFromAlignment() }
-                return true
+            AccessibilityCellActions.makeAction(name: "Build Tree with IQ-TREE…") { [weak self] in
+                self?.inferTreeFromAlignment()
             }
         ]
     }

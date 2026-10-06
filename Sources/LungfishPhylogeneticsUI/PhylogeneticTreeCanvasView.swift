@@ -238,6 +238,13 @@ final class PhylogeneticTreeCanvasView: NSView {
     /// menu-bar items validate against it.
     override var acceptsFirstResponder: Bool { true }
 
+    /// The standard focus ring, so keyboard users see where focus is.
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    override func drawFocusRingMask() {
+        bounds.fill()
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
