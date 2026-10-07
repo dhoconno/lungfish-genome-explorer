@@ -58,6 +58,11 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
     /// Multi-step provenance (nil for single-step demux runs).
     public let multiStepProvenance: MultiStepProvenance?
 
+    /// How the mates of a paired input were called, when the input held
+    /// mates. Nil for a run of single reads and for manifests written before
+    /// demultiplexing placed both mates of a fragment together (A9, D6).
+    public let mateCalls: DemultiplexMateCalls?
+
     /// Total read count across all barcodes plus unassigned.
     public var totalOutputReadCount: Int {
         barcodes.reduce(0) { $0 + $1.readCount } + unassigned.readCount
@@ -89,7 +94,8 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
         unassigned: UnassignedReadsSummary,
         outputDirectoryRelativePath: String,
         inputReadCount: Int,
-        multiStepProvenance: MultiStepProvenance? = nil
+        multiStepProvenance: MultiStepProvenance? = nil,
+        mateCalls: DemultiplexMateCalls? = nil
     ) {
         self.version = version
         self.runID = runID
@@ -101,6 +107,7 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
         self.outputDirectoryRelativePath = outputDirectoryRelativePath
         self.inputReadCount = inputReadCount
         self.multiStepProvenance = multiStepProvenance
+        self.mateCalls = mateCalls
     }
 
     // MARK: - Persistence
@@ -195,6 +202,44 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
             return expectedURL == standardizedBundleURL
                 || result.bundleRelativePath == standardizedBundleURL.lastPathComponent
         }
+    }
+}
+
+// MARK: - Mate Calls
+
+/// How a demultiplex run of paired reads called the mates of each fragment.
+///
+/// Both mates of a fragment go to the barcode of the fragment's call. Mates
+/// that agree, or one called mate and one unassigned mate, give that barcode.
+/// Mates called different barcodes send the pair to unassigned whole.
+public struct DemultiplexMateCalls: Codable, Sendable, Equatable {
+    /// Fragments with two mates.
+    public let pairs: Int
+    /// Pairs whose mates were called the same barcode.
+    public let bothMatesAgree: Int
+    /// Pairs with one mate called and the other unassigned, placed by the called mate.
+    public let oneMateCalled: Int
+    /// Pairs whose mates were called different barcodes, placed in unassigned.
+    public let matesDisagree: Int
+    /// Pairs with neither mate called.
+    public let neitherMateCalled: Int
+    /// Records without a mate beside them (merged or orphan reads), each called on its own.
+    public let singleReads: Int
+
+    public init(
+        pairs: Int,
+        bothMatesAgree: Int,
+        oneMateCalled: Int,
+        matesDisagree: Int,
+        neitherMateCalled: Int,
+        singleReads: Int
+    ) {
+        self.pairs = pairs
+        self.bothMatesAgree = bothMatesAgree
+        self.oneMateCalled = oneMateCalled
+        self.matesDisagree = matesDisagree
+        self.neitherMateCalled = neitherMateCalled
+        self.singleReads = singleReads
     }
 }
 

@@ -179,6 +179,11 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             carry the same barcode. --location and --max-distance-* do not apply
             to those kits.
 
+            Interleaved pairs are demultiplexed by fragment. Both mates go to the
+            barcode their calls agree on, or to the barcode of the one mate that
+            carries one, and a pair whose mates carry different barcodes goes to
+            unassigned whole. Merged and single reads keep their own call.
+
             Engines:
               cutadapt    Established fuzzy adapter matcher; supports error rate and indels.
               exact-bare  Swift-native exact matching for bare A/C/G/T barcodes; scans whole reads,
@@ -275,6 +280,18 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         return true
     }
 
+    /// Refuses a `--replace` run that would delete a file it reads, such as the
+    /// input, its bundle, the bundles its reads come from, or a custom kit
+    /// inside the output folder. The folder used to be deleted with them.
+    static func refuseReadFiles(inside outputURL: URL, _ readFiles: [URL]) throws {
+        for file in readFiles where CanonicalFilePath.isPath(file, within: outputURL) {
+            throw CLIError.outputWriteFailed(
+                path: outputURL.path,
+                reason: "--replace would delete \(file.path), which this run reads. Choose an --output folder that does not hold it."
+            )
+        }
+    }
+
     func run() async throws {
         guard errorRate >= 0 && errorRate <= 1 else {
             throw ValidationError("Error rate must be between 0 and 1 (got \(errorRate))")
@@ -352,6 +369,47 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
                 """.utf8))
         }
 
+        func configuration(input: URL) -> DemultiplexConfig {
+            DemultiplexConfig(
+                inputURL: input,
+                sourceBundleURL: fastaInput ? nil : sourceBundleURL,
+                barcodeKit: barcodeKit,
+                outputDirectory: outputURL,
+                barcodeLocation: barcodeLocation,
+                errorRate: errorRate,
+                minimumOverlap: overlap,
+                maxDistanceFrom5Prime: maxDistanceFrom5Prime,
+                maxDistanceFrom3Prime: maxDistanceFrom3Prime,
+                trimBarcodes: effectiveTrimBarcodes,
+                unassignedDisposition: discardUnassigned ? .discard : .keep,
+                threads: threads,
+                engine: demultiplexEngine,
+                // FASTA execution uses a synthetic FASTQ solely inside the tool boundary.
+                // Publish complete FASTA bundles instead of virtual synthetic-quality previews.
+                rootBundleURL: fastaInput ? nil : rootBundleURL,
+                rootFASTQFilename: fastaInput ? nil : rootFASTQFilename,
+                inputPairingMode: inputPairingMode,
+                inputSequenceFormat: inputSequenceFormat
+            )
+        }
+
+        // Every refusal comes before --replace deletes anything, first a file the
+        // run reads inside the output folder, then the pipeline's own (L5 item 0).
+        let pipeline = DemultiplexingPipeline()
+        if replacesEarlierOutput {
+            let sourceParent = sourceBundleURL.flatMap { bundle in
+                sourceManifest.map { FASTQBundle.resolveBundle(relativePath: $0.parentBundleRelativePath, from: bundle) }
+            }
+            let sourceRoot = sourceBundleURL.flatMap { bundle in
+                sourceManifest.map { FASTQBundle.resolveBundle(relativePath: $0.rootBundleRelativePath, from: bundle) }
+            }
+            try Self.refuseReadFiles(
+                inside: outputURL,
+                [resolvedInput.originalURL, resolvedInput.executionURL, resolvedInput.bundleURL,
+                 rootBundleURL, sourceParent, sourceRoot, customKitURL].compactMap { $0 }
+            )
+        }
+        try await pipeline.preflight(config: configuration(input: inputURL))
         if replacesEarlierOutput {
             try FileManager.default.removeItem(at: outputURL)
         }
@@ -359,29 +417,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             ? try await FastqDemultiplexSequenceFormat.prepareFASTA(inputURL: inputURL, outputDirectory: outputURL)
             : nil
 
-        let config = DemultiplexConfig(
-            inputURL: preparedFASTA?.url ?? inputURL,
-            sourceBundleURL: fastaInput ? nil : sourceBundleURL,
-            barcodeKit: barcodeKit,
-            outputDirectory: outputURL,
-            barcodeLocation: barcodeLocation,
-            errorRate: errorRate,
-            minimumOverlap: overlap,
-            maxDistanceFrom5Prime: maxDistanceFrom5Prime,
-            maxDistanceFrom3Prime: maxDistanceFrom3Prime,
-            trimBarcodes: effectiveTrimBarcodes,
-            unassignedDisposition: discardUnassigned ? .discard : .keep,
-            threads: threads,
-            engine: demultiplexEngine,
-            // FASTA execution uses a synthetic FASTQ solely inside the tool boundary.
-            // Publish complete FASTA bundles instead of virtual synthetic-quality previews.
-            rootBundleURL: fastaInput ? nil : rootBundleURL,
-            rootFASTQFilename: fastaInput ? nil : rootFASTQFilename,
-            inputPairingMode: inputPairingMode,
-            inputSequenceFormat: inputSequenceFormat
-        )
-
-        let pipeline = DemultiplexingPipeline()
+        let config = configuration(input: preparedFASTA?.url ?? inputURL)
         let startedAt = Date()
         let result = try await pipeline.run(config: config) { fraction, message in
             FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
@@ -486,6 +522,18 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             provenanceDefaults["threads"] = .integer(4)
         }
 
+        // How the mates of a paired input were placed (A9, D6).
+        if let mateCalls = result.manifest.mateCalls {
+            provenanceParameters["mateCalls"] = .dictionary([
+                "pairs": .integer(mateCalls.pairs),
+                "bothMatesAgree": .integer(mateCalls.bothMatesAgree),
+                "oneMateCalled": .integer(mateCalls.oneMateCalled),
+                "matesDisagree": .integer(mateCalls.matesDisagree),
+                "neitherMateCalled": .integer(mateCalls.neitherMateCalled),
+                "singleReads": .integer(mateCalls.singleReads),
+            ])
+        }
+
         let demultiplexEnvelope = try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish fastq demultiplex",
             parameters: provenanceParameters,
@@ -529,6 +577,13 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         FileHandle.standardError.write(Data("Input reads: \(result.manifest.inputReadCount)\n".utf8))
         FileHandle.standardError.write(Data("Assigned: \(result.manifest.assignedReadCount) (\(String(format: "%.1f%%", result.manifest.assignmentRate * 100)))\n".utf8))
         FileHandle.standardError.write(Data("Unassigned: \(result.manifest.unassigned.readCount)\n".utf8))
+        if let mateCalls = result.manifest.mateCalls {
+            FileHandle.standardError.write(Data((
+                "Mate pairs: \(mateCalls.pairs) (\(mateCalls.bothMatesAgree) with both mates called alike, "
+                + "\(mateCalls.oneMateCalled) placed by their one called mate, "
+                + "\(mateCalls.matesDisagree) sent to unassigned because their mates disagree)\n"
+            ).utf8))
+        }
         FileHandle.standardError.write(Data("Barcodes with reads: \(result.manifest.barcodes.filter { $0.readCount > 0 }.count)\n".utf8))
         FileHandle.standardError.write(Data("Output: \(output)\n".utf8))
         FileHandle.standardError.write(Data("Time: \(String(format: "%.1f", result.wallClockSeconds))s\n".utf8))

@@ -183,10 +183,132 @@ final class FastqPrimerRemovalReadCorrectnessTests: XCTestCase {
         for pair in kept {
             expected.append(pair.mate1.hasPrefix(primer) ? String(pair.mate1.dropFirst(primer.count)) : pair.mate1)
             // Mate 2 of a read-through pair ends in the primer's reverse
-            // complement. It is not left-trimmed at that match.
-            expected.append(pair.mate2)
+            // complement. It is not left-trimmed at that match, and the
+            // second pass trims it where mate 1's primer-trimmed start lies.
+            expected.append(pair.name.hasPrefix("short") ? String(pair.mate2.dropLast(primer.count)) : pair.mate2)
         }
         XCTAssertEqual(records.map(\.sequence), expected)
+    }
+
+    // MARK: - bbduk, the read-through primer at the 3' end (L5 item 3)
+
+    /// The fixture's single reads plus full-length amplicon reads in both orientations.
+    private func singleReadsWithFullLengthReads() -> [(name: String, sequence: String)] {
+        amplicons.pairs.map { ($0.name, $0.mate1) }
+            + amplicons.pairs.filter { $0.name.hasPrefix("short") }.map { ("\($0.name)_mate2", $0.mate2) }
+            + [
+                ("full5_forward", amplicons.amplicon5),
+                ("full5_reverse", Amplicons.reverseComplement(amplicons.amplicon5)),
+            ]
+    }
+
+    func testLiteralPrimerIsTrimmedFromTheThreePrimeEndOfASingleReadThatRunsThroughIt() async throws {
+        try await requireNativeTool(.bbduk)
+        let inputURL = root.appendingPathComponent("single-read-through.fastq")
+        let inputs = singleReadsWithFullLengthReads()
+        try inputs.map { record($0.name, $0.sequence) }.joined().write(to: inputURL, atomically: true, encoding: .utf8)
+        let outputURL = root.appendingPathComponent("single-read-through.trimmed.fastq")
+        try await runPrimerRemove(literalArguments(inputURL, outputURL))
+
+        let output = Dictionary(uniqueKeysWithValues: try await reads(outputURL).map { ($0.name, $0.sequence.count) })
+        let primer = amplicons.left5.count
+        // Forward reads keep their length but the 5' primer.
+        XCTAssertEqual(output["long5_0"], 150 - primer)
+        XCTAssertEqual(output["long6_0"], 150)
+        XCTAssertEqual(output["full5_forward"], amplicons.amplicon5.count - primer)
+        // A read that runs through the primer's binding site loses its
+        // reverse complement at the 3' end.
+        XCTAssertEqual(output["short_0_mate2"], 110 - primer)
+        XCTAssertEqual(output["full5_reverse"], amplicons.amplicon5.count - primer)
+    }
+
+    private func writeTiledReference() throws -> URL {
+        let url = root.appendingPathComponent("tiled.fasta")
+        try ">amp5-F\n\(amplicons.left5)\n>amp5-R\n\(amplicons.right5)\n>amp6-F\n\(amplicons.left6)\n>amp6-R\n\(amplicons.right6)\n"
+            .write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    /// A tiled scheme's reads of one amplicon carry the other amplicon's
+    /// primer sites, which the second pass must not trim at.
+    func testATiledSchemeTrimsReadThroughPrimersOfPairsAndKeepsEveryOtherBase() async throws {
+        try await requireNativeTool(.bbduk)
+        let inputURL = root.appendingPathComponent("tiled-interleaved.fastq")
+        try writeInterleaved(amplicons.pairs, to: inputURL)
+        let outputURL = root.appendingPathComponent("tiled-interleaved.trimmed.fastq")
+        try await runPrimerRemove([
+            inputURL.path, "--ref", try writeTiledReference().path, "--kmer", "15", "--mink", "11", "--hdist", "1",
+            "-o", outputURL.path,
+        ])
+
+        let records = try await InterleavedFASTQFixture.readRecords(at: outputURL)
+        InterleavedFASTQFixture.assertWholePairs(records)
+        var lengths: [String: [Int]] = [:]
+        for record in records {
+            lengths[InterleavedFASTQFixture.fragmentKey(record), default: []].append(record.sequence.count)
+        }
+        XCTAssertEqual(lengths["long5_0"], [150 - amplicons.left5.count, 150 - amplicons.right5.count])
+        XCTAssertEqual(lengths["long6_0"], [150 - amplicons.left6.count, 150 - amplicons.right6.count], "an internal site of amplicon 5 is kept")
+        XCTAssertEqual(lengths["short_0"], [60, 60], "both read-through primers go")
+        XCTAssertNil(lengths["dimer_0"])
+    }
+
+    func testATiledSchemeTrimsBothPrimersOfAMergedRead() async throws {
+        try await requireNativeTool(.bbduk)
+        let merged = (0..<3).map { ("merged_\($0)", amplicons.shortInsert($0)) }
+        let inputURL = root.appendingPathComponent("tiled-mixed.fastq")
+        try (merged.map { record($0.0, $0.1) }.joined()
+            + amplicons.pairs.map { record("\($0.name) 1:N:0:1", $0.mate1) + record("\($0.name) 2:N:0:1", $0.mate2) }.joined())
+            .write(to: inputURL, atomically: true, encoding: .utf8)
+        let outputURL = root.appendingPathComponent("tiled-mixed.trimmed.fastq")
+        try await runPrimerRemove([
+            inputURL.path, "--ref", try writeTiledReference().path, "--kmer", "15", "--mink", "11", "--hdist", "1",
+            "-o", outputURL.path,
+        ])
+
+        let records = try await InterleavedFASTQFixture.readRecords(at: outputURL)
+        XCTAssertEqual(
+            records.suffix(3).map(\.sequence),
+            merged.map { String($0.1.dropFirst(amplicons.left5.count).dropLast(amplicons.right5.count)) },
+            "a merged read loses its left primer and its right primer's reverse complement"
+        )
+    }
+
+    func testTheTwoPassesAreRecordedAsTwoSteps() async throws {
+        try await requireNativeTool(.bbduk)
+        let inputURL = root.appendingPathComponent("provenance.fastq")
+        try writeInterleaved(amplicons.pairs, to: inputURL)
+        let outputURL = root.appendingPathComponent("provenance.trimmed.fastq")
+        try await runPrimerRemove(literalArguments(inputURL, outputURL))
+
+        // The run's envelope beside the output holds every step. The output's
+        // own sidecar keeps only the steps that wrote the output.
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputURL.deletingLastPathComponent()))
+        let bbdukSteps = envelope.steps.filter { $0.toolName == NativeTool.bbduk.rawValue }
+        guard bbdukSteps.count == 2 else {
+            XCTFail("the 5' pass and the 3' pass are two steps, found \(bbdukSteps.map(\.argv))")
+            return
+        }
+        XCTAssertTrue(bbdukSteps[0].argv.contains("ktrim=l"))
+        XCTAssertTrue(bbdukSteps[1].argv.contains("tbo=t"), "pairs are trimmed where their mates overlap")
+        XCTAssertEqual(bbdukSteps[1].dependsOn, [bbdukSteps[0].id])
+        XCTAssertEqual(bbdukSteps[1].outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }, [outputURL.lastPathComponent])
+    }
+
+    // MARK: - bbduk, a k-mer longer than a primer
+
+    func testAKmerLongerThanTheShortestPrimerIsRefusedBeforeBBDukRuns() async throws {
+        let inputURL = root.appendingPathComponent("kmer.fastq")
+        try writeInterleaved(Array(amplicons.pairs.prefix(2)), to: inputURL)
+        let outputURL = root.appendingPathComponent("kmer.trimmed.fastq")
+        do {
+            try await runPrimerRemove([inputURL.path, "--literal", amplicons.left5, "--kmer", "23", "-o", outputURL.path])
+            XCTFail("a 23-mer cannot be taken from a 22-base primer")
+        } catch let error as ValidationError {
+            XCTAssertTrue(error.message.contains("22"), error.message)
+            XCTAssertFalse(error.message.contains("\n"), error.message)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
     }
 
     func testPrimerInsideAFullLengthReadIsNotTrimmedWithEverythingBeforeIt() async throws {
@@ -210,9 +332,12 @@ final class FastqPrimerRemovalReadCorrectnessTests: XCTestCase {
         try await runPrimerRemove([inputURL.path, "--ref", primersURL.path, "--kmer", "15", "--mink", "11", "--hdist", "1", "-o", outputURL.path])
 
         let output = try await reads(outputURL)
-        let insert = String(amplicon.dropFirst(amplicons.left5.count))
+        let insert = String(amplicon.dropFirst(amplicons.left5.count).dropLast(amplicons.right5.count))
         XCTAssertEqual(output.map(\.name), ["illumina_full", "ont_full"])
-        XCTAssertEqual(output.map(\.sequence), [insert, insert], "only the left primer of amplicon 5 and the bases before it go")
+        XCTAssertEqual(
+            output.map(\.sequence), [insert, insert],
+            "only the left primer of amplicon 5 with the bases before it, and the right primer's reverse complement at the 3' end, go"
+        )
     }
 
     func testLiteralPrimerOnAMixedFileTrimsPairsAsPairsAndMergedReadsAlone() async throws {

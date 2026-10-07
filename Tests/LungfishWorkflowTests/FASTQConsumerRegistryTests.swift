@@ -25,7 +25,7 @@ final class FASTQConsumerRegistryTests: XCTestCase {
         "fastq.search-text", "fastq.search-motif", "fastq.repair",
         "fastq.trim", "fastq.quality-trim", "fastq.adapter-trim", "fastq.fixed-trim",
         "fastq.length-filter", "fastq.primer-remove", "fastq.error-correct", "fastq.ribodetector",
-        "fastq.merge", "fastq.deinterleave", "fastq.interleave",
+        "fastq.merge", "fastq.deinterleave", "fastq.interleave", "fastq.demultiplex",
         // Ingestion and recipes.
         "ingest.clumpify",
         "recipe.convert-interleaved-to-paired",

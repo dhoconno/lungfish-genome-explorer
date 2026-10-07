@@ -595,31 +595,35 @@ public final class FASTQCLIMaterializer: Sendable {
     ) async throws {
         let content = try String(contentsOf: trimPositionsURL, encoding: .utf8)
 
-        // Build trim map keyed by canonical (bare) read ID.
+        // Build trim map keyed by canonical (bare) read ID, then mate.
         // Supports 4-column (read_id, mate, trim_5p, trim_3p) and
-        // 3-column legacy (read_id, trim_5p, trim_3p) layouts.
-        var trimMap: [String: (trim5p: Int, trim3p: Int)] = [:]
+        // 3-column legacy (read_id, trim_5p, trim_3p) layouts. Each mate of a
+        // pair takes its own trim, else the read's mate-0 trim. Keyed by the
+        // bare ID alone, read 2 took read 1's barcode trim (A9, D6).
+        var trimMap: [String: [Int: (trim5p: Int, trim3p: Int)]] = [:]
         for line in content.split(separator: "\n") {
             if line.hasPrefix("#") || line.hasPrefix("read_id") { continue }
             let cols = line.split(separator: "\t")
             let readID: String
+            let mate: Int
             let t5: Int
             let t3: Int
-            if cols.count >= 4, let mate = Int(cols[1]),
+            if cols.count >= 4, let mateColumn = Int(cols[1]),
                let a = Int(cols[2]), let b = Int(cols[3]) {
                 readID = canonicalLegacyReadID(String(cols[0]))
-                _ = mate  // mate column present but we key by bare ID for single-end
+                mate = mateColumn
                 t5 = a
                 t3 = b
             } else if cols.count >= 3,
                       let a = Int(cols[1]), let b = Int(cols[2]) {
                 readID = canonicalLegacyReadID(String(cols[0]))
+                mate = 0
                 t5 = a
                 t3 = b
             } else {
                 continue
             }
-            trimMap[readID] = (t5, t3)
+            trimMap[readID, default: [:]][mate] = (t5, t3)
         }
 
         let reader = FASTQReader(validateSequence: false)
@@ -629,7 +633,8 @@ public final class FASTQCLIMaterializer: Sendable {
 
         for try await record in reader.records(from: sourceFASTQ) {
             let bareID = normalizedIdentifier(record.identifier)
-            if let trim = trimMap[bareID] {
+            let mateTrims = trimMap[bareID]
+            if let trim = mateTrims?[legacyTrimMate(of: record)] ?? mateTrims?[0] {
                 let seq = record.sequence
                 let startIdx = min(trim.trim5p, seq.count)
                 let endIdx = max(startIdx, seq.count - trim.trim3p)
@@ -639,6 +644,19 @@ public final class FASTQCLIMaterializer: Sendable {
                 try writer.write(record)
             }
         }
+    }
+
+    /// The mate a demultiplex trim table names a record by: 1 or 2 from a
+    /// `/1` `/2` suffix or a Casava `1:` `2:` comment, else 0, the rule
+    /// `DemultiplexingPipeline.detectMate` wrote the table by.
+    private func legacyTrimMate(of record: FASTQRecord) -> Int {
+        if record.identifier.hasSuffix("/1") { return 1 }
+        if record.identifier.hasSuffix("/2") { return 2 }
+        if let description = record.description {
+            if description.hasPrefix("1:") { return 1 }
+            if description.hasPrefix("2:") { return 2 }
+        }
+        return 0
     }
 
     /// Strips the ` rc` suffix added by cutadapt demux convention and normalizes

@@ -277,8 +277,9 @@ final class DemultiplexVirtualRootGroupedRebuildTests: XCTestCase {
             trimEntries: [trim("q1", mate: 2, 0, 3), trim("q1", mate: 1, 2, 0)],
             orientMap: ["q1": "-"],
             expectedReadCount: 3,
-            // A preview keeps one record per read ID, the last mate seen.
-            expectedPreview: ["q1/2", "i1"]
+            // A pair's read ID listed once previews its first mate. It kept
+            // one record per read ID, the last mate seen, before A9.
+            expectedPreview: ["q1/1", "i1"]
         ),
         BarcodeBundle(
             name: "BC10",

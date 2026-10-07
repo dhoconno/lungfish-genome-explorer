@@ -447,16 +447,25 @@ final class DemultiplexingPipelineTests: XCTestCase {
                 ),
                 progress: { _, _ in }
             )
-            XCTFail("Demux should fail when a required derived manifest cannot be saved.")
+            XCTFail("Demux should fail when a bundle cannot be published with its derived manifest.")
         } catch let error as DemultiplexError {
             guard case .bundleCreationFailed(let barcode, _) = error else {
                 XCTFail("Expected bundleCreationFailed, got \(error)")
                 return
             }
             XCTAssertEqual(barcode, "sample1")
-            XCTAssertFalse(
-                FileManager.default.fileExists(atPath: blockedBundleURL.path),
-                "A demux bundle without its required derived manifest must be removed."
+            // The run writes into a staging folder and publishes only when every
+            // bundle is finished, so the folder that holds the bundle's name is
+            // left as it was and no bundle of the run lands without its manifest.
+            XCTAssertEqual(
+                try FileManager.default.contentsOfDirectory(atPath: blockedBundleURL.path),
+                [FASTQBundle.derivedManifestFilename],
+                "the folder already in the output keeps only what it held"
+            )
+            XCTAssertEqual(
+                try FileManager.default.contentsOfDirectory(atPath: outputDir.path),
+                ["sample1.\(FASTQBundle.directoryExtension)"],
+                "nothing of the failed run is left in the output, not even its staging folder"
             )
         } catch {
             XCTFail("Expected DemultiplexError.bundleCreationFailed, got \(error)")

@@ -56,11 +56,15 @@ private final class RootReadCounter: Sendable {
     }
 }
 
-// MARK: - The per-barcode reference, as it stood at 336e77cd1
+// MARK: - The per-barcode reference, as it stood at 336e77cd1, with mates kept apart
 
 extension DemultiplexingPipeline {
-    /// `writeVirtualPreviewFASTQ` at 336e77cd1. It reads root files through
-    /// `rootRecordSource`, whose default is the `FASTQReader` it used.
+    /// `writeVirtualPreviewFASTQ` at 336e77cd1, with the mates of a pair kept
+    /// apart (A9, D6). It reads root files through `rootRecordSource`, whose
+    /// default is the `FASTQReader` it used. It kept one record per read ID,
+    /// the last mate seen of a pair. Now a read ID listed twice previews both
+    /// mates in order, and one listed once its first mate. A single read
+    /// listed twice is written twice, as before.
     func perBarcodeReferencePreview(
         fromRootFASTQs rootFASTQs: [URL],
         orderedReadIDs: [String],
@@ -75,14 +79,21 @@ extension DemultiplexingPipeline {
             trimMap["\(entry.readID)\t\(entry.mate)"] = entry
         }
 
-        let selectedReadIDs = Set(orderedReadIDs)
-        var transformedRecords: [String: FASTQRecord] = [:]
+        var listings: [String: Int] = [:]
+        for listedID in orderedReadIDs {
+            listings[Self.fragmentID(ofListedID: listedID), default: 0] += 1
+        }
+        func holds(_ mates: [Int: FASTQRecord]?, _ count: Int) -> Bool {
+            guard let mates else { return false }
+            return mates[0] != nil || mates.count >= min(count, 2)
+        }
+        var transformedRecords: [String: [Int: FASTQRecord]] = [:]
 
         rootFiles: for rootFASTQ in rootFASTQs {
             for try await record in rootRecordSource(rootFASTQ) {
                 let rawReadName = record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
                 let (readID, mate) = detectMate(rawReadName: rawReadName)
-                guard selectedReadIDs.contains(readID) else { continue }
+                guard listings[readID] != nil else { continue }
 
                 var outputRecord = record
                 if let trim = trimMap["\(readID)\t\(mate)"] ?? trimMap["\(readID)\t0"] {
@@ -92,9 +103,9 @@ extension DemultiplexingPipeline {
                 if orientMap[readID] == "-" {
                     outputRecord = outputRecord.reverseComplement()
                 }
-                transformedRecords[readID] = outputRecord
+                transformedRecords[readID, default: [:]][mate] = outputRecord
 
-                if transformedRecords.count == selectedReadIDs.count {
+                if listings.allSatisfy({ holds(transformedRecords[$0.key], $0.value) }) {
                     break rootFiles
                 }
             }
@@ -104,8 +115,22 @@ extension DemultiplexingPipeline {
         try writer.open()
         defer { try? writer.close() }
 
-        for readID in orderedReadIDs {
-            if let record = transformedRecords[readID] {
+        var matesWritten: [String: Int] = [:]
+        for listedID in orderedReadIDs {
+            let readID = Self.fragmentID(ofListedID: listedID)
+            guard let mates = transformedRecords[readID] else { continue }
+            let record: FASTQRecord?
+            if listedID != readID {
+                record = mates[listedID.hasSuffix("/1") ? 1 : 2]
+            } else if let single = mates[0] {
+                record = single
+            } else {
+                let ordered = mates.keys.sorted()
+                let next = matesWritten[readID, default: 0]
+                record = next < ordered.count ? mates[ordered[next]] : nil
+                matesWritten[readID] = next + 1
+            }
+            if let record {
                 try writer.write(record)
             }
         }

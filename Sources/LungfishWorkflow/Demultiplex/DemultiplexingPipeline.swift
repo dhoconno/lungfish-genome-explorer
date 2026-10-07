@@ -71,17 +71,27 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         config: DemultiplexConfig,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> DemultiplexResult {
+        // Every refusal comes before the run writes anything (L5 item 0).
+        try await preflight(config: config)
+        // The bundles are published only once every one is finished, and a
+        // failed run leaves none (L5 item 4).
+        let staging = try DemultiplexStagingArea(publishedDirectory: config.outputDirectory)
+        do {
+            let result = try await runEngine(config: staging.stagedConfig(config), progress: progress)
+            return try staging.publish(result)
+        } catch {
+            staging.discard()
+            throw error
+        }
+    }
+
+    /// Runs the engine `config` selects, writing into its staging folder.
+    private func runEngine(
+        config: DemultiplexConfig,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> DemultiplexResult {
         let startTime = Date()
-
-        guard !config.barcodeKit.barcodes.isEmpty else {
-            throw DemultiplexError.noBarcodes
-        }
-
-        // Resolve the input FASTQ
         let inputFASTQ = resolveInputFASTQ(config.inputURL)
-        guard FileManager.default.fileExists(atPath: inputFASTQ.path) else {
-            throw DemultiplexError.inputFileNotFound(inputFASTQ)
-        }
 
         let fm = FileManager.default
 
@@ -98,9 +108,6 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         }
 
         if config.engine == .exactBareBarcode {
-            guard supportsExactBareBarcodeDemux(config) else {
-                throw DemultiplexError.exactBareBarcodeUnsupported
-            }
             return try await runExactBareBarcodeDemux(
                 config: config,
                 inputFASTQ: inputFASTQ,
@@ -134,12 +141,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             workDirectory: workDir
         )
 
-        // Validate adapter FASTA is non-empty (catches upstream bugs before cutadapt fails cryptically)
-        let fastaContent = try String(contentsOf: adapterConfig.adapterFASTA, encoding: .utf8)
-        let sequences = fastaContent.split(separator: "\n").filter { !$0.hasPrefix(">") && !$0.isEmpty }
-        if sequences.isEmpty || sequences.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            throw DemultiplexError.emptyAdapterSequences(kitName: config.barcodeKit.displayName)
-        }
+        try requireAdapterSequences(in: adapterConfig.adapterFASTA, kitName: config.barcodeKit.displayName)
 
         // Step 2: Build cutadapt command (5% progress)
         progress(0.05, "Configuring cutadapt...")
@@ -148,7 +150,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         try fm.createDirectory(at: demuxOutputDir, withIntermediateDirectories: true)
 
         let usesPlainObservedTemporaryOutputs = usesObservedCustomBarcodePairs(config)
-        let temporaryFASTQExtension = usesPlainObservedTemporaryOutputs ? "fastq" : "fastq.gz"
+        // A file that holds mates is read again beside cutadapt's outputs to
+        // place both mates of each fragment, so its outputs stay plain (A9, D6).
+        let readLayout = try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ)
+        let placesMates = readLayout.isPaired
+        let temporaryFASTQExtension = usesPlainObservedTemporaryOutputs || placesMates ? "fastq" : "fastq.gz"
         let outputPattern = demuxOutputDir
             .appendingPathComponent("{name}.\(temporaryFASTQExtension)").path
         let unassignedPath = demuxOutputDir
@@ -214,7 +220,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             in: demuxOutputDir,
             temporaryFASTQExtension: temporaryFASTQExtension
         )
-        if usesPlainObservedTemporaryOutputs {
+        if usesPlainObservedTemporaryOutputs && !placesMates {
             try gzipPlainDemuxOutputs(in: demuxOutputDir)
         }
 
@@ -391,9 +397,24 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 }
 
                 // Replace the original per-barcode output with only both-end reads.
+                // Pass 2a trimmed their 5' construct whatever the setting, so a run
+                // that keeps barcodes takes them whole from pass 1 (L5 item 2).
+                var bothEndReads = bothEndFile
+                if !config.trimBarcodes, fileSize(bothEndFile) > 20 {
+                    let whole = barcodeDir.appendingPathComponent("both-end-whole.fastq.gz")
+                    if try await recoverReadsByID(
+                        from: outputFile,
+                        matching: bothEndFile,
+                        to: whole,
+                        workingDirectory: barcodeDir,
+                        idListFilename: "both-end-ids.txt"
+                    ) {
+                        bothEndReads = whole
+                    }
+                }
                 try fm.removeItem(at: outputFile)
-                if fm.fileExists(atPath: bothEndFile.path), fileSize(bothEndFile) > 20 {
-                    try fm.moveItem(at: bothEndFile, to: outputFile)
+                if fm.fileExists(atPath: bothEndReads.path), fileSize(bothEndReads) > 20 {
+                    try fm.moveItem(at: bothEndReads, to: outputFile)
                 }
             }
 
@@ -404,6 +425,20 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     toUnassignedAt: URL(fileURLWithPath: unassignedPath),
                     workingDirectory: pass2Dir
                 )
+            }
+        }
+
+        // Both mates of each fragment follow the fragment's call (A9, D6).
+        var mateCalls: DemultiplexMateCalls?
+        if placesMates {
+            progress(0.79, "Placing both mates of each fragment by the fragment's barcode...")
+            mateCalls = try DemultiplexMatePass(
+                inputFASTQ: inputFASTQ,
+                outputDirectory: demuxOutputDir,
+                unassignedName: "unassigned"
+            ).run().summary
+            if !isVirtualMode {
+                try gzipPlainDemuxOutputs(in: demuxOutputDir)
             }
         }
 
@@ -511,6 +546,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 let capturedLineageBundleURL = lineageBundleURL
                 let capturedInputFASTQ = inputFASTQ
                 let capturedTrimBarcodes = config.trimBarcodes
+                let capturedPlacesMates = placesMates
                 group.addTask { [self] in
                     try Task.checkCancellation()
 
@@ -544,6 +580,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
                     let readIDContent = try String(contentsOf: readIDsURL, encoding: .utf8)
                     let orderedReadIDs = readIDContent.split(separator: "\n").map(String.init)
+                    // A /1 or /2 mate is listed by its whole ID, while trims,
+                    // orientations and the root rebuild key a read by its
+                    // fragment (A9, D6).
+                    let fragmentIDs = orderedReadIDs.map(Self.fragmentID(ofListedID:))
 
                     let cutadaptOrientMap = try await self.readCutadaptOrientations(from: file.url)
                     let finalOrientMap = self.composeFinalOrientMap(
@@ -560,9 +600,17 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         parentTrimMap: capturedParentTrimMap,
                         parentOrientMap: capturedParentOrientMap
                     )
+                    if capturedPlacesMates {
+                        // A mate placed with its fragment in another bundle leaves its barcode trim here.
+                        let listedFragments = Set(fragmentIDs)
+                        allTrimEntries = allTrimEntries.filter { listedFragments.contains($0.readID) }
+                    }
                     var innerTrimKeys = Set(allTrimEntries.map { "\($0.readID)\t\($0.mate)" })
 
-                    if capturedTrimBarcodes, orderedReadIDs.count > allTrimEntries.count {
+                    // A mate placed by its fragment's call has no barcode trim
+                    // and needs none, so only a run that does not place mates
+                    // looks for trims cutadapt's info file missed.
+                    if capturedTrimBarcodes, !capturedPlacesMates, orderedReadIDs.count > allTrimEntries.count {
                         let derivedTrimEntries = try await self.deriveTrimEntriesByDiff(
                             originalFASTQ: capturedInputFASTQ,
                             trimmedFASTQ: file.url,
@@ -584,7 +632,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     // Add parent-only trims for reads in this barcode's output
                     // that weren't trimmed by the inner step's cutadapt
                     if !capturedParentTrimMap.isEmpty {
-                        for readID in orderedReadIDs {
+                        for readID in fragmentIDs {
                             // Try mate=0 (single-end) first, then mate 1 and 2 for PE
                             for mate in [0, 1, 2] {
                                 let key = "\(readID)\t\(mate)"
@@ -601,6 +649,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                             }
                         }
                     }
+                    // cutadapt's info file lists every barcode match whatever
+                    // --action was, so a run that keeps barcodes trims its reads
+                    // only as its input was trimmed. The matches still annotate
+                    // the barcodes (L5 item 2).
+                    let bundleTrimEntries = capturedTrimBarcodes
+                        ? allTrimEntries
+                        : self.parentTrimEntries(for: fragmentIDs, parentTrimMap: capturedParentTrimMap)
 
                     if capturedIsVirtual {
                         // Virtual mode: create a small preview alongside the read ID list,
@@ -619,7 +674,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                             }
                         }
 
-                        try self.writeTrimPositions(allTrimEntries, to: bundleURL)
+                        try self.writeTrimPositions(bundleTrimEntries, to: bundleURL)
                         try self.writeOrientMap(finalOrientMap: finalOrientMap, orderedReadIDs: orderedReadIDs, to: bundleURL)
 
                         // Generate read-level annotations for barcode matches
@@ -655,7 +710,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                                 let url = capturedLineageBundleURL.appendingPathComponent(ReadAnnotationFile.filename)
                                 return FileManager.default.fileExists(atPath: url.path) ? url : nil
                             }()
-                            let readIDsForBarcode: Set<String> = Set(orderedReadIDs)
+                            let readIDsForBarcode: Set<String> = Set(orderedReadIDs).union(fragmentIDs)
                             let merged = try ReadAnnotationFile.mergeAndFilter(
                                 parentURL: parentAnnotURL,
                                 newAnnotations: annotations,
@@ -672,7 +727,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         let destURL = bundleURL.appendingPathComponent(destFilename)
                         try FileManager.default.moveItem(at: file.url, to: destURL)
 
-                        try self.writeTrimPositions(allTrimEntries, to: bundleURL)
+                        try self.writeTrimPositions(bundleTrimEntries, to: bundleURL)
                         try self.writeOrientMap(finalOrientMap: finalOrientMap, orderedReadIDs: orderedReadIDs, to: bundleURL)
                     }
 
@@ -689,7 +744,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                             VirtualBarcodeRebuild(
                                 orderedReadIDs: orderedReadIDs,
                                 previewReadIDs: Array(orderedReadIDs.prefix(1000)),
-                                trimEntries: allTrimEntries,
+                                trimEntries: bundleTrimEntries,
                                 orientMap: finalOrientMap,
                                 previewURL: bundleURL.appendingPathComponent("preview.fastq"),
                                 statisticsURL: workDir.appendingPathComponent("stats-\(file.baseName)-\(UUID().uuidString).fastq")
@@ -762,12 +817,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             // Write derived manifest if root bundle info is available
             if let rootBundleURL = config.rootBundleURL,
                let rootFASTQFilename = config.rootFASTQFilename {
-                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: result.bundleURL)
-                    ?? relativePath(from: result.bundleURL, to: rootBundleURL)
+                let anchorURL = manifestAnchorURL(for: result.bundleURL, config: config)
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: anchorURL)
+                    ?? relativePath(from: anchorURL, to: rootBundleURL)
                 let parentBundleURL = config.sourceBundleURL
                 let parentRelativePath = parentBundleURL.flatMap {
-                    FASTQBundle.projectRelativePath(for: $0, from: result.bundleURL)
-                        ?? relativePath(from: result.bundleURL, to: $0)
+                    FASTQBundle.projectRelativePath(for: $0, from: anchorURL)
+                        ?? relativePath(from: anchorURL, to: $0)
                 } ?? rootRelativePath
                 let demuxOp = FASTQDerivativeOperation(
                     kind: .demultiplex,
@@ -852,7 +908,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 bundleRelativePath: unassignedBundleURL?.lastPathComponent
             ),
             outputDirectoryRelativePath: ".",
-            inputReadCount: assignedReadCount + unassignedReadCount
+            inputReadCount: assignedReadCount + unassignedReadCount,
+            mateCalls: mateCalls
         )
 
         // Save manifest to output directory
@@ -966,12 +1023,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             // Write derived manifest if root bundle info is available
             if let rootBundleURL = config.rootBundleURL,
                let rootFASTQFilename = config.rootFASTQFilename {
-                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
-                    ?? relativePath(from: bundleURL, to: rootBundleURL)
+                let anchorURL = manifestAnchorURL(for: bundleURL, config: config)
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: anchorURL)
+                    ?? relativePath(from: anchorURL, to: rootBundleURL)
                 let parentBundleURL = config.sourceBundleURL
                 let parentRelativePath = parentBundleURL.flatMap {
-                    FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
-                        ?? relativePath(from: bundleURL, to: $0)
+                    FASTQBundle.projectRelativePath(for: $0, from: anchorURL)
+                        ?? relativePath(from: anchorURL, to: $0)
                 } ?? rootRelativePath
                 let demuxOp = FASTQDerivativeOperation(
                     kind: .demultiplex,
@@ -1051,11 +1109,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
             if let rootBundleURL = config.rootBundleURL,
                let rootFASTQFilename = config.rootFASTQFilename {
-                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
-                    ?? relativePath(from: bundleURL, to: rootBundleURL)
+                let anchorURL = manifestAnchorURL(for: bundleURL, config: config)
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: anchorURL)
+                    ?? relativePath(from: anchorURL, to: rootBundleURL)
                 let parentRelativePath = config.sourceBundleURL.flatMap {
-                    FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
-                        ?? relativePath(from: bundleURL, to: $0)
+                    FASTQBundle.projectRelativePath(for: $0, from: anchorURL)
+                        ?? relativePath(from: anchorURL, to: $0)
                 } ?? rootRelativePath
                 let demuxOp = FASTQDerivativeOperation(
                     kind: .demultiplex,
@@ -1162,7 +1221,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         return url
     }
 
-    private func inferredPairingMode(from url: URL) -> IngestionMetadata.PairingMode? {
+    func inferredPairingMode(from url: URL) -> IngestionMetadata.PairingMode? {
         if FASTQBundle.isBundleURL(url) {
             if let manifest = FASTQBundle.loadDerivedManifest(in: url), let pairingMode = manifest.pairingMode {
                 return pairingMode
@@ -1175,831 +1234,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         return FASTQMetadataStore.load(for: url)?.ingestion?.pairingMode
     }
 
-    private struct AdapterConfiguration {
+    struct AdapterConfiguration {
         let adapterFASTA: URL
         let adapterFlag: String
     }
-
-    private struct ExactBareBarcodeMatch: Sendable {
-        let barcodeIndex: Int
-        let start: Int
-        let length: Int
-    }
-
-    private struct ExactBareBarcodeAssignment: Sendable {
-        let barcodeIndex: Int
-        let trim5p: Int
-        let trim3p: Int
-    }
-
-    private struct ExactBareBarcodeAccumulator: Sendable {
-        let barcodeID: String
-        var readIDs: [String] = []
-        var previewRecords: [FASTQRawRecord] = []
-        var trimEntries: [DemuxTrimEntry] = []
-        var readCount: Int = 0
-        var baseCount: Int64 = 0
-        var minReadLength: Int = Int.max
-        var maxReadLength: Int = 0
-        var readLengthHistogram: [Int: Int] = [:]
-
-        mutating func add(
-            readID: String,
-            previewRecord: FASTQRawRecord,
-            outputLength: Int,
-            trimEntry: DemuxTrimEntry?,
-            previewLimit: Int = 1000
-        ) {
-            readIDs.append(readID)
-            if previewRecords.count < previewLimit {
-                previewRecords.append(previewRecord)
-            }
-            if let trimEntry {
-                trimEntries.append(trimEntry)
-            }
-            readCount += 1
-            baseCount += Int64(outputLength)
-            minReadLength = min(minReadLength, outputLength)
-            maxReadLength = max(maxReadLength, outputLength)
-            readLengthHistogram[outputLength, default: 0] += 1
-        }
-
-        mutating func merge(_ other: ExactBareBarcodeAccumulator, previewLimit: Int = 1000) {
-            guard other.readCount > 0 else { return }
-            readIDs.append(contentsOf: other.readIDs)
-            if previewRecords.count < previewLimit {
-                previewRecords.append(contentsOf: other.previewRecords.prefix(previewLimit - previewRecords.count))
-            }
-            trimEntries.append(contentsOf: other.trimEntries)
-            readCount += other.readCount
-            baseCount += other.baseCount
-            minReadLength = min(minReadLength, other.finalizedMinReadLength)
-            maxReadLength = max(maxReadLength, other.maxReadLength)
-            for (length, count) in other.readLengthHistogram {
-                readLengthHistogram[length, default: 0] += count
-            }
-        }
-
-        var finalizedMinReadLength: Int {
-            readCount > 0 ? minReadLength : 0
-        }
-    }
-
-    private struct ExactBareBarcodeShardResult: Sendable {
-        let shardIndex: Int
-        let barcodeAccumulators: [ExactBareBarcodeAccumulator]
-        let unassigned: ExactBareBarcodeAccumulator
-        let totalReads: Int
-        let assignedReads: Int
-    }
-
-    private struct ExactBareBarcodeMatcher: Sendable {
-        struct Candidate: Sendable {
-            let barcodeIndex: Int
-        }
-
-        let barcodeCount: Int
-        let barcodeLocation: BarcodeLocation
-        let maxDistanceFrom5Prime: Int
-        let maxDistanceFrom3Prime: Int
-        let mapsByLength: [Int: [UInt64: [Candidate]]]
-        let lengths: [Int]
-
-        init?(
-            barcodes: [BarcodeEntry],
-            barcodeLocation: BarcodeLocation,
-            maxDistanceFrom5Prime: Int,
-            maxDistanceFrom3Prime: Int,
-            includeReverseComplements: Bool
-        ) {
-            var mapsByLength: [Int: [UInt64: [Candidate]]] = [:]
-            for (index, barcode) in barcodes.enumerated() {
-                let primary = barcode.i7Sequence.uppercased()
-                guard let primaryCode = Self.twoBitCode(primary) else {
-                    return nil
-                }
-                mapsByLength[primary.count, default: [:]][primaryCode, default: []]
-                    .append(Candidate(barcodeIndex: index))
-
-                if includeReverseComplements {
-                    let rc = PlatformAdapters.reverseComplement(primary)
-                    if rc != primary {
-                        guard let rcCode = Self.twoBitCode(rc) else {
-                            return nil
-                        }
-                        mapsByLength[rc.count, default: [:]][rcCode, default: []]
-                            .append(Candidate(barcodeIndex: index))
-                    }
-                }
-            }
-            self.barcodeCount = barcodes.count
-            self.barcodeLocation = barcodeLocation
-            self.maxDistanceFrom5Prime = max(0, maxDistanceFrom5Prime)
-            self.maxDistanceFrom3Prime = max(0, maxDistanceFrom3Prime)
-            self.mapsByLength = mapsByLength
-            self.lengths = mapsByLength.keys.sorted()
-        }
-
-        func assignment(for sequence: String) -> ExactBareBarcodeAssignment? {
-            let bytes = Array(sequence.utf8)
-            guard let match = findAny(in: bytes) else { return nil }
-            return ExactBareBarcodeAssignment(
-                barcodeIndex: match.barcodeIndex,
-                trim5p: 0,
-                trim3p: 0
-            )
-        }
-
-        private func findAny(in bytes: [UInt8]) -> ExactBareBarcodeMatch? {
-            var best: ExactBareBarcodeMatch?
-            for length in lengths {
-                guard length <= bytes.count,
-                      let map = mapsByLength[length] else { continue }
-                if let match = findMatch(
-                    in: bytes,
-                    length: length,
-                    startRange: 0...(bytes.count - length),
-                    map: map,
-                    preferLast: false
-                ) {
-                    if best == nil || match.start < best!.start {
-                        best = match
-                    }
-                }
-            }
-            return best
-        }
-
-        private func findMatch(
-            in bytes: [UInt8],
-            length: Int,
-            startRange: ClosedRange<Int>,
-            map: [UInt64: [Candidate]],
-            preferLast: Bool
-        ) -> ExactBareBarcodeMatch? {
-            guard length > 0, length <= 31 else { return nil }
-            var code: UInt64 = 0
-            var validBases = 0
-            let mask = length == 31 ? UInt64.max >> 2 : (UInt64(1) << UInt64(length * 2)) - 1
-            var best: ExactBareBarcodeMatch?
-
-            for (index, byte) in bytes.enumerated() {
-                guard let bits = Self.baseBits(byte) else {
-                    code = 0
-                    validBases = 0
-                    continue
-                }
-                code = ((code << 2) | UInt64(bits)) & mask
-                validBases += 1
-                guard validBases >= length else { continue }
-
-                let start = index - length + 1
-                guard startRange.contains(start),
-                      let candidates = map[code],
-                      let candidate = candidates.first else {
-                    continue
-                }
-                let match = ExactBareBarcodeMatch(
-                    barcodeIndex: candidate.barcodeIndex,
-                    start: start,
-                    length: length
-                )
-                if best == nil
-                    || (!preferLast && match.start < best!.start)
-                    || (preferLast && match.start > best!.start) {
-                    best = match
-                }
-            }
-            return best
-        }
-
-        static func twoBitCode(_ sequence: String) -> UInt64? {
-            guard !sequence.isEmpty, sequence.utf8.count <= 31 else { return nil }
-            var code: UInt64 = 0
-            for byte in sequence.utf8 {
-                guard let bits = baseBits(byte) else { return nil }
-                code = (code << 2) | UInt64(bits)
-            }
-            return code
-        }
-
-        private static func baseBits(_ byte: UInt8) -> UInt8? {
-            switch byte {
-            case UInt8(ascii: "A"), UInt8(ascii: "a"): return 0
-            case UInt8(ascii: "C"), UInt8(ascii: "c"): return 1
-            case UInt8(ascii: "G"), UInt8(ascii: "g"): return 2
-            case UInt8(ascii: "T"), UInt8(ascii: "t"): return 3
-            default: return nil
-            }
-        }
-    }
-
-    private func supportsExactBareBarcodeDemux(_ config: DemultiplexConfig) -> Bool {
-        guard config.sampleAssignments.isEmpty,
-              !config.barcodeKit.isDualIndexed,
-              config.barcodeKit.pairingMode == .singleEnd || config.barcodeKit.pairingMode == .symmetric,
-              config.resolvedAdapterContext is BareAdapterContext else {
-            return false
-        }
-        guard config.barcodeKit.barcodes.allSatisfy({
-            $0.i5Sequence == nil && ExactBareBarcodeMatcher.twoBitCode($0.i7Sequence.uppercased()) != nil
-        }) else {
-            return false
-        }
-        return true
-    }
-
-    private func shouldSearchBareBarcodeReverseComplements(_ config: DemultiplexConfig) -> Bool {
-        config.searchReverseComplement
-            || config.symmetryMode == .symmetric
-            || config.barcodeKit.kitType == .fluidigmAccessArray
-            || config.barcodeKit.vendor == "custom"
-    }
-
-    private final class ExactBareFASTQOutputCache {
-        private let limit: Int
-        private var handles: [String: FileHandle] = [:]
-        private var usageOrder: [String] = []
-
-        init(limit: Int = 64) {
-            self.limit = max(1, limit)
-        }
-
-        func write(_ record: FASTQRawRecord, to url: URL) throws {
-            let key = url.path
-            let handle = try handle(for: key, url: url)
-            try handle.write(contentsOf: Data(record.fastqString.utf8))
-        }
-
-        func closeAll() throws {
-            var firstError: Error?
-            for (_, handle) in handles {
-                do {
-                    try handle.close()
-                } catch {
-                    if firstError == nil { firstError = error }
-                }
-            }
-            handles.removeAll()
-            usageOrder.removeAll()
-            if let firstError { throw firstError }
-        }
-
-        private func handle(for key: String, url: URL) throws -> FileHandle {
-            if let existing = handles[key] {
-                markUsed(key)
-                return existing
-            }
-
-            if handles.count >= limit, let evictKey = usageOrder.first {
-                usageOrder.removeFirst()
-                if let evicted = handles.removeValue(forKey: evictKey) {
-                    try evicted.close()
-                }
-            }
-
-            let directory = url.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            if !FileManager.default.fileExists(atPath: url.path) {
-                FileManager.default.createFile(atPath: url.path, contents: nil)
-            }
-            let handle = try FileHandle(forWritingTo: url)
-            try handle.seekToEnd()
-            handles[key] = handle
-            usageOrder.append(key)
-            return handle
-        }
-
-        private func markUsed(_ key: String) {
-            usageOrder.removeAll { $0 == key }
-            usageOrder.append(key)
-        }
-    }
-
-    private func runExactBareBarcodeDemux(
-        config: DemultiplexConfig,
-        inputFASTQ: URL,
-        startTime: Date,
-        progress: @escaping @Sendable (Double, String) -> Void
-    ) async throws -> DemultiplexResult {
-        let fm = FileManager.default
-        try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
-
-        guard let matcher = ExactBareBarcodeMatcher(
-            barcodes: config.barcodeKit.barcodes,
-            barcodeLocation: config.barcodeLocation,
-            maxDistanceFrom5Prime: config.maxDistanceFrom5Prime,
-            maxDistanceFrom3Prime: config.maxDistanceFrom3Prime,
-            includeReverseComplements: shouldSearchBareBarcodeReverseComplements(config)
-        ) else {
-            throw DemultiplexError.noBarcodes
-        }
-        // A derived bundle's own FASTQ is only its preview, so only a physical bundle is listed; a derived one is read as the materialized input.
-        let inputURLs: [URL]
-        if let bundleURL = config.sourceBundleURL ?? (FASTQBundle.isBundleURL(config.inputURL) ? config.inputURL : nil), !FASTQBundle.isDerivedBundle(bundleURL),
-           let allURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL), !allURLs.isEmpty {
-            inputURLs = allURLs
-        } else {
-            inputURLs = [inputFASTQ]
-        }
-
-        let isVirtualMode = config.rootBundleURL != nil && !config.captureTrimsForChaining
-        let outputCache = ExactBareFASTQOutputCache()
-        defer { try? outputCache.closeAll() }
-
-        var bundleURLsByName: [String: URL] = [:]
-        var fastqURLsByName: [String: URL] = [:]
-        func bundleURL(for name: String) throws -> URL {
-            if let existing = bundleURLsByName[name] { return existing }
-            let bundleURL = config.outputDirectory
-                .appendingPathComponent("\(name).\(FASTQBundle.directoryExtension)", isDirectory: true)
-            try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-            bundleURLsByName[name] = bundleURL
-            return bundleURL
-        }
-        func fastqURL(for name: String) throws -> URL {
-            if let existing = fastqURLsByName[name] { return existing }
-            let url = try bundleURL(for: name).appendingPathComponent("\(name).fastq")
-            fastqURLsByName[name] = url
-            return url
-        }
-
-        func trimmedRecord(
-            _ record: FASTQRawRecord,
-            trim5p: Int,
-            trim3p: Int
-        ) -> FASTQRawRecord {
-            let sequenceLength = record.sequence.count
-            let start = max(0, min(trim5p, sequenceLength))
-            let end = max(start, min(sequenceLength - max(0, trim3p), sequenceLength))
-            guard start > 0 || end < sequenceLength else { return record }
-            let sequenceStart = record.sequence.index(record.sequence.startIndex, offsetBy: start)
-            let sequenceEnd = record.sequence.index(record.sequence.startIndex, offsetBy: end)
-            let qualityStart = record.quality.index(record.quality.startIndex, offsetBy: start)
-            let qualityEnd = record.quality.index(record.quality.startIndex, offsetBy: end)
-            return FASTQRawRecord(
-                header: record.header,
-                sequence: String(record.sequence[sequenceStart..<sequenceEnd]),
-                separator: record.separator,
-                quality: String(record.quality[qualityStart..<qualityEnd])
-            )
-        }
-
-        func stats(
-            for accumulator: ExactBareBarcodeAccumulator
-        ) -> FASTQDatasetStatistics {
-            ExactBarcodeDemux.computeStatistics(
-                readCount: accumulator.readCount,
-                baseCount: accumulator.baseCount,
-                minReadLength: accumulator.finalizedMinReadLength,
-                maxReadLength: accumulator.maxReadLength,
-                readLengthHistogram: accumulator.readLengthHistogram
-            )
-        }
-
-        var barcodeAccumulators = config.barcodeKit.barcodes.map {
-            ExactBareBarcodeAccumulator(barcodeID: $0.id)
-        }
-        var unassigned = ExactBareBarcodeAccumulator(barcodeID: "unassigned")
-        var totalReads = 0
-        var assignedReads = 0
-        let totalInputBytes = inputURLs.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
-
-        func appendFile(_ sourceURL: URL, to destinationURL: URL) throws {
-            guard fm.fileExists(atPath: sourceURL.path) else { return }
-            try fm.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if !fm.fileExists(atPath: destinationURL.path) {
-                fm.createFile(atPath: destinationURL.path, contents: nil)
-            }
-            let input = try FileHandle(forReadingFrom: sourceURL)
-            defer { try? input.close() }
-            let output = try FileHandle(forWritingTo: destinationURL)
-            defer { try? output.close() }
-            try output.seekToEnd()
-            while true {
-                let data = input.readData(ofLength: 1_048_576)
-                if data.isEmpty { break }
-                try output.write(contentsOf: data)
-            }
-        }
-
-        func shardDirectory(for shardIndex: Int, root: URL) -> URL {
-            root.appendingPathComponent(
-                String(format: "shard-%05d", shardIndex),
-                isDirectory: true
-            )
-        }
-
-        func processShard(
-            inputURL: URL,
-            shardIndex: Int,
-            shardRoot: URL?
-        ) async throws -> ExactBareBarcodeShardResult {
-            var shardBarcodeAccumulators = config.barcodeKit.barcodes.map {
-                ExactBareBarcodeAccumulator(barcodeID: $0.id)
-            }
-            var shardUnassigned = ExactBareBarcodeAccumulator(barcodeID: "unassigned")
-            var shardTotalReads = 0
-            var shardAssignedReads = 0
-
-            let shardOutputDirectory = shardRoot.map { shardDirectory(for: shardIndex, root: $0) }
-            let shardOutputCache = ExactBareFASTQOutputCache()
-            defer { try? shardOutputCache.closeAll() }
-
-            func shardFASTQURL(for name: String) throws -> URL {
-                guard let shardOutputDirectory else {
-                    throw DemultiplexError.bundleCreationFailed(
-                        barcode: name,
-                        underlying: "Exact bare-barcode shard output directory was not configured."
-                    )
-                }
-                try FileManager.default.createDirectory(at: shardOutputDirectory, withIntermediateDirectories: true)
-                return shardOutputDirectory.appendingPathComponent("\(name).fastq")
-            }
-
-            let lines = inputURL.linesAutoDecompressing()
-            var lineBuffer: [String] = []
-            lineBuffer.reserveCapacity(4)
-
-            for try await line in lines {
-                if line.isEmpty && lineBuffer.isEmpty { continue }
-                lineBuffer.append(line)
-                guard lineBuffer.count == 4 else { continue }
-
-                let record = FASTQRawRecord(
-                    header: lineBuffer[0],
-                    sequence: lineBuffer[1],
-                    separator: lineBuffer[2],
-                    quality: lineBuffer[3]
-                )
-                lineBuffer.removeAll(keepingCapacity: true)
-                shardTotalReads += 1
-
-                if let assignment = matcher.assignment(for: record.sequence) {
-                    shardBarcodeAccumulators[assignment.barcodeIndex].add(
-                        readID: record.readID,
-                        previewRecord: record,
-                        outputLength: record.sequence.count,
-                        trimEntry: nil
-                    )
-                    shardAssignedReads += 1
-
-                    if !isVirtualMode {
-                        let barcodeID = config.barcodeKit.barcodes[assignment.barcodeIndex].id
-                        try shardOutputCache.write(record, to: shardFASTQURL(for: barcodeID))
-                    }
-                } else {
-                    shardUnassigned.add(
-                        readID: record.readID,
-                        previewRecord: record,
-                        outputLength: record.sequence.count,
-                        trimEntry: nil
-                    )
-                    if !isVirtualMode, config.unassignedDisposition == .keep {
-                        try shardOutputCache.write(record, to: shardFASTQURL(for: "unassigned"))
-                    }
-                }
-            }
-
-            if !lineBuffer.isEmpty {
-                logger.warning("Input FASTQ shard \(shardIndex) had \(lineBuffer.count) trailing lines (incomplete record)")
-            }
-            try shardOutputCache.closeAll()
-
-            return ExactBareBarcodeShardResult(
-                shardIndex: shardIndex,
-                barcodeAccumulators: shardBarcodeAccumulators,
-                unassigned: shardUnassigned,
-                totalReads: shardTotalReads,
-                assignedReads: shardAssignedReads
-            )
-        }
-
-        func mergeShard(_ shard: ExactBareBarcodeShardResult, shardRoot: URL?) throws {
-            totalReads += shard.totalReads
-            assignedReads += shard.assignedReads
-
-            for index in barcodeAccumulators.indices {
-                let shardAccumulator = shard.barcodeAccumulators[index]
-                barcodeAccumulators[index].merge(shardAccumulator)
-                if !isVirtualMode, shardAccumulator.readCount > 0, let shardRoot {
-                    let barcodeID = config.barcodeKit.barcodes[index].id
-                    let shardFASTQ = shardDirectory(for: shard.shardIndex, root: shardRoot)
-                        .appendingPathComponent("\(barcodeID).fastq")
-                    try appendFile(shardFASTQ, to: fastqURL(for: barcodeID))
-                }
-            }
-
-            unassigned.merge(shard.unassigned)
-            if !isVirtualMode,
-               config.unassignedDisposition == .keep,
-               shard.unassigned.readCount > 0,
-               let shardRoot {
-                let shardFASTQ = shardDirectory(for: shard.shardIndex, root: shardRoot)
-                    .appendingPathComponent("unassigned.fastq")
-                try appendFile(shardFASTQ, to: fastqURL(for: "unassigned"))
-            }
-        }
-
-        let workerCount = max(1, min(config.threads, inputURLs.count))
-        if inputURLs.count > 1 && workerCount > 1 {
-            progress(0.0, "Starting exact bare-barcode demultiplexing with \(workerCount) workers...")
-            let shardRoot: URL? = isVirtualMode ? nil : config.outputDirectory.appendingPathComponent(
-                ".exact-bare-shards-\(UUID().uuidString)",
-                isDirectory: true
-            )
-            if let shardRoot {
-                try fm.createDirectory(at: shardRoot, withIntermediateDirectories: true)
-            }
-            defer {
-                if let shardRoot { try? fm.removeItem(at: shardRoot) }
-            }
-
-            var nextShardIndex = 0
-            var completedChunks = 0
-            var completedReads = 0
-            var completedAssignedReads = 0
-            var pendingShards: [Int: ExactBareBarcodeShardResult] = [:]
-            var nextMergeIndex = 0
-
-            try await withThrowingTaskGroup(of: ExactBareBarcodeShardResult.self) { group in
-                func submitShard(_ shardIndex: Int) {
-                    let inputURL = inputURLs[shardIndex]
-                    group.addTask {
-                        try await processShard(
-                            inputURL: inputURL,
-                            shardIndex: shardIndex,
-                            shardRoot: shardRoot
-                        )
-                    }
-                }
-
-                while nextShardIndex < min(workerCount, inputURLs.count) {
-                    submitShard(nextShardIndex)
-                    nextShardIndex += 1
-                }
-
-                while let shard = try await group.next() {
-                    completedChunks += 1
-                    completedReads += shard.totalReads
-                    completedAssignedReads += shard.assignedReads
-                    pendingShards[shard.shardIndex] = shard
-
-                    while let readyShard = pendingShards.removeValue(forKey: nextMergeIndex) {
-                        try mergeShard(readyShard, shardRoot: shardRoot)
-                        nextMergeIndex += 1
-                    }
-
-                    if nextShardIndex < inputURLs.count {
-                        submitShard(nextShardIndex)
-                        nextShardIndex += 1
-                    }
-
-                    let fraction = min(0.75, 0.75 * Double(completedChunks) / Double(inputURLs.count))
-                    progress(
-                        fraction,
-                        "Processed \(completedChunks) of \(inputURLs.count) chunks, \(completedReads) reads, \(completedAssignedReads) assigned..."
-                    )
-                }
-            }
-        } else {
-            progress(0.0, "Starting exact bare-barcode demultiplexing...")
-
-            let lines = URL.multiFileLinesAutoDecompressing(inputURLs)
-            var lineBuffer: [String] = []
-            lineBuffer.reserveCapacity(4)
-
-            for try await line in lines {
-                if line.isEmpty && lineBuffer.isEmpty { continue }
-                lineBuffer.append(line)
-                guard lineBuffer.count == 4 else { continue }
-
-                let record = FASTQRawRecord(
-                    header: lineBuffer[0],
-                    sequence: lineBuffer[1],
-                    separator: lineBuffer[2],
-                    quality: lineBuffer[3]
-                )
-                lineBuffer.removeAll(keepingCapacity: true)
-                totalReads += 1
-
-                if totalReads % 100_000 == 0 {
-                    let estimatedFraction: Double
-                    if totalInputBytes > 0 {
-                        let avgBytesPerRead = Double(record.baseCount + 50) * 1.1
-                        estimatedFraction = min(0.75, (avgBytesPerRead * Double(totalReads)) / Double(totalInputBytes))
-                    } else {
-                        estimatedFraction = 0.0
-                    }
-                    progress(estimatedFraction, "Processed \(totalReads) reads, \(assignedReads) assigned...")
-                }
-
-                if let assignment = matcher.assignment(for: record.sequence) {
-                    barcodeAccumulators[assignment.barcodeIndex].add(
-                        readID: record.readID,
-                        previewRecord: record,
-                        outputLength: record.sequence.count,
-                        trimEntry: nil
-                    )
-                    assignedReads += 1
-
-                    if !isVirtualMode {
-                        let barcodeID = config.barcodeKit.barcodes[assignment.barcodeIndex].id
-                        try outputCache.write(record, to: fastqURL(for: barcodeID))
-                    }
-                } else {
-                    unassigned.add(
-                        readID: record.readID,
-                        previewRecord: record,
-                        outputLength: record.sequence.count,
-                        trimEntry: nil
-                    )
-                    if !isVirtualMode, config.unassignedDisposition == .keep {
-                        try outputCache.write(record, to: fastqURL(for: "unassigned"))
-                    }
-                }
-            }
-
-            if !lineBuffer.isEmpty {
-                logger.warning("Input FASTQ had \(lineBuffer.count) trailing lines (incomplete record)")
-            }
-        }
-
-        try outputCache.closeAll()
-        progress(0.80, "Creating exact demultiplex bundles...")
-
-        var barcodeResults: [BarcodeResult] = []
-        var outputBundleURLs: [URL] = []
-        var unassignedBundleURL: URL?
-        let nonEmptyBarcodes = barcodeAccumulators.filter { $0.readCount > 0 }
-        let bundleCount = nonEmptyBarcodes.count + (config.unassignedDisposition == .keep && unassigned.readCount > 0 ? 1 : 0)
-        let progressPerBundle = 0.15 / max(1.0, Double(bundleCount))
-        var completedBundles = 0
-
-        func writeBundleFiles(
-            accumulator: ExactBareBarcodeAccumulator,
-            bundleURL: URL,
-            cachedStatistics: FASTQDatasetStatistics
-        ) throws {
-            let readIDsURL = bundleURL.appendingPathComponent("read-ids.txt")
-            try (accumulator.readIDs.joined(separator: "\n") + "\n")
-                .write(to: readIDsURL, atomically: true, encoding: .utf8)
-
-            let previewURL = bundleURL.appendingPathComponent("preview.fastq")
-            try accumulator.previewRecords.map(\.fastqString).joined()
-                .write(to: previewURL, atomically: true, encoding: .utf8)
-
-            try writeTrimPositions(accumulator.trimEntries, to: bundleURL)
-
-            if let rootBundleURL = config.rootBundleURL,
-               let rootFASTQFilename = config.rootFASTQFilename {
-                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
-                    ?? relativePath(from: bundleURL, to: rootBundleURL)
-                let parentBundleURL = config.sourceBundleURL
-                let parentRelativePath = parentBundleURL.flatMap {
-                    FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
-                        ?? relativePath(from: bundleURL, to: $0)
-                } ?? rootRelativePath
-                let demuxOp = FASTQDerivativeOperation(
-                    kind: .demultiplex,
-                    toolUsed: "exact-bare-barcode-demux",
-                    toolVersion: nil
-                )
-                let derivedManifest = FASTQDerivedBundleManifest(
-                    name: accumulator.barcodeID,
-                    parentBundleRelativePath: parentRelativePath,
-                    rootBundleRelativePath: rootRelativePath,
-                    rootFASTQFilename: rootFASTQFilename,
-                    payload: .demuxedVirtual(
-                        barcodeID: accumulator.barcodeID,
-                        readIDListFilename: "read-ids.txt",
-                        previewFilename: "preview.fastq",
-                        trimPositionsFilename: hasTrimPositionsFile(in: bundleURL) ? "trim-positions.tsv" : nil,
-                        orientMapFilename: nil
-                    ),
-                    lineage: [demuxOp],
-                    operation: demuxOp,
-                    cachedStatistics: cachedStatistics,
-                    pairingMode: config.inputPairingMode ?? inferredPairingMode(from: parentBundleURL ?? config.inputURL),
-                    sequenceFormat: config.inputSequenceFormat
-                )
-                try saveRequiredDerivedManifest(
-                    derivedManifest,
-                    in: bundleURL,
-                    barcode: accumulator.barcodeID
-                )
-            }
-        }
-
-        for accumulator in nonEmptyBarcodes {
-            let bundleURL = try bundleURL(for: accumulator.barcodeID)
-            let cachedStatistics = stats(for: accumulator)
-            try writeBundleFiles(
-                accumulator: accumulator,
-                bundleURL: bundleURL,
-                cachedStatistics: cachedStatistics
-            )
-
-            let sequenceInfo = barcodeSequenceInfo(
-                for: accumulator.barcodeID,
-                kit: config.barcodeKit,
-                sampleAssignments: config.sampleAssignments
-            )
-            barcodeResults.append(BarcodeResult(
-                barcodeID: accumulator.barcodeID,
-                sampleName: sequenceInfo.sampleName,
-                forwardSequence: sequenceInfo.forward,
-                reverseSequence: sequenceInfo.reverse,
-                readCount: accumulator.readCount,
-                baseCount: accumulator.baseCount,
-                meanReadLength: accumulator.readCount > 0
-                    ? Double(accumulator.baseCount) / Double(accumulator.readCount)
-                    : nil,
-                bundleRelativePath: bundleURL.lastPathComponent
-            ))
-            outputBundleURLs.append(bundleURL)
-            completedBundles += 1
-            progress(0.80 + Double(completedBundles) * progressPerBundle, "Created bundle for \(accumulator.barcodeID)")
-        }
-
-        if config.unassignedDisposition == .keep && unassigned.readCount > 0 {
-            let bundleURL = try bundleURL(for: "unassigned")
-            let cachedStatistics = stats(for: unassigned)
-            try writeBundleFiles(
-                accumulator: unassigned,
-                bundleURL: bundleURL,
-                cachedStatistics: cachedStatistics
-            )
-            unassignedBundleURL = bundleURL
-            completedBundles += 1
-            progress(0.80 + Double(completedBundles) * progressPerBundle, "Created bundle for unassigned")
-        }
-
-        barcodeResults.sort { $0.barcodeID.localizedStandardCompare($1.barcodeID) == .orderedAscending }
-
-        let elapsed = Date().timeIntervalSince(startTime)
-        let barcodeType: BarcodeType = {
-            switch config.symmetryMode {
-            case .symmetric: return .symmetric
-            case .asymmetric: return .asymmetric
-            case .singleEnd: return .singleEnd
-            }
-        }()
-        let kitForManifest = BarcodeKit(
-            name: config.barcodeKit.displayName,
-            vendor: config.barcodeKit.vendor,
-            barcodeCount: config.barcodeKit.barcodes.count,
-            isDualIndexed: false,
-            barcodeType: barcodeType
-        )
-        let commandLine = ([
-            "exact-bare-barcode-demux",
-            "--search", "whole-read",
-            shouldSearchBareBarcodeReverseComplements(config) ? "--search-rc" : nil
-        ].compactMap { $0 }
-            + (config.threads > 1 ? ["--threads", String(config.threads)] : []))
-            .joined(separator: " ")
-        let manifest = DemultiplexManifest(
-            barcodeKit: kitForManifest,
-            parameters: DemultiplexParameters(
-                tool: "exact-bare-barcode-demux",
-                toolVersion: nil,
-                maxMismatches: 0,
-                requireBothEnds: false,
-                trimBarcodes: false,
-                commandLine: commandLine,
-                wallClockSeconds: elapsed
-            ),
-            barcodes: barcodeResults,
-            unassigned: UnassignedReadsSummary(
-                readCount: unassigned.readCount,
-                baseCount: unassigned.baseCount,
-                disposition: config.unassignedDisposition,
-                bundleRelativePath: unassignedBundleURL?.lastPathComponent
-            ),
-            outputDirectoryRelativePath: ".",
-            inputReadCount: totalReads
-        )
-
-        try manifest.save(to: config.outputDirectory)
-        if FASTQBundle.isBundleURL(config.inputURL) {
-            try? manifest.save(to: config.inputURL)
-        }
-
-        progress(1.0, "Demultiplexing complete: \(barcodeResults.count) samples, \(String(format: "%.0f%%", manifest.assignmentRate * 100)) assigned")
-
-        logger.info("Exact bare-barcode demux complete: \(barcodeResults.count) samples, \(manifest.assignmentRate * 100)% assigned, \(String(format: "%.1f", elapsed))s")
-
-        return DemultiplexResult(
-            manifest: manifest,
-            outputBundleURLs: outputBundleURLs,
-            unassignedBundleURL: unassignedBundleURL,
-            wallClockSeconds: elapsed,
-            nativeCommand: nil
-        )
-    }
-
-    private func createAdapterConfiguration(
+}
+extension DemultiplexingPipeline {
+    func createAdapterConfiguration(
         for config: DemultiplexConfig,
         workDirectory: URL
     ) async throws -> AdapterConfiguration {
@@ -2573,7 +1814,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         return "N{\(distance)}"
     }
 
-    private func resolveSequence(
+    func resolveSequence(
         explicitSequence: String?,
         barcodeID: String?,
         kit: BarcodeKitDefinition
@@ -2600,7 +1841,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         sanitizedSampleIdentifier(value).lowercased()
     }
 
-    private func saveRequiredDerivedManifest(
+    func saveRequiredDerivedManifest(
         _ manifest: FASTQDerivedBundleManifest,
         in bundleURL: URL,
         barcode: String
@@ -2638,7 +1879,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         resolveSequence(explicitSequence: explicit, barcodeID: id, kit: kit)
     }
 
-    private func barcodeSequenceInfo(
+    func barcodeSequenceInfo(
         for outputName: String,
         kit: BarcodeKitDefinition,
         sampleAssignments: [FASTQSampleBarcodeAssignment]
@@ -2679,9 +1920,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         from source: URL,
         matching trimmedRejects: URL,
         to destination: URL,
-        workingDirectory: URL
+        workingDirectory: URL,
+        idListFilename: String = "rejected-3prime-ids.txt"
     ) async throws -> Bool {
-        let idListURL = workingDirectory.appendingPathComponent("rejected-3prime-ids.txt")
+        let idListURL = workingDirectory.appendingPathComponent(idListFilename)
         let idResult = try await runner.run(
             .seqkit,
             arguments: ["seq", "--name", "--only-id", trimmedRejects.path, "-o", idListURL.path],
@@ -3034,16 +2276,19 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         cutadaptOrientMap: [String: String],
         readIDs: [String]
     ) -> [String: String] {
+        // Keyed by fragment, the key the materializer and the root rebuild
+        // look a read up by, so a /1 /2 mate is found (A9, D6).
         var result: [String: String] = [:]
         for readID in readIDs {
-            let parentOrientation = parentOrientMap[readID] ?? "+"
-            let cutadaptOrientation = cutadaptOrientMap[readID] ?? "+"
+            let fragment = Self.fragmentID(ofListedID: readID)
+            let parentOrientation = parentOrientMap[fragment] ?? parentOrientMap[readID] ?? "+"
+            let cutadaptOrientation = cutadaptOrientMap[fragment] ?? "+"
             let finalOrientation: String = if cutadaptOrientation == "-" {
                 parentOrientation == "-" ? "+" : "-"
             } else {
                 parentOrientation
             }
-            result[readID] = finalOrientation
+            result[fragment] = finalOrientation
         }
         return result
     }
@@ -3206,7 +2451,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     }
 
     /// Writes demux trim positions to a TSV file in the bundle.
-    private func writeTrimPositions(_ entries: [DemuxTrimEntry], to bundleURL: URL) throws {
+    func writeTrimPositions(_ entries: [DemuxTrimEntry], to bundleURL: URL) throws {
         guard !entries.isEmpty else { return }
         let trimURL = bundleURL.appendingPathComponent("trim-positions.tsv")
         var trimContent = "#format lungfish-demux-trim-v1\nread_id\tmate\ttrim_5p\ttrim_3p\n"
@@ -3225,8 +2470,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         guard !finalOrientMap.isEmpty else { return }
         var barcodeOrientRecords: [(readID: String, orientation: String)] = []
         for readID in orderedReadIDs {
-            if let orient = finalOrientMap[readID] {
-                barcodeOrientRecords.append((readID, orient))
+            let fragment = Self.fragmentID(ofListedID: readID)
+            if let orient = finalOrientMap[fragment] {
+                barcodeOrientRecords.append((fragment, orient))
             }
         }
         guard !barcodeOrientRecords.isEmpty else { return }

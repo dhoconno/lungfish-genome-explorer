@@ -137,8 +137,13 @@ extension DemultiplexingPipeline {
                 default: break  // never looked up, a root record's mate is 0, 1 or 2
                 }
             }
+            // A read is routed by its fragment, the key `detectMate` gives a
+            // root record, so a mate listed with /1 or /2 is found and both
+            // mates of a pair take one route (A9, D6).
             var listed = Set<String>()
-            for readID in barcode.orderedReadIDs where listed.insert(readID).inserted {
+            for listedID in barcode.orderedReadIDs {
+                let readID = DemultiplexingPipeline.fragmentID(ofListedID: listedID)
+                guard listed.insert(readID).inserted else { continue }
                 let route = Route(
                     target: target,
                     reversed: barcode.orientMap[readID] == "-",
@@ -214,10 +219,12 @@ extension DemultiplexingPipeline {
     /// Each root record goes to every bundle that lists its read, trimmed and
     /// reverse complemented as that bundle's tables say. A bundle's statistics
     /// FASTQ holds those records in root order. Its preview holds, in preview
-    /// order, the last record seen of each preview read up to the record that
-    /// completed the preview. Both are what the per-barcode rebuild wrote,
-    /// which read the whole root once per bundle for the statistics and again
-    /// for the preview until it was complete (R3).
+    /// order, the last record seen of each preview read, and of each mate of a
+    /// preview pair, up to the record that completed the preview. The
+    /// per-barcode rebuild wrote the same, which read the whole root once per
+    /// bundle for the statistics and again for the preview until it was
+    /// complete (R3), except that it kept one record per read ID, the last
+    /// mate seen of a pair (A9, D6).
     ///
     /// - Returns: The number of root records read.
     @discardableResult
@@ -226,8 +233,15 @@ extension DemultiplexingPipeline {
         plan: VirtualRootRebuildPlan
     ) async throws -> Int {
         let targets = plan.targets
-        let previewSets = targets.map { Set($0.previewReadIDs) }
-        var previews = targets.map { _ in [String: FASTQRecord]() }
+        // How often each fragment is listed in a preview. Twice for both
+        // mates of a pair, once for a single read or a pair cut by the limit.
+        let previewListings = targets.map { target in
+            target.previewReadIDs.reduce(into: [String: Int]()) {
+                $0[DemultiplexingPipeline.fragmentID(ofListedID: $1), default: 0] += 1
+            }
+        }
+        var previews = targets.map { _ in [String: [Int: FASTQRecord]]() }
+        var filledFragments = [Int](repeating: 0, count: targets.count)
         var previewComplete = [Bool](repeating: false, count: targets.count)
         // Up to 256 KB per bundle, at most about 32 MB in all.
         let flushThreshold = max(65_536, min(262_144, 33_554_432 / max(1, targets.count)))
@@ -248,9 +262,14 @@ extension DemultiplexingPipeline {
                 outputRecord = outputRecord.reverseComplement()
             }
             try sinks[route.target].append(outputRecord, flushThreshold: flushThreshold)
-            if !previewComplete[route.target], previewSets[route.target].contains(readID) {
-                previews[route.target][readID] = outputRecord
-                previewComplete[route.target] = previews[route.target].count == previewSets[route.target].count
+            let target = route.target
+            if !previewComplete[target], let listings = previewListings[target][readID] {
+                let wasFilled = Self.previewHolds(previews[target][readID], listings: listings)
+                previews[target][readID, default: [:]][mate] = outputRecord
+                if !wasFilled, Self.previewHolds(previews[target][readID], listings: listings) {
+                    filledFragments[target] += 1
+                    previewComplete[target] = filledFragments[target] == previewListings[target].count
+                }
             }
         }
 
@@ -277,13 +296,37 @@ extension DemultiplexingPipeline {
             let writer = FASTQWriter(url: target.previewURL)
             try writer.open()
             defer { try? writer.close() }
-            for readID in target.previewReadIDs {
-                if let record = previews[index][readID] {
+            var matesWritten: [String: Int] = [:]
+            for listedID in target.previewReadIDs {
+                let readID = DemultiplexingPipeline.fragmentID(ofListedID: listedID)
+                guard let mates = previews[index][readID] else { continue }
+                let record: FASTQRecord?
+                if listedID != readID {
+                    // A /1 or /2 ID names its mate.
+                    record = mates[listedID.hasSuffix("/1") ? 1 : 2]
+                } else if let single = mates[0] {
+                    // A single read, written again at each listing as before.
+                    record = single
+                } else {
+                    // A pair listed by a shared read ID, mate 1 at its first listing and mate 2 at its second.
+                    let ordered = mates.keys.sorted()
+                    let next = matesWritten[readID, default: 0]
+                    record = next < ordered.count ? mates[ordered[next]] : nil
+                    matesWritten[readID] = next + 1
+                }
+                if let record {
                     try writer.write(record)
                 }
             }
         }
         return recordsRead
+    }
+
+    /// Whether a preview holds a fragment's records, its single read or as
+    /// many of its mates as it is listed, at most two.
+    private static func previewHolds(_ mates: [Int: FASTQRecord]?, listings: Int) -> Bool {
+        guard let mates else { return false }
+        return mates[0] != nil || mates.count >= min(listings, 2)
     }
 
     /// The cached statistics of every planned bundle, in `plan.targets`

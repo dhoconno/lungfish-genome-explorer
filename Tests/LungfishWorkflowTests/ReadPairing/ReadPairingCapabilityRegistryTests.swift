@@ -46,6 +46,8 @@ final class ReadPairingCapabilityRegistryTests: XCTestCase {
             "twelve-s.amplicon-matching": .bothInOneRunAsSeparateFiles,
             "fastq.merge": .bothInOneRunAsNameInterleavedStream,
             "fastq.length-filter": .bothInOneRunAsNameInterleavedStream,
+            "fastq.primer-remove": .bothInOneRunAsNameInterleavedStream,
+            "fastq.demultiplex": .bothInOneRunAsNameInterleavedStream,
             "fastq.error-correct": .singleReadsOnly,
         ]
         for (id, capability) in expected {
