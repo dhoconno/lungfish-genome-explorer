@@ -58,6 +58,30 @@ final class TwelveSCopyMenuTests: XCTestCase {
         XCTAssertTrue(lines[1].contains("ACGT"))
     }
 
+    /// Copied rows name their counts as the columns do, fragments for a
+    /// result that read unmerged pairs (Phase 2.1 round F4).
+    func testCopiedRowHeadersNameTheResultsUnit() {
+        let targets = [target("Homo sapiens", taxid: "9606", reads: 42)]
+        let clusters = [unresolved("c1", seq: "ACGT")]
+
+        XCTAssertEqual(
+            TwelveSCopyFormatting.targetRowsTSV(targets, unit: .fragments).split(separator: "\n").first,
+            "Sample\tScientific Name\tCommon Names\tGroup\tTax ID\tExact Fragments\t% of Sample\tRefs\tAlternates"
+        )
+        XCTAssertEqual(
+            TwelveSCopyFormatting.unresolvedRowsTSV(clusters, unit: .fragments).split(separator: "\n").first,
+            "Sequence\tFragments\tSamples\tChimera\tBases"
+        )
+        XCTAssertEqual(
+            TwelveSCopyFormatting.targetRowsTSV(targets, unit: .reads).split(separator: "\n").first,
+            "Sample\tScientific Name\tCommon Names\tGroup\tTax ID\tExact Reads\t% of Sample\tRefs\tAlternates"
+        )
+        XCTAssertEqual(
+            TwelveSCopyFormatting.unresolvedRowsTSV(clusters, unit: .reads).split(separator: "\n").first,
+            "Sequence\tReads\tSamples\tChimera\tBases"
+        )
+    }
+
     private final class SpyPasteboard: PasteboardWriting {
         var last: String?
         func setString(_ s: String) { last = s }

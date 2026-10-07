@@ -1,5 +1,6 @@
 import AppKit
 @testable import LungfishIO
+import LungfishKit
 @testable import LungfishTwelveSUI
 import XCTest
 
@@ -139,6 +140,34 @@ final class TwelveSReadFateSummaryTests: XCTestCase {
         XCTAssertEqual(controller.testingActiveTableView.tableColumn(withIdentifier: .init("readCount"))?.title, "Reads")
     }
 
+    /// Copy Rows names the counts as the visible columns do.
+    func testCopiedRowsOfAPairedResultNameFragmentsAndAMergedOnlyResultReads() throws {
+        func copiedHeaders(_ result: TwelveSAmpliconResultBundleData) -> [String?] {
+            let controller = TwelveSAmpliconResultViewController()
+            controller.loadViewIfNeeded()
+            let pasteboard = RecordingPasteboard()
+            controller.testingSetPasteboard(pasteboard)
+            controller.configure(result: result)
+            controller.testingActiveTableView.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
+            controller.copySelectedRowAsTSV(nil)
+            let target = pasteboard.last?.split(separator: "\n").first.map(String.init)
+            controller.showUnresolvedForTesting()
+            controller.testingActiveTableView.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
+            controller.copySelectedRowAsTSV(nil)
+            let unresolved = pasteboard.last?.split(separator: "\n").first.map(String.init)
+            return [target, unresolved]
+        }
+
+        XCTAssertEqual(copiedHeaders(TwelveSFixtures.twoSampleResult(pairedFragments: 4)), [
+            "Sample\tScientific Name\tCommon Names\tGroup\tTax ID\tExact Fragments\t% of Sample\tRefs\tAlternates",
+            "Sequence\tFragments\tSamples\tChimera\tBases",
+        ])
+        XCTAssertEqual(copiedHeaders(TwelveSFixtures.twoSampleResult()), [
+            "Sample\tScientific Name\tCommon Names\tGroup\tTax ID\tExact Reads\t% of Sample\tRefs\tAlternates",
+            "Sequence\tReads\tSamples\tChimera\tBases",
+        ])
+    }
+
     /// Sorting and choosing samples run the table's filter pass again, which
     /// puts back the title each column had at the first pass, so that title
     /// must already name fragments.
@@ -154,4 +183,9 @@ final class TwelveSReadFateSummaryTests: XCTestCase {
         XCTAssertEqual(exact.title, "Exact Fragments")
         XCTAssertEqual(exact.headerToolTip, TwelveSCountUnit.fragments.columnHelp)
     }
+}
+
+private final class RecordingPasteboard: PasteboardWriting {
+    var last: String?
+    func setString(_ string: String) { last = string }
 }

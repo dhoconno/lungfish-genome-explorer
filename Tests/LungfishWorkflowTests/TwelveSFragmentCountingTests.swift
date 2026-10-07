@@ -486,14 +486,14 @@ final class TwelveSFragmentCountingTests: XCTestCase {
         let merged = merge.appendingPathComponent("merged.fastq")
         let preview = subset.appendingPathComponent("preview.fastq")
 
-        XCTAssertEqual(TwelveSNamedInput(merge), .asNamed(merge.standardizedFileURL))
-        XCTAssertEqual(TwelveSNamedInput(loose), .asNamed(loose.standardizedFileURL))
-        XCTAssertEqual(TwelveSNamedInput(merged), .fileAlone(merged.standardizedFileURL))
+        XCTAssertEqual(ReadSetNamedInput(merge), .asNamed(merge.standardizedFileURL))
+        XCTAssertEqual(ReadSetNamedInput(loose), .asNamed(loose.standardizedFileURL))
+        XCTAssertEqual(ReadSetNamedInput(merged), .fileAlone(merged.standardizedFileURL))
         XCTAssertEqual(
-            TwelveSNamedInput(merge.appendingPathComponent("unmerged_R2.fastq")),
+            ReadSetNamedInput(merge.appendingPathComponent("unmerged_R2.fastq")),
             .fileAlone(merge.appendingPathComponent("unmerged_R2.fastq").standardizedFileURL)
         )
-        guard case let .previewOf(bundleURL, previewURL) = TwelveSNamedInput(preview) else {
+        guard case let .previewOf(bundleURL, previewURL) = ReadSetNamedInput(preview) else {
             return XCTFail("the preview of a virtual bundle names its bundle")
         }
         XCTAssertEqual(bundleURL.standardizedFileURL.path, subset.standardizedFileURL.path)

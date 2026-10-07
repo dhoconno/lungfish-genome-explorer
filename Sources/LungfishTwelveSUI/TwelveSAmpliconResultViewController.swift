@@ -1152,6 +1152,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
                 copyContextMenu,
                 rows: rows,
                 pasteboard: pasteboard,
+                countUnit: targetTable.countUnit,
                 onOpenURL: { [weak self] url in
                     if let handler = self?.onOpenURLRequested {
                         handler(url)
@@ -1166,7 +1167,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
                 unresolvedTable.selectDisplayedRowForContextMenuIfNeeded(clicked)
             }
             let rows = resolvedUnresolvedSelection()
-            TwelveSCopyMenuProvider.populateUnresolvedMenu(copyContextMenu, rows: rows, pasteboard: pasteboard)
+            TwelveSCopyMenuProvider.populateUnresolvedMenu(copyContextMenu, rows: rows, pasteboard: pasteboard, countUnit: targetTable.countUnit)
         }
     }
 
@@ -1663,12 +1664,12 @@ extension TwelveSAmpliconResultViewController: ResultRowMenuActions, TwelveSResu
     /// The commands for the rows `rows` of the active table.
     private func entries(forTargetRows rows: [TwelveSTargetSampleRow]) -> [TwelveSCopyMenuProvider.Entry] {
         TwelveSCopyMenuProvider.targetEntries(
-            rows: rows, pasteboard: pasteboard, onOpenURL: { [weak self] in self?.openLink($0) }
+            rows: rows, pasteboard: pasteboard, countUnit: targetTable.countUnit, onOpenURL: { [weak self] in self?.openLink($0) }
         )
     }
 
     private func entries(forUnresolvedRows rows: [TwelveSUnresolvedSequence]) -> [TwelveSCopyMenuProvider.Entry] {
-        TwelveSCopyMenuProvider.unresolvedEntries(rows: rows, pasteboard: pasteboard)
+        TwelveSCopyMenuProvider.unresolvedEntries(rows: rows, pasteboard: pasteboard, countUnit: targetTable.countUnit)
     }
 
     /// The commands for the active table's selection. Unlike the context
