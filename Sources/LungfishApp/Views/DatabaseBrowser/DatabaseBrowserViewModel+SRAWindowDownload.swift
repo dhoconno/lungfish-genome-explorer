@@ -196,7 +196,6 @@ extension DatabaseBrowserViewModel {
                     // Removed after the import or on failure, so no file of
                     // this run reaches the next one.
                     defer { staged.removeFolder() }
-                    let enaDownloadSteps = staged.download.enaSteps
                     let downloadSource = staged.download.source.rawValue
 
                     // 3. Mates 1 and 2 import as a pair, never as one mate,
@@ -253,18 +252,13 @@ extension DatabaseBrowserViewModel {
                         metadata.downloadSource = downloadSource
                         FASTQMetadataStore.save(metadata, for: fastqURL)
 
-                        try writeGUISRAFASTQImportProvenance(
+                        try staged.writeImportProvenance(
                             accession: record.accession,
-                            readRecord: readRecord,
-                            downloadSource: downloadSource, preferredSource: staged.download.preference, layoutWarning: staged.layoutWarning,
-                            fallbackMessage: staged.download.fallbackMessage,
-                            enaDownloadSteps: enaDownloadSteps,
                             toolkitDownloadTraces: toolkitTraceCollector.steps,
                             cliArguments: args,
                             cliStartedAt: cliStartedAt,
                             cliCompletedAt: cliCompletedAt,
-                            stagedFASTQFiles: FASTQBatchImporter.inputFilesKept(of: reads.files, by: metadata.ingestion),
-                            stagedReadCounts: reads.readCounts(in: metadata.readClassification),
+                            metadata: metadata,
                             finalFASTQURL: fastqURL,
                             bundleURL: bundleURL,
                             platform: platformStr,
@@ -513,5 +507,60 @@ final class SRAWindowTransferCompletion: Sendable {
         }
         waiting?.resume(with: result)
         return first
+    }
+}
+
+extension SRAWindowStagedRun {
+    /// Writes the provenance of the bundle the window imported this run
+    /// into. The run gives its ENA record, transfer steps, source, source
+    /// setting, fallback line and layout warning, and the bundle's sidecar
+    /// gives the files it holds and the reads each held.
+    ///
+    /// The record names as staging inputs only the files the bundle holds,
+    /// the ones its sidecar names in `ingestion.originalFilenames`, so a run
+    /// whose third file the check left out names its pair alone
+    /// (f10-report.md, concern 2). The window and its tests call this one
+    /// function, so a test of the record tests the window's own call. A
+    /// test once repeated the call, and reverting the window's line left it
+    /// passing (re-review N2).
+    func writeImportProvenance(
+        accession: String,
+        toolkitDownloadTraces: [SRAService.FASTQDownloadStepTrace],
+        cliArguments: [String],
+        cliStartedAt: Date,
+        cliCompletedAt: Date,
+        metadata: PersistedFASTQMetadata,
+        finalFASTQURL: URL,
+        bundleURL: URL,
+        platform: String,
+        recipeName: String?,
+        qualityBinning: String,
+        optimizeStorage: Bool,
+        compressionLevel: String,
+        cliBinaryPath: () -> URL? = { CLIImportRunner.cliBinaryPath() }
+    ) throws {
+        try writeGUISRAFASTQImportProvenance(
+            accession: accession,
+            readRecord: download.enaRecord,
+            downloadSource: download.source.rawValue,
+            preferredSource: download.preference,
+            layoutWarning: layoutWarning,
+            fallbackMessage: download.fallbackMessage,
+            enaDownloadSteps: download.enaSteps,
+            toolkitDownloadTraces: toolkitDownloadTraces,
+            cliArguments: cliArguments,
+            cliStartedAt: cliStartedAt,
+            cliCompletedAt: cliCompletedAt,
+            stagedFASTQFiles: FASTQBatchImporter.inputFilesKept(of: reads.files, by: metadata.ingestion),
+            stagedReadCounts: reads.readCounts(in: metadata.readClassification),
+            finalFASTQURL: finalFASTQURL,
+            bundleURL: bundleURL,
+            platform: platform,
+            recipeName: recipeName,
+            qualityBinning: qualityBinning,
+            optimizeStorage: optimizeStorage,
+            compressionLevel: compressionLevel,
+            cliBinaryPath: cliBinaryPath
+        )
     }
 }
