@@ -105,11 +105,12 @@ extension FASTQBatchImporter {
     /// copy whose mates first meet later fails its sample with the file
     /// named, never stores a read twice.
     ///
-    /// The warning says what follows. When a mate file has no whole first
-    /// record the pair fails too, and the third file then imports on its own
-    /// (F10-N2). For any other reason the pair imports without the third
-    /// file, by position as a pair of files always does, and the third
-    /// file's sample is skipped once the pair's bundle exists (F11-S1).
+    /// The warning says what follows. The third file's sample is skipped
+    /// whatever the pair does, so the run's name never holds its reads whose
+    /// mate is missing alone (F11-S1, review B-S2). When a mate file has no
+    /// whole first record the pair fails too, and the warning never promises
+    /// that it imports (F10-N2). For any other reason the pair imports
+    /// without the third file, by position as a pair of files always does.
     ///
     /// `import fastq` runs this on the detected samples before it lists
     /// them, so a dry run prints the same warnings as an import.
@@ -132,10 +133,11 @@ extension FASTQBatchImporter {
             let outcome: String
             switch reason {
             case .pairFile:
-                outcome = "The pair and \(file) are imported as separate samples, as they were before the join."
+                outcome = "\(file) is a separate sample named \(sample.sampleName), which the import skips whether "
+                    + "or not the pair imports."
             case .pairImportsAlone:
                 outcome = "The pair imports without it, and \(file) is a separate sample named \(sample.sampleName), "
-                    + "which the import skips once the pair's bundle exists."
+                    + "which the import skips."
             }
             warnings.append(.notice(
                 sample: sample.sampleName,
@@ -200,13 +202,12 @@ extension FASTQBatchImporter {
     /// what follows for the pair.
     enum ReasonNotToJoin: Equatable {
         /// `<run>_1` or `<run>_2` has no whole first record. The pair fails
-        /// as well, and the third file then imports on its own.
+        /// as well, and the third file's own sample is skipped all the same.
         case pairFile(String)
         /// The pair's first reads are not named as mates, or the third file
         /// has no whole first record or looks like a copy of the pair. The
         /// pair imports without the third file, by position as a pair of
-        /// files always does, and the third file's own sample is skipped
-        /// once the pair's bundle exists.
+        /// files always does, and the third file's own sample is skipped.
         case pairImportsAlone(String)
 
         var text: String {
