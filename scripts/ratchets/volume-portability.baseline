@@ -1,0 +1,5 @@
+# volume-portability baseline: counts under Sources/. Counts may only fall.
+exclusive-or-swap-rename 52
+clonefile 1
+hard-link 1
+mkfifo 0

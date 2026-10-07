@@ -12,7 +12,7 @@
 #     every bundled Python resource script under Sources/*/Resources
 #     (scripts/checks/compile-embedded-python.py), then
 #     runs the architecture-program ratchets and checks (file-size,
-#     concurrency-hatches, source-text-assertions, cli-parity-gaps, doc-path-references,
+#     concurrency-hatches, volume-portability, source-text-assertions, cli-parity-gaps, doc-path-references,
 #     module-map-current, features-yaml-sources, duplicate-public-types; docs/plans/2026-10-02-architecture-program.md), then
 #     checks that no plan, spec, issue or verification note under docs/ looks finished or
 #     stale (scripts/checks/working-memory-staleness.py, finding R5), then
@@ -138,6 +138,12 @@ fi
 echo "pre-push: checking the concurrency-hatches ratchet (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/ratchets/concurrency-hatches.sh"; then
     echo "pre-push: concurrency-hatches ratchet FAILED (more assumeIsolated, @unchecked Sendable or nonisolated(unsafe); see docs/contracts/CONCURRENCY-PLAYBOOK.md) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
+echo "pre-push: checking the volume-portability ratchet (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/ratchets/volume-portability.sh"; then
+    echo "pre-push: volume-portability ratchet FAILED (a new call that fails with ENOTSUP on ExFAT; see docs/contracts/EXTERNAL-VOLUMES.md) — push aborted. Use --no-verify to bypass." >&2
     exit 1
 fi
 
