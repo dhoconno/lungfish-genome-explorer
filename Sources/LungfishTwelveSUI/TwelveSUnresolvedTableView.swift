@@ -22,10 +22,19 @@ final class TwelveSUnresolvedTableView: BatchTableView<TwelveSUnresolvedSequence
         rowAccessibilityActionsProvider?(row, cellView) ?? []
     }
 
+    /// The unit the count column names, fragments when the result read
+    /// unmerged pairs (review B, N1).
+    var countUnit: TwelveSCountUnit = .reads {
+        didSet { if countUnit != oldValue { applyColumnSpecTitles() } }
+    }
+
     override var columnSpecs: [BatchColumnSpec] {
         [
             .init(identifier: .init("sequenceID"), title: "Sequence", width: 130, minWidth: 80, defaultAscending: true),
-            .init(identifier: .init("readCount"), title: "Reads", width: 70, minWidth: 60, defaultAscending: false),
+            .init(
+                identifier: .init("readCount"), title: countUnit.title, width: 70, minWidth: 60,
+                defaultAscending: false, toolTip: countUnit.columnHelp
+            ),
             .init(identifier: .init("sampleCount"), title: "Samples", width: 75, minWidth: 60, defaultAscending: false),
             .init(identifier: .init("chimeraStatus"), title: "Chimera", width: 110, minWidth: 70, defaultAscending: true),
             .init(identifier: .init("sequence"), title: "Bases", width: 360, minWidth: 120, defaultAscending: true),

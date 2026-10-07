@@ -247,6 +247,7 @@ final class TwelveSAmpliconResultBundleTests: XCTestCase {
         XCTAssertEqual(result.samples.map(\.discordantPairs), [0, 0])
         XCTAssertEqual(result.readFate.discordantPairs, 0)
         XCTAssertEqual(result.readFate.discordantPairsByReason, [:])
+        XCTAssertEqual(result.readFate.pairedFragments, 0, "an older result keeps its counts named in reads")
     }
 
     func testLoadsDiscordantPairsFromTheSampleTableAndTheReadFate() throws {
@@ -264,7 +265,8 @@ final class TwelveSAmpliconResultBundleTests: XCTestCase {
           "ambiguousExactReads": 0,
           "chimeraCandidateReads": 1,
           "discordantPairs": 3,
-          "discordantPairsByReason": {"different_targets": 2, "one_mate_unresolved": 1}
+          "discordantPairsByReason": {"different_targets": 2, "one_mate_unresolved": 1},
+          "pairedFragments": 7
         }
         """.write(to: bundleURL.appendingPathComponent("read-fate.json"), atomically: true, encoding: .utf8)
 
@@ -273,6 +275,7 @@ final class TwelveSAmpliconResultBundleTests: XCTestCase {
         XCTAssertEqual(result.samples.map(\.discordantPairs), [3, 0])
         XCTAssertEqual(result.readFate.discordantPairs, 3)
         XCTAssertEqual(result.readFate.discordantPairsByReason, ["different_targets": 2, "one_mate_unresolved": 1])
+        XCTAssertEqual(result.readFate.pairedFragments, 7)
     }
 
     private func makeSyntheticBundle() throws -> URL {

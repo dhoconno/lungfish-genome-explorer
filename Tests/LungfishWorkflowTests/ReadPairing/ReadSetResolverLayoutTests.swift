@@ -480,4 +480,223 @@ final class ReadSetResolverLayoutTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: workDirectory.path))
     }
+
+    // MARK: - Named inputs (Phase 2.1 round F4, review A S1)
+
+    private func plan(named url: URL, progress: (@Sendable (String) -> Void)? = nil) async throws -> ReadSetPlan {
+        try await resolver.plan(for: ReadSetNamedInput(url), capability: .bothInOneRunAsSeparateFiles, progress: progress)
+    }
+
+    /// A bundle and a file outside every bundle are read as named, a file
+    /// inside a bundle as that file alone, and the preview of a virtual
+    /// bundle, a few reads of the sample, as its bundle.
+    func testANamedInputIsReadWhereItLies() throws {
+        let merged = fixtures.mergeDerivative.appendingPathComponent("merged.fastq")
+        let missing = fixtures.mergeDerivative.appendingPathComponent("not-there.fastq")
+        let preview = fixtures.subsetOfMerge.appendingPathComponent("preview.fastq")
+        let loose = root.appendingPathComponent("loose.fastq")
+        try ReadSetFixtures.fastq(["l1"]).write(to: loose, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(ReadSetNamedInput(fixtures.mergeDerivative), .asNamed(fixtures.mergeDerivative.standardizedFileURL))
+        XCTAssertEqual(ReadSetNamedInput(loose), .asNamed(loose.standardizedFileURL))
+        XCTAssertEqual(ReadSetNamedInput(merged), .fileAlone(merged.standardizedFileURL))
+        XCTAssertEqual(
+            ReadSetNamedInput(missing), .fileAlone(missing.standardizedFileURL),
+            "a missing file inside a bundle never stands for the whole bundle"
+        )
+        guard case let .previewOf(bundleURL, previewURL) = ReadSetNamedInput(preview) else {
+            return XCTFail("the preview of a virtual bundle stands for its bundle")
+        }
+        XCTAssertEqual(bundleURL.standardizedFileURL.path, fixtures.subsetOfMerge.standardizedFileURL.path)
+        XCTAssertEqual(previewURL, preview.standardizedFileURL)
+        XCTAssertEqual(
+            ReadSetNamedInput(preview).note,
+            "preview.fastq is the preview of the virtual bundle merge-subset.lungfishfastq, not its reads. Reading the bundle instead."
+        )
+        XCTAssertNil(ReadSetNamedInput(merged).note)
+    }
+
+    /// The merged file of a merge derivative, named alone, is its merged
+    /// reads and none of the pairs beside it, with no step. The bundle's
+    /// merge lineage and paired mode describe the bundle, not one of its
+    /// files, so they do not make the file a mixed stream. Naming the bundle
+    /// still plans every role.
+    func testAFileNamedInsideAMergeDerivativeIsPlannedAlone() async throws {
+        let merged = fixtures.mergeDerivative.appendingPathComponent("merged.fastq")
+
+        let mergedPlan = try await plan(named: merged)
+
+        XCTAssertEqual(mergedPlan.sourceLayout, .singleEndFile, mergedPlan.layoutReason)
+        XCTAssertEqual(mergedPlan.inputURL, merged.standardizedFileURL)
+        XCTAssertTrue(mergedPlan.matePairs.isEmpty)
+        XCTAssertEqual(mergedPlan.singleReads.map(\.url), [merged.standardizedFileURL], "the file is read in place")
+        XCTAssertEqual(try names(XCTUnwrap(mergedPlan.singleReads.first).url), ["x1", "x2", "x3"])
+        XCTAssertTrue(mergedPlan.steps.isEmpty)
+        XCTAssertTrue(mergedPlan.recordsNothingNew)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workDirectory.path), "nothing was written")
+
+        let r1 = fixtures.pairedDerivative.appendingPathComponent("sample_R1.fastq")
+        let r1Plan = try await plan(named: r1)
+        XCTAssertEqual(r1Plan.sourceLayout, .singleEndFile, r1Plan.layoutReason)
+        XCTAssertEqual(try names(XCTUnwrap(r1Plan.singleReads.first).url), ["p1/1", "p2/1"])
+        XCTAssertTrue(r1Plan.steps.isEmpty)
+
+        let bundlePlan = try await plan(named: fixtures.mergeDerivative)
+        XCTAssertEqual(bundlePlan.sourceLayout, .mixedDerivative)
+        XCTAssertEqual(bundlePlan.matePairs.count, 1)
+    }
+
+    /// A file named inside a bundle is planned as a copy of it beside its own
+    /// sidecar, outside every bundle, is planned. Its sidecar still counts,
+    /// so an explicit single-end choice holds and a recorded merge keeps a
+    /// file mixed. Only its place in the bundle is ignored. This also keeps
+    /// the resolver's reading of a file alone in step with the LungfishIO
+    /// rules for a file outside every bundle.
+    func testAFileNamedInsideABundleIsPlannedAsItsCopyOutsideEveryBundleWouldBe() async throws {
+        let explicitSingle = try bundle("explicit-single").appendingPathComponent("reads.fastq")
+        try ReadSetFixtures.fastq(["e1/1", "e1/2", "e2/1", "e2/2"]).write(to: explicitSingle, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: .singleEnd, pairingSource: .explicit)),
+            for: explicitSingle
+        )
+        // Mates in the file, but R1 and R2 counts in its sidecar that differ.
+        let unmatchedCounts = try bundle("unmatched-counts").appendingPathComponent("reads.fastq")
+        try ReadSetFixtures.fastq(["c1/1", "c1/2", "c2/1", "c2/2"]).write(to: unmatchedCounts, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(readClassification: ReadClassification(files: [
+                .init(filename: "reads.fastq", role: .pairedR1, readCount: 2),
+                .init(filename: "reads.fastq", role: .pairedR2, readCount: 1),
+            ])),
+            for: unmatchedCounts
+        )
+        // A merge recipe, outranked by the sidecar's count of only pairs.
+        let countedPairs = try bundle("counted-pairs").appendingPathComponent("reads.fastq")
+        try ReadSetFixtures.fastq(["d1/1", "d1/2", "d2/1", "d2/2"]).write(to: countedPairs, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(
+                ingestion: IngestionMetadata(
+                    pairingMode: .interleaved,
+                    pairingSource: .detected,
+                    recipeApplied: RecipeAppliedInfo(
+                        recipeID: "vsp2",
+                        recipeName: "VSP2",
+                        stepResults: [RecipeStepResult(stepName: "Merge pairs", tool: "bbmerge", durationSeconds: 1)]
+                    )
+                ),
+                readClassification: ReadClassification(files: [
+                    .init(filename: "reads.fastq", role: .pairedR1, readCount: 2),
+                    .init(filename: "reads.fastq", role: .pairedR2, readCount: 2),
+                ])
+            ),
+            for: countedPairs
+        )
+        // A merge recipe and no count, which a scan of the whole file outranks.
+        let recipeOnly = try bundle("recipe-only").appendingPathComponent("reads.fastq")
+        try ReadSetFixtures.fastq(["g1/1", "g1/2"]).write(to: recipeOnly, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(
+                pairingMode: .interleaved,
+                recipeApplied: RecipeAppliedInfo(
+                    recipeID: "vsp2",
+                    recipeName: "VSP2",
+                    stepResults: [RecipeStepResult(stepName: "Merge pairs", tool: "bbmerge", durationSeconds: 1)]
+                )
+            )),
+            for: recipeOnly
+        )
+        let members = [
+            fixtures.mergeDerivative.appendingPathComponent("merged.fastq"),
+            fixtures.mergeDerivative.appendingPathComponent("unmerged_R2.fastq"),
+            fixtures.pairedDerivative.appendingPathComponent("sample_R1.fastq"),
+            fixtures.mixedRoot.appendingPathComponent("reads.fastq"),
+            fixtures.interleavedRoot.appendingPathComponent("reads.fastq"),
+            fixtures.fullMergeOutput.appendingPathComponent("reads.fastq"),
+            fixtures.fastaDerivative.appendingPathComponent("converted.fasta"),
+            explicitSingle,
+            unmatchedCounts,
+            countedPairs,
+            recipeOnly,
+        ]
+
+        for (index, member) in members.enumerated() {
+            let label = member.deletingLastPathComponent().lastPathComponent + "/" + member.lastPathComponent
+            let copy = try looseCopy(of: member, index: index)
+
+            let alone = try await plan(named: member)
+            let loose = try await plan(copy)
+
+            XCTAssertEqual(alone.sourceLayout, loose.sourceLayout, label)
+            XCTAssertEqual(alone.layoutReason, loose.layoutReason, label)
+            XCTAssertEqual(alone.composition, loose.composition, label)
+            XCTAssertEqual(alone.sampleHoldsPairsAndSingleReads, loose.sampleHoldsPairsAndSingleReads, label)
+            XCTAssertEqual(alone.matePairs.count, loose.matePairs.count, label)
+            XCTAssertEqual(alone.singleReads.map(\.role), loose.singleReads.map(\.role), label)
+            XCTAssertEqual(alone.steps.map(\.pairCount), loose.steps.map(\.pairCount), label)
+            XCTAssertEqual(alone.steps.map(\.singleReadCount), loose.steps.map(\.singleReadCount), label)
+            XCTAssertEqual(alone.inputURL, member.standardizedFileURL, label)
+            XCTAssertEqual(alone.steps.flatMap(\.inputURLs), alone.steps.isEmpty ? [] : [member.standardizedFileURL], label)
+        }
+        let explicitPlan = try await plan(named: explicitSingle)
+        XCTAssertEqual(explicitPlan.sourceLayout, .singleEndFile, "the explicit single-end choice in the file's own sidecar holds")
+        let countedPlan = try await plan(named: countedPairs)
+        XCTAssertEqual(countedPlan.sourceLayout, .interleavedFile, "the sidecar's count of only pairs outranks the recipe")
+        let recipePlan = try await plan(named: recipeOnly)
+        XCTAssertEqual(recipePlan.sourceLayout, .interleavedFile, "a scan of the whole file outranks the recipe")
+        XCTAssertTrue(recipePlan.layoutReason.contains("recipe VSP2 merges overlapping pairs"), recipePlan.layoutReason)
+    }
+
+    /// The preview of a virtual bundle is planned as its bundle, materialized,
+    /// with the note the FASTQ subcommands and TaxTriage print.
+    func testThePreviewOfAVirtualBundleIsPlannedAsItsBundleWithANote() async throws {
+        let preview = fixtures.subsetOfMerge.appendingPathComponent("preview.fastq")
+        let notes = NoteRecorder()
+
+        let previewPlan = try await plan(named: preview) { notes.append($0) }
+
+        XCTAssertTrue(previewPlan.wasMaterialized)
+        XCTAssertEqual(previewPlan.inputURL.path, fixtures.subsetOfMerge.standardizedFileURL.path)
+        XCTAssertEqual(previewPlan.matePairs.count, 1, "the bundle's pair u1, not the preview's one read")
+        XCTAssertEqual(previewPlan.composition.pairedFragments, 1)
+        XCTAssertEqual(
+            notes.values.first,
+            "preview.fastq is the preview of the virtual bundle merge-subset.lungfishfastq, not its reads. Reading the bundle instead."
+        )
+    }
+
+    private func bundle(_ name: String) throws -> URL {
+        let url = fixtures.importsURL.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// A copy of `file`, and of its sidecar when it has one, in a folder
+    /// outside every bundle.
+    private func looseCopy(of file: URL, index: Int) throws -> URL {
+        let folder = root.appendingPathComponent("loose-copies/\(index)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let copy = folder.appendingPathComponent(file.lastPathComponent)
+        try FileManager.default.copyItem(at: file, to: copy)
+        let sidecar = FASTQMetadataStore.metadataURL(for: file)
+        if FileManager.default.fileExists(atPath: sidecar.path) {
+            try FileManager.default.copyItem(at: sidecar, to: FASTQMetadataStore.metadataURL(for: copy))
+        }
+        return copy
+    }
+}
+
+private final class NoteRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    func append(_ note: String) {
+        lock.lock()
+        recorded.append(note)
+        lock.unlock()
+    }
+
+    var values: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
 }

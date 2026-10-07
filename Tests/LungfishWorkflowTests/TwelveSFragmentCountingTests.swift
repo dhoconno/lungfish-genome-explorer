@@ -201,6 +201,26 @@ final class TwelveSFragmentCountingTests: XCTestCase {
         loaded.scientificNameRows.first { $0.scientificName == species }?.count(forSample: sample)
     }
 
+    /// `read-fate.json` as written, so a key the models do not read yet is seen.
+    private func readFateJSON(_ loaded: TwelveSAmpliconResultBundleData) throws -> [String: Any] {
+        let data = try Data(contentsOf: loaded.artifacts.readFateURL)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// The `readSetPlans` entry the run recorded for `input`.
+    private func recordedPlan(for input: URL, in loaded: TwelveSAmpliconResultBundleData) throws -> [String: ParameterValue] {
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: loaded.bundleURL))
+        guard case let .array(plans)? = provenance.options.resolvedDefaults["readSetPlans"] else {
+            return try XCTUnwrap(nil, "the run recorded no read-set plans")
+        }
+        for case let .dictionary(plan) in plans {
+            if case let .file(url)? = plan["input"], url.standardizedFileURL.path == input.standardizedFileURL.path {
+                return plan
+            }
+        }
+        return try XCTUnwrap(nil, "no plan recorded for \(input.lastPathComponent)")
+    }
+
     // MARK: - Tests
 
     func testMergeDerivativeCountsEachFragmentOnce() async throws {
@@ -228,6 +248,10 @@ final class TwelveSFragmentCountingTests: XCTestCase {
         )
         XCTAssertEqual(loaded.readFate.discordantPairs, 2)
         XCTAssertEqual(loaded.readFate.discordantPairsByReason, ["different_targets": 1, "one_mate_unresolved": 1])
+        XCTAssertEqual(
+            try readFateJSON(loaded)["pairedFragments"] as? Int, 4,
+            "the read fate records the pairs read, so the viewport can name its counts fragments (review B, N1)"
+        )
 
         XCTAssertEqual(
             Set(loaded.unresolvedSequences.map(\.sequence)),
@@ -358,17 +382,24 @@ final class TwelveSFragmentCountingTests: XCTestCase {
         }
     }
 
-    func testMateNameMismatchIsRefused() async throws {
+    /// Mates whose names carry mate numbers that say they are not one
+    /// fragment show R1 and R2 files out of step, the only names the owner's
+    /// N2 rule refuses (`FASTQPairInterleaver.recordedMates`). Names with no
+    /// mate number are paired by position instead (review A, S2).
+    func testMateNumbersThatContradictAreRefused() async throws {
         let bundleURL = try writeMergeDerivative(
-            named: "Misnamed",
-            r2Records: Self.pairs.map { Self.record("other-\($0.name)", $0.r2) }.joined()
+            named: "Misnumbered",
+            r1Records: Self.pairs.map { Self.record("\($0.name)/1", $0.r1) }.joined(),
+            r2Records: Self.pairs.reversed().map { Self.record("\($0.name)/2", $0.r2) }.joined()
         )
 
         do {
-            _ = try await run([bundleURL], outputName: "misnamed-12s")
-            XCTFail("mates whose names do not match must stop the run")
+            _ = try await run([bundleURL], outputName: "misnumbered-12s")
+            XCTFail("mates whose mate numbers contradict must stop the run")
         } catch let error as TwelveSAmpliconMatchingError {
             guard case let .mateMismatch(detail) = error else { return XCTFail("unexpected error \(error)") }
+            XCTAssertTrue(detail.contains("p1/1"), detail)
+            XCTAssertTrue(detail.contains("p4/2"), detail)
             XCTAssertTrue(detail.contains("same fragments in the same order"), detail)
         }
     }
@@ -380,10 +411,12 @@ final class TwelveSFragmentCountingTests: XCTestCase {
         _ = try await run([bundleURL], outputName: "progress-12s") { _, message in recorder.append(message) }
 
         let line = try XCTUnwrap(recorder.messages().first { $0.hasPrefix("Counted 8 fragments") })
-        XCTAssertTrue(line.contains("4 merged or single reads and 4 pairs"), line)
-        XCTAssertTrue(line.contains("Left out 2 discordant pairs"), line)
-        XCTAssertTrue(line.contains("1 different targets"), line)
-        XCTAssertTrue(line.contains("1 one mate unresolved"), line)
+        XCTAssertEqual(
+            line,
+            "Counted 8 fragments, 4 merged or single reads and 4 pairs. "
+                + "Left out 2 discordant pairs (1 pair with different targets, 1 pair with one mate unresolved).",
+            "each reason names its pairs (review B, N1)"
+        )
     }
 
     func testLooseMergedFileStaysOneReadPerRecord() async throws {
@@ -401,6 +434,202 @@ final class TwelveSFragmentCountingTests: XCTestCase {
         XCTAssertNil(provenance.options.resolvedDefaults["readSetPlans"], "a sample of single reads records nothing new")
         XCTAssertNil(provenance.options.resolvedDefaults["fragmentCounts"])
         XCTAssertFalse(provenance.steps.contains { $0.toolName.hasPrefix("Lungfish Read-Set") })
+        XCTAssertEqual(try readFateJSON(loaded)["pairedFragments"] as? Int, 0, "a run of merged reads read no pair")
+    }
+
+    // MARK: - Review fixes (Phase 2.1 round F4)
+
+    /// Review A, S1. A file named inside a bundle is read as that file alone,
+    /// as the FASTQ subcommands and TaxTriage read it, so naming the merged
+    /// file of a merge derivative counts its merged reads and none of the
+    /// pairs beside it. Naming the bundle still counts every fragment.
+    func testNamingTheMergedFileOfABundleCountsThatFileAlone() async throws {
+        let bundleURL = try writeMergeDerivative()
+        let mergedURL = bundleURL.appendingPathComponent("merged.fastq")
+
+        let loaded = try await run([bundleURL, mergedURL], outputName: "named-file-12s")
+
+        let merged = try XCTUnwrap(loaded.samples.first { $0.sampleID == "merged" })
+        XCTAssertEqual(merged.inputReads, 4, "the four merged reads and none of the unmerged pairs")
+        XCTAssertEqual(merged.exactMatchReads, 3)
+        XCTAssertEqual(merged.unresolvedReads, 1)
+        XCTAssertEqual(merged.discordantPairs, 0)
+        XCTAssertEqual(count(loaded, "Homo sapiens", sample: "merged"), 2)
+        XCTAssertEqual(count(loaded, "Canis lupus familiaris", sample: "merged"), 1)
+
+        let whole = try XCTUnwrap(loaded.samples.first { $0.sampleID == "SampleA" })
+        XCTAssertEqual(whole.inputReads, 8, "the bundle is still four merged reads and four pairs")
+        XCTAssertEqual(whole.exactMatchReads, 4)
+        XCTAssertEqual(whole.discordantPairs, 2)
+        XCTAssertEqual(count(loaded, "Homo sapiens", sample: "SampleA"), 3)
+
+        XCTAssertEqual(try recordedPlan(for: mergedURL, in: loaded)["sourceLayout"], .string("single_end_file"))
+        XCTAssertEqual(try recordedPlan(for: bundleURL, in: loaded)["sourceLayout"], .string("mixed_derivative"))
+        let provenanceText = try String(contentsOf: loaded.artifacts.provenanceURL, encoding: .utf8)
+        XCTAssertFalse(provenanceText.contains("lungfish-12s-named-input"), "no record names a link the run made")
+    }
+
+    /// Review A, S1. A bundle and a loose file are planned as named, a file
+    /// inside a bundle as that file alone, and the preview of a virtual
+    /// bundle, a few reads of the sample, as its bundle (the rule of
+    /// `TaxTriageReadSetPlanner.bundleToPlan`).
+    func testANamedInputIsPlannedByWhereItLies() throws {
+        let merge = try writeMergeDerivative()
+        let subset = try bundle("Subset")
+        try Self.fastq(Self.merged)
+            .write(to: subset.appendingPathComponent("preview.fastq"), atomically: true, encoding: .utf8)
+        try saveDerivedManifest(
+            in: subset, payload: .subset(readIDListFilename: "read-ids.txt"), kind: .subsampleCount, pairing: .singleEnd
+        )
+        let loose = root.appendingPathComponent("loose.fastq")
+        try Self.fastq(Self.merged).write(to: loose, atomically: true, encoding: .utf8)
+        let merged = merge.appendingPathComponent("merged.fastq")
+        let preview = subset.appendingPathComponent("preview.fastq")
+
+        XCTAssertEqual(ReadSetNamedInput(merge), .asNamed(merge.standardizedFileURL))
+        XCTAssertEqual(ReadSetNamedInput(loose), .asNamed(loose.standardizedFileURL))
+        XCTAssertEqual(ReadSetNamedInput(merged), .fileAlone(merged.standardizedFileURL))
+        XCTAssertEqual(
+            ReadSetNamedInput(merge.appendingPathComponent("unmerged_R2.fastq")),
+            .fileAlone(merge.appendingPathComponent("unmerged_R2.fastq").standardizedFileURL)
+        )
+        guard case let .previewOf(bundleURL, previewURL) = ReadSetNamedInput(preview) else {
+            return XCTFail("the preview of a virtual bundle names its bundle")
+        }
+        XCTAssertEqual(bundleURL.standardizedFileURL.path, subset.standardizedFileURL.path)
+        XCTAssertEqual(previewURL, preview.standardizedFileURL)
+    }
+
+    /// Review A, S1. The one file of a root that mixes merged reads and
+    /// pairs, named inside its bundle, is split by name as that file, and
+    /// the split step names the file itself.
+    func testNamingTheFileOfAMixedRootSplitsThatFile() async throws {
+        let fileURL = try writeMixedRoot().appendingPathComponent("reads.fastq")
+
+        let loaded = try await run([fileURL], outputName: "named-mixed-12s")
+
+        let sample = try XCTUnwrap(loaded.samples.first { $0.sampleID == "reads" })
+        XCTAssertEqual(sample.inputReads, 8)
+        XCTAssertEqual(sample.exactMatchReads, 4)
+        XCTAssertEqual(sample.unresolvedReads, 2)
+        XCTAssertEqual(sample.discordantPairs, 2)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: loaded.bundleURL))
+        let split = try XCTUnwrap(provenance.steps.first { $0.toolName == "Lungfish Read-Set Split" })
+        XCTAssertEqual(split.inputs.map(\.path), [fileURL.path])
+        XCTAssertTrue(split.argv.contains(fileURL.path), "\(split.argv)")
+        let provenanceText = try String(contentsOf: loaded.artifacts.provenanceURL, encoding: .utf8)
+        XCTAssertFalse(provenanceText.contains("lungfish-12s-named-input"), "no record names a link the run made")
+    }
+
+    /// Review A, S2. Mates of a recorded pair named `x.1` and `x.2`, or
+    /// `x_1` and `x_2`, as legacy merge bundles name them, are the two mates
+    /// of one fragment, as the materializer, Kraken2 and the assemblers read
+    /// them (`FASTQPairInterleaver.recordedMates`).
+    func testRecordedMatesNumberedWithDotsOrUnderscoresAreCounted() async throws {
+        let dotted = try writeMergeDerivative(
+            named: "Dotted",
+            r1Records: Self.pairs.enumerated().map { Self.record("SRR1.\($0.offset + 1).1", $0.element.r1) }.joined(),
+            r2Records: Self.pairs.enumerated().map { Self.record("SRR1.\($0.offset + 1).2", $0.element.r2) }.joined()
+        )
+        let underscored = try writeMergeDerivative(
+            named: "Underscored",
+            r1Records: Self.pairs.map { Self.record("\($0.name)_1", $0.r1) }.joined(),
+            r2Records: Self.pairs.map { Self.record("\($0.name)_2", $0.r2) }.joined()
+        )
+
+        let loaded = try await run([dotted, underscored], outputName: "numbered-12s")
+
+        for sampleID in ["Dotted", "Underscored"] {
+            let sample = try XCTUnwrap(loaded.samples.first { $0.sampleID == sampleID }, sampleID)
+            XCTAssertEqual(sample.inputReads, 8, sampleID)
+            XCTAssertEqual(sample.exactMatchReads, 4, sampleID)
+            XCTAssertEqual(sample.unresolvedReads, 2, sampleID)
+            XCTAssertEqual(sample.discordantPairs, 2, sampleID)
+            XCTAssertEqual(count(loaded, "Homo sapiens", sample: sampleID), 3, sampleID)
+        }
+    }
+
+    /// Review A, S2. Mates whose names carry no mate number are paired by
+    /// position, as the materializer pairs them, with the same warning.
+    func testRecordedMatesWithoutMateNumbersArePairedByPositionWithAWarning() async throws {
+        let bundleURL = try writeMergeDerivative(
+            named: "Unmarked",
+            r1Records: Self.pairs.map { Self.record("left-\($0.name)", $0.r1) }.joined(),
+            r2Records: Self.pairs.map { Self.record("right-\($0.name)", $0.r2) }.joined()
+        )
+        let recorder = FragmentProgressRecorder()
+
+        let loaded = try await run([bundleURL], outputName: "unmarked-12s") { _, message in recorder.append(message) }
+
+        let sample = try XCTUnwrap(loaded.samples.first { $0.sampleID == "Unmarked" })
+        XCTAssertEqual(sample.inputReads, 8)
+        XCTAssertEqual(sample.discordantPairs, 2)
+        XCTAssertEqual(count(loaded, "Homo sapiens", sample: "Unmarked"), 3)
+        let warning = try XCTUnwrap(recorder.messages().first { $0.contains("paired by position") })
+        XCTAssertEqual(
+            warning,
+            "Warning: 4 of the 4 record pairs of unmerged_R1.fastq and unmerged_R2.fastq carry no mate number "
+                + "in their names, the first being 'left-p1' and 'right-p1', so they were paired by position."
+        )
+    }
+
+    /// Review A, N2. The split runs in process and its files live in the
+    /// scratch folder the run removes, so its step keeps the argv that
+    /// describes it and records no durable replay, as the Kraken2 read-set
+    /// steps do.
+    func testReadSetSplitStepRecordsNoDurableReplay() async throws {
+        let loaded = try await run([try writeMixedRoot()], outputName: "mixed-replay-12s")
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: loaded.bundleURL))
+        let split = try XCTUnwrap(provenance.steps.first { $0.toolName == "Lungfish Read-Set Split" })
+        XCTAssertEqual(Array(split.argv.prefix(2)), ["Lungfish Read-Set Split", "split_by_name"])
+        XCTAssertNil(split.durableReplayArgv, "the step is not a command, and its files are gone after the run")
+        XCTAssertEqual(split.reproducibleCommand, split.argv.map(shellEscape).joined(separator: " "))
+    }
+
+    /// Review A, N5. An orphan R2, a single read whose name marks it as mate
+    /// 2 (`/2` or a Casava ` 2:` comment), is the reverse strand of its
+    /// fragment, so it is read as its reverse complement, as the R2 of a pair
+    /// is. An orphan R1, an orphan with no mate mark and a merged read are
+    /// read as sequenced.
+    func testOrphanR2IsReadAsItsReverseComplement() async throws {
+        let url = try bundle("Repaired")
+        let humanForward = "TTACCTTGACGG"
+        let humanReverse = "CCGTCAAGGTAA"
+        try Self.record("m9/2", humanForward)
+            .write(to: url.appendingPathComponent("merged.fastq"), atomically: true, encoding: .utf8)
+        try Self.record("p1", Self.pairs[0].r1)
+            .write(to: url.appendingPathComponent("unmerged_R1.fastq"), atomically: true, encoding: .utf8)
+        try Self.record("p1", Self.pairs[0].r2)
+            .write(to: url.appendingPathComponent("unmerged_R2.fastq"), atomically: true, encoding: .utf8)
+        try (Self.record("o1/2", humanReverse)
+            + Self.record("o2 2:N:0:1", humanReverse)
+            + Self.record("o3/1", humanForward)
+            + Self.record("o4", humanReverse))
+            .write(to: url.appendingPathComponent("orphans.fastq"), atomically: true, encoding: .utf8)
+        let classification = ReadClassification(files: [
+            .init(filename: "merged.fastq", role: .merged, readCount: 1),
+            .init(filename: "unmerged_R1.fastq", role: .pairedR1, readCount: 1),
+            .init(filename: "unmerged_R2.fastq", role: .pairedR2, readCount: 1),
+            .init(filename: "orphans.fastq", role: .unpaired, readCount: 4),
+        ])
+        try saveDerivedManifest(
+            in: url, payload: .fullMixed(classification), kind: .pairedEndMerge, pairing: .pairedEnd,
+            classification: classification
+        )
+
+        let loaded = try await run([url], outputName: "orphans-12s")
+
+        let sample = try XCTUnwrap(loaded.samples.first { $0.sampleID == "Repaired" })
+        XCTAssertEqual(sample.inputReads, 6, "one pair, one merged read and four orphans")
+        XCTAssertEqual(
+            count(loaded, "Homo sapiens", sample: "Repaired"), 5,
+            "the pair, the merged read, the two orphan R2 reads and the orphan R1"
+        )
+        XCTAssertEqual(sample.exactMatchReads, 5)
+        XCTAssertEqual(sample.unresolvedReads, 1, "the orphan without a mate mark is read as sequenced")
+        XCTAssertEqual(loaded.unresolvedSequences.map(\.sequence), [humanReverse])
+        XCTAssertEqual(sample.discordantPairs, 0)
     }
 }
 

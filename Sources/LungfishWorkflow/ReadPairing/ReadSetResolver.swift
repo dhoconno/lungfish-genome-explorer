@@ -32,6 +32,10 @@ import LungfishIO
 ///   counts decide, so a subset of a merge or repair derivative that holds
 ///   pairs and single reads is mixed, one that holds only pairs is an
 ///   interleaved pair, and one that holds no pair is single reads.
+/// - A file named inside a bundle, planned through ``ReadSetNamedInput``, is
+///   that file alone, scanned with its own sidecar and none of its bundle's
+///   metadata, as a copy of it outside every bundle would be. The preview of
+///   a virtual bundle stands for its bundle.
 ///
 /// A tool that takes pairs and single reads as separate files gets a mixed
 /// stream split by fragment name. A tool that takes one stream gets
@@ -319,13 +323,16 @@ public struct ReadSetResolver: Sendable {
 
     /// One file, scanned for its layout. `hints` replaces the metadata the
     /// file's own bundle gives, for a file materialized away from it.
-    /// `roleEvidence` says what the reads without a mate are.
-    private func inspectFile(
+    /// `roleEvidence` says what the reads without a mate are. A file read
+    /// `alone` takes the metadata of its own sidecar and none of the bundle
+    /// it lies in (``layoutOfFileAlone(_:)``).
+    func inspectFile(
         _ fileURL: URL,
         platform: SequencingPlatform?,
         hints: FASTQPairingMetadataHints?,
         roleEvidence: ReadClassification?,
-        wasMaterialized: Bool
+        wasMaterialized: Bool,
+        alone: Bool = false
     ) throws -> ReadSetSource {
         let file = fileURL.standardizedFileURL
         if SequenceFormat.from(url: file) == .fasta {
@@ -360,6 +367,8 @@ public struct ReadSetResolver: Sendable {
                 classification: classification,
                 reason: classification.reason
             )
+        } else if alone {
+            resolution = Self.layoutOfFileAlone(file)
         } else {
             resolution = FASTQInputLayoutResolver.resolve(inputURLs: [file])
         }

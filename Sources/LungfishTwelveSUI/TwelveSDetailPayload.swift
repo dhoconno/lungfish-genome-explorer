@@ -81,9 +81,17 @@ public struct TwelveSDetailPayload: Equatable, Sendable {
     }
 
     public let kind: Kind
+    /// The unit of the counts, fragments when the result read unmerged pairs.
+    public private(set) var countUnit: TwelveSCountUnit = .reads
 
-    public init(kind: Kind) {
+    public init(kind: Kind, countUnit: TwelveSCountUnit = .reads) {
         self.kind = kind
+        self.countUnit = countUnit
+    }
+
+    /// The same detail with its counts named in `unit`.
+    public func counting(in unit: TwelveSCountUnit) -> TwelveSDetailPayload {
+        TwelveSDetailPayload(kind: kind, countUnit: unit)
     }
 
     /// Builds a target payload from a row plus a sample-ID → display-name map.

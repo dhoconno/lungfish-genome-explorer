@@ -12,7 +12,8 @@ enum TwelveSFixtures {
     static func twoSampleResult(
         referenceURL: URL? = nil,
         discordantPairs: Int = 0,
-        discordantPairsByReason: [String: Int] = [:]
+        discordantPairsByReason: [String: Int] = [:],
+        pairedFragments: Int = 0
     ) -> TwelveSAmpliconResultBundleData {
         let bundleURL = URL(fileURLWithPath: "/tmp/fixture.lungfish12s")
         let manifest = TwelveSAmpliconResultBundleManifest(
@@ -86,7 +87,8 @@ enum TwelveSFixtures {
                 ambiguousExactReads: 0,
                 chimeraCandidateReads: 3,
                 discordantPairs: discordantPairs,
-                discordantPairsByReason: discordantPairsByReason
+                discordantPairsByReason: discordantPairsByReason,
+                pairedFragments: pairedFragments
             ),
             unresolvedSequences: [
                 TwelveSUnresolvedSequence(

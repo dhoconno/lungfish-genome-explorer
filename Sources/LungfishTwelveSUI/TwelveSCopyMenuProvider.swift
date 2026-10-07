@@ -27,12 +27,15 @@ public enum TwelveSCopyFormatting {
         sequences.map { ">\($0.targetID)\n\($0.sequence)" }.joined(separator: "\n")
     }
 
-    static let targetHeader = [
-        "Sample", "Scientific Name", "Common Names", "Group", "Tax ID",
-        "Exact Reads", "% of Sample", "Refs", "Alternates",
-    ]
-    static func targetRowsTSV(_ rows: [TwelveSTargetSampleRow]) -> String {
-        var out = [targetHeader.joined(separator: "\t")]
+    /// The copied header names the counts in `unit`, as the visible columns do.
+    static func targetHeader(_ unit: TwelveSCountUnit) -> [String] {
+        [
+            "Sample", "Scientific Name", "Common Names", "Group", "Tax ID",
+            unit.exactTitle, "% of Sample", "Refs", "Alternates",
+        ]
+    }
+    static func targetRowsTSV(_ rows: [TwelveSTargetSampleRow], unit: TwelveSCountUnit = .reads) -> String {
+        var out = [targetHeader(unit).joined(separator: "\t")]
         for r in rows {
             out.append([
                 r.sampleDisplayName,
@@ -49,9 +52,11 @@ public enum TwelveSCopyFormatting {
         return out.joined(separator: "\n")
     }
 
-    static let unresolvedHeader = ["Sequence", "Reads", "Samples", "Chimera", "Bases"]
-    static func unresolvedRowsTSV(_ rows: [TwelveSUnresolvedSequence]) -> String {
-        var out = [unresolvedHeader.joined(separator: "\t")]
+    static func unresolvedHeader(_ unit: TwelveSCountUnit) -> [String] {
+        ["Sequence", unit.title, "Samples", "Chimera", "Bases"]
+    }
+    static func unresolvedRowsTSV(_ rows: [TwelveSUnresolvedSequence], unit: TwelveSCountUnit = .reads) -> String {
+        var out = [unresolvedHeader(unit).joined(separator: "\t")]
         for r in rows {
             out.append([
                 r.sequenceID,
@@ -121,6 +126,7 @@ enum TwelveSCopyMenuProvider {
     static func targetEntries(
         rows: [TwelveSTargetSampleRow],
         pasteboard: PasteboardWriting,
+        countUnit: TwelveSCountUnit = .reads,
         onOpenURL: @escaping (URL) -> Void
     ) -> [Entry] {
         guard !rows.isEmpty else { return [] }
@@ -133,7 +139,7 @@ enum TwelveSCopyMenuProvider {
                 })
             case "Copy Rows":
                 entries.append(Entry(title: title, command: .copyAsTSV, isLookup: false) {
-                    pasteboard.setString(TwelveSCopyFormatting.targetRowsTSV(rows))
+                    pasteboard.setString(TwelveSCopyFormatting.targetRowsTSV(rows, unit: countUnit))
                 })
             default:
                 break
@@ -155,7 +161,8 @@ enum TwelveSCopyMenuProvider {
     /// The commands for the current unresolved-mode selection.
     static func unresolvedEntries(
         rows: [TwelveSUnresolvedSequence],
-        pasteboard: PasteboardWriting
+        pasteboard: PasteboardWriting,
+        countUnit: TwelveSCountUnit = .reads
     ) -> [Entry] {
         guard !rows.isEmpty else { return [] }
         let hasSequence = rows.first.map { !$0.sequence.isEmpty } ?? false
@@ -178,7 +185,7 @@ enum TwelveSCopyMenuProvider {
                 })
             case "Copy Rows":
                 entries.append(Entry(title: title, command: .copyAsTSV, isLookup: false) {
-                    pasteboard.setString(TwelveSCopyFormatting.unresolvedRowsTSV(rows))
+                    pasteboard.setString(TwelveSCopyFormatting.unresolvedRowsTSV(rows, unit: countUnit))
                 })
             default:
                 break
@@ -202,20 +209,22 @@ enum TwelveSCopyMenuProvider {
         _ menu: NSMenu,
         rows: [TwelveSTargetSampleRow],
         pasteboard: PasteboardWriting,
+        countUnit: TwelveSCountUnit = .reads,
         onOpenURL: @escaping (URL) -> Void
     ) {
         menu.removeAllItems()
-        populate(menu, with: targetEntries(rows: rows, pasteboard: pasteboard, onOpenURL: onOpenURL))
+        populate(menu, with: targetEntries(rows: rows, pasteboard: pasteboard, countUnit: countUnit, onOpenURL: onOpenURL))
     }
 
     /// Populates `menu` with copy items for the current unresolved-mode selection.
     static func populateUnresolvedMenu(
         _ menu: NSMenu,
         rows: [TwelveSUnresolvedSequence],
-        pasteboard: PasteboardWriting
+        pasteboard: PasteboardWriting,
+        countUnit: TwelveSCountUnit = .reads
     ) {
         menu.removeAllItems()
-        populate(menu, with: unresolvedEntries(rows: rows, pasteboard: pasteboard))
+        populate(menu, with: unresolvedEntries(rows: rows, pasteboard: pasteboard, countUnit: countUnit))
     }
 
     private static func populate(_ menu: NSMenu, with entries: [Entry]) {

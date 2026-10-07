@@ -8,8 +8,8 @@ import XCTest
 /// (Phase 2.1 lane L4). A merged read is one fragment before and after that
 /// change, so these four fixtures must keep their tables. The only allowed
 /// differences are the fragment-counting additions, the `discordant_pairs`
-/// column of `samples.tsv` and the `discordantPairs*` keys of
-/// `read-fate.json`, which the comparison removes before it compares.
+/// column of `samples.tsv` and the `discordantPairs*` and `pairedFragments`
+/// keys of `read-fate.json`, which the comparison removes before it compares.
 ///
 /// Set `LUNGFISH_TWELVES_BASELINE_CAPTURE_DIR` to write the files instead of
 /// comparing them. That is how the literals below were captured.
@@ -289,7 +289,8 @@ final class TwelveSMergedOnlyBaselineTests: XCTestCase {
         guard var dictionary = object as? [String: Any] else {
             throw XCTSkip("not a JSON object")
         }
-        for key in dictionary.keys where volatileJSONKeys.contains(key) || key.hasPrefix("discordantPairs") {
+        for key in dictionary.keys
+        where volatileJSONKeys.contains(key) || key.hasPrefix("discordantPairs") || key == "pairedFragments" {
             dictionary.removeValue(forKey: key)
         }
         return dictionary as NSDictionary

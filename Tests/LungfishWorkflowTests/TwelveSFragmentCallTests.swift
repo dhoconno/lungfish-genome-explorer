@@ -75,11 +75,16 @@ final class TwelveSFragmentCallTests: XCTestCase {
                 discordantByReason: [.oneMateUnresolved: 1, .differentTargets: 1]
             ),
             "Counted 8 fragments, 4 merged or single reads and 4 pairs. "
-                + "Left out 2 discordant pairs (1 different targets, 1 one mate unresolved)."
+                + "Left out 2 discordant pairs (1 pair with different targets, 1 pair with one mate unresolved)."
         )
         XCTAssertEqual(
             TwelveSAmpliconMatchingWorkflow.fragmentSummary(singleReads: 0, pairs: 3, discordantByReason: [.oneMateAmbiguous: 1]),
-            "Counted 3 fragments, 0 merged or single reads and 3 pairs. Left out 1 discordant pair (1 one mate ambiguous)."
+            "Counted 3 fragments, 0 merged or single reads and 3 pairs. Left out 1 discordant pair (1 pair with one mate ambiguous)."
+        )
+        XCTAssertEqual(
+            TwelveSAmpliconMatchingWorkflow.fragmentSummary(singleReads: 0, pairs: 5, discordantByReason: [.differentCandidates: 2]),
+            "Counted 5 fragments, 0 merged or single reads and 5 pairs. Left out 2 discordant pairs (2 pairs with different candidates).",
+            "each reason names its pairs in the number they take (review B, N1)"
         )
     }
 }

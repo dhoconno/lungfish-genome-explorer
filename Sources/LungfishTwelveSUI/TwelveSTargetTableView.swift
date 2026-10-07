@@ -159,6 +159,12 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSTargetSampleRow> {
         row.alternateMatches.isEmpty ? row.potentialMatches : row.alternateMatches.map(\.displayName)
     }
 
+    /// The unit the exact count column names, fragments when the result
+    /// read unmerged pairs (review B, N1).
+    var countUnit: TwelveSCountUnit = .reads {
+        didSet { if countUnit != oldValue { applyColumnSpecTitles() } }
+    }
+
     override var columnSpecs: [BatchColumnSpec] {
         [
             .init(identifier: .init("sampleName"), title: "Sample", width: 170, minWidth: 90, defaultAscending: true),
@@ -166,7 +172,10 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSTargetSampleRow> {
             .init(identifier: .init("commonNames"), title: "Common Names", width: 150, minWidth: 80, defaultAscending: true),
             .init(identifier: .init("taxonGroups"), title: "Group", width: 95, minWidth: 60, defaultAscending: true),
             .init(identifier: .init("taxids"), title: "Tax ID", width: 90, minWidth: 60, defaultAscending: true),
-            .init(identifier: .init("totalExactReads"), title: "Exact Reads", width: 90, minWidth: 70, defaultAscending: false),
+            .init(
+                identifier: .init("totalExactReads"), title: countUnit.exactTitle, width: 90, minWidth: 70,
+                defaultAscending: false, toolTip: countUnit.columnHelp
+            ),
             .init(identifier: .init("samplePercent"), title: "% of Sample", width: 90, minWidth: 70, defaultAscending: false),
             .init(identifier: .init("referenceTargets"), title: "Refs", width: 60, minWidth: 50, defaultAscending: false),
             .init(identifier: .init("alternateMatchCount"), title: "Alternates", width: 85, minWidth: 60, defaultAscending: false),

@@ -337,6 +337,8 @@ public struct TwelveSAmpliconReadFate: Codable, Equatable, Sendable {
     /// The pairs left out, by the raw value of the reason that left them out.
     /// Empty when no pair was left out.
     public let discordantPairsByReason: [String: Int]
+    /// Unmerged pairs read, one fragment each, so above 0 when counts are fragments (0 in older results).
+    public let pairedFragments: Int
 
     public init(
         totalReads: Int,
@@ -345,7 +347,8 @@ public struct TwelveSAmpliconReadFate: Codable, Equatable, Sendable {
         ambiguousExactReads: Int,
         chimeraCandidateReads: Int,
         discordantPairs: Int = 0,
-        discordantPairsByReason: [String: Int] = [:]
+        discordantPairsByReason: [String: Int] = [:],
+        pairedFragments: Int = 0
     ) {
         self.totalReads = totalReads
         self.exactMatchReads = exactMatchReads
@@ -354,6 +357,7 @@ public struct TwelveSAmpliconReadFate: Codable, Equatable, Sendable {
         self.chimeraCandidateReads = chimeraCandidateReads
         self.discordantPairs = discordantPairs
         self.discordantPairsByReason = discordantPairsByReason
+        self.pairedFragments = pairedFragments
     }
 
     public init(from decoder: Decoder) throws {
@@ -365,6 +369,7 @@ public struct TwelveSAmpliconReadFate: Codable, Equatable, Sendable {
         chimeraCandidateReads = try container.decode(Int.self, forKey: .chimeraCandidateReads)
         discordantPairs = try container.decodeIfPresent(Int.self, forKey: .discordantPairs) ?? 0
         discordantPairsByReason = try container.decodeIfPresent([String: Int].self, forKey: .discordantPairsByReason) ?? [:]
+        pairedFragments = try container.decodeIfPresent(Int.self, forKey: .pairedFragments) ?? 0
     }
 
     public var exactMatchPercent: Double {
