@@ -238,7 +238,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             AnalysisRunRecord.markComplete(bundleURL)
         } catch {
             try? FileManager.default.removeItem(at: bundleURL)
-            try? earlierOutput?.restore()
+            try Self.restoreEarlierResult(earlierOutput, after: error)
             throw error
         }
         earlierOutput?.discard()

@@ -223,6 +223,48 @@ final class TwelveSAmpliconMatchingWorkflowForceTests: XCTestCase {
         try assertNoScratchBesideTheOutput()
     }
 
+    /// Re-review 2, N6. When writing fails and the earlier result cannot be
+    /// moved back either, the error gives the reason the run failed and then
+    /// says in one line where the earlier result waits, as `fastq demultiplex`
+    /// does. Here the reference is gone when the bundle copies it, and a
+    /// folder in the new bundle that cannot be emptied keeps that bundle in
+    /// the earlier result's place.
+    func testForcedRunWhoseRestoreFailsSaysWhereTheEarlierResultWaits() async throws {
+        _ = try await writeEarlierOutput()
+        let reference: URL = referenceURL
+        let locked = outputDirectory.appendingPathComponent("sampleA-12s.lungfish12s/locked", isDirectory: true)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+
+        var described = ""
+        do {
+            _ = try await TwelveSAmpliconMatchingWorkflow(chimeraReviewer: TwelveSNoOpChimeraReviewer())
+                .run(configuration(force: true)) { _, message in
+                    guard message == "Writing 12S result bundle tables." else { return }
+                    failTheWriteAndTheRestore(reference: reference, locked: locked)
+                }
+            XCTFail("a bundle that cannot be written must fail the run")
+        } catch {
+            described = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+        }
+
+        let aside = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(atPath: outputDirectory.path)
+                .first { $0.hasPrefix(".sampleA-12s.lungfish12s.replaced-") },
+            "the earlier result was set aside"
+        )
+        let asideURL = outputDirectory.standardizedFileURL.appendingPathComponent(aside, isDirectory: true)
+        let lines = described.components(separatedBy: "\n")
+        XCTAssertEqual(lines.count, 2, described)
+        XCTAssertTrue(lines.first?.contains("reference.fa") == true, "the reason the run failed comes first, \(described)")
+        XCTAssertEqual(
+            lines.last,
+            "The earlier 12S result could not be moved back to sampleA-12s.lungfish12s, and it waits at \(asideURL.path)."
+        )
+        let waiting = try TwelveSAmpliconResultBundle.loadResult(from: asideURL)
+        XCTAssertEqual(waiting.readFate.totalReads, 2, "the earlier result waits whole where the line says")
+        XCTAssertEqual(waiting.readFate.exactMatchReads, 1)
+    }
+
     /// Review A, N1. Two inputs that would be one sample, such as the
     /// `barcode01` bundles of two demultiplexed runs, are refused before
     /// anything is written, in one line that names both. Before, the run
@@ -277,6 +319,16 @@ final class TwelveSAmpliconMatchingWorkflowForceTests: XCTestCase {
 
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outputDirectory.path), [])
     }
+}
+
+/// Removes the reference the bundle copies first, so writing fails, and leaves
+/// a folder in the new bundle that cannot be emptied, so neither the new
+/// bundle nor, after it, the earlier result can take the bundle's place.
+private func failTheWriteAndTheRestore(reference: URL, locked: URL) {
+    try? FileManager.default.removeItem(at: reference)
+    try? FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+    try? Data("held\n".utf8).write(to: locked.appendingPathComponent("held.txt"))
+    try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
 }
 
 private struct FailingChimeraReviewer: TwelveSChimeraReviewing {
