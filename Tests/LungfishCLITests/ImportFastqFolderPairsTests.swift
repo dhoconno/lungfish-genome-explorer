@@ -151,6 +151,45 @@ final class ImportFastqFolderPairsTests: XCTestCase {
         XCTAssertEqual(classification.unpairedReadCount, 1)
     }
 
+    // MARK: - --recursive pairs by the same rule (F7 ruling)
+
+    func testARecursiveImportPairsMatesOfTwoFoldersAsExplicitFilesDo() async throws {
+        _ = try writeMate(1, of: "x", in: "delivery/R1", reads: "R")
+        _ = try writeMate(2, of: "x", in: "delivery/R2", reads: "R")
+
+        let run = try await runImport([root.appendingPathComponent("delivery").path], ["--recursive"])
+
+        XCTAssertNil(run.error, run.output)
+        XCTAssertTrue(run.output.contains("x  [paired]"), run.output)
+        // The pair sits in the folder that holds R1/ and R2/, the scanned folder.
+        let imports = project.appendingPathComponent("Imports", isDirectory: true)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: imports.path), ["x.lungfishfastq"])
+        let fastq = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: imports.appendingPathComponent("x.lungfishfastq")))
+        XCTAssertEqual(
+            try FASTQReadLayoutClassifier.readHeaders(from: fastq, limit: 100).headers,
+            ["R.1/1", "R.1/2", "R.2/1", "R.2/2"]
+        )
+    }
+
+    func testARecursiveImportWarnsWhenANameTwoFoldersShareKeepsMatesApart() async throws {
+        _ = try writeMate(1, of: "reads", in: "delivery/A", reads: "A")
+        _ = try writeMate(2, of: "reads", in: "delivery/A", reads: "A")
+        let b1 = try writeMate(1, of: "reads", in: "delivery/B", reads: "B")
+        let c2 = try writeMate(2, of: "reads", in: "delivery/C", reads: "C")
+
+        let run = try await runImport([root.appendingPathComponent("delivery").path], ["--recursive"])
+
+        XCTAssertNil(run.error, run.output)
+        XCTAssertTrue(run.output.contains("⚠ reads_R1: \(Self.mateWarning(b1, [c2]))"), run.output)
+        let imports = project.appendingPathComponent("Imports", isDirectory: true)
+        for bundle in ["A/reads", "B/reads_R1", "C/reads_R2"] {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: imports.appendingPathComponent("\(bundle).lungfishfastq").path),
+                "\(bundle)\n\(run.output)"
+            )
+        }
+    }
+
     // MARK: - Helpers
 
     /// The warning for an R1 with no mate in its folder whose candidates in

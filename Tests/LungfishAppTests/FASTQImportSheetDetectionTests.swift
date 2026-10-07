@@ -201,6 +201,32 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
         XCTAssertEqual(sheet.map(\.inputFiles), cli.map(\.inputFiles))
     }
 
+    func testARecursiveScanPairsMatesOfTwoFoldersAsTheSheetAndExplicitFilesDo() throws {
+        // The GUI and the CLI must agree (F7 ruling). `import fastq <folder>
+        // --recursive` detected each folder alone and made two single-end
+        // samples of a delivery's R1/ and R2/, which the Import Center's scan
+        // and explicit files pair.
+        let delivery = root.appendingPathComponent("delivery", isDirectory: true)
+        let files = try [1, 2].map { mate -> URL in
+            let folder = delivery.appendingPathComponent("R\(mate)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let url = folder.appendingPathComponent("x_R\(mate).fastq")
+            try Data("@x.1/\(mate)\nACGTACGT\n+\nIIIIIIII\n".utf8).write(to: url)
+            return url
+        }
+        func paths(_ samples: [[URL]]) -> [[String]] { samples.map { $0.map(\.standardizedFileURL.path) } }
+
+        let sheet = groupFASTQByPairs(files)
+        let explicit = FASTQBatchImporter.detectPairs(from: files)
+        let recursive = try FASTQBatchImporter.detectPairsFromDirectoryRecursive(delivery)
+
+        XCTAssertEqual(sheet.map(\.sampleName), ["x"])
+        XCTAssertEqual(paths(sheet.map(\.inputFiles)), paths([files]))
+        XCTAssertEqual(paths(explicit.map(\.inputFiles)), paths([files]))
+        XCTAssertEqual(paths(recursive.map(\.inputFiles)), paths([files]), "--recursive pairs as the sheet does")
+        XCTAssertEqual(recursive.map(\.sampleName), ["x"])
+    }
+
     func testARunsThirdFileJoinsAPairOfAnotherFolderOnlyWhenNoOtherFileHasItsNames() {
         let r1 = URL(fileURLWithPath: "/delivery/A/SRR1_1.fastq")
         let r2 = URL(fileURLWithPath: "/delivery/A/SRR1_2.fastq")
