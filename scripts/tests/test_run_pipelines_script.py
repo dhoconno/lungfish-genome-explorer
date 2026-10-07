@@ -285,6 +285,78 @@ class CollectAndExitPathTests(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 
+class SplitThreeReadHandlingTests(unittest.TestCase):
+    """The reads fetch runs `fasterq-dump --split-3`, as the app's SRA Toolkit
+    route does, and sorts the run's files as the app sorts them (lane L1 of
+    sub-phase 2.1). `--split-3` keeps `<run>_1` and `<run>_2` in step and puts
+    reads whose mate is missing in `<run>.fastq`, so the seeded subsample of
+    each mate file keeps pairs together.
+    """
+
+    def _extract_check_run_reads(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        start = source.index("check_run_reads() {")
+        end = source.index("\n}\n", start) + len("\n}\n")
+        return source[start:end]
+
+    def _check(self, files):
+        """Runs check_run_reads on a reads folder holding `files`, each a
+        name mapped to its number of reads."""
+        with tempfile.TemporaryDirectory() as reads_dir:
+            for name, reads in files.items():
+                record = "@r\nACGT\n+\nIIII\n"
+                pathlib.Path(reads_dir, name).write_text(record * reads, encoding="utf-8")
+            harness = (
+                "set -uo pipefail\n"
+                + self._extract_check_run_reads()
+                + f'\ncheck_run_reads "{reads_dir}" SRR1\nstatus=$?\n'
+                + 'echo "STATUS=${status} UNPAIRED=${unpaired_reads} FILE=${unpaired_full##*/}"\n'
+            )
+            return subprocess.run(
+                ["/bin/bash", "-c", harness],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=30,
+            )
+
+    def test_fetch_runs_split_3_and_never_split_files(self):
+        executable = [
+            line
+            for line in SCRIPT.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+        ]
+        self.assertTrue(any(line.strip() == "--split-3 \\" for line in executable), "fasterq-dump runs --split-3")
+        self.assertFalse(any("--split-files" in line for line in executable))
+        self.assertIn('"fetchCommand": "fasterq-dump --split-3', SCRIPT.read_text(encoding="utf-8"))
+
+    def test_a_pair_with_reads_without_a_mate_keeps_the_pair_and_counts_the_rest(self):
+        result = self._check({"SRR1_1.fastq": 5, "SRR1_2.fastq": 5, "SRR1.fastq": 3})
+        self.assertIn("STATUS=0 UNPAIRED=3 FILE=SRR1.fastq", result.stdout, result.stderr)
+        self.assertIn("3 reads whose mate is missing", result.stdout)
+
+    def test_a_pair_alone_has_no_reads_without_a_mate(self):
+        result = self._check({"SRR1_1.fastq": 5, "SRR1_2.fastq": 5})
+        self.assertIn("STATUS=0 UNPAIRED=0 FILE=", result.stdout, result.stderr)
+
+    def test_a_lone_mate_is_refused(self):
+        for name in ("SRR1_1.fastq", "SRR1_2.fastq"):
+            result = self._check({name: 5, "SRR1.fastq": 1})
+            self.assertIn("STATUS=1", result.stdout, name)
+            self.assertIn("only mate", result.stderr, name)
+
+    def test_a_single_end_run_is_refused_for_the_paired_pipelines(self):
+        result = self._check({"SRR1.fastq": 5})
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("single-end", result.stderr)
+
+    def test_no_file_of_the_run_is_refused(self):
+        result = self._check({"SRR2_1.fastq": 5, "SRR2_2.fastq": 5})
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("no FASTQ file", result.stderr)
+
+
 class PipelineGoldensManifestTests(unittest.TestCase):
     def setUp(self):
         self.manifest = json.loads(PIPELINE_GOLDENS.read_text(encoding="utf-8"))
@@ -435,6 +507,12 @@ class StorageRootTests(unittest.TestCase):
         result = run_script(["--which", "all", "--out", "/tmp/x", "--root"])
         self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
         self.assertIn("--root requires a value", result.stderr)
+
+    def test_dry_run_fetches_with_split_3(self):
+        result = self.dry_run([])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("fasterq-dump --split-3 --outdir", result.stdout)
+        self.assertNotIn("--split-files", result.stdout)
 
     def test_verify_script_passes_its_isolated_root_to_this_runner(self):
         # The two scripts have to agree, or a sweep's tier 3 silently measures a

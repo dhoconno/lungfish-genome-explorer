@@ -18,10 +18,16 @@
 # --dry-run to print the resolved commands and root without running anything.
 #
 # Steps:
-#   1. Fetch reads for the accession with the managed sra-tools fasterq-dump
-#      into <out>/reads/, then subsample to 50k pairs with the managed
-#      seqkit (seqkit sample -n 50000 -s 11). The subsample command and seed
-#      are recorded in <out>/reads/meta.json.
+#   1. Fetch reads for the accession with the managed sra-tools
+#      `fasterq-dump --split-3` into <out>/reads/, as the app's SRA Toolkit
+#      route does. Mates go to <run>_1.fastq and <run>_2.fastq in step, and
+#      reads whose mate is missing go to <run>.fastq. The files are sorted as
+#      the app sorts them: the two mates make the pair, a lone mate is
+#      refused, and the reads without a mate are counted and recorded, since
+#      these pipelines run on pairs. Then subsample to 50k pairs with the
+#      managed seqkit (seqkit sample -n 50000 -s 11). The fetch and subsample
+#      commands, the seed and the unpaired read count are recorded in
+#      <out>/reads/meta.json.
 #   2. Run the requested pipeline(s) via the lungfish-cli subcommands.
 #   3. Structurally diff the pipeline outputs against Tests/Fixtures/taxtriage-mini
 #      and Tests/Fixtures/esviritu-mini using scripts/deps/pipeline-goldens.json
@@ -279,7 +285,7 @@ if [[ ${dry_run} -eq 1 ]]; then
     echo "  accession=${accession}"
     echo "  out=${out_dir}"
     echo "commands:"
-    echo "  PATH=${sra_tools_bin}:\$PATH fasterq-dump --split-files --outdir ${reads_dir} ${accession}"
+    echo "  PATH=${sra_tools_bin}:\$PATH fasterq-dump --split-3 --outdir ${reads_dir} ${accession}"
     echo "  PATH=${seqkit_bin}:\$PATH seqkit sample -n ${subsample_reads} -s ${subsample_seed} ${r1_full} -o ${r1_sub}"
     echo "  PATH=${seqkit_bin}:\$PATH seqkit sample -n ${subsample_reads} -s ${subsample_seed} ${r2_full} -o ${r2_sub}"
     if [[ ${run_taxtriage} -eq 1 ]]; then
@@ -346,11 +352,53 @@ collect_output() {
     return 1
 }
 
-echo "==> Fetching reads for ${accession} with fasterq-dump"
+# Sort the run's files as the app's SRA download sorts them (SRARunReads in
+# LungfishCore). <run>_1.fastq and <run>_2.fastq make the pair, and
+# <run>.fastq beside them holds the reads whose mate is missing. A lone mate
+# of a pair is refused, as the app refuses it. These pipelines run on pairs,
+# so a single-end run is refused too, and the reads without a mate are
+# counted and recorded rather than dropped unseen.
+#
+# Arguments: <reads dir> <accession>
+# Sets: unpaired_full (empty when the run has no such reads) and unpaired_reads.
+check_run_reads() {
+    local dir="$1" run="$2"
+    local mate1="${dir}/${run}_1.fastq" mate2="${dir}/${run}_2.fastq" single="${dir}/${run}.fastq"
+    unpaired_full=""
+    unpaired_reads=0
+    if [[ -f "${mate1}" && -f "${mate2}" ]]; then
+        if [[ -f "${single}" ]]; then
+            unpaired_full="${single}"
+            unpaired_reads=$(( $(wc -l < "${single}") / 4 ))
+            echo "     ${run}.fastq holds ${unpaired_reads} reads whose mate is missing. The paired pipelines leave them out."
+        fi
+        return 0
+    fi
+    if [[ -f "${mate2}" ]]; then
+        echo "FAIL ${run}: only mate 2 arrived (${run}_2.fastq), so the run was not used" >&2
+        return 1
+    fi
+    if [[ -f "${mate1}" ]]; then
+        echo "FAIL ${run}: only mate 1 arrived (${run}_1.fastq), so the run was not used" >&2
+        return 1
+    fi
+    if [[ -f "${single}" ]]; then
+        echo "FAIL ${run}: the run is single-end (${run}.fastq only), and these pipelines run on pairs" >&2
+        return 1
+    fi
+    echo "FAIL ${run}: fasterq-dump wrote no FASTQ file of the run" >&2
+    return 1
+}
+
+echo "==> Fetching reads for ${accession} with fasterq-dump --split-3"
 PATH="${sra_tools_bin}:${PATH}" fasterq-dump \
-    --split-files \
+    --split-3 \
     --outdir "${reads_dir}" \
     "${accession}"
+
+unpaired_full=""
+unpaired_reads=0
+check_run_reads "${reads_dir}" "${accession}" || exit 1
 
 echo "==> Subsampling to ${subsample_reads} pairs (seed ${subsample_seed}) with seqkit sample"
 PATH="${seqkit_bin}:${PATH}" seqkit sample -n "${subsample_reads}" -s "${subsample_seed}" "${r1_full}" -o "${r1_sub}"
@@ -359,7 +407,9 @@ PATH="${seqkit_bin}:${PATH}" seqkit sample -n "${subsample_reads}" -s "${subsamp
 cat > "${reads_dir}/meta.json" <<EOF
 {
   "accession": "${accession}",
-  "fetchCommand": "fasterq-dump --split-files --outdir ${reads_dir} ${accession}",
+  "fetchCommand": "fasterq-dump --split-3 --outdir ${reads_dir} ${accession}",
+  "unpairedReadsFile": "${unpaired_full}",
+  "unpairedReads": ${unpaired_reads},
   "subsampleCommand": "seqkit sample -n ${subsample_reads} -s ${subsample_seed}",
   "subsampleReads": ${subsample_reads},
   "subsampleSeed": ${subsample_seed}
@@ -372,6 +422,7 @@ report_lines+=("# Tier 3 pipeline report")
 report_lines+=("")
 report_lines+=("Accession: ${accession}")
 report_lines+=("Subsample: ${subsample_reads} pairs, seed ${subsample_seed}")
+report_lines+=("Reads without a mate (left out of the paired pipelines): ${unpaired_reads}")
 report_lines+=("")
 
 pipeline_failures=0
