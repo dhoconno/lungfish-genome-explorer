@@ -727,6 +727,7 @@ public enum FASTQBatchImporter {
     ///
     /// Uses `autoreleasepool` between samples to bound peak memory usage.
     /// Samples that already have bundles are skipped (logged as `sampleSkip`).
+    /// Under `forceReimport` only a bundle an earlier sample of the batch wrote is kept.
     ///
     /// - Parameters:
     ///   - pairs: Detected sample pairs to process.
@@ -749,6 +750,7 @@ public enum FASTQBatchImporter {
         var skipped = 0
         var cancelled = false
         var errors: [(sample: String, error: String)] = []
+        var written = BundlesWrittenByThisImport() // no sample replaces one of these, whatever --force says
 
         for (index, pair) in pairs.enumerated() {
             if Task.isCancelled { cancelled = true; break } // a cancel (lungfish-cli turns SIGTERM into one) stops the batch
@@ -767,6 +769,10 @@ public enum FASTQBatchImporter {
                 case .missing:
                     break
                 }
+            } else if let reason = written.reasonToSkip(pair, in: config.projectDirectory) {
+                log?(.sampleSkip(sample: pair.sampleName, reason: reason))
+                skipped += 1
+                continue
             }
 
             // Process this sample; autoreleasepool drains synchronous ObjC objects between iterations
@@ -781,8 +787,9 @@ public enum FASTQBatchImporter {
             autoreleasepool { }
 
             switch result {
-            case .success:
+            case .success(let bundleURL):
                 completed += 1
+                written.insert(bundleURL)
             case .failure where failureEndedByCancel():
                 recordCancel(of: pair.sampleName) // a cancel, not a failed sample
                 cancelled = true
@@ -793,20 +800,13 @@ public enum FASTQBatchImporter {
 
         let totalDuration = Date().timeIntervalSince(startTime)
         log?(.importComplete(
-            completed: completed,
-            skipped: skipped,
-            failed: errors.count,
-            totalDurationSeconds: totalDuration
+            completed: completed, skipped: skipped, failed: errors.count, totalDurationSeconds: totalDuration
         ))
         logger.info("Batch import complete: \(completed) completed, \(skipped) skipped, \(errors.count) failed in \(String(format: "%.1f", totalDuration))s")
 
         return ImportResult(
-            completed: completed,
-            skipped: skipped,
-            failed: errors.count,
-            totalDurationSeconds: totalDuration,
-            errors: errors,
-            cancelled: cancelled
+            completed: completed, skipped: skipped, failed: errors.count,
+            totalDurationSeconds: totalDuration, errors: errors, cancelled: cancelled
         )
     }
 
