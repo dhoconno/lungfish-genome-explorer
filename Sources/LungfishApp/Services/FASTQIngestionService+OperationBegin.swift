@@ -105,6 +105,12 @@ extension FASTQIngestionService {
     /// The run executes `lungfish-cli import fastq` with the arguments of
     /// ``cliImportArguments(pair:projectDirectory:importConfig:bundleName:force:)``
     /// and the row records the command built from those same values.
+    ///
+    /// A started row first logs the sample's pairing notices, why the
+    /// sheet's grouping left a file of another folder out of it. The run
+    /// names this sample's files alone, so its CLI cannot say why, and the
+    /// row logs each notice in the line `CLIImportRunner` logs for the CLI's
+    /// own notices (re-review N1).
     @discardableResult
     static func beginFASTQPairImportOperation(
         pair: FASTQFilePair,
@@ -131,6 +137,13 @@ extension FASTQIngestionService {
         )
         switch result {
         case .started(let operationID):
+            for notice in pair.pairingNotices {
+                reporter.log(
+                    id: operationID,
+                    level: .warning,
+                    message: CLIImportRunner.noticeLine(sample: notice.sample, message: notice.message)
+                )
+            }
             launch(operationID)
         case .refused:
             break // The panel already shows the refused row. Nothing was launched.
