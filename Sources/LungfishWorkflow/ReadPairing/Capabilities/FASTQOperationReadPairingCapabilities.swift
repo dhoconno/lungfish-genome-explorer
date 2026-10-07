@@ -24,6 +24,7 @@ extension ReadPairingCapabilityRegistry {
             ("fastq.deduplicate", "clumpify dedupe through FASTQSplitByNameRunner"),
             ("fastq.primer-remove", "Primer removal through FASTQSplitByNameRunner"),
             ("fastq.length-filter", "The length filter through FASTQSplitByNameRunner"),
+            ("fastq.demultiplex", "Demultiplexing, which places both mates of a fragment by the fragment's barcode call,"),
         ]
         let positionalTools: [(String, String)] = [
             ("fastq.subsample", "reformat interleaved=t"),

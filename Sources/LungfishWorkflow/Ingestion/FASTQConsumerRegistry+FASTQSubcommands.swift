@@ -164,6 +164,19 @@ extension FASTQConsumerRegistry {
             ],
             mixedRationale: "A strictly interleaved file is split by position with reformat interleaved=t. A mixed file is split by NAME in process (FASTQPairInterleaver.partitionMixed): pairs go to --out1/--out2 and reads without a mate to --unpaired, which the command requires for such a file. A single-end file is refused."
         )
+        // Demultiplexing calls every record, then places both mates of a
+        // fragment by the fragment's call (A9, D6).
+        let demultiplex = FASTQConsumerDeclaration(
+            consumerID: "fastq.demultiplex",
+            displayName: "fastq demultiplex",
+            handling: [
+                .singleEnd: .asSingle,
+                .strictlyInterleaved: .asPairs,
+                .mixedMergedAndPairs: .asPairs,
+                .pairedFiles: .asSingle,
+            ],
+            mixedRationale: "Both engines call every record, then adjacent mates found by name (FASTQReadLayoutClassifier.areMates) follow the fragment's call. Mates that agree, or one called mate and one unassigned, give that barcode, mates called different barcodes send the pair to unassigned whole, and merged or orphan reads keep their own call. Called record by record, the mates of one fragment landed in different bundles."
+        )
         let interleave = FASTQConsumerDeclaration(
             consumerID: "fastq.interleave",
             displayName: "fastq interleave",
@@ -175,6 +188,6 @@ extension FASTQConsumerRegistry {
             ],
             mixedRationale: "Takes two R1/R2 files only."
         )
-        return positional + byName + fastp + byNameSplit + single + [ribodetector, merge, deinterleave, interleave]
+        return positional + byName + fastp + byNameSplit + single + [ribodetector, merge, deinterleave, interleave, demultiplex]
     }
 }

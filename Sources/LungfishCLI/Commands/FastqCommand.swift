@@ -179,6 +179,11 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             carry the same barcode. --location and --max-distance-* do not apply
             to those kits.
 
+            Interleaved pairs are demultiplexed by fragment. Both mates go to the
+            barcode their calls agree on, or to the barcode of the one mate that
+            carries one, and a pair whose mates carry different barcodes goes to
+            unassigned whole. Merged and single reads keep their own call.
+
             Engines:
               cutadapt    Established fuzzy adapter matcher; supports error rate and indels.
               exact-bare  Swift-native exact matching for bare A/C/G/T barcodes; scans whole reads,
@@ -517,6 +522,18 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             provenanceDefaults["threads"] = .integer(4)
         }
 
+        // How the mates of a paired input were placed (A9, D6).
+        if let mateCalls = result.manifest.mateCalls {
+            provenanceParameters["mateCalls"] = .dictionary([
+                "pairs": .integer(mateCalls.pairs),
+                "bothMatesAgree": .integer(mateCalls.bothMatesAgree),
+                "oneMateCalled": .integer(mateCalls.oneMateCalled),
+                "matesDisagree": .integer(mateCalls.matesDisagree),
+                "neitherMateCalled": .integer(mateCalls.neitherMateCalled),
+                "singleReads": .integer(mateCalls.singleReads),
+            ])
+        }
+
         let demultiplexEnvelope = try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish fastq demultiplex",
             parameters: provenanceParameters,
@@ -560,6 +577,13 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         FileHandle.standardError.write(Data("Input reads: \(result.manifest.inputReadCount)\n".utf8))
         FileHandle.standardError.write(Data("Assigned: \(result.manifest.assignedReadCount) (\(String(format: "%.1f%%", result.manifest.assignmentRate * 100)))\n".utf8))
         FileHandle.standardError.write(Data("Unassigned: \(result.manifest.unassigned.readCount)\n".utf8))
+        if let mateCalls = result.manifest.mateCalls {
+            FileHandle.standardError.write(Data((
+                "Mate pairs: \(mateCalls.pairs) (\(mateCalls.bothMatesAgree) with both mates called alike, "
+                + "\(mateCalls.oneMateCalled) placed by their one called mate, "
+                + "\(mateCalls.matesDisagree) sent to unassigned because their mates disagree)\n"
+            ).utf8))
+        }
         FileHandle.standardError.write(Data("Barcodes with reads: \(result.manifest.barcodes.filter { $0.readCount > 0 }.count)\n".utf8))
         FileHandle.standardError.write(Data("Output: \(output)\n".utf8))
         FileHandle.standardError.write(Data("Time: \(String(format: "%.1f", result.wallClockSeconds))s\n".utf8))
