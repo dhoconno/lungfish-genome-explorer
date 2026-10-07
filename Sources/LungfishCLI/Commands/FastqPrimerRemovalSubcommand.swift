@@ -40,8 +40,13 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("ref"), help: "Primer reference FASTA file")
     var reference: String?
 
-    @Option(name: .customLong("kmer"), help: "K-mer size (default: 23)")
-    var kmerSize: Int = 23
+    /// The k a run without `--kmer` uses, the Primer Trimming dialog's k, so
+    /// both run one default. It was 23, longer than the shortest primer of
+    /// every bundled scheme (L5, ruling on concern 3).
+    static let defaultKmerSize = 15
+
+    @Option(name: .customLong("kmer"), help: "K-mer size (default: 15)")
+    var kmerSize: Int = FastqPrimerRemovalSubcommand.defaultKmerSize
 
     @Option(name: .customLong("mink"), help: "Minimum k-mer size (default: 11)")
     var minKmer: Int = 11
@@ -187,7 +192,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         if engine != .bbduk {
             cliArguments += ["--engine", engine.rawValue]
         }
-        if kmerSize != 23 {
+        if kmerSize != Self.defaultKmerSize {
             cliArguments += ["--kmer", String(kmerSize)]
         }
         if minKmer != 11 {
@@ -245,7 +250,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
             defaults: [
                 "literal": .null,
                 "reference": .null,
-                "kmer": .integer(23),
+                "kmer": .integer(Self.defaultKmerSize),
                 "mink": .integer(11),
                 "hdist": .integer(1),
                 "engine": .string(FastqPrimerRemovalEngine.bbduk.rawValue),
