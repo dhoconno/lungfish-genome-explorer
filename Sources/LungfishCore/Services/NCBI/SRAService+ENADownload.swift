@@ -15,16 +15,28 @@ extension SRAService {
     /// ENA's portal lists, and throws when ENA fails or lists none, which
     /// sends `downloadFASTQWithFallback` to the SRA Toolkit.
     ///
+    /// The files are staged in a hidden folder inside `outputDir` and each
+    /// is checked against the size and MD5 the portal lists. They reach
+    /// `outputDir` only once every listed file arrived whole, so a file of
+    /// the same name already there is replaced only by a complete run. The
+    /// first file that fails stops the download with a one-line reason, and
+    /// a failure or a cancellation removes the staged files, so no lone
+    /// mate is ever left behind.
+    ///
     /// - Parameters:
     ///   - accession: SRA/ENA run accession
     ///   - outputDir: Output directory
     ///   - progress: Progress callback
+    ///   - onRecord: Called once with ENA's record of the run when ENA
+    ///     answered with one, even when the run then takes the SRA Toolkit
+    ///     route.
     /// - Returns: URLs to downloaded files
     /// - Throws: `ENAFASTQDownloadFailure`, which names the fallback's source, or a cancellation.
     public func downloadFASTQFromENA(
         accession: String,
         outputDir: URL? = nil,
         progress: (@Sendable (Double) -> Void)? = nil,
+        onRecord: (@Sendable (ENAReadRecord) -> Void)? = nil,
         trace: DownloadTraceHandler? = nil
     ) async throws -> [URL] {
         let outputDirectory = outputDir ?? FileManager.default.temporaryDirectory
@@ -41,6 +53,9 @@ extension SRAService {
         // the window's download too. Paths guessed on ENA's mirror carry no
         // sizes, so a mirror missing one mate could hand over half a pair.
         let route = try await ENAService(httpClient: httpClient).fastqDownloadRoute(forRun: accession)
+        if let record = route.enaRecord {
+            onRecord?(record)
+        }
         guard case .enaMirror(let record) = route else {
             throw ENAFASTQDownloadFailure(
                 fallbackSource: .sraToolkit,
@@ -48,24 +63,28 @@ extension SRAService {
             )
         }
         let candidateURLs = record.fastqHTTPURLs
-        // Per-file sizes advertised by the portal, aligned with candidateURLs.
+        // Per-file sizes and checksums listed by the portal, aligned with candidateURLs.
         let expectedByteCounts = ENAFASTQDownloadValidator.expectedByteCounts(for: record)
+        let expectedMD5s = ENAFASTQDownloadValidator.expectedMD5s(for: record)
         logger.info("Resolved \(candidateURLs.count, privacy: .public) FASTQ URL(s) for \(accession, privacy: .public) via ENA portal")
 
-        var downloadedFiles: [URL] = []
-        var attemptedURLs: [String] = []
-        var rejectionReasons: [String] = []
-        // How the first file that did not arrive failed, which names the fallback.
-        var firstFailure: SRAFASTQDownloadSource?
+        let staging = outputDirectory.appendingPathComponent(".lungfish-ena-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        // Removed on success, failure and cancellation alike. Only a killed
+        // process leaves it, hidden, and never as a file named for the run.
+        defer { try? FileManager.default.removeItem(at: staging) }
+
+        var stagedFiles: [(staged: URL, published: URL)] = []
         let totalCandidates = max(candidateURLs.count, 1)
         for (index, fileURL) in candidateURLs.enumerated() {
             try Task.checkCancellation()
             let filename = fileURL.lastPathComponent.isEmpty
                 ? "\(accession)_\(index + 1).fastq.gz"
                 : fileURL.lastPathComponent
-            let localPath = outputDirectory.appendingPathComponent(filename)
-            attemptedURLs.append(fileURL.absoluteString)
+            let stagedPath = staging.appendingPathComponent(filename)
+            let publishedPath = outputDirectory.appendingPathComponent(filename)
             let expectedBytes = index < expectedByteCounts.count ? expectedByteCounts[index] : nil
+            let expectedMD5 = index < expectedMD5s.count ? expectedMD5s[index] : nil
 
             do {
                 logger.info("Attempting to download from ENA: \(fileURL.absoluteString, privacy: .public)")
@@ -80,28 +99,25 @@ extension SRAService {
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
                     try? FileManager.default.removeItem(at: temporaryURL)
-                    let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-                    rejectionReasons.append("\(filename): HTTP \(code)")
-                    firstFailure = firstFailure ?? .sraToolkitAfterFailedTransfer
-                    continue
+                    throw ENAFASTQDownloadFailure.mirrorStatus(
+                        (response as? HTTPURLResponse)?.statusCode ?? -1,
+                        for: filename
+                    )
                 }
 
-                try Self.publishDownloadedFile(from: temporaryURL, to: localPath)
+                try Self.publishDownloadedFile(from: temporaryURL, to: stagedPath)
 
                 // ENA's mirror answers a missing mate file with a 200 HTML
-                // directory listing. Reject anything that is not the gzip file
-                // the portal advertised before it can reach fastp.
-                do {
-                    try ENAFASTQDownloadValidator.validate(fileURL: localPath, expectedBytes: expectedBytes)
-                } catch let failure as ENAFASTQDownloadValidator.Failure {
-                    try? FileManager.default.removeItem(at: localPath)
-                    rejectionReasons.append(failure.localizedDescription)
-                    firstFailure = firstFailure ?? .sraToolkitAfterIncompleteMirror
-                    logger.warning("ENA FASTQ download rejected for \(fileURL.absoluteString, privacy: .public): \(failure.localizedDescription, privacy: .public)")
-                    continue
-                }
+                // directory listing, and a transfer can arrive cut short or
+                // altered. Reject anything that is not the file the portal
+                // lists, by its size and MD5, before it can reach fastp.
+                try ENAFASTQDownloadValidator.validate(
+                    fileURL: stagedPath,
+                    expectedBytes: expectedBytes,
+                    expectedMD5: expectedMD5
+                )
 
-                downloadedFiles.append(localPath)
+                stagedFiles.append((stagedPath, publishedPath))
                 trace?(
                     FASTQDownloadStepTrace(
                         toolName: "https-download",
@@ -112,10 +128,10 @@ extension SRAService {
                             "--fail",
                             "--user-agent", "Lungfish Genome Explorer",
                             fileURL.absoluteString,
-                            "-o", localPath.path,
+                            "-o", publishedPath.path,
                         ],
                         inputs: [fileURL.absoluteString],
-                        outputs: [localPath],
+                        outputs: [publishedPath],
                         exitCode: 0,
                         wallTime: downloadCompletedAt.timeIntervalSince(downloadStartedAt),
                         stderr: nil,
@@ -125,37 +141,21 @@ extension SRAService {
                 )
                 progress?(Double(index + 1) / Double(totalCandidates))
 
-                logger.info("Downloaded: \(localPath.lastPathComponent, privacy: .public)")
+                logger.info("Downloaded: \(filename, privacy: .public)")
             } catch {
-                guard let source = SRAFASTQDownloadSource.toolkitFallback(after: error) else {
+                guard let failure = ENAFASTQDownloadFailure.mirrorFile(filename, failedWith: error) else {
                     throw error
                 }
-                firstFailure = firstFailure ?? source
-                logger.warning("ENA FASTQ download failed for \(fileURL.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                continue
+                logger.warning("ENA FASTQ download failed for \(fileURL.absoluteString, privacy: .public): \(failure.message, privacy: .public)")
+                throw failure
             }
         }
 
-        if downloadedFiles.isEmpty {
-            let attemptedPreview = attemptedURLs.prefix(3).joined(separator: ", ")
-            let reasonSuffix = rejectionReasons.isEmpty ? "" : " \(rejectionReasons.joined(separator: "; "))"
-            throw ENAFASTQDownloadFailure(
-                fallbackSource: firstFailure ?? .sraToolkitAfterFailedTransfer,
-                message: "Could not download FASTQ files from ENA for \(accession). Attempted URLs: \(attemptedPreview).\(reasonSuffix)"
-            )
-        }
-
-        // Portal URLs are authoritative: a PAIRED run that yields one mate is a
-        // failed download, not a single-end run. Leave nothing behind so the
-        // toolkit fallback starts from a clean directory.
-        if downloadedFiles.count < candidateURLs.count {
-            for file in downloadedFiles {
-                try? FileManager.default.removeItem(at: file)
-            }
-            throw ENAFASTQDownloadFailure(
-                fallbackSource: firstFailure ?? .sraToolkitAfterFailedTransfer,
-                message: "ENA served \(downloadedFiles.count) of \(candidateURLs.count) advertised FASTQ file(s) for \(accession). \(rejectionReasons.joined(separator: "; "))"
-            )
+        // Every listed file arrived whole, so the run is published at once.
+        var downloadedFiles: [URL] = []
+        for file in stagedFiles {
+            try Self.publishDownloadedFile(from: file.staged, to: file.published)
+            downloadedFiles.append(file.published)
         }
 
         progress?(1.0)
@@ -165,9 +165,9 @@ extension SRAService {
 
     /// Downloads FASTQ via ENA first, and automatically retries via the SRA Toolkit when ENA fails.
     ///
-    /// If both paths fail, the combined error message from each attempt is surfaced as
-    /// `SRAError.downloadFailed`. Tests inject the `enaDownloader` / `toolkitDownloader`
-    /// closures via the dedicated initializer; in production both default to the real
+    /// If both paths fail, `SRAError.bothArchivesFailed` names each reason in
+    /// one line. Tests inject the `enaDownloader` / `toolkitDownloader`
+    /// closures via the dedicated initializer. In production both default to the real
     /// `downloadFASTQFromENA` and `downloadFASTQ` methods.
     ///
     /// - Parameters:
@@ -175,11 +175,13 @@ extension SRAService {
     ///   - outputDir: Output directory (defaults to a temp folder when nil).
     ///   - progress: Optional progress callback (0.0–1.0).
     ///   - onFallback: Optional callback invoked exactly once when the ENA path
-    ///     throws and the toolkit retry is about to start. Receives a
-    ///     human-readable message suitable for display in CLI output or an
-    ///     operation row note.
+    ///     throws and the toolkit retry is about to start. Receives the
+    ///     one-line `SRAFASTQDownloadSource.toolkitFallbackMessage`, which the
+    ///     window's download logs and records too.
     ///   - onSource: Optional callback invoked once with where the files came
     ///     from, which `fetch sra download` records under `downloadSource`.
+    ///   - onRecord: Called once with ENA's record of the run when ENA
+    ///     answered with one.
     /// - Returns: URLs to downloaded FASTQ files.
     public func downloadFASTQWithFallback(
         accession: String,
@@ -187,10 +189,13 @@ extension SRAService {
         progress: (@Sendable (Double) -> Void)? = nil,
         onFallback: (@Sendable (String) -> Void)? = nil,
         onSource: (@Sendable (SRAFASTQDownloadSource) -> Void)? = nil,
+        onRecord: (@Sendable (ENAReadRecord) -> Void)? = nil,
         trace: DownloadTraceHandler? = nil
     ) async throws -> [URL] {
         let ena: DownloadStrategy = enaDownloader ?? { acc, dir in
-            try await self.downloadFASTQFromENA(accession: acc, outputDir: dir, progress: progress, trace: trace)
+            try await self.downloadFASTQFromENA(
+                accession: acc, outputDir: dir, progress: progress, onRecord: onRecord, trace: trace
+            )
         }
         let toolkit: DownloadStrategy = toolkitDownloader ?? { acc, dir in
             try await self.downloadFASTQ(accession: acc, outputDir: dir, progress: progress, trace: trace)
@@ -214,7 +219,7 @@ extension SRAService {
                 if Self.isCancellation(toolkitError) {
                     throw toolkitError
                 }
-                throw SRAError.downloadFailed("ENA: \(enaError.localizedDescription); Toolkit: \(toolkitError.localizedDescription)")
+                throw SRAError.bothArchivesFailed(toolkitFirst: false, enaError: enaError, toolkitError: toolkitError)
             }
         }
     }

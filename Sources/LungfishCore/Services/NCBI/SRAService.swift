@@ -90,7 +90,7 @@ public actor SRAService {
         return (error as? URLError)?.code == .cancelled
     }
 
-    private let ncbiService: NCBIService
+    let ncbiService: NCBIService
     let httpClient: HTTPClient
     private let homeDirectoryProvider: @Sendable () -> URL
     private let appIdentity: LungfishAppIdentity
@@ -305,6 +305,10 @@ public actor SRAService {
     /// - Returns: This run's FASTQ files that the download wrote. Other runs'
     ///   files and older files in `outputDir` are never returned, and the
     ///   archive `prefetch` added is removed once `fasterq-dump` succeeds.
+    /// - Throws: A one-line `SRAError` naming the tool that failed, its exit
+    ///   status and its error line. Its whole standard error goes to the log
+    ///   and to its step trace. When `fasterq-dump` fails or is cancelled,
+    ///   the reads it wrote are removed, so no partial mate stays.
     public func downloadFASTQ(
         accession: String,
         outputDir: URL? = nil,
@@ -354,7 +358,9 @@ public actor SRAService {
 
         if prefetchResult.exitCode != 0 {
             logger.error("prefetch failed: \(prefetchResult.stderr, privacy: .public)")
-            throw SRAError.downloadFailed(prefetchResult.stderr)
+            throw SRAError.downloadFailed(SRADownloadMessages.toolFailure(
+                tool: "prefetch", exitCode: prefetchResult.exitCode, stderr: prefetchResult.stderr
+            ))
         }
 
         progress?(0.5)
@@ -371,7 +377,14 @@ public actor SRAService {
             "--threads", "4"
         ]
         let fasterqStartedAt = Date()
-        let fasterqResult = try await toolkit.run(toolkit.fasterqDump, fasterqArguments)
+        let fasterqResult: SRAToolkitRunner.Result
+        do {
+            fasterqResult = try await toolkit.run(toolkit.fasterqDump, fasterqArguments)
+        } catch {
+            // A cancel can stop fasterq-dump partway through writing a mate.
+            runFiles.removeWrittenFASTQFiles()
+            throw error
+        }
         let fasterqCompletedAt = Date()
 
         // Shared trace fields for both the failure and success paths; only `outputs` differs.
@@ -393,7 +406,10 @@ public actor SRAService {
         if fasterqResult.exitCode != 0 {
             trace?(makeFasterqTrace([]))
             logger.error("fasterq-dump failed: \(fasterqResult.stderr, privacy: .public)")
-            throw SRAError.conversionFailed(fasterqResult.stderr)
+            runFiles.removeWrittenFASTQFiles()
+            throw SRAError.conversionFailed(SRADownloadMessages.toolFailure(
+                tool: "fasterq-dump", exitCode: fasterqResult.exitCode, stderr: fasterqResult.stderr
+            ))
         }
 
         progress?(0.9)

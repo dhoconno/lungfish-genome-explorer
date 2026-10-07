@@ -55,6 +55,15 @@ public enum SRAAccessionParser {
         return result
     }
 
+    /// Whether `accession` can name one folder inside another without
+    /// leaving it. Empty text, `.`, `..` and any text holding `/` or a NUL
+    /// cannot. A download checks this before it creates or removes a
+    /// folder named for the run.
+    public static func namesOneFolder(_ accession: String) -> Bool {
+        !accession.isEmpty && accession != "." && accession != ".."
+            && !accession.contains("/") && !accession.contains("\0")
+    }
+
     /// Returns true if the input contains 2 or more SRA accessions.
     public static func isMultiAccessionInput(_ input: String) -> Bool {
         parseAccessionList(input).count >= 2

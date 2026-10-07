@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
 
 /// Validates a FASTQ file downloaded from ENA's HTTP mirror before it is
@@ -15,9 +16,12 @@ import Foundation
 /// HTML page as `SRR…_2.fastq.gz` and fastp later fails with
 /// `igzip: Error invalid gzip header`.
 ///
-/// The checks here are cheap (a two-byte header read plus a size lookup) and
-/// are shared by the CLI download path (`SRAService.downloadFASTQFromENA`) and
-/// the GUI batch importer.
+/// The checks read the first bytes and the size, and when the portal lists an
+/// MD5 for the file (`fastq_md5`), they read the whole file once to compare
+/// it. A file that fails any check fails with a one-line reason, and the
+/// download takes the SRA Toolkit route for the whole run. The CLI download
+/// path (`SRAService.downloadFASTQFromENA`) and the window's download
+/// (`SRAWindowRunDownload`) share them.
 public enum ENAFASTQDownloadValidator {
     /// Reasons a downloaded body is not the FASTQ file ENA advertised.
     public enum Failure: Error, LocalizedError, Equatable, Sendable {
@@ -31,6 +35,8 @@ public enum ENAFASTQDownloadValidator {
         case notGzip(filename: String)
         /// The body's size differs from the size the ENA portal advertised.
         case sizeMismatch(filename: String, expected: Int64, actual: Int64)
+        /// The body's MD5 differs from the checksum the ENA portal lists.
+        case md5Mismatch(filename: String, expected: String, actual: String)
 
         public var errorDescription: String? {
             switch self {
@@ -44,6 +50,8 @@ public enum ENAFASTQDownloadValidator {
                 return "ENA download \(filename) is not a gzip file."
             case .sizeMismatch(let filename, let expected, let actual):
                 return "ENA download \(filename) is \(actual) bytes but the ENA portal advertised \(expected) bytes."
+            case .md5Mismatch(let filename, let expected, let actual):
+                return "ENA download \(filename) has MD5 \(actual) but the ENA portal lists \(expected)."
             }
         }
     }
@@ -56,8 +64,11 @@ public enum ENAFASTQDownloadValidator {
     ///   - fileURL: The downloaded file.
     ///   - expectedBytes: The size the ENA portal advertised for this file
     ///     (`fastq_bytes`), or nil when unknown.
+    ///   - expectedMD5: The MD5 the ENA portal lists for this file
+    ///     (`fastq_md5`), or nil when unknown. A value that is not 32
+    ///     hexadecimal digits is not compared.
     /// - Throws: ``Failure`` describing the first problem found.
-    public static func validate(fileURL: URL, expectedBytes: Int64?) throws {
+    public static func validate(fileURL: URL, expectedBytes: Int64?, expectedMD5: String? = nil) throws {
         let filename = fileURL.lastPathComponent
 
         guard let handle = FileHandle(forReadingAtPath: fileURL.path) else {
@@ -88,6 +99,55 @@ public enum ENAFASTQDownloadValidator {
                 throw Failure.sizeMismatch(filename: filename, expected: expectedBytes, actual: actual)
             }
         }
+
+        if let expected = checksum(expectedMD5) {
+            let actual = try md5(of: fileURL)
+            if actual != expected {
+                throw Failure.md5Mismatch(filename: filename, expected: expected, actual: actual)
+            }
+        }
+    }
+
+    /// The MD5 checksums the ENA portal lists, aligned index for index with
+    /// `record.fastqHTTPURLs`. Entries are nil when the portal listed no
+    /// checksum for that position.
+    public static func expectedMD5s(for record: ENAReadRecord) -> [String?] {
+        let urlCount = record.fastqHTTPURLs.count
+        guard let md5String = record.fastqMD5 else {
+            return Array(repeating: nil, count: urlCount)
+        }
+        let checksums: [String?] = md5String
+            .components(separatedBy: ";")
+            .map { checksum($0) }
+        if checksums.count >= urlCount {
+            return Array(checksums.prefix(urlCount))
+        }
+        return checksums + Array(repeating: nil, count: urlCount - checksums.count)
+    }
+
+    /// `text` as a lower-case MD5 checksum, or nil when it is not 32
+    /// hexadecimal digits.
+    private static func checksum(_ text: String?) -> String? {
+        guard let trimmed = text?.trimmingCharacters(in: .whitespaces).lowercased(),
+              trimmed.count == 32,
+              trimmed.allSatisfy(\.isHexDigit) else {
+            return nil
+        }
+        return trimmed
+    }
+
+    /// The lower-case hexadecimal MD5 of the file, read in pieces so a large
+    /// file is never held in memory whole.
+    static func md5(of fileURL: URL) throws -> String {
+        guard let handle = FileHandle(forReadingAtPath: fileURL.path) else {
+            throw Failure.unreadable(filename: fileURL.lastPathComponent)
+        }
+        defer { try? handle.close() }
+        var hasher = Insecure.MD5()
+        while let piece = try handle.read(upToCount: 4 << 20), !piece.isEmpty {
+            hasher.update(data: piece)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     /// The per-file sizes the ENA portal advertised, aligned index-for-index

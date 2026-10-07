@@ -53,7 +53,11 @@ public extension ENAService {
     ///
     /// An ENA error, a run ENA has no record of, and a record without
     /// FASTQ links all choose the SRA Toolkit route, and an ENA error is
-    /// logged.
+    /// logged. Only ENA's record of `accession` itself counts, so a record
+    /// of another run, which ENA returns for an experiment or study
+    /// accession, never serves the run. ENA's listing must hold the run
+    /// whole by the rule `SRARunReads` applies, so a listing of one mate of
+    /// a run ENA calls paired also takes the SRA Toolkit route.
     ///
     /// - Throws: Only the cancellation error when the task is cancelled.
     func fastqDownloadRoute(forRun accession: String) async throws -> SRAFASTQDownloadRoute {
@@ -68,11 +72,24 @@ public extension ENAService {
             logger.warning("ENA lookup for \(accession, privacy: .public) failed, so the SRA Toolkit fetches the run: \(failure.message, privacy: .public) (\(String(describing: error), privacy: .public))")
             return .sraToolkit(enaRecord: nil, reason: "\(failure.message) for \(accession)")
         }
-        guard let record = records.first else {
+        guard let record = records.first(where: { $0.runAccession == accession }) else {
+            if let other = records.first {
+                logger.warning("ENA answered the lookup for \(accession, privacy: .public) with run \(other.runAccession, privacy: .public), so the SRA Toolkit fetches the run")
+            }
             return .sraToolkit(enaRecord: nil, reason: "ENA has no record of \(accession)")
         }
         guard !record.fastqHTTPURLs.isEmpty else {
             return .sraToolkit(enaRecord: record, reason: "ENA lists no FASTQ files for \(accession)")
+        }
+        do {
+            _ = try SRARunReads(
+                stagedFiles: record.fastqHTTPURLs,
+                accession: accession,
+                listedAsPaired: record.isPaired,
+                listedBy: "ENA"
+            )
+        } catch let failure as SRARunReads.Failure {
+            return .sraToolkit(enaRecord: record, reason: failure.listingMessage(archive: "ENA"))
         }
         return .enaMirror(record)
     }
@@ -135,12 +152,19 @@ public enum SRAFASTQDownloadSource: String, Sendable, CaseIterable {
         return .sraToolkitAfterFailedTransfer
     }
 
-    /// The line `lungfish-cli fetch sra download` prints and records when
-    /// ENA failed with `error` and the SRA Toolkit fetches the run instead.
-    /// It names the run and why ENA could not serve it.
+    /// The line `lungfish-cli fetch sra download` prints and the window's
+    /// Operations panel row logs when ENA failed with `error` and the SRA
+    /// Toolkit fetches the run instead. Both record it under
+    /// `fallbackMessage`. It names the run and, in one line, why ENA could
+    /// not serve it.
     public static func toolkitFallbackMessage(accession: String, after error: any Error) -> String {
-        let reason = (error as? ENAFASTQDownloadFailure)?.message ?? error.localizedDescription
-        return "ENA could not serve \(accession), so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. \(reason)"
+        toolkitFallbackMessage(accession: accession, reason: SRADownloadMessages.reason(of: error))
+    }
+
+    /// The fallback line for ENA's `reason`, such as a route's
+    /// `toolkitReason`.
+    public static func toolkitFallbackMessage(accession: String, reason: String) -> String {
+        "ENA could not serve \(accession), so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. \(SRADownloadMessages.oneLine(reason))"
     }
 }
 

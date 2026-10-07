@@ -22,8 +22,10 @@ public extension SRAService {
     ///   - onFallback: Called once with the line to log when the download
     ///     falls back to the other archive.
     ///   - onSource: Called once with where the files came from.
-    /// - Throws: `SRAError.downloadFailed` naming both failures when no
-    ///   archive could serve the run, or a cancellation.
+    ///   - onRecord: Called once with ENA's record of the run when ENA was
+    ///     asked and answered with one.
+    /// - Throws: `SRAError.bothArchivesFailed`, one line naming both
+    ///   failures, when no archive could serve the run, or a cancellation.
     func downloadFASTQ(
         accession: String,
         outputDir: URL,
@@ -31,6 +33,7 @@ public extension SRAService {
         progress: (@Sendable (Double) -> Void)? = nil,
         onFallback: (@Sendable (String) -> Void)? = nil,
         onSource: (@Sendable (SRAFASTQDownloadSource) -> Void)? = nil,
+        onRecord: (@Sendable (ENAReadRecord) -> Void)? = nil,
         trace: DownloadTraceHandler? = nil
     ) async throws -> [URL] {
         guard preference == .ncbi else {
@@ -40,6 +43,7 @@ public extension SRAService {
                 progress: progress,
                 onFallback: onFallback,
                 onSource: onSource,
+                onRecord: onRecord,
                 trace: trace
             )
         }
@@ -68,7 +72,9 @@ public extension SRAService {
             logger.warning("\(message, privacy: .public)")
             onFallback?(message)
             let ena: DownloadStrategy = enaDownloader ?? { acc, dir in
-                try await self.downloadFASTQFromENA(accession: acc, outputDir: dir, progress: progress, trace: trace)
+                try await self.downloadFASTQFromENA(
+                    accession: acc, outputDir: dir, progress: progress, onRecord: onRecord, trace: trace
+                )
             }
             do {
                 let files = try await ena(accession, outputDir)
@@ -78,8 +84,7 @@ public extension SRAService {
                 if isArchiveRequestCancellation(enaError) {
                     throw enaError
                 }
-                let enaReason = (enaError as? ENAFASTQDownloadFailure)?.message ?? enaError.localizedDescription
-                throw SRAError.downloadFailed("Toolkit: \(toolkitError.localizedDescription); ENA: \(enaReason)")
+                throw SRAError.bothArchivesFailed(toolkitFirst: true, enaError: enaError, toolkitError: toolkitError)
             }
         }
     }
