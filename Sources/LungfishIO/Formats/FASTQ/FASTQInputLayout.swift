@@ -173,7 +173,10 @@ public struct FASTQInputLayoutResolution: Codable, Sendable, Equatable {
 ///    whose records alternate mates, so those are scanned,
 /// 4. a bounded scan of the records (``FASTQReadLayoutClassifier``), with the
 ///    bundle metadata as hints that can demote strict to mixed (a VSP2 merge
-///    recipe in the lineage, a read classification with merged reads).
+///    recipe in the lineage, a read classification with merged reads). A scan
+///    that read the whole of a file holding every read of its input counts
+///    it, so when it finds only pairs it outranks a merge in the lineage or
+///    the recipe, though not a recorded count of single reads.
 ///
 /// Mates named identically, with `/1` `/2` suffixes, or with Casava
 /// descriptions are all recognised by the scan.
@@ -269,7 +272,8 @@ public enum FASTQInputLayoutResolver {
                 reason: "The input is \(format.rawValue.uppercased()), not FASTQ reads."
             )
         }
-        let hints = FASTQReadLayoutClassifier.metadataHints(for: hintURL.standardizedFileURL)
+        let evidence = FASTQReadLayoutClassifier.metadataEvidence(for: hintURL.standardizedFileURL)
+        let hints = evidence.hints
         if hints.recordsExplicitSingleEnd, !hints.hasMergedOrUnpairedReads {
             return FASTQInputLayoutResolution(
                 layout: .singleEnd,
@@ -279,15 +283,20 @@ public enum FASTQInputLayoutResolver {
         }
         // A bundle directory is scanned through its primary FASTQ, the same
         // file `resolve(inputURLs:)` reads.
-        let scanURL = FASTQBundle.isBundleURL(standardized)
+        let scansABundle = FASTQBundle.isBundleURL(standardized)
+        let scanURL = scansABundle
             ? (FASTQBundle.resolvePrimaryFASTQURL(for: standardized) ?? standardized)
             : standardized
         let scan = (try? FASTQReadLayoutClassifier.readHeaders(from: scanURL, limit: recordLimit))
             ?? (headers: [], scannedWholeFile: true)
+        // A scan of the whole of the file read counts it. The primary file
+        // of a bundle counts the bundle only when it holds every read.
         let classification = FASTQReadLayoutClassifier.classify(
             headers: scan.headers,
             scannedWholeFile: scan.scannedWholeFile,
-            metadata: hints
+            metadata: hints,
+            wholeFileScanOutranksTheMerge: evidence.wholeFileScanOutranksTheMerge
+                && (!scansABundle || FASTQReadLayoutClassifier.holdsEveryRead(scanURL, ofBundle: standardized))
         )
         return FASTQInputLayoutResolution(
             layout: FASTQInputLayout(readLayout: classification.layout),

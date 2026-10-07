@@ -21,8 +21,11 @@ public enum FASTQReadLayout: String, Codable, Sendable, Equatable {
 // MARK: - FASTQPairingMetadataHints
 
 /// Metadata evidence about a FASTQ file's pairing, gathered from the bundle
-/// manifest and the FASTQ sidecar. Content scanning always runs as well; the
-/// hints can only make the result more conservative (mixed instead of strict).
+/// manifest and the FASTQ sidecar. Content scanning always runs as well, and
+/// the hints can only make the result more conservative (mixed instead of
+/// strict), except that a scan of a whole file that finds only pairs
+/// outranks a merge in the lineage or the recipe
+/// (``FASTQReadLayoutClassifier/classify(headers:scannedWholeFile:metadata:wholeFileScanOutranksTheMerge:)``).
 public struct FASTQPairingMetadataHints: Codable, Sendable, Equatable {
     /// The recorded pairing mode, if any.
     public var pairingMode: IngestionMetadata.PairingMode?
@@ -161,10 +164,17 @@ public enum FASTQReadLayoutClassifier {
     ///   - headers: Header lines in file order.
     ///   - scannedWholeFile: Whether `headers` covers the whole file.
     ///   - metadata: Bundle and sidecar evidence.
+    ///   - wholeFileScanOutranksTheMerge: Whether a scan of the whole file
+    ///     that finds only pairs outranks the merge evidence of `metadata`,
+    ///     which holds when that evidence is only a merge in the lineage or
+    ///     the recipe and the file holds every read of its input
+    ///     (``metadataEvidence(for:)``). False keeps every merge evidence
+    ///     over the scan.
     public static func classify(
         headers: [String],
         scannedWholeFile: Bool,
-        metadata: FASTQPairingMetadataHints = FASTQPairingMetadataHints()
+        metadata: FASTQPairingMetadataHints = FASTQPairingMetadataHints(),
+        wholeFileScanOutranksTheMerge: Bool = false
     ) -> FASTQReadLayoutClassification {
         var pairs = 0
         var unpaired = 0
@@ -192,7 +202,13 @@ public enum FASTQReadLayoutClassifier {
             : "the first \(headers.count) records"
 
         if pairs > 0, unpaired == 0 {
-            if metadata.hasMergedOrUnpairedReads {
+            if metadata.hasMergedOrUnpairedReads, scannedWholeFile, wholeFileScanOutranksTheMerge {
+                // A scan of the whole file counted every record and found
+                // no single read, which outranks a merge in the lineage or
+                // the recipe (S4, Phase 2.1 lane L3).
+                layout = .strictlyInterleaved
+                reason = "Every record in \(scope) is followed by its mate, and a scan of the whole file is a count of its records, so it outranks the merge the dataset metadata records (\(metadata.mergeEvidence ?? "merge evidence"))."
+            } else if metadata.hasMergedOrUnpairedReads {
                 layout = .mixedInterleaved
                 reason = "Mates alternate in \(scope), but the dataset metadata records merged or unpaired reads (\(metadata.mergeEvidence ?? "merge evidence"))."
             } else {
@@ -264,13 +280,22 @@ public enum FASTQReadLayoutClassifier {
         inputURL: URL,
         limit: Int = defaultRecordLimit
     ) -> FASTQReadLayoutClassification {
-        let metadata = metadataHints(for: inputURL)
+        let evidence = metadataEvidence(for: inputURL)
         let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: inputURL)
         guard let fastqURL,
               let scan = try? readHeaders(from: fastqURL, limit: limit) else {
-            return classify(headers: [], scannedWholeFile: true, metadata: metadata)
+            return classify(headers: [], scannedWholeFile: true, metadata: evidence.hints)
         }
-        return classify(headers: scan.headers, scannedWholeFile: scan.scannedWholeFile, metadata: metadata)
+        // Only a file that holds every read of its input is counted by a
+        // scan of it. A virtual bundle's preview and a chunked root's first
+        // chunk are not.
+        return classify(
+            headers: scan.headers,
+            scannedWholeFile: scan.scannedWholeFile,
+            metadata: evidence.hints,
+            wholeFileScanOutranksTheMerge: evidence.wholeFileScanOutranksTheMerge
+                && holdsEveryRead(fastqURL, ofBundle: bundleURL(holding: inputURL))
+        )
     }
 
     /// Gathers pairing and merge evidence from bundle and sidecar metadata.
@@ -292,18 +317,29 @@ public enum FASTQReadLayoutClassifier {
     /// merged or unpaired reads that a manifest records for the bundle,
     /// because two counts that disagree leave the file mixed.
     public static func metadataHints(for inputURL: URL) -> FASTQPairingMetadataHints {
+        metadataEvidence(for: inputURL).hints
+    }
+
+    /// The hints of ``metadataHints(for:)``, and whether a layout scan that
+    /// read the whole file and found only pairs outranks their merge
+    /// evidence.
+    ///
+    /// A scan of the whole file counts every record, so it outranks the
+    /// evidence a count of only pairs outranks, a merge in the lineage or in
+    /// the recipe, which says only that single reads may be in the file. A
+    /// count of merged or unpaired reads that a manifest, a read manifest or
+    /// the file's own sidecar records keeps the file mixed (S4's no-count
+    /// case, Phase 2.1 lane L3, ruling on option 1).
+    static func metadataEvidence(
+        for inputURL: URL
+    ) -> (hints: FASTQPairingMetadataHints, wholeFileScanOutranksTheMerge: Bool) {
         var hints = FASTQPairingMetadataHints()
         // Each piece of evidence, with whether the file's own count of only
         // pairs outranks it.
         var evidence: [(text: String, outrankedByACountOfPairs: Bool)] = []
         var countedPairsOnly = false
 
-        let bundleURL: URL? = FASTQBundle.isBundleURL(inputURL)
-            ? inputURL
-            : {
-                let parent = inputURL.deletingLastPathComponent()
-                return FASTQBundle.isBundleURL(parent) ? parent : nil
-            }()
+        let bundleURL = Self.bundleURL(holding: inputURL)
 
         if let bundleURL {
             if let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
@@ -345,6 +381,10 @@ public enum FASTQReadLayoutClassifier {
                     // without a mate, which outranks the merge its lineage
                     // or its recipe records.
                     countedPairsOnly = true
+                } else if let unmatched = unmatchedMates(classification, of: fastqURL) {
+                    // R1 and R2 counts that differ record reads without a
+                    // mate, a count of single reads that no scan outranks.
+                    evidence.append(("sidecar: \(unmatched) reads without a mate by its R1 and R2 counts", false))
                 }
             }
             if let recipe = sidecar.ingestion?.recipeApplied,
@@ -353,27 +393,49 @@ public enum FASTQReadLayoutClassifier {
             }
         }
 
-        let standing = evidence.filter { !(countedPairsOnly && $0.outrankedByACountOfPairs) }.map(\.text)
+        let standing = evidence.filter { !(countedPairsOnly && $0.outrankedByACountOfPairs) }
         if !standing.isEmpty {
             hints.hasMergedOrUnpairedReads = true
-            hints.mergeEvidence = standing.joined(separator: "; ")
+            hints.mergeEvidence = standing.map(\.text).joined(separator: "; ")
         }
-        return hints
+        return (hints, standing.allSatisfy(\.outrankedByACountOfPairs))
+    }
+
+    /// The `.lungfishfastq` bundle `inputURL` is, or the one its file lies
+    /// in directly, or nil for a file outside a bundle.
+    static func bundleURL(holding inputURL: URL) -> URL? {
+        if FASTQBundle.isBundleURL(inputURL) { return inputURL }
+        let parent = inputURL.deletingLastPathComponent()
+        return FASTQBundle.isBundleURL(parent) ? parent : nil
     }
 
     /// Whether `classification` counts only pairs of `fastqURL`. Every role
     /// names the file, it lists as many R1 reads as R2 reads and at least
     /// one, and it lists no merged or unpaired read.
     static func countsOnlyPairs(_ classification: ReadClassification, of fastqURL: URL) -> Bool {
-        func count(_ role: ReadClassification.FileRole) -> Int {
-            classification.files.filter { $0.role == role }.reduce(0) { $0 + $1.readCount }
-        }
-        let r1 = count(.pairedR1)
+        let r1 = mateCount(.pairedR1, in: classification)
         return r1 > 0
-            && r1 == count(.pairedR2)
+            && r1 == mateCount(.pairedR2, in: classification)
             && classification.mergedReadCount == 0
             && classification.unpairedReadCount == 0
             && classification.files.allSatisfy { $0.filename == fastqURL.lastPathComponent }
+    }
+
+    /// The reads without a mate that `classification` records for
+    /// `fastqURL` by R1 and R2 counts that differ, or nil when the counts
+    /// agree or a role names another file.
+    static func unmatchedMates(_ classification: ReadClassification, of fastqURL: URL) -> Int? {
+        let r1 = mateCount(.pairedR1, in: classification)
+        let r2 = mateCount(.pairedR2, in: classification)
+        guard r1 != r2,
+              classification.files.allSatisfy({ $0.filename == fastqURL.lastPathComponent }) else {
+            return nil
+        }
+        return abs(r1 - r2)
+    }
+
+    private static func mateCount(_ role: ReadClassification.FileRole, in classification: ReadClassification) -> Int {
+        classification.files.filter { $0.role == role }.reduce(0) { $0 + $1.readCount }
     }
 
     /// Whether `fastqURL` holds every read of `bundleURL`, so that a count of

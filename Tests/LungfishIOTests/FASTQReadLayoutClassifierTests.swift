@@ -178,7 +178,12 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
         XCTAssertFalse(scan.scannedWholeFile)
     }
 
-    func testBundleWithVSP2MergeRecipeIsMixedEvenWhenHeadAlternates() throws {
+    /// A VSP2 merge recipe says merged reads may follow the pairs, so a scan
+    /// that read only the alternating head of the file calls it mixed. A scan
+    /// that read the whole file is a count of its records, so a file that
+    /// holds only pairs is strictly interleaved whatever the recipe says
+    /// (ruling on S4's no-count case, Phase 2.1 lane L3). It was mixed before.
+    func testBundleWithVSP2MergeRecipeIsMixedWhenOnlyItsHeadAlternates() throws {
         let dir = try makeTempDir()
         let bundle = dir.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
@@ -195,10 +200,16 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
             for: fastqURL
         )
 
-        let result = FASTQReadLayoutClassifier.classify(inputURL: bundle)
-        XCTAssertEqual(result.layout, .mixedInterleaved)
-        XCTAssertEqual(result.metadata.pairingMode, .interleaved)
-        XCTAssertTrue(result.metadata.hasMergedOrUnpairedReads)
+        let head = FASTQReadLayoutClassifier.classify(inputURL: bundle, limit: 2)
+        XCTAssertEqual(head.layout, .mixedInterleaved)
+        XCTAssertEqual(head.metadata.pairingMode, .interleaved)
+        XCTAssertTrue(head.metadata.hasMergedOrUnpairedReads)
+
+        let whole = FASTQReadLayoutClassifier.classify(inputURL: bundle)
+        XCTAssertEqual(whole.layout, .strictlyInterleaved)
+        XCTAssertTrue(whole.scannedWholeFile)
+        XCTAssertTrue(whole.metadata.hasMergedOrUnpairedReads)
+        XCTAssertTrue(whole.reason.contains("whole file"), whole.reason)
     }
 
     func testBundleWithInterleavedMetadataAndStrictContentIsStrict() throws {
@@ -275,17 +286,22 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
     }
 
     /// A merge in the lineage says single reads may be in the file, so mates
-    /// beside it scan as mixed. An output of a merge bundle that kept only the
-    /// unmerged pairs holds none, and its own sidecar counts say so, so the
-    /// counts outrank the lineage and the file scans as pairs. The hints carry
-    /// no merge evidence then.
+    /// beside it scan as mixed while the scan reads only part of the file. An
+    /// output of a merge bundle that kept only the unmerged pairs holds none,
+    /// and its own sidecar counts say so, so the counts outrank the lineage and
+    /// the file scans as pairs. The hints carry no merge evidence then. A scan
+    /// of the whole file is a count too, so with no recorded count a file of
+    /// only pairs is strictly interleaved once the scan reads all of it (ruling
+    /// on S4's no-count case, Phase 2.1 lane L3). It was mixed before.
     func testACountOfOnlyPairsOutranksTheMergeInTheLineage() throws {
         let headers = ["a/1", "a/2", "b/1", "b/2"]
 
         let uncounted = try makeMergeLineageChild(headers: headers, roles: nil)
-        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: uncounted).layout, .mixedInterleaved)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: uncounted, limit: 2).layout, .mixedInterleaved)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: uncounted).layout, .strictlyInterleaved)
 
         let counted = try makeMergeLineageChild(headers: headers, roles: pairsOnlyRoles(naming: "reads.fastq", pairs: 2))
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: counted, limit: 2).layout, .strictlyInterleaved)
         let result = FASTQReadLayoutClassifier.classify(inputURL: counted)
         XCTAssertEqual(result.layout, .strictlyInterleaved)
         XCTAssertFalse(result.metadata.hasMergedOrUnpairedReads)
@@ -295,11 +311,17 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
     }
 
     /// A count that names another file, a count that holds a merged or orphan
-    /// read, and no count at all leave the merge evidence as it was.
+    /// read, and no count at all leave the merge evidence as it was. A scan
+    /// of the whole file then outranks the lineage merge for a count that
+    /// names another file, as for no count at all (ruling on S4's no-count
+    /// case, Phase 2.1 lane L3, it was mixed before), but never a recorded
+    /// count of single reads.
     func testOnlyACountOfThisFilesPairsClearsTheMerge() throws {
         let headers = ["a/1", "a/2", "b/1", "b/2"]
         let otherFile = try makeMergeLineageChild(headers: headers, roles: pairsOnlyRoles(naming: "other.fastq", pairs: 2))
-        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: otherFile).layout, .mixedInterleaved)
+        XCTAssertTrue(FASTQReadLayoutClassifier.metadataHints(for: otherFile).hasMergedOrUnpairedReads)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: otherFile, limit: 2).layout, .mixedInterleaved)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: otherFile).layout, .strictlyInterleaved)
 
         let withMerged = ReadClassification(files: [
             .init(filename: "reads.fastq", role: .pairedR1, readCount: 2),
@@ -321,7 +343,9 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
     }
 
     /// A merge recipe whose merge left no merged read records the same count,
-    /// so its file holds pairs and runs as pairs.
+    /// so its file holds pairs and runs as pairs. With no count, a scan of
+    /// the whole file is the count (ruling on S4's no-count case, Phase 2.1
+    /// lane L3, it was mixed before), and a scan of its head is not.
     func testAMergeRecipeThatLeftNoMergedReadScansAsPairsWhenItsCountSaysOnlyPairs() throws {
         let recipe = RecipeAppliedInfo(
             recipeID: "illuminaVSP2TargetEnrichment",
@@ -330,7 +354,8 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
         )
         let headers = ["a/1", "a/2", "b/1", "b/2"]
         let uncounted = try makeMergeLineageChild(headers: headers, roles: nil, recipe: recipe)
-        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: uncounted).layout, .mixedInterleaved)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: uncounted, limit: 2).layout, .mixedInterleaved)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: uncounted).layout, .strictlyInterleaved)
         let counted = try makeMergeLineageChild(
             headers: headers,
             roles: pairsOnlyRoles(naming: "reads.fastq", pairs: 2),
@@ -399,7 +424,9 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
 
     /// A count of only pairs lists as many R1 reads as R2 reads. A count
     /// whose mate counts differ is not a count of pairs, so it clears no
-    /// merge. Before, it cleared the lineage merge.
+    /// merge. Before, it cleared the lineage merge. It records reads without
+    /// a mate, so it stands as a count of single reads that a scan of the
+    /// whole file does not outrank either.
     func testACountWhoseMateCountsDifferClearsNoMerge() throws {
         let headers = ["a/1", "a/2", "b/1", "b/2"]
         let unequal = ReadClassification(files: [
@@ -408,8 +435,53 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
         ])
         let bundle = try makeMergeLineageChild(headers: headers, roles: unequal)
 
-        XCTAssertTrue(FASTQReadLayoutClassifier.metadataHints(for: bundle).hasMergedOrUnpairedReads)
+        let hints = FASTQReadLayoutClassifier.metadataHints(for: bundle)
+        XCTAssertTrue(hints.hasMergedOrUnpairedReads)
+        XCTAssertTrue(hints.mergeEvidence?.contains("R1 and R2 counts") ?? false, hints.mergeEvidence ?? "")
         XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: bundle).layout, .mixedInterleaved)
+    }
+
+    /// A scan of the whole file counts a bundle only when the file holds
+    /// every read of it. A virtual derivative's preview of only pairs is a
+    /// sample of its reads, and a chunked root's first chunk is one of its
+    /// files, so the merge their metadata records keeps both mixed.
+    func testAWholeFileScanCountsABundleOnlyWhenItsFileHoldsEveryRead() throws {
+        let virtual = try makeTempDir().appendingPathComponent("subset.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: virtual, withIntermediateDirectories: true)
+        try fastq(["a/1", "a/2"]).write(to: virtual.appendingPathComponent("preview.fastq"), atomically: true, encoding: .utf8)
+        try "a\n".write(to: virtual.appendingPathComponent("read-ids.txt"), atomically: true, encoding: .utf8)
+        let operation = FASTQDerivativeOperation(kind: .lengthFilter)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: "subset",
+                parentBundleRelativePath: ".",
+                rootBundleRelativePath: ".",
+                rootFASTQFilename: "reads.fastq",
+                payload: .subset(readIDListFilename: "read-ids.txt"),
+                lineage: [FASTQDerivativeOperation(kind: .pairedEndMerge), operation],
+                operation: operation,
+                cachedStatistics: .placeholder(readCount: 2, baseCount: 8),
+                pairingMode: .interleaved,
+                sequenceFormat: .fastq
+            ),
+            in: virtual
+        )
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: virtual).layout, .mixedInterleaved)
+
+        let chunked = try makeTempDir().appendingPathComponent("chunked.lungfishfastq", isDirectory: true)
+        let chunks = chunked.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunks, withIntermediateDirectories: true)
+        let first = chunks.appendingPathComponent("run_0.fastq")
+        try fastq(["a/1", "a/2"]).write(to: first, atomically: true, encoding: .utf8)
+        try fastq(["m1"]).write(to: chunks.appendingPathComponent("run_1.fastq"), atomically: true, encoding: .utf8)
+        try FASTQSourceFileManifest(files: ["run_0.fastq", "run_1.fastq"].map {
+            .init(filename: "chunks/\($0)", originalPath: "/orig/\($0)", sizeBytes: 1, isSymlink: false)
+        }).save(to: chunked)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: .interleaved, recipeApplied: mergeRecipe)),
+            for: first
+        )
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: chunked).layout, .mixedInterleaved)
     }
 
     /// A root that holds its reads in one file, as a merge recipe that merged
