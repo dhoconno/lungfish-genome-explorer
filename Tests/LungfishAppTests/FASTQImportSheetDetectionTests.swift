@@ -155,6 +155,43 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
         XCTAssertEqual(update?.succeeded, 3)
     }
 
+    // MARK: - A mate pairs only inside its own folder (review B-S1)
+
+    func testTheSheetPairsTheMatesOfEveryFolderOfAScanInsideTheFolder() throws {
+        // The Import Center flattens a recursive scan into one list, one
+        // folder's files after the other's. Detection kept one file a stem,
+        // the last one listed, so folder A's R1 paired with folder B's R2 and
+        // the other two became single-end samples, where `import fastq
+        // <folder> --recursive` pairs each folder alone.
+        let delivery = root.appendingPathComponent("delivery", isDirectory: true)
+        let a = try writeMates(in: delivery.appendingPathComponent("A", isDirectory: true))
+        let b = try writeMates(in: delivery.appendingPathComponent("B", isDirectory: true))
+
+        let sheet = groupFASTQByPairs(a + b)
+        let recursive = try FASTQBatchImporter.detectPairsFromDirectoryRecursive(delivery)
+
+        XCTAssertEqual(sheet.map(\.sampleName), ["reads", "reads"])
+        XCTAssertEqual(sheet.map(\.inputFiles), [a, b])
+        XCTAssertEqual(
+            sheet.map { $0.inputFiles.map(\.standardizedFileURL.path) },
+            recursive.map { $0.inputFiles.map(\.standardizedFileURL.path) },
+            "the sheet pairs the scan as the CLI's recursive scan does"
+        )
+    }
+
+    func testARunsThirdFileJoinsOnlyThePairOfItsOwnFolder() {
+        let files = [
+            URL(fileURLWithPath: "/delivery/A/SRR1_1.fastq"),
+            URL(fileURLWithPath: "/delivery/A/SRR1_2.fastq"),
+            URL(fileURLWithPath: "/delivery/B/SRR1.fastq"),
+        ]
+
+        let sheet = groupFASTQByPairs(files)
+
+        XCTAssertEqual(sheet.map(\.inputFiles), [Array(files.prefix(2)), [files[2]]])
+        XCTAssertNil(sheet.first?.unpaired)
+    }
+
     // MARK: - No sample of a sheet replaces another's bundle
 
     func testTheDuplicateDialogNeverOffersToReplaceABundleAnEarlierSampleOfTheSheetWrote() throws {
@@ -230,6 +267,16 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
             .sorted { $0.count > $1.count }
         return envelope.argv.map { argument in
             spellings.reduce(argument) { $0.replacingOccurrences(of: $1, with: "<PROJECT>") }
+        }
+    }
+
+    /// `reads_R1.fastq` and `reads_R2.fastq`, one pair of mates, in `folder`.
+    private func writeMates(in folder: URL) throws -> [URL] {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return try [1, 2].map { mate in
+            let url = folder.appendingPathComponent("reads_R\(mate).fastq")
+            try Data("@\(folder.lastPathComponent).1/\(mate)\nACGTACGT\n+\nIIIIIIII\n".utf8).write(to: url)
+            return url
         }
     }
 
