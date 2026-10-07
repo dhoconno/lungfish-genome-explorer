@@ -121,14 +121,16 @@ extension ImportCommand {
             help: ArgumentHelp(
                 "Read pairing: auto, single, paired, interleaved (default: auto)",
                 discussion: """
-                auto and paired match R1/R2 files of one folder by name. They also join a run's file \
-                named for the run alone, such as SRR1.fastq beside SRR1_1.fastq and \
-                SRR1_2.fastq, to that pair as unpaired reads, when the first reads of \
-                the pair are named as mates, the first read of that file is not from \
-                their fragment, and no two adjacent reads among the first 1,000 of \
-                that file are mates. Otherwise the import skips that file and a \
-                warning says why. The import fails the sample when two adjacent \
-                reads later in that file are mates. \
+                auto and paired match R1/R2 files by name, inside one folder first. \
+                Mates in two folders pair only when no other listed file has either \
+                name. When one does, a warning names the files. They also join a run's \
+                file named for the run alone, such as SRR1.fastq beside SRR1_1.fastq and \
+                SRR1_2.fastq, to that pair as unpaired reads, by the same folder rule, \
+                when the first reads of the pair are named as mates, the first read of \
+                that file is not from their fragment, and no two adjacent reads among \
+                the first 1,000 of that file are mates. Otherwise the import skips that \
+                file and a warning says why. The import fails the sample when two \
+                adjacent reads later in that file are mates. \
                 For any other file with no mate file, they read its records and \
                 record interleaved mates when every record is followed by its mate, \
                 otherwise single-end. single imports every file as its own single-end \
@@ -199,6 +201,9 @@ extension ImportCommand {
             // MARK: Detect pairs
 
             let detectedPairs: [SamplePair]
+            // Why detection left a file of another folder unpaired. Only a
+            // recursive scan and explicit files can span folders.
+            var pairingNotices: [FASTQBatchImporter.PairingNotice] = []
             let fm = FileManager.default
 
             if let samplesheet {
@@ -222,7 +227,9 @@ extension ImportCommand {
                 if exists && isDirectory.boolValue {
                     do {
                         if recursive {
-                            detectedPairs = try FASTQBatchImporter.detectPairsFromDirectoryRecursive(inputURL)
+                            let detection = try FASTQBatchImporter.detectingPairsFromDirectoryRecursive(inputURL)
+                            detectedPairs = detection.samples
+                            pairingNotices = detection.notices
                         } else {
                             detectedPairs = try FASTQBatchImporter.detectPairsFromDirectory(inputURL)
                         }
@@ -248,7 +255,9 @@ extension ImportCommand {
                     }
                     fileURLs.append(url)
                 }
-                detectedPairs = FASTQBatchImporter.detectPairs(from: fileURLs)
+                let detection = FASTQBatchImporter.detectingPairs(from: fileURLs)
+                detectedPairs = detection.samples
+                pairingNotices = detection.notices
             }
 
             // MARK: Apply --pairing
@@ -282,6 +291,11 @@ extension ImportCommand {
             // command with --format json, so its Operations row logs the notice.
             let unpairedReadsCheck = FASTQBatchImporter.checkingUnpairedReads(samples)
             let effectivePairs = unpairedReadsCheck.samples
+            // Why detection left a file of another folder unpaired, then the
+            // check's warnings. single and interleaved split every pair, so a
+            // notice about a pair detection did not make says nothing to them.
+            let warnings = (pairingChoice.keepsDetectedPairs ? pairingNotices.map(\.event) : [])
+                + unpairedReadsCheck.warnings
             let isJSON = globalOptions.outputFormat == .json
 
             // MARK: Print detected pairs
@@ -304,8 +318,8 @@ extension ImportCommand {
                 }
             }
             print("")
-            if !unpairedReadsCheck.warnings.isEmpty {
-                for case .notice(let sample, let message) in unpairedReadsCheck.warnings {
+            if !warnings.isEmpty {
+                for case .notice(let sample, let message) in warnings {
                     print(isJSON
                         ? FASTQBatchImporter.encodeLogEvent(.notice(sample: sample, message: message))
                         : formatter.warning("\(sample): \(message)"))

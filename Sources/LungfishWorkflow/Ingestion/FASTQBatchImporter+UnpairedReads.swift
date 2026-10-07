@@ -19,56 +19,103 @@ extension FASTQBatchImporter {
     // MARK: - Detection
 
     /// A file's folder and a name, which detection pairs mates and joins a
-    /// run's third file by. A mate pairs only with a file of its own folder,
-    /// as `import fastq <folder> --recursive` groups them, so a list of two
-    /// folders' files that share names, the Import Center's flattened scan
-    /// or explicit files, never pairs one folder's R1 with the other's R2
-    /// (review B-S1).
+    /// run's third file by. A mate pairs with a file of its own folder
+    /// first, as `import fastq <folder> --recursive` groups them, so a list
+    /// of two folders' files that share names, the Import Center's flattened
+    /// scan or explicit files, never pairs one folder's R1 with the other's
+    /// R2 (review B-S1). A file of another folder pairs or joins only by
+    /// names no other listed file has (re-review N1).
     struct FolderName: Hashable {
         let folder: String
         let name: String
 
         init(of file: URL, _ name: String) {
-            folder = file.deletingLastPathComponent().standardizedFileURL.path
+            folder = Self.folder(of: file)
             self.name = name
+        }
+
+        /// The folder of `file`, by its standardized path.
+        static func folder(of file: URL) -> String {
+            file.deletingLastPathComponent().standardizedFileURL.path
         }
     }
 
     /// Joins each run's file of reads without a mate to the pair detected
-    /// from `<run>_1` and `<run>_2` of the same folder, by file name.
+    /// from `<run>_1` and `<run>_2`, by file name. The file of the pair's
+    /// own folder joins first. A pair with none in its folder joins the file
+    /// of another folder only when no other listed file has the run's name
+    /// or the name of either mate, so a name two folders share never joins
+    /// across folders, and a notice names the files it kept apart
+    /// (re-review N1).
     ///
     /// That file used to import as a second sample of the same name, which
     /// found the pair's bundle and was skipped, so the bundle held part of
     /// the run. A bare file beside an `_R1` and `_R2` pair, a BAM, and a name
-    /// two bare files share keep their own samples. A name proves nothing
-    /// about the reads, so ``checkingUnpairedReads(_:)`` keeps a join only
-    /// when the first reads bear it out.
-    static func joiningUnpairedReads(_ samples: [SamplePair]) -> [SamplePair] {
-        let singles = Dictionary(
-            grouping: samples.filter { $0.r2 == nil && !SequencingReadImportSource.isBAM($0.r1) },
-            by: { FolderName(of: $0.r1, $0.sampleName) }
-        )
-        var joinedFiles: Set<URL> = []
-        let joined = samples.map { sample -> SamplePair in
+    /// two bare files of one folder share keep their own samples. A name
+    /// proves nothing about the reads, so ``checkingUnpairedReads(_:)`` keeps
+    /// a join only when the first reads bear it out.
+    static func joiningUnpairedReads(_ samples: [SamplePair]) -> PairDetection {
+        let singles = samples.filter { $0.r2 == nil && !SequencingReadImportSource.isBAM($0.r1) }
+        let inFolder = Dictionary(grouping: singles, by: { FolderName(of: $0.r1, $0.sampleName) })
+        let byName = Dictionary(grouping: singles, by: \.sampleName)
+        let listed = Dictionary(grouping: samples.flatMap(\.inputFiles), by: fastqStem)
+        // The run a pair is named for, when its mates are `<run>_1` and `<run>_2`.
+        func runName(of sample: SamplePair) -> String? {
             guard let r2 = sample.r2, sample.unpaired == nil,
                   !SequencingReadImportSource.isBAM(sample.r1),
                   fastqStem(sample.r1) == "\(sample.sampleName)_1",
-                  fastqStem(r2) == "\(sample.sampleName)_2",
-                  let matches = singles[FolderName(of: sample.r1, sample.sampleName)], matches.count == 1 else {
-                return sample
+                  fastqStem(r2) == "\(sample.sampleName)_2" else { return nil }
+            return sample.sampleName
+        }
+
+        // The file of each pair's own folder, before any of another folder.
+        var thirdFiles: [Int: URL] = [:]
+        for (index, sample) in samples.enumerated() {
+            guard let run = runName(of: sample),
+                  let matches = inFolder[FolderName(of: sample.r1, run)], matches.count == 1 else { continue }
+            thirdFiles[index] = matches[0].r1
+        }
+        let joinedInFolder = Set(thirdFiles.values)
+        var notices: [PairingNotice] = []
+        for (index, sample) in samples.enumerated() {
+            guard let run = runName(of: sample), let r2 = sample.r2,
+                  inFolder[FolderName(of: sample.r1, run)] == nil else { continue }
+            let files = (byName[run] ?? []).map(\.r1).filter { !joinedInFolder.contains($0) }
+            guard let file = files.first else { continue }
+            guard [run, fastqStem(sample.r1), fastqStem(r2)].allSatisfy({ listed[$0]?.count == 1 }) else {
+                notices.append(PairingNotice(
+                    sample: run, r1: sample.r1, message: notJoinedAcrossFolders(files, to: sample.r1, r2)
+                ))
+                continue
             }
-            joinedFiles.insert(matches[0].r1)
+            thirdFiles[index] = file
+        }
+
+        let joinedFiles = Set(thirdFiles.values)
+        let joined = samples.enumerated().map { index, sample -> SamplePair in
+            guard let unpaired = thirdFiles[index] else { return sample }
             return SamplePair(
                 sampleName: sample.sampleName,
                 r1: sample.r1,
-                r2: r2,
-                unpaired: matches[0].r1,
+                r2: sample.r2,
+                unpaired: unpaired,
                 relativePath: sample.relativePath,
                 metadata: sample.metadata,
                 sampleSheetURL: sample.sampleSheetURL
             )
         }
-        return joined.filter { $0.r2 != nil || !joinedFiles.contains($0.r1) }
+        return PairDetection(
+            samples: joined.filter { $0.r2 != nil || !joinedFiles.contains($0.r1) },
+            notices: notices
+        )
+    }
+
+    /// Why `files` of other folders, named for the run of `r1` and `r2`,
+    /// stay samples of their own.
+    private static func notJoinedAcrossFolders(_ files: [URL], to r1: URL, _ r2: URL) -> String {
+        "\(pathsForNotice(files, joinedBy: "and")) \(files.count == 1 ? "was" : "were") not joined to "
+            + "\(pathForNotice(r1)) and \(pathForNotice(r2)) as reads whose mate is missing, because a run's "
+            + "files join across folders only when their names are unique among the listed files."
     }
 
     // MARK: - Check

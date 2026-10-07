@@ -5,6 +5,8 @@
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishKit
+import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
@@ -181,17 +183,119 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
         )
     }
 
-    func testARunsThirdFileJoinsOnlyThePairOfItsOwnFolder() {
+    // MARK: - Mates of two folders pair by names no other file has (re-review N1)
+
+    func testTheSheetPairsMatesOfTwoFoldersAsTheCLIDoesWhenNoOtherFileHasTheirNames() {
+        // A drop of `R1/x_R1` and `R2/x_R2` made two single-end samples after
+        // review B-S1, with no word of why.
         let files = [
-            URL(fileURLWithPath: "/delivery/A/SRR1_1.fastq"),
-            URL(fileURLWithPath: "/delivery/A/SRR1_2.fastq"),
-            URL(fileURLWithPath: "/delivery/B/SRR1.fastq"),
+            URL(fileURLWithPath: "/runs/R1/x_R1.fastq.gz"),
+            URL(fileURLWithPath: "/runs/R2/x_R2.fastq.gz"),
         ]
 
         let sheet = groupFASTQByPairs(files)
+        let cli = FASTQBatchImporter.detectPairs(from: files)
 
-        XCTAssertEqual(sheet.map(\.inputFiles), [Array(files.prefix(2)), [files[2]]])
-        XCTAssertNil(sheet.first?.unpaired)
+        XCTAssertEqual(sheet.map(\.sampleName), ["x"])
+        XCTAssertEqual(sheet.map(\.inputFiles), [files])
+        XCTAssertEqual(sheet.map(\.inputFiles), cli.map(\.inputFiles))
+    }
+
+    func testARecursiveScanPairsMatesOfTwoFoldersAsTheSheetAndExplicitFilesDo() throws {
+        // The GUI and the CLI must agree (F7 ruling). `import fastq <folder>
+        // --recursive` detected each folder alone and made two single-end
+        // samples of a delivery's R1/ and R2/, which the Import Center's scan
+        // and explicit files pair.
+        let delivery = root.appendingPathComponent("delivery", isDirectory: true)
+        let files = try [1, 2].map { mate -> URL in
+            let folder = delivery.appendingPathComponent("R\(mate)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let url = folder.appendingPathComponent("x_R\(mate).fastq")
+            try Data("@x.1/\(mate)\nACGTACGT\n+\nIIIIIIII\n".utf8).write(to: url)
+            return url
+        }
+        func paths(_ samples: [[URL]]) -> [[String]] { samples.map { $0.map(\.standardizedFileURL.path) } }
+
+        let sheet = groupFASTQByPairs(files)
+        let explicit = FASTQBatchImporter.detectPairs(from: files)
+        let recursive = try FASTQBatchImporter.detectPairsFromDirectoryRecursive(delivery)
+
+        XCTAssertEqual(sheet.map(\.sampleName), ["x"])
+        XCTAssertEqual(paths(sheet.map(\.inputFiles)), paths([files]))
+        XCTAssertEqual(paths(explicit.map(\.inputFiles)), paths([files]))
+        XCTAssertEqual(paths(recursive.map(\.inputFiles)), paths([files]), "--recursive pairs as the sheet does")
+        XCTAssertEqual(recursive.map(\.sampleName), ["x"])
+    }
+
+    func testARunsThirdFileJoinsAPairOfAnotherFolderOnlyWhenNoOtherFileHasItsNames() {
+        let r1 = URL(fileURLWithPath: "/delivery/A/SRR1_1.fastq")
+        let r2 = URL(fileURLWithPath: "/delivery/A/SRR1_2.fastq")
+        let third = URL(fileURLWithPath: "/delivery/B/SRR1.fastq")
+        let another = URL(fileURLWithPath: "/delivery/C/SRR1.fastq")
+
+        let joined = groupFASTQByPairs([r1, r2, third])
+        XCTAssertEqual(joined.map(\.inputFiles), [[r1, r2, third]])
+        XCTAssertEqual(joined.first?.unpaired, third)
+
+        // Two folders hold the run's name, so neither file joins the pair.
+        let apart = groupFASTQByPairs([r1, r2, third, another])
+        XCTAssertEqual(apart.map(\.inputFiles), [[r1, r2], [third], [another]])
+        XCTAssertNil(apart.first?.unpaired)
+    }
+
+    func testTheSheetKeepsWhyAMateWasNotPairedOnTheSampleTheCLINamesInItsNotice() {
+        let a = [URL(fileURLWithPath: "/delivery/A/reads_R1.fastq"), URL(fileURLWithPath: "/delivery/A/reads_R2.fastq")]
+        let b1 = URL(fileURLWithPath: "/delivery/B/reads_R1.fastq")
+        let c2 = URL(fileURLWithPath: "/delivery/C/reads_R2.fastq")
+        let files = a + [b1, c2]
+
+        let sheet = groupFASTQByPairs(files)
+        let cli = FASTQBatchImporter.detectingPairs(from: files)
+
+        XCTAssertEqual(cli.notices.map(\.sample), ["reads_R1"])
+        XCTAssertEqual(sheet.map(\.pairingNotices), [[], cli.notices, []])
+        XCTAssertEqual(sheet.map(\.sampleName), ["reads", "reads_R1", "reads_R2"])
+        // A Pairing choice that splits every pair keeps no notice, as the CLI prints none for it.
+        XCTAssertTrue(FASTQFilePair.applying(pairingMode: .singleEnd, to: sheet).allSatisfy(\.pairingNotices.isEmpty))
+        XCTAssertEqual(FASTQFilePair.applying(pairingMode: .pairedEnd, to: sheet).map(\.pairingNotices), sheet.map(\.pairingNotices))
+    }
+
+    @MainActor
+    func testTheRowOfAMateLeftUnpairedLogsWhyAsTheCLIPrintsIt() throws {
+        // Folder A pairs inside itself. B's R1 and C's R2 are named as mates,
+        // but each name is also one of A's mates. The sheet runs the CLI once
+        // a sample, so no CLI run sees the three folders, and the sheet's own
+        // grouping says why in the row of the R1.
+        let a = [URL(fileURLWithPath: "/delivery/A/reads_R1.fastq"), URL(fileURLWithPath: "/delivery/A/reads_R2.fastq")]
+        let b1 = URL(fileURLWithPath: "/delivery/B/reads_R1.fastq")
+        let c2 = URL(fileURLWithPath: "/delivery/C/reads_R2.fastq")
+
+        let sheet = groupFASTQByPairs(a + [b1, c2])
+        XCTAssertEqual(sheet.map(\.inputFiles), [a, [b1], [c2]])
+
+        var logged: [String: [RecordingOperationReporter.Item.LogEntry]] = [:]
+        for sample in sheet {
+            let reporter = RecordingOperationReporter()
+            FASTQIngestionService.beginFASTQPairImportOperation(
+                pair: sample,
+                projectDirectory: root.appendingPathComponent("P.lungfish"),
+                bundleName: sample.sampleName,
+                importConfig: Self.untouchedSheet(files: sample.inputFiles),
+                forceReplace: false,
+                routeContext: nil,
+                reporter: reporter
+            ) { _ in }
+            logged[sample.r1.path] = try XCTUnwrap(reporter.items.first).logs
+        }
+
+        // The line CLIImportRunner logs for the notice the CLI prints when it
+        // is given the four files at once.
+        let warning = "\(b1.path) was not paired with \(c2.path), because mates pair across folders only when their "
+            + "names are unique among the listed files."
+        XCTAssertEqual(logged[b1.path]?.map(\.message), ["reads_R1 — \(warning)"])
+        XCTAssertEqual(logged[b1.path]?.map(\.level), [.warning])
+        XCTAssertEqual(logged[a[0].path]?.count, 0)
+        XCTAssertEqual(logged[c2.path]?.count, 0)
     }
 
     // MARK: - No sample of a sheet replaces another's bundle

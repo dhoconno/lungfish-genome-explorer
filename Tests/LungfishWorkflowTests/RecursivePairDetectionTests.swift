@@ -106,6 +106,62 @@ final class RecursivePairDetectionTests: XCTestCase {
         XCTAssertEqual(subPair?.relativePath, "subdir")
     }
 
+    // MARK: - Mates of two folders (F7, the --recursive ruling)
+
+    /// A recursive scan detected each folder alone, so mates kept in `R1/`
+    /// and `R2/` imported as two single-end samples, while the Import
+    /// Center's scan and explicit files paired them. It now detects every
+    /// file it finds by the rule they use. A pair of two folders takes the
+    /// folder that holds both mates' folders.
+    func testARecursiveScanPairsMatesOfTwoFoldersByNamesNoOtherFileHas() throws {
+        let x1 = try touch("R1/x_R1.fastq.gz"), x2 = try touch("R2/x_R2.fastq.gz")
+        let y1 = try touch("run1/R1/y_R1.fastq.gz"), y2 = try touch("run1/R2/y_R2.fastq.gz")
+
+        let pairs = try FASTQBatchImporter.detectPairsFromDirectoryRecursive(tmpDir)
+
+        XCTAssertEqual(pairs.map(\.sampleName), ["x", "y"])
+        XCTAssertEqual(pairs.map { Self.paths($0.inputFiles) }, [Self.paths([x1, x2]), Self.paths([y1, y2])])
+        XCTAssertEqual(pairs.map(\.relativePath), [nil, "run1"])
+    }
+
+    func testARecursiveScanNeverPairsANameTwoFoldersShareAcrossFolders() throws {
+        // Folder A holds a whole pair. B's R1 and C's R2 are named as mates,
+        // but each name is also one of A's mates.
+        let a = [try touch("A/reads_R1.fastq"), try touch("A/reads_R2.fastq")]
+        let b1 = try touch("B/reads_R1.fastq"), c2 = try touch("C/reads_R2.fastq")
+
+        let pairs = try FASTQBatchImporter.detectPairsFromDirectoryRecursive(tmpDir)
+
+        XCTAssertEqual(pairs.map(\.sampleName), ["reads", "reads_R1", "reads_R2"])
+        XCTAssertEqual(pairs.map { Self.paths($0.inputFiles) }, [Self.paths(a), Self.paths([b1]), Self.paths([c2])])
+        XCTAssertEqual(pairs.map(\.relativePath), ["A", "B", "C"])
+    }
+
+    func testARecursiveScanGivesTheNoticeAListGivesForAMateANameTwoFoldersShareKeptApart() throws {
+        let a = [try touch("A/reads_R1.fastq"), try touch("A/reads_R2.fastq")]
+        let b1 = try touch("B/reads_R1.fastq"), c2 = try touch("C/reads_R2.fastq")
+
+        let scan = try FASTQBatchImporter.detectingPairsFromDirectoryRecursive(tmpDir)
+        let list = FASTQBatchImporter.detectingPairs(from: a + [b1, c2])
+
+        XCTAssertEqual(scan.notices.map(\.sample), ["reads_R1"])
+        XCTAssertEqual(scan.notices.map(\.message), list.notices.map(\.message))
+        XCTAssertTrue(
+            scan.notices.first?.message.hasPrefix("\(b1.standardizedFileURL.path) was not paired with ") == true,
+            "\(scan.notices)"
+        )
+        XCTAssertEqual(try FASTQBatchImporter.detectingPairsFromDirectoryRecursive(tmpDir).notices, scan.notices)
+    }
+
+    func testARecursiveScanJoinsARunsThirdFileOfAnotherFolderByNamesNoOtherFileHas() throws {
+        let r1 = try touch("A/SRR1_1.fastq"), r2 = try touch("A/SRR1_2.fastq"), third = try touch("B/SRR1.fastq")
+
+        let pairs = try FASTQBatchImporter.detectPairsFromDirectoryRecursive(tmpDir)
+
+        XCTAssertEqual(pairs.map { Self.paths($0.inputFiles) }, [Self.paths([r1, r2, third])])
+        XCTAssertEqual(pairs.map(\.relativePath), ["A"], "the pair's folder places the bundle")
+    }
+
     // MARK: - Bundle Output Path
 
     func testBundleOutputPathWithRelativePath() {
@@ -157,5 +213,20 @@ final class RecursivePairDetectionTests: XCTestCase {
                 return
             }
         }
+    }
+
+    // MARK: - Helpers
+
+    /// An empty file at `path` under the scanned folder. Detection reads names alone.
+    private func touch(_ path: String) throws -> URL {
+        let url = tmpDir.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        return url
+    }
+
+    /// Paths as a scan and a list spell them alike.
+    private static func paths(_ urls: [URL]) -> [String] {
+        urls.map(\.standardizedFileURL.path)
     }
 }
