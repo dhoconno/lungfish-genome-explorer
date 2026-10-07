@@ -14,7 +14,16 @@ extension ClassifyCommand {
     }
 
     /// Writes the record of a run that failed with `error` into its output
-    /// folder.
+    /// folder, unless the classification stopped before anything ran and
+    /// left the folder's record as the command found it.
+    ///
+    /// The classification saves no run when it refuses an input inside an
+    /// output it would remove, or fails its validation in a folder that
+    /// holds a record (``ClassificationPipeline/stoppedBeforeAnythingRan(_:)``).
+    /// The command then writes none either, so an earlier run in the folder
+    /// keeps its only record of how its results were made (review B-S4). A
+    /// record the classification or the command wrote during this run, such
+    /// as the record of a materialized input, is completed as before.
     ///
     /// - Parameters:
     ///   - profileState: The Bracken profile state the record names, from
@@ -30,6 +39,11 @@ extension ClassifyCommand {
         startedAt: Date,
         provenanceRecordAtStart: Data?
     ) throws {
+        if context.pipelineStarted,
+           ClassificationPipeline.stoppedBeforeAnythingRan(error),
+           provenanceRecordBytes(in: context.outputDirectory) == provenanceRecordAtStart {
+            return
+        }
         let endedAt = Date()
         let failureMessage: String
         if let recordedMessage = context.failureMessage {

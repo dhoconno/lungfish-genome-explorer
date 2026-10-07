@@ -339,7 +339,6 @@ public actor ClassificationPipeline {
         do {
             try config.validate()
         } catch {
-            let validationInputs = existingClassificationInputRecords(config: config)
             _ = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "Lungfish Classification Validation",
@@ -347,23 +346,16 @@ public actor ClassificationPipeline {
                 command: classificationValidationCommand(config: config),
                 resolvedOptions: kraken2ResolvedOptions(config: config),
                 runtimeIdentity: ProvenanceRuntimeIdentity(),
-                inputs: validationInputs,
+                inputs: existingClassificationInputRecords(config: config),
                 outputs: [],
                 exitCode: 2,
                 wallTime: Date().timeIntervalSince(startTime),
                 stderr: error.localizedDescription
             )
-            await provenanceRecorder.completeRun(runID, status: .failed)
-            try await provenanceRecorder.save(
-                runID: runID,
-                to: config.outputDirectory,
-                options: classificationProvenanceOptions(
-                    requestedConfig: config,
-                    effectiveConfig: config,
-                    resolution: profileResolution,
-                    outcome: .notRequested,
-                    profileState: "failed"
-                )
+            // Saved unless the folder already holds a record (review B-S4).
+            try await endRunFailedBeforeKraken2(
+                runID, recorder: provenanceRecorder, error: error,
+                requestedConfig: config, effectiveConfig: config, resolution: profileResolution
             )
             throw error
         }
@@ -400,14 +392,10 @@ public actor ClassificationPipeline {
                 wallTime: Date().timeIntervalSince(startTime),
                 stderr: error.localizedDescription
             )
-            try await persistInterruptedClassificationRun(
-                provenanceRecorder: provenanceRecorder,
-                runID: runID,
-                requestedConfig: config,
-                effectiveConfig: effectiveConfig,
-                resolution: profileResolution,
-                status: .failed,
-                profileState: "failed"
+            // A refusal saves no run, as nothing ran or was removed (review B-S4).
+            try await endRunFailedBeforeKraken2(
+                runID, recorder: provenanceRecorder, error: error,
+                requestedConfig: config, effectiveConfig: effectiveConfig, resolution: profileResolution
             )
             throw error
         }
@@ -1419,7 +1407,7 @@ public actor ClassificationPipeline {
         )
     }
 
-    private func persistInterruptedClassificationRun(
+    func persistInterruptedClassificationRun(
         provenanceRecorder: ProvenanceRecorder,
         runID: UUID,
         requestedConfig: ClassificationConfig,
