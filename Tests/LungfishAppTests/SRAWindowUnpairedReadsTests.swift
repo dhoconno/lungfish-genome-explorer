@@ -146,6 +146,32 @@ final class SRAWindowUnpairedReadsTests: XCTestCase {
             message.hasPrefix("\(run).fastq.gz was not joined to \(run)_1.fastq.gz and \(run)_2.fastq.gz"),
             message
         )
+
+        // The window's record names the files the bundle holds, the pair. It
+        // named all three staged files, though the bundle holds no read of
+        // the third (f10-report.md, concern 2). Its recorded command still
+        // names the three files it ran on, which replay to the same bundle
+        // and the same warning.
+        let arguments = DatabaseBrowserViewModel.sraImportCLIArguments(
+            importConfig: importConfiguration(staged.reads.files),
+            r1: staged.reads.r1,
+            r2: staged.reads.r2,
+            unpaired: staged.reads.unpaired,
+            projectDirectory: project
+        )
+        let record = try recordWindowProvenance(
+            run, staged, bundle: imported.bundle, fastq: fastq, metadata: metadata, arguments: arguments
+        )
+        XCTAssertEqual(
+            record.parameters["stagingInputs"],
+            .array(staged.reads.files.prefix(2).map { .string($0.standardizedFileURL.path) })
+        )
+        guard case .string(let command)? = record.parameters["cliCommand"] else {
+            return XCTFail("the record keeps the command the window ran")
+        }
+        for file in staged.reads.files {
+            XCTAssertTrue(command.contains(file.lastPathComponent), "\(file.lastPathComponent) in \(command)")
+        }
     }
 
     // MARK: - Helpers
