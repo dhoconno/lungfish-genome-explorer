@@ -201,6 +201,8 @@ extension ImportCommand {
             // MARK: Detect pairs
 
             let detectedPairs: [SamplePair]
+            // Why detection left a file of another folder unpaired. Only a
+            // recursive scan and explicit files can span folders.
             var pairingNotices: [FASTQBatchImporter.PairingNotice] = []
             let fm = FileManager.default
 
@@ -225,7 +227,9 @@ extension ImportCommand {
                 if exists && isDirectory.boolValue {
                     do {
                         if recursive {
-                            detectedPairs = try FASTQBatchImporter.detectPairsFromDirectoryRecursive(inputURL)
+                            let detection = try FASTQBatchImporter.detectingPairsFromDirectoryRecursive(inputURL)
+                            detectedPairs = detection.samples
+                            pairingNotices = detection.notices
                         } else {
                             detectedPairs = try FASTQBatchImporter.detectPairsFromDirectory(inputURL)
                         }
@@ -251,8 +255,6 @@ extension ImportCommand {
                     }
                     fileURLs.append(url)
                 }
-                // Files of several folders can pair across folders, so only
-                // this list has notices about names that kept files apart.
                 let detection = FASTQBatchImporter.detectingPairs(from: fileURLs)
                 detectedPairs = detection.samples
                 pairingNotices = detection.notices

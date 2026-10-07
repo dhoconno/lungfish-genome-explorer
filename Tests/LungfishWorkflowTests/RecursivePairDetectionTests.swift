@@ -137,6 +137,22 @@ final class RecursivePairDetectionTests: XCTestCase {
         XCTAssertEqual(pairs.map(\.relativePath), ["A", "B", "C"])
     }
 
+    func testARecursiveScanGivesTheNoticeAListGivesForAMateANameTwoFoldersShareKeptApart() throws {
+        let a = [try touch("A/reads_R1.fastq"), try touch("A/reads_R2.fastq")]
+        let b1 = try touch("B/reads_R1.fastq"), c2 = try touch("C/reads_R2.fastq")
+
+        let scan = try FASTQBatchImporter.detectingPairsFromDirectoryRecursive(tmpDir)
+        let list = FASTQBatchImporter.detectingPairs(from: a + [b1, c2])
+
+        XCTAssertEqual(scan.notices.map(\.sample), ["reads_R1"])
+        XCTAssertEqual(scan.notices.map(\.message), list.notices.map(\.message))
+        XCTAssertTrue(
+            scan.notices.first?.message.hasPrefix("\(b1.standardizedFileURL.path) was not paired with ") == true,
+            "\(scan.notices)"
+        )
+        XCTAssertEqual(try FASTQBatchImporter.detectingPairsFromDirectoryRecursive(tmpDir).notices, scan.notices)
+    }
+
     func testARecursiveScanJoinsARunsThirdFileOfAnotherFolderByNamesNoOtherFileHas() throws {
         let r1 = try touch("A/SRR1_1.fastq"), r2 = try touch("A/SRR1_2.fastq"), third = try touch("B/SRR1.fastq")
 

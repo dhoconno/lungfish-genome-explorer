@@ -36,12 +36,35 @@ extension FASTQBatchImporter {
     }
 
     /// Recursively scans `directory` and all subdirectories for FASTQ files,
-    /// groups them into pairs per directory, and annotates each pair with its
-    /// relative path from the root.
+    /// groups them into pairs by the rule of a list of files, and annotates
+    /// each sample with its relative path from the root
+    /// (``detectingPairsFromDirectoryRecursive(_:)``).
     ///
     /// - Throws: `BatchImportError.noFASTQFilesFound` when no FASTQ files exist
     ///   anywhere under `directory`.
     public static func detectPairsFromDirectoryRecursive(_ directory: URL) throws -> [SamplePair] {
+        try detectingPairsFromDirectoryRecursive(directory).samples
+    }
+
+    /// Recursively scans `directory` and all subdirectories for FASTQ files,
+    /// groups them into pairs, and annotates each sample with its relative
+    /// path from the root.
+    ///
+    /// Every file the scan finds is detected at once by the rule of a list
+    /// of files (``detectingPairs(from:)``), the rule the Import Center's
+    /// scan of the same folder and explicit files follow. Mates pair inside
+    /// their folder first, and across folders only when no other file found
+    /// has either name, with the same notice for a candidate a shared name
+    /// keeps out. It used to detect each folder alone, so a delivery's `R1/`
+    /// and `R2/` imported as two single-end samples that the sheet paired
+    /// (F7 ruling). A sample takes the folder of its mates. A pair of two
+    /// folders takes the deepest folder that holds both, so `R1/` and `R2/`
+    /// pair into the folder that holds them, and a run's third file of
+    /// another folder never moves its pair.
+    ///
+    /// - Throws: `BatchImportError.noFASTQFilesFound` when no FASTQ files exist
+    ///   anywhere under `directory`.
+    public static func detectingPairsFromDirectoryRecursive(_ directory: URL) throws -> PairDetection {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: directory,
@@ -51,66 +74,67 @@ extension FASTQBatchImporter {
             throw BatchImportError.noFASTQFilesFound(directory)
         }
 
-        // Group FASTQ files by their parent directory
-        var filesByDirectory: [URL: [URL]] = [:]
-        for case let fileURL as URL in enumerator {
-            guard SequencingReadImportSource.isSupported(fileURL) else { continue }
-            let parentDir = fileURL.deletingLastPathComponent()
-            filesByDirectory[parentDir, default: []].append(fileURL)
+        var files: [URL] = []
+        for case let fileURL as URL in enumerator where SequencingReadImportSource.isSupported(fileURL) {
+            files.append(fileURL)
         }
-
-        guard !filesByDirectory.isEmpty else {
+        guard !files.isEmpty else {
             throw BatchImportError.noFASTQFilesFound(directory)
         }
 
+        // Each folder's files together and by name, the order the scan of
+        // one folder gave detection, so pairs inside a folder are what they were.
+        files.sort {
+            (FolderName.folder(of: $0), $0.lastPathComponent) < (FolderName.folder(of: $1), $1.lastPathComponent)
+        }
+        let detection = detectingPairs(from: files)
         let rootPath = directory.standardizedFileURL.path
-        var allPairs: [SamplePair] = []
-
-        for (dir, urls) in filesByDirectory {
-            let sortedURLs = urls.sorted { $0.lastPathComponent < $1.lastPathComponent }
-            let basePairs = detectPairs(from: sortedURLs)
-
-            // Compute relative path: nil if same as root, else strip root prefix
-            let dirPath = dir.standardizedFileURL.path
-            let relativePath: String?
-            if dirPath == rootPath {
-                relativePath = nil
-            } else {
-                var rel = dirPath
-                if rel.hasPrefix(rootPath) {
-                    rel = String(rel.dropFirst(rootPath.count))
-                }
-                // Trim leading /
-                if rel.hasPrefix("/") {
-                    rel = String(rel.dropFirst())
-                }
-                // Trim trailing /
-                if rel.hasSuffix("/") {
-                    rel = String(rel.dropLast())
-                }
-                relativePath = rel.isEmpty ? nil : rel
-            }
-
-            for pair in basePairs {
-                allPairs.append(SamplePair(
-                    sampleName: pair.sampleName,
-                    r1: pair.r1,
-                    r2: pair.r2,
-                    unpaired: pair.unpaired,
-                    relativePath: relativePath
-                ))
-            }
+        let samples = detection.samples.map { pair in
+            SamplePair(
+                sampleName: pair.sampleName,
+                r1: pair.r1,
+                r2: pair.r2,
+                unpaired: pair.unpaired,
+                relativePath: relativePath(of: folderOfMates(pair), under: rootPath)
+            )
         }
 
         // Sort by relativePath (nil first) then sampleName
-        allPairs.sort { lhs, rhs in
-            let lp = lhs.relativePath ?? ""
-            let rp = rhs.relativePath ?? ""
-            if lp != rp { return lp < rp }
-            return lhs.sampleName < rhs.sampleName
+        let sorted = samples.sorted {
+            ($0.relativePath ?? "", $0.sampleName) < ($1.relativePath ?? "", $1.sampleName)
         }
+        return PairDetection(samples: sorted, notices: detection.notices)
+    }
 
-        return allPairs
+    /// The folder of a sample's mates, by its standardized path. A pair of
+    /// two folders takes the deepest folder that holds both.
+    private static func folderOfMates(_ pair: SamplePair) -> String {
+        let r1Folder = FolderName.folder(of: pair.r1)
+        guard let r2 = pair.r2 else { return r1Folder }
+        let r2Folder = FolderName.folder(of: r2)
+        guard r2Folder != r1Folder else { return r1Folder }
+        let r1Components = URL(fileURLWithPath: r1Folder).pathComponents
+        let r2Components = URL(fileURLWithPath: r2Folder).pathComponents
+        let shared = zip(r1Components, r2Components).prefix { $0 == $1 }.map(\.0)
+        return NSString.path(withComponents: Array(shared))
+    }
+
+    /// `folder` relative to the scanned folder, nil for the scanned folder itself.
+    private static func relativePath(of folder: String, under rootPath: String) -> String? {
+        guard folder != rootPath else { return nil }
+        var rel = folder
+        if rel.hasPrefix(rootPath) {
+            rel = String(rel.dropFirst(rootPath.count))
+        }
+        // Trim leading /
+        if rel.hasPrefix("/") {
+            rel = String(rel.dropFirst())
+        }
+        // Trim trailing /
+        if rel.hasSuffix("/") {
+            rel = String(rel.dropLast())
+        }
+        return rel.isEmpty ? nil : rel
     }
 
     /// Groups a flat list of FASTQ URLs into R1/R2 pairs (``detectingPairs(from:)``).
@@ -125,14 +149,15 @@ extension FASTQBatchImporter {
     /// - `_R1` / `_R2`           (simplified Illumina)
     /// - `_1` / `_2`             (older convention)
     ///
-    /// A mate pairs with a file of its own folder first (``FolderName``), as
-    /// `import fastq <folder> --recursive` groups them, so two folders that
-    /// share names pair each folder's mates inside it (review B-S1). An R1
-    /// with no mate in its folder pairs with a mate of another folder only
-    /// when no other listed file has the R1's name or the mate's. Mates kept
-    /// in `R1/` and `R2/` folders pair, as they did before B-S1, and a name
-    /// two folders share never pairs across folders (re-review N1). A notice
-    /// names the files a shared name kept apart.
+    /// A mate pairs with a file of its own folder first (``FolderName``), so
+    /// two folders that share names pair each folder's mates inside it
+    /// (review B-S1). An R1 with no mate in its folder pairs with a mate of
+    /// another folder only when no other listed file has the R1's name or
+    /// the mate's. Mates kept in `R1/` and `R2/` folders pair, as they did
+    /// before B-S1, and a name two folders share never pairs across folders
+    /// (re-review N1). A notice names the files a shared name kept apart.
+    /// Explicit files, the Import FASTQ sheet's grouping and a recursive scan
+    /// (``detectingPairsFromDirectoryRecursive(_:)``) all detect by this rule.
     ///
     /// Files that don't match any R1 pattern are treated as single-end samples,
     /// except an SRA run's reads without a mate (``joiningUnpairedReads(_:)``), a join by name
