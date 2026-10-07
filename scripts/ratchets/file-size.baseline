@@ -10,7 +10,6 @@ Sources/LungfishApp/App/VCFImportHelper.swift 1147
 Sources/LungfishApp/Services/AI/AIAssistantService.swift 901
 Sources/LungfishApp/Services/AI/AIToolRegistry.swift 951
 Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
-Sources/LungfishApp/Services/FASTQBundleMergeService.swift 859
 Sources/LungfishApp/Services/FASTQIngestionService.swift 1298
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 858
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1334
