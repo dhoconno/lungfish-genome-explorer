@@ -39,8 +39,9 @@ struct SRAWindowRunDownload {
     /// What the run's provenance and FASTQ metadata record under
     /// `downloadSource`.
     var source: SRAFASTQDownloadSource
-    /// One HTTPS transfer step for each file ENA's mirror served. Empty when
-    /// the SRA Toolkit fetched the run.
+    /// One HTTPS transfer step for each file ENA's mirror served. When the
+    /// SRA Toolkit fetched the run after the mirror failed, the steps of the
+    /// files that arrived before the failure, marked as a failed attempt.
     var enaSteps: [StepExecution]
     /// The window's "Download source" setting the run was downloaded with,
     /// which its provenance records under `preferredSource`.
@@ -124,8 +125,8 @@ struct SRAWindowRunDownload {
         case .enaMirror(let record):
             readRecord = record
         case .sraToolkit(let record, let reason):
-            let line = "\(reason); using SRA Toolkit..."
-            let files = try await toolkit(SRAWindowToolkitStatus(line: line, isFallback: true))
+            let line = SRAFASTQDownloadSource.toolkitFallbackMessage(accession: accession, reason: reason)
+            let files = try await toolkitAfterENA(toolkit, line: line, enaReason: reason)
             return SRAWindowRunDownload(
                 fastqFiles: files, source: .sraToolkit, enaSteps: [], preference: preference, enaRecord: record, fallbackMessage: line
             )
@@ -136,19 +137,35 @@ struct SRAWindowRunDownload {
             return SRAWindowRunDownload(
                 fastqFiles: mirrored.files, source: .ena, enaSteps: mirrored.steps, preference: preference, enaRecord: readRecord
             )
+        } catch let attempt as SRAWindowMirrorAttemptFailure {
+            // Fetch the run from NCBI via the SRA Toolkit instead, with the
+            // line `fetch sra download` prints for the same failure.
+            logger.warning("startENADownloadTask: ENA download failed for \(accession, privacy: .public): \(attempt.failure.message, privacy: .public); falling back to SRA Toolkit")
+            let line = SRAFASTQDownloadSource.toolkitFallbackMessage(accession: accession, after: attempt.failure)
+            let files = try await toolkitAfterENA(toolkit, line: line, enaReason: attempt.failure.message)
+            return SRAWindowRunDownload(
+                fastqFiles: files, source: attempt.failure.fallbackSource, enaSteps: attempt.steps, preference: preference,
+                enaRecord: readRecord, fallbackMessage: line
+            )
+        }
+    }
+
+    /// Fetches the run with the SRA Toolkit after ENA could not serve it.
+    /// When the toolkit fails too, the error names both reasons in one line,
+    /// as `fetch sra download`'s does. A cancellation stops the download.
+    private static func toolkitAfterENA(
+        _ toolkit: (_ status: SRAWindowToolkitStatus) async throws -> [URL],
+        line: String,
+        enaReason: String
+    ) async throws -> [URL] {
+        do {
+            return try await toolkit(SRAWindowToolkitStatus(line: line, isFallback: true))
         } catch {
-            guard let fallbackSource = SRAFASTQDownloadSource.toolkitFallback(after: error) else {
+            if SRAFASTQDownloadSource.toolkitFallback(after: error) == nil {
                 throw error
             }
-            // Fetch the run from NCBI via the SRA Toolkit instead.
-            logger.warning("startENADownloadTask: ENA download failed for \(accession, privacy: .public): \(error.localizedDescription, privacy: .public); falling back to SRA Toolkit")
-            let failure = fallbackSource == .sraToolkitAfterIncompleteMirror
-                ? "ENA mirror is missing files" : "ENA transfer failed"
-            let line = "\(failure) for \(accession); using SRA Toolkit..."
-            let files = try await toolkit(SRAWindowToolkitStatus(line: line, isFallback: true))
-            return SRAWindowRunDownload(
-                fastqFiles: files, source: fallbackSource, enaSteps: [], preference: preference, enaRecord: readRecord,
-                fallbackMessage: line
+            throw SRAError.bothArchivesFailed(
+                toolkitFirst: false, enaReason: enaReason, toolkitReason: SRADownloadMessages.reason(of: error)
             )
         }
     }
@@ -183,11 +200,14 @@ struct SRAWindowRunDownload {
             for entry in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
                 try? FileManager.default.removeItem(at: entry)
             }
+            // One line naming both reasons, as `fetch sra download` fails.
             func bothFailed(_ enaError: any Error) -> SRAError {
-                bothFailed(reason: (enaError as? ENAFASTQDownloadFailure)?.message ?? enaError.localizedDescription)
+                SRAError.bothArchivesFailed(toolkitFirst: true, enaError: enaError, toolkitError: toolkitError)
             }
             func bothFailed(reason enaReason: String) -> SRAError {
-                SRAError.downloadFailed("Toolkit: \(toolkitError.localizedDescription); ENA: \(enaReason)")
+                SRAError.bothArchivesFailed(
+                    toolkitFirst: true, enaReason: enaReason, toolkitReason: SRADownloadMessages.reason(of: toolkitError)
+                )
             }
             // Logged before the wait on ENA's lookup, so the row is not silent.
             let fallbackLine = SRAFASTQDownloadSource.enaFallbackMessage(accession: accession, after: toolkitError)
@@ -209,11 +229,8 @@ struct SRAWindowRunDownload {
                     fastqFiles: mirrored.files, source: source, enaSteps: mirrored.steps, preference: .ncbi, enaRecord: record,
                     fallbackMessage: fallbackLine
                 )
-            } catch let enaError {
-                if SRAFASTQDownloadSource.toolkitFallback(after: enaError) == nil {
-                    throw enaError
-                }
-                throw bothFailed(enaError)
+            } catch let attempt as SRAWindowMirrorAttemptFailure {
+                throw bothFailed(attempt.failure)
             }
         }
         let answer = await enaRecord(from: lookup, within: enaRecordWait)
@@ -269,8 +286,13 @@ struct SRAWindowRunDownload {
     }
 
     /// Fetches every file ENA lists for the run from ENA's mirror with
-    /// `mirrorFile`, checking each with `ENAFASTQDownloadValidator`. On any
-    /// failure the files staged so far are removed and the error rethrown.
+    /// `mirrorFile`, checking each with `ENAFASTQDownloadValidator` against
+    /// the size and MD5 ENA lists. The first file that fails stops the
+    /// download. The files staged so far are removed, and the error carries
+    /// the one-line reason `fetch sra download` gives and the steps of the
+    /// files that did arrive, marked as a failed attempt.
+    ///
+    /// - Throws: `SRAWindowMirrorAttemptFailure`, or a cancellation.
     private static func downloadFromMirror(
         record readRecord: ENAReadRecord,
         into folder: URL,
@@ -278,15 +300,18 @@ struct SRAWindowRunDownload {
     ) async throws -> (files: [URL], steps: [StepExecution]) {
         let fastqURLs = readRecord.fastqHTTPURLs
         let perFileSizes = ENAFASTQDownloadValidator.expectedByteCounts(for: readRecord)
+        let perFileMD5s = ENAFASTQDownloadValidator.expectedMD5s(for: readRecord)
         var fastqFiles: [URL] = []
         var enaSteps: [StepExecution] = []
         var priorBytesDownloaded: Int64 = 0
+        var filename = ""
 
         do {
             for (fileIdx, fastqURL) in fastqURLs.enumerated() {
-                let filename = fastqURL.lastPathComponent
+                filename = fastqURL.lastPathComponent
                 let localPath = folder.appendingPathComponent(filename)
                 let fileExpectedBytes = fileIdx < perFileSizes.count ? perFileSizes[fileIdx] : nil
+                let fileExpectedMD5 = fileIdx < perFileMD5s.count ? perFileMD5s[fileIdx] : nil
 
                 logger.info("startENADownloadTask: Downloading \(fastqURL.absoluteString, privacy: .public)")
 
@@ -295,10 +320,12 @@ struct SRAWindowRunDownload {
 
                 try data.write(to: localPath)
                 // ENA's mirror answers a missing mate with a 200 HTML
-                // directory listing. Catch it here rather than in fastp.
+                // directory listing, and a transfer can arrive cut short or
+                // altered. Catch both here rather than in fastp.
                 try ENAFASTQDownloadValidator.validate(
                     fileURL: localPath,
-                    expectedBytes: fileExpectedBytes
+                    expectedBytes: fileExpectedBytes,
+                    expectedMD5: fileExpectedMD5
                 )
                 let downloadCompletedAt = Date()
                 enaSteps.append(
@@ -340,40 +367,48 @@ struct SRAWindowRunDownload {
             for stagedURL in fastqURLs {
                 try? FileManager.default.removeItem(at: folder.appendingPathComponent(stagedURL.lastPathComponent))
             }
-            throw error
+            guard let failure = ENAFASTQDownloadFailure.mirrorFile(filename, failedWith: error) else {
+                throw error
+            }
+            throw SRAWindowMirrorAttemptFailure(failure: failure, steps: enaSteps.map { $0.markedAsFailedAttempt() })
         }
     }
 }
 
-/// The reads of one SRA run that the window imports, one file, or both mates
-/// of a pair with the reads whose mate is missing when the run has any.
-///
-/// ENA's mirror and the SRA Toolkit both name a run's files
-/// `<accession>_1.fastq`, `<accession>_2.fastq` and `<accession>.fastq`,
-/// gzipped when ENA serves them. Mates 1 and 2 import together as a pair.
-/// The file without a suffix beside them holds the reads whose mate is
-/// missing, and it imports with the pair as the run's unpaired reads, so
-/// the bundle holds every read of the run. A run never imports as one mate
-/// of a pair, so a lone mate 2 fails, and so does a lone mate 1 of a run ENA
-/// lists as paired. Files named for another run never import.
-struct SRAWindowRunReads: Equatable {
-    /// Why a run's staged files hold no reads the window can import.
-    struct Failure: LocalizedError {
-        let message: String
-        var errorDescription: String? { message }
+private extension StepExecution {
+    /// This step with the `resolvedOptions` mark of an attempt that did not
+    /// serve the run, the mark `fetch sra download` records too.
+    func markedAsFailedAttempt() -> StepExecution {
+        let option = SRAService.FASTQDownloadStepTrace.failedAttemptOption
+        var options = resolvedOptions ?? [:]
+        options[option.key] = .string(option.value)
+        return StepExecution(
+            id: id, toolName: toolName, toolVersion: toolVersion, githubReleaseVersion: githubReleaseVersion,
+            containerImage: containerImage, containerDigest: containerDigest, command: command,
+            durableReplayArgv: durableReplayArgv, resolvedOptions: options, runtimeIdentity: runtimeIdentity,
+            inputs: inputs, outputs: outputs, exitCode: exitCode, wallTime: wallTime, peakMemoryBytes: peakMemoryBytes,
+            stderr: stderr, dependsOn: dependsOn, startTime: startTime, endTime: endTime
+        )
     }
+}
 
-    /// Mate 1, or the run's only file.
-    let r1: URL
-    /// Mate 2, or nil for single reads.
-    let r2: URL?
-    /// The reads beside a pair whose mate is missing, or nil.
-    let unpaired: URL?
+/// How the window's download from ENA's mirror failed: the one-line reason
+/// with the source the SRA Toolkit fallback records, and the transfer steps
+/// of the files that arrived before it, marked as a failed attempt. The run's
+/// provenance keeps those steps, as `fetch sra download`'s does.
+struct SRAWindowMirrorAttemptFailure: LocalizedError {
+    let failure: ENAFASTQDownloadFailure
+    let steps: [StepExecution]
 
-    /// The files `lungfish-cli import fastq` takes, mate 1, mate 2, then
-    /// the unpaired reads.
-    var files: [URL] { [r1] + [r2, unpaired].compactMap { $0 } }
+    var errorDescription: String? { failure.message }
+}
 
+/// The reads of one SRA run that the window imports. The rule is
+/// `SRARunReads` in LungfishCore, which `lungfish-cli fetch sra download`
+/// applies too.
+typealias SRAWindowRunReads = SRARunReads
+
+extension SRARunReads {
     /// The reads each file held, read from the bundle's classification, for
     /// a run that imported unpaired reads beside its pairs. Nil for any other
     /// run, so its record keeps the parameters it had.
@@ -383,48 +418,6 @@ struct SRAWindowRunReads: Equatable {
             classification.files.filter { $0.role == role }.reduce(0) { $0 + $1.readCount }
         }
         return [r1: reads(.pairedR1), r2: reads(.pairedR2), unpaired: reads(.unpaired)]
-    }
-
-    /// Sorts one run's staged files into the reads to import.
-    ///
-    /// - Parameter listedAsPaired: Whether ENA's record lists the run's
-    ///   layout as PAIRED.
-    /// - Throws: `Failure` when the files hold one mate of a pair, two copies
-    ///   of one file, or no file of this run.
-    init(stagedFiles: [URL], accession: String, listedAsPaired: Bool) throws {
-        func file(_ suffix: String) throws -> URL? {
-            let names: Set = ["\(accession)\(suffix).fastq", "\(accession)\(suffix).fastq.gz"]
-            let matches = stagedFiles.filter { names.contains($0.lastPathComponent) }
-            guard matches.count < 2 else {
-                throw Failure(message: "\(accession) arrived as both \(matches[0].lastPathComponent) and \(matches[1].lastPathComponent), so it was not imported")
-            }
-            return matches.first
-        }
-        let mate1 = try file("_1")
-        let mate2 = try file("_2")
-        let unsuffixed = try file("")
-        switch (mate1, mate2) {
-        case let (mate1?, mate2?):
-            r1 = mate1
-            r2 = mate2
-            unpaired = unsuffixed
-        case (nil, .some):
-            throw Failure(message: "Only mate 2 of \(accession) arrived, so it was not imported")
-        case let (mate1?, nil):
-            guard !listedAsPaired, unsuffixed == nil else {
-                throw Failure(message: "Only mate 1 of the paired run \(accession) arrived, so it was not imported")
-            }
-            r1 = mate1
-            r2 = nil
-            unpaired = nil
-        case (nil, nil):
-            guard let unsuffixed else {
-                throw Failure(message: "No FASTQ file of \(accession) arrived")
-            }
-            r1 = unsuffixed
-            r2 = nil
-            unpaired = nil
-        }
     }
 }
 
@@ -436,8 +429,8 @@ struct SRAWindowStagedRun {
     let download: SRAWindowRunDownload
     /// The files the window imports.
     let reads: SRAWindowRunReads
-    /// NCBI's run info from the window's search, which the bundle's metadata
-    /// keeps beside ENA's record.
+    /// NCBI's run info, from the window's search or looked up when ENA's
+    /// record did not arrive, which the bundle's metadata keeps.
     var ncbiRun: SRARunInfo? = nil
     /// The line the row and the provenance log when the run arrived in a
     /// layout its archive record does not list, or nil.
@@ -476,14 +469,22 @@ extension SRAWindowRunDownload {
     /// A run that fails here leaves nothing behind, because its folder is
     /// removed. Once this returns, the caller removes the folder with
     /// `SRAWindowStagedRun.removeFolder()` after the import or on failure.
+    /// An accession that cannot name one folder inside `batchDir`, such as
+    /// `..`, fails before any folder is created or removed.
     ///
-    /// ENA's record lists the run's layout. When it did not arrive, NCBI's
-    /// `ncbiRun` from the search gives the metadata, and `log` says so. A run
-    /// NCBI lists as paired that arrived as one file imports as single-end
-    /// reads with `SRAWindowStagedRun.layoutWarning` naming the mismatch.
+    /// ENA's record gives the run's metadata and layout. When it did not
+    /// arrive, NCBI's `ncbiRun` from the search gives them, or
+    /// `lookUpNCBIRun` when the search did not cover the run, and `log` says
+    /// so. The files are sorted with `SRARunReads.sorting`, the rule
+    /// `fetch sra download` applies, so a lone mate 1 of a run either
+    /// archive lists as paired fails the run. A run listed as paired that
+    /// arrived as one file imports as single-end reads, with
+    /// `SRAWindowStagedRun.layoutWarning` naming the mismatch.
     ///
     /// - Parameters:
     ///   - lookUpRoute: As for `download(accession:preference:lookUpRoute:into:mirrorFile:toolkit:log:)`.
+    ///   - lookUpNCBIRun: Looks up NCBI's run info, asked at most once and
+    ///     only when ENA's record and the search's row are both missing.
     ///   - mirrorFile: As for `download(accession:preference:lookUpRoute:into:mirrorFile:toolkit:log:)`.
     ///   - toolkit: Fetches the whole run with the SRA Toolkit into the given
     ///     folder, given the status line the Operations panel row logs.
@@ -491,6 +492,7 @@ extension SRAWindowRunDownload {
         accession: String,
         preference: SRADownloadSourcePreference,
         ncbiRun: SRARunInfo? = nil,
+        lookUpNCBIRun: (() async -> SRARunInfo?)? = nil,
         in batchDir: URL,
         lookUpRoute: @escaping @Sendable () async throws -> SRAFASTQDownloadRoute,
         enaRecordWait: Duration = SRAWindowRunDownload.enaRecordWait,
@@ -498,6 +500,10 @@ extension SRAWindowRunDownload {
         toolkit: (_ status: SRAWindowToolkitStatus, _ folder: URL) async throws -> [URL],
         log: (_ line: String) -> Void = { _ in }
     ) async throws -> SRAWindowStagedRun {
+        // The folder is removed below, so its name must stay inside the batch.
+        guard SRAAccessionParser.namesOneFolder(accession) else {
+            throw SRAError.downloadFailed("\(accession) cannot name a staging folder, so it was not downloaded")
+        }
         let folder = batchDir.appendingPathComponent(accession, isDirectory: true)
         // A folder left by an earlier copy of this run in the batch is stale.
         try? FileManager.default.removeItem(at: folder)
@@ -513,27 +519,35 @@ extension SRAWindowRunDownload {
                 toolkit: { try await toolkit($0, folder) },
                 log: log
             )
-            if download.enaRecord == nil, let gap = download.enaRecordGap {
-                log(ncbiRun == nil
-                    ? "ENA's record of \(accession) is missing (\(gap)), so the run is imported without ENA metadata."
-                    : "ENA's record of \(accession) is missing (\(gap)), so NCBI's record gives the run's metadata.")
+            var ncbiRun = ncbiRun
+            var askedNCBI = false
+            func resolvedNCBIRun() async -> SRARunInfo? {
+                if ncbiRun == nil, !askedNCBI, let lookUpNCBIRun {
+                    askedNCBI = true
+                    ncbiRun = await lookUpNCBIRun()
+                }
+                return ncbiRun
             }
-            // Only ENA's record refuses a lone mate 1. NCBI's layout names the
-            // mismatch but keeps the earlier outcome, single-end reads, until
-            // sub-phase 2.1 decides whether to refuse such runs.
-            let reads = try SRAWindowRunReads(
-                stagedFiles: download.fastqFiles,
+            if download.enaRecord == nil {
+                // NCBI's record gives the metadata of a run ENA's record missed.
+                let ncbiRecord = await resolvedNCBIRun()
+                if let gap = download.enaRecordGap {
+                    log(ncbiRecord == nil
+                        ? "ENA's record of \(accession) is missing (\(gap)), so the run is imported without ENA metadata."
+                        : "ENA's record of \(accession) is missing (\(gap)), so NCBI's record gives the run's metadata.")
+                }
+            }
+            let sorted = try await SRARunReads.sorting(
+                download.fastqFiles,
                 accession: accession,
-                listedAsPaired: download.enaRecord?.isPaired == true
+                enaLayout: download.enaRecord?.libraryLayout,
+                ncbiLayout: { await resolvedNCBIRun()?.libraryLayout }
             )
-            var layoutWarning: String?
-            if download.enaRecord == nil, reads.r2 == nil, ncbiRun?.libraryLayout?.uppercased() == "PAIRED" {
-                let line = "NCBI lists \(accession) as paired but only one read file arrived; imported as single-end reads"
-                log(line)
-                layoutWarning = line
+            if let layoutWarning = sorted.layoutWarning {
+                log(layoutWarning)
             }
             return SRAWindowStagedRun(
-                folder: folder, download: download, reads: reads, ncbiRun: ncbiRun, layoutWarning: layoutWarning
+                folder: folder, download: download, reads: sorted.reads, ncbiRun: ncbiRun, layoutWarning: sorted.layoutWarning
             )
         } catch {
             try? FileManager.default.removeItem(at: folder)

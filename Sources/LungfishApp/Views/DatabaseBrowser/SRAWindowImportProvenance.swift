@@ -49,16 +49,19 @@ func writeGUISRAFASTQImportProvenance(
     let source = SRAFASTQDownloadSource(rawValue: downloadSource)
     // The toolkit's steps belong to a failed attempt when ENA served the run
     // after it. They stay recorded, marked failed, and the import does not
-    // depend on them.
+    // depend on them. ENA's steps of a failed mirror attempt arrive marked.
     let toolkitAttemptFailed = source.map { !$0.usesSRAToolkit } ?? false
+    let failedAttempt = SRAService.FASTQDownloadStepTrace.failedAttemptOption
+    // Toolkit steps record the sra-tools version the lock pins, as `fetch sra download` records it.
+    let sraToolsVersion = try? ManagedToolLock.loadFromBundle().tool(named: "sra-tools")?.version
     var steps = enaDownloadSteps
 
     steps.append(contentsOf: toolkitDownloadTraces.map { trace in
         StepExecution(
             toolName: trace.toolName,
-            toolVersion: trace.toolVersion,
+            toolVersion: trace.recordedToolVersion(sraToolsVersion: sraToolsVersion),
             command: trace.command,
-            resolvedOptions: toolkitAttemptFailed ? ["attempt": .string("failed")] : nil,
+            resolvedOptions: toolkitAttemptFailed ? [failedAttempt.key: .string(failedAttempt.value)] : nil,
             inputs: trace.inputs.map {
                 FileRecord(path: $0, format: sraGUIInputFormat(for: $0), role: .input)
             },
@@ -76,7 +79,7 @@ func writeGUISRAFASTQImportProvenance(
     steps = steps.enumerated()
         .sorted { ($0.element.startTime, $0.offset) < ($1.element.startTime, $1.offset) }
         .map(\.element)
-    let servingStepIDs = steps.filter { $0.resolvedOptions?["attempt"] != .string("failed") }.map(\.id)
+    let servingStepIDs = steps.filter { $0.resolvedOptions?[failedAttempt.key] != .string(failedAttempt.value) }.map(\.id)
 
     if let existingCLIProvenance {
         steps.append(contentsOf: existingCLIProvenance.steps)
@@ -109,11 +112,15 @@ func writeGUISRAFASTQImportProvenance(
         // The window's "Download source" setting. The window records `import
         // fastq`, not `fetch sra download`, so the choice is kept here.
         "preferredSource": .string(preferredSource.rawValue),
-        // The strategy names `fetch sra download` records.
-        "requestedStrategy": .string(preferredSource == .ncbi ? "sra-toolkit-first" : "ena-direct"),
-        "selectedStrategy": .string(sraGUISelectedStrategy(preferredSource: preferredSource, source: source)),
+        // The strategy names `fetch sra download` records, from the same functions.
+        "requestedStrategy": .string(SRADownloadStrategy.requested(preference: preferredSource)),
+        "selectedStrategy": .string(SRADownloadStrategy.selected(preference: preferredSource, source: source)),
         "fallbackMessage": fallbackMessage.map { .string($0) } ?? .null,
-        "enaFastqURLs": .array((readRecord?.fastqHTTPURLs ?? []).map { .string($0.absoluteString) }),
+        // The files the reads came from. A run the SRA Toolkit fetched came
+        // from none of ENA's files, even when ENA listed some.
+        "enaFastqURLs": .array(
+            (source?.usesSRAToolkit == true ? [] : readRecord?.fastqHTTPURLs ?? []).map { .string($0.absoluteString) }
+        ),
         "cliCommand": .string(CLIImportRunner.commandLine(arguments: cliArguments)),
         "platform": .string(platform),
         "recipe": recipeName.map { .string($0) } ?? .null,
@@ -122,9 +129,7 @@ func writeGUISRAFASTQImportProvenance(
         "compression": .string(compressionLevel),
         "containerRuntime": .string("none"),
         // Every SRA Toolkit source ran in the managed sra-tools environment.
-        "condaEnvironment": .string(
-            SRAFASTQDownloadSource(rawValue: downloadSource)?.usesSRAToolkit == true ? "managed sra-tools" : "none"
-        ),
+        "condaEnvironment": .string(source?.recordedCondaEnvironment ?? "none"),
         "stagingInputs": .array(stagedFASTQFiles.map { .string($0.standardizedFileURL.path) }),
         "finalBundlePath": .string(bundleURL.standardizedFileURL.path),
         "finalFASTQPath": .string(finalFASTQURL.standardizedFileURL.path)
@@ -155,20 +160,6 @@ func writeGUISRAFASTQImportProvenance(
     )
 
     try run.writeSidecar(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-}
-
-/// The strategy that served the run, in the names `fetch sra download`
-/// records under `selectedStrategy`.
-private func sraGUISelectedStrategy(
-    preferredSource: SRADownloadSourcePreference,
-    source: SRAFASTQDownloadSource?
-) -> String {
-    switch preferredSource {
-    case .ena:
-        return source == nil || source == .ena ? "ena-direct" : "sra-toolkit-fallback"
-    case .ncbi:
-        return source == nil || source == .sraToolkit ? "sra-toolkit" : "ena-fallback"
-    }
 }
 
 private func sraGUIInputFormat(for path: String) -> FileFormat? {

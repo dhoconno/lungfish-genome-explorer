@@ -123,7 +123,25 @@ extension DatabaseBrowserViewModel {
                     func downloadViaToolkit(status: SRAWindowToolkitStatus, into folder: URL) async throws -> [URL] {
                         // Logged, so the row's history keeps the route and why.
                         logLine(status.line, status.level)
-                        return try await sra.downloadFASTQ(
+                        let tracesBefore = toolkitTraceCollector.steps.count
+                        do {
+                            return try await toolkitDownload(into: folder)
+                        } catch {
+                            // The error keeps one line. The failed tool's whole
+                            // standard error goes to the row's log.
+                            for trace in toolkitTraceCollector.steps.dropFirst(tracesBefore)
+                            where (trace.exitCode ?? 0) != 0 && !(trace.stderr ?? "").isEmpty {
+                                let message = "\(trace.toolName) standard error:\n\(trace.stderr ?? "")"
+                                performOnMainRunLoop {
+                                    DownloadCenter.shared.log(id: downloadCenterTaskID, level: .debug, message: message)
+                                }
+                            }
+                            throw error
+                        }
+                    }
+
+                    func toolkitDownload(into folder: URL) async throws -> [URL] {
+                        try await sra.downloadFASTQ(
                             accession: record.accession,
                             outputDir: folder,
                             progress: { toolkitProgress in
@@ -152,6 +170,7 @@ extension DatabaseBrowserViewModel {
                         accession: accession,
                         preference: sourcePreference,
                         ncbiRun: ncbiRunsFromSearch[accession],
+                        lookUpNCBIRun: { await sra.ncbiRunInfo(forRun: accession) },
                         in: batchDir,
                         lookUpRoute: { try await ena.fastqDownloadRoute(forRun: accession) },
                         mirrorFile: { fastqURL, fileExpectedBytes, priorBytes, totalExpectedBytes in

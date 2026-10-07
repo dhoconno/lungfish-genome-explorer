@@ -74,13 +74,14 @@ final class SRAWindowFallbackProvenanceTests: XCTestCase {
         XCTAssertEqual(direct.parameters["requestedStrategy"], .string("ena-direct"))
         XCTAssertEqual(direct.parameters["selectedStrategy"], .string("ena-direct"))
 
+        let line = "ENA could not serve SRR1, so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. ENA's mirror answered HTTP 503 for SRR1_2.fastq.gz"
         let fallback = try record(
             preference: .ena, source: .sraToolkitAfterFailedTransfer,
-            fallbackMessage: "ENA transfer failed for SRR1; using SRA Toolkit...", enaSteps: [], toolkitTraces: []
+            fallbackMessage: line, enaSteps: [], toolkitTraces: []
         )
         XCTAssertEqual(fallback.parameters["requestedStrategy"], .string("ena-direct"))
         XCTAssertEqual(fallback.parameters["selectedStrategy"], .string("sra-toolkit-fallback"))
-        XCTAssertEqual(fallback.parameters["fallbackMessage"], .string("ENA transfer failed for SRR1; using SRA Toolkit..."))
+        XCTAssertEqual(fallback.parameters["fallbackMessage"], .string(line))
     }
 
     // MARK: - Helpers
