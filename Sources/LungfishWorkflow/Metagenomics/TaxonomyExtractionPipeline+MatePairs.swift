@@ -29,9 +29,17 @@ extension TaxonomyExtractionPipeline {
             let name = "\(baseName)_R\(index + 1)"
             if matePairStarts.contains(index), index + 1 < sources.count {
                 let pairsURL = outputDirectory.appendingPathComponent("\(ExtractionBundleNaming.sanitizeFilename(name)).pairs.fastq")
-                let pairs = try Self.extractMatePairInStep(
-                    r1: sources[index], r2: sources[index + 1], readIDs: readIDs, to: pairsURL
-                )
+                let (r1, r2) = (sources[index], sources[index + 1])
+                // A whole pass over both files, so it runs off the cooperative
+                // pool and stops when the extraction is cancelled.
+                let worker = Task.detached(priority: .utility) {
+                    try Self.extractMatePairInStep(r1: r1, r2: r2, readIDs: readIDs, to: pairsURL)
+                }
+                let pairs = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
                 if pairs > 0 {
                     urls[index] = pairsURL
                     readCount += 2 * pairs
