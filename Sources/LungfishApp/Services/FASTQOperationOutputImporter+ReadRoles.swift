@@ -83,10 +83,12 @@ extension AppFASTQOutputBundleWriter {
     ///
     /// The single reads of most outputs take the role the source records for
     /// its own (``FASTQMixedLayoutHint/singleRole(of:)``). A paired-end merge
-    /// makes its single reads, so they are named by what it writes
-    /// (``singleReadsOfAMerge(_:sourceRoles:)``). Named from the source, the
+    /// and a paired-end repair make single reads, so theirs are named by what
+    /// they write (``singleReadsOfAMerge(_:sourceRoles:)``,
+    /// ``singleReadsOfARepair(_:sourceRoles:)``). Named from the source, the
     /// merged reads of a merge of a source that lists no merged read were
-    /// recorded as orphans (re-review F8-N3, Phase 2.1 lane L3).
+    /// recorded as orphans (re-review F8-N3), and the orphans of a repair of
+    /// a merge bundle as merged reads (Phase 2.1 lane L3).
     func outputReadRoles(
         of outputFASTQ: URL,
         sourceInputURL: URL?,
@@ -107,9 +109,12 @@ extension AppFASTQOutputBundleWriter {
         }
         let sourceRoles = FASTQMixedLayoutHint.recordedRoles(of: sourceInputURL)
         let singles: (merged: Int, unpaired: Int)
-        if case .derivative(.pairedEndMerge, _, _)? = request {
+        switch request {
+        case .derivative(.pairedEndMerge, _, _)?:
             singles = Self.singleReadsOfAMerge(counts.singles, sourceRoles: sourceRoles)
-        } else {
+        case .derivative(.pairedEndRepair, _, _)?:
+            singles = Self.singleReadsOfARepair(counts.singles, sourceRoles: sourceRoles)
+        default:
             singles = FASTQMixedLayoutHint.singleRole(of: sourceRoles) == .merged
                 ? (counts.singles, 0)
                 : (0, counts.singles)
@@ -141,6 +146,22 @@ extension AppFASTQOutputBundleWriter {
     ) -> (merged: Int, unpaired: Int) {
         let orphans = min(singles, sourceRoles?.unpairedReadCount ?? 0)
         return (singles - orphans, orphans)
+    }
+
+    /// The merged reads and the reads without a mate among the `singles`
+    /// single reads of a paired-end repair's output. `fastq repair` writes the
+    /// pairs repair.sh repaired, then every read it found without a mate,
+    /// which are the source's merged reads and the reads whose mates are
+    /// gone. So the source's recorded merged reads are merged and every other
+    /// single read is an orphan. Named from the source's roles, the orphans a
+    /// repair of a merge bundle made were recorded as merged reads (Phase 2.1
+    /// lane L3).
+    static func singleReadsOfARepair(
+        _ singles: Int,
+        sourceRoles: ReadClassification?
+    ) -> (merged: Int, unpaired: Int) {
+        let merged = min(singles, sourceRoles?.mergedReadCount ?? 0)
+        return (merged, singles - merged)
     }
 
     /// Whether the derived manifest of a source bundle, or of the bundle that
