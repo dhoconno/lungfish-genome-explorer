@@ -1006,7 +1006,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **TSV (tab-separated values)**{#tsv}. A plain text table whose columns are separated by tab characters, one row per line, readable by any spreadsheet and by most analysis scripts, and the format `lungfish-cli gatk variants-to-table` writes when it flattens a VCF for use outside the genomics tools. See also VCF, CSV.
 
-**12S**{#twelve-s}. A short mitochondrial 12S rRNA amplicon used to identify vertebrate species. LGE matches merged 12S reads exactly against a deduplicated reference FASTA. See also metabarcoding.
+**12S**{#twelve-s}. A short mitochondrial 12S rRNA amplicon used to identify vertebrate species. LGE matches 12S reads exactly against a deduplicated reference FASTA, whether they are merged or single reads or unmerged pairs, and counts each fragment once. See also metabarcoding.
 
 **Two-bit (2bit)**{#two-bit}. A packed binary sequence format from the UCSC genome browser that stores each base in two bits, recognized by Lungfish Genome Explorer's format registry by its `.2bit` extension as an import candidate rather than a viewable track. See also FASTA, format registry.
 
