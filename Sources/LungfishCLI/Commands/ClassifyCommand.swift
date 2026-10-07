@@ -184,6 +184,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             outputDirectory: outputDirectory,
             originalInputURLs: fastqFiles.map { URL(fileURLWithPath: $0).standardizedFileURL }
         )
+        let provenanceRecordAtStart = Self.provenanceRecordBytes(in: outputDirectory)
 
         // An output directory inside a project carries a run record until
         // the result is written, so it stays out of the sidebar while the
@@ -498,34 +499,15 @@ struct ClassifyCommand: AsyncParsableCommand {
             guard !failureContext.wrapperProvenanceWritten else {
                 throw error
             }
-
-            let endedAt = Date()
-            let failureMessage: String
-            if let recordedMessage = failureContext.failureMessage {
-                failureMessage = recordedMessage
-            } else if error is CancellationError {
-                failureMessage = "Classification cancelled."
-            } else {
-                failureMessage = error.localizedDescription
-            }
-
-            do {
-                _ = try Self.writeFailureProvenance(
-                    command: self,
-                    context: failureContext,
-                    argv: CommandLine.arguments,
-                    exitStatus: Self.failureExitStatus(for: error),
-                    profileState: Self.failureProfileState(for: error),
-                    stderr: failureMessage,
-                    startedAt: startedAt,
-                    endedAt: endedAt
-                )
-            } catch let provenanceError {
-                throw CLIError.outputWriteFailed(
-                    path: outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename).path,
-                    reason: provenanceError.localizedDescription
-                )
-            }
+            try Self.recordFailure(
+                error,
+                command: self,
+                context: failureContext,
+                argv: CommandLine.arguments,
+                profileState: Self.failureProfileState(for: error),
+                startedAt: startedAt,
+                provenanceRecordAtStart: provenanceRecordAtStart
+            )
 
             if error is CancellationError {
                 throw CLIError.cancelled
@@ -998,7 +980,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         error is CancellationError ? "cancelled" : "failed"
     }
 
-    private static func failureExitStatus(for error: Error) -> Int {
+    static func failureExitStatus(for error: Error) -> Int {
         if let exitCode = error as? ExitCode {
             return Int(exitCode.rawValue)
         }
