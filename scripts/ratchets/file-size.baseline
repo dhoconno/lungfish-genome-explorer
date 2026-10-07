@@ -10,7 +10,7 @@ Sources/LungfishApp/App/VCFImportHelper.swift 1147
 Sources/LungfishApp/Services/AI/AIAssistantService.swift 901
 Sources/LungfishApp/Services/AI/AIToolRegistry.swift 951
 Sources/LungfishApp/Services/AnnotationSearchIndex.swift 1796
-Sources/LungfishApp/Services/FASTQIngestionService.swift 1298
+Sources/LungfishApp/Services/FASTQIngestionService.swift 1297
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 858
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1334
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1225
@@ -22,7 +22,7 @@ Sources/LungfishApp/ViewModels/SequenceExtractionPipeline.swift 833
 Sources/LungfishApp/Views/AI/AIAssistantPanel.swift 1011
 Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift 1114
 Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 2957
-Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift 1069
+Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift 1066
 Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2315
 Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
 Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 1025
@@ -37,7 +37,7 @@ Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1586
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 806
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1362
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1051
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1216
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1071
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1330
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 832
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1123
@@ -174,7 +174,7 @@ Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1155
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
 Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2948
-Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 1487
+Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 1471
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
 Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1285
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 915
