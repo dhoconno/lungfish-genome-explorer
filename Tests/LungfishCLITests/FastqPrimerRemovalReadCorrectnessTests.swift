@@ -315,10 +315,13 @@ final class FastqPrimerRemovalReadCorrectnessTests: XCTestCase {
 
     // `--kmer` defaulted to 23 while the dialog's k is 15, so a dialog run
     // recorded `--kmer 15` and a run without `--kmer` ran 23. The default is
-    // now 15 (L5, ruling on concern 3). FastqPrimerRemovalBundledSchemeTests
-    // runs the default on the bundled schemes.
+    // now 15 (L5, ruling on concern 3). Every recorded command names
+    // `--kmer`, so none depends on the default again (review A N6). A
+    // command recorded before the change without `--kmer` ran 23.
+    // FastqPrimerRemovalBundledSchemeTests runs the default on the bundled
+    // schemes.
 
-    func testADialogRunAndARunWithoutKmerMinkOrHdistRecordOneCommand() async throws {
+    func testADialogRunAndADefaultRunRecordOneCommandThatNamesKmer() async throws {
         try await requireNativeTool(.bbduk)
         let inputURL = root.appendingPathComponent("defaults.fastq")
         try record("long5", String(amplicons.amplicon5.prefix(150))).write(to: inputURL, atomically: true, encoding: .utf8)
@@ -335,6 +338,30 @@ final class FastqPrimerRemovalReadCorrectnessTests: XCTestCase {
             commands.append(envelope.argv.map { $0 == outputURL.path ? "<output>" : $0 })
         }
         XCTAssertEqual(commands.first, commands.last, "the dialog's k, mink and hdist are the command's defaults")
+        let recorded = try XCTUnwrap(commands.first)
+        let kmer = try XCTUnwrap(recorded.firstIndex(of: "--kmer"), "the recorded command names --kmer: \(recorded)")
+        XCTAssertEqual(recorded.dropFirst(kmer + 1).first, "15")
+    }
+
+    // MARK: - bbduk, a read trimmed below its minimum length
+
+    // bbduk drops a read that a pass trims below its default minimum length
+    // of 10 bases. The 3' pass drops a merged primer dimer that the 5' pass
+    // left at the length of its right primer (review A N3).
+
+    func testAReadTrimmedBelowTenBasesIsDroppedAndTheHelpSaysSo() async throws {
+        try await requireNativeTool(.bbduk)
+        let dimer = amplicons.left5 + Amplicons.reverseComplement(amplicons.right5)
+        let inputURL = root.appendingPathComponent("dimer.fastq")
+        try (record("dimer", dimer) + record("long5", String(amplicons.amplicon5.prefix(150))))
+            .write(to: inputURL, atomically: true, encoding: .utf8)
+        let outputURL = root.appendingPathComponent("dimer.trimmed.fastq")
+        try await runPrimerRemove([inputURL.path, "--ref", try writeTiledReference().path, "-o", outputURL.path])
+
+        let output = try await reads(outputURL)
+        XCTAssertEqual(output.map(\.name), ["long5"], "the dimer is 28 bases after the 5' pass and none after the 3' pass")
+        let help = FastqPrimerRemovalSubcommand.helpMessage(columns: 1000)
+        XCTAssertTrue(help.contains("below 10 bases"), "the help says a read trimmed below 10 bases is dropped")
     }
 
     func testPrimerInsideAFullLengthReadIsNotTrimmedWithEverythingBeforeIt() async throws {
