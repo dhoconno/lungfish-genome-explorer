@@ -187,7 +187,7 @@ LGE records each refresh in the bundle's [provenance](../../GLOSSARY.md#provenan
 |---|---|
 | Platform | The Platform control on the Import FASTQ sheet, then the **Read Type** popup in the Inspector's Sample Metadata section, whose grey line names the type LGE detected |
 | Read length | The Mean Length, Median Length, and N50 cards, plus Min Length and Max Length in the Inspector's Dataset Statistics group |
-| Single, paired, or merged | The Pairing row of the Inspector's Ingestion group, reading Single End, Paired End, or Interleaved. Interleaved is how LGE stores a pair |
+| Single, paired, or merged | The Pairing row of the Inspector's Ingestion group, reading Single End, Paired End, or Interleaved. Interleaved is how LGE stores a pair. A file that holds pairs beside single reads reads "Pairs and single reads" with the counts, such as "Pairs and single reads (5 pairs + 3 merged + 2 singles)", where merged counts merged reads and singles counts reads whose mate is missing |
 | Library strategy, amplicon or shotgun | The Strategy row of the SRA Metadata or ENA Metadata group, for a run downloaded from an archive |
 | A reference for the organism | **File > Search Online Databases > Search NCBI...** with its mode set to Genome, as [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) shows |
 
