@@ -153,6 +153,12 @@ public struct FASTQFilePair: Sendable {
     public let metadata: [String: String]
     /// CSV sample sheet that supplied this pair, when applicable.
     public let sampleSheetURL: URL?
+    /// Why the CLI's detection left a file of another folder out of this
+    /// sample, as `import fastq` prints it for the same files. The sheet runs
+    /// the CLI once a sample, so no run sees the other folders, and the
+    /// sample's Operations row logs these instead. Empty for every other
+    /// sample.
+    public let pairingNotices: [FASTQBatchImporter.PairingNotice]
 
     public init(
         r1: URL,
@@ -160,7 +166,8 @@ public struct FASTQFilePair: Sendable {
         unpaired: URL? = nil,
         sampleNameOverride: String? = nil,
         metadata: [String: String] = [:],
-        sampleSheetURL: URL? = nil
+        sampleSheetURL: URL? = nil,
+        pairingNotices: [FASTQBatchImporter.PairingNotice] = []
     ) {
         self.r1 = r1
         self.r2 = r2
@@ -168,14 +175,15 @@ public struct FASTQFilePair: Sendable {
         self.sampleNameOverride = sampleNameOverride
         self.metadata = metadata
         self.sampleSheetURL = sampleSheetURL
+        self.pairingNotices = pairingNotices
     }
 
     /// A sample `lungfish-cli import fastq` detected, under the name the CLI
-    /// gives it.
-    init(_ sample: SamplePair) {
+    /// gives it, with the notices detection gave about it.
+    init(_ sample: SamplePair, pairingNotices: [FASTQBatchImporter.PairingNotice] = []) {
         self.init(
             r1: sample.r1, r2: sample.r2, unpaired: sample.unpaired, sampleNameOverride: sample.sampleName,
-            metadata: sample.metadata, sampleSheetURL: sample.sampleSheetURL
+            metadata: sample.metadata, sampleSheetURL: sample.sampleSheetURL, pairingNotices: pairingNotices
         )
     }
 
@@ -199,7 +207,8 @@ public struct FASTQFilePair: Sendable {
     /// `FASTQBatchImporter.applyPairing`, the rule `--pairing single` and
     /// `--pairing interleaved` apply, so the sheet and the CLI make the same
     /// samples. Paired-end keeps the pairs. Each sample's files keep the
-    /// sample's place in the list.
+    /// sample's place in the list. A split sample keeps no pairing notice,
+    /// as `import fastq` prints none for those choices.
     public static func applying(
         pairingMode: FASTQIngestionConfig.PairingMode,
         to pairs: [FASTQFilePair]
@@ -207,7 +216,7 @@ public struct FASTQFilePair: Sendable {
         guard pairingMode != .pairedEnd else { return pairs }
         let pairing: FASTQBatchImporter.ImportPairing = pairingMode == .interleaved ? .interleaved : .single
         return pairs.flatMap { pair in
-            FASTQBatchImporter.applyPairing(pairing, to: [pair.samplePair]).map(FASTQFilePair.init)
+            FASTQBatchImporter.applyPairing(pairing, to: [pair.samplePair]).map { FASTQFilePair($0) }
         }
     }
 
@@ -261,14 +270,20 @@ public struct FASTQFilePair: Sendable {
 /// R1 and R2 files pair by `_R1_001`/`_R2_001`, `_R1`/`_R2` or `_1`/`_2`,
 /// and a run's file of reads whose mate is missing, `<run>.fastq` beside
 /// `<run>_1` and `<run>_2`, joins its pair as ``FASTQFilePair/unpaired``.
-/// The sheet imports each sample's files in one CLI run, which checks that
-/// join from the first reads. Any other file is a single-end sample named
-/// after its file, read suffix included, as the CLI names it.
+/// Files pair inside one folder first, and across folders only by names no
+/// other dropped file has. Each sample keeps the notices detection gave
+/// about it (``FASTQFilePair/pairingNotices``). The sheet imports each
+/// sample's files in one CLI run, which checks that join from the first
+/// reads. Any other file is a single-end sample named after its file, read
+/// suffix included, as the CLI names it.
 ///
 /// The sheet used to pair files by rules of its own and import each pair on
 /// its own, so a run's three files became two samples and its reads whose
 /// mate is missing never joined the pair, and a lone `x_1.fastq` was named
 /// `x` where the CLI names it `x_1` (f9-report.md, concern 3).
 public func groupFASTQByPairs(_ urls: [URL]) -> [FASTQFilePair] {
-    FASTQBatchImporter.detectPairs(from: urls).map(FASTQFilePair.init)
+    let detection = FASTQBatchImporter.detectingPairs(from: urls)
+    return detection.samples.map { sample in
+        FASTQFilePair(sample, pairingNotices: detection.notices.filter { $0.r1 == sample.r1 })
+    }
 }

@@ -191,6 +191,13 @@ public actor CLIImportRunner {
         ([CLICommandIdentity.executableName] + arguments).map { shellEscape($0) }.joined(separator: " ")
     }
 
+    /// The Operations row's line for a `notice` event of `import fastq`.
+    /// The Import FASTQ sheet logs its grouping's notices with it too, so a
+    /// notice reads the same whichever of the two logs it.
+    nonisolated static func noticeLine(sample: String, message: String) -> String {
+        "\(sample) — \(message)"
+    }
+
     // MARK: - Static: Event Parsing
 
     /// Parses a single JSON line from the CLI stdout into a ``CLIImportEvent``.
@@ -429,7 +436,7 @@ public actor CLIImportRunner {
                                 OperationCenter.shared.log(
                                     id: opID,
                                     level: .warning,
-                                    message: "\(sample) — \(message)"
+                                    message: Self.noticeLine(sample: sample, message: message)
                                 )
                             }
                         }

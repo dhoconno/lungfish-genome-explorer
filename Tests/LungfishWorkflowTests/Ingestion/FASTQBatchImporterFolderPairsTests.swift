@@ -96,6 +96,59 @@ final class FASTQBatchImporterFolderPairsTests: XCTestCase {
         }
     }
 
+    // MARK: - Notices
+
+    func testANoticeNamesTheFilesThatANameTwoFoldersShareKeptApart() {
+        let a1 = Self.file("A/reads_R1.fastq"), a2 = Self.file("A/reads_R2.fastq")
+        let b1 = Self.file("B/reads_R1.fastq"), c2 = Self.file("C/reads_R2.fastq"), d2 = Self.file("D/reads_R2.fastq")
+
+        XCTAssertEqual(FASTQBatchImporter.detectingPairs(from: [a1, a2, b1, c2]).notices, [
+            FASTQBatchImporter.PairingNotice(
+                sample: "reads_R1", r1: b1,
+                message: "/runs/B/reads_R1.fastq was not paired with /runs/C/reads_R2.fastq, because mates pair "
+                    + "across folders only when their names are unique among the listed files."
+            ),
+        ])
+        // One R1 alone in its folder and the mate's name in two other folders.
+        XCTAssertEqual(FASTQBatchImporter.detectingPairs(from: [b1, c2, d2]).notices.map(\.message), [
+            "/runs/B/reads_R1.fastq was not paired with /runs/C/reads_R2.fastq or /runs/D/reads_R2.fastq, because "
+                + "mates pair across folders only when their names are unique among the listed files.",
+        ])
+        // Two R1s alone in their folders, one notice each.
+        XCTAssertEqual(
+            FASTQBatchImporter.detectingPairs(from: [a1, b1, c2]).notices.map(\.r1), [a1, b1]
+        )
+    }
+
+    func testANoticeNamesARunsFilesThatANameTwoFoldersShareKeptFromItsPair() {
+        let r1 = Self.file("A/SRR1_1.fastq"), r2 = Self.file("A/SRR1_2.fastq")
+        let b = Self.file("B/SRR1.fastq"), c = Self.file("C/SRR1.fastq")
+
+        XCTAssertEqual(FASTQBatchImporter.detectingPairs(from: [r1, r2, b, c]).notices, [
+            FASTQBatchImporter.PairingNotice(
+                sample: "SRR1", r1: r1,
+                message: "/runs/B/SRR1.fastq and /runs/C/SRR1.fastq were not joined to /runs/A/SRR1_1.fastq and "
+                    + "/runs/A/SRR1_2.fastq as reads whose mate is missing, because a run's files join across "
+                    + "folders only when their names are unique among the listed files."
+            ),
+        ])
+    }
+
+    func testNoNoticeWhenNoFileOfAnotherFolderWasLeftOut() {
+        let a1 = Self.file("A/x_R1.fastq"), a2 = Self.file("A/x_R2.fastq")
+        let b1 = Self.file("B/x_R1.fastq"), b2 = Self.file("B/x_R2.fastq")
+        for files in [
+            [a1, a2, b1, b2],
+            [a1, b2],
+            // B pairs inside itself, so no mate of another folder is free for A's R1.
+            [a1, b1, b2],
+            // One folder.
+            [a1, a2, Self.file("A/x.fastq")],
+        ] {
+            XCTAssertEqual(FASTQBatchImporter.detectingPairs(from: files).notices, [], "\(files.map(\.path))")
+        }
+    }
+
     // MARK: - Helpers
 
     private static func file(_ path: String) -> URL {

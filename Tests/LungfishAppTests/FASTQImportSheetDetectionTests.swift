@@ -217,6 +217,23 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
         XCTAssertNil(apart.first?.unpaired)
     }
 
+    func testTheSheetKeepsWhyAMateWasNotPairedOnTheSampleTheCLINamesInItsNotice() {
+        let a = [URL(fileURLWithPath: "/delivery/A/reads_R1.fastq"), URL(fileURLWithPath: "/delivery/A/reads_R2.fastq")]
+        let b1 = URL(fileURLWithPath: "/delivery/B/reads_R1.fastq")
+        let c2 = URL(fileURLWithPath: "/delivery/C/reads_R2.fastq")
+        let files = a + [b1, c2]
+
+        let sheet = groupFASTQByPairs(files)
+        let cli = FASTQBatchImporter.detectingPairs(from: files)
+
+        XCTAssertEqual(cli.notices.map(\.sample), ["reads_R1"])
+        XCTAssertEqual(sheet.map(\.pairingNotices), [[], cli.notices, []])
+        XCTAssertEqual(sheet.map(\.sampleName), ["reads", "reads_R1", "reads_R2"])
+        // A Pairing choice that splits every pair keeps no notice, as the CLI prints none for it.
+        XCTAssertTrue(FASTQFilePair.applying(pairingMode: .singleEnd, to: sheet).allSatisfy(\.pairingNotices.isEmpty))
+        XCTAssertEqual(FASTQFilePair.applying(pairingMode: .pairedEnd, to: sheet).map(\.pairingNotices), sheet.map(\.pairingNotices))
+    }
+
     @MainActor
     func testTheRowOfAMateLeftUnpairedLogsWhyAsTheCLIPrintsIt() throws {
         // Folder A pairs inside itself. B's R1 and C's R2 are named as mates,
