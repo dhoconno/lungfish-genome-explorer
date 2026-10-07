@@ -238,6 +238,30 @@ final class FastqRefusedRunKeepsEarlierOutputTests: XCTestCase {
         assertUnchanged(earlier.files)
     }
 
+    /// cutadapt fails after every refusal has passed, on a record whose
+    /// qualities are shorter than its sequence. The earlier output was
+    /// deleted before cutadapt ran, and now waits aside until the new bundles
+    /// are published and comes back when the run fails (review A N4).
+    func testDemultiplexReplaceWhoseToolFailsKeepsTheEarlierOutput() async throws {
+        guard await NativeToolRunner.shared.isToolAvailable(.cutadapt) else {
+            try ToolAvailability.skipOrFail("managed cutadapt is not installed")
+        }
+        let earlier = try writeEarlierDemultiplexOutput(inProject: true)
+        let input = root.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGTACGTACGTAAAA\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        do {
+            try await runDemultiplex([input.path, "--kit", kitCSV.path, "--output", earlier.folder.path, "--replace"])
+            XCTFail("cutadapt refuses a record whose qualities are shorter than its sequence")
+        } catch DemultiplexError.cutadaptFailed(_, _) {
+        }
+        assertUnchanged(earlier.files)
+        let parent = earlier.folder.deletingLastPathComponent()
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: parent.path).filter { $0.hasPrefix(".demux-out") },
+            [], "nothing of the earlier output is left waiting aside"
+        )
+    }
+
     // MARK: - Every subcommand with the FASTQSubcommandInput prologue
 
     /// One subcommand, its arguments around a missing input, and the earlier
