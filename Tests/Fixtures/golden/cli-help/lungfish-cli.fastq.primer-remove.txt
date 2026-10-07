@@ -22,7 +22,7 @@ OPTIONS:
   --literal <literal>     Primer sequence (bbduk refuses IUPAC ambiguity codes
                           such as R and S)
   --ref <ref>             Primer reference FASTA file
-  --kmer <kmer>           K-mer size (default: 23) (default: 23)
+  --kmer <kmer>           K-mer size (default: 15) (default: 15)
   --mink <mink>           Minimum k-mer size (default: 11) (default: 11)
   --hdist <hdist>         Hamming distance tolerance (default: 1) (default: 1)
   --engine <engine>       Primer trimming engine: bbduk or cutadapt-linked
