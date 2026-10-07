@@ -24,6 +24,13 @@ public enum TwelveSPairDiscordance: String, CaseIterable, Codable, Sendable {
         case .oneMateAmbiguous: return "one mate ambiguous"
         }
     }
+
+    /// `1 pair with different targets`, `2 pairs with one mate unresolved`,
+    /// for the CLI's line and the viewport alike. `reasonName` is a
+    /// ``displayName``, or a reason this version does not know, in words.
+    public static func countPhrase(_ count: Int, reasonName: String) -> String {
+        "\(count) \(count == 1 ? "pair" : "pairs") with \(reasonName)"
+    }
 }
 
 /// The call of one fragment made from the calls of its two mates.

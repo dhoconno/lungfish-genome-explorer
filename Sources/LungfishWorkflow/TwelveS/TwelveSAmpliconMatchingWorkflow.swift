@@ -74,6 +74,8 @@ public enum TwelveSAmpliconMatchingError: Error, LocalizedError, Equatable {
     case noReadsInInput(String)
     /// The two mates of a pair do not correspond, by name or by count.
     case mateMismatch(String)
+    /// Two inputs would be one sample, which a result holds once.
+    case duplicateSampleID(sampleID: String, first: String, second: String)
 
     public var errorDescription: String? {
         switch self {
@@ -91,6 +93,10 @@ public enum TwelveSAmpliconMatchingError: Error, LocalizedError, Equatable {
             return "No full reads could be found in \(path), which holds only a preview of its reads or has lost them. Re-import the FASTQ file, then run 12S matching on the new bundle."
         case let .mateMismatch(detail):
             return detail
+        case let .duplicateSampleID(sampleID, first, second):
+            return first == second
+                ? "The input \(first) is named twice. Name each input once."
+                : "The inputs \(first) and \(second) are both sample \(sampleID), and a 12S result holds each sample once. Rename one of them or run them separately."
         }
     }
 }
@@ -139,7 +145,9 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         defer { try? FileManager.default.removeItem(at: scratchDirectory) }
 
         progressHandler?(0.25, "Resolving FASTQ inputs.")
-        let resolvedInputs = try await resolveInputs(config.inputFASTQs, scratchDirectory: scratchDirectory)
+        let resolvedInputs = try await resolveInputs(
+            config.inputFASTQs, scratchDirectory: scratchDirectory, progressHandler: progressHandler
+        )
         // The files a split wrote live in the scratch folder, so their
         // provenance is taken now, while they exist.
         let readSetSteps = try resolvedInputs.flatMap(\.plan.steps).map(Self.provenanceStep)
@@ -158,6 +166,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             threads: config.threads
         )
         progressHandler?(0.66, classified.fragmentSummary)
+        classified.readWarnings.forEach { progressHandler?(0.66, $0) }
         let unresolved = makeUnresolvedSequences(from: classified)
         let scratchChimeraDirectory = scratchDirectory.appendingPathComponent("vsearch", isDirectory: true)
         let chimeraResult: TwelveSChimeraReviewResult
@@ -188,13 +197,12 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         }
 
         // Everything that could be refused has been accepted and every tool
-        // has finished, so the earlier output can go.
+        // has finished. The earlier output waits aside while the new bundle
+        // is written, and comes back if writing it fails.
         progressHandler?(0.80, "Preparing 12S output workspace.")
-        if earlierOutputExists {
-            try FileManager.default.removeItem(at: bundleURL)
-        }
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let earlierOutput = try earlierOutputExists ? SetAsideOutput.setAside(bundleURL) : nil
         do {
+            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
             // The bundle carries a run record until the last step and stays
             // out of the sidebar while it is written.
             try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "12S amplicon matching"), in: bundleURL)
@@ -230,8 +238,10 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             AnalysisRunRecord.markComplete(bundleURL)
         } catch {
             try? FileManager.default.removeItem(at: bundleURL)
+            try? earlierOutput?.restore()
             throw error
         }
+        earlierOutput?.discard()
         progressHandler?(1.0, "12S amplicon matching complete.")
         return TwelveSAmpliconMatchingResult(bundleURL: bundleURL.standardizedFileURL)
     }
@@ -243,6 +253,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         for input in config.inputFASTQs where !FileManager.default.fileExists(atPath: input.path) {
             throw TwelveSAmpliconMatchingError.missingInput(input.path)
         }
+        try Self.refuseDuplicateSampleIDs(config.inputFASTQs)
         guard FileManager.default.fileExists(atPath: config.referenceFASTA.path) else {
             throw TwelveSAmpliconMatchingError.missingReference(config.referenceFASTA.path)
         }
@@ -284,6 +295,8 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         var singleFedUnresolvedSequences: Set<String> = []
         /// The abundance reassignment decisions, persisted for audit.
         var reassignmentMoves: [TwelveSAbundanceReassigner.Move] = []
+        /// What reading the inputs warned of, such as mates paired by position.
+        var readWarnings: [String] = []
 
         var sawPairs: Bool {
             pairedFragmentsBySample.values.contains { $0 > 0 }
@@ -359,25 +372,6 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         let analysisOriginalRelativePath: String?
     }
 
-    /// Plans each input through the read-set resolver, one input one sample.
-    /// Pairs reach the count as pairs and a mixed stream is split by name
-    /// into the scratch folder (docs/contracts/READ-PAIRING.md).
-    private func resolveInputs(_ inputURLs: [URL], scratchDirectory: URL) async throws -> [ResolvedInput] {
-        let resolver = ReadSetResolver(
-            materializationDirectory: scratchDirectory.appendingPathComponent("read-sets", isDirectory: true)
-        )
-        var resolved: [ResolvedInput] = []
-        for inputURL in inputURLs {
-            do {
-                let plan = try await resolver.plan(for: inputURL, capability: Self.readPairingCapability)
-                resolved.append(ResolvedInput(sourceURL: inputURL, plan: plan))
-            } catch ReadSetResolverError.noReads(let path) {
-                throw TwelveSAmpliconMatchingError.noReadsInInput(path)
-            }
-        }
-        return resolved
-    }
-
     private func classifyInputs(
         _ inputs: [ResolvedInput],
         classifier: TwelveSAmpliconReadClassifier,
@@ -393,7 +387,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             let sampleID = Self.sampleID(for: input.sourceURL)
             classified.sampleOrder.append(sampleID)
             var sample = SampleFragments(sampleID: sampleID)
-            try await Self.readFragments(of: input.plan) { fragment in
+            classified.readWarnings += try await Self.readFragments(of: input.plan) { fragment in
                 switch fragment {
                 case let .single(sequence, weight):
                     sample.singleCounts[sequence, default: 0] += weight
@@ -630,7 +624,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             sampleMetadata: sampleMetadataSnapshot.resolved
         )
         try writeSamples(samples, to: sampleTableURL)
-        try writeReadFate(samples: samples, discordantPairsByReason: classified.discordantPairsByReason, to: readFateURL)
+        try writeReadFate(samples: samples, classified: classified, to: readFateURL)
         try writeUnresolvedTable(unresolvedSequences, to: unresolvedTableURL)
         try writeUnresolvedFasta(unresolvedSequences, to: unresolvedFastaURL)
         // Only emit the reassignments table when there were reassignments, so
@@ -817,7 +811,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
 
     private func writeReadFate(
         samples: [TwelveSAmpliconSampleResult],
-        discordantPairsByReason: [TwelveSPairDiscordance: Int],
+        classified: ClassifiedReads,
         to url: URL
     ) throws {
         let readFate = TwelveSAmpliconReadFate(
@@ -828,10 +822,11 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             chimeraCandidateReads: samples.reduce(0) { $0 + $1.chimeraCandidateReads },
             discordantPairs: samples.reduce(0) { $0 + $1.discordantPairs },
             discordantPairsByReason: Dictionary(
-                uniqueKeysWithValues: discordantPairsByReason
+                uniqueKeysWithValues: classified.discordantPairsByReason
                     .filter { $0.value > 0 }
                     .map { ($0.key.rawValue, $0.value) }
-            )
+            ),
+            pairedFragments: classified.pairedFragmentsBySample.values.reduce(0, +)
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -992,7 +987,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private static func sampleID(for inputURL: URL) -> String {
+    static func sampleID(for inputURL: URL) -> String {
         var name = inputURL.lastPathComponent
         if FASTQBundle.isBundleURL(inputURL) {
             return inputURL.deletingPathExtension().lastPathComponent

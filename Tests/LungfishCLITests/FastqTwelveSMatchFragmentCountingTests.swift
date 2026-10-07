@@ -110,4 +110,44 @@ final class FastqTwelveSMatchFragmentCountingTests: XCTestCase {
         XCTAssertEqual(provenance.options.explicit["ambiguityResolution"], .string("strict"))
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outputDirectory.path), ["cli-12s.lungfish12s"])
     }
+
+    /// Review A, S1. Naming the merged file inside the bundle reads that file
+    /// alone, so the unmerged pairs beside it are not counted under its name.
+    func testCommandNamingTheMergedFileOfABundleReadsThatFileAlone() async throws {
+        let merged = try writeMergeDerivative().appendingPathComponent("merged.fastq")
+        let reference = root.appendingPathComponent("reference.fa")
+        try """
+        >human (Homo sapiens)|locus=12S|len=8
+        ACCTTGAC
+        >dog (Canis lupus familiaris)|locus=12S|len=8
+        GGGACCCT
+
+        """.write(to: reference, atomically: true, encoding: .utf8)
+        let outputDirectory = root.appendingPathComponent("results", isDirectory: true)
+        let arguments = [
+            merged.path,
+            "--reference", reference.path,
+            "--output-dir", outputDirectory.path,
+            "--output-name", "cli-merged-12s",
+            "--min-soft-clip", "2",
+            "--max-indels", "2",
+            "--matching-mode", "illumina-exact",
+            "--threads", "1",
+            "--no-chimera-review",
+        ]
+
+        try await FastqTwelveSMatchSubcommand.parse(arguments).run()
+
+        let bundleURL = outputDirectory.appendingPathComponent("cli-merged-12s.lungfish12s", isDirectory: true)
+        let loaded = try TwelveSAmpliconResultBundle.loadResult(from: bundleURL)
+        let sample = try XCTUnwrap(loaded.samples.first { $0.sampleID == "merged" })
+        XCTAssertEqual(sample.inputReads, 4, "the four merged reads and none of the unmerged pairs")
+        XCTAssertEqual(sample.exactMatchReads, 3)
+        XCTAssertEqual(sample.unresolvedReads, 1)
+        XCTAssertEqual(sample.discordantPairs, 0)
+        XCTAssertEqual(loaded.scientificNameRows.first { $0.scientificName == "Homo sapiens" }?.count(forSample: "merged"), 2)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertEqual(provenance.argv, ["lungfish-cli", "fastq", "12s-match"] + arguments)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outputDirectory.path), ["cli-merged-12s.lungfish12s"])
+    }
 }

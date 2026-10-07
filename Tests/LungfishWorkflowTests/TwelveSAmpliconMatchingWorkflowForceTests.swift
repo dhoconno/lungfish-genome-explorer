@@ -199,6 +199,72 @@ final class TwelveSAmpliconMatchingWorkflowForceTests: XCTestCase {
         XCTAssertEqual(relocated.toolVersion, "2")
     }
 
+    /// Review B, S3. Under `--force` the earlier output waits aside while the
+    /// new bundle is written and comes back when writing fails. Here the
+    /// reference, loaded before the earlier output is set aside, is gone when
+    /// the bundle copies it, the first file the bundle writes.
+    func testForcedRunWhoseBundleWriteFailsKeepsTheEarlierOutput() async throws {
+        let bundleURL = try await writeEarlierOutput()
+        let reference: URL = referenceURL
+
+        do {
+            _ = try await TwelveSAmpliconMatchingWorkflow(chimeraReviewer: TwelveSNoOpChimeraReviewer())
+                .run(configuration(force: true)) { _, message in
+                    if message == "Writing 12S result bundle tables." {
+                        try? FileManager.default.removeItem(at: reference)
+                    }
+                }
+            XCTFail("a bundle that cannot be written must fail the run")
+        } catch {
+            XCTAssertFalse(error is TwelveSAmpliconMatchingError, "unexpected refusal \(error)")
+        }
+
+        try assertEarlierOutputSurvives(bundleURL)
+        try assertNoScratchBesideTheOutput()
+    }
+
+    /// Review A, N1. Two inputs that would be one sample, such as the
+    /// `barcode01` bundles of two demultiplexed runs, are refused before
+    /// anything is written, in one line that names both. Before, the run
+    /// removed the earlier output and then trapped on the duplicate sample.
+    func testTwoInputsThatAreOneSampleAreRefusedBeforeAnythingIsWritten() async throws {
+        let bundleURL = try await writeEarlierOutput()
+        let first = try demultiplexedBundle(inRun: "runA")
+        let second = try demultiplexedBundle(inRun: "runB")
+
+        do {
+            _ = try await TwelveSAmpliconMatchingWorkflow(chimeraReviewer: TwelveSNoOpChimeraReviewer()).run(
+                TwelveSAmpliconMatchingConfiguration(
+                    inputFASTQs: [first, second],
+                    referenceFASTA: referenceURL,
+                    outputDirectory: outputDirectory,
+                    outputName: "sampleA-12s",
+                    minimumSoftClipBases: 2,
+                    maximumIndelBases: 2,
+                    forceOverwrite: true
+                )
+            )
+            XCTFail("two inputs that are one sample must be refused")
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(message.contains(first.path), message)
+            XCTAssertTrue(message.contains(second.path), message)
+            XCTAssertTrue(message.contains("barcode01"), message)
+            XCTAssertFalse(message.contains("\n"), message)
+        }
+
+        try assertEarlierOutputSurvives(bundleURL)
+        try assertNoScratchBesideTheOutput()
+    }
+
+    /// A `barcode01` bundle as a demultiplexed run writes it, one file of reads.
+    private func demultiplexedBundle(inRun run: String) throws -> URL {
+        let bundle = root.appendingPathComponent("\(run)/demux/barcode01.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try Self.validReads.write(to: bundle.appendingPathComponent("reads.fastq"), atomically: true, encoding: .utf8)
+        return bundle.standardizedFileURL
+    }
+
     func testFailedFirstRunLeavesNothingBehind() async throws {
         try "".write(to: referenceURL, atomically: true, encoding: .utf8)
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
