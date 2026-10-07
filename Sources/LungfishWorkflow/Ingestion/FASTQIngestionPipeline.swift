@@ -612,9 +612,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
 
         progress(0.02, "Checking which reads are mates...")
-        let counts = try await Task.detached(priority: .utility) {
+        let counts = try await Self.detachedWork {
             try FASTQPairInterleaver.countMixed(interleaved: inputFile)
-        }.value
+        }
         let expectedRecords = counts.pairs * 2 + counts.unpaired
         let plan = Self.singleFileClumpPlan(for: counts)
         logger.info("Clumpify plan \(String(describing: plan)): \(counts.pairs) mate pairs, \(counts.unpaired) unpaired reads")
@@ -643,7 +643,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             let pairsURL = scratch.appendingPathComponent("pairs.fastq")
             let unpairedURL = scratch.appendingPathComponent("unpaired.fastq")
             progress(0.04, "Separating mate pairs from unpaired reads...")
-            try await Task.detached(priority: .utility) {
+            try await Self.detachedWork {
                 FileManager.default.createFile(atPath: pairsURL.path, contents: nil)
                 FileManager.default.createFile(atPath: unpairedURL.path, contents: nil)
                 let pairsHandle = try FileHandle(forWritingTo: pairsURL)
@@ -660,30 +660,28 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                         "the pair scan found \(counts.pairs) pairs and \(counts.unpaired) unpaired reads, but the split wrote \(split.pairs) and \(split.unpaired)"
                     )
                 }
-            }.value
+            }
 
             let clumpedPairs = scratch.appendingPathComponent("pairs.clumped.fastq")
             let clumpedUnpaired = scratch.appendingPathComponent("unpaired.clumped.fastq")
             progress(0.1, "Launching bbtools clumpify.sh on mate pairs...")
             steps.append(try await runStorageClumpify(
-                arguments: arguments(pairsURL, clumpedPairs, interleaved: true),
-                inputs: [pairsURL],
-                output: clumpedPairs,
-                config: config,
-                environment: env,
-                timeout: timeoutSeconds
+                arguments: arguments(pairsURL, clumpedPairs, interleaved: true), inputs: [pairsURL],
+                output: clumpedPairs, config: config, environment: env, timeout: timeoutSeconds
             ))
+            // Each half goes once it is clumped, and the clumped unpaired
+            // reads join the end of the clumped pairs in place, so scratch
+            // never holds the split, both clumped halves and their join at
+            // once (F9 re-review N4).
+            try? fm.removeItem(at: pairsURL)
             progress(0.5, "Launching bbtools clumpify.sh on unpaired reads...")
             steps.append(try await runStorageClumpify(
-                arguments: arguments(unpairedURL, clumpedUnpaired, interleaved: false),
-                inputs: [unpairedURL],
-                output: clumpedUnpaired,
-                config: config,
-                environment: env,
-                timeout: timeoutSeconds
+                arguments: arguments(unpairedURL, clumpedUnpaired, interleaved: false), inputs: [unpairedURL],
+                output: clumpedUnpaired, config: config, environment: env, timeout: timeoutSeconds
             ))
+            try? fm.removeItem(at: unpairedURL)
             let combined = scratch.appendingPathComponent("combined.fastq")
-            try Self.concatenate([clumpedPairs, clumpedUnpaired], to: combined)
+            try Self.appendAndRename(clumpedUnpaired, to: clumpedPairs, as: combined)
             let compressed = try await compress(
                 inputFile: combined,
                 outputFile: outputFile,
@@ -694,9 +692,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
 
         progress(0.95, "Verifying read count...")
-        let outputRecords = try await Task.detached(priority: .utility) {
+        let outputRecords = try await Self.detachedWork {
             try FASTQPairInterleaver.countRecords(in: outputFile)
-        }.value
+        }
         guard outputRecords == expectedRecords else {
             try? fm.removeItem(at: outputFile)
             throw FASTQIngestionError.clumpifyFailed(
@@ -775,20 +773,6 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
     }
 
-    /// Byte-for-byte concatenation of plain FASTQ files.
-    private static func concatenate(_ inputs: [URL], to output: URL) throws {
-        FileManager.default.createFile(atPath: output.path, contents: nil)
-        let sink = try FileHandle(forWritingTo: output)
-        defer { try? sink.close() }
-        for input in inputs {
-            let source = try FileHandle(forReadingFrom: input)
-            defer { try? source.close() }
-            while let chunk = try source.read(upToCount: 4 << 20), !chunk.isEmpty {
-                try sink.write(contentsOf: chunk)
-            }
-        }
-    }
-
     /// Runs Trim Galore's `--clumpify` mode for final-stage FASTQ storage optimization.
     ///
     /// Trim Galore writes paired-end data as two files, while Lungfish bundles store
@@ -818,9 +802,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         var trimPairing = config.pairingMode
         if config.pairingMode == .interleaved, config.inputFiles.count == 1 {
             let interleavedInput = config.inputFiles[0]
-            let counts = try await Task.detached(priority: .utility) {
+            let counts = try await Self.detachedWork {
                 try FASTQPairInterleaver.countMixed(interleaved: interleavedInput)
-            }.value
+            }
             switch Self.singleFileClumpPlan(for: counts) {
             case .unpaired:
                 trimPairing = .singleEnd
@@ -830,7 +814,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                 let stem = Self.deriveBaseName(from: interleavedInput)
                 let r1 = splitDirectory.appendingPathComponent("\(stem)_R1.fastq")
                 let r2 = splitDirectory.appendingPathComponent("\(stem)_R2.fastq")
-                try await Task.detached(priority: .utility) {
+                try await Self.detachedWork {
                     FileManager.default.createFile(atPath: r1.path, contents: nil)
                     FileManager.default.createFile(atPath: r2.path, contents: nil)
                     let r1Handle = try FileHandle(forWritingTo: r1)
@@ -838,7 +822,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                     let r2Handle = try FileHandle(forWritingTo: r2)
                     defer { try? r2Handle.close() }
                     _ = try FASTQPairInterleaver.deinterleave(interleaved: interleavedInput, r1: r1Handle, r2: r2Handle)
-                }.value
+                }
                 trimInputs = [r1, r2]
                 trimPairing = .pairedEnd
             case .splitMixed:
@@ -1278,14 +1262,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     /// check costs one extra read of the inputs and output; that is the
     /// price of never deleting a pair whose mate went missing.
     static func verifyInterleavedRecordCount(output: URL, r1: URL, r2: URL) async throws {
-        let counts = try await Task.detached(priority: .utility) { () throws -> (r1: Int, r2: Int, output: Int) in
+        let counts = try await detachedWork { () throws -> (r1: Int, r2: Int, output: Int) in
             let r1Count = try FASTQPairInterleaver.countRecords(in: r1)
             try Task.checkCancellation()
             let r2Count = try FASTQPairInterleaver.countRecords(in: r2)
             try Task.checkCancellation()
             let outputCount = try FASTQPairInterleaver.countRecords(in: output)
             return (r1Count, r2Count, outputCount)
-        }.value
+        }
         guard counts.r1 == counts.r2 else {
             throw FASTQIngestionError.pairedOutputVerificationFailed(
                 "\(r1.lastPathComponent) has \(counts.r1) reads but \(r2.lastPathComponent) has \(counts.r2)"

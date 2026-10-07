@@ -303,7 +303,9 @@ extension FASTQBatchImporter {
         let r1 = pair.r1
         let output = workspace.appendingPathComponent("\(pair.sampleName)_pairs_then_unpaired.fastq")
         let startedAt = Date()
-        let counts = try await Task.detached(priority: .utility) {
+        // Cancellation reaches the join, which polls it as it copies
+        // (F9 re-review N5).
+        let counts = try await FASTQIngestionPipeline.detachedWork {
             if let reason = Self.reasonNotToJoin(r1: r1, r2: r2, unpaired: unpaired) {
                 throw UnpairedReadsImportError.notJoinable(Self.notJoined(unpaired, to: r1, r2, because: reason.text))
             }
@@ -321,7 +323,7 @@ extension FASTQBatchImporter {
                 previous = (name, read)
             }
             return RecipeMixedLayoutCounts(mergedReads: 0, pairs: pairs.r1Records, unpairedReads: singles)
-        }.value
+        }
         let step = try ReadSetStep(
             kind: .interleaveByName,
             inputURLs: [r1, r2, unpaired],
