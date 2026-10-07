@@ -86,7 +86,7 @@ Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift 
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift 1077
 Sources/LungfishCLI/Commands/BAMCommand.swift 1350
 Sources/LungfishCLI/Commands/BuildDbCommand.swift 2173
-Sources/LungfishCLI/Commands/ClassifyCommand.swift 1686
+Sources/LungfishCLI/Commands/ClassifyCommand.swift 1668
 Sources/LungfishCLI/Commands/ExtractReadsCommand.swift 1106
 Sources/LungfishCLI/Commands/FetchCommand.swift 875
 Sources/LungfishCLI/Commands/GATKCommand.swift 1094
@@ -179,7 +179,7 @@ Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
 Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1285
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 915
 Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 1828
-Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2647
+Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2635
 Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline.swift 855
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift 1148
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2268
