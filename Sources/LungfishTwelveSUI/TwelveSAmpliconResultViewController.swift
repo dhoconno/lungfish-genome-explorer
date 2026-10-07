@@ -264,7 +264,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
     private var isBlastDrawerOpen = false
 
-    private var result: TwelveSAmpliconResultBundleData?
+    private(set) var result: TwelveSAmpliconResultBundleData?
     private var mode: Mode = .targets
     private var displayState = TwelveSResultDisplayState()
     private var allTargetRows: [TwelveSScientificNameCountRow] = []
@@ -497,6 +497,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             return lhs.sequenceID < rhs.sequenceID
         }
         unresolvedRowsLoaded = !result.unresolvedSequences.isEmpty || result.manifest.unresolvedTablePath == nil
+        // The unit comes first. A table keeps the title its column has at its
+        // first filter pass, which setting `resultIdentity` can start.
+        targetTable.countUnit = TwelveSCountUnit(readFate: result.readFate)
+        unresolvedTable.countUnit = targetTable.countUnit
         targetTable.resultIdentity = result.manifest.outputName
         unresolvedTable.resultIdentity = result.manifest.outputName
         referenceProvider = TwelveSReferenceSequenceProvider(referenceURL: result.artifacts.referenceURL)
@@ -1386,7 +1390,8 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
                 TwelveSResultDisplaySummary(
                     rowLabel: "Target Rows",
                     visibleRows: targetTable.displayedRows.count,
-                    totalRows: totalProjectedTargetRowCount()
+                    totalRows: totalProjectedTargetRowCount(),
+                    countUnit: targetTable.countUnit
                 )
             )
         case .unresolved:
@@ -1394,7 +1399,8 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
                 TwelveSResultDisplaySummary(
                     rowLabel: "Unmatched Sequences",
                     visibleRows: unresolvedRows.count,
-                    totalRows: allUnresolvedRows.count
+                    totalRows: allUnresolvedRows.count,
+                    countUnit: targetTable.countUnit
                 )
             )
         }
@@ -1503,6 +1509,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func emitDetail(_ payload: TwelveSDetailPayload?) {
+        let payload = payload?.counting(in: targetTable.countUnit)
         #if DEBUG
         detailEmissionCount += 1
         #endif
@@ -1632,17 +1639,6 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     @objc private func exportFormatMenuItemTapped(_ sender: NSMenuItem) {
         guard let format = sender.representedObject as? TwelveSAmpliconResultExportFormat else { return }
         presentExport(format: format)
-    }
-
-    private func showProvenancePopover(relativeTo sender: NSView) {
-        guard let result else { return }
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 220)
-        popover.contentViewController = NSHostingController(
-            rootView: TwelveSProvenanceSummaryView(result: result)
-        )
-        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
     }
 
     private func presentExportError(_ error: Error, fileName: String) {

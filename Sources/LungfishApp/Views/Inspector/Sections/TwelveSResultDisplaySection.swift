@@ -20,6 +20,8 @@ final class TwelveSResultDisplaySectionViewModel {
     var summaryRowLabel = "Target Rows"
     var visibleRowCount = 0
     var totalRowCount = 0
+    /// The unit of the result's counts, fragments when the run read unmerged pairs.
+    var countUnit: TwelveSCountUnit = .reads
     var sampleCount = 0
     var sampleMetadataStore: SampleMetadataStore?
     var sampleMetadataManifest: TwelveSSampleMetadataSnapshotManifest?
@@ -38,6 +40,7 @@ final class TwelveSResultDisplaySectionViewModel {
         summaryRowLabel = summary.rowLabel
         visibleRowCount = summary.visibleRows
         totalRowCount = summary.totalRows
+        countUnit = summary.countUnit
     }
 
     func updateSamples(
@@ -194,6 +197,7 @@ final class TwelveSResultDisplaySectionViewModel {
         summaryRowLabel = "Target Rows"
         visibleRowCount = 0
         totalRowCount = 0
+        countUnit = .reads
         sampleCount = 0
         sampleMetadataStore = nil
         sampleMetadataManifest = nil
@@ -242,7 +246,7 @@ struct TwelveSResultDisplaySection: View {
                         }
                         .padding(.top, 4)
                     }
-                    DisclosureGroup("Unmatched Reads", isExpanded: $areUnmatchedFiltersExpanded) {
+                    DisclosureGroup("Unmatched \(viewModel.countUnit.title)", isExpanded: $areUnmatchedFiltersExpanded) {
                         unresolvedControls
                             .padding(.top, 4)
                     }
@@ -266,7 +270,7 @@ struct TwelveSResultDisplaySection: View {
     private var filterControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Minimum Exact Reads")
+                Text("Minimum \(viewModel.countUnit.exactTitle)")
                     .font(LungfishInspectorStyle.controlFont)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -343,7 +347,7 @@ struct TwelveSResultDisplaySection: View {
     private var unresolvedControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Minimum Unresolved Reads")
+                Text("Minimum Unresolved \(viewModel.countUnit.title)")
                     .font(LungfishInspectorStyle.controlFont)
                     .foregroundStyle(.secondary)
                 HStack {

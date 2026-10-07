@@ -17,6 +17,10 @@ final class TwelveSDetailSectionViewModel {
 
     var hasDetail: Bool { payload != nil }
 
+    /// The unit of the selection's counts, fragments when the result read
+    /// unmerged pairs and reads otherwise.
+    var countUnit: TwelveSCountUnit { payload?.countUnit ?? .reads }
+
     let placeholderText = "Select a single match to view details."
 
     var title: String {
@@ -77,7 +81,7 @@ struct TwelveSDetailSection: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(detail.scientificName)
                 .font(.title3.weight(.semibold))
-            LabeledContent("Exact Reads", value: "\(detail.totalExactReads)")
+            LabeledContent(viewModel.countUnit.exactTitle, value: "\(detail.totalExactReads)")
             LabeledContent(
                 "Reference Targets",
                 value: "\(detail.referenceTargetCount)"
@@ -91,7 +95,7 @@ struct TwelveSDetailSection: View {
                             HStack {
                                 Text(row.displayName)
                                 Spacer()
-                                Text("\(row.exactReads) reads (\(Self.percent(row.percentOfSampleExactReads)))")
+                                Text("\(row.exactReads) \(viewModel.countUnit.noun(for: row.exactReads)) (\(Self.percent(row.percentOfSampleExactReads)))")
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
                             }
@@ -173,7 +177,7 @@ struct TwelveSDetailSection: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(detail.sequenceID)
                 .font(.title3.weight(.semibold))
-            LabeledContent("Reads", value: "\(detail.readCount)")
+            LabeledContent(viewModel.countUnit.title, value: "\(detail.readCount)")
             LabeledContent("Chimera", value: detail.chimeraStatusName)
 
             Divider()
@@ -194,7 +198,7 @@ struct TwelveSDetailSection: View {
                             HStack {
                                 Text(row.displayName)
                                 Spacer()
-                                Text("\(row.exactReads) reads")
+                                Text("\(row.exactReads) \(viewModel.countUnit.noun(for: row.exactReads))")
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
                             }

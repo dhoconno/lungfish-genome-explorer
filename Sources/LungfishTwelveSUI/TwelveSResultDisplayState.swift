@@ -96,11 +96,14 @@ public struct TwelveSResultDisplaySummary: Equatable, Sendable {
     public let rowLabel: String
     public let visibleRows: Int
     public let totalRows: Int
+    /// The unit of the result's counts, which the Inspector's filters name.
+    public let countUnit: TwelveSCountUnit
 
-    public init(rowLabel: String, visibleRows: Int, totalRows: Int) {
+    public init(rowLabel: String, visibleRows: Int, totalRows: Int, countUnit: TwelveSCountUnit = .reads) {
         self.rowLabel = rowLabel
         self.visibleRows = visibleRows
         self.totalRows = totalRows
+        self.countUnit = countUnit
     }
 }
 
