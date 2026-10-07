@@ -28,6 +28,11 @@ read ends in both orientations; a read is assigned only when both ends
 carry the same barcode. --location and --max-distance-* do not apply
 to those kits.
 
+Interleaved pairs are demultiplexed by fragment. Both mates go to the
+barcode their calls agree on, or to the barcode of the one mate that
+carries one, and a pair whose mates carry different barcodes goes to
+unassigned whole. Merged and single reads keep their own call.
+
 Engines:
   cutadapt    Established fuzzy adapter matcher; supports error rate and
 indels.
