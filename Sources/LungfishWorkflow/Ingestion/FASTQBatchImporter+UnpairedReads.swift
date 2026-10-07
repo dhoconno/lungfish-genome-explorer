@@ -18,8 +18,24 @@ extension FASTQBatchImporter {
 
     // MARK: - Detection
 
+    /// A file's folder and a name, which detection pairs mates and joins a
+    /// run's third file by. A mate pairs only with a file of its own folder,
+    /// as `import fastq <folder> --recursive` groups them, so a list of two
+    /// folders' files that share names, the Import Center's flattened scan
+    /// or explicit files, never pairs one folder's R1 with the other's R2
+    /// (review B-S1).
+    struct FolderName: Hashable {
+        let folder: String
+        let name: String
+
+        init(of file: URL, _ name: String) {
+            folder = file.deletingLastPathComponent().standardizedFileURL.path
+            self.name = name
+        }
+    }
+
     /// Joins each run's file of reads without a mate to the pair detected
-    /// from `<run>_1` and `<run>_2`, by file name.
+    /// from `<run>_1` and `<run>_2` of the same folder, by file name.
     ///
     /// That file used to import as a second sample of the same name, which
     /// found the pair's bundle and was skipped, so the bundle held part of
@@ -30,7 +46,7 @@ extension FASTQBatchImporter {
     static func joiningUnpairedReads(_ samples: [SamplePair]) -> [SamplePair] {
         let singles = Dictionary(
             grouping: samples.filter { $0.r2 == nil && !SequencingReadImportSource.isBAM($0.r1) },
-            by: \.sampleName
+            by: { FolderName(of: $0.r1, $0.sampleName) }
         )
         var joinedFiles: Set<URL> = []
         let joined = samples.map { sample -> SamplePair in
@@ -38,7 +54,7 @@ extension FASTQBatchImporter {
                   !SequencingReadImportSource.isBAM(sample.r1),
                   fastqStem(sample.r1) == "\(sample.sampleName)_1",
                   fastqStem(r2) == "\(sample.sampleName)_2",
-                  let matches = singles[sample.sampleName], matches.count == 1 else {
+                  let matches = singles[FolderName(of: sample.r1, sample.sampleName)], matches.count == 1 else {
                 return sample
             }
             joinedFiles.insert(matches[0].r1)

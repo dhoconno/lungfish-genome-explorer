@@ -241,7 +241,7 @@ public enum FASTQBatchImporter {
         return allPairs
     }
 
-    /// Groups a flat list of FASTQ URLs into R1/R2 pairs using common naming conventions.
+    /// Groups a flat list of FASTQ URLs into R1/R2 pairs, each inside one folder (``FolderName``).
     ///
     /// Supported patterns (checked in priority order):
     /// - `_R1_001` / `_R2_001`  (Illumina bcl2fastq standard)
@@ -259,10 +259,10 @@ public enum FASTQBatchImporter {
             ("_1",      "_2"),
         ]
 
-        // Build a stem→URL lookup for fast R2 matching
-        var stemToURL: [String: URL] = [:]
+        // A stem→URL lookup for R2 matching, by folder, so a mate pairs only inside its own folder
+        var stemToURL: [FolderName: URL] = [:]
         for url in urls {
-            stemToURL[fastqStem(url)] = url
+            stemToURL[FolderName(of: url, fastqStem(url))] = url
         }
 
         var consumed: Set<URL> = []
@@ -278,7 +278,7 @@ public enum FASTQBatchImporter {
                 let baseStem = String(stem.dropLast(pattern.r1Suffix.count))
                 let r2Stem = baseStem + pattern.r2Suffix
 
-                if let r2URL = stemToURL[r2Stem], !consumed.contains(r2URL) {
+                if let r2URL = stemToURL[FolderName(of: url, r2Stem)], !consumed.contains(r2URL) {
                     pairs.append(SamplePair(sampleName: baseStem, r1: url, r2: r2URL))
                     consumed.insert(url)
                     consumed.insert(r2URL)

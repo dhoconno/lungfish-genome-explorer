@@ -121,7 +121,7 @@ extension ImportCommand {
             help: ArgumentHelp(
                 "Read pairing: auto, single, paired, interleaved (default: auto)",
                 discussion: """
-                auto and paired match R1/R2 files by name. They also join a run's file \
+                auto and paired match R1/R2 files of one folder by name. They also join a run's file \
                 named for the run alone, such as SRR1.fastq beside SRR1_1.fastq and \
                 SRR1_2.fastq, to that pair as unpaired reads, when the first reads of \
                 the pair are named as mates, the first read of that file is not from \
