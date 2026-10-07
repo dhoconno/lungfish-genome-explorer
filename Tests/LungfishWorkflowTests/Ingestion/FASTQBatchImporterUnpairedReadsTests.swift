@@ -80,7 +80,10 @@ final class FASTQBatchImporterUnpairedReadsTests: XCTestCase {
             .init(filename: "SRR9000003.fastq.gz", role: .pairedR2, readCount: 5),
             .init(filename: "SRR9000003.fastq.gz", role: .unpaired, readCount: 2),
         ]))
-        XCTAssertEqual(metadata.ingestion?.pairingMode, .interleaved)
+        // A count with single reads is labelled single-end, the convention
+        // every importer follows. Every tool still plans the file from its
+        // counts, below.
+        XCTAssertEqual(metadata.ingestion?.pairingMode, .singleEnd)
         XCTAssertEqual(
             metadata.ingestion?.originalFilenames,
             ["SRR9000003_1.fastq", "SRR9000003_2.fastq", "SRR9000003.fastq"]

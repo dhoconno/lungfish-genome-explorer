@@ -405,6 +405,7 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         XCTAssertEqual(metadata.readClassification?.pairedReadCount, 8)
         XCTAssertEqual(metadata.readClassification?.unpairedReadCount, 2)
         XCTAssertEqual(metadata.ingestion?.originalFilenames, ["SRR129_1.fastq.gz", "SRR129_2.fastq.gz", "SRR129.fastq.gz"])
+        XCTAssertEqual(metadata.ingestion?.pairingMode, .singleEnd, "labelled by its count, which holds single reads")
     }
 
     // MARK: - Helpers
