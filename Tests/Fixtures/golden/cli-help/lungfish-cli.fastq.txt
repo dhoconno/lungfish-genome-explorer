@@ -68,8 +68,8 @@ SUBCOMMANDS:
                           deduplicated 12S reference FASTA
   12s-reference-bundle    Create a .lungfish12sref bundle for 12S amplicon
                           matching
-  12s-match               Match merged 12S amplicon FASTQ reads to a
-                          deduplicated reference FASTA
+  12s-match               Match 12S amplicon FASTQ reads to a deduplicated
+                          reference FASTA
   12s-export              Export 12S amplicon result species rows to CSV, TSV,
                           or Excel
   12s-export-unresolved   Export unresolved 12S sequence clusters above a read
