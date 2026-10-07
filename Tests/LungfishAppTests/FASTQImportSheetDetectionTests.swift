@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 import LungfishWorkflow
@@ -110,13 +111,62 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
             ])
         )
 
-        let bundle = sheetProject.appendingPathComponent("Imports/SRR9.lungfishfastq", isDirectory: true)
-        let fastq = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
-        let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: fastq))
+        let sheetBundle = sheetProject.appendingPathComponent("Imports/SRR9.lungfishfastq", isDirectory: true)
+        let cliBundle = cliProject.appendingPathComponent("Imports/SRR9.lungfishfastq", isDirectory: true)
+        let sheetFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: sheetBundle))
+        let cliFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: cliBundle))
+        let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: sheetFASTQ))
+        let cliMetadata = try XCTUnwrap(FASTQMetadataStore.load(for: cliFASTQ))
         XCTAssertEqual(metadata.readClassification?.pairedReadCount, 6, "three pairs")
         XCTAssertEqual(metadata.readClassification?.unpairedReadCount, 2, "and the run's two reads whose mate is missing")
         XCTAssertEqual(metadata.ingestion?.originalFilenames, files.map(\.lastPathComponent))
-        OutputEquivalence.assertSame(sheetProject, cliProject, kind: .bundle)
+
+        // The same bundle. The files, the reads in their order, the read
+        // counts and labels, and the command the provenance records are the
+        // same. Only the sidecar's import date, a wall-clock time the
+        // comparison's masks leave in a payload, differs.
+        XCTAssertEqual(try Self.relativeFiles(in: sheetBundle), try Self.relativeFiles(in: cliBundle))
+        XCTAssertEqual(try Self.records(of: sheetFASTQ), try Self.records(of: cliFASTQ))
+        XCTAssertEqual(metadata.readClassification, cliMetadata.readClassification)
+        XCTAssertEqual(metadata.ingestion?.pairingMode, cliMetadata.ingestion?.pairingMode)
+        XCTAssertEqual(metadata.ingestion?.pairingSource, cliMetadata.ingestion?.pairingSource)
+        XCTAssertEqual(metadata.ingestion?.originalFilenames, cliMetadata.ingestion?.originalFilenames)
+        XCTAssertEqual(
+            try Self.recordedCommand(in: sheetBundle, project: sheetProject),
+            try Self.recordedCommand(in: cliBundle, project: cliProject)
+        )
+    }
+
+    // MARK: - No sample of a sheet replaces another's bundle
+
+    func testTheDuplicateDialogNeverOffersToReplaceABundleAnEarlierSampleOfTheSheetWrote() throws {
+        // Two samples of one sheet can name one bundle, two files of one stem
+        // from two folders of the Import Center's scan, for example. The sheet
+        // runs `import fastq` once per sample, so the CLI cannot see that the
+        // bundle is its own batch's, and the dialog offered Replace.
+        XCTAssertEqual(
+            MainSplitViewController.duplicateFileChoices(offeringReplace: true).map(\.title),
+            ["Replace", "Keep Both", "Skip"]
+        )
+        XCTAssertEqual(
+            MainSplitViewController.duplicateFileChoices(offeringReplace: false).map(\.title),
+            ["Keep Both", "Skip"]
+        )
+
+        let imports = root.appendingPathComponent("P.lungfish/Imports", isDirectory: true)
+        let written = imports.appendingPathComponent("S1.lungfishfastq", isDirectory: true)
+        let older = imports.appendingPathComponent("S2.lungfishfastq", isDirectory: true)
+        for bundle in [written, older] {
+            try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        }
+        var batch = FASTQBatchImporter.BundlesWrittenByThisImport()
+        batch.insert(written)
+        XCTAssertTrue(batch.contains(written), "a bundle this batch wrote is never offered for Replace")
+        XCTAssertFalse(batch.contains(older), "a bundle from an earlier import still is")
+        let caseOnly = imports.appendingPathComponent("s1.lungfishfastq", isDirectory: true)
+        if try imports.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]).volumeSupportsCaseSensitiveNames == false {
+            XCTAssertTrue(batch.contains(caseOnly), "the same bundle on a volume that ignores case")
+        }
     }
 
     // MARK: - Helpers
@@ -139,6 +189,30 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
             recipeName: nil,
             compressionLevel: .balanced
         )
+    }
+
+    private static func relativeFiles(in bundle: URL) throws -> [String] {
+        let paths = FileManager.default.enumerator(atPath: bundle.path)?.allObjects as? [String] ?? []
+        return paths.sorted()
+    }
+
+    /// Every record header of a plain or gzip FASTQ, in file order.
+    private static func records(of fastq: URL) throws -> [String] {
+        try FASTQReadLayoutClassifier.readHeaders(from: fastq, limit: 1_000).headers
+    }
+
+    /// The command the bundle's provenance records, with the project path
+    /// written as `<PROJECT>`.
+    private static func recordedCommand(in bundle: URL, project: URL) throws -> [String] {
+        let url = bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let data = PortablePath.resolveJSON(try Data(contentsOf: url), forFileAt: url)
+        let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
+        XCTAssertFalse(envelope.argv.isEmpty)
+        let spellings = Set([project.path, project.standardizedFileURL.path, project.resolvingSymlinksInPath().path])
+            .sorted { $0.count > $1.count }
+        return envelope.argv.map { argument in
+            spellings.reduce(argument) { $0.replacingOccurrences(of: $1, with: "<PROJECT>") }
+        }
     }
 
     /// One run as fasterq-dump names it. Three spots hold both reads and two

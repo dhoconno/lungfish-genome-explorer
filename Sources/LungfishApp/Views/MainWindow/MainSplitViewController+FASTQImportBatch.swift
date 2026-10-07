@@ -23,12 +23,19 @@ extension MainSplitViewController {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // The bundles this sheet's samples wrote. The duplicate dialog
+            // never offers to replace one, so no sample of the sheet takes the
+            // place of another's bundle, the rule `import fastq` keeps
+            // whatever --force says.
+            var written = FASTQBatchImporter.BundlesWrittenByThisImport()
             for (index, pair) in effectivePairs.enumerated() {
-                await self.importFASTQPair(
+                let bundleURL = await self.importFASTQPair(
                     pair: pair, index: index, totalPairs: effectivePairs.count,
                     config: config, projectDirectory: projectDirectory,
-                    viewerController: viewerController, requestID: requestID
+                    viewerController: viewerController, requestID: requestID,
+                    bundlesWrittenByThisBatch: written
                 )
+                if let bundleURL { written.insert(bundleURL) }
             }
         }
     }
@@ -41,11 +48,17 @@ extension MainSplitViewController {
     /// here is the project root, and checking the root never saw the bundle the
     /// CLI actually wrote, so a second same-named import silently replaced the
     /// first bundle and its derivatives with `--force`.
+    ///
+    /// A bundle in `bundlesWrittenByThisBatch` came from an earlier sample of
+    /// the same sheet, so its dialog offers Keep Both and Skip, never Replace.
+    /// Returns the bundle the import wrote, or nil.
+    @discardableResult
     func importFASTQPair(
         pair: FASTQFilePair, index: Int, totalPairs: Int,
         config: FASTQImportConfiguration, projectDirectory: URL,
-        viewerController: ViewerViewController, requestID: String?
-    ) async {
+        viewerController: ViewerViewController, requestID: String?,
+        bundlesWrittenByThisBatch: FASTQBatchImporter.BundlesWrittenByThisImport = .init()
+    ) async -> URL? {
         let baseName = pair.sampleName
         var effectiveBundleName = baseName
         var forceReplace = false
@@ -61,7 +74,10 @@ extension MainSplitViewController {
 
         // Check for an existing bundle at the CLI's real destination.
         if FileManager.default.fileExists(atPath: bundleURL.path) {
-            let resolution = await showDuplicateFileDialog(filename: bundleURL.lastPathComponent)
+            let resolution = await showDuplicateFileDialog(
+                filename: bundleURL.lastPathComponent,
+                offeringReplace: !bundlesWrittenByThisBatch.contains(bundleURL)
+            )
             switch resolution {
             case .replace:
                 // Pass --force only after the user explicitly chose Replace.
@@ -80,7 +96,7 @@ extension MainSplitViewController {
             case .skip:
                 displayGenomicsFile(url: bundleURL)
                 postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
-                return
+                return nil
             }
         }
 
@@ -89,7 +105,7 @@ extension MainSplitViewController {
             : "Importing \(pair.r1.lastPathComponent)\u{2026}"
         viewerController.showProgress(progressMessage)
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        return await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
             FASTQIngestionService.ingestAndBundle(
                 pair: pair,
                 projectDirectory: projectDirectory,
@@ -98,7 +114,7 @@ extension MainSplitViewController {
                 forceReplace: forceReplace,
                 routeContext: operationRouteContext
             ) { [weak self, weak viewerController] result in
-                defer { continuation.resume() }
+                defer { continuation.resume(returning: try? result.get()) }
                 switch result {
                 case .success(let bundleURL):
                     viewerController?.hideProgress()
@@ -126,29 +142,37 @@ extension MainSplitViewController {
 
     // MARK: - Duplicate File Handling
 
-    /// Shows a dialog asking the user how to handle a duplicate file
-    func showDuplicateFileDialog(filename: String) async -> DuplicateResolution {
+    /// Shows a dialog asking the user how to handle a duplicate file.
+    /// Without `offeringReplace` the bundle came from an earlier sample of
+    /// the same import, and the dialog offers Keep Both and Skip only.
+    func showDuplicateFileDialog(filename: String, offeringReplace: Bool = true) async -> DuplicateResolution {
         let alert = NSAlert()
         alert.messageText = "File Already Exists"
-        alert.informativeText = "A file named \"\(filename)\" already exists in this location. What would you like to do?"
+        alert.informativeText = offeringReplace
+            ? "A file named \"\(filename)\" already exists in this location. What would you like to do?"
+            : "An earlier sample of this import created \"\(filename)\". Keep both, or skip this sample?"
         alert.alertStyle = .warning
-
-        alert.addButton(withTitle: "Replace")    // First button = index 1000
-        alert.addButton(withTitle: "Keep Both")  // Second button = index 1001
-        alert.addButton(withTitle: "Skip")       // Third button = index 1002
+        let choices = Self.duplicateFileChoices(offeringReplace: offeringReplace)
+        for choice in choices {
+            alert.addButton(withTitle: choice.title)
+        }
 
         alert.applyLungfishBranding()
 
         guard let window = self.view.window ?? NSApp.keyWindow else { return .skip }
         let response = await alert.beginSheetModal(for: window)
+        // Buttons answer from alertFirstButtonReturn on, in order. Cancel skips.
+        let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        return choices.indices.contains(index) ? choices[index].resolution : .skip
+    }
 
-        switch response {
-        case .alertFirstButtonReturn:  // Replace
-            return .replace
-        case .alertSecondButtonReturn: // Keep Both
-            return .keepBoth
-        default:                       // Skip or Cancel
-            return .skip
-        }
+    /// The duplicate dialog's buttons, in order. Replace is offered only
+    /// for a bundle from another import, never for one an earlier sample of
+    /// the same import wrote.
+    nonisolated static func duplicateFileChoices(
+        offeringReplace: Bool
+    ) -> [(title: String, resolution: DuplicateResolution)] {
+        (offeringReplace ? [("Replace", DuplicateResolution.replace)] : [])
+            + [("Keep Both", .keepBoth), ("Skip", .skip)]
     }
 }

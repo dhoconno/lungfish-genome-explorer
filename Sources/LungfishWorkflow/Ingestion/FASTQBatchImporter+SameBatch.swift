@@ -19,26 +19,36 @@ extension FASTQBatchImporter {
     /// mate is missing took the place of its pairs (f10-report.md, concern
     /// 1). `--force` now replaces only a bundle that was there before the
     /// import.
-    struct BundlesWrittenByThisImport {
+    ///
+    /// The Import FASTQ sheet runs `import fastq` once per sample, so it
+    /// keeps the same record across its samples and its duplicate dialog
+    /// never offers to replace a bundle of the same sheet.
+    public struct BundlesWrittenByThisImport: Sendable {
         private var paths: Set<String> = []
         private var files: Set<FileIdentity> = []
 
+        public init() {}
+
         /// Records a bundle a sample of this import published.
-        mutating func insert(_ bundleURL: URL) {
+        public mutating func insert(_ bundleURL: URL) {
             paths.insert(bundleURL.standardizedFileURL.path)
             if let file = FileIdentity(of: bundleURL) { files.insert(file) }
         }
 
+        /// Whether the bundle at `bundleURL` exists and is one this import
+        /// wrote. The file decides, not the spelling of its path, so a name
+        /// that differs only in case on a volume that ignores case is the
+        /// same bundle.
+        public func contains(_ bundleURL: URL) -> Bool {
+            guard FileManager.default.fileExists(atPath: bundleURL.path) else { return false }
+            return paths.contains(bundleURL.standardizedFileURL.path)
+                || FileIdentity(of: bundleURL).map(files.contains) == true
+        }
+
         /// Why `pair` is skipped when its bundle is one this import wrote, or
-        /// nil when it is not. The file decides, not the spelling of its
-        /// path, so a name that differs only in case on a volume that ignores
-        /// case is the same bundle.
+        /// nil when it is not.
         func reasonToSkip(_ pair: SamplePair, in projectDirectory: URL) -> String? {
-            let bundleURL = FASTQBatchImporter.bundleOutputURL(for: pair, in: projectDirectory)
-            guard FileManager.default.fileExists(atPath: bundleURL.path),
-                  paths.contains(bundleURL.standardizedFileURL.path)
-                    || FileIdentity(of: bundleURL).map(files.contains) == true
-            else { return nil }
+            guard contains(FASTQBatchImporter.bundleOutputURL(for: pair, in: projectDirectory)) else { return nil }
             return "Bundle already exists. An earlier sample of this import wrote it, and --force never replaces "
                 + "a bundle the same import wrote."
         }
