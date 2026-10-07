@@ -193,6 +193,34 @@ public enum PortableRename {
         )
     }
 
+    /// The kernel call alone, with no fallback. For a caller that must record
+    /// that it is falling back (in provenance, say) before it does so. On an
+    /// unsupported flag it then calls ``fallbackExclusiveRename(_:_:_:_:)`` or
+    /// ``fallbackSwap(_:_:_:_:)``. Everyone else calls ``renameatxNP(_:_:_:_:_:)``.
+    public static func nativeRenameatx(
+        _ sourceParent: Int32,
+        _ sourceName: UnsafePointer<CChar>,
+        _ destinationParent: Int32,
+        _ destinationName: UnsafePointer<CChar>,
+        _ flags: UInt32
+    ) -> Int32 {
+        let operations = Operations.current
+        return retryOnInterruption {
+            operations.nativeRename(sourceParent, sourceName, destinationParent, destinationName, flags)
+        }
+    }
+
+    /// Completes a swap after the native filesystem has already reported that
+    /// `RENAME_SWAP` is unsupported.
+    public static func fallbackSwap(
+        _ firstParent: Int32,
+        _ firstName: UnsafePointer<CChar>,
+        _ secondParent: Int32,
+        _ secondName: UnsafePointer<CChar>
+    ) -> Int32 {
+        fallbackSwapReporting(firstParent, firstName, secondParent, secondName, operations: .current).status
+    }
+
     /// Completes an exclusive rename after the native filesystem has already
     /// reported that `RENAME_EXCL` is unsupported.
     public static func fallbackExclusiveRename(
@@ -256,6 +284,8 @@ public enum PortableRename {
         }
     }
 
+    /// Whether `code` means the volume does not support a rename flag
+    /// (`RENAME_EXCL` or `RENAME_SWAP`), as on ExFAT, FAT and SMB.
     public static func isUnsupportedExclusiveRename(_ code: Int32) -> Bool {
         code == ENOTSUP || code == EOPNOTSUPP
     }

@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 import SQLite3
 import XCTest
-import LungfishCore
+@testable import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
 
@@ -2309,6 +2309,45 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             envelope.options.resolvedDefaults["mhcSuccessManifestAtomicPublication"]?.stringValue,
             "exclusive-file-reservation-then-rename"
         )
+    }
+
+    /// Re-running into an existing output on ExFAT, which rejects RENAME_SWAP.
+    func testReplacingAnExistingOutputFallsBackWhenRenameSwapIsUnsupported() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-swap-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try await assertReplacementFallsBack(root: root, simulate: true)
+    }
+
+    /// Run with `scripts/testing/exfat-tests.sh`.
+    func testReplacingAnExistingOutputOnExFAT() async throws {
+        guard let volume = ProcessInfo.processInfo.environment["LUNGFISH_EXFAT_TEST_ROOT"], !volume.isEmpty else {
+            throw XCTSkip("Set LUNGFISH_EXFAT_TEST_ROOT to an ExFAT volume root to run this test.")
+        }
+        let root = URL(fileURLWithPath: volume, isDirectory: true)
+            .appendingPathComponent("mhc-replace-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try await assertReplacementFallsBack(root: root, simulate: false)
+    }
+
+    private func assertReplacementFallsBack(root: URL, simulate: Bool) async throws {
+        let (request, pipeline) = try makeFakeFullLengthRun(root: root)
+        _ = try await pipeline.run(request)
+        let result: FullLengthONTMHCGenotypingResult
+        if simulate {
+            result = try await PortableRename.simulatingUnsupportedFlags { try await pipeline.run(request) }
+        } else {
+            result = try await pipeline.run(request)
+        }
+
+        try assertSuccessfulPublishedEvidence(result: result, request: request)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        let publication = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-internal publish-result-bundle"
+        })
+        XCTAssertEqual(publication.resolvedOptions["atomicMechanism"]?.stringValue, "tombstone-rotation")
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: request.outputDirectory.deletingLastPathComponent().path)
+        XCTAssertFalse(siblings.contains { $0.contains(".run-staging-") || $0.contains(".lungfish-swap-") }, "\(siblings)")
     }
 
     func testSuccessManifestAloneFallsBackWhenExclusiveRenameIsUnsupported() async throws {

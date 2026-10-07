@@ -24,13 +24,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         } else {
             let status = stagedOutputURL.path.withCString { stagedPath in
                 finalOutputURL.path.withCString { finalPath in
-                    Darwin.renameatx_np(
-                        AT_FDCWD,
-                        stagedPath,
-                        AT_FDCWD,
-                        finalPath,
-                        flags
-                    )
+                    PortableRename.nativeRenameatx(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
                 }
             }
             initialErrorNumber = status == 0 ? nil : errno
@@ -51,7 +45,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             )
         }
         let initialCode = POSIXErrorCode(rawValue: initialErrorNumber) ?? .EIO
-        guard !replacingExisting, isUnsupportedExclusiveRename(initialErrorNumber) else {
+        guard PortableRename.isUnsupportedExclusiveRename(initialErrorNumber) else {
             let record = FullLengthONTMHCResultBundlePublicationRecord(
                 stagedDirectoryURL: stagedOutputURL,
                 finalDirectoryURL: finalOutputURL,
@@ -67,23 +61,29 @@ extension FullLengthONTMHCGenotypingPipeline {
             )
             throw FullLengthONTMHCResultBundlePublicationError(record: record)
         }
-        let fallbackReason = "renameatx_np(RENAME_EXCL) unavailable: \(POSIXError(initialCode).localizedDescription)"
-        let fallbackError: Error?
-        do {
-            try publishNewDirectoryUsingExclusiveReservation(
-                stagedURL: stagedOutputURL,
-                finalURL: finalOutputURL
-            )
-            fallbackError = nil
-        } catch {
-            fallbackError = error
+        // ExFAT, FAT and SMB reject both flags. A new bundle reserves its name,
+        // and a replacement rotates through a tombstone (not atomic, see
+        // PortableRename.swap).
+        let flagName = replacingExisting ? "RENAME_SWAP" : "RENAME_EXCL"
+        let fallbackReason = "renameatx_np(\(flagName)) unavailable: \(POSIXError(initialCode).localizedDescription)"
+        let fallbackStatus = stagedOutputURL.path.withCString { stagedPath in
+            finalOutputURL.path.withCString { finalPath in
+                replacingExisting
+                    ? PortableRename.fallbackSwap(AT_FDCWD, stagedPath, AT_FDCWD, finalPath)
+                    : PortableRename.fallbackExclusiveRename(AT_FDCWD, stagedPath, AT_FDCWD, finalPath)
+            }
         }
+        let fallbackError: Error? = fallbackStatus == 0
+            ? nil
+            : POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         let record = FullLengthONTMHCResultBundlePublicationRecord(
             stagedDirectoryURL: stagedOutputURL,
             finalDirectoryURL: finalOutputURL,
             payloadMappings: payloadMappings,
             replacingExisting: replacingExisting,
-            publicationMechanism: "exclusive-directory-reservation-then-rename",
+            publicationMechanism: replacingExisting
+                ? PortableRename.Mechanism.rotationFallback.rawValue
+                : "exclusive-directory-reservation-then-rename",
             successManifestMechanism: "exclusive-file-reservation-then-rename",
             fallbackReason: fallbackReason,
             startedAt: startedAt,
@@ -95,37 +95,6 @@ extension FullLengthONTMHCGenotypingPipeline {
             throw FullLengthONTMHCResultBundlePublicationError(record: record)
         }
         return record
-    }
-
-    internal func isUnsupportedExclusiveRename(_ errorNumber: Int32) -> Bool {
-        errorNumber == ENOTSUP || errorNumber == EOPNOTSUPP
-    }
-
-    internal func publishNewDirectoryUsingExclusiveReservation(
-        stagedURL: URL,
-        finalURL: URL
-    ) throws {
-        let reservationStatus = finalURL.path.withCString { path in
-            Darwin.mkdir(path, S_IRWXU)
-        }
-        guard reservationStatus == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        var publicationSucceeded = false
-        defer {
-            if !publicationSucceeded {
-                _ = finalURL.path.withCString { Darwin.rmdir($0) }
-            }
-        }
-        let status = stagedURL.path.withCString { stagedPath in
-            finalURL.path.withCString { finalPath in
-                Darwin.rename(stagedPath, finalPath)
-            }
-        }
-        guard status == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        publicationSucceeded = true
     }
 
     internal func resultBundlePublicationMappings(
@@ -343,13 +312,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         if replacingExisting {
             let status = stagedOutputURL.path.withCString { stagedPath in
                 finalOutputURL.path.withCString { finalPath in
-                    Darwin.renameatx_np(
-                        AT_FDCWD,
-                        stagedPath,
-                        AT_FDCWD,
-                        finalPath,
-                        UInt32(RENAME_SWAP)
-                    )
+                    PortableRename.renameatxNP(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, UInt32(RENAME_SWAP))
                 }
             }
             guard status == 0 else {
@@ -604,20 +567,14 @@ extension FullLengthONTMHCGenotypingPipeline {
         } else {
             let status = plan.stagedURL.path.withCString { stagedPath in
                 plan.finalURL.path.withCString { finalPath in
-                    Darwin.renameatx_np(
-                        AT_FDCWD,
-                        stagedPath,
-                        AT_FDCWD,
-                        finalPath,
-                        UInt32(RENAME_EXCL)
-                    )
+                    PortableRename.nativeRenameatx(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, UInt32(RENAME_EXCL))
                 }
             }
             errorNumber = status == 0 ? nil : errno
         }
         guard let errorNumber else { return }
         let code = POSIXErrorCode(rawValue: errorNumber) ?? .EIO
-        if isUnsupportedExclusiveRename(errorNumber) {
+        if PortableRename.isUnsupportedExclusiveRename(errorNumber) {
             throw FullLengthONTMHCExclusiveRenameUnsupportedError(
                 targetDescription: "success manifest",
                 code: code
@@ -633,31 +590,9 @@ extension FullLengthONTMHCGenotypingPipeline {
         _ plan: FullLengthONTMHCSuccessManifestPublicationPlan
     ) throws {
         try validateSuccessManifestPublicationPlan(plan)
-        let descriptor = plan.finalURL.path.withCString { path in
-            Darwin.open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR)
-        }
-        guard descriptor >= 0 else {
-            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
-            throw FullLengthONTMHCGenotypingError.reportFailed(
-                "Could not exclusively reserve success manifest destination: \(POSIXError(code).localizedDescription)"
-            )
-        }
-        guard Darwin.close(descriptor) == 0 else {
-            let closeCode = POSIXErrorCode(rawValue: errno) ?? .EIO
-            _ = plan.finalURL.path.withCString { Darwin.unlink($0) }
-            throw FullLengthONTMHCGenotypingError.reportFailed(
-                "Could not close success manifest reservation: \(POSIXError(closeCode).localizedDescription)"
-            )
-        }
-        var publicationSucceeded = false
-        defer {
-            if !publicationSucceeded {
-                _ = plan.finalURL.path.withCString { Darwin.unlink($0) }
-            }
-        }
         let status = plan.stagedURL.path.withCString { stagedPath in
             plan.finalURL.path.withCString { finalPath in
-                Darwin.rename(stagedPath, finalPath)
+                PortableRename.fallbackExclusiveRename(AT_FDCWD, stagedPath, AT_FDCWD, finalPath)
             }
         }
         guard status == 0 else {
@@ -666,7 +601,6 @@ extension FullLengthONTMHCGenotypingPipeline {
                 "Could not publish success manifest using exclusive reservation: \(POSIXError(code).localizedDescription)"
             )
         }
-        publicationSucceeded = true
     }
 
     internal func validatedEvidenceArtifactPair(
