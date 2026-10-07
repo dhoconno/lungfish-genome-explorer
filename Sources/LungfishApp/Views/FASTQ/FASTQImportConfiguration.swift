@@ -135,13 +135,19 @@ enum FASTQDemultiplexOutputFolderName {
     }
 }
 
-/// A detected R1/R2 pair (or unpaired single file) from a batch of dropped FASTQ files.
+/// One sample of dropped read files, as `lungfish-cli import fastq` detects
+/// it (``groupFASTQByPairs(_:)``), or as a sample sheet row names it.
 public struct FASTQFilePair: Sendable {
     /// The R1 (forward) file, or the only file for single-end.
     public let r1: URL
     /// The R2 (reverse) file, if paired-end.
     public let r2: URL?
-    /// Sample name supplied by an external sample sheet, when available.
+    /// The run's reads whose mate is missing, from the file a download names
+    /// after the run alone beside `<run>_1` and `<run>_2`. The CLI imports
+    /// them with the pair as unpaired reads. Nil for every other sample.
+    public let unpaired: URL?
+    /// Sample name supplied by an external sample sheet, or the name the
+    /// CLI's detection gave the sample.
     public let sampleNameOverride: String?
     /// Optional sample-sheet metadata for this row.
     public let metadata: [String: String]
@@ -151,51 +157,58 @@ public struct FASTQFilePair: Sendable {
     public init(
         r1: URL,
         r2: URL?,
+        unpaired: URL? = nil,
         sampleNameOverride: String? = nil,
         metadata: [String: String] = [:],
         sampleSheetURL: URL? = nil
     ) {
         self.r1 = r1
         self.r2 = r2
+        self.unpaired = unpaired
         self.sampleNameOverride = sampleNameOverride
         self.metadata = metadata
         self.sampleSheetURL = sampleSheetURL
     }
 
-    /// Applies the Import sheet's Pairing choice to detected pairs.
+    /// A sample `lungfish-cli import fastq` detected, under the name the CLI
+    /// gives it.
+    init(_ sample: SamplePair) {
+        self.init(
+            r1: sample.r1, r2: sample.r2, unpaired: sample.unpaired, sampleNameOverride: sample.sampleName,
+            metadata: sample.metadata, sampleSheetURL: sample.sampleSheetURL
+        )
+    }
+
+    /// This sample as the CLI's detection holds it.
+    var samplePair: SamplePair {
+        SamplePair(
+            sampleName: sampleName, r1: r1, r2: r2, unpaired: unpaired,
+            metadata: metadata, sampleSheetURL: sampleSheetURL
+        )
+    }
+
+    /// Every read file of the sample, R1, then R2, then the unpaired reads.
+    public var inputFiles: [URL] {
+        [r1] + [r2, unpaired].compactMap { $0 }
+    }
+
+    /// Applies the Import sheet's Pairing choice to detected samples.
     ///
-    /// Single-end and Interleaved split every detected R1/R2 pair into two
-    /// single-file samples named after each file's stem (the plain
-    /// ``sampleName`` strips `_R1`/`_R2`, which would make the two bundles
-    /// collide); Paired-end keeps the pairs. Mirrors
-    /// `FASTQBatchImporter.applyPairing` on the CLI side.
+    /// Single-end and Interleaved split every R1/R2 pair, and its unpaired
+    /// reads, into single-file samples named after each file's stem with
+    /// `FASTQBatchImporter.applyPairing`, the rule `--pairing single` and
+    /// `--pairing interleaved` apply, so the sheet and the CLI make the same
+    /// samples. Paired-end keeps the pairs. Each sample's files keep the
+    /// sample's place in the list.
     public static func applying(
         pairingMode: FASTQIngestionConfig.PairingMode,
         to pairs: [FASTQFilePair]
     ) -> [FASTQFilePair] {
         guard pairingMode != .pairedEnd else { return pairs }
-        return pairs.flatMap { pair -> [FASTQFilePair] in
-            guard let r2 = pair.r2 else { return [pair] }
-            return [pair.r1, r2].map { url in
-                FASTQFilePair(
-                    r1: url,
-                    r2: nil,
-                    sampleNameOverride: Self.fileStem(url),
-                    metadata: pair.metadata,
-                    sampleSheetURL: pair.sampleSheetURL
-                )
-            }
+        let pairing: FASTQBatchImporter.ImportPairing = pairingMode == .interleaved ? .interleaved : .single
+        return pairs.flatMap { pair in
+            FASTQBatchImporter.applyPairing(pairing, to: [pair.samplePair]).map(FASTQFilePair.init)
         }
-    }
-
-    /// The filename without `.fastq(.gz)`/`.fq(.gz)`, read suffix included.
-    private static func fileStem(_ url: URL) -> String {
-        var name = url.lastPathComponent
-        for ext in [".fastq.gz", ".fq.gz", ".fastq", ".fq"] where name.lowercased().hasSuffix(ext) {
-            name = String(name.dropLast(ext.count))
-            break
-        }
-        return name
     }
 
     /// Human-readable sample name derived from the filename.
@@ -218,94 +231,44 @@ public struct FASTQFilePair: Sendable {
         return name
     }
 
-    /// Total file size in bytes across both files.
+    /// The sample's files as the Import sheet's summary lists them, one
+    /// `R1:`, `R2:` and `Unpaired:` line each.
+    var summaryFileLines: String {
+        var lines = ["R1: \(r1.lastPathComponent)"]
+        if let r2 { lines.append("R2: \(r2.lastPathComponent)") }
+        if let unpaired { lines.append("Unpaired: \(unpaired.lastPathComponent)") }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Total file size in bytes across the sample's files.
     public var totalSizeBytes: Int64 {
-        let fm = FileManager.default
-        var total: Int64 = 0
-        if let attrs = try? fm.attributesOfItem(atPath: r1.path),
-           let size = attrs[.size] as? Int64 {
-            total += size
+        inputFiles.reduce(Int64(0)) { total, url in
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int64
+            return total + (size ?? 0)
         }
-        if let r2, let attrs = try? fm.attributesOfItem(atPath: r2.path),
-           let size = attrs[.size] as? Int64 {
-            total += size
-        }
-        return total
     }
 
     /// Whether this represents paired-end data.
     public var isPaired: Bool { r2 != nil }
 }
 
-// MARK: - R1/R2 Pair Grouping
+// MARK: - Sample Detection
 
-/// Groups an array of FASTQ file URLs into R1/R2 pairs.
+/// Groups dropped read files into the samples `lungfish-cli import fastq`
+/// makes of the same files, with the CLI's own detection,
+/// ``FASTQBatchImporter/detectPairs(from:)``, and under the CLI's names.
 ///
-/// Recognizes Illumina-style naming patterns:
-/// - `_R1_001` / `_R2_001` (Illumina bcl2fastq/DRAGEN)
-/// - `_R1` / `_R2` (common shorthand)
-/// - `_1` / `_2` (SRA/ENA convention)
-/// - `.1` / `.2` (rare but valid)
+/// R1 and R2 files pair by `_R1_001`/`_R2_001`, `_R1`/`_R2` or `_1`/`_2`,
+/// and a run's file of reads whose mate is missing, `<run>.fastq` beside
+/// `<run>_1` and `<run>_2`, joins its pair as ``FASTQFilePair/unpaired``.
+/// The sheet imports each sample's files in one CLI run, which checks that
+/// join from the first reads. Any other file is a single-end sample named
+/// after its file, read suffix included, as the CLI names it.
 ///
-/// Unmatched files are returned as single-end pairs (r2 = nil).
+/// The sheet used to pair files by rules of its own and import each pair on
+/// its own, so a run's three files became two samples and its reads whose
+/// mate is missing never joined the pair, and a lone `x_1.fastq` was named
+/// `x` where the CLI names it `x_1` (f9-report.md, concern 3).
 public func groupFASTQByPairs(_ urls: [URL]) -> [FASTQFilePair] {
-    // Read suffix patterns: (R1 suffix, R2 suffix) before extension
-    let suffixPairs: [(r1: String, r2: String)] = [
-        ("_R1_001", "_R2_001"),
-        ("_R1", "_R2"),
-        ("_1", "_2"),
-    ]
-
-    // Strip the read-file extension to get the stem. BAM inputs remain single-end.
-    func stem(of url: URL) -> String {
-        var name = url.lastPathComponent
-        if name.hasSuffix(".gz") { name = String(name.dropLast(3)) }
-        if name.hasSuffix(".fastq") { name = String(name.dropLast(6)) }
-        else if name.hasSuffix(".fq") { name = String(name.dropLast(3)) }
-        else if name.lowercased().hasSuffix(".bam") { name = String(name.dropLast(4)) }
-        return name
-    }
-
-    var matched = Set<URL>()
-    var pairs: [FASTQFilePair] = []
-
-    // Build a lookup by stem for quick matching
-    let stemMap = Dictionary(grouping: urls, by: { stem(of: $0) })
-
-    for url in urls {
-        guard !matched.contains(url) else { continue }
-        let s = stem(of: url)
-
-        var foundPair = false
-        for (r1Suffix, r2Suffix) in suffixPairs {
-            if s.hasSuffix(r1Suffix) {
-                // This is an R1 — look for R2
-                let r2Stem = String(s.dropLast(r1Suffix.count)) + r2Suffix
-                if let r2Candidates = stemMap[r2Stem], let r2 = r2Candidates.first, !matched.contains(r2) {
-                    pairs.append(FASTQFilePair(r1: url, r2: r2))
-                    matched.insert(url)
-                    matched.insert(r2)
-                    foundPair = true
-                    break
-                }
-            } else if s.hasSuffix(r2Suffix) {
-                // This is an R2 — look for R1
-                let r1Stem = String(s.dropLast(r2Suffix.count)) + r1Suffix
-                if let r1Candidates = stemMap[r1Stem], let r1 = r1Candidates.first, !matched.contains(r1) {
-                    pairs.append(FASTQFilePair(r1: r1, r2: url))
-                    matched.insert(url)
-                    matched.insert(r1)
-                    foundPair = true
-                    break
-                }
-            }
-        }
-
-        if !foundPair {
-            pairs.append(FASTQFilePair(r1: url, r2: nil))
-            matched.insert(url)
-        }
-    }
-
-    return pairs.sorted { $0.r1.lastPathComponent < $1.r1.lastPathComponent }
+    FASTQBatchImporter.detectPairs(from: urls).map(FASTQFilePair.init)
 }

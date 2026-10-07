@@ -344,7 +344,7 @@ public enum FASTQIngestionService {
     /// Ingests paired FASTQ files using user-configured settings.
     ///
     /// - Parameters:
-    ///   - pair: The R1 (and optional R2) file pair.
+    ///   - pair: The sample's R1, optional R2 and optional unpaired reads.
     ///   - projectDirectory: Destination project directory.
     ///   - bundleName: Name for the `.lungfishfastq` bundle.
     ///   - importConfig: User-configured import settings from the import sheet.
@@ -577,8 +577,7 @@ public enum FASTQIngestionService {
         force: Bool = false
     ) -> [String] {
         CLIImportRunner.buildCLIArguments(
-            r1: pair.r1,
-            r2: pair.r2,
+            r1: pair.r1, r2: pair.r2, unpaired: pair.unpaired, // every file of the sample, in one CLI run
             projectDirectory: projectDirectory,
             platform: importConfig.cliPlatformValue,
             recipeName: resolvedRecipeName(for: importConfig),

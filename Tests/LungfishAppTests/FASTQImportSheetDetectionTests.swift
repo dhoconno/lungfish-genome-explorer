@@ -39,6 +39,8 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
 
         XCTAssertEqual(sheet.map(\.sampleName), ["SRR9"])
         XCTAssertEqual(sheet.map(\.sampleName), cli.map(\.sampleName))
+        XCTAssertEqual(sheet.map(\.inputFiles), cli.map(\.inputFiles))
+        XCTAssertEqual(sheet.first?.unpaired, files[2])
         let arguments = FASTQIngestionService.cliImportArguments(
             pair: try XCTUnwrap(sheet.first),
             projectDirectory: root.appendingPathComponent("P.lungfish"),
@@ -58,6 +60,7 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
         let cli = FASTQBatchImporter.detectPairs(from: files)
 
         XCTAssertEqual(sheet.map(\.sampleName), cli.map(\.sampleName))
+        XCTAssertEqual(sheet.map(\.inputFiles), cli.map(\.inputFiles))
         XCTAssertEqual(
             sheet.map(\.sampleName).sorted(),
             ["SRR5", "dots.1", "lone_1", "lone_R1_001", "pairA", "plain", "reads"]
@@ -74,9 +77,10 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
             let split = FASTQFilePair.applying(pairingMode: mode, to: sheet)
             let cli = FASTQBatchImporter.applyPairing(pairing, to: FASTQBatchImporter.detectPairs(from: files))
             XCTAssertEqual(split.map(\.sampleName), cli.map(\.sampleName), "\(mode)")
-            XCTAssertEqual(split.map(\.r1), cli.map(\.r1), "\(mode)")
-            XCTAssertTrue(split.allSatisfy { $0.r2 == nil }, "\(mode)")
+            XCTAssertEqual(split.map(\.inputFiles), cli.map(\.inputFiles), "\(mode)")
+            XCTAssertTrue(split.allSatisfy { $0.r2 == nil && $0.unpaired == nil }, "\(mode)")
         }
+        XCTAssertEqual(FASTQFilePair.applying(pairingMode: .pairedEnd, to: sheet).map(\.inputFiles), sheet.map(\.inputFiles))
     }
 
     func testTheSheetsImportOfARunsThreeFilesMakesTheBundleTheCLIMakes() async throws {
