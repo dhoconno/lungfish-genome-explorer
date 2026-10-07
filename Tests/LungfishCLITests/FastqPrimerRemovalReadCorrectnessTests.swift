@@ -281,7 +281,9 @@ final class FastqPrimerRemovalReadCorrectnessTests: XCTestCase {
         let outputURL = root.appendingPathComponent("provenance.trimmed.fastq")
         try await runPrimerRemove(literalArguments(inputURL, outputURL))
 
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)))
+        // The run's envelope beside the output holds every step. The output's
+        // own sidecar keeps only the steps that wrote the output.
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputURL.deletingLastPathComponent()))
         let bbdukSteps = envelope.steps.filter { $0.toolName == NativeTool.bbduk.rawValue }
         guard bbdukSteps.count == 2 else {
             XCTFail("the 5' pass and the 3' pass are two steps, found \(bbdukSteps.map(\.argv))")

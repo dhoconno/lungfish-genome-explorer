@@ -18,9 +18,12 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         The bbduk engine trims a 5' primer and every base before it. It counts \
         a match only when the match ends within the first (longest primer + 67) \
         bases of a read, so a primer behind an untrimmed Nanopore adapter and \
-        barcode is found and a primer deeper in the read is not. It matches \
-        each primer only as written, so a primer that a read runs through at \
-        its 3' end stays. The cutadapt-linked engine keeps only reads that hold \
+        barcode is found and a primer deeper in the read is not. A second bbduk \
+        pass removes a primer that a read runs through at its 3' end. Pairs are \
+        trimmed where their mates overlap, and a single read loses a primer's \
+        reverse complement that ends within its last (longest primer) bases, \
+        matched in k-mers as long as the shortest primer. --kmer may not exceed \
+        the shortest primer. The cutadapt-linked engine keeps only reads that hold \
         both primers of an amplicon, which suits full-length amplicon reads. \
         Interleaved pairs run in the tool's paired mode, so a pair is kept or \
         dropped whole. A file that mixes pairs with merged or single reads is \
@@ -127,12 +130,35 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         let nativeArguments: [String]
         let result: NativeToolResult
         var splitOutcome: FASTQSplitByNameRunner.Outcome?
+        // The bbduk engine runs twice, the 5' pass into a scratch file and
+        // the read-through pass into the output (L5 item 3).
+        let passes = PrimerRemovalPasses(
+            toolArguments: toolArguments,
+            runner: runner,
+            environment: environment,
+            scratchDirectory: URL(fileURLWithPath: output.output).deletingLastPathComponent()
+                .appendingPathComponent(".primer-remove-\(UUID().uuidString)", isDirectory: true)
+        )
+        defer { passes.removeScratch() }
+        var readThroughSteps: [ProvenanceStep] = []
+        var fivePrimeStepOutputs: [FileRecord]?
+        let mainStepID = UUID()
         switch plan {
         case .singleEnd, .interleaved:
-            nativeArguments = toolArguments.arguments(input: inputURL.path, output: output.output, paired: plan.isPaired)
-            result = try await runner.run(tool, arguments: nativeArguments, environment: environment, timeout: 1800)
-            guard result.isSuccess else {
-                throw CLIError.conversionFailed(reason: "\(tool.rawValue) primer removal failed: \(result.stderr)")
+            let runs = try await passes.run(input: inputURL, output: URL(fileURLWithPath: output.output), paired: plan.isPaired)
+            for run in runs where !run.result.isSuccess {
+                throw CLIError.conversionFailed(reason: "\(tool.rawValue) primer removal failed: \(run.result.stderr)")
+            }
+            nativeArguments = runs[0].arguments
+            result = runs[0].result
+            if runs.count > 1 {
+                fivePrimeStepOutputs = [ProvenanceRecorder.fileRecord(url: runs[0].outputURL, format: .fastq, role: .output)]
+                readThroughSteps = passes.provenanceSteps(
+                    after: runs[0],
+                    runs: Array(runs.dropFirst()),
+                    firstStepID: mainStepID,
+                    toolVersion: await runner.getToolVersion(tool) ?? "unknown"
+                )
             }
         case .splitMixed(let pairs, let unpaired):
             let outcome = try await FASTQSplitByNameRunner.run(
@@ -142,14 +168,11 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
                 tool: tool,
                 toolVersion: await runner.getToolVersion(tool) ?? "unknown",
                 failureLabel: "\(tool.rawValue) primer removal",
-                stepNamePrefix: "lungfish fastq primer-remove"
-            ) { partInput, partOutput, paired in
-                let partArguments = toolArguments.arguments(input: partInput.path, output: partOutput.path, paired: paired)
-                return (
-                    try await runner.run(tool, arguments: partArguments, environment: environment, timeout: 1800),
-                    partArguments
-                )
-            }
+                stepNamePrefix: "lungfish fastq primer-remove",
+                runPartSteps: { partInput, partOutput, paired in
+                    try await passes.run(input: partInput, output: partOutput, paired: paired)
+                }
+            )
             nativeArguments = outcome.pairedRun.arguments
             result = outcome.pairedRun.result
             splitOutcome = outcome
@@ -233,10 +256,10 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
             ],
             inputRecords: try resolvedInput.inputRecords()
                 + (referenceURL.map { provenanceRecords(for: $0, format: .fasta, role: .reference) } ?? []),
-            stepID: splitOutcome?.stepID ?? UUID(),
+            stepID: splitOutcome?.stepID ?? mainStepID,
             stepInputs: splitOutcome?.stepInputs,
-            stepOutputs: splitOutcome?.stepOutputs,
-            extraSteps: (splitOutcome?.extraSteps ?? []) + (try resolvedInput.materializationSteps()),
+            stepOutputs: splitOutcome?.stepOutputs ?? fivePrimeStepOutputs,
+            extraSteps: (splitOutcome?.extraSteps ?? readThroughSteps) + (try resolvedInput.materializationSteps()),
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Primer-trimmed reads written to \(output.output)\n".utf8))
@@ -246,8 +269,15 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
     /// or a strictly interleaved one.
     struct ToolArguments: Sendable {
         enum Engine: Sendable {
-            /// bbduk with `literal=` or `ref=` already formed.
-            case bbduk(primers: String, kmerSize: Int, minKmer: Int, hammingDistance: Int, searchWindow: Int)
+            /// bbduk with `literal=` or `ref=` already formed, and its read-through pass.
+            case bbduk(
+                primers: String,
+                kmerSize: Int,
+                minKmer: Int,
+                hammingDistance: Int,
+                searchWindow: Int,
+                readThrough: ReadThroughPass
+            )
             /// cutadapt with the linked-adapter FASTA it reads.
             case cutadaptLinked(linkedPrimers: String, errorRate: Double, minimumOverlap: Int)
         }
@@ -263,7 +293,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
 
         func arguments(input: String, output: String, paired: Bool) -> [String] {
             switch engine {
-            case .bbduk(let primers, let kmerSize, let minKmer, let hammingDistance, let searchWindow):
+            case .bbduk(let primers, let kmerSize, let minKmer, let hammingDistance, let searchWindow, _):
                 // ktrim=l trims a 5' primer and the bases to its left, where
                 // bbduk's guide puts 5' adapters. rcomp=f matches a primer
                 // only as written: a 5' primer starts a read in its own
@@ -312,28 +342,49 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         switch engine {
         case .bbduk:
             let primers: String
-            let longestPrimer: Int
+            let readThroughPrimers: String
+            let primerSequences: [String]
             if let literalSequence {
                 primers = "literal=\(literalSequence)"
                 // bbduk takes a comma-separated list of literals.
-                longestPrimer = literalSequence.split(separator: Character(",")).map(\.count).max() ?? 0
+                primerSequences = literalSequence.split(separator: Character(",")).map(String.init)
+                readThroughPrimers = "literal=" + primerSequences.map(reverseComplement).joined(separator: ",")
             } else if let reference {
                 guard FileManager.default.fileExists(atPath: reference) else {
                     throw CLIError.inputFileNotFound(path: reference)
                 }
                 primers = "ref=\(reference)"
-                longestPrimer = try await FASTAReader(url: URL(fileURLWithPath: reference)).readAll()
-                    .map { $0.asString().count }
-                    .max() ?? 0
+                let records = try await FASTAReader(url: URL(fileURLWithPath: reference)).readAll()
+                primerSequences = records.map { $0.asString() }
+                try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+                let reverseComplements = stagingDirectory.appendingPathComponent("primers-reverse-complement.fasta")
+                try records.map { ">\($0.name)_rc\n\(reverseComplement($0.asString()))\n" }.joined()
+                    .write(to: reverseComplements, atomically: true, encoding: .utf8)
+                readThroughPrimers = "ref=\(reverseComplements.path)"
             } else {
                 throw ValidationError("Specify --literal or --ref for primer sequence")
+            }
+            let lengths = primerSequences.map(\.count).filter { $0 > 0 }
+            guard let shortestPrimer = lengths.min(), let longestPrimer = lengths.max() else {
+                throw ValidationError("No primer sequence was given")
+            }
+            // bbduk 40.02 stops on a primer shorter than k (BBDukLoader.loadKmers).
+            guard kmerSize <= shortestPrimer else {
+                throw ValidationError(
+                    "--kmer \(kmerSize) is longer than the shortest primer (\(shortestPrimer) bases), which bbduk cannot match. Use --kmer \(shortestPrimer) or less."
+                )
             }
             return ToolArguments(engine: .bbduk(
                 primers: primers,
                 kmerSize: kmerSize,
                 minKmer: minKmer,
                 hammingDistance: hammingDistance,
-                searchWindow: Self.primerSearchWindow(longestPrimer: longestPrimer)
+                searchWindow: Self.primerSearchWindow(longestPrimer: longestPrimer),
+                readThrough: ReadThroughPass(
+                    primers: readThroughPrimers,
+                    kmerSize: min(31, max(minKmer, shortestPrimer)),
+                    window: longestPrimer
+                )
             ))
 
         case .cutadaptLinked:

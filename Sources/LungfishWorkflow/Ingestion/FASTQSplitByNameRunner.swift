@@ -39,6 +39,14 @@ public enum FASTQSplitByNameRunner {
         _ paired: Bool
     ) async throws -> (result: NativeToolResult, arguments: [String])
 
+    /// Runs the caller's tool on one part as one or more runs, each reading
+    /// what the run before it wrote, the first `input` and the last `output`.
+    public typealias MultiStepPartRunner = @Sendable (
+        _ input: URL,
+        _ output: URL,
+        _ paired: Bool
+    ) async throws -> [PartRun]
+
     /// One tool run on one part of the split input.
     public struct PartRun: Sendable {
         public let result: NativeToolResult
@@ -48,22 +56,39 @@ public enum FASTQSplitByNameRunner {
         public let outputURL: URL
         public let startedAt: Date
         public let completedAt: Date
+
+        public init(
+            result: NativeToolResult,
+            arguments: [String],
+            inputURL: URL,
+            outputURL: URL,
+            startedAt: Date,
+            completedAt: Date
+        ) {
+            self.result = result
+            self.arguments = arguments
+            self.inputURL = inputURL
+            self.outputURL = outputURL
+            self.startedAt = startedAt
+            self.completedAt = completedAt
+        }
     }
 
     /// What ``run(inputURL:outputPath:counts:tool:toolVersion:failureLabel:stepNamePrefix:runPart:)`` did.
     public struct Outcome: Sendable {
         /// The pairs and single reads the input was split into.
         public let counts: FASTQPairInterleaver.MixedCounts
-        /// The run on the mate pairs, recorded as the operation's main step.
+        /// The first run on the mate pairs, recorded as the operation's main step.
         public let pairedRun: PartRun
-        /// The run on the single reads.
+        /// The first run on the single reads.
         public let singleRun: PartRun
         /// Provenance ID of the paired run, so the extra steps can depend on it.
         public let stepID: UUID
         /// The files the paired run read and wrote.
         public let stepInputs: [FileRecord]
         public let stepOutputs: [FileRecord]
-        /// The single-read run, the join and any gzip, in dependency order.
+        /// The later runs on the pairs, the runs on the single reads, the join
+        /// and any gzip, in dependency order.
         public let extraSteps: [ProvenanceStep]
     }
 
@@ -87,7 +112,45 @@ public enum FASTQSplitByNameRunner {
         toolVersion: String,
         failureLabel: String,
         stepNamePrefix: String,
-        runPart: PartRunner
+        runPart: @escaping PartRunner
+    ) async throws -> Outcome {
+        try await run(
+            inputURL: inputURL,
+            outputPath: outputPath,
+            counts: counts,
+            tool: tool,
+            toolVersion: toolVersion,
+            failureLabel: failureLabel,
+            stepNamePrefix: stepNamePrefix,
+            runPartSteps: { input, output, paired in
+                let startedAt = Date()
+                let run = try await runPart(input, output, paired)
+                return [PartRun(
+                    result: run.result,
+                    arguments: run.arguments,
+                    inputURL: input,
+                    outputURL: output,
+                    startedAt: startedAt,
+                    completedAt: Date()
+                )]
+            }
+        )
+    }
+
+    /// ``run(inputURL:outputPath:counts:tool:toolVersion:failureLabel:stepNamePrefix:runPart:)``
+    /// for a tool that runs more than once on each part, as primer removal
+    /// does with its 5' pass and its read-through pass (L5 item 3). Each run
+    /// after the first on a part is its own provenance step that depends on
+    /// the run before it.
+    public static func run(
+        inputURL: URL,
+        outputPath: String,
+        counts: FASTQPairInterleaver.MixedCounts,
+        tool: NativeTool,
+        toolVersion: String,
+        failureLabel: String,
+        stepNamePrefix: String,
+        runPartSteps: MultiStepPartRunner
     ) async throws -> Outcome {
         let fm = FileManager.default
         let outputURL = URL(fileURLWithPath: outputPath)
@@ -120,30 +183,42 @@ public enum FASTQSplitByNameRunner {
 
         let pairsOut = scratch.appendingPathComponent("out_pairs.fastq")
         let singlesOut = scratch.appendingPathComponent("out_single.fastq")
-        let pairedRun = try await runOnePart(
+        let pairedRuns = try await runOnePart(
             input: pairsIn, output: pairsOut, paired: true,
-            what: "the mate pairs", failureLabel: failureLabel, runPart: runPart
+            what: "the mate pairs", failureLabel: failureLabel, runPart: runPartSteps
         )
-        let singleRun = try await runOnePart(
+        let singleRuns = try await runOnePart(
             input: singlesIn, output: singlesOut, paired: false,
-            what: "the single reads", failureLabel: failureLabel, runPart: runPart
+            what: "the single reads", failureLabel: failureLabel, runPart: runPartSteps
         )
 
         let stepID = UUID()
-        let singleStep = ProvenanceStep(
-            toolName: tool.rawValue,
-            toolVersion: toolVersion,
-            argv: singleRun.result.arguments.isEmpty
-                ? [tool.executableName] + singleRun.arguments
-                : singleRun.result.arguments,
-            inputs: [descriptor(singlesIn, role: .input)],
-            outputs: [descriptor(singlesOut, role: .output)],
-            exitStatus: Int(singleRun.result.exitCode),
-            wallTimeSeconds: singleRun.completedAt.timeIntervalSince(singleRun.startedAt),
-            stderr: singleRun.result.stderr.isEmpty ? nil : singleRun.result.stderr,
-            startedAt: singleRun.startedAt,
-            completedAt: singleRun.completedAt
-        )
+        func step(_ run: PartRun, dependsOn: [UUID]) -> ProvenanceStep {
+            ProvenanceStep(
+                toolName: tool.rawValue,
+                toolVersion: toolVersion,
+                argv: run.result.arguments.isEmpty ? [tool.executableName] + run.arguments : run.result.arguments,
+                inputs: [descriptor(run.inputURL, role: .input)],
+                outputs: [descriptor(run.outputURL, role: .output)],
+                exitStatus: Int(run.result.exitCode),
+                wallTimeSeconds: run.completedAt.timeIntervalSince(run.startedAt),
+                stderr: run.result.stderr.isEmpty ? nil : run.result.stderr,
+                dependsOn: dependsOn,
+                startedAt: run.startedAt,
+                completedAt: run.completedAt
+            )
+        }
+        var partSteps: [ProvenanceStep] = []
+        var lastPairedStep = stepID
+        for run in pairedRuns.dropFirst() {
+            partSteps.append(step(run, dependsOn: [lastPairedStep]))
+            lastPairedStep = partSteps[partSteps.count - 1].id
+        }
+        var lastSingleStep: UUID?
+        for run in singleRuns {
+            partSteps.append(step(run, dependsOn: lastSingleStep.map { [$0] } ?? []))
+            lastSingleStep = partSteps[partSteps.count - 1].id
+        }
 
         // Join the pairs and the single reads, pairs first, into the plain
         // output or into a scratch file that gzip then writes.
@@ -170,11 +245,11 @@ public enum FASTQSplitByNameRunner {
             outputs: [descriptor(plainTarget, role: .output)],
             exitStatus: 0,
             wallTimeSeconds: joinCompleted.timeIntervalSince(joinStarted),
-            dependsOn: [stepID, singleStep.id],
+            dependsOn: [lastPairedStep] + (lastSingleStep.map { [$0] } ?? []),
             startedAt: joinStarted,
             completedAt: joinCompleted
         )
-        var extraSteps = [singleStep, joinStep]
+        var extraSteps = partSteps + [joinStep]
 
         if compress {
             let gzip = try gzipCompressFASTQ(
@@ -200,11 +275,11 @@ public enum FASTQSplitByNameRunner {
 
         return Outcome(
             counts: counts,
-            pairedRun: pairedRun,
-            singleRun: singleRun,
+            pairedRun: pairedRuns[0],
+            singleRun: singleRuns[0],
             stepID: stepID,
             stepInputs: [ProvenanceRecorder.fileRecord(url: pairsIn, format: .fastq, role: .input)],
-            stepOutputs: [ProvenanceRecorder.fileRecord(url: pairsOut, format: .fastq, role: .output)],
+            stepOutputs: [ProvenanceRecorder.fileRecord(url: pairedRuns[0].outputURL, format: .fastq, role: .output)],
             extraSteps: extraSteps
         )
     }
@@ -215,25 +290,19 @@ public enum FASTQSplitByNameRunner {
         paired: Bool,
         what: String,
         failureLabel: String,
-        runPart: PartRunner
-    ) async throws -> PartRun {
-        let startedAt = Date()
-        let run = try await runPart(input, output, paired)
-        let completedAt = Date()
-        guard run.result.isSuccess else {
+        runPart: MultiStepPartRunner
+    ) async throws -> [PartRun] {
+        let runs = try await runPart(input, output, paired)
+        guard !runs.isEmpty else {
+            throw FASTQSplitByNameRunError("\(failureLabel) ran nothing on \(what)")
+        }
+        for run in runs where !run.result.isSuccess {
             throw FASTQSplitByNameRunError("\(failureLabel) failed on \(what): \(run.result.stderr)")
         }
         guard FileManager.default.fileExists(atPath: output.path) else {
             throw FASTQSplitByNameRunError("\(failureLabel) wrote no output for \(what)")
         }
-        return PartRun(
-            result: run.result,
-            arguments: run.arguments,
-            inputURL: input,
-            outputURL: output,
-            startedAt: startedAt,
-            completedAt: completedAt
-        )
+        return runs
     }
 
     /// Writes `parts` one after another into `target` and returns how many
