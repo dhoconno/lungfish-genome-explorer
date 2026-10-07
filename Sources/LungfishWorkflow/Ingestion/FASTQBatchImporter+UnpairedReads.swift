@@ -75,20 +75,25 @@ extension FASTQBatchImporter {
     /// every pair with and the storage step finds pairs by. The third file
     /// must start with a whole record whose read is not of that first
     /// fragment, neither a mate of either read nor a read of the same name,
-    /// and its first two reads must not be mates, in either order.
-    /// Mates that `fastq-dump --readids` names `SRR1.1.1` and `SRR1.1.2` fail
-    /// the first rule, which made the join fail the whole sample (finding
-    /// F9-S1). An interleaved copy of the pair that starts at its first pair
-    /// fails the second (F9-N1), and a copy that starts at any other pair
-    /// fails the third (F10-N1), because a file of reads whose mate is
+    /// and no two adjacent reads among its first ``thirdFileReadsChecked``
+    /// may be mates, in either order. Mates that `fastq-dump --readids`
+    /// names `SRR1.1.1` and `SRR1.1.2` fail the first rule, which made the
+    /// join fail the whole sample (finding F9-S1). An interleaved copy of the
+    /// pair that starts at its first pair fails the second (F9-N1), and a
+    /// copy that starts at any other pair (F10-N1) or with half a pair
+    /// (F11-N1) fails the third, because a file of reads whose mate is
     /// missing holds one read of each spot. The join stored either copy
-    /// beside the pair. The pair's files are read to their fourth line at
-    /// most and the third file to its eighth, plain or gzip.
+    /// beside the pair. The pair's files are read to their first record and
+    /// the third file to its 1,000th at most, plain or gzip. The import
+    /// checks every adjacent pair of the third file as it copies it, so a
+    /// copy whose mates first meet later fails its sample with the file
+    /// named, never stores a read twice.
     ///
-    /// The warning says what follows. A reason about the third file leaves
-    /// the pair to import alone, and a reason about `_1` or `_2` may fail
-    /// the pair too, so its warning does not promise that the pair imports
-    /// (F10-N2).
+    /// The warning says what follows. When a mate file has no whole first
+    /// record the pair fails too, and the third file then imports on its own
+    /// (F10-N2). For any other reason the pair imports without the third
+    /// file, by position as a pair of files always does, and the third
+    /// file's sample is skipped once the pair's bundle exists (F11-S1).
     ///
     /// `import fastq` runs this on the detected samples before it lists
     /// them, so a dry run prints the same warnings as an import.
@@ -110,9 +115,9 @@ extension FASTQBatchImporter {
             let file = unpaired.lastPathComponent
             let outcome: String
             switch reason {
-            case .pair:
+            case .pairFile:
                 outcome = "The pair and \(file) are imported as separate samples, as they were before the join."
-            case .thirdFile:
+            case .pairImportsAlone:
                 outcome = "The pair imports without it, and \(file) is a separate sample named \(sample.sampleName), "
                     + "which the import skips once the pair's bundle exists."
             }
@@ -176,51 +181,75 @@ extension FASTQBatchImporter {
     }
 
     /// Why a run's third file is not joined, in words for the user, and
-    /// which files the reason is about.
+    /// what follows for the pair.
     enum ReasonNotToJoin: Equatable {
-        /// `<run>_1` or `<run>_2` has no whole first record, or the two
-        /// first reads are not named as mates. The pair may fail as well.
-        case pair(String)
-        /// The third file has no whole first record, or its first reads
-        /// look like a copy of the pair. The pair imports without it.
-        case thirdFile(String)
+        /// `<run>_1` or `<run>_2` has no whole first record. The pair fails
+        /// as well, and the third file then imports on its own.
+        case pairFile(String)
+        /// The pair's first reads are not named as mates, or the third file
+        /// has no whole first record or looks like a copy of the pair. The
+        /// pair imports without the third file, by position as a pair of
+        /// files always does, and the third file's own sample is skipped
+        /// once the pair's bundle exists.
+        case pairImportsAlone(String)
 
         var text: String {
             switch self {
-            case .pair(let text), .thirdFile(let text): return text
+            case .pairFile(let text), .pairImportsAlone(let text): return text
             }
         }
     }
+
+    /// The reads of a run's third file that the check compares, adjacent
+    /// pair by adjacent pair. The import compares the rest as it copies them.
+    static let thirdFileReadsChecked = 1_000
 
     /// Why a run's third file cannot be taken for the run's reads without a
     /// mate, or nil when it can.
     static func reasonNotToJoin(r1: URL, r2: URL, unpaired: URL) -> ReasonNotToJoin? {
         let first1 = firstRecords(of: r1, upTo: 1)[0]
-        guard case .read(let name1) = first1 else { return first1.problem(of: r1.lastPathComponent).map { .pair($0) } }
+        guard case .read(let name1) = first1 else { return first1.problem(of: r1.lastPathComponent).map { .pairFile($0) } }
         let first2 = firstRecords(of: r2, upTo: 1)[0]
-        guard case .read(let name2) = first2 else { return first2.problem(of: r2.lastPathComponent).map { .pair($0) } }
+        guard case .read(let name2) = first2 else { return first2.problem(of: r2.lastPathComponent).map { .pairFile($0) } }
         guard FASTQReadLayoutClassifier.areMates(name1, name2) else {
-            return .pair("the names of their first reads, \(readID(name1)) and \(readID(name2)), do not mark the two "
-                + "as mates")
+            return .pairImportsAlone("the names of their first reads, \(readID(name1)) and \(readID(name2)), do not "
+                + "mark the two as mates")
         }
-        let third = firstRecords(of: unpaired, upTo: 2)
-        guard case .read(let name3) = third[0] else { return third[0].problem(of: "it").map { .thirdFile($0) } }
+        let third = firstRecords(of: unpaired, upTo: thirdFileReadsChecked)
+        guard case .read(let name3) = third[0] else { return third[0].problem(of: "it").map { .pairImportsAlone($0) } }
         let isOfFirstFragment = [name1, name2].contains { name in
             FASTQReadLayoutClassifier.areMates(name, name3) || FASTQReadLayoutClassifier.areMates(name3, name)
                 || fragmentName(name) == fragmentName(name3)
         }
         guard !isOfFirstFragment else {
-            return .thirdFile("its first read, \(readID(name3)), belongs to the same fragment as the pair's first "
-                + "reads, so the file looks like a copy of the pair")
+            return .pairImportsAlone("its first read, \(readID(name3)), belongs to the same fragment as the pair's "
+                + "first reads, so the file looks like a copy of the pair")
         }
-        // Only a whole second record is compared. A file damaged after its
-        // first record joins, and the import fails it and names the file.
-        if case .read(let next3)? = third.dropFirst().first,
-           FASTQReadLayoutClassifier.areMates(name3, next3) || FASTQReadLayoutClassifier.areMates(next3, name3) {
-            return .thirdFile("its first two reads, \(readID(name3)) and \(readID(next3)), belong to one fragment, "
-                + "so the file looks like a copy of the pair")
+        // Only whole records are compared. A file damaged after them joins,
+        // and the import fails it and names the file.
+        let names = third.compactMap { record -> String? in
+            guard case .read(let name) = record else { return nil }
+            return name
+        }
+        for position in names.indices.dropLast() {
+            if let reason = oneFragment(names[position], names[position + 1], atRead: position + 1) {
+                return .pairImportsAlone(reason)
+            }
         }
         return nil
+    }
+
+    /// Why two adjacent reads of a run's third file, the `read`th and the
+    /// next, show that the file is a copy of the pair, or nil when they are
+    /// not mates in either order. A file of reads whose mate is missing
+    /// holds one read of each spot, so no two of its reads are mates.
+    static func oneFragment(_ name: String, _ next: String, atRead read: Int) -> String? {
+        guard FASTQReadLayoutClassifier.areMates(name, next) || FASTQReadLayoutClassifier.areMates(next, name) else {
+            return nil
+        }
+        let which = read == 1 ? "its first two reads" : "its reads \(read) and \(read + 1)"
+        return "\(which), \(readID(name)) and \(readID(next)), belong to one fragment, so the file looks like a copy "
+            + "of the pair"
     }
 
     /// The read ID of a header line, the text before its first space or tab.
@@ -282,13 +311,16 @@ extension FASTQBatchImporter {
             let handle = try FileHandle(forWritingTo: output)
             defer { try? handle.close() }
             let pairs = try FASTQPairInterleaver.interleave(r1: r1, r2: r2, to: handle, requireMates: true)
-            let singles = try FASTQPairInterleaver.writeMergedThenPairs(
-                merged: unpaired,
-                unmergedR1: nil,
-                unmergedR2: nil,
-                to: handle
-            )
-            return RecipeMixedLayoutCounts(mergedReads: 0, pairs: pairs.r1Records, unpairedReads: singles.mergedRecords)
+            // Every adjacent pair of the third file is compared as it is
+            // copied, past the reads the check compared (F11-N1).
+            var previous: (name: String, read: Int)?
+            let singles = try FASTQPairInterleaver.copyRecords(of: unpaired, to: handle) { name, read in
+                if let previous, let reason = Self.oneFragment(previous.name, name, atRead: previous.read) {
+                    throw UnpairedReadsImportError.notJoinable(Self.notJoined(unpaired, to: r1, r2, because: reason))
+                }
+                previous = (name, read)
+            }
+            return RecipeMixedLayoutCounts(mergedReads: 0, pairs: pairs.r1Records, unpairedReads: singles)
         }.value
         let step = try ReadSetStep(
             kind: .interleaveByName,
