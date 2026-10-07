@@ -263,7 +263,7 @@ extension DatabaseBrowserViewModel {
                             cliArguments: args,
                             cliStartedAt: cliStartedAt,
                             cliCompletedAt: cliCompletedAt,
-                            stagedFASTQFiles: reads.files,
+                            stagedFASTQFiles: FASTQBatchImporter.inputFilesKept(of: reads.files, by: metadata.ingestion),
                             stagedReadCounts: reads.readCounts(in: metadata.readClassification),
                             finalFASTQURL: fastqURL,
                             bundleURL: bundleURL,

@@ -132,6 +132,9 @@ public final class DocumentSectionViewModel {
     /// Ingestion pipeline metadata (clumpify/compress/index status).
     var ingestionMetadata: IngestionMetadata?
 
+    /// The read roles a bundle's FASTQ sidecar records, which the Pairing row reads.
+    var ingestionReadRoles: ReadClassification?
+
     /// FASTQ derivative lineage metadata, when this dataset is pointer-based.
     var fastqDerivativeManifest: FASTQDerivedBundleManifest?
 
@@ -159,11 +162,6 @@ public final class DocumentSectionViewModel {
     func updateSRAMetadata(sra: SRARunInfo?, ena: ENAReadRecord?) {
         self.sraRunInfo = sra
         self.enaReadRecord = ena
-    }
-
-    /// Updates the view model with ingestion metadata.
-    func updateIngestionMetadata(_ ingestion: IngestionMetadata?) {
-        self.ingestionMetadata = ingestion
     }
 
     /// Updates FASTQ derivative metadata.
@@ -1269,7 +1267,7 @@ public struct DocumentSection: View {
             VStack(alignment: .leading, spacing: 6) {
                 metadataRow(label: "Clumpified", value: ingestion.isClumpified ? "Yes" : "No")
                 metadataRow(label: "Compressed", value: ingestion.isCompressed ? "Yes" : "No")
-                metadataRow(label: "Pairing", value: ingestion.pairingMode.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
+                metadataRow(label: "Pairing", value: DocumentSectionViewModel.pairingRowText(ingestion.pairingMode, roles: viewModel.ingestionPairingRoles))
                 if let binning = ingestion.qualityBinning, binning != "none" {
                     metadataRow(label: "Quality Binning", value: QualityBinningScheme.displayName(forRawValue: binning))
                 }

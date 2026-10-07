@@ -413,6 +413,17 @@ extension FASTQBatchImporter {
         pair.unpaired.map { ["unpaired": .file($0)] } ?? [:]
     }
 
+    /// The files of `files` that went into a bundle, the ones its sidecar
+    /// names in `originalFilenames`, in their order. A run's third file that
+    /// the check leaves out is a sample of its own, which the pair's bundle
+    /// keeps out, so a record that names every file a run staged names a
+    /// file the bundle holds no read of (f10-report.md, concern 2). A
+    /// sidecar that names no file keeps every file.
+    public static func inputFilesKept(of files: [URL], by ingestion: IngestionMetadata?) -> [URL] {
+        guard let kept = ingestion?.originalFilenames, !kept.isEmpty else { return files }
+        return files.filter { kept.contains($0.lastPathComponent) }
+    }
+
     /// The `--log-dir` entry that names a sample's file of reads without a
     /// mate. Any other sample adds nothing, so its log reads as it did.
     static func unpairedReadsLogEntry(of pair: SamplePair) -> [String: Any] {

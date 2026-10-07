@@ -319,7 +319,8 @@ final class SRAWindowUnpairedReadsTests: XCTestCase {
             cliArguments: arguments,
             cliStartedAt: Date(timeIntervalSince1970: 0),
             cliCompletedAt: Date(timeIntervalSince1970: 1),
-            stagedFASTQFiles: staged.reads.files,
+            // The files the window's own call passes.
+            stagedFASTQFiles: FASTQBatchImporter.inputFilesKept(of: staged.reads.files, by: metadata.ingestion),
             stagedReadCounts: staged.reads.readCounts(in: metadata.readClassification),
             finalFASTQURL: fastq,
             bundleURL: bundle,
