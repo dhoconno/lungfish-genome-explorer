@@ -280,7 +280,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         return true
     }
 
-    /// Refuses a `--replace` run that would delete a file it reads: the
+    /// Refuses a `--replace` run that would delete a file it reads, such as the
     /// input, its bundle, the bundles its reads come from, or a custom kit
     /// inside the output folder. The folder used to be deleted with them.
     static func refuseReadFiles(inside outputURL: URL, _ readFiles: [URL]) throws {
@@ -393,7 +393,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             )
         }
 
-        // Every refusal comes before --replace deletes anything: a file the
+        // Every refusal comes before --replace deletes anything, first a file the
         // run reads inside the output folder, then the pipeline's own (L5 item 0).
         let pipeline = DemultiplexingPipeline()
         if replacesEarlierOutput {

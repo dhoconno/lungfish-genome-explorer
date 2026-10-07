@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// `fastq demultiplex --no-trim` (dialog: Trim Barcodes off) runs cutadapt
+// `fastq demultiplex --no-trim` (Trim Barcodes off in the dialog) runs cutadapt
 // with `--action none`. In virtual mode the pipeline still read cutadapt's
 // info file, which records every match whatever the action, and wrote the
 // matches as the bundle's trims, so the barcode bundles materialized
