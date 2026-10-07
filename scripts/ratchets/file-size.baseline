@@ -31,7 +31,7 @@ Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift
 Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 993
 Sources/LungfishApp/Views/Inspector/InspectorViewController+TrimDuplicateWorkflows.swift 903
 Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1446
-Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1907
+Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1905
 Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
 Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1586
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 806
@@ -173,7 +173,7 @@ Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 954
 Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1155
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
-Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2948
+Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2942
 Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 1471
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
 Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1285
