@@ -241,7 +241,7 @@ public enum FASTQBatchImporter {
         return allPairs
     }
 
-    /// Groups a flat list of FASTQ URLs into R1/R2 pairs using common naming conventions.
+    /// Groups a flat list of FASTQ URLs into R1/R2 pairs, each inside one folder (``FolderName``).
     ///
     /// Supported patterns (checked in priority order):
     /// - `_R1_001` / `_R2_001`  (Illumina bcl2fastq standard)
@@ -259,10 +259,10 @@ public enum FASTQBatchImporter {
             ("_1",      "_2"),
         ]
 
-        // Build a stem→URL lookup for fast R2 matching
-        var stemToURL: [String: URL] = [:]
+        // A stem→URL lookup for R2 matching, by folder, so a mate pairs only inside its own folder
+        var stemToURL: [FolderName: URL] = [:]
         for url in urls {
-            stemToURL[fastqStem(url)] = url
+            stemToURL[FolderName(of: url, fastqStem(url))] = url
         }
 
         var consumed: Set<URL> = []
@@ -278,7 +278,7 @@ public enum FASTQBatchImporter {
                 let baseStem = String(stem.dropLast(pattern.r1Suffix.count))
                 let r2Stem = baseStem + pattern.r2Suffix
 
-                if let r2URL = stemToURL[r2Stem], !consumed.contains(r2URL) {
+                if let r2URL = stemToURL[FolderName(of: url, r2Stem)], !consumed.contains(r2URL) {
                     pairs.append(SamplePair(sampleName: baseStem, r1: url, r2: r2URL))
                     consumed.insert(url)
                     consumed.insert(r2URL)
@@ -455,13 +455,13 @@ public enum FASTQBatchImporter {
         return isCompleteFASTQImportBundle(at: bundleURL)
     }
 
-    private enum ExistingImportBundleStatus {
+    enum ExistingImportBundleStatus {
         case missing
         case complete
         case incomplete(URL)
     }
 
-    private static func existingImportBundleStatus(
+    static func existingImportBundleStatus(
         for pair: SamplePair,
         in projectDir: URL
     ) -> ExistingImportBundleStatus {
@@ -727,7 +727,7 @@ public enum FASTQBatchImporter {
     ///
     /// Uses `autoreleasepool` between samples to bound peak memory usage.
     /// Samples that already have bundles are skipped (logged as `sampleSkip`).
-    /// Under `forceReimport` only a bundle an earlier sample of the batch wrote is kept.
+    /// No sample writes a bundle an earlier sample of the batch wrote or failed to write (``start(of:config:after:)``).
     ///
     /// - Parameters:
     ///   - pairs: Detected sample pairs to process.
@@ -750,29 +750,22 @@ public enum FASTQBatchImporter {
         var skipped = 0
         var cancelled = false
         var errors: [(sample: String, error: String)] = []
-        var written = BundlesWrittenByThisImport() // no sample replaces one of these, whatever --force says
+        var written = BundlesWrittenByThisImport() // no sample writes one of these, whatever --force says
 
         for (index, pair) in pairs.enumerated() {
             if Task.isCancelled { cancelled = true; break } // a cancel (lungfish-cli turns SIGTERM into one) stops the batch
-            // Check for skip before allocating anything (unless forceReimport is set)
-            if !config.forceReimport {
-                switch existingImportBundleStatus(for: pair, in: config.projectDirectory) {
-                case .complete:
-                    let reason = "Bundle already exists"
-                    log?(.sampleSkip(sample: pair.sampleName, reason: reason))
-                    logger.info("Skipping \(pair.sampleName): \(reason)")
-                    skipped += 1
-                    continue
-                case .incomplete(let bundleURL):
-                    recordFailure(BatchImportError.outputBundleAlreadyExists(bundleURL), of: pair.sampleName, log: log, into: &errors)
-                    continue
-                case .missing:
-                    break
-                }
-            } else if let reason = written.reasonToSkip(pair, in: config.projectDirectory) {
+            // Decide before allocating anything
+            switch start(of: pair, config: config, after: written) {
+            case .skip(let reason):
                 log?(.sampleSkip(sample: pair.sampleName, reason: reason))
+                logger.info("Skipping \(pair.sampleName): \(reason)")
                 skipped += 1
                 continue
+            case .fail(let error):
+                recordFailure(error, of: pair.sampleName, log: log, into: &errors)
+                continue
+            case .run:
+                break
             }
 
             // Process this sample; autoreleasepool drains synchronous ObjC objects between iterations
@@ -795,6 +788,7 @@ public enum FASTQBatchImporter {
                 cancelled = true
             case .failure(let error):
                 recordFailure(error, of: pair.sampleName, log: log, into: &errors)
+                written.insertFailed(bundleOutputURL(for: pair, in: config.projectDirectory))
             }
         }
 

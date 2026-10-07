@@ -36,13 +36,13 @@ OPTIONS:
         recorded as given, even when the reads suggest another platform.
   --pairing <pairing>     Read pairing: auto, single, paired, interleaved
                           (default: auto) (default: auto)
-        auto and paired match R1/R2 files by name. They also join a run's file
-        named for the run alone, such as SRR1.fastq beside SRR1_1.fastq and
-        SRR1_2.fastq, to that pair as unpaired reads, when the first reads of
-        the pair are named as mates, the first read of that file is not from
-        their fragment, and no two adjacent reads among the first 1,000 of that
-        file are mates. Otherwise the file stays a sample of its own and a
-        warning says why. The import fails the sample when two adjacent reads
+        auto and paired match R1/R2 files of one folder by name. They also join
+        a run's file named for the run alone, such as SRR1.fastq beside
+        SRR1_1.fastq and SRR1_2.fastq, to that pair as unpaired reads, when the
+        first reads of the pair are named as mates, the first read of that file
+        is not from their fragment, and no two adjacent reads among the first
+        1,000 of that file are mates. Otherwise the import skips that file and
+        a warning says why. The import fails the sample when two adjacent reads
         later in that file are mates. For any other file with no mate file,
         they read its records and record interleaved mates when every record is
         followed by its mate, otherwise single-end. single imports every file
@@ -57,7 +57,8 @@ OPTIONS:
                           balanced) (default: balanced)
   --force                 Reimport samples even if bundle already exists
         A bundle that an earlier sample of the same import wrote is never
-        replaced.
+        replaced, and no sample writes a bundle that an earlier sample of the
+        same import failed to write.
   --name <name>           Override the output bundle name. Only valid when
                           exactly one sample is detected.
   --recursive             Recursively scan directories for FASTQ files

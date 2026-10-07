@@ -18,8 +18,24 @@ extension FASTQBatchImporter {
 
     // MARK: - Detection
 
+    /// A file's folder and a name, which detection pairs mates and joins a
+    /// run's third file by. A mate pairs only with a file of its own folder,
+    /// as `import fastq <folder> --recursive` groups them, so a list of two
+    /// folders' files that share names, the Import Center's flattened scan
+    /// or explicit files, never pairs one folder's R1 with the other's R2
+    /// (review B-S1).
+    struct FolderName: Hashable {
+        let folder: String
+        let name: String
+
+        init(of file: URL, _ name: String) {
+            folder = file.deletingLastPathComponent().standardizedFileURL.path
+            self.name = name
+        }
+    }
+
     /// Joins each run's file of reads without a mate to the pair detected
-    /// from `<run>_1` and `<run>_2`, by file name.
+    /// from `<run>_1` and `<run>_2` of the same folder, by file name.
     ///
     /// That file used to import as a second sample of the same name, which
     /// found the pair's bundle and was skipped, so the bundle held part of
@@ -30,7 +46,7 @@ extension FASTQBatchImporter {
     static func joiningUnpairedReads(_ samples: [SamplePair]) -> [SamplePair] {
         let singles = Dictionary(
             grouping: samples.filter { $0.r2 == nil && !SequencingReadImportSource.isBAM($0.r1) },
-            by: \.sampleName
+            by: { FolderName(of: $0.r1, $0.sampleName) }
         )
         var joinedFiles: Set<URL> = []
         let joined = samples.map { sample -> SamplePair in
@@ -38,7 +54,7 @@ extension FASTQBatchImporter {
                   !SequencingReadImportSource.isBAM(sample.r1),
                   fastqStem(sample.r1) == "\(sample.sampleName)_1",
                   fastqStem(r2) == "\(sample.sampleName)_2",
-                  let matches = singles[sample.sampleName], matches.count == 1 else {
+                  let matches = singles[FolderName(of: sample.r1, sample.sampleName)], matches.count == 1 else {
                 return sample
             }
             joinedFiles.insert(matches[0].r1)
@@ -89,11 +105,12 @@ extension FASTQBatchImporter {
     /// copy whose mates first meet later fails its sample with the file
     /// named, never stores a read twice.
     ///
-    /// The warning says what follows. When a mate file has no whole first
-    /// record the pair fails too, and the third file then imports on its own
-    /// (F10-N2). For any other reason the pair imports without the third
-    /// file, by position as a pair of files always does, and the third
-    /// file's sample is skipped once the pair's bundle exists (F11-S1).
+    /// The warning says what follows. The third file's sample is skipped
+    /// whatever the pair does, so the run's name never holds its reads whose
+    /// mate is missing alone (F11-S1, review B-S2). When a mate file has no
+    /// whole first record the pair fails too, and the warning never promises
+    /// that it imports (F10-N2). For any other reason the pair imports
+    /// without the third file, by position as a pair of files always does.
     ///
     /// `import fastq` runs this on the detected samples before it lists
     /// them, so a dry run prints the same warnings as an import.
@@ -116,10 +133,11 @@ extension FASTQBatchImporter {
             let outcome: String
             switch reason {
             case .pairFile:
-                outcome = "The pair and \(file) are imported as separate samples, as they were before the join."
+                outcome = "\(file) is a separate sample named \(sample.sampleName), which the import skips whether "
+                    + "or not the pair imports."
             case .pairImportsAlone:
                 outcome = "The pair imports without it, and \(file) is a separate sample named \(sample.sampleName), "
-                    + "which the import skips once the pair's bundle exists."
+                    + "which the import skips."
             }
             warnings.append(.notice(
                 sample: sample.sampleName,
@@ -184,13 +202,12 @@ extension FASTQBatchImporter {
     /// what follows for the pair.
     enum ReasonNotToJoin: Equatable {
         /// `<run>_1` or `<run>_2` has no whole first record. The pair fails
-        /// as well, and the third file then imports on its own.
+        /// as well, and the third file's own sample is skipped all the same.
         case pairFile(String)
         /// The pair's first reads are not named as mates, or the third file
         /// has no whole first record or looks like a copy of the pair. The
         /// pair imports without the third file, by position as a pair of
-        /// files always does, and the third file's own sample is skipped
-        /// once the pair's bundle exists.
+        /// files always does, and the third file's own sample is skipped.
         case pairImportsAlone(String)
 
         var text: String {
@@ -411,6 +428,17 @@ extension FASTQBatchImporter {
     /// other sample records none, so its record reads as it did.
     static func unpairedReadsParameters(of pair: SamplePair) -> [String: ParameterValue] {
         pair.unpaired.map { ["unpaired": .file($0)] } ?? [:]
+    }
+
+    /// The files of `files` that went into a bundle, the ones its sidecar
+    /// names in `originalFilenames`, in their order. A run's third file that
+    /// the check leaves out is a sample of its own, which the pair's bundle
+    /// keeps out, so a record that names every file a run staged names a
+    /// file the bundle holds no read of (f10-report.md, concern 2). A
+    /// sidecar that names no file keeps every file.
+    public static func inputFilesKept(of files: [URL], by ingestion: IngestionMetadata?) -> [URL] {
+        guard let kept = ingestion?.originalFilenames, !kept.isEmpty else { return files }
+        return files.filter { kept.contains($0.lastPathComponent) }
     }
 
     /// The `--log-dir` entry that names a sample's file of reads without a

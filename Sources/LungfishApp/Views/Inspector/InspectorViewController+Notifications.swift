@@ -274,6 +274,7 @@ extension InspectorViewController {
 
         // Load FASTQ sample metadata and analysis manifest if bundle URL is provided
         if let bundleURL = notification.userInfo?["bundleURL"] as? URL {
+            viewModel.documentSectionViewModel.updateIngestionReadRoles(fromBundle: bundleURL)
             let readTypeTargets = selectedFASTQMetadataTargetBundleURLs.contains(bundleURL.standardizedFileURL)
                 ? selectedFASTQMetadataTargetBundleURLs
                 : [bundleURL.standardizedFileURL]

@@ -92,6 +92,42 @@ final class FASTQBatchImporterSameBatchTests: XCTestCase {
         XCTAssertEqual(try headers(ofBundle: "S4"), ["a1"])
     }
 
+    // MARK: - A bundle an earlier sample failed to write (review B-S2)
+
+    func testNoSampleWritesABundleAnEarlierSampleOfTheImportFailedToWriteWhateverForceSays() async throws {
+        for force in [false, true] {
+            // Two samples of one name, a pair whose R2 stopped inside its
+            // first read and a file of another folder.
+            let folder = force ? "forced" : "plain"
+            let r1 = try write("\(folder)/plate-a/S5_R1.fastq", reads: ["a1/1"])
+            let r2 = root.appendingPathComponent("\(folder)/plate-a/S5_R2.fastq")
+            try Data("@a1/2\nACGT".utf8).write(to: r2)
+            let other = try write("\(folder)/plate-b/S5.fastq", reads: ["b1"])
+            let samples = FASTQBatchImporter.detectPairs(from: [r1, r2, other])
+            XCTAssertEqual(samples.map(\.inputFiles), [[r1, r2], [other]], folder)
+            let events = EventLog()
+
+            let result = await FASTQBatchImporter.runBatchImport(
+                pairs: samples,
+                config: config(force: force),
+                log: { events.append($0) }
+            )
+
+            XCTAssertEqual(result.failed, 1, "the pair fails. Errors: \(result.errors)")
+            XCTAssertEqual(result.completed, 0, "the later sample does not take the name the pair failed to write")
+            XCTAssertEqual(result.skipped, 1, folder)
+            XCTAssertEqual(events.skips.map(\.sample), ["S5"], folder)
+            XCTAssertEqual(
+                events.skips.first?.reason,
+                "An earlier sample of this import failed to write this bundle, so no later sample of the import "
+                    + "writes it.",
+                folder
+            )
+            let bundle = project.appendingPathComponent("Imports/S5.lungfishfastq", isDirectory: true)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: bundle.path), folder)
+        }
+    }
+
     // MARK: - Helpers
 
     private final class EventLog: @unchecked Sendable {

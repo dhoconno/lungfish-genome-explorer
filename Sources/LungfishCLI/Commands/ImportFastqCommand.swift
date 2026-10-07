@@ -121,13 +121,13 @@ extension ImportCommand {
             help: ArgumentHelp(
                 "Read pairing: auto, single, paired, interleaved (default: auto)",
                 discussion: """
-                auto and paired match R1/R2 files by name. They also join a run's file \
+                auto and paired match R1/R2 files of one folder by name. They also join a run's file \
                 named for the run alone, such as SRR1.fastq beside SRR1_1.fastq and \
                 SRR1_2.fastq, to that pair as unpaired reads, when the first reads of \
                 the pair are named as mates, the first read of that file is not from \
                 their fragment, and no two adjacent reads among the first 1,000 of \
-                that file are mates. Otherwise the file stays a sample of its own and \
-                a warning says why. The import fails the sample when two adjacent \
+                that file are mates. Otherwise the import skips that file and a \
+                warning says why. The import fails the sample when two adjacent \
                 reads later in that file are mates. \
                 For any other file with no mate file, they read its records and \
                 record interleaved mates when every record is followed by its mate, \
@@ -161,7 +161,8 @@ extension ImportCommand {
             name: .customLong("force"),
             help: ArgumentHelp(
                 "Reimport samples even if bundle already exists",
-                discussion: "A bundle that an earlier sample of the same import wrote is never replaced."
+                discussion: "A bundle that an earlier sample of the same import wrote is never replaced, and no "
+                    + "sample writes a bundle that an earlier sample of the same import failed to write."
             )
         )
         var force: Bool = false
@@ -276,8 +277,8 @@ extension ImportCommand {
             }
 
             // A run's third file stays joined to its pair only when the first
-            // reads bear the join out. Otherwise the two are separate samples,
-            // as before the join, and a warning says why. The window runs this
+            // reads bear the join out. Otherwise the import skips the third
+            // file's sample, and a warning says why. The window runs this
             // command with --format json, so its Operations row logs the notice.
             let unpairedReadsCheck = FASTQBatchImporter.checkingUnpairedReads(samples)
             let effectivePairs = unpairedReadsCheck.samples
