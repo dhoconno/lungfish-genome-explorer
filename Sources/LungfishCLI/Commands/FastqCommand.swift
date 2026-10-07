@@ -410,18 +410,28 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             )
         }
         try await pipeline.preflight(config: configuration(input: inputURL))
-        if replacesEarlierOutput {
-            try FileManager.default.removeItem(at: outputURL)
+        // The earlier output waits aside until the new bundles are published,
+        // and comes back when the run fails (review A N4).
+        let earlierOutput = replacesEarlierOutput ? try SetAsideOutput.setAside(outputURL) : nil
+        let preparedFASTA: FastqDemultiplexSequenceFormat.PreparedInput?
+        let startedAt: Date
+        let result: DemultiplexResult
+        do {
+            preparedFASTA = fastaInput
+                ? try await FastqDemultiplexSequenceFormat.prepareFASTA(inputURL: inputURL, outputDirectory: outputURL)
+                : nil
+            let config = configuration(input: preparedFASTA?.url ?? inputURL)
+            startedAt = Date()
+            result = try await pipeline.run(config: config) { fraction, message in
+                FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
+            }
+        } catch {
+            if let earlierOutput, (try? earlierOutput.restore()) == nil {
+                FileHandle.standardError.write(Data("The earlier output could not be moved back from \(earlierOutput.asideURL.path).\n".utf8))
+            }
+            throw error
         }
-        let preparedFASTA = fastaInput
-            ? try await FastqDemultiplexSequenceFormat.prepareFASTA(inputURL: inputURL, outputDirectory: outputURL)
-            : nil
-
-        let config = configuration(input: preparedFASTA?.url ?? inputURL)
-        let startedAt = Date()
-        let result = try await pipeline.run(config: config) { fraction, message in
-            FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
-        }
+        earlierOutput?.discard()
         var cliArguments = ["demultiplex", resolvedInput.originalURL.path, "--kit", kit, "--output", output]
         if demultiplexEngine == .exactBareBarcode {
             cliArguments += ["--engine", demultiplexEngine.rawValue]
