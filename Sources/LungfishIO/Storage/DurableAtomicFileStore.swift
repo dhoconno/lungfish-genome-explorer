@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import LungfishCore
 
 /// Exclusively publishes immutable files and makes both file contents and the
 /// containing directory entry durable before returning.
@@ -127,7 +128,7 @@ public struct DurableAtomicFileStore: Sendable {
                     )
                 },
             renameExclusive: @escaping ExclusiveRenamer = {
-                PortableExclusiveRename.renameatxNP($0, $1, $2, $3, $4)
+                PortableRename.renameatxNP($0, $1, $2, $3, $4)
             }
         ) {
             self.syncFile = syncFile
@@ -273,10 +274,10 @@ public struct DurableAtomicFileStore: Sendable {
                 }
             }
             if renameStatus != 0,
-               PortableExclusiveRename.isUnsupportedExclusiveRename(errno) {
+               PortableRename.isUnsupportedExclusiveRename(errno) {
                 renameStatus = temporaryName.withCString { temporary in
                     fileName.withCString { destination in
-                        PortableExclusiveRename.fallbackExclusiveRename(
+                        PortableRename.fallbackExclusiveRename(
                             directoryDescriptor,
                             temporary,
                             directoryDescriptor,
@@ -413,7 +414,7 @@ public struct DurableAtomicFileStore: Sendable {
         let quarantineURL = directoryURL.appendingPathComponent(quarantineName)
         let renameStatus = fileName.withCString { source in
             quarantineName.withCString { quarantine in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     directoryDescriptor,
                     source,
                     directoryDescriptor,
@@ -441,7 +442,7 @@ public struct DurableAtomicFileStore: Sendable {
             // otherwise leave the quarantine as recoverable evidence.
             let restoreStatus = quarantineName.withCString { quarantine in
                 fileName.withCString { destination in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         directoryDescriptor,
                         quarantine,
                         directoryDescriptor,

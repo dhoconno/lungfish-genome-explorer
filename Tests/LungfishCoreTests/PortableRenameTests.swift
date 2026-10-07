@@ -1,15 +1,15 @@
 import Darwin
 import Foundation
 import XCTest
-@testable import LungfishIO
+@testable import LungfishCore
 
-final class PortableExclusiveRenameTests: XCTestCase {
+final class PortableRenameTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "PortableExclusiveRenameTests-\(UUID().uuidString)",
+                "PortableRenameTests-\(UUID().uuidString)",
                 isDirectory: true
             )
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -25,7 +25,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let fallbackDestination = root.appendingPathComponent("fallback")
 
         let native = withPaths(source, nativeDestination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -37,7 +37,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         XCTAssertEqual(native, .init(status: 0, mechanism: .nativeExclusive))
 
         let fallback = withPaths(source, fallbackDestination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -60,7 +60,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let observedDescriptor = LockedValue<Int32?>(nil)
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -90,7 +90,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let expected = try descriptorInfo(descriptor)
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -108,7 +108,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         mismatched.st_size += 1
         let invalidDestination = root.appendingPathComponent("invalid")
         let invalid = withPaths(destination, invalidDestination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -140,7 +140,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let renameObservedFinalValidation = LockedValue(false)
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -203,7 +203,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let finalValidationWasCalled = LockedValue(false)
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -245,7 +245,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let destination = try makeFile("destination", contents: "existing")
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -274,7 +274,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let displacedReservation = root.appendingPathComponent("displaced-reservation")
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -310,7 +310,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let expected = try descriptorInfo(descriptor)
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -341,7 +341,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let displacedReservation = root.appendingPathComponent("displaced-reservation")
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -374,7 +374,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let destination = root.appendingPathComponent("destination")
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -415,7 +415,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let afterFinalValidationWasCalled = LockedValue(false)
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -456,7 +456,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let removalWasCalled = LockedValue(false)
 
         let outcome = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -489,7 +489,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
         let source = try makeFile("source", contents: "payload")
         let destination = root.appendingPathComponent("destination")
         let success = withPaths(source, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNP(
+            PortableRename.renameatxNP(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,
@@ -501,7 +501,7 @@ final class PortableExclusiveRenameTests: XCTestCase {
 
         let secondSource = try makeFile("second-source", contents: "other")
         let failure = withPaths(secondSource, destination) { sourcePath, destinationPath in
-            PortableExclusiveRename.renameatxNP(
+            PortableRename.renameatxNP(
                 AT_FDCWD,
                 sourcePath,
                 AT_FDCWD,

@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import LungfishIO
+import LungfishCore
 
 public enum ProjectOperationHistoryWriterError: Error, LocalizedError, Equatable {
     case unsafeProject(String)
@@ -178,7 +179,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
             try operations.beforePublish(stagingURL, operationURL)
             let renameStatus = stagingName.withCString { staging in
                 operationName.withCString { final in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         descriptors.history,
                         staging,
                         descriptors.history,
@@ -370,7 +371,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
             .appendingPathComponent(quarantineName, isDirectory: true)
         let detachStatus = stagingName.withCString { staging in
             quarantineName.withCString { quarantine in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     historyDescriptor,
                     staging,
                     historyDescriptor,
@@ -401,7 +402,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
               FileSystemObjectIdentity(from: quarantineInfo) == expectedIdentity else {
             let restoreStatus = quarantineName.withCString { quarantine in
                 stagingName.withCString { staging in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         historyDescriptor,
                         quarantine,
                         historyDescriptor,

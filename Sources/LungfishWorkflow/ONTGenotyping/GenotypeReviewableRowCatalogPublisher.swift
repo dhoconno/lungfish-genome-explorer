@@ -2,6 +2,7 @@ import Darwin
 import CryptoKit
 import Foundation
 import LungfishIO
+import LungfishCore
 
 /// A workflow-neutral projection of a validated candidate authority.
 ///
@@ -789,7 +790,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         if previousIdentity != nil {
             renameStatus = stagingName.withCString { staging in
                 outputName.withCString { output in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         projectionsDescriptor,
                         staging,
                         projectionsDescriptor,
@@ -801,7 +802,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         } else {
             renameStatus = stagingName.withCString { staging in
                 outputName.withCString { output in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         projectionsDescriptor,
                         staging,
                         projectionsDescriptor,
@@ -955,7 +956,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                 try rollbackObserver(.beforeRestoreExchange)
                 let status = stagingName.withCString { staging in
                     outputName.withCString { output in
-                        PortableExclusiveRename.renameatxNP(
+                        PortableRename.renameatxNP(
                             directoryDescriptor,
                             staging,
                             directoryDescriptor,
@@ -1025,7 +1026,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                 try rollbackObserver(.beforeDetachNewOutput)
                 let status = outputName.withCString { output in
                     stagingName.withCString { staging in
-                        PortableExclusiveRename.renameatxNP(
+                        PortableRename.renameatxNP(
                             directoryDescriptor,
                             output,
                             directoryDescriptor,
@@ -1087,7 +1088,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
     ) throws {
         let status = sourceName.withCString { source in
             detachedName.withCString { detached in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     directoryDescriptor,
                     source,
                     directoryDescriptor,
@@ -1123,7 +1124,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
             .appendingPathComponent(terminalName)
         let terminalStatus = detachedName.withCString { detached in
             terminalName.withCString { terminal in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     directoryDescriptor,
                     detached,
                     directoryDescriptor,
@@ -1143,7 +1144,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         ) == expectedIdentity else {
             _ = terminalName.withCString { terminal in
                 detachedName.withCString { detached in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         directoryDescriptor,
                         terminal,
                         directoryDescriptor,

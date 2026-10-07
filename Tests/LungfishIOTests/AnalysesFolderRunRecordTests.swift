@@ -105,8 +105,8 @@ final class AnalysesFolderRunRecordTests: XCTestCase {
         XCTAssertTrue(AnalysisRunRecord.isIncomplete(runDirectory))
     }
 
-    private static func operationsRejectingExclusiveRename() -> PortableExclusiveRename.Operations {
-        PortableExclusiveRename.Operations(nativeRename: { _, _, _, _, flags in
+    private static func operationsRejectingExclusiveRename() -> PortableRename.Operations {
+        PortableRename.Operations(nativeRename: { _, _, _, _, flags in
             if flags == UInt32(RENAME_EXCL) {
                 errno = ENOTSUP
                 return -1

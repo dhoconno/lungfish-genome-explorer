@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 
 enum ONTGenotypeWorkbookCleanupStateStore {
     struct SurvivorAuthority {
@@ -1030,7 +1031,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
     ) throws {
         let displayedEntry = directoryURL.appendingPathComponent(name)
         let sourceDescriptor: Int32
-        let sourceWitness: PortableExclusiveRename.RegularSourceWitness?
+        let sourceWitness: PortableRename.RegularSourceWitness?
         if before.st_mode & S_IFMT == S_IFREG {
             sourceDescriptor = retryOnInterruption {
                 name.withCString {
@@ -1067,7 +1068,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                     detail: "Quarantine entry \(name) changed before it could be opened."
                 )
             }
-            sourceWitness = PortableExclusiveRename.RegularSourceWitness(
+            sourceWitness = PortableRename.RegularSourceWitness(
                 descriptor: sourceDescriptor,
                 expected: opened
             )

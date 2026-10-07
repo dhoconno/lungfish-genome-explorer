@@ -1108,7 +1108,7 @@ public enum MappingViewerBundlePublicationService {
             } else {
                 status = source.path.withCString { sourcePath in
                     destination.path.withCString { destinationPath in
-                        PortableExclusiveRename.renameatxNP(
+                        PortableRename.renameatxNP(
                             AT_FDCWD,
                             sourcePath,
                             AT_FDCWD,

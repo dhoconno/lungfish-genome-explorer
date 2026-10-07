@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 
 struct ONTGenotypeWorkbookCleanupOperations: Sendable {
     typealias RenameExclusive = @Sendable (
@@ -9,15 +10,15 @@ struct ONTGenotypeWorkbookCleanupOperations: Sendable {
         Int32,
         UnsafePointer<CChar>,
         UInt32,
-        PortableExclusiveRename.RegularSourceWitness?
-    ) -> PortableExclusiveRename.Outcome
+        PortableRename.RegularSourceWitness?
+    ) -> PortableRename.Outcome
 
     var renameExclusive: RenameExclusive
     var checkpoint: @Sendable (String) throws -> Void
 
     init(
         renameExclusive: @escaping RenameExclusive = {
-            PortableExclusiveRename.renameatxNPReporting(
+            PortableRename.renameatxNPReporting(
                 $0,
                 $1,
                 $2,

@@ -7,7 +7,7 @@ external drive. See docs/contracts/EXTERNAL-VOLUMES.md.
 
 Counts, under Sources/, of:
     exclusive-or-swap-rename   RENAME_EXCL or RENAME_SWAP passed to a raw rename call.
-                               A use within three lines of PortableExclusiveRename is
+                               A use within three lines of PortableRename is
                                not counted, because that helper falls back.
     clonefile                  clonefile, clonefileat, fclonefileat, COPYFILE_CLONE_FORCE
     hard-link                  link, linkat, FileManager.linkItem
@@ -15,7 +15,7 @@ Counts, under Sources/, of:
 
 Each count may only fall. Occurrences on comment lines (// or ///) and inside one-line
 string literals are ignored, and so is
-Sources/LungfishIO/Storage/PortableExclusiveRename.swift, the portable helper itself.
+Sources/LungfishCore/Storage/PortableRename*.swift, the portable helper itself.
 
 Baseline file: one "<name> <count>" line per pattern.
 
@@ -34,7 +34,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCES_DIR = REPO_ROOT / "Sources"
 BASELINE_FILE = Path(__file__).resolve().with_suffix(".baseline")
-EXEMPT = {"Sources/LungfishIO/Storage/PortableExclusiveRename.swift"}
+EXEMPT_PREFIX = "Sources/LungfishCore/Storage/PortableRename"
 HELPER_WINDOW = 3
 STRING_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')
 
@@ -53,7 +53,7 @@ def scan():
         return counts, sites
     for path in sorted(SOURCES_DIR.rglob("*.swift")):
         rel = path.relative_to(REPO_ROOT).as_posix()
-        if rel in EXEMPT:
+        if rel.startswith(EXEMPT_PREFIX):
             continue
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         for index, line in enumerate(lines):
@@ -64,7 +64,7 @@ def scan():
                 for _ in rx.finditer(code):
                     if name == "exclusive-or-swap-rename":
                         window = lines[max(0, index - HELPER_WINDOW):index + 1]
-                        if any("PortableExclusiveRename" in w for w in window):
+                        if any("PortableRename" in w for w in window):
                             continue
                     counts[name] += 1
                     sites.append(f"{rel}:{index + 1}: {name}")
@@ -118,7 +118,7 @@ def main(argv):
             )
         print(
             "These calls fail with ENOTSUP on ExFAT, the default format of most external SSDs. "
-            "Use PortableExclusiveRename or another portable path. "
+            "Use PortableRename (exclusive, swap or renameatxNP). "
             "See docs/contracts/EXTERNAL-VOLUMES.md.",
             file=sys.stderr,
         )

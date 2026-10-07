@@ -5,6 +5,7 @@
 import Foundation
 import Darwin
 import os.log
+import LungfishCore
 
 private let logger = Logger(subsystem: LogSubsystem.io, category: "ProjectTempDirectory")
 
@@ -75,7 +76,7 @@ public enum ProjectTempDirectory {
         static let defaultDetach: Detacher = { descriptor, source, destination in
             source.withCString { sourcePointer in
                 destination.withCString { destinationPointer in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         descriptor,
                         sourcePointer,
                         descriptor,

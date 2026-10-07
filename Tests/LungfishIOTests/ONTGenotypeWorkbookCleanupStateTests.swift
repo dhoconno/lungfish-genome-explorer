@@ -2,6 +2,7 @@
 import Darwin
 import Foundation
 import XCTest
+import LungfishCore
 
 final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
     func testZeroByteRebaseClassifierAcceptsDifferingBeforeAndAgreedPostSnapshots() {
@@ -116,7 +117,7 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
             flags,
             witness in
             let sourceName = String(cString: source)
-            var renameOperations = PortableExclusiveRename.Operations()
+            var renameOperations = PortableRename.Operations()
             renameOperations.nativeRename = { _, _, _, _, _ in
                 errno = ENOTSUP
                 return -1
@@ -130,7 +131,7 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
                 try? FileManager.default.moveItem(at: sourceURL, to: held)
                 try? bytes.write(to: sourceURL)
             }
-            return PortableExclusiveRename.renameatxNPReporting(
+            return PortableRename.renameatxNPReporting(
                 sourceParent,
                 source,
                 destinationParent,
@@ -280,12 +281,12 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
             destination,
             flags,
             witness in
-            var renameOperations = PortableExclusiveRename.Operations()
+            var renameOperations = PortableRename.Operations()
             renameOperations.nativeRename = { _, _, _, _, _ in
                 errno = ENOTSUP
                 return -1
             }
-            return PortableExclusiveRename.renameatxNPReporting(
+            return PortableRename.renameatxNPReporting(
                 sourceParent,
                 source,
                 destinationParent,
@@ -334,7 +335,7 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
             flags,
             witness in
             let sourceName = String(cString: source)
-            var renameOperations = PortableExclusiveRename.Operations()
+            var renameOperations = PortableRename.Operations()
             renameOperations.nativeRename = { _, _, _, _, _ in
                 errno = ENOTSUP
                 return -1
@@ -348,7 +349,7 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
                 try? FileManager.default.moveItem(at: sourceURL, to: held)
                 try? replacement.write(to: sourceURL)
             }
-            return PortableExclusiveRename.renameatxNPReporting(
+            return PortableRename.renameatxNPReporting(
                 sourceParent,
                 source,
                 destinationParent,
@@ -469,7 +470,7 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
 
     private func forcedFallbackOperations(
         observeWitness: @escaping @Sendable (
-            PortableExclusiveRename.RegularSourceWitness?
+            PortableRename.RegularSourceWitness?
         ) -> Void = { _ in }
     ) -> ONTGenotypeWorkbookCleanupOperations {
         var operations = ONTGenotypeWorkbookCleanupOperations.darwin
@@ -481,12 +482,12 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
             flags,
             witness in
             observeWitness(witness)
-            var renameOperations = PortableExclusiveRename.Operations()
+            var renameOperations = PortableRename.Operations()
             renameOperations.nativeRename = { _, _, _, _, _ in
                 errno = ENOTSUP
                 return -1
             }
-            return PortableExclusiveRename.renameatxNPReporting(
+            return PortableRename.renameatxNPReporting(
                 sourceParent,
                 source,
                 destinationParent,

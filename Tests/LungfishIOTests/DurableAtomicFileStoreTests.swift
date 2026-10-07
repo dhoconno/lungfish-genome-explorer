@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import XCTest
 @testable import LungfishIO
+import LungfishCore
 
 final class DurableAtomicFileStoreTests: XCTestCase {
     private var root: URL!
@@ -303,7 +304,7 @@ final class DurableAtomicFileStoreTests: XCTestCase {
 
         let status = source.path.withCString { sourcePath in
             destination.path.withCString { destinationPath in
-                PortableExclusiveRename.fallbackExclusiveRename(
+                PortableRename.fallbackExclusiveRename(
                     AT_FDCWD,
                     sourcePath,
                     AT_FDCWD,
@@ -332,7 +333,7 @@ final class DurableAtomicFileStoreTests: XCTestCase {
 
         let status = source.path.withCString { sourcePath in
             destination.path.withCString { destinationPath in
-                PortableExclusiveRename.fallbackExclusiveRename(
+                PortableRename.fallbackExclusiveRename(
                     AT_FDCWD,
                     sourcePath,
                     AT_FDCWD,

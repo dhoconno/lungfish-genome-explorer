@@ -6,6 +6,7 @@ import Foundation
 import Darwin
 import CryptoKit
 import LungfishIO
+import LungfishCore
 
 /// Filesystem identities captured after this transaction publishes its
 /// payload. A rollback may restore only artifacts that still match these
@@ -494,7 +495,7 @@ public struct ProvenancePublicationSnapshot {
     ) throws -> Bool {
         let result = sourceURL.path.withCString { sourcePath in
             destinationURL.path.withCString { destinationPath in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     AT_FDCWD,
                     sourcePath,
                     AT_FDCWD,

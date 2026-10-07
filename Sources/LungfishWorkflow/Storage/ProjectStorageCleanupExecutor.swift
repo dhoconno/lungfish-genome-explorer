@@ -2,6 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import LungfishIO
+import LungfishCore
 
 public struct ProjectStorageCleanupDispositionRecord:
     Codable,
@@ -257,7 +258,7 @@ public struct ProjectStorageCleanupExecutor: Sendable {
                     destination, flags in
                     source.withCString { sourcePointer in
                         destination.withCString { destinationPointer in
-                            PortableExclusiveRename.renameatxNP(
+                            PortableRename.renameatxNP(
                                 sourceParent,
                                 sourcePointer,
                                 destinationParent,

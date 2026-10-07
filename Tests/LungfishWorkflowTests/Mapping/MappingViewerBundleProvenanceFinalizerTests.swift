@@ -1063,7 +1063,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             exclusiveRename: { source, destination, flags in
                 let outcome = source.path.withCString { sourcePath in
                     destination.path.withCString { destinationPath in
-                        PortableExclusiveRename.renameatxNPReporting(
+                        PortableRename.renameatxNPReporting(
                             AT_FDCWD,
                             sourcePath,
                             AT_FDCWD,
@@ -2159,5 +2159,5 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
 
 private final class ExclusiveRenameObservation: @unchecked Sendable {
     var nativeFlags: [UInt32] = []
-    var mechanism: PortableExclusiveRename.Mechanism?
+    var mechanism: PortableRename.Mechanism?
 }

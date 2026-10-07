@@ -1014,7 +1014,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
             }
             let renameStatus = stagingName.withCString { stagingNamePointer in
                 operationName.withCString { operationNamePointer in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         collection,
                         stagingNamePointer,
                         collection,

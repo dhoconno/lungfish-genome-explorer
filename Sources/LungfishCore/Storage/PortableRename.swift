@@ -16,66 +16,84 @@ import Foundation
 /// unpredictable random tombstone name form the trust boundary for that gap;
 /// callers that detach cleanup entries must also validate the post-rename
 /// descriptor/path witnesses.
-public enum PortableExclusiveRename {
-    enum Mechanism: String, Equatable, Sendable {
+public enum PortableRename {
+    /// How a rename was carried out, for provenance and diagnostics.
+    public enum Mechanism: String, Equatable, Sendable {
+        /// One kernel `renameatx_np` with `RENAME_EXCL` (or no flag).
         case nativeExclusive = "renameatx_np"
+        /// The name was reserved exclusively, then replaced by an ordinary rename.
         case reservationFallback = "reservation-renameat"
+        /// One kernel `renameatx_np` with `RENAME_SWAP`.
+        case nativeSwap = "renameatx_np-swap"
+        /// Three exclusive renames through a hidden tombstone name. Not atomic,
+        /// see ``PortableRename/swap(_:_:)``.
+        case rotationFallback = "tombstone-rotation"
     }
 
-    struct Outcome: Equatable, Sendable {
-        let status: Int32
-        let mechanism: Mechanism
+    package struct Outcome: Equatable, Sendable {
+        package let status: Int32
+        package let mechanism: Mechanism
+
+        package init(status: Int32, mechanism: Mechanism) {
+            self.status = status
+            self.mechanism = mechanism
+        }
     }
 
     /// A borrowed regular-file descriptor and the metadata captured before the
     /// publication operation. The caller retains descriptor ownership.
-    struct RegularSourceWitness {
-        let descriptor: Int32
-        let expected: stat
+    package struct RegularSourceWitness {
+        package let descriptor: Int32
+        package let expected: stat
+
+        package init(descriptor: Int32, expected: stat) {
+            self.descriptor = descriptor
+            self.expected = expected
+        }
     }
 
-    struct Operations: Sendable {
-        typealias NativeRenamer = @Sendable (
+    package struct Operations: Sendable {
+        package typealias NativeRenamer = @Sendable (
             Int32,
             UnsafePointer<CChar>,
             Int32,
             UnsafePointer<CChar>,
             UInt32
         ) -> Int32
-        typealias OrdinaryRenamer = @Sendable (
+        package typealias OrdinaryRenamer = @Sendable (
             Int32,
             UnsafePointer<CChar>,
             Int32,
             UnsafePointer<CChar>
         ) -> Int32
-        typealias DirectoryReservationCreator = @Sendable (
+        package typealias DirectoryReservationCreator = @Sendable (
             Int32,
             UnsafePointer<CChar>,
             mode_t
         ) -> Int32
-        typealias PathInspector = @Sendable (
+        package typealias PathInspector = @Sendable (
             Int32,
             UnsafePointer<CChar>,
             UnsafeMutablePointer<stat>,
             Int32
         ) -> Int32
-        typealias DescriptorCloser = @Sendable (Int32) -> Int32
-        typealias EntryRemover = @Sendable (
+        package typealias DescriptorCloser = @Sendable (Int32) -> Int32
+        package typealias EntryRemover = @Sendable (
             Int32,
             UnsafePointer<CChar>,
             Int32
         ) -> Int32
 
-        var nativeRename: NativeRenamer
-        var ordinaryRename: OrdinaryRenamer
-        var createDirectoryReservation: DirectoryReservationCreator
-        var inspectDirectoryReservation: PathInspector
-        var closeDescriptor: DescriptorCloser
-        var removeEntry: EntryRemover
-        var afterReservationCreated: @Sendable () -> Void
-        var afterFinalWitnessValidation: @Sendable () -> Void
+        package var nativeRename: NativeRenamer
+        package var ordinaryRename: OrdinaryRenamer
+        package var createDirectoryReservation: DirectoryReservationCreator
+        package var inspectDirectoryReservation: PathInspector
+        package var closeDescriptor: DescriptorCloser
+        package var removeEntry: EntryRemover
+        package var afterReservationCreated: @Sendable () -> Void
+        package var afterFinalWitnessValidation: @Sendable () -> Void
 
-        init(
+        package init(
             nativeRename: @escaping NativeRenamer = {
                 Darwin.renameatx_np($0, $1, $2, $3, $4)
             },
@@ -107,7 +125,10 @@ public enum PortableExclusiveRename {
             self.afterFinalWitnessValidation = afterFinalWitnessValidation
         }
 
-        static let darwin = Operations()
+        /// The real system calls. A Debug build honours
+        /// `LUNGFISH_SIMULATE_UNSUPPORTED_RENAME_FLAGS=1`, which makes every
+        /// flagged rename take its fallback, as on ExFAT.
+        package static let darwin = Operations.forEnvironment(ProcessInfo.processInfo.environment)
     }
 
     public static func renameatxNP(
@@ -126,7 +147,7 @@ public enum PortableExclusiveRename {
         ).status
     }
 
-    static func renameatxNPReporting(
+    package static func renameatxNPReporting(
         _ sourceParent: Int32,
         _ sourceName: UnsafePointer<CChar>,
         _ destinationParent: Int32,
@@ -145,9 +166,18 @@ public enum PortableExclusiveRename {
             )
         }
         guard status != 0 else {
-            return Outcome(status: 0, mechanism: .nativeExclusive)
+            return Outcome(status: 0, mechanism: flags == UInt32(RENAME_SWAP) ? .nativeSwap : .nativeExclusive)
         }
         let code = errno
+        if flags == UInt32(RENAME_SWAP), isUnsupportedExclusiveRename(code) {
+            return fallbackSwapReporting(
+                sourceParent,
+                sourceName,
+                destinationParent,
+                destinationName,
+                operations: operations
+            )
+        }
         guard flags == UInt32(RENAME_EXCL),
               isUnsupportedExclusiveRename(code) else {
             errno = code
@@ -181,7 +211,7 @@ public enum PortableExclusiveRename {
         ).status
     }
 
-    static func fallbackExclusiveRenameReporting(
+    package static func fallbackExclusiveRenameReporting(
         _ sourceParent: Int32,
         _ sourceName: UnsafePointer<CChar>,
         _ destinationParent: Int32,

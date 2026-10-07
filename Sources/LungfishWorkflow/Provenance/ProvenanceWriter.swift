@@ -5,6 +5,7 @@
 import Darwin
 import Foundation
 import LungfishIO
+import LungfishCore
 
 public struct ProvenanceWriter: Sendable {
     public static let provenanceFilename = ProvenanceRecorder.provenanceFilename
@@ -295,7 +296,7 @@ public struct ProvenanceWriter: Sendable {
                 )
                 let result = artifact.staged.path.withCString { sourcePath in
                     artifact.destination.path.withCString { destinationPath in
-                        PortableExclusiveRename.renameatxNP(
+                        PortableRename.renameatxNP(
                             AT_FDCWD,
                             sourcePath,
                             AT_FDCWD,
@@ -1031,7 +1032,7 @@ public struct ProvenanceWriter: Sendable {
     ) throws {
         let result = sourceURL.path.withCString { sourcePath in
             destinationURL.path.withCString { destinationPath in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     AT_FDCWD,
                     sourcePath,
                     AT_FDCWD,
@@ -1251,7 +1252,7 @@ public struct ProvenanceWriter: Sendable {
             )
         let quarantineResult = url.path.withCString { sourcePath in
             quarantineURL.path.withCString { quarantinePath in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     AT_FDCWD,
                     sourcePath,
                     AT_FDCWD,
@@ -1283,7 +1284,7 @@ public struct ProvenanceWriter: Sendable {
             let restoreResult = quarantineURL.path.withCString {
                 quarantinePath in
                 url.path.withCString { originalPath in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         AT_FDCWD,
                         quarantinePath,
                         AT_FDCWD,
@@ -1320,7 +1321,7 @@ public struct ProvenanceWriter: Sendable {
             let restoreResult = quarantineURL.path.withCString {
                 quarantinePath in
                 url.path.withCString { originalPath in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         AT_FDCWD,
                         quarantinePath,
                         AT_FDCWD,

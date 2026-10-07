@@ -427,7 +427,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             : stagedURL
         let status = finalURL.path.withCString { finalPath in
             quarantineURL.path.withCString { quarantinePath in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     AT_FDCWD,
                     finalPath,
                     AT_FDCWD,

@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 
 enum ONTGenotypeWorkbookCleanupRebaseClassifier {
     enum Decision: Equatable {
@@ -13,7 +14,7 @@ enum ONTGenotypeWorkbookCleanupRebaseClassifier {
         before: stat,
         postDescriptor: stat,
         postPath: stat,
-        mechanism: PortableExclusiveRename.Mechanism,
+        mechanism: PortableRename.Mechanism,
         originalNameIsAbsent: Bool
     ) -> Decision {
         guard originalNameIsAbsent,

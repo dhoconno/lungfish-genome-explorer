@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import LungfishCore
 
 public enum OwnedWorkDirectoryMarkerStore {
     public struct RollbackOperations: Sendable {
@@ -622,7 +623,7 @@ public enum OwnedWorkDirectoryMarkerStore {
             .appendingPathComponent(quarantineName, isDirectory: true)
         let detachStatus = childName.withCString { source in
             quarantineName.withCString { quarantine in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     parentDescriptor,
                     source,
                     parentDescriptor,
@@ -653,7 +654,7 @@ public enum OwnedWorkDirectoryMarkerStore {
               FileSystemObjectIdentity(quarantineInfo) == expectedIdentity else {
             let restoreStatus = quarantineName.withCString { quarantine in
                 childName.withCString { destination in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         parentDescriptor,
                         quarantine,
                         parentDescriptor,

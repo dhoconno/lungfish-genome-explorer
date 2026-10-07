@@ -1411,7 +1411,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
         let rename: ONTGenotypeDirectoryRenamePrimitive = renamePrimitive ?? {
             sourceParent, sourceName, destinationParent, destinationName, flags in
-            PortableExclusiveRename.renameatxNP(
+            PortableRename.renameatxNP(
                 sourceParent,
                 sourceName,
                 destinationParent,
@@ -1757,7 +1757,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
         let rename: ONTGenotypeDirectoryRenamePrimitive = renamePrimitive ?? {
             sourceParent, sourceName, destinationParent, destinationName, flags in
-            PortableExclusiveRename.renameatxNP(sourceParent, sourceName, destinationParent, destinationName, flags)
+            PortableRename.renameatxNP(sourceParent, sourceName, destinationParent, destinationName, flags)
         }
         if rename(lhsParent, lhs.lastPathComponent, rhsParent, rhs.lastPathComponent, UInt32(RENAME_SWAP)) != 0 {
             let swapError = errno
@@ -2437,7 +2437,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         }
         let publishStatus = temporaryName.withCString { sourceName in
             url.lastPathComponent.withCString { destinationName in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     rootDescriptor,
                     sourceName,
                     rootDescriptor,

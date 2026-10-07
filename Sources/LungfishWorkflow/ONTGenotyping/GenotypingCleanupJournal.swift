@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import LungfishIO
+import LungfishCore
 
 enum GenotypingCleanupJournalEvent: Sendable {
     case beforeInitialCreation
@@ -158,7 +159,7 @@ enum GenotypingIdentityBoundCleanup {
             let originalURL = URL(fileURLWithPath: entry.path)
             let status = quarantineURL.path.withCString { source in
                 originalURL.path.withCString { destination in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         AT_FDCWD,
                         source,
                         AT_FDCWD,
@@ -196,7 +197,7 @@ enum GenotypingIdentityBoundCleanup {
             )
         let detachStatus = originalURL.path.withCString { source in
             quarantineURL.path.withCString { quarantine in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     AT_FDCWD,
                     source,
                     AT_FDCWD,
@@ -229,7 +230,7 @@ enum GenotypingIdentityBoundCleanup {
         guard detachedIdentity == entry.identity else {
             let restoreStatus = quarantineURL.path.withCString { source in
                 originalURL.path.withCString { destination in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         AT_FDCWD,
                         source,
                         AT_FDCWD,
@@ -254,7 +255,7 @@ enum GenotypingIdentityBoundCleanup {
         } catch {
             let restoreStatus = quarantineURL.path.withCString { source in
                 originalURL.path.withCString { destination in
-                    PortableExclusiveRename.renameatxNP(
+                    PortableRename.renameatxNP(
                         AT_FDCWD,
                         source,
                         AT_FDCWD,

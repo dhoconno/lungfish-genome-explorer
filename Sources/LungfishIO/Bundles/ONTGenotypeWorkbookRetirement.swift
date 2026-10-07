@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 
 // Retirement is performed under the bundle publication lock; that lock is the
 // cooperative boundary for bundle-parent entries. Detached attestations also
@@ -110,7 +111,7 @@ enum ONTGenotypeWorkbookRetirement {
             ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
         let detached = url.lastPathComponent.withCString { sourceName in
             tombstone.withCString { destinationName in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     parentDescriptor,
                     sourceName,
                     parentDescriptor,
@@ -155,7 +156,7 @@ enum ONTGenotypeWorkbookRetirement {
             ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
         let redetached = tombstone.withCString { sourceName in
             finalTombstone.withCString { destinationName in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     parentDescriptor,
                     sourceName,
                     parentDescriptor,
@@ -218,7 +219,7 @@ enum ONTGenotypeWorkbookRetirement {
             ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
         let detached = name.withCString { sourceName in
             tombstone.withCString { destinationName in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     parentDescriptor,
                     sourceName,
                     parentDescriptor,
@@ -274,7 +275,7 @@ enum ONTGenotypeWorkbookRetirement {
             ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
         let redetached = tombstone.withCString { sourceName in
             finalTombstone.withCString { destinationName in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     parentDescriptor,
                     sourceName,
                     parentDescriptor,
@@ -331,7 +332,7 @@ enum ONTGenotypeWorkbookRetirement {
     ) throws {
         let restored = tombstone.withCString { sourceName in
             original.withCString { destinationName in
-                PortableExclusiveRename.renameatxNP(
+                PortableRename.renameatxNP(
                     parentDescriptor,
                     sourceName,
                     parentDescriptor,

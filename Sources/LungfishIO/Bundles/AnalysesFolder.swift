@@ -171,7 +171,7 @@ public enum AnalysesFolder {
         isBatch: Bool = false,
         date: Date = Date(),
         command: String? = nil,
-        renameOperations: PortableExclusiveRename.Operations
+        renameOperations: PortableRename.Operations
     ) throws -> URL {
         let analysesDir = try url(for: projectURL)
         let timestamp = formatTimestamp(date)
@@ -203,7 +203,7 @@ public enum AnalysesFolder {
                 analysisURL.path.withCString { destination in
                     // ExFAT, FAT and SMB volumes reject RENAME_EXCL with
                     // ENOTSUP, and the portable rename falls back for them.
-                    PortableExclusiveRename.renameatxNPReporting(
+                    PortableRename.renameatxNPReporting(
                         AT_FDCWD, source, AT_FDCWD, destination, UInt32(RENAME_EXCL),
                         operations: renameOperations
                     ).status
