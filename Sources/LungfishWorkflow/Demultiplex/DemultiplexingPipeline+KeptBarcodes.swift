@@ -6,9 +6,9 @@ import Foundation
 import LungfishIO
 
 extension DemultiplexingPipeline {
-    /// The trims a barcode bundle of a run that keeps barcodes carries: for
-    /// each listed read and mate, the trim its input bundle recorded, so the
-    /// bundle materializes the reads that were demultiplexed (L5 item 2).
+    /// The trims a barcode bundle of a run that keeps barcodes carries. For
+    /// each listed read and mate it is the trim its input bundle recorded, so
+    /// the bundle materializes the reads that were demultiplexed (L5 item 2).
     ///
     /// cutadapt's info file lists every barcode match whatever `--action`
     /// was, and virtual bundles used to take those matches as trims under

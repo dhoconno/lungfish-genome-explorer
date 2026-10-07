@@ -150,7 +150,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         try fm.createDirectory(at: demuxOutputDir, withIntermediateDirectories: true)
 
         let usesPlainObservedTemporaryOutputs = usesObservedCustomBarcodePairs(config)
-        let temporaryFASTQExtension = usesPlainObservedTemporaryOutputs ? "fastq" : "fastq.gz"
+        // A file that holds mates is read again beside cutadapt's outputs to
+        // place both mates of each fragment, so its outputs stay plain (A9, D6).
+        let readLayout = try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ)
+        let placesMates = readLayout.isPaired
+        let temporaryFASTQExtension = usesPlainObservedTemporaryOutputs || placesMates ? "fastq" : "fastq.gz"
         let outputPattern = demuxOutputDir
             .appendingPathComponent("{name}.\(temporaryFASTQExtension)").path
         let unassignedPath = demuxOutputDir
@@ -216,7 +220,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             in: demuxOutputDir,
             temporaryFASTQExtension: temporaryFASTQExtension
         )
-        if usesPlainObservedTemporaryOutputs {
+        if usesPlainObservedTemporaryOutputs && !placesMates {
             try gzipPlainDemuxOutputs(in: demuxOutputDir)
         }
 
@@ -424,6 +428,20 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             }
         }
 
+        // Both mates of each fragment follow the fragment's call (A9, D6).
+        var mateCalls: DemultiplexMateCalls?
+        if placesMates {
+            progress(0.79, "Placing both mates of each fragment by the fragment's barcode...")
+            mateCalls = try DemultiplexMatePass(
+                inputFASTQ: inputFASTQ,
+                outputDirectory: demuxOutputDir,
+                unassignedName: "unassigned"
+            ).run().summary
+            if !isVirtualMode {
+                try gzipPlainDemuxOutputs(in: demuxOutputDir)
+            }
+        }
+
         progress(0.80, "Creating bundles...")
 
         // Step 5: Create virtual per-barcode .lungfishfastq bundles (15% progress)
@@ -528,6 +546,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 let capturedLineageBundleURL = lineageBundleURL
                 let capturedInputFASTQ = inputFASTQ
                 let capturedTrimBarcodes = config.trimBarcodes
+                let capturedPlacesMates = placesMates
                 group.addTask { [self] in
                     try Task.checkCancellation()
 
@@ -561,6 +580,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
                     let readIDContent = try String(contentsOf: readIDsURL, encoding: .utf8)
                     let orderedReadIDs = readIDContent.split(separator: "\n").map(String.init)
+                    // A /1 or /2 mate is listed by its whole ID, while trims,
+                    // orientations and the root rebuild key a read by its
+                    // fragment (A9, D6).
+                    let fragmentIDs = orderedReadIDs.map(Self.fragmentID(ofListedID:))
 
                     let cutadaptOrientMap = try await self.readCutadaptOrientations(from: file.url)
                     let finalOrientMap = self.composeFinalOrientMap(
@@ -577,9 +600,17 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         parentTrimMap: capturedParentTrimMap,
                         parentOrientMap: capturedParentOrientMap
                     )
+                    if capturedPlacesMates {
+                        // A mate placed with its fragment in another bundle leaves its barcode trim here.
+                        let listedFragments = Set(fragmentIDs)
+                        allTrimEntries = allTrimEntries.filter { listedFragments.contains($0.readID) }
+                    }
                     var innerTrimKeys = Set(allTrimEntries.map { "\($0.readID)\t\($0.mate)" })
 
-                    if capturedTrimBarcodes, orderedReadIDs.count > allTrimEntries.count {
+                    // A mate placed by its fragment's call has no barcode trim
+                    // and needs none, so only a run that does not place mates
+                    // looks for trims cutadapt's info file missed.
+                    if capturedTrimBarcodes, !capturedPlacesMates, orderedReadIDs.count > allTrimEntries.count {
                         let derivedTrimEntries = try await self.deriveTrimEntriesByDiff(
                             originalFASTQ: capturedInputFASTQ,
                             trimmedFASTQ: file.url,
@@ -601,7 +632,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     // Add parent-only trims for reads in this barcode's output
                     // that weren't trimmed by the inner step's cutadapt
                     if !capturedParentTrimMap.isEmpty {
-                        for readID in orderedReadIDs {
+                        for readID in fragmentIDs {
                             // Try mate=0 (single-end) first, then mate 1 and 2 for PE
                             for mate in [0, 1, 2] {
                                 let key = "\(readID)\t\(mate)"
@@ -624,7 +655,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     // the barcodes (L5 item 2).
                     let bundleTrimEntries = capturedTrimBarcodes
                         ? allTrimEntries
-                        : self.parentTrimEntries(for: orderedReadIDs, parentTrimMap: capturedParentTrimMap)
+                        : self.parentTrimEntries(for: fragmentIDs, parentTrimMap: capturedParentTrimMap)
 
                     if capturedIsVirtual {
                         // Virtual mode: create a small preview alongside the read ID list,
@@ -679,7 +710,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                                 let url = capturedLineageBundleURL.appendingPathComponent(ReadAnnotationFile.filename)
                                 return FileManager.default.fileExists(atPath: url.path) ? url : nil
                             }()
-                            let readIDsForBarcode: Set<String> = Set(orderedReadIDs)
+                            let readIDsForBarcode: Set<String> = Set(orderedReadIDs).union(fragmentIDs)
                             let merged = try ReadAnnotationFile.mergeAndFilter(
                                 parentURL: parentAnnotURL,
                                 newAnnotations: annotations,
@@ -877,7 +908,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 bundleRelativePath: unassignedBundleURL?.lastPathComponent
             ),
             outputDirectoryRelativePath: ".",
-            inputReadCount: assignedReadCount + unassignedReadCount
+            inputReadCount: assignedReadCount + unassignedReadCount,
+            mateCalls: mateCalls
         )
 
         // Save manifest to output directory
@@ -2244,16 +2276,19 @@ extension DemultiplexingPipeline {
         cutadaptOrientMap: [String: String],
         readIDs: [String]
     ) -> [String: String] {
+        // Keyed by fragment, the key the materializer and the root rebuild
+        // look a read up by, so a /1 /2 mate is found (A9, D6).
         var result: [String: String] = [:]
         for readID in readIDs {
-            let parentOrientation = parentOrientMap[readID] ?? "+"
-            let cutadaptOrientation = cutadaptOrientMap[readID] ?? "+"
+            let fragment = Self.fragmentID(ofListedID: readID)
+            let parentOrientation = parentOrientMap[fragment] ?? parentOrientMap[readID] ?? "+"
+            let cutadaptOrientation = cutadaptOrientMap[fragment] ?? "+"
             let finalOrientation: String = if cutadaptOrientation == "-" {
                 parentOrientation == "-" ? "+" : "-"
             } else {
                 parentOrientation
             }
-            result[readID] = finalOrientation
+            result[fragment] = finalOrientation
         }
         return result
     }
@@ -2435,8 +2470,9 @@ extension DemultiplexingPipeline {
         guard !finalOrientMap.isEmpty else { return }
         var barcodeOrientRecords: [(readID: String, orientation: String)] = []
         for readID in orderedReadIDs {
-            if let orient = finalOrientMap[readID] {
-                barcodeOrientRecords.append((readID, orient))
+            let fragment = Self.fragmentID(ofListedID: readID)
+            if let orient = finalOrientMap[fragment] {
+                barcodeOrientRecords.append((fragment, orient))
             }
         }
         guard !barcodeOrientRecords.isEmpty else { return }

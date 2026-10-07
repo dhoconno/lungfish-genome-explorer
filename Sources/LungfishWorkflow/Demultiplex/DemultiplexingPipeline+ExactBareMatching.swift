@@ -77,6 +77,57 @@ extension DemultiplexingPipeline {
         let unassigned: ExactBareBarcodeAccumulator
         let totalReads: Int
         let assignedReads: Int
+        let mateCalls: DemultiplexMateCallCounter
+    }
+
+    /// Pairs adjacent mates while the exact-bare engine streams records, so
+    /// both mates of a fragment follow the fragment's call (A9, D6). Mates
+    /// are found by `FASTQReadLayoutClassifier.areMates`, the rule the
+    /// by-name split uses. A run of single reads places each record alone.
+    struct ExactBareMatePairer {
+        /// Records that go to one barcode, or to unassigned when `call` is nil.
+        struct Fragment {
+            let records: [FASTQRawRecord]
+            let call: Int?
+        }
+
+        let placesMates: Bool
+        private(set) var calls = DemultiplexMateCallCounter()
+        private var pending: (record: FASTQRawRecord, call: Int?)?
+
+        init(placesMates: Bool) {
+            self.placesMates = placesMates
+        }
+
+        /// Takes the next record and its own call, and returns the fragments ready to place.
+        mutating func add(_ record: FASTQRawRecord, call: Int?) -> [Fragment] {
+            guard placesMates else { return [Fragment(records: [record], call: call)] }
+            guard let previous = pending else {
+                pending = (record, call)
+                return []
+            }
+            if FASTQReadLayoutClassifier.areMates(Self.headerText(previous.record), Self.headerText(record)) {
+                pending = nil
+                let decision = DemultiplexFragmentCall.call(previous.call, call)
+                calls.count(decision.outcome)
+                return [Fragment(records: [previous.record, record], call: decision.call)]
+            }
+            pending = (record, call)
+            calls.countSingleRead()
+            return [Fragment(records: [previous.record], call: previous.call)]
+        }
+
+        /// Returns the last record when it had no mate.
+        mutating func finish() -> [Fragment] {
+            guard let previous = pending else { return [] }
+            pending = nil
+            calls.countSingleRead()
+            return [Fragment(records: [previous.record], call: previous.call)]
+        }
+
+        private static func headerText(_ record: FASTQRawRecord) -> String {
+            record.header.hasPrefix("@") ? String(record.header.dropFirst()) : record.header
+        }
     }
 
     struct ExactBareBarcodeMatcher: Sendable {

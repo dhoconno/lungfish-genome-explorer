@@ -37,6 +37,9 @@ extension DemultiplexingPipeline {
         }
 
         let isVirtualMode = config.rootBundleURL != nil && !config.captureTrimsForChaining
+        // Both mates of a fragment follow the fragment's call (A9, D6).
+        let placesMates = try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ).isPaired
+        var mateCalls = DemultiplexMateCallCounter()
         let outputCache = ExactBareFASTQOutputCache()
         defer { try? outputCache.closeAll() }
 
@@ -150,9 +153,39 @@ extension DemultiplexingPipeline {
                 return shardOutputDirectory.appendingPathComponent("\(name).fastq")
             }
 
+            func place(_ fragment: ExactBareMatePairer.Fragment) throws {
+                for record in fragment.records {
+                    if let barcodeIndex = fragment.call {
+                        shardBarcodeAccumulators[barcodeIndex].add(
+                            readID: record.readID,
+                            previewRecord: record,
+                            outputLength: record.sequence.count,
+                            trimEntry: nil
+                        )
+                        shardAssignedReads += 1
+
+                        if !isVirtualMode {
+                            let barcodeID = config.barcodeKit.barcodes[barcodeIndex].id
+                            try shardOutputCache.write(record, to: shardFASTQURL(for: barcodeID))
+                        }
+                    } else {
+                        shardUnassigned.add(
+                            readID: record.readID,
+                            previewRecord: record,
+                            outputLength: record.sequence.count,
+                            trimEntry: nil
+                        )
+                        if !isVirtualMode, config.unassignedDisposition == .keep {
+                            try shardOutputCache.write(record, to: shardFASTQURL(for: "unassigned"))
+                        }
+                    }
+                }
+            }
+
             let lines = inputURL.linesAutoDecompressing()
             var lineBuffer: [String] = []
             lineBuffer.reserveCapacity(4)
+            var pairer = ExactBareMatePairer(placesMates: placesMates)
 
             for try await line in lines {
                 if line.isEmpty && lineBuffer.isEmpty { continue }
@@ -168,30 +201,12 @@ extension DemultiplexingPipeline {
                 lineBuffer.removeAll(keepingCapacity: true)
                 shardTotalReads += 1
 
-                if let assignment = matcher.assignment(for: record.sequence) {
-                    shardBarcodeAccumulators[assignment.barcodeIndex].add(
-                        readID: record.readID,
-                        previewRecord: record,
-                        outputLength: record.sequence.count,
-                        trimEntry: nil
-                    )
-                    shardAssignedReads += 1
-
-                    if !isVirtualMode {
-                        let barcodeID = config.barcodeKit.barcodes[assignment.barcodeIndex].id
-                        try shardOutputCache.write(record, to: shardFASTQURL(for: barcodeID))
-                    }
-                } else {
-                    shardUnassigned.add(
-                        readID: record.readID,
-                        previewRecord: record,
-                        outputLength: record.sequence.count,
-                        trimEntry: nil
-                    )
-                    if !isVirtualMode, config.unassignedDisposition == .keep {
-                        try shardOutputCache.write(record, to: shardFASTQURL(for: "unassigned"))
-                    }
+                for fragment in pairer.add(record, call: matcher.assignment(for: record.sequence)?.barcodeIndex) {
+                    try place(fragment)
                 }
+            }
+            for fragment in pairer.finish() {
+                try place(fragment)
             }
 
             if !lineBuffer.isEmpty {
@@ -204,13 +219,15 @@ extension DemultiplexingPipeline {
                 barcodeAccumulators: shardBarcodeAccumulators,
                 unassigned: shardUnassigned,
                 totalReads: shardTotalReads,
-                assignedReads: shardAssignedReads
+                assignedReads: shardAssignedReads,
+                mateCalls: pairer.calls
             )
         }
 
         func mergeShard(_ shard: ExactBareBarcodeShardResult, shardRoot: URL?) throws {
             totalReads += shard.totalReads
             assignedReads += shard.assignedReads
+            mateCalls.add(shard.mateCalls)
 
             for index in barcodeAccumulators.indices {
                 let shardAccumulator = shard.barcodeAccumulators[index]
@@ -298,9 +315,39 @@ extension DemultiplexingPipeline {
         } else {
             progress(0.0, "Starting exact bare-barcode demultiplexing...")
 
+            func place(_ fragment: ExactBareMatePairer.Fragment) throws {
+                for record in fragment.records {
+                    if let barcodeIndex = fragment.call {
+                        barcodeAccumulators[barcodeIndex].add(
+                            readID: record.readID,
+                            previewRecord: record,
+                            outputLength: record.sequence.count,
+                            trimEntry: nil
+                        )
+                        assignedReads += 1
+
+                        if !isVirtualMode {
+                            let barcodeID = config.barcodeKit.barcodes[barcodeIndex].id
+                            try outputCache.write(record, to: fastqURL(for: barcodeID))
+                        }
+                    } else {
+                        unassigned.add(
+                            readID: record.readID,
+                            previewRecord: record,
+                            outputLength: record.sequence.count,
+                            trimEntry: nil
+                        )
+                        if !isVirtualMode, config.unassignedDisposition == .keep {
+                            try outputCache.write(record, to: fastqURL(for: "unassigned"))
+                        }
+                    }
+                }
+            }
+
             let lines = URL.multiFileLinesAutoDecompressing(inputURLs)
             var lineBuffer: [String] = []
             lineBuffer.reserveCapacity(4)
+            var pairer = ExactBareMatePairer(placesMates: placesMates)
 
             for try await line in lines {
                 if line.isEmpty && lineBuffer.isEmpty { continue }
@@ -327,31 +374,14 @@ extension DemultiplexingPipeline {
                     progress(estimatedFraction, "Processed \(totalReads) reads, \(assignedReads) assigned...")
                 }
 
-                if let assignment = matcher.assignment(for: record.sequence) {
-                    barcodeAccumulators[assignment.barcodeIndex].add(
-                        readID: record.readID,
-                        previewRecord: record,
-                        outputLength: record.sequence.count,
-                        trimEntry: nil
-                    )
-                    assignedReads += 1
-
-                    if !isVirtualMode {
-                        let barcodeID = config.barcodeKit.barcodes[assignment.barcodeIndex].id
-                        try outputCache.write(record, to: fastqURL(for: barcodeID))
-                    }
-                } else {
-                    unassigned.add(
-                        readID: record.readID,
-                        previewRecord: record,
-                        outputLength: record.sequence.count,
-                        trimEntry: nil
-                    )
-                    if !isVirtualMode, config.unassignedDisposition == .keep {
-                        try outputCache.write(record, to: fastqURL(for: "unassigned"))
-                    }
+                for fragment in pairer.add(record, call: matcher.assignment(for: record.sequence)?.barcodeIndex) {
+                    try place(fragment)
                 }
             }
+            for fragment in pairer.finish() {
+                try place(fragment)
+            }
+            mateCalls.add(pairer.calls)
 
             if !lineBuffer.isEmpty {
                 logger.warning("Input FASTQ had \(lineBuffer.count) trailing lines (incomplete record)")
@@ -512,7 +542,8 @@ extension DemultiplexingPipeline {
                 bundleRelativePath: unassignedBundleURL?.lastPathComponent
             ),
             outputDirectoryRelativePath: ".",
-            inputReadCount: totalReads
+            inputReadCount: totalReads,
+            mateCalls: placesMates ? mateCalls.summary : nil
         )
 
         try manifest.save(to: config.outputDirectory)

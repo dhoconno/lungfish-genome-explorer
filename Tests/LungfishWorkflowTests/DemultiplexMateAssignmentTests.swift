@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Both demultiplex engines called each record of an interleaved file on its
-// own, so the mates of one fragment landed in different bundles: a pair
+// own, so the mates of one fragment landed in different bundles. A pair
 // with an inline barcode on read 1 only had read 2 in unassigned, and a
 // pair whose mates carried different barcodes was split between them (A9,
 // D6). Virtual bundles then made it worse. With Casava names both mates
@@ -94,7 +94,7 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         }
     }
 
-    /// One record of a bundle: its fragment, its mate (0 for a single read) and its length.
+    /// One record of a bundle, with its fragment, its mate (0 for a single read) and its length.
     private struct Placed: Equatable, CustomStringConvertible {
         let fragment: String
         let mate: Int
@@ -122,7 +122,7 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         Placed(fragment: fragment, mate: mate, length: length)
     }
 
-    /// Reads of a bundle: its FASTQ when it holds one, else its reads materialized.
+    /// Reads of a bundle, its FASTQ when it holds one, else its reads materialized.
     private func placed(inBundle bundle: URL) async throws -> [Placed] {
         if FASTQBundle.loadDerivedManifest(in: bundle) == nil {
             return try await placed(in: try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle)))
@@ -158,6 +158,16 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         return try XCTUnwrap(result.outputBundleURLs.first { $0.lastPathComponent == "\(id).lungfishfastq" }, "a \(id) bundle")
     }
 
+    // MARK: - The rule
+
+    func testTheFragmentCallRule() {
+        XCTAssertTrue(DemultiplexFragmentCall.call("BC01", "BC01") == ("BC01", .bothMatesAgree))
+        XCTAssertTrue(DemultiplexFragmentCall.call("BC01", nil) == ("BC01", .oneMateCalled))
+        XCTAssertTrue(DemultiplexFragmentCall.call(nil, "BC02") == ("BC02", .oneMateCalled))
+        XCTAssertTrue(DemultiplexFragmentCall.call("BC01", "BC02") == (nil, .matesDisagree), "a pair whose mates disagree is unassigned")
+        XCTAssertTrue(DemultiplexFragmentCall.call(nil as String?, nil) == (nil, .neitherMateCalled))
+    }
+
     // MARK: - cutadapt, physical
 
     func testAPhysicalRunPlacesBothMatesOfEveryFragmentByItsCall() async throws {
@@ -189,6 +199,43 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         XCTAssertEqual(result.manifest.inputReadCount, 14)
         XCTAssertEqual(result.manifest.barcodes.map(\.readCount), [8, 2])
         XCTAssertEqual(result.manifest.unassigned.readCount, 4)
+        XCTAssertEqual(result.manifest.mateCalls, Self.fixtureMateCalls)
+    }
+
+    private static let fixtureMateCalls = DemultiplexMateCalls(
+        pairs: 7, bothMatesAgree: 2, oneMateCalled: 3, matesDisagree: 1, neitherMateCalled: 1, singleReads: 0
+    )
+
+    /// A file of single reads runs the command it ran before and records no mate calls.
+    func testASingleEndRunKeepsItsCommandAndRecordsNoMateCalls() async throws {
+        try await requireTools()
+        let project = try project()
+        let input = project.appendingPathComponent("single.fastq")
+        try Self.fastq(Self.pairs.map { Fragment(name: $0.name, mate1: $0.mate1, mate2: nil) }, .casava)
+            .write(to: input, atomically: true, encoding: .utf8)
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: input,
+                barcodeKit: try kit(),
+                outputDirectory: project.appendingPathComponent("Analyses/demux-single", isDirectory: true),
+                barcodeLocation: .fivePrime,
+                errorRate: 0.0,
+                minimumOverlap: 8,
+                trimBarcodes: true,
+                threads: 2
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertNil(result.manifest.mateCalls)
+        let command = try XCTUnwrap(result.nativeCommand)
+        XCTAssertTrue(
+            command.contains { $0.hasSuffix("/{name}.fastq.gz") },
+            "cutadapt still writes gzip outputs for single reads: \(command)"
+        )
+        XCTAssertEqual(result.manifest.barcodes.map(\.readCount), [5])
+        XCTAssertEqual(result.manifest.unassigned.readCount, 2)
     }
 
     // MARK: - cutadapt, virtual
@@ -225,6 +272,7 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         XCTAssertEqual(result.manifest.barcodes.map(\.barcodeID), ["BC01", "BC02"], file: file, line: line)
         XCTAssertEqual(result.manifest.barcodes.map(\.readCount), [8, 2], file: file, line: line)
         XCTAssertEqual(result.manifest.unassigned.readCount, 4, file: file, line: line)
+        XCTAssertEqual(result.manifest.mateCalls, Self.fixtureMateCalls, file: file, line: line)
         for (id, rows) in [("BC01", Self.expectedBC01), ("BC02", Self.expectedBC02), ("unassigned", Self.expectedUnassigned)] {
             let bundleURL = try bundle(result, id)
             let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundleURL), file: file, line: line)
@@ -280,6 +328,10 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         XCTAssertNil(result.outputBundleURLs.first { $0.lastPathComponent == "BC02.lungfishfastq" }, "no mate is left in BC02")
         let unassigned = try await placed(inBundle: try bundle(result, "unassigned"))
         XCTAssertEqual(unassigned, [p("merged_1", 0, 88), p("clash_0", 1, 60), p("clash_0", 2, 60)])
+        XCTAssertEqual(
+            result.manifest.mateCalls,
+            DemultiplexMateCalls(pairs: 2, bothMatesAgree: 0, oneMateCalled: 1, matesDisagree: 1, neitherMateCalled: 0, singleReads: 2)
+        )
     }
 
     // MARK: - The exact-bare engine
@@ -311,5 +363,6 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         XCTAssertEqual(unassigned, whole(Self.expectedUnassigned))
         XCTAssertEqual(result.manifest.barcodes.map(\.readCount), [8, 2])
         XCTAssertEqual(result.manifest.unassigned.readCount, 4)
+        XCTAssertEqual(result.manifest.mateCalls, Self.fixtureMateCalls)
     }
 }
