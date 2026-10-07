@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import Synchronization
 @testable import LungfishWorkflow
 import LungfishIO
 import LungfishTestSupport
@@ -233,6 +234,46 @@ final class FASTQIngestionPipelineTests: XCTestCase {
         XCTAssertTrue(result.processingCommandLine?.contains("quantize=0,8,13,22,27,32,37") == true, "\(result.processingCommandLine ?? "nil")")
         XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: result.outputFile), 4)
         XCTAssertEqual(try headers(in: result.outputFile), ["@pair1/1", "@pair1/2", "@pair2/1", "@pair2/2"])
+    }
+
+    /// A cancel used to miss the in-process scan that finds which records of
+    /// one file are mates, because it ran in a detached task, so a cancelled
+    /// `lungfish-cli` read the whole file and started clumpify before it
+    /// stopped. The app's runner kills the CLI five seconds after its
+    /// SIGTERM, which left the import's workspace behind (MSA session
+    /// follow-up).
+    func testACancelReachesTheMateScanOfOneFileBeforeClumpifyStarts() async throws {
+        let directory = try TestTempDirectory.make(prefix: "ingest-cancel-scan")
+        defer { TestTempDirectory.cleanup(directory) }
+        let input = directory.appendingPathComponent("pairs.fastq")
+        let records = (1...4).flatMap { spot in
+            [1, 2].map { "@f\(spot)/\($0)\nACGTACGT\n+\nIIIIIIII\n" }
+        }
+        try Data(records.joined().utf8).write(to: input)
+        let config = FASTQIngestionConfig(
+            inputFiles: [input],
+            pairingMode: .interleaved,
+            outputDirectory: directory.appendingPathComponent("out", isDirectory: true),
+            threads: 1,
+            deleteOriginals: false,
+            clumpingTool: .bbtools
+        )
+        let messages = Mutex<[String]>([])
+
+        _ = await Task.detached {
+            try? await FASTQIngestionPipeline().run(config: config, progress: { _, message in
+                messages.withLock { $0.append(message) }
+                if message == "Checking which reads are mates..." { withUnsafeCurrentTask { $0?.cancel() } }
+            })
+        }.value
+
+        let seen = messages.withLock { $0 }
+        XCTAssertTrue(seen.contains("Checking which reads are mates..."), "\(seen)")
+        XCTAssertFalse(seen.contains("Launching bbtools clumpify.sh..."), "the scan stops at the cancel: \(seen)")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: input.path),
+            "the input is never deleted by a cancelled run"
+        )
     }
 
     func testQuantizeArgumentMatchesClumpifyValues() {
