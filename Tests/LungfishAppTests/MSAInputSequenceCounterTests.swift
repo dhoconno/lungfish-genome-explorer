@@ -31,6 +31,20 @@ final class MSAInputSequenceCounterTests: XCTestCase {
         XCTAssertEqual(count, 2)
     }
 
+    /// MAFFT reads every file of a FASTQ bundle, so the count does too, every
+    /// chunk of a chunked root and both mate files of a paired derivative.
+    /// Before, it counted only the first file, chunk 0 or R1 (Phase 2.1 lane
+    /// L3).
+    func testCountsEveryFileOfABundleThatHoldsSeveral() async throws {
+        let readSets = try ReadSetFixtures(in: tempDir.appendingPathComponent("read-sets", isDirectory: true))
+        let chunked = await MSAInputSequenceCounter.sequenceCount(for: readSets.chunkedRoot)
+        XCTAssertEqual(chunked, 3)
+        let paired = await MSAInputSequenceCounter.sequenceCount(for: readSets.pairedDerivative)
+        XCTAssertEqual(paired, 4)
+        let total = await MSAInputSequenceCounter.sequenceCount(for: [readSets.chunkedRoot, readSets.pairedDerivative])
+        XCTAssertEqual(total, 7)
+    }
+
     // MARK: - Fixtures
 
     private func writeFASTA(named name: String, records: [String]) throws -> URL {
