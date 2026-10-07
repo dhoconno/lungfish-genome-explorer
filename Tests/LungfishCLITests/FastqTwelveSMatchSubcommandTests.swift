@@ -1,8 +1,37 @@
+import ArgumentParser
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
 final class FastqTwelveSMatchSubcommandTests: XCTestCase {
+    /// Re-review 2. The help says what the command reads, FASTQ files or
+    /// .lungfishfastq bundles of merged reads, unmerged pairs or both, that a
+    /// pair counts once when its mates agree, and that a file named inside a
+    /// bundle is read alone. Neither the help nor the refusal of no input
+    /// says the inputs must be merged reads.
+    func testHelpSaysWhatTheCommandReadsAndHowAPairCounts() throws {
+        let help = FastqTwelveSMatchSubcommand.helpMessage(columns: 400)
+
+        XCTAssertFalse(help.contains("Match merged 12S"), help)
+        XCTAssertFalse(help.contains("Merged FASTQ input"), help)
+        XCTAssertTrue(help.contains("OVERVIEW: Match 12S amplicon FASTQ reads to a deduplicated reference FASTA"), help)
+        XCTAssertTrue(help.contains("FASTQ files, plain or gzip-compressed, or .lungfishfastq bundles of merged reads, unmerged pairs or both"), help)
+        XCTAssertTrue(help.contains("A merged read counts once, and so does an unmerged pair whose mates agree."), help)
+        XCTAssertTrue(help.contains("A file named inside a bundle, such as SampleA.lungfishfastq/merged.fastq, is read alone"), help)
+
+        var command = try FastqTwelveSMatchSubcommand.parse([
+            "reads.fastq", "--reference", "reference.fa", "--output-dir", "out", "--output-name", "sample-12s",
+        ])
+        command.inputs = []
+        XCTAssertThrowsError(try command.validate()) { error in
+            XCTAssertEqual((error as? ValidationError)?.message, "At least one FASTQ file or .lungfishfastq bundle is required.")
+        }
+        XCTAssertEqual(
+            TwelveSAmpliconMatchingError.noInputs.errorDescription,
+            "At least one FASTQ file or .lungfishfastq bundle is required."
+        )
+    }
+
     func testFastqCommandRegistersTwelveSMatch() {
         let names = FastqCommand.configuration.subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("12s-match"))

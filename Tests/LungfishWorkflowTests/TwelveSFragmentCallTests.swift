@@ -87,4 +87,21 @@ final class TwelveSFragmentCallTests: XCTestCase {
             "each reason names its pairs in the number they take (review B, N1)"
         )
     }
+
+    /// A count of 1 names one fragment, one read or one pair, on the CLI's
+    /// stderr and in the Operations panel alike (re-review 2 follow-up).
+    func testFragmentSummarySaysOneFragmentAndOnePairForACountOfOne() {
+        XCTAssertEqual(
+            TwelveSAmpliconMatchingWorkflow.fragmentSummary(singleReads: 1, pairs: 0, discordantByReason: [:]),
+            "Counted 1 fragment, a merged or single read."
+        )
+        XCTAssertEqual(
+            TwelveSAmpliconMatchingWorkflow.fragmentSummary(singleReads: 0, pairs: 1, discordantByReason: [:]),
+            "Counted 1 fragment, 0 merged or single reads and 1 pair."
+        )
+        XCTAssertEqual(
+            TwelveSAmpliconMatchingWorkflow.fragmentSummary(singleReads: 1, pairs: 1, discordantByReason: [.differentTargets: 1]),
+            "Counted 2 fragments, 1 merged or single read and 1 pair. Left out 1 discordant pair (1 pair with different targets)."
+        )
+    }
 }

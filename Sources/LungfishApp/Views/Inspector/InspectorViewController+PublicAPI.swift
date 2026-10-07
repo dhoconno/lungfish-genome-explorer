@@ -607,13 +607,13 @@ extension InspectorViewController {
             count + row.sampleCounts.values.filter { $0 > 0 }.count
         }
         viewModel.twelveSResultDisplaySectionViewModel.update(isAvailable: true, state: currentDisplay)
-        viewModel.twelveSResultDisplaySectionViewModel.updateSummary(
-            TwelveSResultDisplaySummary(
-                rowLabel: "Target Rows",
-                visibleRows: targetRowCount,
-                totalRows: targetRowCount
-            )
-        )
+        // The viewport's own summaries are wired after this one, so it names the result's unit.
+        viewModel.twelveSResultDisplaySectionViewModel.updateSummary(TwelveSResultDisplaySummary(
+            rowLabel: "Target Rows",
+            visibleRows: targetRowCount,
+            totalRows: targetRowCount,
+            countUnit: TwelveSCountUnit(readFate: result.readFate)
+        ))
         viewModel.twelveSResultDisplaySectionViewModel.updateSamples(
             count: result.samples.count,
             metadata: result.sampleMetadata,

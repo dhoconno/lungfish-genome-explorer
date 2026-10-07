@@ -499,7 +499,7 @@ private struct WorkflowOperationsDetailPane: View {
                     labeledCompactTextField("Max Indels", value: $state.twelveSMaximumIndelBases)
                         .disabled(state.twelveSMatchingMode != .ontIndel)
                     Toggle("Run vsearch chimera review", isOn: $state.twelveSRunChimeraReview)
-                    Text("The 12S workflow expects merged FASTQ inputs; paired-read merging should be handled before import.")
+                    Text("Inputs are FASTQ files or .lungfishfastq bundles of merged reads, unmerged pairs or both. A merged read counts once, and so does an unmerged pair whose mates agree.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

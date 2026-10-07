@@ -141,7 +141,7 @@ enum WorkflowLibraryCatalog {
     static let twelveSAmpliconMatchingItem = WorkflowLibraryItem(
         id: twelveSAmpliconMatchingID,
         title: "12S Amplicon Matching",
-        subtitle: "Match merged 12S amplicon reads exactly to a deduplicated FASTA and review unresolved sequences.",
+        subtitle: "Match 12S amplicon reads exactly to a deduplicated FASTA and review unresolved sequences. Inputs are merged reads, unmerged pairs or both. A merged read counts once, and so does an unmerged pair whose mates agree.",
         categoryID: .classification,
         maturity: .specialized,
         requiredPluginPackIDs: ["lungfish-tools"],
