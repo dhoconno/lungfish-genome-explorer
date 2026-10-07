@@ -110,6 +110,30 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports").path))
     }
 
+    func testForceNeverLetsTheThirdFileReplaceThePairsBundle() async throws {
+        // f10-report.md, concern 1. The check leaves the third file out, so
+        // the pair and the third file are two samples of the run's name. With
+        // --force the third file imported second and replaced the pair's
+        // bundle with a bundle of its own reads.
+        let folder = try writeRun("SRR131", files: [
+            "SRR131_1.fastq": Self.records([("SRR131.1.1", 1), ("SRR131.2.1", 2)], bases: "ACGTACGT"),
+            "SRR131_2.fastq": Self.records([("SRR131.1.2", 1), ("SRR131.2.2", 2)], bases: "TTGGCCAA"),
+            "SRR131.fastq": Self.records([("SRR131.3.1", 3)], bases: "GATTACAG"),
+        ])
+
+        let run = try await runImport([folder.path], ["--force"])
+
+        XCTAssertNil(run.error, run.output)
+        XCTAssertEqual(
+            try Self.headers(in: try importedBundle("SRR131")),
+            ["SRR131.1.1 1", "SRR131.1.2 1", "SRR131.2.1 2", "SRR131.2.2 2"].map { "\($0) length=8" },
+            "the pair's bundle keeps the pair"
+        )
+        let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
+        XCTAssertEqual(skips.compactMap { $0["sample"] as? String }, ["SRR131"], run.output)
+        XCTAssertTrue((skips.first?["reason"] as? String)?.contains("An earlier sample of this import wrote it") == true, run.output)
+    }
+
     func testTheWindowsJSONOutputCarriesTheWarningAsANoticeEvent() async throws {
         let folder = try writeRun("SRR125", files: [
             "SRR125_1.fastq": Self.records([("SRR125.1.1", 1), ("SRR125.2.1", 2)], bases: "ACGTACGT"),
