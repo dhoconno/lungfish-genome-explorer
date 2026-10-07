@@ -154,7 +154,7 @@ public enum PortableRename {
         _ destinationName: UnsafePointer<CChar>,
         _ flags: UInt32,
         sourceWitness: RegularSourceWitness? = nil,
-        operations: Operations = .darwin
+        operations: Operations = .current
     ) -> Outcome {
         let status = retryOnInterruption {
             operations.nativeRename(
@@ -207,7 +207,7 @@ public enum PortableRename {
             destinationParent,
             destinationName,
             sourceWitness: nil,
-            operations: .darwin
+            operations: .current
         ).status
     }
 

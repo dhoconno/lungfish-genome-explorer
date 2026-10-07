@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public struct PrimerAnalysisSourceArtifact: Sendable {
@@ -177,7 +178,7 @@ public struct PrimerAnalysisBundleWriter: Sendable {
       try requireDirectoryIdentity(at: staging, expected: stagingIdentity)
       let status = stagingName.withCString { sourceName in
         request.destinationURL.lastPathComponent.withCString { destinationName in
-          renameatx_np(
+          PortableRename.renameatxNP(
             parentDescriptor, sourceName, parentDescriptor, destinationName, UInt32(RENAME_EXCL))
         }
       }

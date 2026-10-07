@@ -335,11 +335,10 @@ public struct PrimerAnalysisSelectionExportService: Sendable {
   public static func publishExclusively(stagedURL: URL, destinationURL: URL) throws {
     try Task.checkCancellation()
     try requireAbsent(destinationURL)
-    let status = stagedURL.path.withCString { source in destinationURL.path.withCString { destination in
-      renamex_np(source, destination, UInt32(RENAME_EXCL))
-    } }
-    guard status == 0 else {
-      throw PrimerAnalysisSelectionExportError.unavailable("Could not publish the new reference without replacing existing data: \(String(cString: strerror(errno))).")
+    do {
+      try PortableRename.exclusive(stagedURL, to: destinationURL)
+    } catch {
+      throw PrimerAnalysisSelectionExportError.unavailable("Could not publish the new reference without replacing existing data: \(String(cString: strerror((error as? POSIXError)?.code.rawValue ?? EIO))).")
     }
   }
 

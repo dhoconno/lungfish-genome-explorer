@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 import XCTest
 
+@testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
@@ -228,6 +229,45 @@ final class PrimerAnalysisBundleWriterTests: XCTestCase {
       try PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil))
         .write(request))
     XCTAssertEqual(try Data(contentsOf: sentinelURL), sentinel)
+  }
+
+  /// ExFAT, the default format of external SSDs, rejects RENAME_EXCL.
+  func testPublishesAndStillRefusesCollisionsOnAVolumeWithoutExclusiveRename() throws {
+    let root = canonicalTemporaryDirectory().appendingPathComponent(
+      UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let source = root.appendingPathComponent("source.bin")
+    try Data("opaque output\n".utf8).write(to: source)
+    let destination = root.appendingPathComponent(
+      "analysis.lungfishprimeranalysis", isDirectory: true)
+    let writer = PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil))
+
+    try PortableRename.simulatingUnsupportedFlags {
+      let bundle = try writer.write(try makeRequest(source: source, destination: destination))
+      XCTAssertEqual(bundle.url.standardizedFileURL, destination.standardizedFileURL)
+      XCTAssertThrowsError(try writer.write(try makeRequest(source: source, destination: destination)))
+    }
+    XCTAssertNoThrow(try PrimerAnalysisBundle.load(from: destination))
+  }
+
+  /// Run with `scripts/testing/exfat-tests.sh`.
+  func testPublishesOnExFAT() throws {
+    guard let volume = ProcessInfo.processInfo.environment["LUNGFISH_EXFAT_TEST_ROOT"], !volume.isEmpty else {
+      throw XCTSkip("Set LUNGFISH_EXFAT_TEST_ROOT to an ExFAT volume root to run this test.")
+    }
+    let root = URL(fileURLWithPath: volume, isDirectory: true)
+      .appendingPathComponent("primer-writer-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = root.appendingPathComponent("source.bin")
+    try Data("opaque output\n".utf8).write(to: source)
+    let destination = root.appendingPathComponent("analysis.lungfishprimeranalysis", isDirectory: true)
+
+    let bundle = try PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil))
+      .write(try makeRequest(source: source, destination: destination))
+
+    XCTAssertEqual(bundle.url.standardizedFileURL, destination.standardizedFileURL)
   }
 
   func testRelocatedBundleReopensAfterSourcesAreDeleted() throws {

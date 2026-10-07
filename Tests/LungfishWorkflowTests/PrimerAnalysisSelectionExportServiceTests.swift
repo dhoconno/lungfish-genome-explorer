@@ -1,11 +1,45 @@
 import Foundation
 import Darwin
 import XCTest
-import LungfishCore
+@testable import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
 
 final class PrimerAnalysisSelectionExportServiceTests: XCTestCase {
+  /// ExFAT, the default format of external SSDs, rejects RENAME_EXCL.
+  func testPublishExclusivelyWorksOnAVolumeWithoutExclusiveRename() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let staged = root.appendingPathComponent(".primer-selection-staged", isDirectory: true)
+    try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
+    try Data("ref".utf8).write(to: staged.appendingPathComponent("marker"))
+    let destination = root.appendingPathComponent("selection.lungfishref", isDirectory: true)
+
+    try PortableRename.simulatingUnsupportedFlags {
+      try PrimerAnalysisSelectionExportService.publishExclusively(stagedURL: staged, destinationURL: destination)
+    }
+
+    XCTAssertEqual(try Data(contentsOf: destination.appendingPathComponent("marker")), Data("ref".utf8))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path))
+  }
+
+  /// Run with `scripts/testing/exfat-tests.sh`.
+  func testPublishExclusivelyOnExFAT() throws {
+    guard let volume = ProcessInfo.processInfo.environment["LUNGFISH_EXFAT_TEST_ROOT"], !volume.isEmpty else {
+      throw XCTSkip("Set LUNGFISH_EXFAT_TEST_ROOT to an ExFAT volume root to run this test.")
+    }
+    let root = URL(fileURLWithPath: volume, isDirectory: true)
+      .appendingPathComponent("primer-export-\(UUID().uuidString)", isDirectory: true)
+    let staged = root.appendingPathComponent(".primer-selection-staged", isDirectory: true)
+    try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let destination = root.appendingPathComponent("selection.lungfishref", isDirectory: true)
+
+    try PrimerAnalysisSelectionExportService.publishExclusively(stagedURL: staged, destinationURL: destination)
+
+    XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
+  }
+
   func testPrimerFASTARetainsStoredReverseOligoOrientationAndAlternatives() throws {
     let fixture = try makeFixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }

@@ -9,24 +9,53 @@ extension PortableRename.Operations {
     package static func forEnvironment(_ environment: [String: String]) -> PortableRename.Operations {
         #if DEBUG
         if environment[simulateUnsupportedFlagsVariable] == "1" {
-            return PortableRename.Operations(nativeRename: { sourceParent, sourceName, destinationParent, destinationName, flags in
-                guard flags == 0 else {
-                    errno = ENOTSUP
-                    return -1
-                }
-                return Darwin.renameatx_np(sourceParent, sourceName, destinationParent, destinationName, 0)
-            })
+            return unsupportedFlags
         }
         #endif
         return PortableRename.Operations()
     }
+
+    /// The system calls of a volume without `RENAME_EXCL` or `RENAME_SWAP`.
+    package static let unsupportedFlags = PortableRename.Operations(
+        nativeRename: { sourceParent, sourceName, destinationParent, destinationName, flags in
+            guard flags == 0 else {
+                errno = ENOTSUP
+                return -1
+            }
+            return Darwin.renameatx_np(sourceParent, sourceName, destinationParent, destinationName, 0)
+        }
+    )
+}
+
+extension PortableRename.Operations {
+    /// The operations every rename uses: ``darwin`` unless a test has
+    /// overridden them for the current task.
+    package static var current: PortableRename.Operations {
+        PortableRename.overrideOperations ?? .darwin
+    }
 }
 
 extension PortableRename {
+    /// Replaces the system calls for the current task and the synchronous
+    /// calls it makes. Tests use ``simulatingUnsupportedFlags(_:)``.
+    @TaskLocal package static var overrideOperations: Operations?
+
+    /// Runs `body` as if the volume were ExFAT: every rename with
+    /// `RENAME_EXCL` or `RENAME_SWAP` takes its fallback.
+    package static func simulatingUnsupportedFlags<Result>(_ body: () throws -> Result) rethrows -> Result {
+        try $overrideOperations.withValue(Operations.unsupportedFlags, operation: body)
+    }
+
+    package static func simulatingUnsupportedFlags<Result>(
+        _ body: () async throws -> Result
+    ) async rethrows -> Result {
+        try await $overrideOperations.withValue(Operations.unsupportedFlags, operation: body)
+    }
+
     /// Exchanges two existing entries, as `RENAME_SWAP` does.
     @discardableResult
     public static func swap(_ first: URL, _ second: URL) throws -> Mechanism {
-        try swap(first, second, operations: .darwin)
+        try swap(first, second, operations: .current)
     }
 
     package static func swap(_ first: URL, _ second: URL, operations: Operations) throws -> Mechanism {
@@ -36,7 +65,7 @@ extension PortableRename {
     /// Moves `source` to `destination`, refusing to replace an existing entry.
     @discardableResult
     public static func exclusive(_ source: URL, to destination: URL) throws -> Mechanism {
-        try exclusive(source, to: destination, operations: .darwin)
+        try exclusive(source, to: destination, operations: .current)
     }
 
     package static func exclusive(_ source: URL, to destination: URL, operations: Operations) throws -> Mechanism {
@@ -117,7 +146,7 @@ extension PortableRename {
     @discardableResult
     public static func recoverInterruptedSwaps(in directory: URL) -> [URL] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return restoreTombstones(names.sorted(), in: directory, operations: .darwin)
+        return restoreTombstones(names.sorted(), in: directory, operations: .current)
     }
 
     /// Restores interrupted swaps anywhere under `projectURL`, at most
@@ -139,7 +168,7 @@ extension PortableRename {
             tombstonesByDirectory[url.deletingLastPathComponent(), default: []].append(name)
         }
         return tombstonesByDirectory.keys.sorted { $0.path < $1.path }.flatMap { directory in
-            restoreTombstones(tombstonesByDirectory[directory, default: []].sorted(), in: directory, operations: .darwin)
+            restoreTombstones(tombstonesByDirectory[directory, default: []].sorted(), in: directory, operations: .current)
         }
     }
 
