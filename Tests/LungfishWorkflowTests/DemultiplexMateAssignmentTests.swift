@@ -36,10 +36,15 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
 
     // MARK: - Fixture
 
-    enum Naming { case casava, slash }
+    enum Naming { case casava, slash, identical }
 
     private static let bc01 = "ACGTTGCA"
     private static let bc02 = "TTGGCCAA"
+
+    private static func reverseComplement(_ sequence: String) -> String {
+        let complement: [Character: Character] = ["A": "T", "C": "G", "G": "C", "T": "A"]
+        return String(sequence.reversed().map { complement[$0] ?? "N" })
+    }
 
     /// `length` bases of GATTACA repeated, starting at `offset`.
     private static func insert(_ offset: Int, _ length: Int) -> String {
@@ -67,6 +72,7 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         switch naming {
         case .casava: return "\(name) \(mate):N:0:1"
         case .slash: return "\(name)/\(mate)"
+        case .identical: return name
         }
     }
 
@@ -364,5 +370,97 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         XCTAssertEqual(result.manifest.barcodes.map(\.readCount), [8, 2])
         XCTAssertEqual(result.manifest.unassigned.readCount, 4)
         XCTAssertEqual(result.manifest.mateCalls, Self.fixtureMateCalls)
+    }
+
+    // MARK: - Mates named by one read ID
+
+    /// Mates named by one read ID, as SRA writes them, are told apart by
+    /// sequence. Read 2 of a fully overlapping pair is read 1's reverse
+    /// complement, so read 1 is also found, reversed, in read 2's record.
+    /// When the unassigned output reached the pair before the BC01 output
+    /// did, read 1 took read 2's record, and BC01 got the mates in reverse
+    /// order (review A S4).
+    func testMatesNamedByOneReadIDStayInOrder() async throws {
+        try await requireTools()
+        let project = try project()
+        let overlapping = Self.bc01 + Self.insert(0, 52)
+        let fragments = [
+            Fragment(name: "frag_a", mate1: Self.insert(1, 60), mate2: Self.insert(2, 60)),
+            Fragment(name: "frag_b", mate1: Self.bc01 + Self.insert(3, 52), mate2: Self.bc01 + Self.insert(4, 52)),
+            Fragment(name: "frag_c", mate1: overlapping, mate2: Self.reverseComplement(overlapping)),
+        ]
+        let input = project.appendingPathComponent("one-id.fastq")
+        try Self.fastq(fragments, .identical).write(to: input, atomically: true, encoding: .utf8)
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: input,
+                barcodeKit: try kit(),
+                outputDirectory: project.appendingPathComponent("Analyses/demux-one-id", isDirectory: true),
+                barcodeLocation: .fivePrime,
+                errorRate: 0.0,
+                minimumOverlap: 8,
+                trimBarcodes: true,
+                threads: 2
+            ),
+            progress: { _, _ in }
+        )
+
+        let bc01 = try await placed(inBundle: try bundle(result, "BC01"))
+        XCTAssertEqual(
+            bc01, expected([("frag_b", 0, 52), ("frag_b", 0, 52), ("frag_c", 0, 52), ("frag_c", 0, 60)]),
+            "read 1 of frag_c, trimmed, comes before its untrimmed read 2"
+        )
+        let unassigned = try await placed(inBundle: try bundle(result, "unassigned"))
+        XCTAssertEqual(unassigned, expected([("frag_a", 0, 60), ("frag_a", 0, 60)]))
+    }
+
+    // MARK: - A custom dual kit matched in either orientation
+
+    /// A custom dual kit (an i5 column, `--location bothends`, no sample
+    /// assignments) is searched as its barcode pair in either orientation,
+    /// and cutadapt writes each orientation to its own output. Read 1 of a
+    /// pair that spans the amplicon matches the pair as written and read 2
+    /// its reverse complement. The two outputs were joined, one after the
+    /// other, before the mate pass, which then found read 2 out of order and
+    /// failed every paired run of such a kit (review A S3).
+    func testAPairedRunOfACustomDualKitPlacesBothMatesInTheirSample() async throws {
+        try await requireTools()
+        let project = try project()
+        let first = "CTATACGTATATCTAT"
+        let second = "CACTCACGTGTGATAT"
+        let csv = root.appendingPathComponent("dual.csv")
+        try "id,i7_sequence,i5_sequence\nS1,\(first),\(second)\n".write(to: csv, atomically: true, encoding: .utf8)
+        let fragments = (0..<3).map { index -> Fragment in
+            let read = first + Self.insert(index, 40) + second
+            return Fragment(name: "amp_\(index)", mate1: read, mate2: Self.reverseComplement(read))
+        } + [Fragment(name: "none_0", mate1: Self.insert(3, 72), mate2: Self.insert(4, 72))]
+        let input = project.appendingPathComponent("dual-pairs.fastq")
+        try Self.fastq(fragments, .casava).write(to: input, atomically: true, encoding: .utf8)
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: input,
+                barcodeKit: try BarcodeKitRegistry.loadCustomKit(from: csv, name: "dual"),
+                outputDirectory: project.appendingPathComponent("Analyses/demux-dual", isDirectory: true),
+                barcodeLocation: .bothEnds,
+                errorRate: 0.0,
+                minimumOverlap: 16,
+                trimBarcodes: true,
+                threads: 2
+            ),
+            progress: { _, _ in }
+        )
+
+        let sample = try await placed(inBundle: try bundle(result, "S1"))
+        XCTAssertEqual(
+            sample,
+            expected([("amp_0", 1, 40), ("amp_0", 2, 40), ("amp_1", 1, 40), ("amp_1", 2, 40), ("amp_2", 1, 40), ("amp_2", 2, 40)]),
+            "both mates of every pair, each trimmed of its barcode pair, in input order"
+        )
+        let unassigned = try await placed(inBundle: try bundle(result, "unassigned"))
+        XCTAssertEqual(unassigned, expected([("none_0", 1, 72), ("none_0", 2, 72)]))
+        XCTAssertEqual(result.manifest.mateCalls?.bothMatesAgree, 3)
+        XCTAssertEqual(result.manifest.mateCalls?.neitherMateCalled, 1)
     }
 }
