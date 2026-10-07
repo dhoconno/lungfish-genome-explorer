@@ -40,13 +40,14 @@ OPTIONS:
         named for the run alone, such as SRR1.fastq beside SRR1_1.fastq and
         SRR1_2.fastq, to that pair as unpaired reads, when the first reads of
         the pair are named as mates, the first read of that file is not from
-        their fragment, and the first two reads of that file are not mates.
-        Otherwise the file stays a sample of its own and a warning says why.
-        For any other file with no mate file, they read its records and record
-        interleaved mates when every record is followed by its mate, otherwise
-        single-end. single imports every file as its own single-end sample,
-        even when a mate is detected. interleaved imports every file on its own
-        and records it as interleaved mates.
+        their fragment, and no two adjacent reads among the first 1,000 of that
+        file are mates. Otherwise the file stays a sample of its own and a
+        warning says why. The import fails the sample when two adjacent reads
+        later in that file are mates. For any other file with no mate file,
+        they read its records and record interleaved mates when every record is
+        followed by its mate, otherwise single-end. single imports every file
+        as its own single-end sample, even when a mate is detected. interleaved
+        imports every file on its own and records it as interleaved mates.
   --no-optimize-storage   Skip read reordering for storage optimization
   --clumping-tool <clumping-tool>
                           Storage optimization tool: auto, bbtools,
@@ -55,6 +56,8 @@ OPTIONS:
                           Compression level: fast, balanced, maximum (default:
                           balanced) (default: balanced)
   --force                 Reimport samples even if bundle already exists
+        A bundle that an earlier sample of the same import wrote is never
+        replaced.
   --name <name>           Override the output bundle name. Only valid when
                           exactly one sample is detected.
   --recursive             Recursively scan directories for FASTQ files

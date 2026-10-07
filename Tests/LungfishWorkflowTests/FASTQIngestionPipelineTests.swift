@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import Synchronization
 @testable import LungfishWorkflow
 import LungfishIO
 import LungfishTestSupport
@@ -233,6 +234,69 @@ final class FASTQIngestionPipelineTests: XCTestCase {
         XCTAssertTrue(result.processingCommandLine?.contains("quantize=0,8,13,22,27,32,37") == true, "\(result.processingCommandLine ?? "nil")")
         XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: result.outputFile), 4)
         XCTAssertEqual(try headers(in: result.outputFile), ["@pair1/1", "@pair1/2", "@pair2/1", "@pair2/2"])
+    }
+
+    /// A cancel used to miss the in-process scan that finds which records of
+    /// one file are mates, because it ran in a detached task, so a cancelled
+    /// `lungfish-cli` read the whole file and started clumpify before it
+    /// stopped. The app's runner kills the CLI five seconds after its
+    /// SIGTERM, which left the import's workspace behind (MSA session
+    /// follow-up).
+    func testACancelReachesTheMateScanOfOneFileBeforeClumpifyStarts() async throws {
+        let directory = try TestTempDirectory.make(prefix: "ingest-cancel-scan")
+        defer { TestTempDirectory.cleanup(directory) }
+        let input = directory.appendingPathComponent("pairs.fastq")
+        let records = (1...4).flatMap { spot in
+            [1, 2].map { "@f\(spot)/\($0)\nACGTACGT\n+\nIIIIIIII\n" }
+        }
+        try Data(records.joined().utf8).write(to: input)
+        let config = FASTQIngestionConfig(
+            inputFiles: [input],
+            pairingMode: .interleaved,
+            outputDirectory: directory.appendingPathComponent("out", isDirectory: true),
+            threads: 1,
+            deleteOriginals: false,
+            clumpingTool: .bbtools
+        )
+        let messages = Mutex<[String]>([])
+
+        _ = await Task.detached {
+            try? await FASTQIngestionPipeline().run(config: config, progress: { _, message in
+                messages.withLock { $0.append(message) }
+                if message == "Checking which reads are mates..." { withUnsafeCurrentTask { $0?.cancel() } }
+            })
+        }.value
+
+        let seen = messages.withLock { $0 }
+        XCTAssertTrue(seen.contains("Checking which reads are mates..."), "\(seen)")
+        XCTAssertFalse(seen.contains("Launching bbtools clumpify.sh..."), "the scan stops at the cancel: \(seen)")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: input.path),
+            "the input is never deleted by a cancelled run"
+        )
+    }
+
+    /// F9 re-review N4. The storage step of a file that mixes pairs and
+    /// single reads joined its two clumped halves into a new file while the
+    /// split halves and both clumped halves were still on disk, so scratch
+    /// peaked near four uncompressed copies of the run. The unpaired half
+    /// now moves onto the end of the pairs half, and each split half goes
+    /// once it is clumped.
+    func testTheClumpedHalvesOfAMixedFileJoinWithoutAThirdCopy() throws {
+        let directory = try TestTempDirectory.make(prefix: "ingest-join-halves")
+        defer { TestTempDirectory.cleanup(directory) }
+        let pairs = directory.appendingPathComponent("pairs.clumped.fastq")
+        let unpaired = directory.appendingPathComponent("unpaired.clumped.fastq")
+        let combined = directory.appendingPathComponent("combined.fastq")
+        let pairsText = "@a/1\nACGT\n+\nIIII\n@a/2\nTTGG\n+\nIIII\n"
+        let unpairedText = "@b\nGATT\n+\nIIII\n"
+        try Data(pairsText.utf8).write(to: pairs)
+        try Data(unpairedText.utf8).write(to: unpaired)
+
+        try FASTQIngestionPipeline.appendAndRename(unpaired, to: pairs, as: combined)
+
+        XCTAssertEqual(try String(contentsOf: combined, encoding: .utf8), pairsText + unpairedText)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), ["combined.fastq"])
     }
 
     func testQuantizeArgumentMatchesClumpifyValues() {

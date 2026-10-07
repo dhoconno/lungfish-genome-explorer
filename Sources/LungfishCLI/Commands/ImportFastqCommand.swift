@@ -125,8 +125,10 @@ extension ImportCommand {
                 named for the run alone, such as SRR1.fastq beside SRR1_1.fastq and \
                 SRR1_2.fastq, to that pair as unpaired reads, when the first reads of \
                 the pair are named as mates, the first read of that file is not from \
-                their fragment, and the first two reads of that file are not mates. \
-                Otherwise the file stays a sample of its own and a warning says why. \
+                their fragment, and no two adjacent reads among the first 1,000 of \
+                that file are mates. Otherwise the file stays a sample of its own and \
+                a warning says why. The import fails the sample when two adjacent \
+                reads later in that file are mates. \
                 For any other file with no mate file, they read its records and \
                 record interleaved mates when every record is followed by its mate, \
                 otherwise single-end. single imports every file as its own single-end \
@@ -157,7 +159,10 @@ extension ImportCommand {
 
         @Flag(
             name: .customLong("force"),
-            help: "Reimport samples even if bundle already exists"
+            help: ArgumentHelp(
+                "Reimport samples even if bundle already exists",
+                discussion: "A bundle that an earlier sample of the same import wrote is never replaced."
+            )
         )
         var force: Bool = false
 
@@ -251,47 +256,32 @@ extension ImportCommand {
                 print(formatter.error("Unknown pairing value '\(pairing)'. Valid: auto, single, paired, interleaved"))
                 throw CLIExitCode.inputError.exitCode
             }
+            var samples = FASTQBatchImporter.applyPairing(pairingChoice, to: detectedPairs)
+
+            // MARK: Apply --name override
+
+            // --name names the one sample detection made. It applies before
+            // the check below, so when the check leaves a run's third file
+            // out, the pair and that file both take the name, the pair
+            // imports under it and the file's sample is skipped, as the
+            // warning says. Applied after the check, --name refused such a
+            // run after printing a warning about an import that never ran
+            // (finding F11-N2).
+            if let name {
+                guard samples.count == 1 else {
+                    print(formatter.error("--name requires exactly one detected sample (found \(samples.count))."))
+                    throw CLIExitCode.inputError.exitCode
+                }
+                samples = [samples[0].named(name)]
+            }
+
             // A run's third file stays joined to its pair only when the first
             // reads bear the join out. Otherwise the two are separate samples,
             // as before the join, and a warning says why. The window runs this
             // command with --format json, so its Operations row logs the notice.
-            let unpairedReadsCheck = FASTQBatchImporter.checkingUnpairedReads(
-                FASTQBatchImporter.applyPairing(pairingChoice, to: detectedPairs)
-            )
-            let pairs = unpairedReadsCheck.samples
+            let unpairedReadsCheck = FASTQBatchImporter.checkingUnpairedReads(samples)
+            let effectivePairs = unpairedReadsCheck.samples
             let isJSON = globalOptions.outputFormat == .json
-            let printUnpairedReadsWarnings = {
-                for case .notice(let sample, let message) in unpairedReadsCheck.warnings {
-                    print(isJSON
-                        ? FASTQBatchImporter.encodeLogEvent(.notice(sample: sample, message: message))
-                        : formatter.warning("\(sample): \(message)"))
-                }
-            }
-
-            // MARK: Apply --name override
-
-            let effectivePairs: [SamplePair]
-            if let name {
-                guard pairs.count == 1 else {
-                    printUnpairedReadsWarnings()
-                    print(formatter.error("--name requires exactly one detected sample (found \(pairs.count))."))
-                    throw CLIExitCode.inputError.exitCode
-                }
-                let original = pairs[0]
-                effectivePairs = [
-                    SamplePair(
-                        sampleName: name,
-                        r1: original.r1,
-                        r2: original.r2,
-                        unpaired: original.unpaired,
-                        relativePath: original.relativePath,
-                        metadata: original.metadata,
-                        sampleSheetURL: original.sampleSheetURL
-                    )
-                ]
-            } else {
-                effectivePairs = pairs
-            }
 
             // MARK: Print detected pairs
 
@@ -314,7 +304,11 @@ extension ImportCommand {
             }
             print("")
             if !unpairedReadsCheck.warnings.isEmpty {
-                printUnpairedReadsWarnings()
+                for case .notice(let sample, let message) in unpairedReadsCheck.warnings {
+                    print(isJSON
+                        ? FASTQBatchImporter.encodeLogEvent(.notice(sample: sample, message: message))
+                        : formatter.warning("\(sample): \(message)"))
+                }
                 print("")
             }
 

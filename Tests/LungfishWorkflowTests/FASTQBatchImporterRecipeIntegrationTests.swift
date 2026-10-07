@@ -445,7 +445,9 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         XCTAssertGreaterThan(pairs, 0)
         XCTAssertGreaterThan(classification.mergedReadCount, 0)
         XCTAssertEqual(classification.unpairedReadCount, 0, "the length filter drops both mates, never one")
-        XCTAssertEqual(ingestion.pairingMode, .interleaved)
+        // Merged reads beside the pairs make it single-end by count, the
+        // label convention every importer follows.
+        XCTAssertEqual(ingestion.pairingMode, .singleEnd)
         XCTAssertEqual(ingestion.pairingSource, .detected)
 
         // Every stored record is either a merged read or half of an adjacent

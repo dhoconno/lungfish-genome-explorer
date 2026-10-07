@@ -52,10 +52,13 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         let run = try await runImport([folder.path])
 
         XCTAssertNil(run.error, "the pair imports and the command exits 0. Output:\n\(run.output)")
+        // The whole warning, so the skip below is tied to its words (F11-S1).
         XCTAssertTrue(
             run.output.contains(
                 "SRR123.fastq was not joined to SRR123_1.fastq and SRR123_2.fastq as reads whose mate is missing, "
-                    + "because the names of their first reads, SRR123.1.1 and SRR123.1.2, do not mark the two as mates."
+                    + "because the names of their first reads, SRR123.1.1 and SRR123.1.2, do not mark the two as mates. "
+                    + "The pair imports without it, and SRR123.fastq is a separate sample named SRR123, which the "
+                    + "import skips once the pair's bundle exists."
             ),
             run.output
         )
@@ -92,7 +95,13 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports").path))
     }
 
-    func testNameStillNeedsOneSampleAndTheWarningSaysWhyThereAreTwo() async throws {
+    func testNameNamesThePairWhenTheThirdFileIsLeftOut() async throws {
+        // --name counts the samples detection made, one here. The check then
+        // leaves the third file out, both samples take the name, the pair
+        // imports under it and the third file's sample is skipped, as the
+        // warning says. The command used to print that warning and then
+        // refuse the run with "found 2", so the warning described an import
+        // that never ran (F11-N2).
         let folder = try writeRun("SRR126", files: [
             "SRR126_1.fastq": Self.records([("SRR126.1.1", 1)], bases: "ACGTACGT"),
             "SRR126_2.fastq": Self.records([("SRR126.1.2", 1)], bases: "TTGGCCAA"),
@@ -101,13 +110,65 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
 
         let run = try await runImport([folder.path], ["--name", "Patient7"])
 
-        // As before the join, the pair and the third file are two samples,
-        // and --name takes one. The warning comes first and says why.
+        XCTAssertNil(run.error, run.output)
+        XCTAssertFalse(run.output.contains("--name requires exactly one detected sample"), run.output)
+        XCTAssertTrue(
+            run.output.contains(
+                "Patient7: SRR126.fastq was not joined to SRR126_1.fastq and SRR126_2.fastq as reads whose mate is "
+                    + "missing, because the names of their first reads, SRR126.1.1 and SRR126.1.2, do not mark the two "
+                    + "as mates. The pair imports without it, and SRR126.fastq is a separate sample named Patient7, "
+                    + "which the import skips once the pair's bundle exists."
+            ),
+            run.output
+        )
+        XCTAssertEqual(
+            try Self.headers(in: try importedBundle("Patient7")),
+            ["SRR126.1.1 1 length=8", "SRR126.1.2 1 length=8"]
+        )
+        let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
+        XCTAssertEqual(skips.compactMap { $0["sample"] as? String }, ["Patient7"], run.output)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: project.appendingPathComponent("Imports").path)
+                .filter { !$0.hasPrefix(".") },
+            ["Patient7.lungfishfastq"]
+        )
+    }
+
+    func testNameStillRefusesTwoSamplesThatDetectionMade() async throws {
+        let folder = try writeRun("two", files: [
+            "A.fastq": Self.records([("A.1", 1)], bases: "ACGTACGT"),
+            "B.fastq": Self.records([("B.1", 1)], bases: "ACGTACGT"),
+        ])
+
+        let run = try await runImport([folder.path], ["--name", "Patient8"])
+
         XCTAssertNotNil(run.error, run.output)
-        let warning = try XCTUnwrap(run.output.range(of: "SRR126.fastq was not joined to SRR126_1.fastq and SRR126_2.fastq"), run.output)
-        let refusal = try XCTUnwrap(run.output.range(of: "--name requires exactly one detected sample (found 2)."), run.output)
-        XCTAssertLessThan(warning.lowerBound, refusal.lowerBound)
+        XCTAssertTrue(run.output.contains("--name requires exactly one detected sample (found 2)."), run.output)
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports").path))
+    }
+
+    func testForceNeverLetsTheThirdFileReplaceThePairsBundle() async throws {
+        // f10-report.md, concern 1. The check leaves the third file out, so
+        // the pair and the third file are two samples of the run's name. With
+        // --force the third file imported second and replaced the pair's
+        // bundle with a bundle of its own reads.
+        let folder = try writeRun("SRR131", files: [
+            "SRR131_1.fastq": Self.records([("SRR131.1.1", 1), ("SRR131.2.1", 2)], bases: "ACGTACGT"),
+            "SRR131_2.fastq": Self.records([("SRR131.1.2", 1), ("SRR131.2.2", 2)], bases: "TTGGCCAA"),
+            "SRR131.fastq": Self.records([("SRR131.3.1", 3)], bases: "GATTACAG"),
+        ])
+
+        let run = try await runImport([folder.path], ["--force"])
+
+        XCTAssertNil(run.error, run.output)
+        XCTAssertEqual(
+            try Self.headers(in: try importedBundle("SRR131")),
+            ["SRR131.1.1 1", "SRR131.1.2 1", "SRR131.2.1 2", "SRR131.2.2 2"].map { "\($0) length=8" },
+            "the pair's bundle keeps the pair"
+        )
+        let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
+        XCTAssertEqual(skips.compactMap { $0["sample"] as? String }, ["SRR131"], run.output)
+        XCTAssertTrue((skips.first?["reason"] as? String)?.contains("An earlier sample of this import wrote it") == true, run.output)
     }
 
     func testTheWindowsJSONOutputCarriesTheWarningAsANoticeEvent() async throws {
@@ -210,6 +271,34 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
         XCTAssertEqual(skips.compactMap { $0["sample"] as? String }, ["S", "T"], run.output)
         XCTAssertEqual(Set(skips.compactMap { $0["reason"] as? String }), ["Bundle already exists"])
+    }
+
+    func testACopyOfThePairThatStartsWithHalfAPairIsNotJoinedSoEachReadIsStoredOnce() async throws {
+        // A filter that judged one read at a time dropped U.1/1, U.1/2 and
+        // U.2/1, so the copy starts with U.2/2 and then holds whole pairs
+        // (F11-N1). It joined and stored those reads a second time.
+        let folder = try writeRun("U", files: [
+            "U_1.fastq": Self.records((1...4).map { ("U.\($0)/1", $0) }, bases: "ACGTACGT"),
+            "U_2.fastq": Self.records((1...4).map { ("U.\($0)/2", $0) }, bases: "TTGGCCAA"),
+            "U.fastq": Self.records([("U.2/2", 2)], bases: "TTGGCCAA")
+                + [3, 4].map {
+                    Self.records([("U.\($0)/1", $0)], bases: "ACGTACGT") + Self.records([("U.\($0)/2", $0)], bases: "TTGGCCAA")
+                }.joined(),
+        ])
+
+        let run = try await runImport([folder.path])
+
+        XCTAssertNil(run.error, run.output)
+        XCTAssertTrue(
+            run.output.contains(
+                "U.fastq was not joined to U_1.fastq and U_2.fastq as reads whose mate is missing, because its reads "
+                    + "2 and 3, U.3/1 and U.3/2, belong to one fragment, so the file looks like a copy of the pair."
+            ),
+            run.output
+        )
+        let headers = try Self.headers(in: try importedBundle("U"))
+        XCTAssertEqual(headers.count, 8, "each read is stored once, not twice")
+        XCTAssertEqual(Set(headers).count, 8)
     }
 
     // MARK: - What the warning says follows (F10-N2)
@@ -316,6 +405,7 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         XCTAssertEqual(metadata.readClassification?.pairedReadCount, 8)
         XCTAssertEqual(metadata.readClassification?.unpairedReadCount, 2)
         XCTAssertEqual(metadata.ingestion?.originalFilenames, ["SRR129_1.fastq.gz", "SRR129_2.fastq.gz", "SRR129.fastq.gz"])
+        XCTAssertEqual(metadata.ingestion?.pairingMode, .singleEnd, "labelled by its count, which holds single reads")
     }
 
     // MARK: - Helpers

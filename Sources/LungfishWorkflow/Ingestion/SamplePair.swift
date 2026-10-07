@@ -42,4 +42,12 @@ public struct SamplePair: Sendable {
     public var inputFiles: [URL] {
         [r1] + [r2, unpaired].compactMap { $0 }
     }
+
+    /// The same files under another name, as `import fastq --name` gives it.
+    public func named(_ name: String) -> SamplePair {
+        SamplePair(
+            sampleName: name, r1: r1, r2: r2, unpaired: unpaired, relativePath: relativePath,
+            metadata: metadata, sampleSheetURL: sampleSheetURL
+        )
+    }
 }

@@ -594,8 +594,8 @@ public final class FASTQImportConfigSheet: NSViewController {
         let sizeLine = "Download size: " + (knownDownloadBytes.map { LungfishFormatters.formatBytes($0) } ?? "shown when the download starts")
         if pairs.count == 1 {
             let pair = pairs[0]
-            if let r2 = pair.r2 {
-                return "R1: \(pair.r1.lastPathComponent)\nR2: \(r2.lastPathComponent)\n\(sizeLine)"
+            if pair.r2 != nil {
+                return "\(pair.summaryFileLines)\n\(sizeLine)"
             }
             return "\(pair.r1.lastPathComponent)\n\(sizeLine)"
         }
@@ -615,8 +615,8 @@ public final class FASTQImportConfigSheet: NSViewController {
         }
         if pairs.count == 1 {
             let pair = pairs[0]
-            if let r2 = pair.r2 {
-                summaryLabel.stringValue = "R1: \(pair.r1.lastPathComponent)\nR2: \(r2.lastPathComponent)\nTotal size: \(LungfishFormatters.formatBytes(pair.totalSizeBytes))"
+            if pair.r2 != nil {
+                summaryLabel.stringValue = "\(pair.summaryFileLines)\nTotal size: \(LungfishFormatters.formatBytes(pair.totalSizeBytes))"
             } else {
                 summaryLabel.stringValue = "\(pair.r1.lastPathComponent)\nSize: \(LungfishFormatters.formatBytes(pair.totalSizeBytes))"
             }
@@ -994,10 +994,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         }()
 
         let config = FASTQImportConfiguration(
-            inputFiles: pairs.flatMap { pair in
-                if let r2 = pair.r2 { return [pair.r1, r2] }
-                return [pair.r1]
-            },
+            inputFiles: pairs.flatMap(\.inputFiles),
             detectedPlatform: detectedPlatform,
             confirmedPlatform: platform,
             platformIsUserChoice: platformChosenByUser,

@@ -97,13 +97,16 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
             return XCTFail("expected a notice, got \(check.warnings)")
         }
         XCTAssertEqual(sample, "SRR2")
-        // The reason is about the pair's files, so the warning does not
-        // promise that the pair imports (F10-N2).
+        // The pair imports by position, as a pair of files always does, so
+        // the third file's own sample is skipped once the pair's bundle
+        // exists, and the warning says so. It used to say that both import
+        // as separate samples (F11-S1).
         XCTAssertEqual(
             message,
             "SRR2.fastq was not joined to SRR2_1.fastq and SRR2_2.fastq as reads whose mate is missing, because the "
-                + "names of their first reads, SRR2.1.1 and SRR2.1.2, do not mark the two as mates. The pair and "
-                + "SRR2.fastq are imported as separate samples, as they were before the join."
+                + "names of their first reads, SRR2.1.1 and SRR2.1.2, do not mark the two as mates. The pair imports "
+                + "without it, and SRR2.fastq is a separate sample named SRR2, which the import skips once the pair's "
+                + "bundle exists."
         )
     }
 
@@ -254,6 +257,120 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
                 )
             }
         }
+    }
+
+    // MARK: - A copy of the pair that starts with half a pair (F11-N1)
+
+    func testACopyOfThePairThatStartsWithHalfAPairIsNotJoined() throws {
+        // A filter that judged one read at a time dropped S.1/1, S.1/2 and
+        // S.2/1, so the copy starts with S.2/2, whose mate is gone, and then
+        // holds whole pairs. Its first read is not of the pair's first
+        // fragment and its first two reads are not mates, so it joined and
+        // its reads were stored a second time beside the pair.
+        let cases: [(label: String, reads: [String], read: Int)] = [
+            ("half-a-pair", ["S.2/2", "S.3/1", "S.3/2", "S.4/1", "S.4/2"], 2),
+            ("mates-meet-later", ["S.2/2", "S.3/1", "S.4/2", "S.5/1", "S.6/1", "S.6/2"], 5),
+        ]
+        for item in cases {
+            let files = try writeFiles(item.label, [
+                "S_1.fastq": Self.fastq((1...6).map { "S.\($0)/1" }),
+                "S_2.fastq": Self.fastq((1...6).map { "S.\($0)/2" }),
+                "S.fastq": Self.fastq(item.reads),
+            ])
+
+            let check = FASTQBatchImporter.checkingUnpairedReads(FASTQBatchImporter.detectPairs(from: files))
+
+            XCTAssertEqual(
+                check.samples.map { $0.inputFiles.map(\.lastPathComponent) },
+                [["S_1.fastq", "S_2.fastq"], ["S.fastq"]],
+                item.label
+            )
+            guard case .notice(_, let message)? = check.warnings.first else {
+                XCTFail("expected a notice for \(item.label)")
+                continue
+            }
+            XCTAssertEqual(
+                message,
+                "S.fastq was not joined to S_1.fastq and S_2.fastq as reads whose mate is missing, because its reads "
+                    + "\(item.read) and \(item.read + 1), \(item.reads[item.read - 1]) and \(item.reads[item.read]), "
+                    + "belong to one fragment, so the file looks like a copy of the pair. The pair imports without it, "
+                    + "and S.fastq is a separate sample named S, which the import skips once the pair's bundle exists.",
+                item.label
+            )
+        }
+    }
+
+    func testAnImportRefusesACopyWhoseMatesFirstMeetPastTheReadsTheCheckCompares() async throws {
+        // The check compares the third file's first 1,000 reads. This file
+        // holds 1,000 reads of other spots, then both reads of one fragment,
+        // so it joins, and the import compares every adjacent pair as it
+        // copies the file. It fails the sample with the file named rather
+        // than store a read of the pair twice.
+        let checked = 1_000
+        let others = (1...checked).map { "S.\($0 + 10)/\($0 % 2 + 1)" }
+        let files = try writeFiles("late-mates", [
+            "S_1.fastq": Self.fastq(["S.1/1", "S.2/1"]),
+            "S_2.fastq": Self.fastq(["S.1/2", "S.2/2"]),
+            "S.fastq": Self.fastq(others + ["S.2/1", "S.2/2"]),
+        ])
+        let check = FASTQBatchImporter.checkingUnpairedReads(FASTQBatchImporter.detectPairs(from: files))
+        XCTAssertTrue(check.warnings.isEmpty, "\(check.warnings)")
+        XCTAssertNotNil(check.samples.first?.unpaired)
+
+        let result = await FASTQBatchImporter.runBatchImport(
+            pairs: check.samples,
+            config: FASTQBatchImporter.ImportConfig(
+                projectDirectory: project,
+                platform: .given(.illumina),
+                qualityBinning: QualityBinningScheme.none,
+                optimizeStorage: false,
+                threads: 1
+            )
+        )
+
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.failed, 1, "\(result.errors)")
+        XCTAssertEqual(
+            result.errors.first?.error,
+            "S.fastq was not joined to S_1.fastq and S_2.fastq as reads whose mate is missing, because its reads "
+                + "1001 and 1002, S.2/1 and S.2/2, belong to one fragment, so the file looks like a copy of the pair. "
+                + "Import the pair without it."
+        )
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: project.appendingPathComponent("Imports/S.lungfishfastq").path
+        ))
+    }
+
+    func testAThirdFileOfManyReadsWhoseMatesAreMissingStillJoins() async throws {
+        // fasterq-dump names both reads of a spot alike, and the third file
+        // holds one read of each of 1,500 other spots, past the reads the
+        // check compares. No two of them are mates, so the run imports whole.
+        let files = try writeFiles("many-orphans", [
+            "SRR8_1.fastq.gz": Self.fastq((1...3).map { "SRR8.\($0) \($0) length=8" }),
+            "SRR8_2.fastq.gz": Self.fastq((1...3).map { "SRR8.\($0) \($0) length=8" }),
+            "SRR8.fastq.gz": Self.fastq((4...1_503).map { "SRR8.\($0) \($0) length=8" }),
+        ])
+        let check = FASTQBatchImporter.checkingUnpairedReads(FASTQBatchImporter.detectPairs(from: files))
+        XCTAssertTrue(check.warnings.isEmpty, "\(check.warnings)")
+
+        let result = await FASTQBatchImporter.runBatchImport(
+            pairs: check.samples,
+            config: FASTQBatchImporter.ImportConfig(
+                projectDirectory: project,
+                platform: .given(.illumina),
+                qualityBinning: QualityBinningScheme.none,
+                optimizeStorage: false,
+                threads: 1
+            )
+        )
+
+        XCTAssertEqual(result.completed, 1, "\(result.errors)")
+        let fastq = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(
+            for: project.appendingPathComponent("Imports/SRR8.lungfishfastq", isDirectory: true)
+        ))
+        let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: fastq))
+        XCTAssertEqual(metadata.readClassification?.pairedReadCount, 6)
+        XCTAssertEqual(metadata.readClassification?.unpairedReadCount, 1_500)
     }
 
     func testAThirdFileOfOneWholeRecordStillJoins() throws {

@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishWorkflow
+import LungfishIO
 
 /// The Import FASTQ sheet's Pairing popup and `--pairing` used to have no
 /// effect: pairing was decided only by whether an R2 file was detected.
@@ -55,6 +56,38 @@ final class FASTQBatchImporterPairingTests: XCTestCase {
             FASTQBatchImporter.ImportConfig(projectDirectory: URL(fileURLWithPath: "/project.lungfish"), platform: .illumina).pairing,
             .auto,
             "Callers that predate the option keep name-based detection"
+        )
+    }
+
+    func testAMixedOutputIsLabelledByItsCountAsEveryImporterLabelsOne() {
+        // One pairing-label convention (orchestrator ruling of 2026-10-06,
+        // from lane L3). A file whose whole-file count holds any single read
+        // is labelled single-end, and a count of only pairs interleaved, the
+        // rule FASTQMixedLayoutHint.pairingMode applies. The batch importer
+        // labelled a merge recipe's output, or a run's pairs with its reads
+        // whose mate is missing, interleaved whenever it held a pair.
+        let imported = FASTQBatchImporter.RecordedPairing(mode: .interleaved, source: .explicit)
+        func recorded(merged: Int, pairs: Int, unpaired: Int) -> FASTQBatchImporter.RecordedPairing {
+            FASTQBatchImporter.recordedPairing(
+                afterRecipeOutput: .mixed,
+                mixedLayout: RecipeMixedLayoutCounts(mergedReads: merged, pairs: pairs, unpairedReads: unpaired),
+                importedAs: imported
+            )
+        }
+        for (merged, pairs, unpaired) in [(3, 5, 0), (0, 5, 2), (3, 5, 2), (4, 0, 0), (0, 5, 0), (0, 0, 0)] {
+            let expected = FASTQMixedLayoutHint.pairingMode(pairs: pairs, singles: merged + unpaired)
+            XCTAssertEqual(
+                recorded(merged: merged, pairs: pairs, unpaired: unpaired),
+                FASTQBatchImporter.RecordedPairing(mode: expected, source: .detected),
+                "merged \(merged), pairs \(pairs), unpaired \(unpaired)"
+            )
+        }
+        XCTAssertEqual(recorded(merged: 3, pairs: 5, unpaired: 0).mode, .singleEnd, "merged reads beside pairs")
+        XCTAssertEqual(recorded(merged: 0, pairs: 5, unpaired: 2).mode, .singleEnd, "a run's reads whose mate is missing")
+        XCTAssertEqual(recorded(merged: 0, pairs: 5, unpaired: 0).mode, .interleaved, "pairs alone")
+        XCTAssertEqual(
+            FASTQBatchImporter.recordedPairing(afterRecipeOutput: .mixed, mixedLayout: nil, importedAs: imported).mode,
+            .singleEnd
         )
     }
 

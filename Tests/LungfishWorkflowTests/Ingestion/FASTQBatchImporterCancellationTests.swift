@@ -178,6 +178,48 @@ final class FASTQBatchImporterCancellationTests: XCTestCase {
         XCTAssertEqual(result.failed, 1, "the vanished staging bundle fails the sample")
     }
 
+    /// F9 re-review N5. The join of a run's pairs and its reads whose mate
+    /// is missing ran in a detached task that never saw the import's cancel,
+    /// so a cancelled import still wrote the whole joined file, and a
+    /// cancelled `lungfish-cli` ran on until the app's runner killed it and
+    /// left its workspace behind.
+    func testACancelReachesTheJoinOfARunsThirdFile() async throws {
+        let folder = root.appendingPathComponent("download-SRR9100009", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let files = try [("SRR9100009_1.fastq", [1, 2]), ("SRR9100009_2.fastq", [1, 2]), ("SRR9100009.fastq", [3])]
+            .map { name, spots -> URL in
+                let url = folder.appendingPathComponent(name)
+                let text = spots.map { "@SRR9100009.\($0) \($0) length=8\nACGTACGT\n+\nIIIIIIII\n" }.joined()
+                try Data(text.utf8).write(to: url)
+                return url
+            }
+        let samples = FASTQBatchImporter.detectPairs(from: files)
+        XCTAssertNotNil(samples.first?.unpaired)
+        let config = config()
+        let events = EventLog()
+        let result = await Task.detached {
+            await FASTQBatchImporter.runBatchImport(
+                pairs: samples,
+                config: config,
+                log: { event in
+                    events.append(event)
+                    if case .sampleStart = event { withUnsafeCurrentTask { $0?.cancel() } }
+                }
+            )
+        }.value
+
+        XCTAssertTrue(result.cancelled)
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertFalse(
+            events.contains { event in
+                guard case .notice(_, let message) = event else { return false }
+                return message.contains("They import as unpaired reads beside")
+            },
+            "the join stops at the cancel instead of writing the joined file"
+        )
+        try assertNothingLeft()
+    }
+
     // MARK: - Helpers
 
     private final class EventLog: Sendable {

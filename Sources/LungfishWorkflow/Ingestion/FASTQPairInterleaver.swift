@@ -273,6 +273,32 @@ public enum FASTQPairInterleaver {
         return MergedThenPairsCounts(mergedRecords: mergedCount, pairs: pairCount)
     }
 
+    /// Copies every record of `file` to `sink` byte for byte, each record's
+    /// shape checked as ``writeMergedThenPairs(merged:unmergedR1:unmergedR2:to:)``
+    /// checks the merged reads, and returns the records written.
+    ///
+    /// `inspect` sees each record's header without its `@` and its 1-based
+    /// number before the record is written, so a caller can refuse the file
+    /// by throwing. Plain or gzip input, plain output.
+    static func copyRecords(
+        of file: URL,
+        to sink: FileHandle,
+        inspecting inspect: (_ header: String, _ recordNumber: Int) throws -> Void
+    ) throws -> Int {
+        var output = BufferedSink(handle: sink)
+        let reader = try FASTQRawLineReader(url: file)
+        defer { reader.close() }
+        var count = 0
+        while let record = try readRecord(from: reader, file: file.lastPathComponent, recordNumber: count + 1) {
+            count += 1
+            if count & 0x3FFF == 0 { try Task.checkCancellation() }
+            try inspect(headerText(record[0]), count)
+            try output.write(record)
+        }
+        try output.flush()
+        return count
+    }
+
     /// What ``writeMergedThenPairs(merged:unmergedR1:unmergedR2:to:)`` wrote.
     public struct MergedThenPairsCounts: Sendable, Equatable {
         public let mergedRecords: Int

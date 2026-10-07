@@ -337,13 +337,13 @@ public enum FASTQBatchImporter {
 
     /// The pairing to record once a recipe has rewritten the reads.
     ///
-    /// A merge recipe turns an R1/R2 import into one file of merged reads and
-    /// adjacent unmerged pairs, which stays `interleaved` (mates alternate
-    /// wherever they exist; the sidecar's read classification carries the
-    /// counts). A merge that kept no pairs, or a recipe whose output is
-    /// single reads, records `single_end`. Both are `detected`: the records
-    /// no longer match what the user described. Paired-file input the
-    /// recipe left paired keeps the import's own record.
+    /// A file of merged reads and adjacent unmerged pairs, or of pairs and a
+    /// run's reads whose mate is missing, is labelled by its count with the
+    /// convention every importer follows (`FASTQMixedLayoutHint.pairingMode`).
+    /// It is `single_end` when it holds any single read and `interleaved` for
+    /// pairs alone, and the sidecar's read classification carries the counts.
+    /// Both are `detected`. Paired-file input the recipe left paired keeps
+    /// the import's own record.
     static func recordedPairing(
         afterRecipeOutput format: RecipeFileFormat,
         mixedLayout: RecipeMixedLayoutCounts?,
@@ -351,8 +351,8 @@ public enum FASTQBatchImporter {
     ) -> RecordedPairing {
         switch format {
         case .mixed:
-            let pairs = mixedLayout?.pairs ?? 0
-            return RecordedPairing(mode: pairs > 0 ? .interleaved : .singleEnd, source: .detected)
+            let pairs = mixedLayout?.pairs ?? 0, singles = (mixedLayout?.mergedReads ?? 0) + (mixedLayout?.unpairedReads ?? 0)
+            return RecordedPairing(mode: FASTQMixedLayoutHint.pairingMode(pairs: pairs, singles: singles), source: .detected)
         case .single:
             return RecordedPairing(mode: .singleEnd, source: .detected)
         case .interleaved:
@@ -727,6 +727,7 @@ public enum FASTQBatchImporter {
     ///
     /// Uses `autoreleasepool` between samples to bound peak memory usage.
     /// Samples that already have bundles are skipped (logged as `sampleSkip`).
+    /// Under `forceReimport` only a bundle an earlier sample of the batch wrote is kept.
     ///
     /// - Parameters:
     ///   - pairs: Detected sample pairs to process.
@@ -749,6 +750,7 @@ public enum FASTQBatchImporter {
         var skipped = 0
         var cancelled = false
         var errors: [(sample: String, error: String)] = []
+        var written = BundlesWrittenByThisImport() // no sample replaces one of these, whatever --force says
 
         for (index, pair) in pairs.enumerated() {
             if Task.isCancelled { cancelled = true; break } // a cancel (lungfish-cli turns SIGTERM into one) stops the batch
@@ -767,6 +769,10 @@ public enum FASTQBatchImporter {
                 case .missing:
                     break
                 }
+            } else if let reason = written.reasonToSkip(pair, in: config.projectDirectory) {
+                log?(.sampleSkip(sample: pair.sampleName, reason: reason))
+                skipped += 1
+                continue
             }
 
             // Process this sample; autoreleasepool drains synchronous ObjC objects between iterations
@@ -781,8 +787,9 @@ public enum FASTQBatchImporter {
             autoreleasepool { }
 
             switch result {
-            case .success:
+            case .success(let bundleURL):
                 completed += 1
+                written.insert(bundleURL)
             case .failure where failureEndedByCancel():
                 recordCancel(of: pair.sampleName) // a cancel, not a failed sample
                 cancelled = true
@@ -793,20 +800,13 @@ public enum FASTQBatchImporter {
 
         let totalDuration = Date().timeIntervalSince(startTime)
         log?(.importComplete(
-            completed: completed,
-            skipped: skipped,
-            failed: errors.count,
-            totalDurationSeconds: totalDuration
+            completed: completed, skipped: skipped, failed: errors.count, totalDurationSeconds: totalDuration
         ))
         logger.info("Batch import complete: \(completed) completed, \(skipped) skipped, \(errors.count) failed in \(String(format: "%.1f", totalDuration))s")
 
         return ImportResult(
-            completed: completed,
-            skipped: skipped,
-            failed: errors.count,
-            totalDurationSeconds: totalDuration,
-            errors: errors,
-            cancelled: cancelled
+            completed: completed, skipped: skipped, failed: errors.count,
+            totalDurationSeconds: totalDuration, errors: errors, cancelled: cancelled
         )
     }
 
@@ -981,7 +981,7 @@ public enum FASTQBatchImporter {
             let deleteIngestionInputsAfterRun: Bool
             if let unpairedReads {
                 clumpifyInput = [unpairedReads.file]
-                clumpifyPairingMode = recordedPairing.mode == .interleaved ? .interleaved : .singleEnd
+                clumpifyPairingMode = .interleaved // its pairs stay adjacent, whatever the label says
                 deleteIngestionInputsAfterRun = true
             } else if let recipeOutput = recipeOutputFASTQ {
                 clumpifyInput = [recipeOutput]
