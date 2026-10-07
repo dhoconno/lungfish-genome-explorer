@@ -121,12 +121,14 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
         XCTAssertEqual(metadata.readClassification?.unpairedReadCount, 2, "and the run's two reads whose mate is missing")
         XCTAssertEqual(metadata.ingestion?.originalFilenames, files.map(\.lastPathComponent))
 
-        // The same bundle. The files, the reads in their order, the read
-        // counts and labels, and the command the provenance records are the
-        // same. Only the sidecar's import date, a wall-clock time the
+        // The same bundle. The files, every byte of the reads in their order,
+        // the read counts and labels, and the command the provenance records
+        // are the same. Only the sidecar's import date, a wall-clock time the
         // comparison's masks leave in a payload, differs.
         XCTAssertEqual(try Self.relativeFiles(in: sheetBundle), try Self.relativeFiles(in: cliBundle))
-        XCTAssertEqual(try Self.records(of: sheetFASTQ), try Self.records(of: cliFASTQ))
+        let payload = try Self.decompressedBytes(of: sheetFASTQ)
+        XCTAssertEqual(payload.split(separator: UInt8(ascii: "\n")).count, 32, "eight whole records")
+        XCTAssertEqual(payload, try Self.decompressedBytes(of: cliFASTQ))
         XCTAssertEqual(metadata.readClassification, cliMetadata.readClassification)
         XCTAssertEqual(metadata.ingestion?.pairingMode, cliMetadata.ingestion?.pairingMode)
         XCTAssertEqual(metadata.ingestion?.pairingSource, cliMetadata.ingestion?.pairingSource)
@@ -251,9 +253,13 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
         return paths.sorted()
     }
 
-    /// Every record header of a plain or gzip FASTQ, in file order.
-    private static func records(of fastq: URL) throws -> [String] {
-        try FASTQReadLayoutClassifier.readHeaders(from: fastq, limit: 1_000).headers
+    /// The decompressed bytes of a plain or gzip FASTQ, every record whole.
+    /// The comparison read the first 1,000 headers alone, so a difference
+    /// of sequence, quality or a later read passed (review B-N5).
+    private static func decompressedBytes(of fastq: URL) throws -> Data {
+        var bytes = Data()
+        try fastq.forEachChunkAutoDecompressing { bytes.append($0) }
+        return bytes
     }
 
     /// The command the bundle's provenance records, with the project path
