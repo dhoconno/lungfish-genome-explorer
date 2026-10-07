@@ -215,11 +215,15 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             )
         }
 
-        try coalesceObservedOrientationOutputsIfNeeded(
-            for: config,
-            in: demuxOutputDir,
-            temporaryFASTQExtension: temporaryFASTQExtension
-        )
+        // A run that places mates reads each orientation output on its own
+        // and writes the sample's output in input order (review A S3).
+        if !placesMates {
+            try coalesceObservedOrientationOutputsIfNeeded(
+                for: config,
+                in: demuxOutputDir,
+                temporaryFASTQExtension: temporaryFASTQExtension
+            )
+        }
         if usesPlainObservedTemporaryOutputs && !placesMates {
             try gzipPlainDemuxOutputs(in: demuxOutputDir)
         }
@@ -432,11 +436,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         var mateCalls: DemultiplexMateCalls?
         if placesMates {
             progress(0.79, "Placing both mates of each fragment by the fragment's barcode...")
-            mateCalls = try DemultiplexMatePass(
-                inputFASTQ: inputFASTQ,
-                outputDirectory: demuxOutputDir,
-                unassignedName: "unassigned"
-            ).run().summary
+            mateCalls = try placeMates(of: inputFASTQ, in: demuxOutputDir, config: config)
             if !isVirtualMode {
                 try gzipPlainDemuxOutputs(in: demuxOutputDir)
             }
@@ -1470,7 +1470,7 @@ extension DemultiplexingPipeline {
         }
     }
 
-    private func usesObservedCustomBarcodePairs(_ config: DemultiplexConfig) -> Bool {
+    func usesObservedCustomBarcodePairs(_ config: DemultiplexConfig) -> Bool {
         config.sampleAssignments.isEmpty
             && config.barcodeKit.isDualIndexed
             && config.barcodeKit.pairingMode == .fixedDual

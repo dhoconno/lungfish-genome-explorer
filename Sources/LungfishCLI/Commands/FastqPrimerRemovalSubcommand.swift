@@ -23,8 +23,10 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         trimmed where their mates overlap, and a single read loses a primer's \
         reverse complement that ends within its last (longest primer) bases, \
         matched in k-mers as long as the shortest primer. --kmer may not exceed \
-        the shortest primer. The cutadapt-linked engine keeps only reads that hold \
-        both primers of an amplicon, which suits full-length amplicon reads. \
+        the shortest primer. A read that either bbduk pass trims below 10 bases, \
+        such as a primer dimer, is dropped, and so is its mate. The \
+        cutadapt-linked engine keeps only reads that hold both primers of an \
+        amplicon, which suits full-length amplicon reads. \
         Interleaved pairs run in the tool's paired mode, so a pair is kept or \
         dropped whole. A file that mixes pairs with merged or single reads is \
         split by name, and the outputs are joined, pairs first.
@@ -40,8 +42,13 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("ref"), help: "Primer reference FASTA file")
     var reference: String?
 
-    @Option(name: .customLong("kmer"), help: "K-mer size (default: 23)")
-    var kmerSize: Int = 23
+    /// The k a run without `--kmer` uses, the Primer Trimming dialog's k, so
+    /// both run one default. It was 23, longer than the shortest primer of
+    /// every bundled scheme (L5, ruling on concern 3).
+    static let defaultKmerSize = 15
+
+    @Option(name: .customLong("kmer"), help: "K-mer size (default: 15)")
+    var kmerSize: Int = FastqPrimerRemovalSubcommand.defaultKmerSize
 
     @Option(name: .customLong("mink"), help: "Minimum k-mer size (default: 11)")
     var minKmer: Int = 11
@@ -187,9 +194,9 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         if engine != .bbduk {
             cliArguments += ["--engine", engine.rawValue]
         }
-        if kmerSize != 23 {
-            cliArguments += ["--kmer", String(kmerSize)]
-        }
+        // Every recorded command names --kmer, so a replay never depends on
+        // the default, which went from 23 to 15 (review A N6).
+        cliArguments += ["--kmer", String(kmerSize)]
         if minKmer != 11 {
             cliArguments += ["--mink", String(minKmer)]
         }
@@ -245,7 +252,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
             defaults: [
                 "literal": .null,
                 "reference": .null,
-                "kmer": .integer(23),
+                "kmer": .integer(Self.defaultKmerSize),
                 "mink": .integer(11),
                 "hdist": .integer(1),
                 "engine": .string(FastqPrimerRemovalEngine.bbduk.rawValue),

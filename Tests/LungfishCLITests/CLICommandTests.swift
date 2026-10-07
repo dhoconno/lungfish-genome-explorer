@@ -1686,7 +1686,7 @@ final class FastqCommandTests: XCTestCase {
         let cmd = try FastqPrimerRemovalSubcommand.parse([
             "input.fq", "--literal", "ACGT", "-o", "/tmp/out.fq",
         ])
-        XCTAssertEqual(cmd.kmerSize, 23)
+        XCTAssertEqual(cmd.kmerSize, 15)
         XCTAssertEqual(cmd.minKmer, 11)
         XCTAssertEqual(cmd.hammingDistance, 1)
     }

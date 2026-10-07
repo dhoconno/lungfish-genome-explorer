@@ -35,6 +35,20 @@ extension DemultiplexingPipeline {
         )
         return try FastpReadLayoutPlan.resolve(inputURL: inputFASTQ, decision: decision)
     }
+
+    /// Places both mates of each fragment of `inputFASTQ` in cutadapt's
+    /// plain outputs in `outputDirectory`. A custom dual kit matched in
+    /// either orientation has an output per orientation, read as its
+    /// sample's (review A S3).
+    func placeMates(of inputFASTQ: URL, in outputDirectory: URL, config: DemultiplexConfig) throws -> DemultiplexMateCalls {
+        let orientationOutputs = usesObservedCustomBarcodePairs(config)
+        return try DemultiplexMatePass(
+            inputFASTQ: inputFASTQ,
+            outputDirectory: outputDirectory,
+            unassignedName: "unassigned",
+            sampleOf: { [self] name in orientationOutputs ? canonicalAdapterName(name) : name }
+        ).run().summary
+    }
 }
 
 /// Rewrites cutadapt's per-barcode outputs so that both mates of a fragment
@@ -63,6 +77,12 @@ struct DemultiplexMatePass {
     let outputDirectory: URL
     /// The output name of reads without a barcode.
     let unassignedName: String
+    /// The sample an output holds reads of. A custom dual kit matched in
+    /// either orientation writes each orientation to its own output, and
+    /// this pass places both into the sample's output in input order. The
+    /// two used to be joined one after the other first, so the pass found
+    /// read 2 out of order and failed the run (review A S3).
+    var sampleOf: (String) -> String = { $0 }
 
     /// Places every fragment and returns how the mates were called.
     func run() throws -> DemultiplexMateCallCounter {
@@ -86,7 +106,7 @@ struct DemultiplexMatePass {
         try? fm.removeItem(at: rewriteDirectory)
         try fm.createDirectory(at: rewriteDirectory, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: rewriteDirectory) }
-        let names = Set(cursors.map(\.name)).union([unassignedName])
+        let names = Set(cursors.map { sampleOf($0.name) }).union([unassignedName])
         let flushThreshold = max(65_536, min(262_144, 33_554_432 / max(1, names.count)))
         var sinks: [String: AppendingFASTQSink] = [:]
         for name in names {
@@ -137,7 +157,7 @@ struct DemultiplexMatePass {
             if let next = cursor.head {
                 heads[Self.matchKey(next), default: []].append(index)
             }
-            let placed = PlacedRead(input: input, output: output, outputName: cursor.name)
+            let placed = PlacedRead(input: input, output: output, outputName: sampleOf(cursor.name))
             if let previous = pending,
                FASTQReadLayoutClassifier.areMates(previous.input.headerText, input.headerText) {
                 try placePair(previous, placed)
@@ -171,6 +191,9 @@ struct DemultiplexMatePass {
                 try fm.moveItem(at: rewritten, to: original)
             }
         }
+        for cursor in cursors where sampleOf(cursor.name) != cursor.name {
+            try fm.removeItem(at: cursor.url)
+        }
         return calls
     }
 
@@ -199,14 +222,21 @@ struct DemultiplexMatePass {
         if let exact = candidates.first(where: { cursors[$0].head?.sequence == sequence }) {
             return exact
         }
+        // A trimmed record lies inside its input as sequenced, so every output
+        // is tried that way before any is tried reversed. Read 2 of a fully
+        // overlapping pair holds read 1 reversed, and mates named by one read
+        // ID were written read 2 first when read 2's output came first
+        // (review A S4).
+        let heads = candidates.compactMap { index in
+            cursors[index].head.map { (index: index, text: String(decoding: $0.sequence, as: UTF8.self)) }
+        }
         let inputText = String(decoding: sequence, as: UTF8.self)
+        if let forward = heads.first(where: { inputText.contains($0.text) }) {
+            return forward.index
+        }
         let inputReverse = String(decoding: RawFASTQRecord.reverseComplement(sequence), as: UTF8.self)
-        if let contained = candidates.first(where: { index in
-            guard let head = cursors[index].head else { return false }
-            let headText = String(decoding: head.sequence, as: UTF8.self)
-            return inputText.contains(headText) || inputReverse.contains(headText)
-        }) {
-            return contained
+        if let reversed = heads.first(where: { inputReverse.contains($0.text) }) {
+            return reversed.index
         }
         return candidates.min()
     }
