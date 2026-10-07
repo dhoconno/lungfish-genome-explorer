@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 extension DocumentSectionViewModel {
 
@@ -15,15 +16,16 @@ extension DocumentSectionViewModel {
         ingestionReadRoles = nil
     }
 
-    /// Reads the read roles the FASTQ sidecar of `bundleURL` records. Nil
-    /// when the bundle has no primary FASTQ or its sidecar records none.
+    /// Reads the read roles `bundleURL` records, as
+    /// `FASTQMixedLayoutHint.recordedRoles(of:)` finds them for the tools
+    /// that read them, its derived manifest's before its primary FASTQ
+    /// sidecar's. Nil when it records none.
     func updateIngestionReadRoles(fromBundle bundleURL: URL) {
-        ingestionReadRoles = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)
-            .flatMap { FASTQMetadataStore.load(for: $0)?.readClassification }
+        ingestionReadRoles = FASTQMixedLayoutHint.recordedRoles(of: bundleURL)
     }
 
-    /// The read roles the Pairing row reads. They are the bundle's FASTQ
-    /// sidecar's, else the derived manifest's, else the roles of a mixed
+    /// The read roles the Pairing row reads. They are the ones the bundle
+    /// records, else the derived manifest's, else the roles of a mixed
     /// payload's files.
     var ingestionPairingRoles: ReadClassification? {
         if let ingestionReadRoles { return ingestionReadRoles }

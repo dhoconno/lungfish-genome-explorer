@@ -132,7 +132,7 @@ public final class DocumentSectionViewModel {
     /// Ingestion pipeline metadata (clumpify/compress/index status).
     var ingestionMetadata: IngestionMetadata?
 
-    /// The read roles a bundle's FASTQ sidecar records, which the Pairing row reads.
+    /// The read roles a bundle records, which the Pairing row reads.
     var ingestionReadRoles: ReadClassification?
 
     /// FASTQ derivative lineage metadata, when this dataset is pointer-based.
