@@ -58,7 +58,7 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
                 "SRR123.fastq was not joined to SRR123_1.fastq and SRR123_2.fastq as reads whose mate is missing, "
                     + "because the names of their first reads, SRR123.1.1 and SRR123.1.2, do not mark the two as mates. "
                     + "The pair imports without it, and SRR123.fastq is a separate sample named SRR123, which the "
-                    + "import skips once the pair's bundle exists."
+                    + "import skips."
             ),
             run.output
         )
@@ -117,7 +117,7 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
                 "Patient7: SRR126.fastq was not joined to SRR126_1.fastq and SRR126_2.fastq as reads whose mate is "
                     + "missing, because the names of their first reads, SRR126.1.1 and SRR126.1.2, do not mark the two "
                     + "as mates. The pair imports without it, and SRR126.fastq is a separate sample named Patient7, "
-                    + "which the import skips once the pair's bundle exists."
+                    + "which the import skips."
             ),
             run.output
         )
@@ -258,7 +258,7 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
                         + "whose mate is missing, because its first two reads, \(sample).\(firstPair)/1 and "
                         + "\(sample).\(firstPair)/2, belong to one fragment, so the file looks like a copy of the pair. "
                         + "The pair imports without it, and \(sample)\(ext) is a separate sample named \(sample), "
-                        + "which the import skips once the pair's bundle exists."
+                        + "which the import skips."
                 ),
                 run.output
             )
@@ -316,22 +316,54 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         XCTAssertTrue(
             run.output.contains(
                 "SRR130: SRR130.fastq was not joined to SRR130_1.fastq and SRR130_2.fastq as reads whose mate is "
-                    + "missing, because SRR130_1.fastq holds no reads. The pair and SRR130.fastq are imported as "
-                    + "separate samples, as they were before the join."
+                    + "missing, because SRR130_1.fastq holds no reads. SRR130.fastq is a separate sample named "
+                    + "SRR130, which the import skips whether or not the pair imports."
             ),
             run.output
         )
         XCTAssertFalse(run.output.contains("The pair imports without it"), run.output)
         // What follows is what the warning says. The pair fails on its empty
-        // mate file, and SRR130.fastq imports as a sample of its own.
+        // mate file, and SRR130.fastq is skipped, so the run's name never
+        // holds its reads whose mate is missing alone (review B-S2).
         XCTAssertNotNil(run.error, "the pair is a failed sample. Output:\n\(run.output)")
         let failures = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleFailed" }
         XCTAssertEqual(failures.count, 1, run.output)
         XCTAssertTrue((failures.first?["error"] as? String)?.contains("SRR130_1.fastq") == true, run.output)
-        let bundle = try importedBundle("SRR130")
-        let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))))
-        XCTAssertEqual(metadata.ingestion?.originalFilenames, ["SRR130.fastq"])
-        XCTAssertEqual(try Self.headers(in: bundle), ["SRR130.3 3 length=8"])
+        let skips = Self.jsonEvents(in: run.output).filter { $0["event"] as? String == "sampleSkip" }
+        XCTAssertEqual(skips.map { $0["sample"] as? String }, ["SRR130"], run.output)
+        XCTAssertEqual(skips.first?["reason"] as? String, Self.failedBundleReason)
+        let bundle = project.appendingPathComponent("Imports/SRR130.lungfishfastq", isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundle.path), "no bundle takes the run's name")
+    }
+
+    func testForceNeverLetsTheThirdFileOfAFailedPairReplaceTheRunsBundle() async throws {
+        // An earlier import of the run made its whole bundle, the pairs and
+        // the reads whose mate is missing.
+        let complete = Self.records([("SRR132.1", 1), ("SRR132.2", 2)], bases: "TTGGCCAA")
+        let folder = try writeRun("SRR132", files: [
+            "SRR132_1.fastq.gz": Self.records([("SRR132.1", 1), ("SRR132.2", 2)], bases: "ACGTACGT"),
+            "SRR132_2.fastq.gz": complete,
+            "SRR132.fastq.gz": Self.records([("SRR132.3", 3)], bases: "GATTACAG"),
+        ])
+        let first = try await runImport([folder.path])
+        XCTAssertNil(first.error, first.output)
+        let before = try Self.headers(in: try importedBundle("SRR132"))
+        XCTAssertEqual(before.count, 5, "two pairs and one read whose mate is missing")
+
+        // A new download of SRR132_2.fastq.gz stopped inside its first read,
+        // and the run is imported again over its bundle.
+        _ = try writeRun("SRR132", files: ["SRR132_2.fastq.gz": String(complete.prefix(25))])
+        let run = try await runImport([folder.path], ["--force"])
+
+        // The pair fails and publishes nothing, and the third file's sample
+        // is skipped, so the run's complete bundle stays where it was.
+        XCTAssertNotNil(run.error, "the pair is a failed sample. Output:\n\(run.output)")
+        let events = Self.jsonEvents(in: run.output)
+        XCTAssertEqual(events.filter { $0["event"] as? String == "sampleFailed" }.count, 1, run.output)
+        let skips = events.filter { $0["event"] as? String == "sampleSkip" }
+        XCTAssertEqual(skips.map { $0["sample"] as? String }, ["SRR132"], run.output)
+        XCTAssertEqual(skips.first?["reason"] as? String, Self.failedBundleReason)
+        XCTAssertEqual(try Self.headers(in: try importedBundle("SRR132")), before, "the earlier bundle is kept")
     }
 
     // MARK: - A third file with no whole record
@@ -409,6 +441,11 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// Why a sample is skipped whose bundle an earlier sample of the import
+    /// failed to write (review B-S2).
+    private static let failedBundleReason =
+        "An earlier sample of this import failed to write this bundle, so no later sample of the import writes it."
 
     private struct ImportRun {
         let output: String

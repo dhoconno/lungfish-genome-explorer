@@ -98,15 +98,13 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
         }
         XCTAssertEqual(sample, "SRR2")
         // The pair imports by position, as a pair of files always does, so
-        // the third file's own sample is skipped once the pair's bundle
-        // exists, and the warning says so. It used to say that both import
-        // as separate samples (F11-S1).
+        // the third file's own sample is skipped, and the warning says so.
+        // It used to say that both import as separate samples (F11-S1).
         XCTAssertEqual(
             message,
             "SRR2.fastq was not joined to SRR2_1.fastq and SRR2_2.fastq as reads whose mate is missing, because the "
                 + "names of their first reads, SRR2.1.1 and SRR2.1.2, do not mark the two as mates. The pair imports "
-                + "without it, and SRR2.fastq is a separate sample named SRR2, which the import skips once the pair's "
-                + "bundle exists."
+                + "without it, and SRR2.fastq is a separate sample named SRR2, which the import skips."
         )
     }
 
@@ -173,7 +171,7 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
                 message,
                 "\(item.name) was not joined to SRR3_1.fastq and SRR3_2.fastq as reads whose mate is missing, because "
                     + "\(item.reason). The pair imports without it, and \(item.name) is a separate sample named SRR3, "
-                    + "which the import skips once the pair's bundle exists."
+                    + "which the import skips."
             )
         }
     }
@@ -191,13 +189,15 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
         guard case .notice(_, let message)? = check.warnings.first else {
             return XCTFail("expected a notice")
         }
-        // An empty SRR4_1.fastq fails the pair as well, and SRR4.fastq then
-        // imports as SRR4, so the warning promises neither (F10-N2).
+        // An empty SRR4_1.fastq fails the pair as well, so the warning never
+        // promises that the pair imports (F10-N2). SRR4.fastq is skipped
+        // whether or not it does, so the run's name never holds its reads
+        // whose mate is missing alone (review B-S2).
         XCTAssertEqual(
             message,
             "SRR4.fastq was not joined to SRR4_1.fastq and SRR4_2.fastq as reads whose mate is missing, because "
-                + "SRR4_1.fastq holds no reads. The pair and SRR4.fastq are imported as separate samples, as they "
-                + "were before the join."
+                + "SRR4_1.fastq holds no reads. SRR4.fastq is a separate sample named SRR4, which the import skips "
+                + "whether or not the pair imports."
         )
     }
 
@@ -251,8 +251,7 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
                     "S\(style.ext) was not joined to S_1\(style.ext) and S_2\(style.ext) as reads whose mate is "
                         + "missing, because its first two reads, \(firstTwo[0]) and \(firstTwo[1]), belong to one "
                         + "fragment, so the file looks like a copy of the pair. The pair imports without it, and "
-                        + "S\(style.ext) is a separate sample named S, which the import skips once the pair's bundle "
-                        + "exists.",
+                        + "S\(style.ext) is a separate sample named S, which the import skips.",
                     label
                 )
             }
@@ -294,7 +293,7 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
                 "S.fastq was not joined to S_1.fastq and S_2.fastq as reads whose mate is missing, because its reads "
                     + "\(item.read) and \(item.read + 1), \(item.reads[item.read - 1]) and \(item.reads[item.read]), "
                     + "belong to one fragment, so the file looks like a copy of the pair. The pair imports without it, "
-                    + "and S.fastq is a separate sample named S, which the import skips once the pair's bundle exists.",
+                    + "and S.fastq is a separate sample named S, which the import skips.",
                 item.label
             )
         }
