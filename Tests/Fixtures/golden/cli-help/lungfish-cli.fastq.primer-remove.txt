@@ -7,11 +7,13 @@ a primer deeper in the read is not. A second bbduk pass removes a primer that a
 read runs through at its 3' end. Pairs are trimmed where their mates overlap,
 and a single read loses a primer's reverse complement that ends within its last
 (longest primer) bases, matched in k-mers as long as the shortest primer.
---kmer may not exceed the shortest primer. The cutadapt-linked engine keeps
-only reads that hold both primers of an amplicon, which suits full-length
-amplicon reads. Interleaved pairs run in the tool's paired mode, so a pair is
-kept or dropped whole. A file that mixes pairs with merged or single reads is
-split by name, and the outputs are joined, pairs first.
+--kmer may not exceed the shortest primer. A read that either bbduk pass trims
+below 10 bases, such as a primer dimer, is dropped, and so is its mate. The
+cutadapt-linked engine keeps only reads that hold both primers of an amplicon,
+which suits full-length amplicon reads. Interleaved pairs run in the tool's
+paired mode, so a pair is kept or dropped whole. A file that mixes pairs with
+merged or single reads is split by name, and the outputs are joined, pairs
+first.
 
 USAGE: lungfish-cli fastq primer-remove <input> [--literal <literal>] [--ref <ref>] [--kmer <kmer>] [--mink <mink>] [--hdist <hdist>] [--engine <engine>] [--minimum-overlap <minimum-overlap>] [--error-rate <error-rate>] --output <output> [--force] [--compress]
 
