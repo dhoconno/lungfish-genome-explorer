@@ -168,6 +168,23 @@ final class PortableRenameSwapTests: XCTestCase {
         XCTAssertEqual(try marker(in: destination), "new")
     }
 
+    func testExclusiveFallbackMovesASymbolicLinkAndRefusesToReplace() throws {
+        let link = root.appendingPathComponent(".link")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "target-a")
+        let destination = root.appendingPathComponent("published-link")
+
+        XCTAssertEqual(
+            try PortableRename.exclusive(link, to: destination, operations: Self.unsupportedFlags()),
+            .reservationFallback
+        )
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: destination.path), "target-a")
+
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "target-b")
+        XCTAssertThrowsError(try PortableRename.exclusive(link, to: destination, operations: Self.unsupportedFlags()))
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: destination.path), "target-a")
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), "target-b")
+    }
+
     // MARK: - Simulation switch
 
     func testTheSimulationSwitchForcesEveryFlaggedRenameOntoItsFallback() throws {

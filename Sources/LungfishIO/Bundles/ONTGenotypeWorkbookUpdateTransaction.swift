@@ -1428,7 +1428,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
         if exclusiveStatus != 0 {
             let exclusiveError = errno
-            guard exclusiveError == ENOTSUP || exclusiveError == EINVAL else {
+            guard PortableRename.isUnsupportedExclusiveRename(exclusiveError) || exclusiveError == EINVAL else {
                 throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
                     destination.path,
                     exclusiveError
@@ -1755,13 +1755,16 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             expected: expectedRHS,
             role: "exchange rhs"
         )
+        // Kernel only: on a volume without RENAME_SWAP the caller rotates
+        // through its own journaled .publication-rotation, which crash
+        // recovery understands, instead of PortableRename's tombstone.
         let rename: ONTGenotypeDirectoryRenamePrimitive = renamePrimitive ?? {
             sourceParent, sourceName, destinationParent, destinationName, flags in
-            PortableRename.renameatxNP(sourceParent, sourceName, destinationParent, destinationName, flags)
+            PortableRename.nativeRenameatx(sourceParent, sourceName, destinationParent, destinationName, flags)
         }
         if rename(lhsParent, lhs.lastPathComponent, rhsParent, rhs.lastPathComponent, UInt32(RENAME_SWAP)) != 0 {
             let swapError = errno
-            if swapError == ENOTSUP || swapError == EINVAL { return false }
+            if PortableRename.isUnsupportedExclusiveRename(swapError) || swapError == EINVAL { return false }
             throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(rhs.path, swapError)
         }
         try requireDirectoryEntryIdentity(

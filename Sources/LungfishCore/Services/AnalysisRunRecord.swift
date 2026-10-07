@@ -134,7 +134,7 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
     /// fills it in place, creating it when needed.
     ///
     /// - A missing directory is assembled under a hidden staging name with
-    ///   `record` inside and renamed into place with `RENAME_EXCL`, so no
+    ///   `record` inside and renamed into place exclusively, so no
     ///   listing ever sees it without the record. Missing parents are created.
     /// - An existing directory without a record gets `record` written into it.
     /// - An existing directory whose record's producer is still running (on
@@ -146,22 +146,6 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
         in directoryURL: URL,
         record: AnalysisRunRecord,
         processProbe: ProcessProbe = AnalysisRunRecord.probeProcess
-    ) throws -> RunClaim {
-        try beginRun(
-            in: directoryURL,
-            record: record,
-            processProbe: processProbe,
-            exclusiveRename: { renamex_np($0, $1, UInt32(RENAME_EXCL)) }
-        )
-    }
-
-    /// `exclusiveRename` is `renamex_np` with `RENAME_EXCL`, injectable so a
-    /// volume that rejects the flag can be exercised on APFS.
-    static func beginRun(
-        in directoryURL: URL,
-        record: AnalysisRunRecord,
-        processProbe: ProcessProbe,
-        exclusiveRename: (UnsafePointer<CChar>, UnsafePointer<CChar>) -> Int32
     ) throws -> RunClaim {
         let fileManager = FileManager.default
         let directory = directoryURL.standardizedFileURL
@@ -180,29 +164,23 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
                 try? fileManager.removeItem(at: staging)
                 throw error
             }
-            var status = staging.path.withCString { source in
-                directory.path.withCString { destination in
-                    exclusiveRename(source, destination)
+            // PortableRename reserves the name on ExFAT, FAT and SMB, which
+            // reject RENAME_EXCL.
+            do {
+                try PortableRename.exclusive(staging, to: directory)
+                return .owned
+            } catch {
+                try? fileManager.removeItem(at: staging)
+                let code = (error as? POSIXError)?.code.rawValue ?? EIO
+                guard code == EEXIST || code == ENOTEMPTY else {
+                    throw CocoaError(
+                        .fileWriteUnknown,
+                        userInfo: [
+                            NSFilePathErrorKey: directory.path,
+                            NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(code)),
+                        ]
+                    )
                 }
-            }
-            var code = errno
-            if status != 0, code == ENOTSUP || code == EOPNOTSUPP {
-                // ExFAT, FAT and SMB volumes reject RENAME_EXCL. Reserve the
-                // name with an exclusive mkdir, then rename over that empty
-                // reservation. A reservation someone fills in the meantime
-                // makes the rename fail with ENOTEMPTY instead of clobbering it.
-                (status, code) = Self.renameOntoExclusiveReservation(staging, directory)
-            }
-            if status == 0 { return .owned }
-            try? fileManager.removeItem(at: staging)
-            guard code == EEXIST || code == ENOTEMPTY else {
-                throw CocoaError(
-                    .fileWriteUnknown,
-                    userInfo: [
-                        NSFilePathErrorKey: directory.path,
-                        NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(code)),
-                    ]
-                )
             }
             // Another producer created it first: judge it like any existing directory.
         } else if !isDirectory.boolValue {
@@ -224,16 +202,6 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
         }
         try begin(record, in: directory)
         return .owned
-    }
-
-    private static func renameOntoExclusiveReservation(_ source: URL, _ destination: URL) -> (Int32, Int32) {
-        guard mkdir(destination.path, S_IRWXU) == 0 else { return (-1, errno) }
-        guard rename(source.path, destination.path) == 0 else {
-            let code = errno
-            rmdir(destination.path)
-            return (-1, code)
-        }
-        return (0, 0)
     }
 
     /// Completes a run claimed with ``beginRun(in:record:processProbe:)``.

@@ -142,15 +142,9 @@ struct AnalysisRunRecordTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let dir = root.appendingPathComponent("Analyses/run", isDirectory: true)
 
-        let claim = try AnalysisRunRecord.beginRun(
-            in: dir,
-            record: AnalysisRunRecord(analysisName: "Viral Recon"),
-            processProbe: AnalysisRunRecord.probeProcess,
-            exclusiveRename: { _, _ in
-                errno = ENOTSUP
-                return -1
-            }
-        )
+        let claim = try PortableRename.simulatingUnsupportedFlags {
+            try AnalysisRunRecord.beginRun(in: dir, record: AnalysisRunRecord(analysisName: "Viral Recon"))
+        }
 
         #expect(claim == .owned)
         #expect(AnalysisRunRecord.isIncomplete(dir))

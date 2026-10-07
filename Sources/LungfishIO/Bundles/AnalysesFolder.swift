@@ -155,24 +155,6 @@ public enum AnalysesFolder {
         date: Date = Date(),
         command: String? = nil
     ) throws -> URL {
-        try createAnalysisDirectory(
-            tool: tool,
-            in: projectURL,
-            isBatch: isBatch,
-            date: date,
-            command: command,
-            renameOperations: .darwin
-        )
-    }
-
-    static func createAnalysisDirectory(
-        tool: String,
-        in projectURL: URL,
-        isBatch: Bool = false,
-        date: Date = Date(),
-        command: String? = nil,
-        renameOperations: PortableRename.Operations
-    ) throws -> URL {
         let analysesDir = try url(for: projectURL)
         let timestamp = formatTimestamp(date)
         let baseName = isBatch ? "\(tool)-batch-\(timestamp)" : "\(tool)-\(timestamp)"
@@ -203,10 +185,7 @@ public enum AnalysesFolder {
                 analysisURL.path.withCString { destination in
                     // ExFAT, FAT and SMB volumes reject RENAME_EXCL with
                     // ENOTSUP, and the portable rename falls back for them.
-                    PortableRename.renameatxNPReporting(
-                        AT_FDCWD, source, AT_FDCWD, destination, UInt32(RENAME_EXCL),
-                        operations: renameOperations
-                    ).status
+                    PortableRename.renameatxNP(AT_FDCWD, source, AT_FDCWD, destination, UInt32(RENAME_EXCL))
                 }
             }
             if status == 0 {

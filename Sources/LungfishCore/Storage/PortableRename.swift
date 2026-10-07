@@ -279,9 +279,57 @@ public enum PortableRename {
                 destinationName,
                 operations: operations
             )
+        case S_IFLNK:
+            guard sourceWitness == nil else {
+                return fallbackFailure(ESTALE)
+            }
+            return fallbackSymbolicLinkRename(
+                sourceParent,
+                sourceName,
+                destinationParent,
+                destinationName,
+                operations: operations
+            )
         default:
             return fallbackFailure(ENOTSUP)
         }
+    }
+
+    /// Reserves the name with an exclusive `symlinkat`, then renames the
+    /// source link over that reservation. ExFAT stores symbolic links.
+    private static func fallbackSymbolicLinkRename(
+        _ sourceParent: Int32,
+        _ sourceName: UnsafePointer<CChar>,
+        _ destinationParent: Int32,
+        _ destinationName: UnsafePointer<CChar>,
+        operations: Operations
+    ) -> Outcome {
+        let reservationStatus = retryOnInterruption {
+            Darwin.symlinkat(".lungfish-rename-reservation", destinationParent, destinationName)
+        }
+        guard reservationStatus == 0 else {
+            return fallbackFailure(errno)
+        }
+        var reservationInformation = stat()
+        guard retryFstatat(destinationParent, destinationName, &reservationInformation, AT_SYMLINK_NOFOLLOW) == 0 else {
+            let code = errno
+            while operations.removeEntry(destinationParent, destinationName, 0) != 0, errno == EINTR {}
+            return fallbackFailure(code)
+        }
+        let status = retryOnInterruption {
+            operations.ordinaryRename(sourceParent, sourceName, destinationParent, destinationName)
+        }
+        guard status == 0 else {
+            let code = errno
+            removeReservationIfUnchanged(
+                parent: destinationParent,
+                name: destinationName,
+                expected: reservationInformation,
+                operations: operations
+            )
+            return fallbackFailure(code)
+        }
+        return Outcome(status: 0, mechanism: .reservationFallback)
     }
 
     /// Whether `code` means the volume does not support a rename flag

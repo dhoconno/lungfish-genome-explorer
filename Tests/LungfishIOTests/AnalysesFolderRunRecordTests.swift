@@ -4,7 +4,7 @@
 
 import Darwin
 import XCTest
-import LungfishCore
+@testable import LungfishCore
 @testable import LungfishIO
 
 final class AnalysesFolderRunRecordTests: XCTestCase {
@@ -53,16 +53,12 @@ final class AnalysesFolderRunRecordTests: XCTestCase {
     /// finished run cannot be shown.
     func testCreateFallsBackWhenTheVolumeRejectsExclusiveRename() throws {
         let date = Date(timeIntervalSince1970: 1_775_398_200)
-        let operations = Self.operationsRejectingExclusiveRename()
-
-        let first = try AnalysesFolder.createAnalysisDirectory(
-            tool: "viralrecon", in: projectURL, isBatch: true, date: date,
-            renameOperations: operations
-        )
-        let second = try AnalysesFolder.createAnalysisDirectory(
-            tool: "viralrecon", in: projectURL, isBatch: true, date: date,
-            renameOperations: operations
-        )
+        let (first, second) = try PortableRename.simulatingUnsupportedFlags {
+            (
+                try AnalysesFolder.createAnalysisDirectory(tool: "viralrecon", in: projectURL, isBatch: true, date: date),
+                try AnalysesFolder.createAnalysisDirectory(tool: "viralrecon", in: projectURL, isBatch: true, date: date)
+            )
+        }
 
         XCTAssertTrue(first.lastPathComponent.hasPrefix("viralrecon-batch-"))
         XCTAssertEqual(second.lastPathComponent, first.lastPathComponent + "-2")
@@ -103,17 +99,6 @@ final class AnalysesFolderRunRecordTests: XCTestCase {
         let claim = try AnalysisRunRecord.beginRun(in: runDirectory, record: AnalysisRunRecord(analysisName: "Viral Recon"))
         XCTAssertEqual(claim, .owned)
         XCTAssertTrue(AnalysisRunRecord.isIncomplete(runDirectory))
-    }
-
-    private static func operationsRejectingExclusiveRename() -> PortableRename.Operations {
-        PortableRename.Operations(nativeRename: { _, _, _, _, flags in
-            if flags == UInt32(RENAME_EXCL) {
-                errno = ENOTSUP
-                return -1
-            }
-            errno = EINVAL
-            return -1
-        })
     }
 
     func testListAnalysesSkipsIncompleteRunsUntilMarkedComplete() throws {
