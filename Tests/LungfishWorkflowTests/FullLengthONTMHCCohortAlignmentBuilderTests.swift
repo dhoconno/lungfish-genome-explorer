@@ -1,6 +1,7 @@
 import Foundation
 import Darwin
 import XCTest
+@testable import LungfishCore
 @testable import LungfishWorkflow
 
 final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
@@ -314,14 +315,13 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: false)
         try Data("bam".utf8).write(to: staged.appendingPathComponent("genotyping-evidence.bam"))
         try Data("bai".utf8).write(to: staged.appendingPathComponent("genotyping-evidence.bam.bai"))
-        let renamer = UnsupportedExclusiveAlignmentDirectoryRenamer()
-
-        let publication = try DarwinAtomicAlignmentDirectoryPublisher(renamer: renamer).publish(
+        let publication = try DarwinAtomicAlignmentDirectoryPublisher(
+            operations: unsupportedRenameFlags()
+        ).publish(
             stagedDirectoryURL: staged,
             finalDirectoryURL: final
         )
 
-        XCTAssertEqual(renamer.attemptedFlags, [UInt32(RENAME_EXCL), 0])
         XCTAssertEqual(publication.record.mode, .create)
         XCTAssertEqual(
             publication.record.atomicMechanism,
@@ -359,12 +359,18 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: false)
         let stagedArtifact = staged.appendingPathComponent("genotyping-evidence.bam")
         try Data("staged".utf8).write(to: stagedArtifact)
-        let renamer = UnsupportedExclusiveAlignmentDirectoryRenamer(
-            destinationToCreateAfterUnsupportedAttempt: final
-        )
+        // Another writer creates the destination right after the volume
+        // rejects RENAME_EXCL, before the fallback reserves the name.
+        var operations = unsupportedRenameFlags()
+        operations.nativeRename = { _, _, _, _, _ in
+            try? FileManager.default.createDirectory(at: final, withIntermediateDirectories: false)
+            try? Data("unrelated".utf8).write(to: final.appendingPathComponent("unrelated"))
+            errno = ENOTSUP
+            return -1
+        }
 
         XCTAssertThrowsError(
-            try DarwinAtomicAlignmentDirectoryPublisher(renamer: renamer).publish(
+            try DarwinAtomicAlignmentDirectoryPublisher(operations: operations).publish(
                 stagedDirectoryURL: staged,
                 finalDirectoryURL: final
             )
@@ -381,7 +387,6 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
             XCTAssertTrue(failure.record.errorMessage?.contains("exists") == true)
         }
 
-        XCTAssertEqual(renamer.attemptedFlags, [UInt32(RENAME_EXCL)])
         XCTAssertEqual(try String(contentsOf: stagedArtifact, encoding: .utf8), "staged")
         XCTAssertEqual(
             try String(contentsOf: final.appendingPathComponent("unrelated"), encoding: .utf8),
@@ -389,7 +394,8 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         )
     }
 
-    func testReplacePublicationDoesNotUseCreateFallbackWhenSwapIsUnsupported() throws {
+    /// Rebuilding cohort alignments on ExFAT, which rejects RENAME_SWAP.
+    func testReplacePublicationFallsBackWhenSwapIsUnsupported() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "unsupported-swap-mhc-publication-\(UUID().uuidString)",
             isDirectory: true
@@ -402,22 +408,23 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         try FileManager.default.createDirectory(at: final, withIntermediateDirectories: false)
         try Data("new".utf8).write(to: staged.appendingPathComponent("artifact"))
         try Data("old".utf8).write(to: final.appendingPathComponent("artifact"))
-        let renamer = UnsupportedExclusiveAlignmentDirectoryRenamer()
 
-        XCTAssertThrowsError(
-            try DarwinAtomicAlignmentDirectoryPublisher(renamer: renamer).publish(
-                stagedDirectoryURL: staged,
-                finalDirectoryURL: final
-            )
+        let publication = try DarwinAtomicAlignmentDirectoryPublisher(
+            operations: unsupportedRenameFlags()
+        ).publish(
+            stagedDirectoryURL: staged,
+            finalDirectoryURL: final
         )
 
-        XCTAssertEqual(renamer.attemptedFlags, [UInt32(RENAME_SWAP)])
+        XCTAssertEqual(publication.record.mode, .replace)
+        XCTAssertEqual(publication.record.atomicMechanism, "tombstone-rotation")
+        XCTAssertEqual(publication.retiredDirectoryURL, staged.standardizedFileURL)
         XCTAssertEqual(
-            try String(contentsOf: staged.appendingPathComponent("artifact"), encoding: .utf8),
+            try String(contentsOf: final.appendingPathComponent("artifact"), encoding: .utf8),
             "new"
         )
         XCTAssertEqual(
-            try String(contentsOf: final.appendingPathComponent("artifact"), encoding: .utf8),
+            try String(contentsOf: staged.appendingPathComponent("artifact"), encoding: .utf8),
             "old"
         )
     }
@@ -1508,57 +1515,8 @@ private struct CleanupFailingAtomicAlignmentDirectoryPublisher: FullLengthONTMHC
     }
 }
 
-private final class UnsupportedExclusiveAlignmentDirectoryRenamer:
-    @unchecked Sendable,
-    FullLengthONTMHCAlignmentDirectoryRenaming
-{
-    private let lock = NSLock()
-    private var flags: [UInt32] = []
-    private let destinationToCreateAfterUnsupportedAttempt: URL?
-
-    init(destinationToCreateAfterUnsupportedAttempt: URL? = nil) {
-        self.destinationToCreateAfterUnsupportedAttempt = destinationToCreateAfterUnsupportedAttempt
-    }
-
-    var attemptedFlags: [UInt32] { lock.withLock { flags } }
-
-    func rename(
-        stagedDirectoryURL: URL,
-        finalDirectoryURL: URL,
-        flags: UInt32
-    ) -> FullLengthONTMHCAlignmentDirectoryRenameAttempt {
-        lock.withLock { self.flags.append(flags) }
-        if flags == UInt32(RENAME_EXCL) {
-            if let destinationToCreateAfterUnsupportedAttempt {
-                try? FileManager.default.createDirectory(
-                    at: destinationToCreateAfterUnsupportedAttempt,
-                    withIntermediateDirectories: false
-                )
-                try? Data("unrelated".utf8).write(
-                    to: destinationToCreateAfterUnsupportedAttempt.appendingPathComponent("unrelated")
-                )
-            }
-            return FullLengthONTMHCAlignmentDirectoryRenameAttempt(
-                status: -1,
-                errorCode: ENOTSUP
-            )
-        }
-        if flags == UInt32(RENAME_SWAP) {
-            return FullLengthONTMHCAlignmentDirectoryRenameAttempt(
-                status: -1,
-                errorCode: ENOTSUP
-            )
-        }
-        let status = stagedDirectoryURL.path.withCString { stagedPath in
-            finalDirectoryURL.path.withCString { finalPath in
-                renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
-            }
-        }
-        return FullLengthONTMHCAlignmentDirectoryRenameAttempt(
-            status: status,
-            errorCode: status == 0 ? nil : errno
-        )
-    }
+private func unsupportedRenameFlags() -> PortableRename.Operations {
+    PortableRename.Operations.unsupportedFlags
 }
 
 private struct FailingWorkDirectoryCleaner: FullLengthONTMHCWorkDirectoryCleaning {

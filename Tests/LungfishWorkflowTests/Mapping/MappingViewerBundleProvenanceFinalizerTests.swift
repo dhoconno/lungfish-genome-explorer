@@ -1,6 +1,6 @@
 import Darwin
 import XCTest
-import LungfishCore
+@testable import LungfishCore
 @testable import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -1513,6 +1513,44 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
 
         XCTAssertEqual(try Data(contentsOf: finalBundle.appendingPathComponent("sentinel")), newBytes)
         XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
+    }
+
+    /// Re-mapping into an existing viewer on ExFAT, which rejects RENAME_SWAP.
+    func testPublishCandidateReplacesExistingBundleWithoutRenameSwap() throws {
+        try PortableRename.simulatingUnsupportedFlags {
+            try assertCandidateReplacesExistingBundle(in: tempDirectory)
+        }
+    }
+
+    /// Run with `scripts/testing/exfat-tests.sh`.
+    func testPublishCandidateReplacesExistingBundleOnExFAT() throws {
+        guard let volume = ProcessInfo.processInfo.environment["LUNGFISH_EXFAT_TEST_ROOT"], !volume.isEmpty else {
+            throw XCTSkip("Set LUNGFISH_EXFAT_TEST_ROOT to an ExFAT volume root to run this test.")
+        }
+        let root = URL(fileURLWithPath: volume, isDirectory: true)
+            .appendingPathComponent("mapping-viewer-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try assertCandidateReplacesExistingBundle(in: root)
+    }
+
+    private func assertCandidateReplacesExistingBundle(in directory: URL) throws {
+        let finalBundle = directory.appendingPathComponent("Viewer.lungfishref", isDirectory: true)
+        let candidateBundle = directory.appendingPathComponent(".Viewer.candidate", isDirectory: true)
+        try FileManager.default.createDirectory(at: finalBundle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: candidateBundle, withIntermediateDirectories: true)
+        try Data("old-viewer".utf8).write(to: finalBundle.appendingPathComponent("sentinel"))
+        let newBytes = Data("new-viewer".utf8)
+        try newBytes.write(to: candidateBundle.appendingPathComponent("sentinel"))
+
+        try MappingViewerBundlePublicationService.publishCandidate(
+            candidateBundleURL: candidateBundle,
+            finalBundleURL: finalBundle
+        ) { _ in }
+
+        XCTAssertEqual(try Data(contentsOf: finalBundle.appendingPathComponent("sentinel")), newBytes)
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { !$0.hasPrefix("._") }
+        XCTAssertEqual(names, ["Viewer.lungfishref"])
     }
 
     func testPublishCandidateReplacementDoesNotUseExclusiveRenameFallback() throws {

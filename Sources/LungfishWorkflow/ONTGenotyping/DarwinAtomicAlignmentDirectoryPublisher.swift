@@ -1,44 +1,22 @@
 import Foundation
 import Darwin
+import LungfishCore
 import LungfishIO
 
-private struct DarwinFullLengthONTMHCAlignmentDirectoryRenamer:
-    FullLengthONTMHCAlignmentDirectoryRenaming
-{
-    func rename(
-        stagedDirectoryURL: URL,
-        finalDirectoryURL: URL,
-        flags: UInt32
-    ) -> FullLengthONTMHCAlignmentDirectoryRenameAttempt {
-        let status = stagedDirectoryURL.path.withCString { stagedPath in
-            finalDirectoryURL.path.withCString { finalPath in
-                Darwin.renameatx_np(
-                    AT_FDCWD,
-                    stagedPath,
-                    AT_FDCWD,
-                    finalPath,
-                    flags
-                )
-            }
-        }
-        return FullLengthONTMHCAlignmentDirectoryRenameAttempt(
-            status: status,
-            errorCode: status == 0 ? nil : errno
-        )
-    }
-}
-
 public struct DarwinAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignmentDirectoryPublishing {
-    private let renamer: any FullLengthONTMHCAlignmentDirectoryRenaming
+    private let operations: PortableRename.Operations?
 
     public init() {
-        renamer = DarwinFullLengthONTMHCAlignmentDirectoryRenamer()
+        operations = nil
     }
 
-    init(renamer: any FullLengthONTMHCAlignmentDirectoryRenaming) {
-        self.renamer = renamer
+    init(operations: PortableRename.Operations) {
+        self.operations = operations
     }
 
+    /// Publishes with `RENAME_EXCL`, or with `RENAME_SWAP` when the
+    /// alignments already exist. On ExFAT, FAT and SMB, which reject both,
+    /// `PortableRename` reserves the name or rotates through a tombstone.
     public func publish(
         stagedDirectoryURL: URL,
         finalDirectoryURL: URL
@@ -49,56 +27,39 @@ public struct DarwinAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignment
         let finalExists = FileManager.default.fileExists(atPath: destinationURL.path)
         let mode: FullLengthONTMHCAlignmentDirectoryPublicationMode = finalExists ? .replace : .create
         let flags = UInt32(finalExists ? RENAME_SWAP : RENAME_EXCL)
-        var attempt = renamer.rename(
-            stagedDirectoryURL: sourceURL,
-            finalDirectoryURL: destinationURL,
-            flags: flags
-        )
-        var usedUnsupportedExclusiveRenameFallback = false
-        if mode == .create,
-           attempt.status != 0,
-           attempt.errorCode == ENOTSUP {
-            usedUnsupportedExclusiveRenameFallback = true
-            let reservationStatus = destinationURL.path.withCString {
-                mkdir($0, mode_t(S_IRWXU))
-            }
-            if reservationStatus != 0 {
-                attempt = FullLengthONTMHCAlignmentDirectoryRenameAttempt(
-                    status: -1,
-                    errorCode: errno
+        let outcome = sourceURL.path.withCString { stagedPath in
+            destinationURL.path.withCString { finalPath in
+                PortableRename.renameatxNPReporting(
+                    AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags,
+                    operations: operations ?? .current
                 )
-            } else {
-                attempt = renamer.rename(
-                    stagedDirectoryURL: sourceURL,
-                    finalDirectoryURL: destinationURL,
-                    flags: 0
-                )
-                if attempt.status != 0 {
-                    _ = destinationURL.path.withCString { rmdir($0) }
-                }
             }
         }
-        let status = attempt.status
-        let code = attempt.errorCode.map { POSIXErrorCode(rawValue: $0) ?? .EIO }
-        let completedAt = Date()
+        let code = outcome.status == 0 ? nil : POSIXErrorCode(rawValue: errno) ?? .EIO
         let record = FullLengthONTMHCAlignmentDirectoryPublicationRecord(
             mode: mode,
             sourceDirectoryURL: sourceURL,
             finalDirectoryURL: destinationURL,
-            exitStatus: status,
+            exitStatus: outcome.status,
             errorMessage: code.map { POSIXError($0).localizedDescription },
             startedAt: startedAt,
-            completedAt: completedAt,
-            atomicMechanism: usedUnsupportedExclusiveRenameFallback
-                ? "exclusive-directory-reservation-then-rename"
-                : "renameatx_np"
+            completedAt: Date(),
+            atomicMechanism: Self.recordedMechanism(outcome.mechanism)
         )
-        guard status == 0 else {
+        guard outcome.status == 0 else {
             throw FullLengthONTMHCAlignmentDirectoryPublicationError(record: record)
         }
         return FullLengthONTMHCAlignmentDirectoryPublication(
             retiredDirectoryURL: finalExists ? sourceURL : nil,
             record: record
         )
+    }
+
+    private static func recordedMechanism(_ mechanism: PortableRename.Mechanism) -> String {
+        switch mechanism {
+        case .nativeExclusive, .nativeSwap: return "renameatx_np"
+        case .reservationFallback: return "exclusive-directory-reservation-then-rename"
+        case .rotationFallback: return mechanism.rawValue
+        }
     }
 }

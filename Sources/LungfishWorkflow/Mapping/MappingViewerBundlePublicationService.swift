@@ -1101,33 +1101,15 @@ public enum MappingViewerBundlePublicationService {
         flags: UInt32,
         exclusiveRename: ((URL, URL, UInt32) -> Int32)? = nil
     ) throws {
+        // PortableRename falls back for RENAME_EXCL and RENAME_SWAP on
+        // ExFAT, FAT and SMB, which reject both.
         let status: Int32
-        if flags == UInt32(RENAME_EXCL) {
-            if let exclusiveRename {
-                status = exclusiveRename(source, destination, flags)
-            } else {
-                status = source.path.withCString { sourcePath in
-                    destination.path.withCString { destinationPath in
-                        PortableRename.renameatxNP(
-                            AT_FDCWD,
-                            sourcePath,
-                            AT_FDCWD,
-                            destinationPath,
-                            flags
-                        )
-                    }
-                }
-            }
+        if flags == UInt32(RENAME_EXCL), let exclusiveRename {
+            status = exclusiveRename(source, destination, flags)
         } else {
             status = source.path.withCString { sourcePath in
                 destination.path.withCString { destinationPath in
-                    Darwin.renameatx_np(
-                        AT_FDCWD,
-                        sourcePath,
-                        AT_FDCWD,
-                        destinationPath,
-                        flags
-                    )
+                    PortableRename.renameatxNP(AT_FDCWD, sourcePath, AT_FDCWD, destinationPath, flags)
                 }
             }
         }
