@@ -303,9 +303,10 @@ public actor TaxonomyExtractionPipeline {
         progress?(0.0, "Starting batch extraction: \(collection.name) (\(totalTargets) taxa)")
 
         // Every read file of the result (D7e). A trimmed or oriented subset
-        // is materialized once into a scratch folder that goes at the end.
+        // is materialized once into a scratch folder that goes at the end,
+        // removed only when it was made (``ClassificationPipeline/removeIfPresent(_:)``).
         let scratch = outputDirectory.appendingPathComponent(".kraken2-sources-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fm.removeItem(at: scratch) }
+        defer { ClassificationPipeline.removeIfPresent(scratch) }
         let sources = try await KrakenResultReadSources.resolve(
             result: classificationResult,
             materializationDirectory: scratch.appendingPathComponent("materialized", isDirectory: true)

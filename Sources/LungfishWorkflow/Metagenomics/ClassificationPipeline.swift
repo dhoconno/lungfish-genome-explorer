@@ -496,7 +496,7 @@ public actor ClassificationPipeline {
         var kraken2Config = effectiveConfig
         let interleavedSplitDirectory = effectiveConfig.outputDirectory
             .appendingPathComponent(Self.interleavedSplitDirectoryName, isDirectory: true)
-        defer { try? fm.removeItem(at: interleavedSplitDirectory) }
+        defer { Self.removeIfPresent(interleavedSplitDirectory) }
         var interleavedSplitStepID: UUID?
         if effectiveConfig.interleavedInput {
             progress?(0.05, "Splitting interleaved pairs for kraken2...")
@@ -751,7 +751,7 @@ public actor ClassificationPipeline {
 
         // The halves are only needed by kraken2; drop them now rather than at
         // scope exit so Bracken and sidecar work do not hold the disk.
-        try? fm.removeItem(at: interleavedSplitDirectory)
+        Self.removeIfPresent(interleavedSplitDirectory)
 
         if kraken2Result.exitCode != 0 {
             try await persistInterruptedClassificationRun(
