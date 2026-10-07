@@ -14,7 +14,9 @@ import Foundation
 /// and it goes with the pair as the run's unpaired reads. A run never counts
 /// as one mate of a pair, so a lone mate 2 fails, and so does a lone mate 1
 /// of a run its archive lists as paired. Files named for another run never
-/// count.
+/// count, and neither do the run's read files beyond mates 1 and 2, such as
+/// `<accession>_3.fastq.gz` for spots of three reads, which the warning of
+/// `sorting(_:accession:enaLayout:ncbiLayout:)` names.
 ///
 /// The window's SRA download and `lungfish-cli fetch sra download` both
 /// sort a run's files with this type, and `ENAService.fastqDownloadRoute`
@@ -161,14 +163,21 @@ public struct SRARunListedLayout: Equatable, Sendable {
     /// ENA's layout when ENA's record gives one, else NCBI's from `ncbiLayout`.
     /// NCBI is asked only when ENA's record gives no layout, so a run ENA
     /// describes costs no request to NCBI.
+    ///
+    /// - Throws: A cancellation when the task was cancelled while NCBI was
+    ///   asked. `SRAService.ncbiRunInfo(forRun:)` answers nil then, as for a
+    ///   run NCBI does not list, and a cancelled download must stop rather
+    ///   than sort the run's files as if no archive listed a layout.
     public static func resolve(
         enaLayout: String?,
-        ncbiLayout: () async -> String?
-    ) async -> SRARunListedLayout? {
+        ncbiLayout: () async throws -> String?
+    ) async throws -> SRARunListedLayout? {
         if let enaLayout = enaLayout?.trimmingCharacters(in: .whitespaces), !enaLayout.isEmpty {
             return SRARunListedLayout(archive: "ENA", layout: enaLayout)
         }
-        if let ncbi = await ncbiLayout()?.trimmingCharacters(in: .whitespaces), !ncbi.isEmpty {
+        let ncbiLayout = try await ncbiLayout()
+        try Task.checkCancellation()
+        if let ncbi = ncbiLayout?.trimmingCharacters(in: .whitespaces), !ncbi.isEmpty {
             return SRARunListedLayout(archive: "NCBI", layout: ncbi)
         }
         return nil
@@ -183,32 +192,83 @@ public extension SRARunReads {
     /// ENA's record gives one, else NCBI's LibraryLayout, which
     /// `ncbiLayout` supplies. A lone mate 1 of a run either archive lists as
     /// paired is refused. A run listed as paired that arrived as one file of
-    /// single reads is taken as single reads, and the warning says so.
+    /// single reads is taken as single reads, and the warning says so. So
+    /// does a lone mate 1 of a run neither archive gives a layout for, and
+    /// the warning names any read file beyond mates 1 and 2, which the reads
+    /// leave out. Several warnings share the one line.
     ///
     /// - Returns: The reads, and the warning line to log and record under
     ///   `layoutWarning`, or nil.
+    /// - Throws: `Failure` for files that are not one whole run, or a
+    ///   cancellation when the task was cancelled while NCBI was asked.
     static func sorting(
         _ files: [URL],
         accession: String,
         enaLayout: String?,
-        ncbiLayout: () async -> String?
+        ncbiLayout: () async throws -> String?
     ) async throws -> (reads: SRARunReads, layoutWarning: String?) {
         let mate2Names: Set = ["\(accession)_2.fastq", "\(accession)_2.fastq.gz"]
-        let layout: SRARunListedLayout?
-        if files.contains(where: { mate2Names.contains($0.lastPathComponent) }) {
-            layout = nil
-        } else {
-            layout = await SRARunListedLayout.resolve(enaLayout: enaLayout, ncbiLayout: ncbiLayout)
-        }
+        let mate2Arrived = files.contains { mate2Names.contains($0.lastPathComponent) }
+        let layout = mate2Arrived
+            ? nil
+            : try await SRARunListedLayout.resolve(enaLayout: enaLayout, ncbiLayout: ncbiLayout)
         let reads = try SRARunReads(
             stagedFiles: files,
             accession: accession,
             listedAsPaired: layout?.isPaired == true,
             listedBy: layout?.archive
         )
-        guard reads.r2 == nil, let layout, layout.isPaired else {
-            return (reads, nil)
+        var warnings: [String] = []
+        if reads.r2 == nil, let layout, layout.isPaired {
+            warnings.append("\(layout.archive) lists \(accession) as paired but only one read file arrived; imported as single-end reads")
         }
-        return (reads, "\(layout.archive) lists \(accession) as paired but only one read file arrived; imported as single-end reads")
+        let mate1Names: Set = ["\(accession)_1.fastq", "\(accession)_1.fastq.gz"]
+        if !mate2Arrived, layout == nil, mate1Names.contains(reads.r1.lastPathComponent) {
+            warnings.append(
+                "No layout of \(accession) came from ENA or NCBI and only \(reads.r1.lastPathComponent) arrived, so its reads import as single-end reads"
+            )
+        }
+        let laterFiles = laterReadFiles(in: files, accession: accession)
+        if !laterFiles.isEmpty {
+            warnings.append(laterReadFilesWarning(laterFiles))
+        }
+        return (reads, warnings.isEmpty ? nil : warnings.joined(separator: ". "))
+    }
+
+    /// The read files of `accession` beyond mates 1 and 2 among `files`, such
+    /// as `<accession>_3.fastq.gz`, in the order of their read numbers. ENA
+    /// lists one for a run whose spots hold three reads, and `fasterq-dump`
+    /// can write one. The run's reads never take them.
+    static func laterReadFiles(in files: [URL], accession: String) -> [URL] {
+        files
+            .compactMap { file in laterReadNumber(of: file.lastPathComponent, accession: accession).map { (file, $0) } }
+            .sorted { ($0.1, $0.0.lastPathComponent) < ($1.1, $1.0.lastPathComponent) }
+            .map(\.0)
+    }
+
+    /// The read number `name` gives a read file of `accession` beyond mates 1
+    /// and 2, 3 for `<accession>_3.fastq` or `<accession>_3.fastq.gz` and so
+    /// on, or nil for any other name.
+    static func laterReadNumber(of name: String, accession: String) -> Int? {
+        let prefix = "\(accession)_"
+        guard name.hasPrefix(prefix) else { return nil }
+        let rest = name.dropFirst(prefix.count)
+        for suffix in [".fastq.gz", ".fastq"] where rest.hasSuffix(suffix) {
+            let digits = rest.dropLast(suffix.count)
+            guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }),
+                  let number = Int(digits), number >= 3 else { return nil }
+            return number
+        }
+        return nil
+    }
+
+    /// The warning line that names the read files beyond mates 1 and 2.
+    private static func laterReadFilesWarning(_ files: [URL]) -> String {
+        let names = files.map(\.lastPathComponent)
+        guard let last = names.last, names.count > 1 else {
+            return "\(names.joined()) holds reads beyond mates 1 and 2 and is not imported with the run"
+        }
+        let listed = names.dropLast().joined(separator: ", ") + " and " + last
+        return "\(listed) hold reads beyond mates 1 and 2 and are not imported with the run"
     }
 }

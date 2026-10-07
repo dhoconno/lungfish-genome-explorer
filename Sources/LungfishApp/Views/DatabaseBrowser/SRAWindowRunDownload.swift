@@ -433,7 +433,9 @@ struct SRAWindowStagedRun {
     /// record did not arrive, which the bundle's metadata keeps.
     var ncbiRun: SRARunInfo? = nil
     /// The line the row and the provenance log when the run arrived in a
-    /// layout its archive record does not list, or nil.
+    /// layout its archive record does not list, as a lone mate 1 of a run no
+    /// archive gives a layout for, or with read files beyond mates 1 and 2,
+    /// which are not imported. Nil otherwise.
     var layoutWarning: String? = nil
 
     /// Removes the run's folder and every file in it. The window calls it
@@ -479,7 +481,10 @@ extension SRAWindowRunDownload {
     /// `fetch sra download` applies, so a lone mate 1 of a run either
     /// archive lists as paired fails the run. A run listed as paired that
     /// arrived as one file imports as single-end reads, with
-    /// `SRAWindowStagedRun.layoutWarning` naming the mismatch.
+    /// `SRAWindowStagedRun.layoutWarning` naming the mismatch. The warning
+    /// also names a lone mate 1 of a run neither archive gives a layout for
+    /// and any read file beyond mates 1 and 2, which is not imported. A
+    /// cancellation while NCBI is asked cancels the run.
     ///
     /// - Parameters:
     ///   - lookUpRoute: As for `download(accession:preference:lookUpRoute:into:mirrorFile:toolkit:log:)`.
@@ -521,16 +526,19 @@ extension SRAWindowRunDownload {
             )
             var ncbiRun = ncbiRun
             var askedNCBI = false
-            func resolvedNCBIRun() async -> SRARunInfo? {
+            func resolvedNCBIRun() async throws -> SRARunInfo? {
                 if ncbiRun == nil, !askedNCBI, let lookUpNCBIRun {
                     askedNCBI = true
                     ncbiRun = await lookUpNCBIRun()
+                    // The lookup answers nil when the run's task is
+                    // cancelled, and a cancelled run stops here.
+                    try Task.checkCancellation()
                 }
                 return ncbiRun
             }
             if download.enaRecord == nil {
                 // NCBI's record gives the metadata of a run ENA's record missed.
-                let ncbiRecord = await resolvedNCBIRun()
+                let ncbiRecord = try await resolvedNCBIRun()
                 if let gap = download.enaRecordGap {
                     log(ncbiRecord == nil
                         ? "ENA's record of \(accession) is missing (\(gap)), so the run is imported without ENA metadata."
@@ -541,7 +549,7 @@ extension SRAWindowRunDownload {
                 download.fastqFiles,
                 accession: accession,
                 enaLayout: download.enaRecord?.libraryLayout,
-                ncbiLayout: { await resolvedNCBIRun()?.libraryLayout }
+                ncbiLayout: { try await resolvedNCBIRun()?.libraryLayout }
             )
             if let layoutWarning = sorted.layoutWarning {
                 log(layoutWarning)

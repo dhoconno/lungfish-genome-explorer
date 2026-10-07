@@ -52,9 +52,19 @@ public final class SRAScriptedArchives: HTTPClient, @unchecked Sendable {
         }
     }
 
+    /// How NCBI's run info service fails every request.
+    public enum NCBIFailure: Sendable {
+        /// NCBI answers HTTP 500, as in an outage.
+        case down
+        /// The request is cancelled, as cancelling the task that waits on
+        /// it cancels it. The task is cancelled too.
+        case cancelled
+    }
+
     private let lock = NSLock()
     private var enaRuns: [String: ENARun] = [:]
     private var enaIsDown = false
+    private var ncbiFailure: NCBIFailure?
     private var ncbiLayouts: [String: String] = [:]
     private var mirrorFailures: [String: MirrorFailure] = [:]
     private var servedFiles: [String: Data] = [:]
@@ -92,6 +102,11 @@ public final class SRAScriptedArchives: HTTPClient, @unchecked Sendable {
     /// NCBI's run info lists `accession` with `layout`, such as "PAIRED".
     public func listOnNCBI(_ accession: String, layout: String) {
         lock.withLock { ncbiLayouts[accession] = layout }
+    }
+
+    /// NCBI's run info service fails every request as `failure`.
+    public func failOnNCBI(_ failure: NCBIFailure) {
+        lock.withLock { ncbiFailure = failure }
     }
 
     /// Every request answered, as "ena <accession>", "ncbi <ids>" or
@@ -139,9 +154,18 @@ public final class SRAScriptedArchives: HTTPClient, @unchecked Sendable {
         }
         if url.absoluteString.contains("efetch.fcgi") {
             let ids = query("id")
-            let layouts = lock.withLock { () -> [String: String] in
+            let (layouts, failure) = lock.withLock { () -> ([String: String], NCBIFailure?) in
                 requests.append("ncbi \(ids)")
-                return ncbiLayouts
+                return (ncbiLayouts, ncbiFailure)
+            }
+            switch failure {
+            case .down?:
+                return (Data("<html><body>Service Unavailable</body></html>".utf8), Self.response(url, 500))
+            case .cancelled?:
+                withUnsafeCurrentTask { $0?.cancel() }
+                throw CancellationError()
+            case nil:
+                break
             }
             let rows = ids.split(separator: ",").compactMap { id -> String? in
                 layouts[String(id)].map { Self.runInfoRow(accession: String(id), layout: $0) }

@@ -52,6 +52,8 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         let trace = SRADownloadTraceCapture(
             downloadSource: initialStrategy == "sra-toolkit" ? .sraToolkit : .ena
         )
+        // With --format json, standard output holds the JSON result alone.
+        let statusToStandardError = globalOptions.outputFormat == .json
 
         let outputURL = URL(fileURLWithPath: outputDir)
 
@@ -59,11 +61,11 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
 
         if !globalOptions.quiet {
-            print(formatter.info("Downloading FASTQ for \(accession)..."))
+            Self.printStatus(formatter.info("Downloading FASTQ for \(accession)..."), toStandardError: statusToStandardError)
             if useToolkit || sourcePreference == .ncbi {
-                print(formatter.info("Using SRA Toolkit (prefetch + fasterq-dump)"))
+                Self.printStatus(formatter.info("Using SRA Toolkit (prefetch + fasterq-dump)"), toStandardError: statusToStandardError)
             } else {
-                print(formatter.info("Using ENA direct download"))
+                Self.printStatus(formatter.info("Using ENA direct download"), toStandardError: statusToStandardError)
             }
         }
 
@@ -78,7 +80,10 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                     outputDir: outputURL
                 ) { progress in
                     if !globalOptions.quiet {
-                        print(formatter.info("Download progress: \(Int(progress * 100))%"))
+                        Self.printStatus(
+                            formatter.info("Download progress: \(Int(progress * 100))%"),
+                            toStandardError: statusToStandardError
+                        )
                     }
                 } trace: { step in
                     trace.recordStep(step)
@@ -93,14 +98,17 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                     progress: { progress in
                         if !quiet {
                             let formatter = TerminalFormatter(useColors: useColors)
-                            print(formatter.info("Download progress: \(Int(progress * 100))%"))
+                            Self.printStatus(
+                                formatter.info("Download progress: \(Int(progress * 100))%"),
+                                toStandardError: statusToStandardError
+                            )
                         }
                     },
                     onFallback: { message in
                         trace.recordFallback(message)
                         if !quiet {
                             let formatter = TerminalFormatter(useColors: useColors)
-                            print(formatter.info(message))
+                            Self.printStatus(formatter.info(message), toStandardError: statusToStandardError)
                         }
                     },
                     onSource: { source in
@@ -118,7 +126,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
             // The lone-mate rule the window applies, with ENA's layout or NCBI's.
             let layoutWarning = try await checkRunReads(files, service: service, enaRecord: trace.enaRecord)
             if let layoutWarning, !globalOptions.quiet {
-                print(formatter.warning(layoutWarning))
+                Self.printStatus(formatter.warning(layoutWarning), toStandardError: statusToStandardError)
             }
 
             try writeSRADownloadProvenance(
@@ -144,6 +152,11 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                     print("  - \(file.lastPathComponent)")
                 }
             }
+        } catch let refusal as SRARunRefusal {
+            reportFailedToolOutput(trace.steps)
+            throw CLIError.workflowFailed(reason: refusal.reason)
+        } catch is CancellationError {
+            throw CLIError.cancelled
         } catch let error as SRAError {
             reportFailedToolOutput(trace.steps)
             throw CLIError.networkError(reason: error.localizedDescription)

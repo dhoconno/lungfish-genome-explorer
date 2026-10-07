@@ -302,9 +302,10 @@ public actor SRAService {
     ///   - accession: SRA run accession (e.g., SRR11140748)
     ///   - outputDir: Directory for output files (defaults to temp)
     ///   - progress: Optional progress callback (0.0-1.0)
-    /// - Returns: This run's FASTQ files that the download wrote. Other runs'
-    ///   files and older files in `outputDir` are never returned, and the
-    ///   archive `prefetch` added is removed once `fasterq-dump` succeeds.
+    /// - Returns: This run's FASTQ files that the download wrote, a read file
+    ///   beyond mates 1 and 2 among them. Other runs' files and older files
+    ///   in `outputDir` are never returned, and the archive `prefetch` added
+    ///   is removed once `fasterq-dump` succeeds.
     /// - Throws: A one-line `SRAError` naming the tool that failed, its exit
     ///   status and its error line. Its whole standard error goes to the log
     ///   and to its step trace. When `fasterq-dump` fails or is cancelled,
