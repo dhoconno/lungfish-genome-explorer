@@ -98,26 +98,45 @@ features:
       - Sources/LungfishCLI/Commands/FetchCommand.swift
       - Sources/LungfishCLI/Commands/SRADownloadSubcommand.swift
       - Sources/LungfishCLI/Commands/SRADownloadSubcommand+PreferSource.swift
+      - Sources/LungfishCLI/Commands/SRADownloadSubcommand+RunReads.swift
       - Sources/LungfishCore/Services/SRA/SRADownloadSourcePreference.swift
+      - Sources/LungfishCore/Services/SRA/SRARunReads.swift
+      - Sources/LungfishCore/Services/SRA/SRADownloadMessages.swift
+      - Sources/LungfishCore/Services/SRA/SRAFASTQDownloadRoute.swift
+      - Sources/LungfishCore/Services/ENA/ENAFASTQDownloadValidator.swift
       - Sources/LungfishCore/Services/NCBI/SRAService+SourcePreference.swift
+      - Sources/LungfishCore/Services/NCBI/SRAService+ENADownload.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseSearchDialog.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/SRARunsSearchPane.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/SRADownloadSourcePicker.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/SRAWindowRunDownload.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewModel+SRAWindowDownload.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
       - Sources/LungfishApp/Services/DownloadCenter.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController+OperationBegin.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift
     module: [LungfishApp, LungfishCLI, LungfishCore, LungfishWorkflow]
+    tests:
+      - Tests/LungfishCoreTests/Services/SRADownloadChecksTests.swift
+      - Tests/LungfishCLITests/SRADownloadRunChecksTests.swift
+      - Tests/LungfishAppTests/SRADownloadSurfaceParityTests.swift
     notes: >-
       Downloads SRA reads from ENA with an SRA Toolkit fallback, or from the
       SRA Toolkit first with an ENA fallback when the SRA window's "Download
       source" setting is Prefer NCBI or the CLI gets --prefer-source ncbi.
       --use-toolkit fetches with the toolkit only. fasterq-dump runs with
       --split-3, so reads without a mate land in <run>.fastq and import as
-      unpaired reads. Records the downloader, preferredSource, options,
-      produced FASTQ files, checksums, sizes, and runtime details in the
-      output directory provenance sidecar.
+      unpaired reads. Every ENA file is checked against the size and MD5 ENA
+      lists, and only ENA's record of the run asked for counts. A failed
+      check, an ENA listing of one mate of a paired run, or a record of
+      another run sends the whole run to the SRA Toolkit. A lone mate 1 of a
+      run ENA or NCBI lists as paired fails the run, and a run listed as
+      paired that arrives as one file imports as single-end reads with a
+      layoutWarning. fetch sra download takes one run accession. The window
+      and the CLI share these checks in LungfishCore and record the same
+      provenance, fallback line and one-line failure reasons. Records the
+      downloader, preferredSource, options, produced FASTQ files, checksums,
+      sizes, and runtime details in the output directory provenance sidecar.
   map:
     title: Map reads to a reference
     entry_points:
@@ -347,7 +366,10 @@ features:
     module: [LungfishCLI]
     notes: >-
       Extracts annotated feature sequences (genes, CDS, ORFs) from a reference
-      bundle into a new .lungfishref bundle or FASTA.
+      bundle into a new .lungfishref bundle or FASTA. --output-bundle names the
+      .lungfishref bundle written, adding the ending and turning spaces into
+      underscores. --replace replaces only that bundle, after every refusal,
+      and keeps it until the new one is built.
   search.universal:
     title: Universal project search
     entry_points:
@@ -379,11 +401,22 @@ features:
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet+Platform.swift
       - Sources/LungfishApp/Services/FASTQIngestionService+OperationBegin.swift
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImportOperationBegin.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImportBatch.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQImportConfiguration.swift
       - Sources/LungfishCLI/Commands/ImportFastqCommand.swift
       - Sources/LungfishCLI/Commands/FastqMaterializeSubcommand.swift
       - Sources/LungfishIO/Formats/FASTQ/PlatformInference.swift
       - Sources/LungfishWorkflow/Ingestion/ImportPlatformRequest.swift
+      - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift
+      - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter+SameBatch.swift
+      - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter+UnpairedReads.swift
+      - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter+PairDetection.swift
     module: [LungfishApp, LungfishCLI, LungfishIO, LungfishWorkflow]
+    tests:
+      - Tests/LungfishAppTests/FASTQImportSheetDetectionTests.swift
+      - Tests/LungfishWorkflowTests/Ingestion/FASTQBatchImporterSameBatchTests.swift
+      - Tests/LungfishWorkflowTests/Ingestion/FASTQBatchImporterFolderPairsTests.swift
+      - Tests/LungfishCLITests/ImportFastqFolderPairsTests.swift
     notes: >-
       Batch-imports paired-end or single-end FASTQ at any size with virtual
       previews that keep the UI responsive while operations run on the full
@@ -391,7 +424,15 @@ features:
       BAM's @RG PL, DS and @PG lines, and the sheet shows the evidence under
       its summary. An untouched Platform popup imports with --platform auto,
       and the sidecar's platformAssignment keeps the source, evidence and
-      confidence.
+      confidence. The sheet, explicit files and --recursive group files by one
+      detection. A mate pairs inside its own folder first, and across folders
+      only when no other file of the import has either name, else a warning
+      names the files. A lone file keeps its whole name. An SRA run's _1, _2 and third file import as one
+      bundle once the third-file check passes. --force never replaces a bundle
+      an earlier sample of the same import wrote, and no sample writes a
+      bundle an earlier sample failed to write. A file that holds pairs beside
+      single reads records single_end with its read roles, and the Inspector's
+      Pairing row names it "Pairs and single reads" with the counts.
   viewport.fastq-dataset:
     title: FASTQ dataset dashboard
     entry_points:
@@ -564,13 +605,30 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift
+      - Sources/LungfishWorkflow/Demultiplex/DemultiplexFragmentCall.swift
+      - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline+MateAssignment.swift
+      - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline+Staging.swift
+      - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline+Preflight.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplayOperationBegin.swift
     module: [LungfishWorkflow, LungfishCLI, LungfishApp]
+    tests:
+      - Tests/LungfishWorkflowTests/DemultiplexMateAssignmentTests.swift
+      - Tests/LungfishWorkflowTests/DemultiplexNoTrimTests.swift
+      - Tests/LungfishWorkflowTests/DemultiplexFailedRunLeavesNoBundleTests.swift
     notes: >-
       Demultiplexes reads by internal barcode kit with multi-step support,
       singleton handling, platform-aware adapters, and a barcode scout preview.
+      Interleaved pairs are demultiplexed by fragment. Both mates go to the
+      barcode their calls agree on, or to the barcode of the one mate that
+      carries one, and a pair whose mates carry different barcodes goes to
+      unassigned whole. demux-manifest.json records the mate calls under
+      mateCalls. Trim Barcodes off (--no-trim) keeps every read whole, virtual
+      bundles included. A run stages its bundles in a hidden folder and
+      publishes them only when it finishes, and --replace refuses before it
+      touches the earlier output and keeps that output until the new bundles
+      are in place.
   fastq.orient:
     title: Orient reads against a reference
     entry_points:
@@ -850,6 +908,7 @@ features:
       - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
       - Sources/LungfishCLI/Commands/ClassifyCommand.swift
       - Sources/LungfishWorkflow/Metagenomics/KrakenReadSetPlanner.swift
+      - Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline+InputCopies.swift
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     cli:
       - lungfish-cli conda classify
@@ -858,12 +917,16 @@ features:
     tests:
       - Tests/LungfishWorkflowTests/Metagenomics/ClassificationPipelineTests.swift
       - Tests/LungfishCLITests/ClassificationCLIInvocationRoundTripTests.swift
+      - Tests/LungfishWorkflowTests/Metagenomics/KrakenWrapperEdgeTests.swift
     notes: >-
       Runs Kraken2 taxonomic classification with Bracken abundance estimation on
       FASTQ or FASTA inputs and opens the results in the taxonomy browser. A
       sample with separate R1 and R2 reads runs them with --paired and its
       merged or single reads beside them in one kraken2 run, and such a result
-      counts fragments (the Fragments and Read Pairing cards).
+      counts fragments (the Fragments and Read Pairing cards). Inputs may mix
+      gzip and plain files, and a file in the other compression than the first
+      is read from a staged copy recorded as Lungfish Classification Input
+      Compression Staging.
   classify.esviritu:
     title: EsViritu viral detection
     entry_points:
@@ -942,14 +1005,37 @@ features:
     viewport_class: taxonomy
     sources:
       - Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow.swift
+      - Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow+Fragments.swift
+      - Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow+Inputs.swift
+      - Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow+EarlierResult.swift
+      - Sources/LungfishWorkflow/TwelveS/TwelveSFragmentCall.swift
       - Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift
+      - Sources/LungfishTwelveSUI/TwelveSReadFateSummary.swift
+      - Sources/LungfishTwelveSUI/TwelveSCountUnit.swift
       - Sources/LungfishCLI/Commands/FastqTwelveSMatchSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqTwelveSExportSubcommands.swift
-    module: [LungfishCLI, LungfishWorkflow, LungfishTwelveSUI]
+      - Sources/LungfishApp/Services/WorkflowOperationExecutionService+TwelveSArguments.swift
+    module: [LungfishCLI, LungfishWorkflow, LungfishTwelveSUI, LungfishApp]
+    tests:
+      - Tests/LungfishWorkflowTests/TwelveSFragmentCountingTests.swift
+      - Tests/LungfishWorkflowTests/TwelveSMergedOnlyBaselineTests.swift
+      - Tests/LungfishWorkflowTests/TwelveSAmpliconMatchingWorkflowForceTests.swift
+      - Tests/LungfishAppTests/WorkflowOperationTwelveSCommandParityTests.swift
     notes: >-
-      Matches merged 12S amplicon reads exactly to a deduplicated reference
-      FASTA, resolves cross-species ambiguity, and reviews unresolved sequence
+      Matches 12S amplicon reads exactly to a deduplicated reference FASTA,
+      resolves cross-species ambiguity, and reviews unresolved sequence
       clusters. Species and unresolved rows export to CSV, TSV, Excel, or FASTA.
+      Inputs are merged or single reads, unmerged pairs or both, and it counts
+      fragments. A merged or single read counts once, and so does an unmerged
+      pair whose mates give the identical call, R2 read as its reverse
+      complement. A pair whose mates disagree is left out of every count but
+      input_reads and tallied as discordant_pairs in samples.tsv,
+      read-fate.json, provenance, the run's output and the viewport's status
+      line, and a result that read pairs says fragments in the viewport and
+      Inspector. A file named inside a bundle is read alone, and two inputs of
+      one sample name are refused. A rerun with --force keeps the earlier
+      result until the new one is complete and puts it back if the run fails,
+      and the row's command and the provenance argv are one command.
   import.nvd:
     title: Import NVD novel-virus results
     entry_points:
@@ -1035,13 +1121,18 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction+OperationBegin.swift
       - Sources/LungfishApp/Views/Metagenomics/ClassifierExtractionDialog.swift
       - Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline.swift
+      - Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline+MatePairs.swift
       - Sources/LungfishWorkflow/Extraction/KrakenResultReadSources.swift
     module: [LungfishApp, LungfishWorkflow]
+    tests:
+      - Tests/LungfishWorkflowTests/Extraction/Kraken2MateNameExtractionTests.swift
     notes: >-
       Extracts reads assigned to any taxon back into a fresh FASTQ dataset for
       downstream mapping or assembly. A Kraken2 extraction returns both mates,
       merged reads and orphans, pairs first, and the bundle records an
-      interleaved or mixed layout.
+      interleaved or mixed layout. It reads R1 and R2 files in step, as
+      Kraken2 read them, so mates named x/1 and x/2, x.1 and x.2, or x_1 and
+      x_2 extract, and files out of step stop the extraction.
 
   # --- Assembly (assembly viewport) ---
   assemble:
@@ -1244,7 +1335,9 @@ features:
       - Tests/LungfishCLITests/AlignCommandTests.swift
     notes: >-
       Aligns FASTA sequences with MAFFT and creates a native .lungfishmsa
-      alignment bundle.
+      alignment bundle. A FASTQ bundle given as input contributes the records
+      of every file it holds, every chunk of a chunked root and both mates of
+      a paired derivative, and the pane's All sequences count includes them.
   msa.actions:
     title: MSA editing and analysis
     entry_points:

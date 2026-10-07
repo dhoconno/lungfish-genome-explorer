@@ -126,7 +126,7 @@ operations:
         control: checkbox
         default: true
         allowed: "true, false"
-        effect: Removes the matched barcode sequence from each read before writing it out. Turning it off keeps the barcode in the read.
+        effect: Removes the matched barcode sequence from each read before writing it out. For a nanopore kit that tags both ends, only the construct at the start of the read is removed and the one at its far end stays. Turning it off keeps every read whole in every bundle, virtual bundles included.
         when_to_change: Turn it off when a downstream step expects to see the index in the read, for example a second demultiplexing pass.
         cli_flag: --no-trim (inverted)
       - label: Output Strategy
@@ -139,7 +139,7 @@ operations:
     cli_only:
       - flag: --replace
         default: "false"
-        effect: Deletes an existing, non-empty output directory before writing. Without it the command refuses to overwrite earlier results and names the directory. The window never replaces an earlier run and writes demux-2, demux-3, and so on instead.
+        effect: Replaces an existing, non-empty output directory. The command first makes every check and refuses a directory that holds the input or anything else the run reads, then sets the old contents aside, removes them once the new bundles are in place, and puts them back if the run fails. Without it the command refuses to overwrite earlier results and names the directory. The window never replaces an earlier run and writes demux-2, demux-3, and so on instead.
       - flag: --overlap
         default: "3"
         effect: Sets the minimum number of barcode bases that must overlap the read for Cutadapt to consider a match.
@@ -153,7 +153,12 @@ operations:
       Location, 5' Distance, 3' Distance, Error Rate, and Trim Barcodes appear
       only while Engine is Cutadapt. With Custom Definition selected, the dialog
       asks for a CSV, TSV, or whitespace-delimited file with columns
-      id,sequence[,secondary_sequence][,sample_name].
+      id,sequence[,secondary_sequence][,sample_name]. Interleaved pairs are
+      demultiplexed by fragment. Both mates go to the barcode their calls agree
+      on, or to the barcode of the one mate that carries one, and a pair whose
+      mates carry different barcodes goes to unassigned whole. Merged and single
+      reads keep their own call, and demux-manifest.json records the mate calls
+      under mateCalls. A run that fails or is cancelled leaves no barcode bundle.
 
   fastq.ont-fluidigm-sample-split:
     title: ONT Fluidigm Sample Split
@@ -392,14 +397,14 @@ operations:
         control: text
         default: ""
         allowed: A, C, G, and T. bbduk refuses IUPAC ambiguity codes such as R and S
-        effect: The primer sequence bbduk trims from the 5' start of each read, with every base before it, when the match ends within the primer's length plus 67 bases. It is used only when Primer Source is Literal Sequence.
+        effect: The primer sequence bbduk trims from the 5' start of each read, with every base before it, when the match ends within the primer's length plus 67 bases. A second bbduk pass removes the primer where a read runs into it at its 3' end, cutting a pair where its mates overlap and a single read where the primer's reverse complement ends within its last bases. A read either pass leaves under 10 bases is dropped with its mate. It is used only when Primer Source is Literal Sequence.
         when_to_change: Type the primer your PCR used, exactly as the order sheet gives it.
         cli_flag: --literal
       - label: k
         control: number
         default: 15
-        allowed: integers above 0
-        effect: The length of the exact-match word bbduk uses to spot the primer. Longer words are more specific and less tolerant of errors.
+        allowed: integers above 0, no longer than the primer
+        effect: The length of the exact-match word bbduk uses to spot the primer. Longer words are more specific and less tolerant of errors. A value longer than the primer stops the run before bbduk starts.
         when_to_change: Shorten it when short primers are being missed, and lengthen it when non-primer sequence is being trimmed.
         cli_flag: --kmer
       - label: mink
@@ -441,9 +446,10 @@ operations:
         effect: Writes the trimmed FASTQ gzip-compressed.
     notes: >-
       Primer Sequence, k, mink, and hdist appear only while Primer Source is
-      Literal Sequence. The dialog default for k is 15 while the CLI default for
-      --kmer is 23, so a command copied from the CLI help will not reproduce a
-      dialog run unless --kmer 15 is given.
+      Literal Sequence. The dialog's k and the CLI's --kmer both default to 15,
+      and every recorded primer-remove command names --kmer, so a recorded
+      command repeats its run. The CLI refuses a --kmer longer than the shortest
+      primer.
 
   fastq.trim-fixed-bases:
     title: Trim Fixed Bases
@@ -1498,7 +1504,7 @@ operations:
         effect: Walks a directory's subfolders instead of reading only its top level.
       - flag: --force
         default: "false"
-        effect: Imports a sample again even when a bundle of that name already sits in the project.
+        effect: Imports a sample again even when a bundle of that name already sits in the project. It never replaces a bundle that an earlier sample of the same import wrote, and no sample writes a bundle that an earlier sample of the import failed to write. Such a sample is skipped with its reason.
       - flag: --log-dir
         default: none
         effect: Writes one log file per sample into the directory you name.
@@ -1507,8 +1513,15 @@ operations:
       The settings above live in the Import FASTQ configuration sheet that opens
       after the panel closes, and the same sheet opens when you drag reads onto
       the sidebar. The sheet has no sample-name field, since the sample name comes
-      from the shared filename stem. The recipe picker and its description are
-      hidden until the recipe checkbox is on.
+      from the shared filename stem. The sheet groups files into samples with the
+      detection lungfish-cli import fastq runs. A mate pairs with a file of its own
+      folder first, and with a file of another folder only when no other file of
+      the import has either name, else the files stay apart and the R1's row logs
+      a warning. A lone file named like one mate keeps its whole name (x_1.fastq
+      imports as x_1), and an SRA run's _1, _2 and third file chosen together
+      import as one bundle. When an earlier sample of the same sheet made
+      a bundle, the duplicate dialog offers Keep Both and Skip only. The recipe
+      picker and its description are hidden until the recipe checkbox is on.
 
   import.fastq-sample-sheet:
     title: FASTQ Sample Sheet
@@ -2255,6 +2268,13 @@ operations:
         effect: Caps how many runs the search returns.
         when_to_change: Raise it when a broad query is clearly truncating results you need.
         cli_flag: --limit
+      - label: Download source
+        control: popup
+        default: Prefer ENA
+        allowed: Prefer ENA, Prefer NCBI
+        effect: Picks the archive LGE tries first when it downloads a run. Prefer ENA fetches the FASTQ files ENA has already made and turns to the SRA Toolkit only when ENA cannot serve the run whole. Prefer NCBI runs the SRA Toolkit first and turns to ENA only when the toolkit is not installed or fails.
+        when_to_change: Choose Prefer NCBI when downloads from ENA are slow or stop partway.
+        cli_flag: --prefer-source
       - label: (search scope)
         control: popup
         default: All Fields
@@ -2265,7 +2285,7 @@ operations:
     cli_only:
       - flag: --output-dir
         default: the current directory
-        effect: Names the directory fetch sra download writes the FASTQ files into.
+        effect: Names the directory fetch sra download writes the FASTQ files into. ENA's files appear there only once every file of the run has arrived whole and passed its checks.
       - flag: --use-toolkit
         default: "false"
         effect: Downloads through the SRA Toolkit instead of the ENA mirrors, which needs prefetch and fasterq-dump installed.
@@ -2280,9 +2300,14 @@ operations:
       you click Show. Choosing runs and clicking Download Selected opens the Import
       FASTQ configuration sheet documented under import.fastq, so the platform,
       binning, and compression settings apply to the download too. Files come from
-      the ENA mirrors over plain HTTP, so no SRA Toolkit install is needed, and each
-      run lands as a .lungfishfastq bundle under the project's Imports folder with
-      its ENA provenance recorded.
+      the ENA mirrors over HTTPS unless Download source says otherwise, and each is
+      checked against the size and MD5 checksum ENA lists. A file that fails its
+      check, an ENA listing of one mate of a paired run, and an ENA record of a
+      different run all send the whole run to the SRA Toolkit, and a lone mate of a
+      run ENA or NCBI lists as paired fails the run, so a run arrives whole or not
+      at all. A read file ending _3 or later is never imported, and a warning names
+      it. fetch sra download takes one run accession and applies the same checks. Each run lands as a .lungfishfastq bundle under the project's Imports
+      folder with its download provenance recorded.
 
   fetch.pathoplexus:
     title: Search Pathoplexus
@@ -4493,7 +4518,11 @@ operations:
       the selected database needs more memory than the Mac has, a banner names the required
       and available gigabytes and the memory mapping box is checked for you. Bracken runs
       from a scratch folder whose path holds no spaces, so a project folder or database
-      path with a space in its name works.
+      path with a space in its name works. Input files may mix gzip and plain text. A
+      file whose compression differs from the first file's is read from a copy in the
+      first file's form, removed after the run and recorded as the provenance step
+      Lungfish Classification Input Compression Staging. conda classify refuses a run
+      whose input sits inside an output it would remove before the run.
 
   classify.esviritu:
     title: EsViritu
@@ -4800,7 +4829,10 @@ operations:
       another destination. The unmapped-mates checkbox is hidden for Kraken2 results, where
       it does not apply, and --include-unmapped-mates is rejected with --tool kraken2 in
       the same way. Bundles written this way go to the project's Extractions folder,
-      not Imports. The older lungfish-cli conda extract command still exists with its
+      not Imports. A Kraken2 extraction reads a sample's R1 and R2 files in step, as
+      Kraken2 read them, so mates named x/1 and x/2, x.1 and x.2, or x_1 and x_2 all
+      extract, and files out of step stop the extraction with an error. The older
+      lungfish-cli conda extract command still exists with its
       own --kraken-output, --taxid, --kreport, --include-children, and --no-read-pairs
       options, but extract reads --by-classifier shares ClassifierReadResolver with the
       dialog and gives byte-identical output, so it is the form the manual documents
@@ -5050,13 +5082,13 @@ operations:
     cli_only:
       - flag: --ambiguity-resolution
         default: strict
-        effect: Decides how a read matching several species is assigned. strict gives it to whichever species has any lead elsewhere in the sample, conservative requires the winner to have at least twice the runner-up and at least ten reads.
+        effect: Decides how a read matching several species is assigned. strict gives it to whichever species has any lead elsewhere in the sample, conservative requires the winner to have at least twice the runner-up and at least ten reads. The run's provenance records the policy, and the recorded command names it when it is conservative.
       - flag: --reference-metadata
         default: the metadata inside the reference bundle, when there is one
         effect: Supplies a target metadata TSV that overrides the one packaged with the reference bundle.
       - flag: --force
         default: "false"
-        effect: Replaces an output bundle that already exists at that path.
+        effect: Replaces an output bundle that already exists at that path. The earlier bundle is moved aside until the new one is complete and put back if the run fails, so a run that is refused or fails leaves it in place. If it cannot be put back, the error says where it waits.
       - flag: "fastq 12s-reference-metadata"
         default: not applicable
         effect: Builds the target metadata TSV from a deduplicated FASTA plus a MIDORI metadata TSV.
@@ -5070,10 +5102,17 @@ operations:
         default: not applicable
         effect: Writes unresolved clusters above a read threshold to FASTA, with --min-reads defaulting to 5. The viewport has no FASTA export.
     notes: >-
-      The workflow expects reads that are already merged. It does not merge Illumina pairs
-      for you, so merge them with a read-processing operation first or the 244 base targets
-      will come back empty. 12S Amplicon Matching is a specialized workflow, so it has to be
-      enabled in the Workflow Library before it appears under Tools > Genotyping. The
+      Inputs are merged or single reads, unmerged pairs or both, and the workflow counts
+      fragments. A merged or single read counts once, and so does an unmerged pair whose
+      mates give the identical call, the second mate read as its reverse complement. A
+      pair whose mates disagree is left out of every count but the input total and
+      tallied as discordant_pairs, and the viewport and Inspector say fragments for such a
+      result. It does not merge pairs for you, and a mate names a species only when it
+      holds the whole target, so merge overlapping pairs with a read-processing
+      operation first when the target is longer than one read. Two inputs that would
+      share a sample name are refused before anything is written. 12S Amplicon Matching is
+      a specialized workflow, so it has to be enabled in the Workflow Library before it
+      appears under Tools > Classification. The
       viewport's own controls, from Minimum Exact Reads down, filter the display and do not
       change the stored result, which is why each maps to an export flag rather than a run
       flag.

@@ -198,6 +198,15 @@ bash scripts/deps/run-pipelines.sh --which all --root ~/.lungfish-verify --out /
 Expect 45 to 90 minutes, dominated by TaxTriage's Nextflow pipeline and the
 EsViritu database.
 
+The script fetches the run with `fasterq-dump --split-3`, as LGE does, and
+sorts its files by the rule the app applies. The two mate files make the pair,
+a lone mate is refused, and a single-end accession is refused, because
+TaxTriage and EsViritu run on pairs here. The reads whose mate is missing, the
+third file `--split-3` writes, are left out of the pipelines, counted, and
+recorded in `meta.json` as `unpairedReadsFile` and `unpairedReads`, and the
+report says how many there were. The mate files stay in step, so the seeded `seqkit sample` of each keeps
+the pairs together.
+
 Pass `--root` here too, or the pipelines resolve against the developer's real
 storage root. Check the prerequisites before starting: TaxTriage needs Apple
 Containers or a running Docker daemon, and EsViritu needs its database

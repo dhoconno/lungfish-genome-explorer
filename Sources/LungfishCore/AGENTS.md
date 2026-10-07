@@ -24,12 +24,14 @@ Foundation and system frameworks, plus Collections and Algorithms from Package.s
 | `RuntimeResourceLocator` | Sources/LungfishCore/Services/RuntimeResourceLocator.swift line 53 |
 | Managed storage and project locks | Sources/LungfishCore/Storage/ManagedStorageConfigStore.swift, ProjectLock.swift |
 | BLAST submission | Sources/LungfishCore/Services/Blast/BlastService.swift |
+| SRA download checks shared by the window and `fetch sra download` | Sources/LungfishCore/Services/SRA/SRARunReads.swift, SRADownloadMessages.swift, SRAFASTQDownloadRoute.swift, Sources/LungfishCore/Services/ENA/ENAFASTQDownloadValidator.swift |
 
 ## Contracts this module owns
 
 - The reference bundle manifest format. Viewers bind alignments and variants through it, never through a loose BAM (memory file project_viral_recon_results_integration.md).
 - The Java heap cap (35 percent of RAM and never more than free memory minus a reserve), which replaced the 60 to 80 percent setting that ran a 48 GB Mac out of memory (memory file known-issues.md).
 - Storage roots without spaces, because tools that use shell pipes break on paths with spaces (memory file project_conda_plugins.md).
+- SRA downloads. The window's SRA download and `lungfish-cli fetch sra download` keep their own orchestration but take every decision from here. That covers the size and MD5 check of ENA's files, the check that ENA answered with the run asked for (`fastqDownloadRoute(forRun:)`), the lone-mate rule with ENA's or NCBI's layout (`SRARunReads.sorting`), the one-line reasons and the both-failed error (`SRADownloadMessages`, `SRAError.bothArchivesFailed`), the fallback line, the strategy names and the recorded sra-tools version. Change a rule here, never in one surface. `SRADownloadSurfaceParityTests` in LungfishAppTests checks that both surfaces give the same files and provenance for one scripted run (Phase 2.1 lane L1).
 
 ## Tests
 

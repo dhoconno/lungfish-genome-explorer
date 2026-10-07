@@ -54,6 +54,19 @@ The gaps counted when this contract landed numbered 43. Three of them first sat 
 
 A gap that a lane cannot mark in its own commit goes in the pending file as `ID file:function lane`. A pending gap needs no pin while its line stays there, and the lane that closes it deletes the line.
 
+## Operation notes
+
+These operations state how they meet the rule, as of Phase 2.1.
+
+| Operation | Note |
+|---|---|
+| `fastq primer-remove` | Every recorded command names `--kmer` whatever its value, cutadapt-linked runs included, so no recorded command depends on the default. The default changed from 23 to 15 in Phase 2.1, the dialog's value, so a command recorded earlier without `--kmer` ran with 23 and replays with 15. The provenance records the read-through pass as a second bbduk step that depends on the first. |
+| `fastq demultiplex` | The recorded command is unchanged. Paired input adds `mateCalls` to the provenance parameters and to `demux-manifest.json`. `--replace` makes every refusal before it touches the earlier output and keeps that output until the new bundles are published. |
+| `fastq 12s-match` | The row's command and the provenance argv are one command, byte for byte. Both always name `--matching-mode` and `--threads`, and name `--ambiguity-resolution conservative` when the run used it. Provenance records `ambiguityResolution` in its explicit, default and resolved options. `WorkflowOperationTwelveSCommandParityTests` parses the recorded command with the shipped parser and compares it with the dialog's configuration. |
+| `conda classify` and the app's Kraken2 runs | A kraken2 step that read files the run staged and deleted, such as interleaved halves, header-only mates or compression copies, records no `durableReplayArgv`. Its argv records what ran, and the run's top-level recorded command reproduces it. |
+| `import fastq` and the Import FASTQ sheet | The sheet groups files with the detection `import fastq` runs (`FASTQBatchImporter.detectingPairs`) and runs one `import fastq` per sample naming every file of it, so the row's command replays to the same bundle. Explicit files, `--recursive` and the Import Center's scan pair by one rule, inside a folder first and across folders only when no other file of the import has either name, with a notice otherwise. `--recursive` made two single-end samples of mates split into `R1/` and `R2/` folders before Phase 2.1, so a `--recursive` command recorded by 2026.10.8 or earlier can now make different bundles. |
+| `fetch sra download` and the SRA window | The window's row is still the gap `download-sra`, but both surfaces call the same checks in LungfishCore and record the same provenance for the same run. That covers the fallback line, the strategy names, the conda environment, the sra-tools version and the steps of a failed attempt, marked `attempt: failed`. `SRADownloadSurfaceParityTests` pins it. |
+
 ## Tests that enforce it
 
 | Test | Applies to | How |

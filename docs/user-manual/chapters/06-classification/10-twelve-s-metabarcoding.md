@@ -18,7 +18,7 @@ shots:
   - id: twelve-s-dialog-inputs
     caption: "The Workflow Operations dialog on 12S Amplicon Matching, showing the Reference picker with its Create 12S Reference... button, the Analysis Metadata picker with its Choose Metadata... button, and the FASTQ Bundles list."
   - id: twelve-s-dialog-options
-    caption: "The same dialog's Read Platform segmented picker, Result Name field, and Min Soft Clip number field, with the Advanced Options disclosure expanded to show Max Indels, Run vsearch chimera review, and the note that inputs must already be merged."
+    caption: "The same dialog's Read Platform segmented picker, Result Name field, and Min Soft Clip number field, with the Advanced Options disclosure expanded to show Max Indels, Run vsearch chimera review, and the note that inputs are FASTQ files or bundles of merged reads, unmerged pairs or both."
   - id: twelve-s-result-species-table
     caption: "The 12S viewport on its Targets view for the SIMULATED-12S-mixture-oriented reads, showing three rows, Homo sapiens with 1,235 exact reads and 68.0% of Sample, Macaca mulatta with 491 and 27.0% and Alternates 1, and Macaca fascicularis with 91 and 5.0%, under the Sample, Scientific Name, Common Names, Group, Tax ID, Exact Reads, % of Sample, Refs, and Alternates columns."
   - id: twelve-s-unresolved-clusters
@@ -59,7 +59,7 @@ Open the 12S Metabarcoding demo project with **Help > Demo Projects…**, as [De
 
 This chapter uses the primate 12S fixture. Download `primate-12s-dedup.fasta`, `primate-12s-midori.tsv`, `SIMULATED-12S-mixture-oriented.fastq.gz`, and `HG002-12S-oriented.fastq` from [the primate-12s fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/primate-12s), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. The first file is the deduplicated reference, six primate 12S sequences of 60 bases each cut from public mitochondrial genomes. The second labels each reference sequence with its species. The third holds the simulated mixture, and the fourth holds real 12S reads from HG002, a public reference human sample, used later as a single-species contrast. The fixture's README records how every file was made. Import the two read files into the project as read bundles, following [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
 
-The matcher reads one strand only and does not merge read pairs. Orienting flips every read so that all of them run in the same direction along the gene, and [Orienting reads](../03-reads/08-read-processing.md#orienting-reads) shows how to do it for short amplicon reads against a 12S reference. Merging joins the two overlapping [mates](../../GLOSSARY.md#mate) of a pair into one read that spans the amplicon, as [Merging the overlapping pairs](../03-reads/08-read-processing.md#merging-the-overlapping-pairs) shows. Do both to your own reads before you match them. Both fixture read sets are already oriented, and each read already spans its whole amplicon, so there is nothing to merge.
+The matcher reads one strand only. Orienting flips every read so that all of them run in the same direction along the gene, and [Orienting reads](../03-reads/08-read-processing.md#orienting-reads) shows how to do it for short amplicon reads against a 12S reference. Orient your own reads before you match them. They may be merged or single reads, unmerged pairs, or both. Merging joins the two overlapping [mates](../../GLOSSARY.md#mate) of a pair into one read that spans the amplicon, as [Merging the overlapping pairs](../03-reads/08-read-processing.md#merging-the-overlapping-pairs) shows, and it is not required. A merged or single read counts once, and so does an unmerged pair whose two mates agree, as [Fragments and unmerged pairs](#fragments-and-unmerged-pairs) explains. A pair whose mates disagree counts nowhere, which is what becomes of a pair with an error inside the target on one mate. Both fixture read sets are already oriented single reads that each span the whole amplicon, so there is nothing to merge.
 
 12S Amplicon Matching is a specialized workflow, so **Tools > Classification** shows it as **Enable 12S Amplicon Matching...** until you turn it on once in the [Workflow Library](../../GLOSSARY.md#workflow-library), as [Turning on a specialized workflow](../01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows. Its chimera check uses [vsearch](../../GLOSSARY.md#vsearch), a sequence-comparison program that arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE.
 
@@ -95,7 +95,7 @@ Choose **Tools > Classification > 12S Amplicon Matching...** again if the dialog
 
 <!-- SHOT: twelve-s-dialog-inputs -->
 
-The workflow matches the reads, settles any read whose sequence is shared by two species, checks the unmatched clusters for chimeras, and writes a `.lungfish12s` result bundle. Selecting two or more read bundles adds a **Run Mode** choice, fixed on "Combine all inputs, run once (1 result)" with the note "They will run as one batch." One result does not mean one pooled sample. LGE counts every bundle as its own sample, with its own rows.
+The workflow matches the reads, settles any read whose sequence is shared by two species, checks the unmatched clusters for chimeras, and writes a `.lungfish12s` result bundle. Any read bundle works as input, including a [virtual bundle](../../GLOSSARY.md#virtual-bundle) such as one barcode of a demultiplex, whose reads LGE rebuilds first. A bundle that holds only its preview, with its full reads missing, is refused with a message to re-import the FASTQ file. Two inputs that would share a sample name, such as `barcode01` bundles from two folders, are refused before anything is written, with a line that names both. Selecting two or more read bundles adds a **Run Mode** choice, fixed on "Combine all inputs, run once (1 result)" with the note "They will run as one batch." One result does not mean one pooled sample. LGE counts every bundle as its own sample, with its own rows.
 
 <!-- SHOT: twelve-s-dialog-options -->
 
@@ -147,11 +147,11 @@ The dialog holds eight controls. The Inspector's **12S Results** section holds s
 
 **Max Indels.** Sets how many inserted or deleted bases a read may carry and still match. The default is 3, and the field is greyed out and ignored under Illumina exact, since only the ONT setting allows indels. Raise it for noisier Nanopore chemistry and lower it for stricter matches. It sits inside **Advanced Options**, which opens with the arrow beside its name. On the command line this is `--max-indels`.
 
-**Run vsearch chimera review.** Checks each unresolved cluster for chimeras with vsearch and marks it Not Detected or Candidate. It is ticked by default because a chimera looks like a new species until something checks it. Untick it only to shorten a run whose unresolved clusters you will not read, and every cluster then shows Not Reviewed. It sits inside **Advanced Options**, beside a note that inputs must already be merged. The fixture's single reads already span the whole amplicon, so the note does not apply to them. On the command line this is `--chimera-review`, and `--no-chimera-review` turns it off.
+**Run vsearch chimera review.** Checks each unresolved cluster for chimeras with vsearch and marks it Not Detected or Candidate. It is ticked by default because a chimera looks like a new species until something checks it. Untick it only to shorten a run whose unresolved clusters you will not read, and every cluster then shows Not Reviewed. It sits inside **Advanced Options**, beside a note that inputs are FASTQ files or bundles of merged reads, unmerged pairs or both, and that a merged read counts once, as does an unmerged pair whose mates agree. On the command line this is `--chimera-review`, and `--no-chimera-review` turns it off.
 
 **Directory.** Chooses where the result bundle is written. The default is the project's `Analyses/12S amplicon results` folder, which keeps results inside the project. Change it only when the result belongs elsewhere. On the command line this is `--output-dir`.
 
-The remaining six are Inspector filters. **Minimum Exact Reads**, the **Attributes** pills, and the **Taxon Groups** pills sit under **Target Rows**. **Minimum Unresolved Reads** and **Chimera** sit under **Unmatched Reads**, which starts collapsed. Each filter's flag belongs to the export command, `12s-export`, not to the match.
+The remaining six are Inspector filters. **Minimum Exact Reads**, the **Attributes** pills, and the **Taxon Groups** pills sit under **Target Rows**. **Minimum Unresolved Reads** and **Chimera** sit under **Unmatched Reads**, which starts collapsed. Each filter's flag belongs to the export command, `12s-export`, not to the match. For a result that read unmerged pairs, the labels say Fragments where they say Reads here, such as **Minimum Exact Fragments** and **Unmatched Fragments**, as [Fragments and unmerged pairs](#fragments-and-unmerged-pairs) explains.
 
 **Minimum Exact Reads.** Hides species rows with fewer exact reads than this, set with a number field and a stepper. The default is 0, so every row with a read shows. Raise it to drop the one-read and two-read hits that are usually noise. On the command line this is `--min-exact-reads`.
 
@@ -167,7 +167,7 @@ The remaining six are Inspector filters. **Minimum Exact Reads**, the **Attribut
 
 ## Reading the results
 
-The summary line above the table gives four figures, samples, exact reads, percent unresolved, and chimera candidates. On the simulated mixture it reads:
+The summary line above the table gives four figures, samples, exact reads, percent unresolved, and chimera candidates. For a run that read unmerged pairs the second figure counts exact fragments instead, as [Fragments and unmerged pairs](#fragments-and-unmerged-pairs) explains. On the simulated mixture it reads:
 
 ```text
 1 samples | 1817 exact reads | 9.2% unresolved | 0 chimera candidates
@@ -208,6 +208,25 @@ When two species in the reference carry an identical 12S sequence under two sepa
 ### The unresolved clusters
 
 In the Unresolved view, read **Reads** and **Chimera** together. **Sequence** is a label for the cluster, and **Bases** holds its DNA. **Samples** counts the samples that contributed reads. The simulated mixture has 143 clusters holding 183 reads, all Not Detected. 108 hold one read, 30 hold two, and 5 hold three. Many single-read clusters and no chimeras is ordinary noise, here from reads whose copy of a target carried a simulated error, so they overlapped a target without containing it whole.
+
+### Fragments and unmerged pairs
+
+12S matching counts fragments, the DNA molecules the library copied, rather than records. A merged read, a read whose mate is missing, and a read from a single-end run each count once. A pair that was not merged counts once when both of its mates give the identical call, which means the same reference record, the same set of candidate records, or no match at all. The second mate is read as its reverse complement, so that it runs along the same strand as the first, and the pair then counts as its first mate, toward a species, toward the abundance rule, or toward an unresolved cluster. Such a cluster shows the first mate's sequence, and its row in `unresolved-sequences.tsv` carries the note `unmerged pairs, R1 shown`, or `merged reads and unmerged pairs` when merged reads share it.
+
+A read whose mate is missing is read as its reverse complement as well when its name marks it as the second mate, with `/2` or an Illumina comment that starts `2:`, unless its file holds merged reads or the reads come from a Nanopore or PacBio run. So a file of second mates matched on its own counts on the forward strand of its fragments. Names that end `.1` and `.2`, the way the SRA numbers single reads, are read as sequenced. In a bundle that keeps its mates in separate R1 and R2 files, mates named with `/1` and `/2`, with Illumina comments, or with `.1` and `.2` or `_1` and `_2` after one shared name are read as pairs. Mates whose names carry no mate number are paired by position, with a warning in the Operations Panel row, and mates whose numbers contradict each other stop the run.
+
+A pair whose mates disagree is left out of every count except the sample's input total, and tallied by its reason.
+
+| Reason | What the two mates did |
+|---|---|
+| different targets | Each matched one reference record exactly, and the records differ |
+| different candidates | Each matched several records, and the two sets differ |
+| one mate unresolved | One gave a call and the other matched nothing |
+| one mate ambiguous | One matched a single record and the other matched several |
+
+When a run read unmerged pairs, the viewport and the Inspector call its counts fragments. The summary line reads exact fragments, the tables' count columns read **Exact Fragments** and **Fragments**, the provenance popover and the Inspector say Exact Fragments, the Inspector's filters read **Minimum Exact Fragments**, **Unmatched Fragments** and **Minimum Unresolved Fragments**, and Copy Rows uses the same headings. A result from merged or single reads alone keeps the reads wording this chapter shows. The tables that **Export** writes keep the headings Exact Reads and Reads whatever the run read, so read those columns as fragments for a run of pairs. `read-fate.json` records the number of pairs a run read as `pairedFragments`, 0 for merged or single reads alone.
+
+When a run leaves pairs out, the summary line ends with a figure such as "2 discordant pairs left out (1 pair with different targets, 1 pair with one mate unresolved)", the provenance popover adds a Left Out row, and `samples.tsv` and `read-fate.json` inside the result bundle record the count. The Operations Panel row logs the count as the run goes, for example "Counted 8 fragments, 4 merged or single reads and 4 pairs. Left out 2 discordant pairs (1 pair with different targets, 1 pair with one mate unresolved)." The fixture holds no pairs, so its figures are the ones above and its summary line has no left-out figure. Results from merged reads alone count exactly as they did before LGE counted fragments.
 
 ### A single-species contrast and an unoriented run
 
@@ -260,6 +279,8 @@ lungfish-cli fastq 12s-export-unresolved --bundle "$RESULT" \
 ```
 
 The second line stores the practice-data folder in a variable named `DATA`, and `RESULT` later stores the result bundle, in the same way as `PROJECT`. Three differences change results. The help text for `12s-reference-bundle` and `12s-reference-metadata` names only five metadata columns, but both commands stop with a missing-column error unless all seven listed in the procedure are present. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release). `--ambiguity-resolution conservative` exists only here, and gives the same counts on the simulated mixture. `12s-export-unresolved` skips clusters under 5 reads by default, so on the mixture it writes an empty file unless you pass `--min-reads 1` as above, which writes all 143 clusters.
+
+`12s-match` takes read bundles as well as FASTQ files, and it reads the pairs of a bundle as pairs. Two loose files named as the R1 and R2 of one sample are two samples of single reads to it, so import such a pair as one bundle first. A file named inside a bundle, such as a merge bundle's `merged.fastq`, is read alone, without the rest of its bundle, while the preview file of a virtual bundle stands for its bundle, with a note that says so. With `--force` the earlier result stays in place, hidden in the output folder, until the new one is complete, and comes back if the run fails. If it cannot be moved back, the error ends by saying where it waits, a hidden folder whose name starts with `.` and the result's name, and renaming that folder to `<name>.lungfish12s` restores it.
 
 ## Next
 
