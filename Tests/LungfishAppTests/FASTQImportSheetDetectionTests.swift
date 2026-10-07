@@ -137,6 +137,24 @@ final class FASTQImportSheetDetectionTests: XCTestCase {
         )
     }
 
+    func testASamplesImportCompletesEveryDroppedFileOfIt() throws {
+        // File > Import tracks each dropped file and closes its request, and
+        // its activity indicator, once every file has completed. The sheet
+        // completed only R1 of a sample, so a pair, or a run's three files,
+        // left the request open after the import ended.
+        let files = try writeRun()
+        let sample = try XCTUnwrap(groupFASTQByPairs(files).first)
+        let tracker = SidebarImportRequestTracker(requestID: "drop", trackedURLs: files)
+
+        var update: SidebarImportRequestTrackerUpdate?
+        for url in MainSplitViewController.sidebarDropCompletionURLs(of: sample) {
+            update = tracker.registerCompletion(requestID: "drop", completedURL: url, wasSuccessful: true)
+        }
+
+        XCTAssertEqual(update?.isFinished, true)
+        XCTAssertEqual(update?.succeeded, 3)
+    }
+
     // MARK: - No sample of a sheet replaces another's bundle
 
     func testTheDuplicateDialogNeverOffersToReplaceABundleAnEarlierSampleOfTheSheetWrote() throws {

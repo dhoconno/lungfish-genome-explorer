@@ -95,7 +95,7 @@ extension MainSplitViewController {
                 bundleURL = destinationURL(forName: effectiveBundleName)
             case .skip:
                 displayGenomicsFile(url: bundleURL)
-                postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
+                postSidebarFileDropCompleted(requestID: requestID, sample: pair, success: true, error: nil)
                 return nil
             }
         }
@@ -120,11 +120,13 @@ extension MainSplitViewController {
                     viewerController?.hideProgress()
                     self?.sidebarController.requestReloadFromFilesystem()
                     self?.displayGenomicsFile(url: bundleURL)
-                    self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
+                    self?.postSidebarFileDropCompleted(requestID: requestID, sample: pair, success: true, error: nil)
                 case .failure(let error):
                     viewerController?.hideProgress()
                     mainSplitLogger.error("importFASTQBatch: \(error)")
-                    self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: error.localizedDescription)
+                    self?.postSidebarFileDropCompleted(
+                        requestID: requestID, sample: pair, success: false, error: error.localizedDescription
+                    )
                     guard !(error is CancellationError) else { return }
                     let alert = NSAlert()
                     alert.messageText = "Failed to Import FASTQ"
@@ -141,6 +143,21 @@ extension MainSplitViewController {
     }
 
     // MARK: - Duplicate File Handling
+
+    /// Posts the drop completion of every file of a sample. A request that
+    /// tracks each dropped file, such as File > Import, finishes only when
+    /// each file has one, and posting it for R1 alone left a pair's request,
+    /// and its activity indicator, open after the import ended.
+    func postSidebarFileDropCompleted(requestID: String?, sample: FASTQFilePair, success: Bool, error: String?) {
+        for url in Self.sidebarDropCompletionURLs(of: sample) {
+            postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: success, error: error)
+        }
+    }
+
+    /// The dropped files one sample's import completes.
+    nonisolated static func sidebarDropCompletionURLs(of sample: FASTQFilePair) -> [URL] {
+        sample.inputFiles
+    }
 
     /// Shows a dialog asking the user how to handle a duplicate file.
     /// Without `offeringReplace` the bundle came from an earlier sample of

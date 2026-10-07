@@ -386,7 +386,7 @@ extension MainSplitViewController {
             },
             onCancel: { [weak self] in
                 for pair in pairs {
-                    self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: "Cancelled by user")
+                    self?.postSidebarFileDropCompleted(requestID: requestID, sample: pair, success: false, error: "Cancelled by user")
                 }
             }
         )
