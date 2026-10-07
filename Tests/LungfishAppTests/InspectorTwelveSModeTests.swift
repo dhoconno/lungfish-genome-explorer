@@ -1,5 +1,7 @@
 import AppKit
 import LungfishTwelveSUI
+import SwiftUI
+import ViewInspector
 import XCTest
 @testable import LungfishCore
 @testable import LungfishApp
@@ -158,6 +160,37 @@ final class InspectorTwelveSModeTests: XCTestCase {
         XCTAssertFalse(inspector.twelveSDetailSectionViewModel.hasDetail)
     }
 
+    /// Re-review 2, S1. A result that read unmerged pairs opens with its
+    /// Inspector filters in fragments, as its tables name its counts, before
+    /// the viewport sends a summary of its own. The viewport's summaries are
+    /// wired only after the document is shown, so the document's own summary
+    /// must carry the unit. A merged-only result opens in reads.
+    func testAPairedResultOpensWithItsFiltersInFragments() throws {
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+
+        inspector.updateTwelveSAmpliconResultDocument(makeResult(readFate: TwelveSAmpliconReadFate(
+            totalReads: 8,
+            exactMatchReads: 4,
+            unresolvedReads: 2,
+            ambiguousExactReads: 0,
+            chimeraCandidateReads: 0,
+            discordantPairs: 2,
+            pairedFragments: 4
+        )))
+
+        let viewModel = inspector.twelveSResultDisplaySectionViewModel
+        XCTAssertEqual(viewModel.countUnit, .fragments)
+        let texts = try TwelveSResultDisplaySection(viewModel: viewModel).inspect()
+            .findAll(ViewType.Text.self).compactMap { try? $0.string() }
+        XCTAssertTrue(texts.contains("Minimum Exact Fragments"), "\(texts)")
+        XCTAssertTrue(texts.contains("Unmatched Fragments"), "\(texts)")
+        XCTAssertTrue(texts.contains("Minimum Unresolved Fragments"), "\(texts)")
+
+        inspector.updateTwelveSAmpliconResultDocument(makeResult())
+        XCTAssertEqual(viewModel.countUnit, .reads, "a merged-only result opens in reads")
+    }
+
     func testTwelveSDisplayPathWiresInspectorSamplePickerState() throws {
         let source = try String(
             contentsOf: repositoryRoot()
@@ -178,7 +211,14 @@ final class InspectorTwelveSModeTests: XCTestCase {
     private func makeResult(
         bundleURL: URL = URL(fileURLWithPath: "/tmp/example.lungfish12s"),
         sampleMetadata: ResolvedSampleMetadata? = nil,
-        sampleMetadataManifest: TwelveSSampleMetadataSnapshotManifest? = nil
+        sampleMetadataManifest: TwelveSSampleMetadataSnapshotManifest? = nil,
+        readFate: TwelveSAmpliconReadFate = TwelveSAmpliconReadFate(
+            totalReads: 0,
+            exactMatchReads: 0,
+            unresolvedReads: 0,
+            ambiguousExactReads: 0,
+            chimeraCandidateReads: 0
+        )
     ) -> TwelveSAmpliconResultBundleData {
         return TwelveSAmpliconResultBundleData(
             bundleURL: bundleURL,
@@ -219,13 +259,7 @@ final class InspectorTwelveSModeTests: XCTestCase {
             ],
             targets: [],
             countRows: [:],
-            readFate: TwelveSAmpliconReadFate(
-                totalReads: 0,
-                exactMatchReads: 0,
-                unresolvedReads: 0,
-                ambiguousExactReads: 0,
-                chimeraCandidateReads: 0
-            ),
+            readFate: readFate,
             unresolvedSequences: [],
             sampleMetadata: sampleMetadata,
             sampleMetadataManifest: sampleMetadataManifest
