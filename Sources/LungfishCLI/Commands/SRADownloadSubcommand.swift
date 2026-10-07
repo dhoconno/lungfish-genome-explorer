@@ -50,7 +50,6 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let trace = SRADownloadTraceCapture(
-            selectedStrategy: initialStrategy,
             downloadSource: initialStrategy == "sra-toolkit" ? .sraToolkit : .ena
         )
 
@@ -87,7 +86,6 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
             } else {
                 let quiet = globalOptions.quiet
                 let useColors = globalOptions.useColors
-                let fallbackStrategy = fallbackStrategy
                 files = try await service.downloadFASTQ(
                     accession: accession,
                     outputDir: outputURL,
@@ -99,7 +97,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                         }
                     },
                     onFallback: { message in
-                        trace.recordFallback(message, strategy: fallbackStrategy)
+                        trace.recordFallback(message)
                         if !quiet {
                             let formatter = TerminalFormatter(useColors: useColors)
                             print(formatter.info(message))
@@ -108,16 +106,26 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                     onSource: { source in
                         trace.recordSource(source)
                     },
+                    onRecord: { record in
+                        trace.recordENARecord(record)
+                    },
                     trace: { step in
                         trace.recordStep(step)
                     }
                 )
             }
 
+            // The lone-mate rule the window applies, with ENA's layout or NCBI's.
+            let layoutWarning = try await checkRunReads(files, service: service, enaRecord: trace.enaRecord)
+            if let layoutWarning, !globalOptions.quiet {
+                print(formatter.warning(layoutWarning))
+            }
+
             try writeSRADownloadProvenance(
                 files: files,
                 outputURL: outputURL,
                 trace: trace,
+                layoutWarning: layoutWarning,
                 startedAt: startedAt,
                 completedAt: Date()
             )
@@ -137,9 +145,11 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                 }
             }
         } catch let error as SRAError {
+            reportFailedToolOutput(trace.steps)
             throw CLIError.networkError(reason: error.localizedDescription)
         } catch {
-            throw CLIError.networkError(reason: "Download failed: \(error.localizedDescription)")
+            reportFailedToolOutput(trace.steps)
+            throw CLIError.networkError(reason: "Download failed: \(SRADownloadMessages.reason(of: error))")
         }
     }
 
@@ -164,15 +174,18 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
     }
 
     private func sraDownloadProvenanceParameters(
-        trace: SRADownloadTraceCapture
+        trace: SRADownloadTraceCapture,
+        layoutWarning: String?
     ) -> [String: ParameterValue] {
-        [
+        var parameters: [String: ParameterValue] = [
             "accession": .string(accession),
             "outputDir": .string(URL(fileURLWithPath: outputDir).standardizedFileURL.path),
             "requestedStrategy": .string(requestedStrategy),
             "preferredSource": preferredSourceParameter,
-            "selectedStrategy": .string(trace.selectedStrategy),
-            // The window's SRA import records the same names.
+            // The window's SRA import records the same names, from the same functions.
+            "selectedStrategy": .string(SRADownloadStrategy.selected(
+                preference: sourcePreference, toolkitOnly: useToolkit, source: trace.downloadSource
+            )),
             "downloadSource": .string(trace.downloadSource.rawValue),
             "fallbackMessage": trace.fallbackMessage.map { .string($0) } ?? .null,
             "sourceInputs": .array(trace.sourceInputs.map { .string($0) }),
@@ -180,23 +193,33 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
             "outputFormat": .string(globalOptions.outputFormat.rawValue),
             "quiet": .boolean(globalOptions.quiet),
             "containerRuntime": .string("none"),
-            // The SRA Toolkit runs in the managed sra-tools environment, as the window records.
-            "condaEnvironment": .string(trace.downloadSource.usesSRAToolkit ? "managed sra-tools" : "none")
+            "condaEnvironment": .string(trace.downloadSource.recordedCondaEnvironment)
         ]
+        if let layoutWarning {
+            parameters["layoutWarning"] = .string(layoutWarning)
+        }
+        return parameters
     }
 
     private func writeSRADownloadProvenance(
         files: [URL],
         outputURL: URL,
         trace: SRADownloadTraceCapture,
+        layoutWarning: String?,
         startedAt: Date,
         completedAt: Date
     ) throws {
-        var steps = trace.steps.map { step in
+        let sraToolsVersion = try? ManagedToolLock.loadFromBundle().tool(named: "sra-tools")?.version
+        let failedStepCount = trace.failedAttemptStepCount
+        let failedAttempt = SRAService.FASTQDownloadStepTrace.failedAttemptOption
+        var steps = trace.steps.enumerated().map { index, step in
             StepExecution(
                 toolName: step.toolName,
-                toolVersion: sraStepToolVersion(step.toolVersion),
+                toolVersion: step.recordedToolVersion(sraToolsVersion: sraToolsVersion),
                 command: step.command,
+                // The steps of an attempt that did not serve the run stay
+                // recorded, marked failed, as the window marks them.
+                resolvedOptions: index < failedStepCount ? [failedAttempt.key: .string(failedAttempt.value)] : nil,
                 inputs: step.inputs.map { input in
                     FileRecord(path: input, format: detectSRAInputFormat(input), role: .input)
                 },
@@ -210,6 +233,8 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                 endTime: step.completedAt
             )
         }
+        // The command depends only on the steps that served the run.
+        let servingStepIDs = steps.dropFirst(failedStepCount).map(\.id)
         steps.append(
             StepExecution(
                 toolName: CLICommandIdentity.executableName,
@@ -222,7 +247,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                 exitCode: 0,
                 wallTime: completedAt.timeIntervalSince(startedAt),
                 stderr: trace.fallbackMessage,
-                dependsOn: steps.last.map { [$0.id] } ?? [],
+                dependsOn: servingStepIDs,
                 startTime: startedAt,
                 endTime: completedAt
             )
@@ -236,7 +261,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
             appVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
             hostOS: WorkflowRun.currentHostOS,
             steps: steps,
-            parameters: sraDownloadProvenanceParameters(trace: trace)
+            parameters: sraDownloadProvenanceParameters(trace: trace, layoutWarning: layoutWarning)
         )
         let provenanceURL = outputURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         try run.writeSidecar(to: provenanceURL)
@@ -254,31 +279,42 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         return nil
     }
 
-    private func sraStepToolVersion(_ version: String) -> String {
-        guard version == "sra-tools",
-              let lockVersion = try? ManagedToolLock.loadFromBundle().tool(named: "sra-tools")?.version else {
-            return version
+    /// Prints the whole standard error of each SRA Toolkit step that failed,
+    /// under `--verbose`. The error the command ends with keeps one line.
+    private func reportFailedToolOutput(_ steps: [SRAService.FASTQDownloadStepTrace]) {
+        guard globalOptions.effectiveVerbosity > 0 else { return }
+        for step in steps where (step.exitCode ?? 0) != 0 {
+            guard let stderr = step.stderr, !stderr.isEmpty else { continue }
+            FileHandle.standardError.write(Data("\(step.toolName) standard error:\n\(stderr)\n".utf8))
         }
-        return "sra-tools \(lockVersion)"
     }
 }
 
 private final class SRADownloadTraceCapture: @unchecked Sendable {
     private let lock = NSLock()
-    private var _selectedStrategy: String
     private var _downloadSource: SRAFASTQDownloadSource
     private var _fallbackMessage: String?
+    private var _failedAttemptStepCount = 0
+    private var _enaRecord: ENAReadRecord?
     private var _steps: [SRAService.FASTQDownloadStepTrace] = []
 
-    init(selectedStrategy: String, downloadSource: SRAFASTQDownloadSource) {
-        self._selectedStrategy = selectedStrategy
+    init(downloadSource: SRAFASTQDownloadSource) {
         self._downloadSource = downloadSource
     }
 
-    var selectedStrategy: String {
+    /// How many of the first steps belong to the attempt that did not serve
+    /// the run, which is every step recorded before the fallback started.
+    var failedAttemptStepCount: Int {
         lock.lock()
         defer { lock.unlock() }
-        return _selectedStrategy
+        return _failedAttemptStepCount
+    }
+
+    /// ENA's record of the run, when ENA was asked and answered with one.
+    var enaRecord: ENAReadRecord? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _enaRecord
     }
 
     var downloadSource: SRAFASTQDownloadSource {
@@ -306,10 +342,16 @@ private final class SRADownloadTraceCapture: @unchecked Sendable {
         return Array(Set(inputs)).sorted()
     }
 
-    func recordFallback(_ message: String, strategy: String) {
+    func recordFallback(_ message: String) {
         lock.lock()
-        _selectedStrategy = strategy
         _fallbackMessage = message
+        _failedAttemptStepCount = _steps.count
+        lock.unlock()
+    }
+
+    func recordENARecord(_ record: ENAReadRecord) {
+        lock.lock()
+        _enaRecord = record
         lock.unlock()
     }
 
