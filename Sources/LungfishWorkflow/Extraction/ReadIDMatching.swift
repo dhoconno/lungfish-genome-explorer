@@ -24,4 +24,22 @@ public enum ReadIDMatching: Sendable, Equatable {
         case .fragmentName: return ["--id-regexp", #"^(\S+?)(?:/[12])?(?:\s|$)"#]
         }
     }
+
+    /// The ID this rule reads from a FASTQ header line, the text seqkit
+    /// captures with ``seqkitArguments``. The first word ends at a space, a
+    /// tab, a carriage return or a form feed. The fragment-name rule then
+    /// drops one final `/1` or `/2` from a word longer than two characters,
+    /// as kraken2 `--paired` names a pair, so `@X/1/1` reads as `X/1` and
+    /// `@/1` as `/1`.
+    public func readID(ofHeaderLine line: String) -> String {
+        let header = line.hasPrefix("@") ? line.dropFirst() : Substring(line)
+        let word = header.prefix { !" \t\r\u{0C}\n".contains($0) }
+        switch self {
+        case .firstWord:
+            return String(word)
+        case .fragmentName:
+            guard word.count > 2, word.hasSuffix("/1") || word.hasSuffix("/2") else { return String(word) }
+            return String(word.dropLast(2))
+        }
+    }
 }

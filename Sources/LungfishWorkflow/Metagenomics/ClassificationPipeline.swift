@@ -385,7 +385,7 @@ public actor ClassificationPipeline {
         }
 
         do {
-            try removeKnownClassificationOutputs(config: effectiveConfig)
+            try refuseThenRemoveKnownClassificationOutputs(config: effectiveConfig)
         } catch {
             _ = await provenanceRecorder.recordStep(
                 runID: runID,
@@ -496,7 +496,7 @@ public actor ClassificationPipeline {
         var kraken2Config = effectiveConfig
         let interleavedSplitDirectory = effectiveConfig.outputDirectory
             .appendingPathComponent(Self.interleavedSplitDirectoryName, isDirectory: true)
-        defer { try? fm.removeItem(at: interleavedSplitDirectory) }
+        defer { Self.removeIfPresent(interleavedSplitDirectory) }
         var interleavedSplitStepID: UUID?
         if effectiveConfig.interleavedInput {
             progress?(0.05, "Splitting interleaved pairs for kraken2...")
@@ -591,9 +591,9 @@ public actor ClassificationPipeline {
         // Phase 3: Run kraken2 (0.30 -- 0.80)
         let kraken2Args = kraken2Config.kraken2Arguments()
         let kraken2Command = ["kraken2"] + kraken2Args
-        var durableReplayConfig = effectiveConfig
-        durableReplayConfig.inputFiles = replayInputs.inputFiles
-        let durableKraken2Command = ["kraken2"] + durableReplayConfig.kraken2Arguments()
+        let durableKraken2Command = Self.durableKraken2ReplayArgv(
+            effectiveConfig: effectiveConfig, kraken2Config: kraken2Config, replayInputFiles: replayInputs.inputFiles
+        )
         let sequenceInputRecords = (effectiveConfig.inputFiles + Self.readSetExtraInputs(kraken2Config)).map { url in
             ProvenanceRecorder.fileRecord(
                 url: url,
@@ -751,7 +751,7 @@ public actor ClassificationPipeline {
 
         // The halves are only needed by kraken2; drop them now rather than at
         // scope exit so Bracken and sidecar work do not hold the disk.
-        try? fm.removeItem(at: interleavedSplitDirectory)
+        Self.removeIfPresent(interleavedSplitDirectory)
 
         if kraken2Result.exitCode != 0 {
             try await persistInterruptedClassificationRun(
@@ -1110,7 +1110,7 @@ public actor ClassificationPipeline {
         ] + config.inputFiles.flatMap { ["--input", $0.path] }
     }
 
-    private func knownClassificationOutputURLs(
+    func knownClassificationOutputURLs(
         config: ClassificationConfig
     ) -> [URL] {
         let compressedOutput = config.outputURL.appendingPathExtension("gz")
@@ -1144,7 +1144,7 @@ public actor ClassificationPipeline {
             + knownClassificationOutputURLs(config: config).map(\.path)
     }
 
-    private func removeKnownClassificationOutputs(
+    func removeKnownClassificationOutputs(
         config: ClassificationConfig
     ) throws {
         let fm = FileManager.default
@@ -1383,7 +1383,7 @@ public actor ClassificationPipeline {
         effectiveConfig: ClassificationConfig,
         toolVersion: String,
         command: [String],
-        durableReplayCommand: [String],
+        durableReplayCommand: [String]?,
         inputs: [FileRecord],
         dependsOn: [UUID],
         exitCode: Int32,

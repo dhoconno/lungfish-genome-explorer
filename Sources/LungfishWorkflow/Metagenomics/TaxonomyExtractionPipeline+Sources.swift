@@ -7,12 +7,46 @@ import LungfishIO
 
 extension TaxonomyExtractionPipeline {
 
+    /// One taxon's reads from every file of `files`, one output per file in
+    /// order (``extractEachSource(config:tree:matePairStarts:progress:)``).
+    /// Each R1 file and the R2 file after it are read in step, as kraken2
+    /// read them, and every other file with seqkit grep. `config` gives the
+    /// taxa, the classification output, and the folder and base name of the
+    /// outputs. Its source files are `files`.
+    func extractEachFile(
+        config: TaxonomyExtractionConfig,
+        files: [KrakenResultReadSources.File],
+        tree: TaxonTree,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> (outputs: [URL?], taxIds: Set<Int>, readCount: Int) {
+        for (index, file) in files.enumerated() where file.role == .r1 {
+            guard index + 1 < files.count, files[index + 1].role == .r2 else {
+                throw ClassifierExtractionError.kraken2SourceMissing
+            }
+        }
+        let matePairStarts = files.indices.filter { files[$0].role == .r1 }
+        return try await extractEachSource(
+            config: TaxonomyExtractionConfig(
+                taxIds: config.taxIds,
+                includeChildren: config.includeChildren,
+                sourceFiles: files.map(\.url),
+                outputFiles: files.indices.map { _ in config.outputFile },
+                classificationOutput: config.classificationOutput,
+                taxonomyReport: config.taxonomyReport,
+                keepReadPairs: config.keepReadPairs
+            ),
+            tree: tree,
+            matePairStarts: matePairStarts,
+            progress: progress
+        )
+    }
+
     /// Writes a taxon's reads, extracted file by file from `files`
-    /// (``extractEachSource(config:tree:progress:)``): each pair's R1 record
-    /// followed by its R2 record to `pairs`, then the reads of every other
-    /// file, in file order and unchanged, to `reads` (D7d). One handle may be
-    /// both, since every pair of files comes before the other files. Returns
-    /// the number of pairs.
+    /// (``extractEachFile(config:files:tree:progress:)``): the pairs of each
+    /// R1 and R2 file, each R1 record followed by its R2 record, to `pairs`,
+    /// then the reads of every other file, in file order and unchanged, to
+    /// `reads` (D7d). One handle may be both, since every pair of files comes
+    /// before the other files. Returns the number of pairs.
     static func writeExtractedReads(
         _ outputs: [URL?],
         of files: [KrakenResultReadSources.File],
@@ -23,62 +57,28 @@ extension TaxonomyExtractionPipeline {
         for (index, file) in files.enumerated() {
             switch file.role {
             case .r1:
-                pairCount += try interleaveMates(of: files, at: index, outputs: outputs, into: pairs)
+                guard let output = outputs[index] else { continue }
+                pairCount += try copyRecords(of: output, into: pairs) / 2
             case .r2:
                 continue
             case .adjacentMates, .reads:
                 guard let output = outputs[index] else { continue }
-                let reader = try FASTQRawLineReader(url: output)
-                defer { reader.close() }
-                while let chunk = try reader.readChunk() {
-                    try reads.write(contentsOf: chunk)
-                }
+                _ = try copyRecords(of: output, into: reads)
             }
         }
         return pairCount
     }
 
-    /// Writes the reads extracted from the pair of files at `index` (R1)
-    /// and `index + 1` (R2), each R1 record followed by its R2 record, and
-    /// returns the number of pairs. The two outputs come from files whose
-    /// records correspond by position, filtered by one ID set, so they hold
-    /// the same fragments in the same order. Names are checked record by
-    /// record, and files out of step throw rather than mis-pair (D7d).
-    static func interleaveMates(
-        of files: [KrakenResultReadSources.File],
-        at index: Int,
-        outputs: [URL?],
-        into handle: FileHandle
-    ) throws -> Int {
-        guard index + 1 < files.count, files[index + 1].role == .r2 else {
-            throw ClassifierExtractionError.kraken2SourceMissing
+    /// Copies `file` into `handle` unchanged and returns its record count.
+    private static func copyRecords(of file: URL, into handle: FileHandle) throws -> Int {
+        let reader = try FASTQRawLineReader(url: file)
+        defer { reader.close() }
+        var lines = 0
+        while let chunk = try reader.readChunk() {
+            lines += chunk.reduce(0) { $0 + ($1 == UInt8(ascii: "\n") ? 1 : 0) }
+            try handle.write(contentsOf: chunk)
         }
-        let r1Source = files[index].url.lastPathComponent
-        let r2Source = files[index + 1].url.lastPathComponent
-        switch (outputs[index], outputs[index + 1]) {
-        case (nil, nil):
-            return 0
-        case (let r1?, let r2?):
-            do {
-                return try FASTQPairInterleaver.interleave(r1: r1, r2: r2, to: handle, requireMates: true).r1Records
-            } catch FASTQPairInterleaver.InterleaveError.mateNameMismatch(let record, _, let r1Name, _, let r2Name) {
-                throw FASTQPairInterleaver.InterleaveError.mateNameMismatch(
-                    recordNumber: record, r1File: r1Source, r1Name: r1Name, r2File: r2Source, r2Name: r2Name
-                )
-            } catch FASTQPairInterleaver.InterleaveError.mateCountMismatch(_, let r1Records, _, let r2Records) {
-                throw FASTQPairInterleaver.InterleaveError.mateCountMismatch(
-                    r1File: r1Source, r1Records: r1Records, r2File: r2Source, r2Records: r2Records
-                )
-            }
-        case (let r1?, nil):
-            throw FASTQPairInterleaver.InterleaveError.mateCountMismatch(
-                r1File: r1Source, r1Records: try FASTQPairInterleaver.countRecords(in: r1), r2File: r2Source, r2Records: 0
-            )
-        case (nil, let r2?):
-            throw FASTQPairInterleaver.InterleaveError.mateCountMismatch(
-                r1File: r1Source, r1Records: 0, r2File: r2Source, r2Records: try FASTQPairInterleaver.countRecords(in: r2)
-            )
-        }
+        return lines / 4
     }
 
     /// How an extracted FASTQ pairs (D7d), counted over the whole file by
@@ -126,7 +126,7 @@ extension TaxonomyExtractionPipeline {
             taxonomyReport: config.taxonomyReport,
             keepReadPairs: config.keepReadPairs
         )
-        let extraction = try await extractEachSource(config: perFile, tree: tree, progress: progress)
+        let extraction = try await extractEachFile(config: perFile, files: files, tree: tree, progress: progress)
 
         let plain = scratch.appendingPathComponent("\(baseName).fastq")
         fileManager.createFile(atPath: plain.path, contents: nil)

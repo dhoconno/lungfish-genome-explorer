@@ -404,6 +404,39 @@ extension ClassificationConfig {
         inputFiles.first.map(Self.isGzipCompressed) ?? false
     }
 
+    /// The files kraken2 reads for ``inputFiles``, each in the compression
+    /// of R1, the first. The kraken2 wrapper pipes every input through the
+    /// decompressor of its first input, so a plain R2 beside a gzip R1 reads
+    /// as empty and a gzip R2 beside a plain R1 reads as one unreadable
+    /// record, and kraken2 still exits 0. A file in the other compression is
+    /// read from a staged copy (``stagedInputCopyURL(at:)``).
+    var kraken2InputURLs: [URL] {
+        inputFiles.indices.map { stagedInputCopyURL(at: $0) ?? inputFiles[$0] }
+    }
+
+    /// The copy of input `index` staged in the compression of R1, or nil
+    /// when the file has that compression and is read as it is. The copy is
+    /// `<n>-<stem>.input.<fastq|fasta>` in the run's inputs folder, numbered
+    /// by its input position, with `.gz` when R1 is gzip.
+    func stagedInputCopyURL(at index: Int) -> URL? {
+        guard index > 0, index < inputFiles.count,
+              Self.isGzipCompressed(inputFiles[index]) != r1IsGzipCompressed else { return nil }
+        var stem = inputFiles[index].lastPathComponent
+        if stem.lowercased().hasSuffix(".gz") { stem = String(stem.dropLast(3)) }
+        let fastaExtensions = ["fa", "fasta", "fna"]
+        let isFASTA = fastaExtensions.contains(URL(fileURLWithPath: stem).pathExtension.lowercased())
+        stem = URL(fileURLWithPath: stem).deletingPathExtension().lastPathComponent
+        let filename = "\(index + 1)-\(stem).input.\(isFASTA ? "fasta" : "fastq")" + (r1IsGzipCompressed ? ".gz" : "")
+        return outputDirectory
+            .appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName, isDirectory: true)
+            .appendingPathComponent(filename)
+    }
+
+    /// Every input copy a run stages, with the input it copies.
+    var stagedInputCopies: [(source: URL, copy: URL)] {
+        inputFiles.indices.compactMap { index in stagedInputCopyURL(at: index).map { (inputFiles[index], $0) } }
+    }
+
     static func isGzipCompressed(_ url: URL) -> Bool {
         guard let handle = FileHandle(forReadingAtPath: url.path) else { return false }
         defer { try? handle.close() }

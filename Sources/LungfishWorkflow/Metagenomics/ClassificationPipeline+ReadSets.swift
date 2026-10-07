@@ -11,6 +11,18 @@ extension ClassificationPipeline {
     /// mate files split from a strictly interleaved input for the kraken2 run.
     static let interleavedSplitDirectoryName = ".lungfish-interleaved-split"
 
+    /// Removes `url` when it is there, and fails nowhere. The run's cleanup
+    /// `defer` calls this on every exit, and the split folder exists only for
+    /// an interleaved input. A `try?` removal that failed inside that `defer`
+    /// was seen to replace the error the run was throwing (a fragment-guard
+    /// failure) with "couldn't be removed", so the check comes first and the
+    /// removal runs in this frame (Phase 2.1 lane L6).
+    static func removeIfPresent(_ url: URL) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return }
+        do { try fm.removeItem(at: url) } catch {}
+    }
+
     /// Re-checks a request to split one input as interleaved pairs against
     /// the records, through the shared layout resolver.
     ///
@@ -156,6 +168,9 @@ extension ClassificationPipeline {
     /// The provenance step that writes each header-only mate.
     static let singleReadMateStagingToolName = "Lungfish Classification Single-Read Mate Staging"
 
+    /// The provenance step that copies an input into the compression of R1.
+    static let inputCompressionStagingToolName = "Lungfish Classification Input Compression Staging"
+
     /// Records the splits the read-set plan wrote and stages a header-only
     /// mate for each file of single reads, as provenance steps. Returns the
     /// step IDs kraken2 depends on. A run of single reads or pairs only
@@ -183,6 +198,9 @@ extension ClassificationPipeline {
                 dependsOn: dependsOn
             )
             if let stepID { stepIDs.append(stepID) }
+        }
+        if let stepID = try await recordInputCopyStep(config: config, runID: runID, recorder: recorder, dependsOn: dependsOn + stepIDs) {
+            stepIDs.append(stepID)
         }
         guard !config.singleReadFiles.isEmpty else { return stepIDs }
 
@@ -213,10 +231,12 @@ extension ClassificationPipeline {
         return stepIDs
     }
 
-    /// The single-read files and their staged mates kraken2 reads beside the
-    /// pair, for the kraken2 step's inputs.
+    /// The input copies in the compression of R1, and the single-read files
+    /// and their staged mates kraken2 reads beside the pair, for the kraken2
+    /// step's inputs.
     static func readSetExtraInputs(_ config: ClassificationConfig) -> [URL] {
-        config.singleReadFiles.flatMap { [config.kraken2SingleReadURL(for: $0), config.emptyMateURL(for: $0)] }
+        config.stagedInputCopies.map(\.copy)
+            + config.singleReadFiles.flatMap { [config.kraken2SingleReadURL(for: $0), config.emptyMateURL(for: $0)] }
     }
 
     /// Writes the header-only mate of every file of single reads, and a copy
@@ -313,18 +333,22 @@ extension ClassificationPipeline {
         return records
     }
 
-    /// Removes the staged mates and copies once kraken2 has read them.
+    /// Removes the staged mates and copies once kraken2 has read them. The
+    /// run calls this again from a `defer`, so every removal checks first
+    /// and none fails (``removeIfPresent(_:)``).
     static func removeStagedMates(for config: ClassificationConfig) {
         let fm = FileManager.default
         for single in config.singleReadFiles {
-            try? fm.removeItem(at: config.emptyMateURL(for: single))
-            if let copy = config.stagedSingleReadCopyURL(for: single) { try? fm.removeItem(at: copy) }
+            removeIfPresent(config.emptyMateURL(for: single))
+            if let copy = config.stagedSingleReadCopyURL(for: single) { removeIfPresent(copy) }
         }
-        // The inputs folder goes too when the staged mates were all it held.
-        if let mate = config.singleReadFiles.first.map(config.emptyMateURL(for:)) {
-            let folder = mate.deletingLastPathComponent()
-            if (try? fm.contentsOfDirectory(atPath: folder.path))?.isEmpty == true {
-                try? fm.removeItem(at: folder)
+        let inputCopies = config.stagedInputCopies.map(\.copy)
+        for copy in inputCopies { removeIfPresent(copy) }
+        // The inputs folder goes too when the staged files were all it held.
+        if let staged = inputCopies.first ?? config.singleReadFiles.first.map(config.emptyMateURL(for:)) {
+            let folder = staged.deletingLastPathComponent()
+            if fm.fileExists(atPath: folder.path), (try? fm.contentsOfDirectory(atPath: folder.path))?.isEmpty == true {
+                removeIfPresent(folder)
             }
         }
     }

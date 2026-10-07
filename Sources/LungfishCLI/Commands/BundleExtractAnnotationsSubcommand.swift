@@ -39,16 +39,25 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let sourceBundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
-        let outputBundleURL = URL(fileURLWithPath: outputBundlePath).standardizedFileURL
-        let outputDirectory = outputBundleURL.deletingLastPathComponent()
-        let outputName = outputBundleURL.deletingPathExtension().lastPathComponent
+        let typedOutputURL = URL(fileURLWithPath: outputBundlePath).standardizedFileURL
+        let outputDirectory = typedOutputURL.deletingLastPathComponent()
+        let outputName = typedOutputURL.deletingPathExtension().lastPathComponent
+        // The bundle the build writes, the only path `--replace` may replace.
+        let outputBundleURL = OutputReplacementCheck.publishedReferenceBundleURL(
+            outputDirectory: outputDirectory,
+            name: outputName
+        )
 
-        if FileManager.default.fileExists(atPath: outputBundleURL.path) {
-            guard replace else {
-                print(formatter.error("Output bundle already exists: \(outputBundleURL.path)"))
-                throw CLIExitCode.outputError.exitCode
-            }
-            try FileManager.default.removeItem(at: outputBundleURL)
+        // Every refusal runs before the earlier output is touched.
+        do {
+            try OutputReplacementCheck.refuseInputs([sourceBundleURL], inside: outputBundleURL)
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.outputError.exitCode
+        }
+        if FileManager.default.fileExists(atPath: outputBundleURL.path), !replace {
+            print(formatter.error("Output bundle already exists: \(outputBundleURL.path)"))
+            throw CLIExitCode.outputError.exitCode
         }
 
         let referenceBundle = try await ReferenceBundle(url: sourceBundleURL)
@@ -107,7 +116,25 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
                 track: track
             )
         )
-        let createdURL = try await NativeBundleBuilder().build(configuration: configuration)
+        // `--replace` moves the earlier bundle aside and deletes it only once
+        // the new one is built, so a failed build leaves it in place.
+        let earlierOutput = replace ? try SetAsideOutput.setAside(outputBundleURL) : nil
+        let createdURL: URL
+        do {
+            createdURL = try await NativeBundleBuilder().build(configuration: configuration)
+        } catch {
+            if let earlierOutput {
+                do {
+                    try earlierOutput.restore()
+                } catch let restoreError {
+                    print(formatter.error(
+                        "The earlier bundle could not be moved back (\(restoreError.localizedDescription)) and is kept at \(earlierOutput.asideURL.path)."
+                    ))
+                }
+            }
+            throw error
+        }
+        earlierOutput?.discard()
 
         print(formatter.header("Annotation Sequence Extraction"))
         print("")

@@ -53,7 +53,8 @@ public final class CDSBestAnnotationService: @unchecked Sendable {
         let workflowStartedAt = Date()
         let sourceBundleURL = request.sourceBundleURL.standardizedFileURL
         let outputBundleURL = request.outputBundleURL.standardizedFileURL
-        guard sourceBundleURL.path != outputBundleURL.path else {
+        // Physical paths, so the source named through a symlink is still the source.
+        guard sourceBundleURL.canonicalFilePath != outputBundleURL.canonicalFilePath else {
             throw CDSBestAnnotationServiceError.sourceAndOutputBundleMatch(outputBundleURL)
         }
 
@@ -70,6 +71,62 @@ public final class CDSBestAnnotationService: @unchecked Sendable {
             throw CDSBestAnnotationServiceError.outputBundleExists(outputBundleURL)
         }
 
+        // Every refusal runs before the earlier output is deleted, so a refused
+        // run leaves every file as it was.
+        try OutputReplacementCheck.refuseOutput(outputBundleURL, inside: sourceBundleURL)
+        try OutputReplacementCheck.refuseInputs(
+            [sourceBundleURL, request.mappingResultURL.standardizedFileURL, mappingResult.bamURL, mappingResult.baiURL],
+            inside: outputBundleURL
+        )
+
+        let outputTrackName = normalizedOutputTrackName(request.outputTrackName)
+        let outputTrackID: String
+        do {
+            outputTrackID = try resolveAnnotationOutputTrackID(
+                explicitID: request.outputTrackID,
+                generatedID: trackIDProvider(outputTrackName)
+            )
+        } catch AnnotationOutputTrackIDResolutionError.invalid(let id) {
+            throw CDSBestAnnotationServiceError.invalidOutputTrackID(id)
+        }
+        let relativeDatabasePath = "annotations/\(outputTrackID).db"
+        let databaseURL = outputBundleURL.appendingPathComponent(relativeDatabasePath)
+
+        // The output starts as a copy of the source, so its tracks are the source's.
+        let existingTracks = try BundleManifest.load(from: sourceBundleURL).annotations.filter {
+            annotationOutputTrackMatches($0, id: outputTrackID, name: outputTrackName)
+        }
+        if !existingTracks.isEmpty && !request.replaceExisting {
+            throw CDSBestAnnotationServiceError.outputTrackExists(outputTrackName)
+        }
+        if existingTracks.isEmpty,
+           !request.replaceExisting,
+           annotationArtifactExistsCaseInsensitive(sourceBundleURL.appendingPathComponent(relativeDatabasePath)) {
+            throw CDSBestAnnotationServiceError.outputTrackExists(outputTrackName)
+        }
+
+        progressHandler?(0.1, "Reading mapped CDS alignments...")
+        let viewArguments = ["view", "-h", mappingResult.bamURL.path]
+        let samtoolsStartedAt = Date()
+        let samtoolsResult = try await samtoolsRunner.runSamtools(
+            arguments: viewArguments,
+            timeout: samtoolsTimeout(for: mappingResult.bamURL.path)
+        )
+        let samtoolsCompletedAt = Date()
+        guard samtoolsResult.isSuccess else {
+            throw CDSBestAnnotationServiceError.samtoolsFailed(
+                samtoolsResult.stderr.isEmpty ? "samtools exited with \(samtoolsResult.exitCode)" : samtoolsResult.stderr
+            )
+        }
+        let samtoolsVersion = await samtoolsRunner.samtoolsVersion()
+
+        progressHandler?(0.4, "Selecting best CDS models per locus...")
+        let selection = try selectBestModels(
+            fromSAM: samtoolsResult.stdout,
+            request: request,
+            mappingResult: mappingResult
+        )
+
         let outputBundleSnapshot = try ProvenancePublicationSnapshot(
             urls: [outputBundleURL],
             backupNamePrefix: "lungfish-cds-best-annotation"
@@ -77,60 +134,14 @@ public final class CDSBestAnnotationService: @unchecked Sendable {
         defer { outputBundleSnapshot.discard() }
 
         do {
-            progressHandler?(0.1, "Copying source bundle...")
+            progressHandler?(0.55, "Copying source bundle...")
             try prepareOutputBundle(
                 sourceBundleURL: sourceBundleURL,
                 outputBundleURL: outputBundleURL,
                 replace: request.replaceExisting
             )
 
-            progressHandler?(0.25, "Reading mapped CDS alignments...")
-            let viewArguments = ["view", "-h", mappingResult.bamURL.path]
-            let samtoolsStartedAt = Date()
-            let samtoolsResult = try await samtoolsRunner.runSamtools(
-                arguments: viewArguments,
-                timeout: samtoolsTimeout(for: mappingResult.bamURL.path)
-            )
-            let samtoolsCompletedAt = Date()
-            guard samtoolsResult.isSuccess else {
-                throw CDSBestAnnotationServiceError.samtoolsFailed(
-                    samtoolsResult.stderr.isEmpty ? "samtools exited with \(samtoolsResult.exitCode)" : samtoolsResult.stderr
-                )
-            }
-            let samtoolsVersion = await samtoolsRunner.samtoolsVersion()
-
-            progressHandler?(0.55, "Selecting best CDS models per locus...")
-            let selection = try selectBestModels(
-                fromSAM: samtoolsResult.stdout,
-                request: request,
-                mappingResult: mappingResult
-            )
-
-            let outputTrackName = normalizedOutputTrackName(request.outputTrackName)
-            let outputTrackID: String
-            do {
-                outputTrackID = try resolveAnnotationOutputTrackID(
-                    explicitID: request.outputTrackID,
-                    generatedID: trackIDProvider(outputTrackName)
-                )
-            } catch AnnotationOutputTrackIDResolutionError.invalid(let id) {
-                throw CDSBestAnnotationServiceError.invalidOutputTrackID(id)
-            }
-            let relativeDatabasePath = "annotations/\(outputTrackID).db"
-            let databaseURL = outputBundleURL.appendingPathComponent(relativeDatabasePath)
-
             var manifest = try BundleManifest.load(from: outputBundleURL)
-            let existingTracks = manifest.annotations.filter {
-                annotationOutputTrackMatches($0, id: outputTrackID, name: outputTrackName)
-            }
-            if !existingTracks.isEmpty && !request.replaceExisting {
-                throw CDSBestAnnotationServiceError.outputTrackExists(outputTrackName)
-            }
-            if existingTracks.isEmpty,
-               !request.replaceExisting,
-               annotationArtifactExistsCaseInsensitive(databaseURL) {
-                throw CDSBestAnnotationServiceError.outputTrackExists(outputTrackName)
-            }
             if request.replaceExisting {
                 for track in existingTracks {
                     removeAnnotationArtifacts(for: track, bundleURL: outputBundleURL)
