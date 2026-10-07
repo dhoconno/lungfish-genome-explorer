@@ -245,6 +245,57 @@ final class ReadSetResolverLayoutTests: XCTestCase {
         XCTAssertEqual(plan.composition.fragmentCount, 3)
     }
 
+    /// A `full` derivative of a merge bundle written before such outputs
+    /// recorded their counts, holding `reads` and no count beside them.
+    private func uncountedMergeLineageChild(_ name: String, reads: [String]) throws -> URL {
+        let bundle = fixtures.importsURL.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try ReadSetFixtures.fastq(reads).write(to: bundle.appendingPathComponent("reads.fastq"), atomically: true, encoding: .utf8)
+        let operation = FASTQDerivativeOperation(kind: .lengthFilter)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: name,
+                parentBundleRelativePath: "@/Imports/\(fixtures.mergeDerivative.lastPathComponent)",
+                rootBundleRelativePath: ".",
+                rootFASTQFilename: "reads.fastq",
+                payload: .full(fastqFilename: "reads.fastq"),
+                lineage: [FASTQDerivativeOperation(kind: .pairedEndMerge), operation],
+                operation: operation,
+                cachedStatistics: .placeholder(readCount: reads.count, baseCount: Int64(reads.count * 10)),
+                pairingMode: .singleEnd,
+                sequenceFormat: .fastq
+            ),
+            in: bundle
+        )
+        return bundle
+    }
+
+    /// S4's no-count case for a bundle that is not virtual (Phase 2.1 lane
+    /// L3, after the ruling on option 1). The merge in its lineage made the
+    /// layout scan call adjacent mates mixed, so a tool that pairs only a
+    /// wholly paired sample ran a file of only pairs single-end. A scan that
+    /// read the whole file counted every record, so it outranks that merge.
+    /// The plan and the layout every other consumer reads agree that the file
+    /// is one interleaved pair. A file that also holds a read without its
+    /// mate stays mixed.
+    func testAPhysicalFileOfOnlyPairsFromAMergeLineageWithNoCountIsAnInterleavedPair() async throws {
+        let pairsOnly = try uncountedMergeLineageChild("legacy-pairs", reads: ["u1/1", "u1/2", "u2/1", "u2/2"])
+        let pairs = try await plan(pairsOnly, .pairsOnlyWhenAllPaired)
+        XCTAssertEqual(pairs.sourceLayout, .interleavedFile)
+        XCTAssertNil(pairs.singleReadReason)
+        XCTAssertEqual(pairs.matePairs.count, 1)
+        XCTAssertTrue(pairs.singleReads.isEmpty)
+        XCTAssertTrue(pairs.recordsNothingNew)
+        XCTAssertEqual(FASTQInputLayoutResolver.resolve(inputURLs: [pairsOnly]).layout, .strictlyInterleaved)
+
+        let mixed = try uncountedMergeLineageChild("legacy-mixed", reads: ["u1/1", "u1/2", "x1"])
+        let mixedPlan = try await plan(mixed, .pairsOnlyWhenAllPaired)
+        XCTAssertEqual(mixedPlan.sourceLayout, .mixedFile)
+        XCTAssertNotNil(mixedPlan.singleReadReason)
+        XCTAssertTrue(mixedPlan.matePairs.isEmpty)
+        XCTAssertEqual(FASTQInputLayoutResolver.resolve(inputURLs: [mixed]).layout, .mixedMergedAndPairs)
+    }
+
     func testFullDerivativeWithoutSidecarIsScannedAsBefore() async throws {
         let plan = try await plan(fixtures.fullUnlabelled)
         XCTAssertEqual(plan.sourceLayout, .interleavedFile)

@@ -5,6 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Resolves the "All sequences (N)" count the MAFFT pane shows for a set of
 /// dialog inputs. The viewer route already knows its record count; the Tools
@@ -40,16 +41,38 @@ enum MSAInputSequenceCounter {
             let readCount = FASTQBundle.loadDerivedManifest(in: derivedBundleURL)?.cachedStatistics.readCount ?? 0
             return readCount > 0 ? readCount : nil
         }
-        guard let sequenceURL = SequenceInputResolver.resolvePrimarySequenceURL(for: standardized),
-              let format = SequenceFormat.from(url: sequenceURL) else {
+        // Every file MAFFT reads for the input, every chunk of a chunked root
+        // and both mate files of a paired derivative. The one-file resolution
+        // counted the first file only (Phase 2.1 lane L3). A virtual bundle
+        // is counted from its manifest above, so nothing is materialized.
+        guard let sequenceURLs = try? await DerivedFASTQBundleInput.readableURLs(
+            for: standardized,
+            in: FileManager.default.temporaryDirectory
+                .appendingPathComponent("msa-input-count-\(UUID().uuidString)", isDirectory: true),
+            materializer: { bundleURL, _ in throw CountingMaterializesNothing(bundlePath: bundleURL.path) }
+        ), !sequenceURLs.isEmpty else {
             return nil
         }
-        switch format {
-        case .fasta:
-            return fastaRecordCount(at: sequenceURL)
-        case .fastq:
-            return try? await FASTQReader(validateSequence: false).countRecords(in: sequenceURL)
+        var total = 0
+        for sequenceURL in sequenceURLs {
+            guard let format = SequenceFormat.from(url: sequenceURL) else { return nil }
+            let count: Int?
+            switch format {
+            case .fasta:
+                count = fastaRecordCount(at: sequenceURL)
+            case .fastq:
+                count = try? await FASTQReader(validateSequence: false).countRecords(in: sequenceURL)
+            }
+            guard let count else { return nil }
+            total += count
         }
+        return total
+    }
+
+    /// A virtual bundle reaching the read-set resolver here, which would
+    /// have to be materialized to be counted.
+    private struct CountingMaterializesNothing: Error {
+        let bundlePath: String
     }
 
     /// The manifest's chromosome list is the record count of the bundle genome.

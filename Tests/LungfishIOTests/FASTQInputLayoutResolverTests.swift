@@ -174,17 +174,35 @@ final class FASTQInputLayoutResolverTests: XCTestCase {
         }
     }
 
-    func testInterleavedMetadataWithMergeRecipeIsMixedEvenWhenHeadAlternates() throws {
+    /// A merge recipe keeps a file whose scanned head alternates mates mixed.
+    /// A scan of the whole file is a count, so a file of only pairs is
+    /// interleaved pairs whatever the recipe says, by the bundle and by a
+    /// scratch copy scanned with the bundle's metadata (ruling on S4's
+    /// no-count case, Phase 2.1 lane L3). It was mixed before.
+    func testInterleavedMetadataWithMergeRecipeIsMixedWhenOnlyItsHeadAlternates() throws {
         let recipe = RecipeAppliedInfo(
             recipeID: "illuminaVSP2TargetEnrichment",
             recipeName: "VSP2",
             stepResults: [RecipeStepResult(stepName: "PE merge (normal, min overlap: 12)", tool: "fastp", durationSeconds: 1)]
         )
-        let (bundle, _) = try makeBundle(headers: ["a/1", "a/2", "b/1", "b/2"], pairingMode: .interleaved, recipe: recipe)
-        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [bundle])
-        XCTAssertEqual(resolution.layout, .mixedMergedAndPairs)
-        XCTAssertEqual(resolution.source, .contentScan)
-        XCTAssertTrue(resolution.classification?.metadata.hasMergedOrUnpairedReads ?? false)
+        let (bundle, fastqURL) = try makeBundle(headers: ["a/1", "a/2", "b/1", "b/2"], pairingMode: .interleaved, recipe: recipe)
+        let head = FASTQInputLayoutResolver.resolve(inputURLs: [bundle], recordLimit: 2)
+        XCTAssertEqual(head.layout, .mixedMergedAndPairs)
+        XCTAssertEqual(head.source, .contentScan)
+        XCTAssertTrue(head.classification?.metadata.hasMergedOrUnpairedReads ?? false)
+
+        let whole = FASTQInputLayoutResolver.resolve(inputURLs: [bundle])
+        XCTAssertEqual(whole.layout, .strictlyInterleaved)
+        XCTAssertEqual(whole.source, .contentScan)
+        XCTAssertTrue(whole.classification?.metadata.hasMergedOrUnpairedReads ?? false)
+
+        let scratch = try makeTempDir().appendingPathComponent("copy.fastq")
+        try FileManager.default.copyItem(at: fastqURL, to: scratch)
+        XCTAssertEqual(FASTQInputLayoutResolver.resolve(fastqURL: scratch, metadataFrom: bundle).layout, .strictlyInterleaved)
+        XCTAssertEqual(
+            FASTQInputLayoutResolver.resolve(fastqURL: scratch, metadataFrom: bundle, recordLimit: 2).layout,
+            .mixedMergedAndPairs
+        )
     }
 
     // MARK: - Content scan

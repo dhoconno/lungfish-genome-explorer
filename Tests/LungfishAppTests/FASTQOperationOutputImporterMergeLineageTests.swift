@@ -350,6 +350,34 @@ final class FASTQOperationOutputImporterMergeLineageTests: XCTestCase {
         }
     }
 
+    /// A dialog repair writes the pairs it repaired, then every read without
+    /// a mate, which are the source's merged reads and the orphans the repair
+    /// made. Only the source's merged reads are merged reads. Before, the
+    /// import named every single read of a repair of a merge bundle from the
+    /// source's roles, so it recorded the new orphans as merged reads, and an
+    /// assembler took them as merged reads.
+    func testADialogRepairOfAMergeBundleRecordsTheOrphansItMadeAsOrphans() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let repaired = try await Self.importFilterOutput(
+            [
+                (id: "u1/1", sequence: "ACGTACGTAC"), (id: "u1/2", sequence: "ACGTACGTAC"),
+                (id: "x1", sequence: "ACGTACGTACGTAC"), (id: "x2", sequence: "ACGTACGTACGTAC"),
+                (id: "x3", sequence: "ACGTACGTACGTAC"), (id: "w1/1", sequence: "ACGTACGTAC"),
+            ],
+            named: "merge-repaired",
+            of: fixtures.mergeDerivative,
+            fixtures: fixtures,
+            root: root,
+            request: .pairedEndRepair
+        )
+
+        let roles = try XCTUnwrap(FASTQMetadataStore.load(for: repaired.payload)?.readClassification)
+        XCTAssertEqual(roles.pairedReadCount, 2)
+        XCTAssertEqual(roles.mergedReadCount, 3)
+        XCTAssertEqual(roles.unpairedReadCount, 1)
+        XCTAssertEqual(FASTQBundle.loadDerivedManifest(in: repaired.bundle)?.pairingMode, .singleEnd)
+    }
+
     /// A dialog merge writes the reads it merged, then the pairs it could not
     /// merge, then the reads its source held without a mate. Its single reads
     /// are therefore merged reads, except the orphans the source records.

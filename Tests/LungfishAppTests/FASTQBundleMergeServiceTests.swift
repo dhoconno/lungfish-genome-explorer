@@ -365,6 +365,80 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         XCTAssertEqual(plan.singleReads.map(\.readCount), [3])
     }
 
+    /// A plain input whose last line has no newline gets one in the joined
+    /// file, so its last record and the next input's first stay apart, the
+    /// rule `ResolvedSequenceInputs` joins files by. Before, the two lines
+    /// ran together and every record after them fell out of step.
+    func testCombiningKeepsRecordsApartWhenAnInputDoesNotEndInANewline() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try makeBundle(
+            root: root,
+            name: "A",
+            fastqName: "reads.fastq",
+            contents: "@r1/1\nACGT\n+\nIIII\n@r1/2\nTGCA\n+\nIIII",
+            pairing: .interleaved
+        )
+        let second = try makeBundle(
+            root: root,
+            name: "B",
+            fastqName: "reads.fastq",
+            contents: "@r2/1\nCCCC\n+\nIIII\n@r2/2\nGGGG\n+\nIIII\n",
+            pairing: .interleaved
+        )
+
+        let combined = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: [first, second],
+            outputDirectory: root,
+            bundleName: "Combined"
+        )
+
+        let file = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: combined))
+        XCTAssertEqual(try ReadSetFixtures.readNames(in: file), ["r1/1", "r1/2", "r2/1", "r2/2"])
+        XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: file), 4)
+    }
+
+    /// The R1 and R2 files of a paired input are checked by name before
+    /// reformat.sh interleaves them by position, by the rule the materializer
+    /// applies to the files of one recorded pair. An R2 file out of step with
+    /// its R1 stops the merge and leaves no bundle. Before, reformat.sh paired
+    /// each R1 read with whatever R2 read stood beside it.
+    func testCombiningRefusesAPairedInputWhoseMateFilesAreOutOfStep() async throws {
+        try await requireManagedTool(.reformat)
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try makePairedBundle(
+            root: root,
+            name: "A",
+            r1Contents: "@a1/1\nACGT\n+\nIIII\n",
+            r2Contents: "@a1/2\nTGCA\n+\nIIII\n"
+        )
+        let second = try makePairedBundle(
+            root: root,
+            name: "B",
+            r1Contents: "@b1/1\nCCCC\n+\nIIII\n@b2/1\nAAAA\n+\nIIII\n",
+            r2Contents: "@b2/2\nGGGG\n+\nIIII\n@b1/2\nTTTT\n+\nIIII\n"
+        )
+
+        do {
+            _ = try await FASTQBundleMergeService.merge(
+                sourceBundleURLs: [first.bundleURL, second.bundleURL],
+                outputDirectory: root,
+                bundleName: "Combined"
+            )
+            XCTFail("an R2 file out of step with its R1 must stop the merge")
+        } catch let error as FASTQPairInterleaver.InterleaveError {
+            guard case .mateNameMismatch(let recordNumber, _, let r1Name, _, let r2Name) = error else {
+                return XCTFail("unexpected error \(error)")
+            }
+            XCTAssertEqual(recordNumber, 1)
+            XCTAssertEqual([r1Name, r2Name], ["b1/1", "b2/2"])
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("Combined.\(FASTQBundle.directoryExtension)").path
+        ))
+    }
+
     private func assertProvenanceInputs(
         _ provenance: ProvenanceEnvelope,
         include expectedPaths: [String],
