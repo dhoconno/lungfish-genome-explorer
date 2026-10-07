@@ -26,10 +26,12 @@ extension DatabaseBrowserViewModel {
     ///
     /// `startENADownloadTask` calls this for every run. `mirrorFile` also
     /// gets the bytes ENA lists for the whole run, for the row's progress.
+    /// `lookUpNCBIRun` covers a run the window's last search did not.
     nonisolated func stageSRARun(
         accession: String,
         preference: SRADownloadSourcePreference? = nil,
         ncbiRun: SRARunInfo?,
+        lookUpNCBIRun: (() async -> SRARunInfo?)? = nil,
         in batchDir: URL,
         lookUpRoute: @escaping @Sendable () async throws -> SRAFASTQDownloadRoute,
         enaRecordWait: Duration = SRAWindowRunDownload.enaRecordWait,
@@ -42,6 +44,7 @@ extension DatabaseBrowserViewModel {
             accession: accession,
             preference: preference ?? sraDownloadPreference(),
             ncbiRun: ncbiRun,
+            lookUpNCBIRun: lookUpNCBIRun,
             in: batchDir,
             lookUpRoute: {
                 let route = try await lookUpRoute()

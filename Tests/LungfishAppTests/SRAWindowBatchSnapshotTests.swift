@@ -81,7 +81,7 @@ final class SRAWindowBatchSnapshotTests: XCTestCase {
         let lines = OperationCenter.shared.items.first { $0.id == id }?.logEntries.map(\.message) ?? []
         XCTAssertFalse(lines.contains { $0.contains("Prefer NCBI") }, "no run of the batch used the new preference: \(lines)")
         XCTAssertTrue(
-            lines.contains { $0.contains("SRR2") && $0.contains("using SRA Toolkit") },
+            lines.contains { $0.hasPrefix("ENA could not serve SRR2, so the SRA Toolkit") },
             "the second run still asked ENA first, then fell back: \(lines)"
         )
     }

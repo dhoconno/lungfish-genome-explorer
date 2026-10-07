@@ -70,6 +70,6 @@ public extension SRAFASTQDownloadSource {
         if case SRAError.toolkitNotFound? = error as? SRAError {
             return "The SRA Toolkit is not installed, so ENA serves \(accession) instead."
         }
-        return "The SRA Toolkit failed for \(accession), so ENA serves it instead. \(error.localizedDescription)"
+        return "The SRA Toolkit failed for \(accession), so ENA serves it instead. \(SRADownloadMessages.reason(of: error))"
     }
 }

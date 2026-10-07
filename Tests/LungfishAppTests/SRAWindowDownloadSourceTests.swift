@@ -283,11 +283,44 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
         XCTAssertNotNil(staged.reads.r2, "the run imports as pairs")
     }
 
-    /// Orchestrator ruling on lane S2: when ENA's record is missing and NCBI
-    /// lists the run as paired but only mate 1 arrived, the run still imports
-    /// as single-end reads, as before, and the row and the provenance name
-    /// the mismatch. Whether to refuse such runs is sub-phase 2.1's call.
-    func testALoneMateOneOfARunNCBIListsAsPairedImportsAsSingleEndWithAWarning() async throws {
+    /// Sub-phase 2.1 (lane L1, finding F7-N1) decided the call the
+    /// orchestrator left open on lane S2: the lone-mate rule reads NCBI's
+    /// LibraryLayout too. When ENA's record is missing and NCBI lists the run
+    /// as paired but only mate 1 arrived, the run fails, as it does when ENA
+    /// lists it as paired, and as `fetch sra download` fails it.
+    func testALoneMateOneOfARunNCBIListsAsPairedFailsTheRun() async throws {
+        let ncbiRun = try JSONDecoder().decode(SRARunInfo.self, from: Data("""
+        {"accession": "\(Self.run)", "platform": "ILLUMINA", "libraryLayout": "PAIRED"}
+        """.utf8))
+        let batch = root.appendingPathComponent("batch", isDirectory: true)
+        do {
+            _ = try await SRAWindowRunDownload.stage(
+                accession: Self.run,
+                preference: .ncbi,
+                ncbiRun: ncbiRun,
+                in: batch,
+                lookUpRoute: { throw URLError(.cannotFindHost) },
+                mirrorFile: { _, _, _ in Self.gzipStream },
+                toolkit: { _, folder in
+                    let mate1 = folder.appendingPathComponent("\(Self.run)_1.fastq")
+                    try Data("@r1\nAC\n+\nII\n".utf8).write(to: mate1)
+                    return [mate1]
+                }
+            )
+            XCTFail("a lone mate 1 of a run NCBI lists as paired must fail")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Only mate 1 of \(Self.run) arrived and NCBI lists the run as paired, so it was not imported"
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: batch.appendingPathComponent(Self.run).path))
+    }
+
+    /// A run NCBI lists as paired that arrived as one file of single reads
+    /// imports as single-end reads, and the row and the provenance name the
+    /// mismatch (lane S2's warning, kept).
+    func testOneFileOfARunNCBIListsAsPairedImportsAsSingleEndWithAWarning() async throws {
         let lines = Lines()
         let ncbiRun = try JSONDecoder().decode(SRARunInfo.self, from: Data("""
         {"accession": "\(Self.run)", "platform": "ILLUMINA", "libraryLayout": "PAIRED"}
@@ -300,14 +333,14 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
             lookUpRoute: { throw URLError(.cannotFindHost) },
             mirrorFile: { _, _, _ in Self.gzipStream },
             toolkit: { _, folder in
-                let mate1 = folder.appendingPathComponent("\(Self.run)_1.fastq")
-                try Data("@r1\nAC\n+\nII\n".utf8).write(to: mate1)
-                return [mate1]
+                let reads = folder.appendingPathComponent("\(Self.run).fastq")
+                try Data("@r1\nAC\n+\nII\n".utf8).write(to: reads)
+                return [reads]
             },
             log: { lines.append($0) }
         )
         defer { staged.removeFolder() }
-        XCTAssertNil(staged.reads.r2, "the run imports as single-end reads, as before")
+        XCTAssertNil(staged.reads.r2, "the run imports as single-end reads")
         let expected = "NCBI lists \(Self.run) as paired but only one read file arrived; imported as single-end reads"
         XCTAssertEqual(staged.layoutWarning, expected)
         XCTAssertTrue(lines.values.contains(expected), "\(lines.values)")

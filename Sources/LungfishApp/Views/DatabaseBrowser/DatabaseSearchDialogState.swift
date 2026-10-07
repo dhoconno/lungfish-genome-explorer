@@ -127,15 +127,21 @@ final class DatabaseSearchDialogState {
         if activeViewModel.isShowingPathoplexusConsent {
             return "Review the Pathoplexus access notice to continue."
         }
+        let selectionCount = activeViewModel.selectedRecords.count
+        let selectionText = selectionCount == 1 ? "1 selected" : "\(selectionCount) selected"
         if let errorMessage = activeViewModel.errorMessage, !errorMessage.isEmpty {
-            return errorMessage
+            // A search notice, such as one archive failing, stays beside the
+            // selection count rather than hiding it (finding F5-N7).
+            guard selectionCount > 0, !activeViewModel.isDownloading else {
+                return errorMessage
+            }
+            return "\(selectionText). \(errorMessage)"
         }
         if activeViewModel.isDownloading {
             return "Downloading..."
         }
-        let selectionCount = activeViewModel.selectedRecords.count
         if selectionCount > 0 {
-            return selectionCount == 1 ? "1 selected" : "\(selectionCount) selected"
+            return selectionText
         }
         if let statusMessage = activeViewModel.statusMessage {
             return statusMessage

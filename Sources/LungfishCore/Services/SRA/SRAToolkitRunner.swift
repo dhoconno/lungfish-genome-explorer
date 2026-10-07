@@ -116,8 +116,8 @@ struct SRAToolkitRunFiles {
             before[url] = Stamp(url)
         }
         fastqBefore = before
-        let namesAFolder = !accession.isEmpty && !accession.contains("/") && accession != "." && accession != ".."
-        prefetchFolder = namesAFolder ? outputDirectory.appendingPathComponent(accession, isDirectory: true) : nil
+        prefetchFolder = SRAAccessionParser.namesOneFolder(accession)
+            ? outputDirectory.appendingPathComponent(accession, isDirectory: true) : nil
         prefetchPathBefore = prefetchFolder.map(PrefetchPathSnapshot.init(of:)) ?? .notTheToolkits
     }
 
@@ -127,6 +127,15 @@ struct SRAToolkitRunFiles {
         fastqURLs.filter { url in
             guard let stamp = Stamp(url) else { return false }
             return fastqBefore[url] != stamp
+        }
+    }
+
+    /// Removes the run's FASTQ files that the download wrote, after a failed
+    /// or cancelled `fasterq-dump`, so no partial mate stays. A file that was
+    /// there before the download is never removed.
+    func removeWrittenFASTQFiles() {
+        for file in writtenFASTQFiles() {
+            try? FileManager.default.removeItem(at: file)
         }
     }
 

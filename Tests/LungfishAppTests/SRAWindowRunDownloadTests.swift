@@ -13,6 +13,11 @@ import LungfishKit
 /// `DatabaseServiceError.serverError` for an HTTP error status and URLSession's
 /// error for a broken transfer, so the scripted mirror throws the same. The
 /// toolkit is a stub, so no test reaches the network.
+///
+/// Since sub-phase 2.1 (lane L1) the row logs the line `fetch sra download`
+/// prints for the same failure, and the transfer steps of the files that
+/// arrived before the failure stay recorded, marked as a failed attempt, as
+/// `fetch sra download` records them.
 final class SRAWindowRunDownloadTests: XCTestCase {
 
     func testMirrorServingEveryFileRecordsENA() async throws {
@@ -30,9 +35,9 @@ final class SRAWindowRunDownloadTests: XCTestCase {
         })
 
         XCTAssertEqual(run.download.source.rawValue, "SRA Toolkit (ENA mirror incomplete)")
-        XCTAssertEqual(run.toolkitStatusLines, ["ENA mirror is missing files for SRR27069570; using SRA Toolkit..."])
+        XCTAssertEqual(run.toolkitStatusLines, ["ENA could not serve SRR27069570, so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. ENA returned an HTML page instead of SRR27069570_2.fastq.gz. The file is missing from the ENA mirror (the server sent a directory listing)."])
         XCTAssertEqual(run.download.fastqFiles, run.toolkitFiles)
-        XCTAssertEqual(run.download.enaSteps.count, 0)
+        Self.assertMateOneIsAFailedAttempt(run.download)
         XCTAssertEqual(run.stagedFiles, [], "no mate from ENA may stay beside the toolkit's files")
     }
 
@@ -46,7 +51,7 @@ final class SRAWindowRunDownloadTests: XCTestCase {
         )
 
         XCTAssertEqual(run.download.source.rawValue, "SRA Toolkit")
-        XCTAssertEqual(run.toolkitStatusLines, ["ENA returned HTTP 500 (server error) for SRR27069570; using SRA Toolkit..."])
+        XCTAssertEqual(run.toolkitStatusLines, ["ENA could not serve SRR27069570, so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. ENA returned HTTP 500 (server error) for SRR27069570"])
         XCTAssertEqual(run.download.fastqFiles, run.toolkitFiles)
     }
 
@@ -71,9 +76,9 @@ final class SRAWindowRunDownloadTests: XCTestCase {
         })
 
         XCTAssertEqual(run.download.source.rawValue, "SRA Toolkit (ENA transfer failed)")
-        XCTAssertEqual(run.toolkitStatusLines, ["ENA transfer failed for SRR27069570; using SRA Toolkit..."])
+        XCTAssertEqual(run.toolkitStatusLines, ["ENA could not serve SRR27069570, so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. ENA's mirror answered HTTP 500 for SRR27069570_2.fastq.gz"])
         XCTAssertEqual(run.download.fastqFiles, run.toolkitFiles)
-        XCTAssertEqual(run.download.enaSteps.count, 0)
+        Self.assertMateOneIsAFailedAttempt(run.download)
         XCTAssertEqual(run.stagedFiles, [], "no mate from ENA may stay beside the toolkit's files")
     }
 
@@ -84,13 +89,36 @@ final class SRAWindowRunDownloadTests: XCTestCase {
         })
 
         XCTAssertEqual(run.download.source.rawValue, "SRA Toolkit (ENA transfer failed)")
-        XCTAssertEqual(run.toolkitStatusLines, ["ENA transfer failed for SRR27069570; using SRA Toolkit..."])
+        // The connection error's own text, without a final period.
+        var detail = URLError(.networkConnectionLost).localizedDescription
+        if detail.hasSuffix(".") { detail.removeLast() }
+        XCTAssertEqual(
+            run.toolkitStatusLines,
+            ["ENA could not serve SRR27069570, so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. The transfer of SRR27069570_2.fastq.gz from ENA's mirror failed (\(detail))"]
+        )
         XCTAssertEqual(run.download.fastqFiles, run.toolkitFiles)
-        XCTAssertEqual(run.download.enaSteps.count, 0)
+        Self.assertMateOneIsAFailedAttempt(run.download)
         XCTAssertEqual(run.stagedFiles, [], "no mate from ENA may stay beside the toolkit's files")
     }
 
     // MARK: - Helpers
+
+    /// Mate 1 arrived before mate 2 failed, so its transfer stays recorded,
+    /// marked as a failed attempt that nothing depends on.
+    private static func assertMateOneIsAFailedAttempt(
+        _ download: SRAWindowRunDownload,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(download.enaSteps.map(\.toolName), ["https-download"], file: file, line: line)
+        XCTAssertEqual(download.enaSteps.first?.resolvedOptions?["attempt"], .string("failed"), file: file, line: line)
+        XCTAssertEqual(
+            download.enaSteps.first?.command.last.map { URL(fileURLWithPath: $0).lastPathComponent },
+            "SRR27069570_1.fastq.gz",
+            file: file,
+            line: line
+        )
+    }
 
     /// An empty gzip stream, which passes the download check's magic-byte test.
     private static let gzipFixture = Data([

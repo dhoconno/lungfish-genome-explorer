@@ -15,22 +15,14 @@ extension SRADownloadSubcommand {
     }
 
     /// What the user asked for, as the provenance records it under
-    /// `requestedStrategy`.
+    /// `requestedStrategy`, in the names the window records too.
     var requestedStrategy: String {
-        if useToolkit {
-            return "sra-toolkit"
-        }
-        return sourcePreference == .ncbi ? "sra-toolkit-first" : "ena-direct"
+        SRADownloadStrategy.requested(preference: sourcePreference, toolkitOnly: useToolkit)
     }
 
-    /// The strategy recorded before any fallback.
+    /// The strategy of the route tried first.
     var initialStrategy: String {
         useToolkit || sourcePreference == .ncbi ? "sra-toolkit" : "ena-direct"
-    }
-
-    /// The strategy recorded once the download fell back to the other archive.
-    var fallbackStrategy: String {
-        sourcePreference == .ncbi ? "ena-fallback" : "sra-toolkit-fallback"
     }
 
     /// The `--prefer-source` arguments the recorded command carries, only
@@ -46,6 +38,7 @@ extension SRADownloadSubcommand {
     }
 
     func validate() throws {
+        try validateRunAccession()
         if useToolkit, preferSource != nil {
             throw ValidationError("--use-toolkit fetches with the SRA Toolkit only, so it cannot be combined with --prefer-source.")
         }
