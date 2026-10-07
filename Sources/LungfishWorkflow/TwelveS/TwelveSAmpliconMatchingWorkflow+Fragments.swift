@@ -251,15 +251,23 @@ extension TwelveSAmpliconMatchingWorkflow {
         discordantByReason: [TwelveSPairDiscordance: Int]
     ) -> String {
         let fragments = singleReads + pairs
-        var text = pairs == 0
-            ? "Counted \(fragments) fragments, all merged or single reads."
-            : "Counted \(fragments) fragments, \(singleReads) merged or single reads and \(pairs) pairs."
+        var text = "Counted \(counted(fragments, "fragment"))"
+        if pairs == 0 {
+            text += fragments == 1 ? ", a merged or single read." : ", all merged or single reads."
+        } else {
+            text += ", \(counted(singleReads, "merged or single read")) and \(counted(pairs, "pair"))."
+        }
         let discordant = discordantByReason.values.reduce(0, +)
         if discordant > 0 {
             text += " Left out \(discordant) discordant \(discordant == 1 ? "pair" : "pairs")"
                 + " (\(reasonList(discordantByReason)))."
         }
         return text
+    }
+
+    /// `1 fragment` or `2 fragments`, a count and its noun in the number it takes.
+    private static func counted(_ count: Int, _ noun: String) -> String {
+        "\(count) \(noun)\(count == 1 ? "" : "s")"
     }
 
     /// `1 pair with different targets, 1 pair with one mate unresolved`, in
