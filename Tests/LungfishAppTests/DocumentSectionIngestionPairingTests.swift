@@ -4,7 +4,9 @@
 
 import XCTest
 import ViewInspector
+import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
@@ -35,23 +37,37 @@ final class DocumentSectionIngestionPairingTests: XCTestCase {
         XCTAssertThrowsError(try section.find(text: "Single End"), "the stored label is not what the row shows")
     }
 
-    func testTheRowNamesPairsAndSingleReadsOfARootBundleFromItsSidecar() throws {
-        // A paired SRA run imported with its third file, 129 pairs and 6
-        // reads whose mate is missing, which the import labels single_end.
+    func testTheRowOfARootBundleReadsItsRolesWhenTheDatasetLoads() throws {
         let root = try TestTempDirectory.make(prefix: "inspector-pairing-row")
         defer { TestTempDirectory.cleanup(root) }
-        let bundle = root.appendingPathComponent("SRR1.lungfishfastq", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        let fastq = bundle.appendingPathComponent("SRR1.fastq.gz")
-        try Data([0x1F, 0x8B]).write(to: fastq)
-        var metadata = PersistedFASTQMetadata()
-        metadata.ingestion = IngestionMetadata(pairingMode: .singleEnd)
-        metadata.readClassification = ReadClassification(files: [
-            .init(filename: "SRR1.fastq.gz", role: .pairedR1, readCount: 129),
-            .init(filename: "SRR1.fastq.gz", role: .pairedR2, readCount: 129),
-            .init(filename: "SRR1.fastq.gz", role: .unpaired, readCount: 6),
-        ])
-        FASTQMetadataStore.save(metadata, for: fastq)
+        let (bundle, metadata) = try Self.writeRunWithItsThirdFile(in: root)
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        let scope = WindowStateScope()
+        inspector.testingWindowStateScope = scope
+
+        // What the viewer posts when a FASTQ bundle opens.
+        NotificationCenter.default.post(
+            name: .fastqDatasetLoaded,
+            object: nil,
+            userInfo: [
+                "statistics": FASTQDatasetStatistics.placeholder(readCount: 264, baseCount: 39_600),
+                "ingestionMetadata": try XCTUnwrap(metadata.ingestion),
+                "fastqSourceURL": bundle,
+                "bundleURL": bundle,
+                NotificationUserInfoKey.windowStateScope: scope,
+            ]
+        )
+
+        let section = try DocumentSection(viewModel: inspector.viewModel.documentSectionViewModel).inspect()
+        XCTAssertNoThrow(try section.find(text: "Pairs and single reads (129 pairs + 6 singles)"))
+        XCTAssertThrowsError(try section.find(text: "Single End"), "the stored label is not what the row shows")
+    }
+
+    func testTheRowNamesPairsAndSingleReadsOfARootBundleFromItsSidecar() throws {
+        let root = try TestTempDirectory.make(prefix: "inspector-pairing-row")
+        defer { TestTempDirectory.cleanup(root) }
+        let (bundle, metadata) = try Self.writeRunWithItsThirdFile(in: root)
         let viewModel = DocumentSectionViewModel()
         viewModel.updateFASTQStatistics(.placeholder(readCount: 264, baseCount: 39_600))
         viewModel.updateIngestionMetadata(metadata.ingestion)
@@ -120,6 +136,25 @@ final class DocumentSectionIngestionPairingTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// A root bundle of a paired SRA run imported with its third file, 129
+    /// pairs and 6 reads whose mate is missing, which the import labels
+    /// single_end by its count.
+    private static func writeRunWithItsThirdFile(in root: URL) throws -> (bundle: URL, metadata: PersistedFASTQMetadata) {
+        let bundle = root.appendingPathComponent("SRR1.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let fastq = bundle.appendingPathComponent("SRR1.fastq.gz")
+        try Data([0x1F, 0x8B]).write(to: fastq)
+        var metadata = PersistedFASTQMetadata()
+        metadata.ingestion = IngestionMetadata(pairingMode: .singleEnd)
+        metadata.readClassification = ReadClassification(files: [
+            .init(filename: "SRR1.fastq.gz", role: .pairedR1, readCount: 129),
+            .init(filename: "SRR1.fastq.gz", role: .pairedR2, readCount: 129),
+            .init(filename: "SRR1.fastq.gz", role: .unpaired, readCount: 6),
+        ])
+        FASTQMetadataStore.save(metadata, for: fastq)
+        return (bundle, metadata)
+    }
 
     private static func manifest(roles: ReadClassification) -> FASTQDerivedBundleManifest {
         let operation = FASTQDerivativeOperation(kind: .orient)
