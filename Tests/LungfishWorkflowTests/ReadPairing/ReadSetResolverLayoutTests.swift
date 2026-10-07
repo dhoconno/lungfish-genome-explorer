@@ -604,6 +604,18 @@ final class ReadSetResolverLayoutTests: XCTestCase {
             )),
             for: recipeOnly
         )
+        // Only pairs in the file, and a sidecar that counts merged reads
+        // beside them, which no scan outranks (re-review 2, N4).
+        let countedMerged = try bundle("counted-merged").appendingPathComponent("reads.fastq")
+        try ReadSetFixtures.fastq(["f1/1", "f1/2", "f2/1", "f2/2"]).write(to: countedMerged, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(readClassification: ReadClassification(files: [
+                .init(filename: "reads.fastq", role: .pairedR1, readCount: 2),
+                .init(filename: "reads.fastq", role: .pairedR2, readCount: 2),
+                .init(filename: "reads.fastq", role: .merged, readCount: 1),
+            ])),
+            for: countedMerged
+        )
         let members = [
             fixtures.mergeDerivative.appendingPathComponent("merged.fastq"),
             fixtures.mergeDerivative.appendingPathComponent("unmerged_R2.fastq"),
@@ -616,6 +628,7 @@ final class ReadSetResolverLayoutTests: XCTestCase {
             unmatchedCounts,
             countedPairs,
             recipeOnly,
+            countedMerged,
         ]
 
         for (index, member) in members.enumerated() {
@@ -643,6 +656,9 @@ final class ReadSetResolverLayoutTests: XCTestCase {
         let recipePlan = try await plan(named: recipeOnly)
         XCTAssertEqual(recipePlan.sourceLayout, .interleavedFile, "a scan of the whole file outranks the recipe")
         XCTAssertTrue(recipePlan.layoutReason.contains("recipe VSP2 merges overlapping pairs"), recipePlan.layoutReason)
+        let mergedCountPlan = try await plan(named: countedMerged)
+        XCTAssertEqual(mergedCountPlan.sourceLayout, .mixedFile, "the sidecar's count of merged reads keeps a file of only pairs mixed")
+        XCTAssertTrue(mergedCountPlan.layoutReason.contains("sidecar: 2 pairs + 1 merged"), mergedCountPlan.layoutReason)
     }
 
     /// The preview of a virtual bundle is planned as its bundle, materialized,
