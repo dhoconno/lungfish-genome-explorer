@@ -104,7 +104,6 @@ Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift 1361
 Sources/LungfishCore/Models/AppSettings.swift 827
 Sources/LungfishCore/Services/Blast/BlastService.swift 1651
 Sources/LungfishCore/Services/NCBI/NCBIService.swift 1959
-Sources/LungfishCore/Services/NCBI/SRAService.swift 964
 Sources/LungfishCore/Storage/PortablePath.swift 1014
 Sources/LungfishCore/Storage/ProjectStore.swift 1587
 Sources/LungfishEsVirituUI/EsVirituResultViewController.swift 2272

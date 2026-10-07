@@ -11,11 +11,11 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 625 | 235743 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 625 | 235776 | 205 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1996 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishCLI | library | Sources/LungfishCLI | 216 | 62967 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishCLI | library | Sources/LungfishCLI | 217 | 63051 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
-| LungfishCore | library | Sources/LungfishCore | 135 | 37403 | 288 | none |
+| LungfishCore | library | Sources/LungfishCore | 140 | 37982 | 292 | none |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | 5588 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | 51259 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 386 | 102018 | 639 | LungfishCore |
@@ -27,19 +27,19 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 13 | 3415 | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 702 | 225484 | 1345 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 31 | 5583 | 27 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 32 | 5820 | 28 | LungfishCore, LungfishIO, LungfishWorkflow |
 
 ## Test targets
 
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1562 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | 645 | 168192 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 649 | 169105 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 38 | 20040 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 6 | 5581 | LungfishApp, LungfishKitTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
-| LungfishCLITests | Tests/LungfishCLITests | 175 | 53421 | LungfishCLI, LungfishIO, LungfishTestSupport |
-| LungfishCoreTests | Tests/LungfishCoreTests | 90 | 29892 | LungfishCore, LungfishTestSupport |
+| LungfishCLITests | Tests/LungfishCLITests | 176 | 53646 | LungfishCLI, LungfishIO, LungfishTestSupport |
+| LungfishCoreTests | Tests/LungfishCoreTests | 91 | 30313 | LungfishCore, LungfishTestSupport |
 | LungfishEsVirituUITests | Tests/LungfishEsVirituUITests | 4 | 1716 | LungfishEsVirituUI, LungfishKit, LungfishTestSupport |
 | LungfishGenotypeUITests | Tests/LungfishGenotypeUITests | 60 | 50998 | LungfishGenotypeUI, LungfishKit, LungfishTestSupport |
 | LungfishIOTests | Tests/LungfishIOTests | 169 | 65687 | LungfishIO, LungfishTestSupport |
@@ -107,7 +107,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 625, lines 235743
+- Swift files. 625, lines 235776
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -124,12 +124,12 @@ None.
 | Support | 2 | 94 |
 | UITestSupport | 4 | 485 |
 | ViewModels | 4 | 2397 |
-| Views | 399 | 173653 |
+| Views | 399 | 173686 |
 | Views/AI | 1 | 1011 |
 | Views/Assembly | 5 | 2077 |
 | Views/BAM | 12 | 1580 |
 | Views/Components | 2 | 242 |
-| Views/DatabaseBrowser | 19 | 6309 |
+| Views/DatabaseBrowser | 19 | 6342 |
 | Views/DemoProjects | 4 | 937 |
 | Views/Dependencies | 3 | 892 |
 | Views/Extraction | 1 | 229 |
@@ -385,7 +385,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishCLI
-- Swift files. 216, lines 62967
+- Swift files. 217, lines 63051
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. ArgumentParser (swift-argument-parser)
 - Used by. LungfishCLIExecutable
@@ -395,7 +395,7 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| Commands | 202 | 59614 |
+| Commands | 203 | 59698 |
 | Options | 2 | 487 |
 | Output | 2 | 550 |
 | Support | 9 | 2010 |
@@ -422,7 +422,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishCore
-- Swift files. 135, lines 37403
+- Swift files. 140, lines 37982
 - Depends on. none
 - External products. Algorithms (swift-algorithms), Collections (swift-collections)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow
@@ -439,13 +439,13 @@ None.
 | Extraction | 1 | 470 |
 | Genotype | 3 | 328 |
 | Models | 44 | 8565 |
-| Services | 45 | 14138 |
+| Services | 50 | 14717 |
 | Services/AI | 6 | 1919 |
 | Services/Blast | 10 | 3843 |
-| Services/ENA | 2 | 814 |
-| Services/NCBI | 13 | 4113 |
+| Services/ENA | 2 | 874 |
+| Services/NCBI | 15 | 4181 |
 | Services/Pathoplexus | 2 | 941 |
-| Services/SRA | 5 | 648 |
+| Services/SRA | 8 | 1099 |
 | Storage | 12 | 5169 |
 | Translation | 4 | 783 |
 | Versioning | 3 | 877 |
@@ -553,8 +553,8 @@ None.
 - `EditError` enum, `Sources/LungfishCore/Editing/EditOperation.swift:165`
 - `EditLogEntry` struct, `Sources/LungfishCore/Storage/ProjectStore.swift:1460`
 - `EditOperation` enum, `Sources/LungfishCore/Editing/EditOperation.swift:21`
-- `ENAFASTQDownloadFailure` struct, `Sources/LungfishCore/Services/SRA/SRAFASTQDownloadRoute.swift:149`
-- `ENAFASTQDownloadValidator` enum, `Sources/LungfishCore/Services/ENA/ENAFASTQDownloadValidator.swift:21`
+- `ENAFASTQDownloadFailure` struct, `Sources/LungfishCore/Services/SRA/SRAFASTQDownloadRoute.swift:173`
+- `ENAFASTQDownloadValidator` enum, `Sources/LungfishCore/Services/ENA/ENAFASTQDownloadValidator.swift:25`
 - `ENAReadRecord` struct, `Sources/LungfishCore/Services/ENA/ENAService.swift:549`
 - `ENAReadRunBatch` struct, `Sources/LungfishCore/Services/ENA/ENAService.swift:668`
 - `ENAService` actor, `Sources/LungfishCore/Services/ENA/ENAService.swift:38`
@@ -689,12 +689,16 @@ None.
 - `SourceInfo` struct, `Sources/LungfishCore/Bundles/BundleTracks.swift:97`
 - `SRAAccessionParser` enum, `Sources/LungfishCore/Services/SRA/SRAAccessionParser.swift:17`
 - `SRAAccessionType` enum, `Sources/LungfishCore/Services/SRA/SRAAccessionParser.swift:8`
+- `SRADownloadMessages` enum, `Sources/LungfishCore/Services/SRA/SRADownloadMessages.swift:13`
 - `SRADownloadSourcePreference` enum, `Sources/LungfishCore/Services/SRA/SRADownloadSourcePreference.swift:19`
+- `SRADownloadStrategy` enum, `Sources/LungfishCore/Services/SRA/SRADownloadProvenanceValues.swift:13`
 - `SRAError` enum, `Sources/LungfishCore/Services/NCBI/SRAError.swift:12`
 - `SRAFASTQDownloadRoute` enum, `Sources/LungfishCore/Services/SRA/SRAFASTQDownloadRoute.swift:21`
-- `SRAFASTQDownloadSource` enum, `Sources/LungfishCore/Services/SRA/SRAFASTQDownloadRoute.swift:86`
+- `SRAFASTQDownloadSource` enum, `Sources/LungfishCore/Services/SRA/SRAFASTQDownloadRoute.swift:103`
 - `SRARunInfo` struct, `Sources/LungfishCore/Services/NCBI/SRARunInfo.swift:12`
+- `SRARunListedLayout` struct, `Sources/LungfishCore/Services/SRA/SRARunReads.swift:148`
 - `SRARunMetadataLookup` struct, `Sources/LungfishCore/Services/SRA/SRARunMetadataLookup.swift:20`
+- `SRARunReads` struct, `Sources/LungfishCore/Services/SRA/SRARunReads.swift:23`
 - `SRASearchResults` struct, `Sources/LungfishCore/Services/NCBI/SRASearchResults.swift:12`
 - `SRAService` actor, `Sources/LungfishCore/Services/NCBI/SRAService.swift:30`
 - `SRAToolkitRunner` struct, `Sources/LungfishCore/Services/SRA/SRAToolkitRunner.swift:13`
@@ -3193,7 +3197,7 @@ None.
 
 - Kind. library
 - Path. Tests/Support/LungfishTestSupport
-- Swift files. 31, lines 5583
+- Swift files. 32, lines 5820
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. none
 - Used by. LungfishKitTestSupport
@@ -3224,6 +3228,7 @@ None.
 - `ProjectStorageHardLinkUnavailableError` struct, `Tests/Support/LungfishTestSupport/ProjectStorageLargeTreeFixture.swift:7`
 - `ProjectStorageLargeTreeFixture` struct, `Tests/Support/LungfishTestSupport/ProjectStorageLargeTreeFixture.swift:27`
 - `ReadSetFixtures` struct, `Tests/Support/LungfishTestSupport/ReadSetFixtures.swift:14`
+- `SRAScriptedArchives` class, `Tests/Support/LungfishTestSupport/SRAScriptedArchives.swift:17`
 - `SRAToolkitRecordedRunner` class, `Tests/Support/LungfishTestSupport/SRAToolkitRecordedRunner.swift:15`
 - `TestTempDirectory` enum, `Tests/Support/LungfishTestSupport/TestTempDirectory.swift:13`
 - `ToolAvailability` enum, `Tests/Support/LungfishTestSupport/ToolAvailability.swift:16`
