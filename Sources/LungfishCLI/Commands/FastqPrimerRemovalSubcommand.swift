@@ -368,7 +368,8 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
             guard let shortestPrimer = lengths.min(), let longestPrimer = lengths.max() else {
                 throw ValidationError("No primer sequence was given")
             }
-            // bbduk 40.02 stops on a primer shorter than k (BBDukLoader.loadKmers).
+            // bbduk 40.02 stops on a literal primer shorter than k
+            // (BBDukLoader.loadKmers) and never matches such a reference primer.
             guard kmerSize <= shortestPrimer else {
                 throw ValidationError(
                     "--kmer \(kmerSize) is longer than the shortest primer (\(shortestPrimer) bases), which bbduk cannot match. Use --kmer \(shortestPrimer) or less."
