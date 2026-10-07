@@ -66,6 +66,39 @@ final class DocumentSectionIngestionPairingTests: XCTestCase {
         XCTAssertNil(viewModel.ingestionReadRoles)
     }
 
+    func testTheRowReadsABundlesRolesInTheOrderItsToolsReadThem() throws {
+        // FASTQMixedLayoutHint.recordedRoles(of:) reads a derived manifest's
+        // roles before the sidecar of the file the bundle holds, so the row
+        // shows the roles the bundle's tools read.
+        let root = try TestTempDirectory.make(prefix: "inspector-pairing-row")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundle = root.appendingPathComponent("derived.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let manifest = Self.manifest(roles: ReadClassification(files: [
+            .init(filename: "reads.fastq", role: .pairedR1, readCount: 129),
+            .init(filename: "reads.fastq", role: .pairedR2, readCount: 129),
+            .init(filename: "reads.fastq", role: .unpaired, readCount: 6),
+        ]))
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundle)
+        let preview = bundle.appendingPathComponent("preview.fastq")
+        try Data("@r/1\nACGT\n+\nIIII\n@r/2\nACGT\n+\nIIII\n".utf8).write(to: preview)
+        FASTQMixedLayoutHint.write(ReadClassification(files: [
+            .init(filename: "preview.fastq", role: .pairedR1, readCount: 1),
+            .init(filename: "preview.fastq", role: .pairedR2, readCount: 1),
+        ]), beside: preview)
+        let viewModel = DocumentSectionViewModel()
+        viewModel.updateIngestionMetadata(IngestionMetadata(pairingMode: .singleEnd))
+        viewModel.updateFASTQDerivativeMetadata(manifest)
+
+        viewModel.updateIngestionReadRoles(fromBundle: bundle)
+
+        XCTAssertEqual(viewModel.ingestionPairingRoles, manifest.readClassification)
+        XCTAssertEqual(
+            DocumentSectionViewModel.pairingRowText(.singleEnd, roles: viewModel.ingestionPairingRoles),
+            "Pairs and single reads (129 pairs + 6 singles)"
+        )
+    }
+
     func testTheRowShowsTheStoredPairingForEveryOtherFile() {
         func roles(_ entries: [(ReadClassification.FileRole, Int)]) -> ReadClassification {
             ReadClassification(files: entries.map { .init(filename: "reads.fastq", role: $0.0, readCount: $0.1) })
