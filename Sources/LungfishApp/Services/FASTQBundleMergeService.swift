@@ -497,49 +497,6 @@ enum FASTQBundleMergeService {
         )
     }
 
-    private static func interleavePairedInputs(
-        r1: URL,
-        r2: URL,
-        outputURL: URL
-    ) async throws -> ProvenanceStep {
-        let startedAt = Date()
-        let runner = NativeToolRunner.shared
-        let result = try await runner.run(
-            .reformat,
-            arguments: [
-                "in1=\(r1.path)",
-                "in2=\(r2.path)",
-                "out=\(outputURL.path)",
-                "interleaved=t",
-            ],
-            environment: await bbToolsEnvironment(),
-            timeout: 1800
-        )
-        guard result.isSuccess else {
-            throw FASTQBundleMergeServiceError.toolFailed(
-                "reformat.sh interleave failed: \(result.stderr)"
-            )
-        }
-        return ProvenanceStep(
-            toolName: NativeTool.reformat.executableName,
-            toolVersion: NativeToolRunner.bundledVersions[NativeTool.reformat.rawValue] ?? "unknown",
-            argv: result.arguments,
-            durableReplayArgv: result.arguments,
-            inputs: try [
-                ProvenanceFileDescriptor.file(url: r1, format: .fastq, role: .input),
-                ProvenanceFileDescriptor.file(url: r2, format: .fastq, role: .input),
-            ],
-            outputs: [
-                try ProvenanceFileDescriptor.file(url: outputURL, format: .fastq, role: .output),
-            ],
-            exitStatus: Int(result.exitCode),
-            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
-            stderr: result.stderr,
-            startedAt: startedAt,
-            completedAt: Date()
-        )
-    }
-
     private static func normalizeTransientNativeSteps(
         _ steps: [ProvenanceStep]
     ) -> [ProvenanceStep] {
@@ -658,17 +615,6 @@ enum FASTQBundleMergeService {
 
     private static func isCompressedFASTQ(_ inputURL: URL) -> Bool {
         inputURL.pathExtension.lowercased() == "gz"
-    }
-
-    private static func appendFile(at inputURL: URL, to outputHandle: FileHandle) throws {
-        let inputHandle = try FileHandle(forReadingFrom: inputURL)
-        defer { try? inputHandle.close() }
-
-        while true {
-            let chunk = inputHandle.readData(ofLength: 1_048_576)
-            if chunk.isEmpty { break }
-            outputHandle.write(chunk)
-        }
     }
 
     private static func writeMergeProvenance(
@@ -846,14 +792,6 @@ enum FASTQBundleMergeService {
         return outputDirectory.appendingPathComponent(
             "\(finalName).\(FASTQBundle.directoryExtension)",
             isDirectory: true
-        )
-    }
-
-    private static func bbToolsEnvironment() async -> [String: String] {
-        let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-        return CoreToolLocator.bbToolsEnvironment(
-            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
-            existingPath: existingPath
         )
     }
 }
