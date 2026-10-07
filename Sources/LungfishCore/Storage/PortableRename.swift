@@ -1,21 +1,32 @@
+// PortableRename.swift - The one place LGE renames with RENAME_EXCL or RENAME_SWAP
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
 import Darwin
 import Foundation
 
-/// Preserves create-only rename semantics on filesystems that do not
-/// implement Darwin's `RENAME_EXCL` extension.
+/// Every rename with `RENAME_EXCL` or `RENAME_SWAP` in LGE goes through this
+/// type, so it works on every volume a project can live on. Most external
+/// SSDs ship as ExFAT, which, like FAT and SMB, answers `ENOTSUP` to both
+/// flags. `scripts/ratchets/volume-portability.sh` bans the raw system calls
+/// everywhere else. `docs/contracts/EXTERNAL-VOLUMES.md` says which call to use.
 ///
-/// The preferred path is still one kernel-level exclusive rename. When a
-/// filesystem reports `ENOTSUP` or `EOPNOTSUPP`, Lungfish first creates the
-/// destination entry exclusively and then replaces only that reservation with
-/// an ordinary same-filesystem rename.
+/// - ``exclusive(_:to:)`` and ``renameatxNP(_:_:_:_:_:)`` with `RENAME_EXCL`
+///   refuse to replace an entry. Without the flag, an exclusive reservation
+///   of the destination name is replaced by an ordinary rename.
+/// - ``swap(_:_:)`` and ``renameatxNP(_:_:_:_:_:)`` with `RENAME_SWAP`
+///   exchange two entries. Without the flag, the entries rotate through a
+///   hidden tombstone (see `PortableRename+Swap.swift`).
+/// - ``nativeRenameatx(_:_:_:_:_:)`` is the kernel call alone, for a caller
+///   that records the fallback before taking it.
 ///
 /// The reservation fallback is used only while the caller holds its
 /// cooperative publication lock. Source and reservation witnesses are checked
 /// immediately before `renameat`, but ordinary rename still leaves one
 /// unavoidable syscall-sized race after that validation. The lock plus an
-/// unpredictable random tombstone name form the trust boundary for that gap;
-/// callers that detach cleanup entries must also validate the post-rename
-/// descriptor/path witnesses.
+/// unpredictable random tombstone name form the trust boundary for that gap.
+/// Callers that detach cleanup entries must also validate the post-rename
+/// descriptor and path witnesses.
 public enum PortableRename {
     /// How a rename was carried out, for provenance and diagnostics.
     public enum Mechanism: String, Equatable, Sendable {
@@ -279,39 +290,44 @@ public enum PortableRename {
                 destinationName,
                 operations: operations
             )
-        case S_IFLNK:
+        default:
             guard sourceWitness == nil else {
                 return fallbackFailure(ESTALE)
             }
-            return fallbackSymbolicLinkRename(
+            return fallbackOtherEntryRename(
                 sourceParent,
                 sourceName,
                 destinationParent,
                 destinationName,
                 operations: operations
             )
-        default:
-            return fallbackFailure(ENOTSUP)
         }
     }
 
-    /// Reserves the name with an exclusive `symlinkat`, then renames the
-    /// source link over that reservation. ExFAT stores symbolic links.
-    private static func fallbackSymbolicLinkRename(
+    /// Moves a symbolic link, FIFO or socket: an exclusive empty file
+    /// reserves the name, then an ordinary rename replaces that reservation.
+    private static func fallbackOtherEntryRename(
         _ sourceParent: Int32,
         _ sourceName: UnsafePointer<CChar>,
         _ destinationParent: Int32,
         _ destinationName: UnsafePointer<CChar>,
         operations: Operations
     ) -> Outcome {
-        let reservationStatus = retryOnInterruption {
-            Darwin.symlinkat(".lungfish-rename-reservation", destinationParent, destinationName)
+        let reservation = retryOnInterruption {
+            Darwin.openat(
+                destinationParent,
+                destinationName,
+                O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                S_IRUSR | S_IWUSR
+            )
         }
-        guard reservationStatus == 0 else {
+        guard reservation >= 0 else {
             return fallbackFailure(errno)
         }
         var reservationInformation = stat()
-        guard retryFstatat(destinationParent, destinationName, &reservationInformation, AT_SYMLINK_NOFOLLOW) == 0 else {
+        let inspection = retryFstat(reservation, &reservationInformation)
+        _ = operations.closeDescriptor(reservation)
+        guard inspection == 0 else {
             let code = errno
             while operations.removeEntry(destinationParent, destinationName, 0) != 0, errno == EINTR {}
             return fallbackFailure(code)

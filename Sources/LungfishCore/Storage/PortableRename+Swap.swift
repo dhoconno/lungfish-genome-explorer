@@ -1,57 +1,11 @@
+// PortableRename+Swap.swift - URL calls, the RENAME_SWAP fallback and its self-heal
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
 import Darwin
 import Foundation
 
-extension PortableRename.Operations {
-    /// The environment variable that makes every flagged rename behave as on
-    /// ExFAT. Honoured only in Debug builds.
-    package static let simulateUnsupportedFlagsVariable = "LUNGFISH_SIMULATE_UNSUPPORTED_RENAME_FLAGS"
-
-    package static func forEnvironment(_ environment: [String: String]) -> PortableRename.Operations {
-        #if DEBUG
-        if environment[simulateUnsupportedFlagsVariable] == "1" {
-            return unsupportedFlags
-        }
-        #endif
-        return PortableRename.Operations()
-    }
-
-    /// The system calls of a volume without `RENAME_EXCL` or `RENAME_SWAP`.
-    package static let unsupportedFlags = PortableRename.Operations(
-        nativeRename: { sourceParent, sourceName, destinationParent, destinationName, flags in
-            guard flags == 0 else {
-                errno = ENOTSUP
-                return -1
-            }
-            return Darwin.renameatx_np(sourceParent, sourceName, destinationParent, destinationName, 0)
-        }
-    )
-}
-
-extension PortableRename.Operations {
-    /// The operations every rename uses: ``darwin`` unless a test has
-    /// overridden them for the current task.
-    package static var current: PortableRename.Operations {
-        PortableRename.overrideOperations ?? .darwin
-    }
-}
-
 extension PortableRename {
-    /// Replaces the system calls for the current task and the synchronous
-    /// calls it makes. Tests use ``simulatingUnsupportedFlags(_:)``.
-    @TaskLocal package static var overrideOperations: Operations?
-
-    /// Runs `body` as if the volume were ExFAT: every rename with
-    /// `RENAME_EXCL` or `RENAME_SWAP` takes its fallback.
-    package static func simulatingUnsupportedFlags<Result>(_ body: () throws -> Result) rethrows -> Result {
-        try $overrideOperations.withValue(Operations.unsupportedFlags, operation: body)
-    }
-
-    package static func simulatingUnsupportedFlags<Result>(
-        _ body: () async throws -> Result
-    ) async rethrows -> Result {
-        try await $overrideOperations.withValue(Operations.unsupportedFlags, operation: body)
-    }
-
     /// Exchanges two existing entries, as `RENAME_SWAP` does.
     @discardableResult
     public static func swap(_ first: URL, _ second: URL) throws -> Mechanism {
@@ -87,7 +41,7 @@ extension PortableRename {
     /// A failed step undoes the earlier ones, so both entries end up where
     /// they started. Unlike `RENAME_SWAP` this is not atomic: a crash between
     /// steps 1 and 2 leaves `second` missing and its old entry under the
-    /// tombstone. ``recoverInterruptedSwaps(in:)`` puts it back, and every
+    /// tombstone. ``recoverInterruptedSwaps(underProject:maximumDepth:)`` puts it back, and every
     /// swap runs that recovery for its own `second` before it starts.
     package static func fallbackSwapReporting(
         _ firstParent: Int32,
@@ -139,18 +93,12 @@ extension PortableRename {
 
     // MARK: - Self-heal
 
-    /// Restores entries that an interrupted swap left under a tombstone name
-    /// in `directory`. A tombstone is restored only when the entry it belongs
-    /// to is missing. A tombstone beside a present entry holds a retired
-    /// generation and is left alone, never deleted. Returns the restored entries.
-    @discardableResult
-    public static func recoverInterruptedSwaps(in directory: URL) -> [URL] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return restoreTombstones(names.sorted(), in: directory, operations: .current)
-    }
-
-    /// Restores interrupted swaps anywhere under `projectURL`, at most
-    /// `maximumDepth` levels down. Symbolic links are not followed.
+    /// Restores entries that an interrupted swap left under a tombstone,
+    /// anywhere under `projectURL` and at most `maximumDepth` levels down.
+    /// A tombstone is restored only when the entry it belongs to is missing.
+    /// One beside a present entry holds a retired generation and is left
+    /// alone, never deleted. Symbolic links are not followed. Opening a
+    /// project runs this. Returns the restored entries.
     @discardableResult
     public static func recoverInterruptedSwaps(underProject projectURL: URL, maximumDepth: Int = 12) -> [URL] {
         guard let enumerator = FileManager.default.enumerator(

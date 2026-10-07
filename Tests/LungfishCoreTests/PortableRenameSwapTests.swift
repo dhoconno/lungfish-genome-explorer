@@ -25,6 +25,7 @@ final class PortableRenameSwapTests: XCTestCase {
     // MARK: - Swap
 
     func testSwapUsesTheKernelWhenTheVolumeSupportsIt() throws {
+        try XCTSkipIf(PortableRename.Operations.processSimulatesUnsupportedFlags, "asserts the APFS kernel path")
         let (staging, final) = try makeDirectoryPair()
 
         let mechanism = try PortableRename.swap(staging, final)
@@ -101,7 +102,7 @@ final class PortableRenameSwapTests: XCTestCase {
         let tombstone = root.appendingPathComponent(".final.lungfish-swap-\(UUID().uuidString)", isDirectory: true)
         try makeDirectory(tombstone, marker: "old")
 
-        let restored = PortableRename.recoverInterruptedSwaps(in: root)
+        let restored = PortableRename.recoverInterruptedSwaps(underProject: root)
 
         let final = root.appendingPathComponent("final", isDirectory: true)
         XCTAssertEqual(restored.map(\.lastPathComponent), ["final"])
@@ -115,7 +116,7 @@ final class PortableRenameSwapTests: XCTestCase {
         let tombstone = root.appendingPathComponent(".final.lungfish-swap-\(UUID().uuidString)", isDirectory: true)
         try makeDirectory(tombstone, marker: "old")
 
-        XCTAssertEqual(PortableRename.recoverInterruptedSwaps(in: root), [])
+        XCTAssertEqual(PortableRename.recoverInterruptedSwaps(underProject: root), [])
 
         XCTAssertEqual(try marker(in: final), "new")
         XCTAssertEqual(try marker(in: tombstone), "old", "a retired generation is never deleted automatically")
@@ -168,7 +169,7 @@ final class PortableRenameSwapTests: XCTestCase {
         XCTAssertEqual(try marker(in: destination), "new")
     }
 
-    func testExclusiveFallbackMovesASymbolicLinkAndRefusesToReplace() throws {
+    func testExclusiveFallbackMovesLinksAndFIFOsAndRefusesToReplace() throws {
         let link = root.appendingPathComponent(".link")
         try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "target-a")
         let destination = root.appendingPathComponent("published-link")
@@ -183,6 +184,17 @@ final class PortableRenameSwapTests: XCTestCase {
         XCTAssertThrowsError(try PortableRename.exclusive(link, to: destination, operations: Self.unsupportedFlags()))
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: destination.path), "target-a")
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), "target-b")
+
+        let fifo = root.appendingPathComponent(".fifo")
+        XCTAssertEqual(mkfifo(fifo.path, 0o600), 0)
+        let movedFIFO = root.appendingPathComponent("moved-fifo")
+        XCTAssertEqual(
+            try PortableRename.exclusive(fifo, to: movedFIFO, operations: Self.unsupportedFlags()),
+            .reservationFallback
+        )
+        var information = stat()
+        XCTAssertEqual(lstat(movedFIFO.path, &information), 0)
+        XCTAssertEqual(information.st_mode & S_IFMT, S_IFIFO)
     }
 
     // MARK: - Simulation switch

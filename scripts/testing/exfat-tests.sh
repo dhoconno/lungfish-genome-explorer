@@ -1,19 +1,37 @@
 #!/bin/bash
-# exfat-tests.sh - Run the tests that need a real ExFAT volume.
+# exfat-tests.sh - Run tests against ExFAT behaviour.
 #
 # Most external SSDs ship formatted ExFAT, and LGE must work on them
-# (docs/contracts/EXTERNAL-VOLUMES.md). Tests that need real ExFAT behaviour read
-# LUNGFISH_EXFAT_TEST_ROOT, skip when it is unset, and have "ExFAT" in their name.
-# This script makes a scratch ExFAT disk image, mounts it, runs those tests against
-# it and detaches and deletes the image afterwards.
+# (docs/contracts/EXTERNAL-VOLUMES.md). Two modes:
+#
+#   Real volume (default). Makes a scratch ExFAT disk image, mounts it, and runs the
+#   tests that read LUNGFISH_EXFAT_TEST_ROOT (their names contain "ExFAT"), then
+#   detaches and deletes the image.
+#
+#   --simulate. Runs the publication and storage suites on the normal disk with
+#   LUNGFISH_SIMULATE_UNSUPPORTED_RENAME_FLAGS=1, so every rename with RENAME_EXCL or
+#   RENAME_SWAP that goes through PortableRename takes its ExFAT fallback.
 #
 # Usage:
-#   scripts/testing/exfat-tests.sh                 # every test whose name contains ExFAT
-#   scripts/testing/exfat-tests.sh "Analyses"      # a different name filter
+#   scripts/testing/exfat-tests.sh                    # real ExFAT image, tests named *ExFAT*
+#   scripts/testing/exfat-tests.sh "Analyses"         # real ExFAT image, another name filter
+#   scripts/testing/exfat-tests.sh --simulate         # every rename-touching suite, simulated
+#   scripts/testing/exfat-tests.sh --simulate "Mapping"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+SIMULATED_SUITES="PortableRename|AnalysesFolder|AnalysisRunRecord|DurableAtomicFileStore|OwnedWorkDirectory|ProjectTempDirectory|ONTGenotypeWorkbook|Provenance|ProjectOperationHistory|ProjectStorageCleanup|GenotypeReviewableRowCatalog|MappingViewerBundle|GenotypingCleanupJournal|FullLengthONTMHC|PrimerAnalysis"
+
+if [ "${1:-}" = "--simulate" ]; then
+    FILTER="${2:-$SIMULATED_SUITES}"
+    echo "exfat-tests: running tests matching '$FILTER' with LUNGFISH_SIMULATE_UNSUPPORTED_RENAME_FLAGS=1"
+    LUNGFISH_SIMULATE_UNSUPPORTED_RENAME_FLAGS=1 swift test --skip-update --filter "$FILTER"
+    exit
+fi
+
 FILTER="${1:-ExFAT}"
 
 # mount(8) reports the resolved path (/private/var, not /var).
@@ -37,5 +55,4 @@ if ! mount | grep -F " on $MOUNT_POINT (exfat" >/dev/null; then
 fi
 
 echo "exfat-tests: running tests matching '$FILTER' with LUNGFISH_EXFAT_TEST_ROOT=$MOUNT_POINT"
-cd "$PROJECT_ROOT"
 LUNGFISH_EXFAT_TEST_ROOT="$MOUNT_POINT" swift test --skip-update --filter "$FILTER"

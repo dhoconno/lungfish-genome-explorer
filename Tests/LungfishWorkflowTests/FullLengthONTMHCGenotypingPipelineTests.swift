@@ -2351,6 +2351,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
     }
 
     func testSuccessManifestAloneFallsBackWhenExclusiveRenameIsUnsupported() async throws {
+        try XCTSkipIf(PortableRename.Operations.processSimulatesUnsupportedFlags, "asserts the APFS kernel path")
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-exfat-manifest-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -3267,6 +3268,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
     }
 
     func testManifestIsPublishedLastAndProvenanceMapsUniqueStagingDescriptorToFinalPath() async throws {
+        try XCTSkipIf(PortableRename.Operations.processSimulatesUnsupportedFlags, "asserts the APFS kernel path")
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-manifest-last-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -4167,6 +4169,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
     }
 
     func testAtomicPublicationFailureWritesCompleteCommandProvenanceReceipt() async throws {
+        try XCTSkipIf(PortableRename.Operations.processSimulatesUnsupportedFlags, "asserts the APFS kernel path")
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-publication-failure-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }

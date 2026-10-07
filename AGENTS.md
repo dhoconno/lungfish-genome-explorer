@@ -70,7 +70,7 @@ These rules are not optional. Each one exists because breaking it caused a shipp
 | BAM, never SAM | Alignments are stored as sorted, indexed BAM. Convert any SAM with samtools sort and index, then delete the SAM. |
 | Materialize virtual FASTQ first | A virtual FASTQ bundle holds only `preview.fastq`. Materialize it with `FASTQCLIMaterializer` before any classifier or mapper runs. |
 | Provenance policy registered | A new top-level CLI command needs an entry in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` or `ScientificCLIProvenanceCoverageTests` fails. A new `NativeTool` case without a `nativeToolPolicies` entry makes `NativeToolRunner` throw `missingProvenancePolicy`. |
-| Projects live on ExFAT too | Most external SSDs ship as ExFAT, where `RENAME_EXCL`, `RENAME_SWAP`, `clonefile` and hard links fail with `ENOTSUP`. Every file-system change follows `docs/contracts/EXTERNAL-VOLUMES.md`, and `scripts/ratchets/volume-portability.sh` stays at or under its baseline. |
+| Projects live on ExFAT too | Most external SSDs ship as ExFAT, where `RENAME_EXCL`, `RENAME_SWAP`, `clonefile` and hard links fail with `ENOTSUP`. Every rename with a flag goes through `PortableRename` (raw calls are banned by `scripts/ratchets/volume-portability.sh`), and every file-system change follows `docs/contracts/EXTERNAL-VOLUMES.md`. |
 | Viral Recon binds `.lungfishref` | The Viral Recon viewport binds a `.lungfishref` bundle whose manifest registers the BAM. It never opens a loose BAM. |
 
 One more habit matters. Call both `OperationCenter.shared.update` and `OperationCenter.shared.log` from a running operation, because only logged lines persist in the row history.

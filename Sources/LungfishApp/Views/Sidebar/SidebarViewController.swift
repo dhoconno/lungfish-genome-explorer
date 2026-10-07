@@ -1057,19 +1057,6 @@ public class SidebarViewController: NSViewController {
         Task { @MainActor in
             await InterruptedAnalysisRunDiscovery.registerInterruptedRuns(in: url)
         }
-
-        // A replace on an ExFAT drive that a crash interrupted can leave a
-        // result under a hidden swap tombstone. Put it back so it is listed.
-        Task { @MainActor [weak self] in
-            let restored = await Task.detached(priority: .utility) {
-                PortableRename.recoverInterruptedSwaps(underProject: url)
-            }.value
-            guard !restored.isEmpty, let self, self.projectBindingID == binding else { return }
-            for entry in restored {
-                sidebarLogger.warning("openProject: restored \(entry.path, privacy: .public) from an interrupted swap")
-            }
-            self.requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
-        }
     }
 
     @objc private func handleAnalysisRunOutputsCompleted(_ notification: Notification) {

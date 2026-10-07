@@ -1755,9 +1755,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             expected: expectedRHS,
             role: "exchange rhs"
         )
-        // Kernel only: on a volume without RENAME_SWAP the caller rotates
-        // through its own journaled .publication-rotation, which crash
-        // recovery understands, instead of PortableRename's tombstone.
+        // Kernel only, so ExFAT uses this transaction's journaled rotation.
         let rename: ONTGenotypeDirectoryRenamePrimitive = renamePrimitive ?? {
             sourceParent, sourceName, destinationParent, destinationName, flags in
             PortableRename.nativeRenameatx(sourceParent, sourceName, destinationParent, destinationName, flags)

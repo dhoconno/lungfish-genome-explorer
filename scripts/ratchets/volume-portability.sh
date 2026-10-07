@@ -6,16 +6,17 @@ uses them without a fallback works on the internal APFS disk and fails for a pro
 external drive. See docs/contracts/EXTERNAL-VOLUMES.md.
 
 Counts, under Sources/, of:
-    exclusive-or-swap-rename   RENAME_EXCL or RENAME_SWAP passed to a raw rename call.
-                               A use within three lines of PortableRename is
-                               not counted, because that helper falls back.
+    raw-rename-call            a direct renamex_np, renameatx_np or renameatx call. Every
+                               rename with RENAME_EXCL or RENAME_SWAP goes through
+                               PortableRename (LungfishCore/Storage), which falls back on
+                               volumes without those flags. The baseline is 0: this is a ban.
     clonefile                  clonefile, clonefileat, fclonefileat, COPYFILE_CLONE_FORCE
     hard-link                  link, linkat, FileManager.linkItem
     mkfifo                     mkfifo
 
 Each count may only fall. Occurrences on comment lines (// or ///) and inside one-line
-string literals are ignored, and so is
-Sources/LungfishCore/Storage/PortableRename*.swift, the portable helper itself.
+string literals are ignored, and so is Sources/LungfishCore/Storage/PortableRename*.swift,
+the portable helper itself.
 
 Baseline file: one "<name> <count>" line per pattern.
 
@@ -35,11 +36,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCES_DIR = REPO_ROOT / "Sources"
 BASELINE_FILE = Path(__file__).resolve().with_suffix(".baseline")
 EXEMPT_PREFIX = "Sources/LungfishCore/Storage/PortableRename"
-HELPER_WINDOW = 3
 STRING_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')
 
 PATTERNS = {
-    "exclusive-or-swap-rename": re.compile(r"\bRENAME_(?:EXCL|SWAP)\b"),
+    "raw-rename-call": re.compile(r"(?<![\w.])(?:Darwin\.)?(?:renamex_np|renameatx_np|renameatx)\s*\("),
     "clonefile": re.compile(r"\b(?:f?clonefile(?:at)?\s*\(|COPYFILE_CLONE_FORCE\b)"),
     "hard-link": re.compile(r"(?<![\w.])link(?:at)?\s*\(|\blinkItem\s*\("),
     "mkfifo": re.compile(r"\bmkfifo(?:at)?\s*\("),
@@ -62,10 +62,6 @@ def scan():
             code = STRING_LITERAL.sub('""', line)
             for name, rx in PATTERNS.items():
                 for _ in rx.finditer(code):
-                    if name == "exclusive-or-swap-rename":
-                        window = lines[max(0, index - HELPER_WINDOW):index + 1]
-                        if any("PortableRename" in w for w in window):
-                            continue
                     counts[name] += 1
                     sites.append(f"{rel}:{index + 1}: {name}")
     return counts, sites
@@ -118,7 +114,7 @@ def main(argv):
             )
         print(
             "These calls fail with ENOTSUP on ExFAT, the default format of most external SSDs. "
-            "Use PortableRename (exclusive, swap or renameatxNP). "
+            "Use PortableRename (exclusive, swap, renameatxNP or nativeRenameatx plus a fallback). "
             "See docs/contracts/EXTERNAL-VOLUMES.md.",
             file=sys.stderr,
         )

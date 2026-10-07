@@ -7,6 +7,9 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import os.log
+
+private let logger = Logger(subsystem: LogSubsystem.app, category: "InterruptedAnalysisRunDiscovery")
 
 /// Finds analysis result directories whose run never finished and lists them
 /// in the Operations Panel as "Interrupted" rows.
@@ -51,6 +54,12 @@ enum InterruptedAnalysisRunDiscovery {
         }
     ) async -> [UUID] {
         let candidates = await Task.detached(priority: .utility) {
+            // A replace on an ExFAT drive that a crash interrupted can leave a
+            // result under a hidden swap tombstone. Put it back first. The
+            // project watcher then lists it.
+            for entry in PortableRename.recoverInterruptedSwaps(underProject: projectURL) {
+                logger.warning("Restored \(entry.path, privacy: .public) from an interrupted swap")
+            }
             let runs = AnalysesFolder.incompleteAnalysisRuns(in: projectURL)
             // Scratch in .tmp/ that each run's gone producer left behind.
             // Scratch whose creating process is alive is never attributed.

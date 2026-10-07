@@ -276,6 +276,7 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
     }
 
     func testFailedAtomicPublicationRetainsActualFailedRecord() throws {
+        try XCTSkipIf(PortableRename.Operations.processSimulatesUnsupportedFlags, "asserts the APFS kernel path")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "failed-mhc-publication-record-\(UUID().uuidString)",
             isDirectory: true
