@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Darwin
 import XCTest
 import LungfishCore
 @testable import LungfishIO
@@ -45,6 +46,74 @@ final class AnalysesFolderRunRecordTests: XCTestCase {
         XCTAssertNotEqual(first, second)
         XCTAssertEqual(second.lastPathComponent, first.lastPathComponent + "-2")
         XCTAssertTrue(AnalysesFolder.isAnalysisIncomplete(second))
+    }
+
+    /// ExFAT, FAT and SMB volumes reject `RENAME_EXCL` with `ENOTSUP`. A
+    /// project on such a drive must still get its analysis directory, or a
+    /// finished run cannot be shown.
+    func testCreateFallsBackWhenTheVolumeRejectsExclusiveRename() throws {
+        let date = Date(timeIntervalSince1970: 1_775_398_200)
+        let operations = Self.operationsRejectingExclusiveRename()
+
+        let first = try AnalysesFolder.createAnalysisDirectory(
+            tool: "viralrecon", in: projectURL, isBatch: true, date: date,
+            renameOperations: operations
+        )
+        let second = try AnalysesFolder.createAnalysisDirectory(
+            tool: "viralrecon", in: projectURL, isBatch: true, date: date,
+            renameOperations: operations
+        )
+
+        XCTAssertTrue(first.lastPathComponent.hasPrefix("viralrecon-batch-"))
+        XCTAssertEqual(second.lastPathComponent, first.lastPathComponent + "-2")
+        for dir in [first, second] {
+            XCTAssertTrue(AnalysesFolder.isAnalysisIncomplete(dir))
+            XCTAssertNotNil(AnalysesFolder.readAnalysisMetadata(from: dir))
+        }
+        let names = try FileManager.default.contentsOfDirectory(
+            atPath: projectURL.appendingPathComponent(AnalysesFolder.directoryName).path
+        )
+        XCTAssertEqual(Set(names), [first.lastPathComponent, second.lastPathComponent],
+                       "no staging entries are left behind")
+    }
+
+    /// The same run on a real ExFAT volume. Run it with
+    /// `scripts/testing/exfat-tests.sh`.
+    func testCreateAnalysisDirectoryOnExFAT() throws {
+        guard let root = ProcessInfo.processInfo.environment["LUNGFISH_EXFAT_TEST_ROOT"], !root.isEmpty else {
+            throw XCTSkip("Set LUNGFISH_EXFAT_TEST_ROOT to an ExFAT volume root to run this test.")
+        }
+        let project = URL(fileURLWithPath: root, isDirectory: true)
+            .appendingPathComponent("analyses-exfat-\(UUID().uuidString).lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: project) }
+        let date = Date(timeIntervalSince1970: 1_775_398_200)
+
+        let first = try AnalysesFolder.createAnalysisDirectory(tool: "viralrecon", in: project, isBatch: true, date: date)
+        let second = try AnalysesFolder.createAnalysisDirectory(tool: "viralrecon", in: project, isBatch: true, date: date)
+
+        XCTAssertEqual(second.lastPathComponent, first.lastPathComponent + "-2")
+        XCTAssertTrue(AnalysesFolder.isAnalysisIncomplete(first))
+        let visible = try FileManager.default.contentsOfDirectory(
+            atPath: project.appendingPathComponent(AnalysesFolder.directoryName).path
+        ).filter { !$0.hasPrefix("._") }
+        XCTAssertEqual(Set(visible), [first.lastPathComponent, second.lastPathComponent])
+
+        let runDirectory = project.appendingPathComponent("Analyses/cli-run", isDirectory: true)
+        let claim = try AnalysisRunRecord.beginRun(in: runDirectory, record: AnalysisRunRecord(analysisName: "Viral Recon"))
+        XCTAssertEqual(claim, .owned)
+        XCTAssertTrue(AnalysisRunRecord.isIncomplete(runDirectory))
+    }
+
+    private static func operationsRejectingExclusiveRename() -> PortableExclusiveRename.Operations {
+        PortableExclusiveRename.Operations(nativeRename: { _, _, _, _, flags in
+            if flags == UInt32(RENAME_EXCL) {
+                errno = ENOTSUP
+                return -1
+            }
+            errno = EINVAL
+            return -1
+        })
     }
 
     func testListAnalysesSkipsIncompleteRunsUntilMarkedComplete() throws {

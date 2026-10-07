@@ -147,6 +147,22 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
         record: AnalysisRunRecord,
         processProbe: ProcessProbe = AnalysisRunRecord.probeProcess
     ) throws -> RunClaim {
+        try beginRun(
+            in: directoryURL,
+            record: record,
+            processProbe: processProbe,
+            exclusiveRename: { renamex_np($0, $1, UInt32(RENAME_EXCL)) }
+        )
+    }
+
+    /// `exclusiveRename` is `renamex_np` with `RENAME_EXCL`, injectable so a
+    /// volume that rejects the flag can be exercised on APFS.
+    static func beginRun(
+        in directoryURL: URL,
+        record: AnalysisRunRecord,
+        processProbe: ProcessProbe,
+        exclusiveRename: (UnsafePointer<CChar>, UnsafePointer<CChar>) -> Int32
+    ) throws -> RunClaim {
         let fileManager = FileManager.default
         let directory = directoryURL.standardizedFileURL
         var isDirectory: ObjCBool = false
@@ -164,12 +180,19 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
                 try? fileManager.removeItem(at: staging)
                 throw error
             }
-            let status = staging.path.withCString { source in
+            var status = staging.path.withCString { source in
                 directory.path.withCString { destination in
-                    renamex_np(source, destination, UInt32(RENAME_EXCL))
+                    exclusiveRename(source, destination)
                 }
             }
-            let code = errno
+            var code = errno
+            if status != 0, code == ENOTSUP || code == EOPNOTSUPP {
+                // ExFAT, FAT and SMB volumes reject RENAME_EXCL. Reserve the
+                // name with an exclusive mkdir, then rename over that empty
+                // reservation. A reservation someone fills in the meantime
+                // makes the rename fail with ENOTEMPTY instead of clobbering it.
+                (status, code) = Self.renameOntoExclusiveReservation(staging, directory)
+            }
             if status == 0 { return .owned }
             try? fileManager.removeItem(at: staging)
             guard code == EEXIST || code == ENOTEMPTY else {
@@ -201,6 +224,16 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
         }
         try begin(record, in: directory)
         return .owned
+    }
+
+    private static func renameOntoExclusiveReservation(_ source: URL, _ destination: URL) -> (Int32, Int32) {
+        guard mkdir(destination.path, S_IRWXU) == 0 else { return (-1, errno) }
+        guard rename(source.path, destination.path) == 0 else {
+            let code = errno
+            rmdir(destination.path)
+            return (-1, code)
+        }
+        return (0, 0)
     }
 
     /// Completes a run claimed with ``beginRun(in:record:processProbe:)``.

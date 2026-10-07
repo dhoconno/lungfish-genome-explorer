@@ -135,6 +135,29 @@ struct AnalysisRunRecordTests {
         #expect(!AnalysisRunRecord.isIncomplete(dir))
     }
 
+    /// ExFAT, FAT and SMB volumes reject `RENAME_EXCL` with `ENOTSUP`.
+    @Test
+    func beginRunCreatesMissingDirectoryWhenTheVolumeRejectsExclusiveRename() throws {
+        let root = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = root.appendingPathComponent("Analyses/run", isDirectory: true)
+
+        let claim = try AnalysisRunRecord.beginRun(
+            in: dir,
+            record: AnalysisRunRecord(analysisName: "Viral Recon"),
+            processProbe: AnalysisRunRecord.probeProcess,
+            exclusiveRename: { _, _ in
+                errno = ENOTSUP
+                return -1
+            }
+        )
+
+        #expect(claim == .owned)
+        #expect(AnalysisRunRecord.isIncomplete(dir))
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: dir.deletingLastPathComponent().path)
+        #expect(siblings == ["run"], "no staging directory is left behind")
+    }
+
     @Test
     func beginRunClaimsExistingDirectoryWithoutRecord() throws {
         let dir = try makeDirectory()

@@ -155,6 +155,24 @@ public enum AnalysesFolder {
         date: Date = Date(),
         command: String? = nil
     ) throws -> URL {
+        try createAnalysisDirectory(
+            tool: tool,
+            in: projectURL,
+            isBatch: isBatch,
+            date: date,
+            command: command,
+            renameOperations: .darwin
+        )
+    }
+
+    static func createAnalysisDirectory(
+        tool: String,
+        in projectURL: URL,
+        isBatch: Bool = false,
+        date: Date = Date(),
+        command: String? = nil,
+        renameOperations: PortableExclusiveRename.Operations
+    ) throws -> URL {
         let analysesDir = try url(for: projectURL)
         let timestamp = formatTimestamp(date)
         let baseName = isBatch ? "\(tool)-batch-\(timestamp)" : "\(tool)-\(timestamp)"
@@ -183,7 +201,12 @@ public enum AnalysesFolder {
             let analysisURL = analysesDir.appendingPathComponent(name, isDirectory: true)
             let status = stagingURL.path.withCString { source in
                 analysisURL.path.withCString { destination in
-                    renamex_np(source, destination, UInt32(RENAME_EXCL))
+                    // ExFAT, FAT and SMB volumes reject RENAME_EXCL with
+                    // ENOTSUP, and the portable rename falls back for them.
+                    PortableExclusiveRename.renameatxNPReporting(
+                        AT_FDCWD, source, AT_FDCWD, destination, UInt32(RENAME_EXCL),
+                        operations: renameOperations
+                    ).status
                 }
             }
             if status == 0 {
