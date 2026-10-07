@@ -25,11 +25,14 @@ extension SRADownloadSubcommand {
     /// LibraryLayout, which is looked up only when no mate 2 arrived. A lone
     /// mate of a paired run fails the download, and the files this run wrote
     /// are removed so no half pair stays. A run listed as paired that arrived
-    /// as one file of single reads is kept with a warning.
+    /// as one file of single reads is kept with a warning, as is a lone mate
+    /// 1 of a run neither archive gives a layout for, and the warning names
+    /// any read file beyond mates 1 and 2. A cancellation while NCBI is asked
+    /// cancels the download and removes the run's files too.
     ///
     /// - Returns: The warning line to print and record under `layoutWarning`,
     ///   or nil.
-    /// - Throws: `SRAError.downloadFailed` with the one-line reason.
+    /// - Throws: `SRARunRefusal` with the one-line reason, or a cancellation.
     func checkRunReads(_ files: [URL], service: SRAService, enaRecord: ENAReadRecord?) async throws -> String? {
         let accession = accession
         do {
@@ -40,10 +43,29 @@ extension SRADownloadSubcommand {
                 ncbiLayout: { await service.ncbiRunInfo(forRun: accession)?.libraryLayout }
             ).layoutWarning
         } catch let failure as SRARunReads.Failure {
-            for file in files {
-                try? FileManager.default.removeItem(at: file)
-            }
-            throw SRAError.downloadFailed(failure.message)
+            Self.remove(files)
+            throw SRARunRefusal(failure: failure)
+        } catch {
+            Self.remove(files)
+            throw error
         }
+    }
+
+    private static func remove(_ files: [URL]) {
+        for file in files {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+}
+
+/// A run whose files arrived but are not one whole run, which `fetch sra
+/// download` refuses. The command reports it as a refusal in one line, never
+/// as a network error (review B-N6).
+struct SRARunRefusal: Error {
+    let failure: SRARunReads.Failure
+
+    /// The one-line reason the command fails with.
+    var reason: String {
+        "\(failure.message), so the run was refused and its files were removed"
     }
 }

@@ -46,13 +46,14 @@ public struct SRAToolkitRunner: Sendable {
 ///
 /// `prefetch` writes the run's archive under `<accession>/`, and
 /// `fasterq-dump` names the run's reads `<accession>_1.fastq`,
-/// `<accession>_2.fastq` and `<accession>.fastq`. The folder can also hold
-/// other runs' files, such as the user's earlier downloads, and older files
-/// of this run, such as a stale mate. So `SRAService.downloadFASTQ` notes
-/// what the folder holds before the tools run. It then returns only this
-/// run's reads that the download wrote, and once `fasterq-dump` succeeds it
-/// removes what `prefetch` added. A file that was there before is never
-/// returned and never removed.
+/// `<accession>_2.fastq` and `<accession>.fastq`, and the reads beyond mates
+/// 1 and 2 `<accession>_3.fastq` and on. The folder can also hold other runs'
+/// files, such as the user's earlier downloads, and older files of this run,
+/// such as a stale mate. So `SRAService.downloadFASTQ` notes what the folder
+/// holds before the tools run. It then returns only this run's read files
+/// that the download wrote, and once `fasterq-dump` succeeds it removes what
+/// `prefetch` added. A file that was there before is never returned and
+/// never removed.
 struct SRAToolkitRunFiles {
     /// What identifies one file's content: a file the download rewrote
     /// differs in at least one of these.
@@ -71,8 +72,13 @@ struct SRAToolkitRunFiles {
         }
     }
 
+    private let accession: String
+    private let outputDirectory: URL
     private let fastqURLs: [URL]
     private let fastqBefore: [URL: Stamp]
+    /// The run's read files beyond mates 1 and 2 that the folder held before
+    /// the download, by name.
+    private let laterReadFilesBefore: [String: Stamp]
     /// The folder `prefetch` writes the run's archive to, or nil when the
     /// accession cannot name a folder.
     private let prefetchFolder: URL?
@@ -108,6 +114,8 @@ struct SRAToolkitRunFiles {
     }
 
     init(accession: String, outputDirectory: URL) {
+        self.accession = accession
+        self.outputDirectory = outputDirectory
         fastqURLs = ["_1", "_2", ""].flatMap { suffix in
             [".fastq", ".fastq.gz"].map { outputDirectory.appendingPathComponent("\(accession)\(suffix)\($0)") }
         }
@@ -116,18 +124,35 @@ struct SRAToolkitRunFiles {
             before[url] = Stamp(url)
         }
         fastqBefore = before
+        var laterBefore: [String: Stamp] = [:]
+        for url in Self.laterReadFiles(in: outputDirectory, accession: accession) {
+            laterBefore[url.lastPathComponent] = Stamp(url)
+        }
+        laterReadFilesBefore = laterBefore
         prefetchFolder = SRAAccessionParser.namesOneFolder(accession)
             ? outputDirectory.appendingPathComponent(accession, isDirectory: true) : nil
         prefetchPathBefore = prefetchFolder.map(PrefetchPathSnapshot.init(of:)) ?? .notTheToolkits
     }
 
     /// The run's FASTQ files that the download wrote, mate 1 and mate 2
-    /// first.
+    /// first and any read file beyond them last, which `SRARunReads.sorting`
+    /// leaves out of the run's reads and names in its warning.
     func writtenFASTQFiles() -> [URL] {
-        fastqURLs.filter { url in
+        let reads = fastqURLs.filter { url in
             guard let stamp = Stamp(url) else { return false }
             return fastqBefore[url] != stamp
         }
+        let laterFiles = Self.laterReadFiles(in: outputDirectory, accession: accession).filter { url in
+            guard let stamp = Stamp(url) else { return false }
+            return laterReadFilesBefore[url.lastPathComponent] != stamp
+        }
+        return reads + laterFiles
+    }
+
+    /// The read files of `accession` beyond mates 1 and 2 in `folder`.
+    private static func laterReadFiles(in folder: URL, accession: String) -> [URL] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return SRARunReads.laterReadFiles(in: names.map { folder.appendingPathComponent($0) }, accession: accession)
     }
 
     /// Removes the run's FASTQ files that the download wrote, after a failed

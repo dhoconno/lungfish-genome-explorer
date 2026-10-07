@@ -16,7 +16,10 @@ public extension SRAService {
     /// window and on `lungfish-cli fetch sra download` alike, and the window
     /// keeps NCBI's metadata for a run its last search did not cover. A
     /// failure is logged and never thrown, because the record only adds
-    /// metadata and the listed layout.
+    /// metadata and the listed layout. A cancelled lookup answers nil too,
+    /// without a log line, so a caller checks its task afterwards, as
+    /// `SRARunListedLayout.resolve(enaLayout:ncbiLayout:)` and the window's
+    /// staging do, and stops on a cancellation.
     func ncbiRunInfo(forRun accession: String) async -> SRARunInfo? {
         do {
             let runs = try await ncbiService.sraEFetchRunInfo(ids: [accession])
