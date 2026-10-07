@@ -23,8 +23,10 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         trimmed where their mates overlap, and a single read loses a primer's \
         reverse complement that ends within its last (longest primer) bases, \
         matched in k-mers as long as the shortest primer. --kmer may not exceed \
-        the shortest primer. The cutadapt-linked engine keeps only reads that hold \
-        both primers of an amplicon, which suits full-length amplicon reads. \
+        the shortest primer. A read that either bbduk pass trims below 10 bases, \
+        such as a primer dimer, is dropped, and so is its mate. The \
+        cutadapt-linked engine keeps only reads that hold both primers of an \
+        amplicon, which suits full-length amplicon reads. \
         Interleaved pairs run in the tool's paired mode, so a pair is kept or \
         dropped whole. A file that mixes pairs with merged or single reads is \
         split by name, and the outputs are joined, pairs first.
@@ -192,9 +194,9 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         if engine != .bbduk {
             cliArguments += ["--engine", engine.rawValue]
         }
-        if kmerSize != Self.defaultKmerSize {
-            cliArguments += ["--kmer", String(kmerSize)]
-        }
+        // Every recorded command names --kmer, so a replay never depends on
+        // the default, which went from 23 to 15 (review A N6).
+        cliArguments += ["--kmer", String(kmerSize)]
         if minKmer != 11 {
             cliArguments += ["--mink", String(minKmer)]
         }
