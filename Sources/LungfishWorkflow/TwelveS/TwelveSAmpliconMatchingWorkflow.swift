@@ -80,7 +80,7 @@ public enum TwelveSAmpliconMatchingError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .noInputs:
-            return "At least one merged FASTQ input is required."
+            return "At least one FASTQ file or .lungfishfastq bundle is required."
         case let .missingInput(path):
             return "FASTQ input does not exist: \(path)"
         case let .missingReference(path):

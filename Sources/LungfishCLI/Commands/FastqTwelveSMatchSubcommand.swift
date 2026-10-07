@@ -7,10 +7,16 @@ import LungfishWorkflow
 struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "12s-match",
-        abstract: "Match merged 12S amplicon FASTQ reads to a deduplicated reference FASTA"
+        abstract: "Match 12S amplicon FASTQ reads to a deduplicated reference FASTA",
+        discussion: """
+        Inputs are FASTQ files or .lungfishfastq bundles of merged reads, unmerged pairs or both. \
+        A merged read counts once, and so does an unmerged pair whose mates agree. A pair whose \
+        mates disagree is left out and counted by reason. A file named inside a bundle, such as \
+        SampleA.lungfishfastq/merged.fastq, is read alone, not with the rest of its bundle.
+        """
     )
 
-    @Argument(help: "Merged FASTQ input file(s), plain or gzip-compressed")
+    @Argument(help: "FASTQ files, plain or gzip-compressed, or .lungfishfastq bundles of merged reads, unmerged pairs or both")
     var inputs: [String]
 
     @Option(name: .customLong("reference"), help: "Deduplicated 12S reference FASTA or .lungfish12sref bundle")
@@ -66,7 +72,7 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
 
     func validate() throws {
         guard !inputs.isEmpty else {
-            throw ValidationError("At least one merged FASTQ input is required.")
+            throw ValidationError("At least one FASTQ file or .lungfishfastq bundle is required.")
         }
         guard minimumSoftClipBases >= 0 else {
             throw ValidationError("--min-soft-clip must be greater than or equal to 0.")

@@ -1,10 +1,17 @@
-OVERVIEW: Match merged 12S amplicon FASTQ reads to a deduplicated reference
-FASTA
+OVERVIEW: Match 12S amplicon FASTQ reads to a deduplicated reference FASTA
+
+Inputs are FASTQ files or .lungfishfastq bundles of merged reads, unmerged
+pairs or both. A merged read counts once, and so does an unmerged pair whose
+mates agree. A pair whose mates disagree is left out and counted by reason. A
+file named inside a bundle, such as SampleA.lungfishfastq/merged.fastq, is read
+alone, not with the rest of its bundle.
 
 USAGE: lungfish-cli fastq 12s-match [<options>] <inputs> ... --reference <reference> --output-dir <output-dir> --output-name <output-name>
 
 ARGUMENTS:
-  <inputs>                Merged FASTQ input file(s), plain or gzip-compressed
+  <inputs>                FASTQ files, plain or gzip-compressed, or
+                          .lungfishfastq bundles of merged reads, unmerged
+                          pairs or both
 
 OPTIONS:
   --reference <reference> Deduplicated 12S reference FASTA or .lungfish12sref
