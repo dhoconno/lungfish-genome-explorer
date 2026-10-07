@@ -1,4 +1,4 @@
-// ClassificationPipeline+InputCopies.swift - Kraken2 inputs staged in the compression of R1, and the replay argv they leave
+// ClassificationPipeline+InputCopies.swift - Kraken2 inputs staged in the compression of R1, their replay argv, and inputs inside stale outputs
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -6,6 +6,19 @@ import Foundation
 import LungfishIO
 
 extension ClassificationPipeline {
+
+    /// Removes the outputs an earlier run left in the run's folder, after
+    /// refusing a run whose input sits inside one of them. A replay of the
+    /// recorded kraken2 step names the provenance copy of a transient input,
+    /// which sits in the folder's `classification-inputs`, and the removal
+    /// would delete that input before kraken2 failed on it.
+    func refuseThenRemoveKnownClassificationOutputs(config: ClassificationConfig) throws {
+        let inputs = config.inputFiles + config.singleReadFiles + (config.originalInputFiles ?? [])
+        for output in knownClassificationOutputURLs(config: config) {
+            try OutputReplacementCheck.refuseInputs(inputs, inside: output)
+        }
+        try removeKnownClassificationOutputs(config: config)
+    }
 
     /// Stages a copy, in the compression of R1, of every input kraken2 would
     /// otherwise read in the other compression (``ClassificationConfig/kraken2InputURLs``),

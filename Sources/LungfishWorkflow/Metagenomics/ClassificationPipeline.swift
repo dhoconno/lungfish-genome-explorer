@@ -385,7 +385,7 @@ public actor ClassificationPipeline {
         }
 
         do {
-            try removeKnownClassificationOutputs(config: effectiveConfig)
+            try refuseThenRemoveKnownClassificationOutputs(config: effectiveConfig)
         } catch {
             _ = await provenanceRecorder.recordStep(
                 runID: runID,
@@ -1110,7 +1110,7 @@ public actor ClassificationPipeline {
         ] + config.inputFiles.flatMap { ["--input", $0.path] }
     }
 
-    private func knownClassificationOutputURLs(
+    func knownClassificationOutputURLs(
         config: ClassificationConfig
     ) -> [URL] {
         let compressedOutput = config.outputURL.appendingPathExtension("gz")
@@ -1144,7 +1144,7 @@ public actor ClassificationPipeline {
             + knownClassificationOutputURLs(config: config).map(\.path)
     }
 
-    private func removeKnownClassificationOutputs(
+    func removeKnownClassificationOutputs(
         config: ClassificationConfig
     ) throws {
         let fm = FileManager.default
