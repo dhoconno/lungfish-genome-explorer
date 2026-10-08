@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 @MainActor
 final class ViewerRegressionTests: XCTestCase {
@@ -16,6 +17,26 @@ final class ViewerRegressionTests: XCTestCase {
         view.update(operation: .qualityTrim, statistics: nil)
 
         XCTAssertFalse(view.testShowsFASTAPreview)
+    }
+
+    /// The text search and demultiplex previews draw read IDs and barcode labels in SF Mono
+    /// Medium, and the search pattern and output bundle names in SF Mono Semibold. Looking
+    /// those fonts up per draw could return nil under load, and CoreText raised on the nil
+    /// font, so the view keeps its fonts instead.
+    func testOperationPreviewDrawsSFMonoTextWithoutLookingTheFontsUp() throws {
+        let view = OperationPreviewView(frame: NSRect(x: 0, y: 0, width: 400, height: 240))
+        let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.parameters.searchPattern = "SRR1770413.3"
+
+        for operation: OperationPreviewView.OperationKind in [.searchText, .demultiplex] {
+            view.update(operation: operation, statistics: nil)
+            for (weight, name): (NSFont.Weight, String) in [(.medium, "Medium"), (.semibold, "Semibold")] {
+                let lookups = monospacedSystemFontLookups(weight: weight) {
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                }
+                XCTAssertEqual(lookups, [], "the \(operation) preview looked SF Mono \(name) up while drawing")
+            }
+        }
     }
 
     func testFASTQMetadataDrawerPreservesMultiStepDemultiplexPlans() throws {

@@ -1239,7 +1239,6 @@ public class SequenceViewerView: NSView {
     /// Whether multi-sequence mode is active.
     public var isMultiSequenceMode: Bool = false
 
-
     // MARK: - Scroll Coalescing
 
     /// Timer for coalescing scroll-triggered redraws at 60fps.
@@ -1262,6 +1261,7 @@ public class SequenceViewerView: NSView {
     /// Below this threshold: show individual base letters with colors
     /// At this zoom level, bases are large enough to read
     var showLettersThreshold: Double { AppSettings.shared.showLettersThresholdBpPerPixel }
+    let baseLetterFont = DrawingFont.keptMonospaced(ofSize: 12, weight: .medium)
 
     /// Above this threshold: switch from colored blocks to simple line
     /// Beyond this zoom level, colored blocks become uninformative visual noise

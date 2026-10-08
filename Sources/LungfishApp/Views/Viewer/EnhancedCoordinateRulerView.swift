@@ -7,6 +7,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishKit
 import os.log
 
 /// Logger for ruler operations
@@ -146,12 +147,11 @@ public class EnhancedCoordinateRulerView: NSView {
         NSColor.labelColor
     }
 
-    // Fonts are looked up once per view, see `monospacedFont(ofSize:weight:)`.
-    private let rangeFont = EnhancedCoordinateRulerView.monospacedFont(ofSize: 11, weight: .medium)
+    // Fonts are looked up once per view, see `DrawingFont.keptMonospaced(ofSize:weight:)`.
+    private let rangeFont = DrawingFont.keptMonospaced(ofSize: 11, weight: .medium)
     private let totalLengthFont = NSFont.systemFont(ofSize: 10, weight: .regular)
-    private let positionLabelFont = EnhancedCoordinateRulerView.monospacedFont(ofSize: 10, weight: .medium)
+    private let positionLabelFont = DrawingFont.keptMonospaced(ofSize: 10, weight: .medium)
     private let placeholderFont = NSFont.systemFont(ofSize: 11, weight: .regular)
-
 
     // MARK: - State
 

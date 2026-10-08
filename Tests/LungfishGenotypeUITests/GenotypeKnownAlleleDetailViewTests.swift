@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishTestSupport
 @testable import LungfishGenotypeUI
 
 @MainActor
@@ -198,6 +199,22 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
             ["MHC class I antigen", "MHC class I antigen"]
         )
         assertGeometry(of: translationBlocks, in: try lane("translation", in: view))
+    }
+
+    /// The nucleotide strip's base letters are SF Mono Medium. Looking that font up per draw
+    /// could return nil under load, and CoreText raised on the nil font, so the strip keeps it.
+    func testNucleotideStripDrawsBaseLettersWithoutLookingSFMonoMediumUp() throws {
+        let view = makeView()
+        view.configure(record: makeRecord(), observedSample: nil)
+        view.layoutSubtreeIfNeeded()
+        let strip = try identifiedView("knownAlleleNucleotideStrip", in: view)
+        XCTAssertGreaterThanOrEqual(strip.bounds.width / 24, 11, "the strip must be wide enough for letters")
+        let rep = try XCTUnwrap(strip.bitmapImageRepForCachingDisplay(in: strip.bounds))
+
+        let lookups = monospacedSystemFontLookups(weight: .medium) {
+            strip.cacheDisplay(in: strip.bounds, to: rep)
+        }
+        XCTAssertEqual(lookups, [], "the nucleotide strip looked SF Mono Medium up while drawing")
     }
 
     func testFactsRailShowsAvailableRecordAndAnnotationFacts() throws {
