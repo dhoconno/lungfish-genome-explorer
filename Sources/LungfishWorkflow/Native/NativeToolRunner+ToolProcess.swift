@@ -23,16 +23,8 @@ enum NativeToolProcessAdapter {
 
     /// The status `Process.terminationStatus` reported, which the runner has
     /// always returned: the exit code in 0...255, or the signal number.
-    ///
-    /// ToolProcess reads the exit with waitid, whose si_status on macOS keeps
-    /// the low 24 bits of the value the tool passed to exit, so a tool that
-    /// calls exit(-1) reads as 16777215 there. wait(2) and Process keep only
-    /// the low 8 bits, which is 255.
     static func status(_ result: ToolProcessResult) -> Int32 {
-        switch result.termination {
-        case .exited(let code): return code & 0xFF
-        case .signaled(let signal): return signal
-        }
+        result.status
     }
 
     /// The error NativeToolRunner has always thrown for each way a run can

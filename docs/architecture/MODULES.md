@@ -25,7 +25,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | 2473 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8359 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | 3548 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 707 | 225034 | 1342 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 707 | 225026 | 1342 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 34 | 5961 | 28 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -1796,7 +1796,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 707, lines 225034
+- Swift files. 707, lines 225026
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1828,7 +1828,7 @@ None.
 | Mapping | 24 | 9596 |
 | Metagenomics | 48 | 20559 |
 | Metagenomics/CzId | 3 | 909 |
-| Native | 8 | 3871 |
+| Native | 8 | 3863 |
 | ONTGenotyping | 154 | 48285 |
 | Orient | 1 | 670 |
 | PBAA | 4 | 930 |
