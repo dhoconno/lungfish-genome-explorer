@@ -226,9 +226,15 @@ if [ "$UNRESOLVED" -eq 0 ] && [ "${#PUSHED_COMMITS[@]}" -gt 0 ]; then
         EVIDENCE_ARGS+=(--commit "$commit")
     done
     echo "pre-push: looking for retained unit-tier evidence for the pushed commits..."
-    if python3 "$REPO_ROOT/scripts/release/gate_evidence.py" unit-evidence --root "$REPO_ROOT" "${EVIDENCE_ARGS[@]}"; then
+    python3 "$REPO_ROOT/scripts/release/gate_evidence.py" unit-evidence --root "$REPO_ROOT" "${EVIDENCE_ARGS[@]}"
+    EVIDENCE_STATUS=$?
+    if [ "$EVIDENCE_STATUS" -eq 0 ]; then
         echo "pre-push: retained unit-tier evidence covers every pushed commit; skipping the unit-tier gate."
         exit 0
+    fi
+    if [ "$EVIDENCE_STATUS" -eq 3 ]; then
+        echo "pre-push: the unit tier already failed on this code — push aborted. Diagnose and fix it in a new commit (docs/contracts/VERIFICATION-ORDER.md), or use --no-verify." >&2
+        exit 1
     fi
 fi
 

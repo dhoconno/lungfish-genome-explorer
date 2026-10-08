@@ -911,9 +911,11 @@ install_third_party_notices() {
     local notices_source="${PROJECT_ROOT}/THIRD-PARTY-NOTICES"
     local notices_dest="${APP_PATH}/Contents/Resources/THIRD-PARTY-NOTICES"
 
+    # Fail only: rewriting a tracked file here would change the checkout that
+    # the gates are testing at the same time (docs/contracts/VERIFICATION-ORDER.md).
     "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/generate-notices.py" --check >/dev/null 2>&1 || {
-        echo "THIRD-PARTY-NOTICES is stale relative to its manifests; regenerating before packaging" >&2
-        "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/generate-notices.py"
+        echo "THIRD-PARTY-NOTICES is stale relative to its manifests; run scripts/release/generate-notices.py and commit the result" >&2
+        exit 65
     }
 
     if [ ! -f "$notices_source" ]; then
@@ -1383,6 +1385,8 @@ IDENTITY_PY
     if [ -z "$SPARKLE_BUILD_NUMBER" ]; then
         SPARKLE_BUILD_NUMBER=$(git rev-list --count HEAD)
     fi
+    # The receipt must describe the commit this build compiled.
+    BUILD_START_COMMIT=$(git rev-parse HEAD)
     # BEGIN LUNGFISH_COMPILER_RECIPE_V2
     # Xcode canonicalizes /private/var and /private/tmp through their shorter
     # aliases in compiler inputs. Map both spellings so a caller-selected
@@ -1520,6 +1524,11 @@ IDENTITY_PY
             echo "release gate handoff is malformed; no candidate receipt was written" >&2
             exit 65
         fi
+    fi
+
+    if [ "$(git rev-parse HEAD)" != "$BUILD_START_COMMIT" ]; then
+        echo "HEAD moved while the candidate compiled; no candidate receipt was written" >&2
+        exit 65
     fi
 
     CANDIDATE_CREATE_ARGS=(create

@@ -33,6 +33,10 @@ LOCK = ".build.lock"
 NOW = 1_760_000_000
 DAY = 86_400
 GIB = 1 << 30
+# The default keeps two namespaces per repository key (Preview and Stable use different
+# ones). A test about removal, locks or layout needs exactly one stale namespace, so it
+# asks to keep one. The default itself is pinned in DefaultKeepTests.
+KEEP_ONE = ("--keep", "1")
 
 
 def load_module():
@@ -142,23 +146,24 @@ class ListingTests(PruneTestCase):
         newest = self.namespace(KEY_A, 1, age_days=1)
         middle = self.namespace(KEY_A, 2, age_days=5)
         oldest = self.namespace(KEY_A, 3, age_days=9)
-
-        with mock.patch.object(self.prune, "tree_size_bytes", return_value=2 * GIB):
-            code, out, err = self.prune_cache()
-
-        self.assertEqual((code, err), (0, ""))
-        self.assertEqual(
-            self.actions(out),
-            {
-                f"{KEY_A[:12]}/{fingerprint(1)[:12]}": "KEEP",
-                f"{KEY_A[:12]}/{fingerprint(2)[:12]}": "REMOVE",
-                f"{KEY_A[:12]}/{fingerprint(3)[:12]}": "REMOVE",
-            },
+        cases = (
+            ("the default", (), ("KEEP", "KEEP", "REMOVE"), "would remove 1 namespace and reclaim 2.0 GiB"),
+            ("--keep 1", KEEP_ONE, ("KEEP", "REMOVE", "REMOVE"), "would remove 2 namespaces and reclaim 4.0 GiB"),
         )
-        self.assertIn("would remove 2 namespaces and reclaim 4.0 GiB", out)
-        self.assertIn("Nothing was deleted", out)
-        self.assertTrue(all(path.is_dir() for path in (newest, middle, oldest)))
-        self.assertEqual(len(list((self.root / "v1" / KEY_A).iterdir())), 3)
+        for label, flags, actions, summary in cases:
+            with self.subTest(label):
+                with mock.patch.object(self.prune, "tree_size_bytes", return_value=2 * GIB):
+                    code, out, err = self.prune_cache(*flags)
+
+                self.assertEqual((code, err), (0, ""))
+                self.assertEqual(
+                    self.actions(out),
+                    {f"{KEY_A[:12]}/{fingerprint(number)[:12]}": action for number, action in zip((1, 2, 3), actions)},
+                )
+                self.assertIn(summary, out)
+                self.assertIn("Nothing was deleted", out)
+                self.assertTrue(all(path.is_dir() for path in (newest, middle, oldest)))
+                self.assertEqual(len(list((self.root / "v1" / KEY_A).iterdir())), 3)
 
     def test_listing_row_shows_size_with_one_decimal_and_the_last_used_time(self):
         self.namespace(KEY_A, 1, age_days=3)
@@ -213,8 +218,8 @@ class ListingTests(PruneTestCase):
         first = self.namespace(KEY_A, 1, age_days=2)
         second = self.namespace(KEY_A, 2, age_days=2)
 
-        _, dry_run, _ = self.prune_cache()
-        code, _, _ = self.prune_cache("--apply")
+        _, dry_run, _ = self.prune_cache(*KEEP_ONE)
+        code, _, _ = self.prune_cache(*KEEP_ONE, "--apply")
 
         self.assertEqual(
             self.actions(dry_run),
@@ -242,7 +247,7 @@ class ApplyTests(PruneTestCase):
         oldest = self.namespace(KEY_A, 3, age_days=9)
 
         with mock.patch.object(self.prune, "tree_size_bytes", return_value=2 * GIB):
-            code, out, err = self.prune_cache("--apply")
+            code, out, err = self.prune_cache(*KEEP_ONE, "--apply")
 
         self.assertEqual((code, err), (0, ""))
         self.assertTrue(newest.is_dir())
@@ -276,15 +281,30 @@ class ApplyTests(PruneTestCase):
         # Every B namespace is older than every A namespace.
         b_new = self.namespace(KEY_B, 4, age_days=50)
         b_old = self.namespace(KEY_B, 5, age_days=60)
+        namespaces = (a_new, a_mid, a_old, b_new, b_old)
 
-        code, out, _ = self.prune_cache("--apply")
+        code, out, _ = self.prune_cache(*KEEP_ONE, "--apply")
+
+        self.assertEqual(code, 0)
+        self.assertEqual([path.exists() for path in namespaces], [True, False, False, True, False])
+        self.assertIn("Reclaimed", out)
+
+    def test_each_repository_key_keeps_its_own_two_by_default(self):
+        a_new = self.namespace(KEY_A, 1, age_days=1)
+        a_mid = self.namespace(KEY_A, 2, age_days=2)
+        a_old = self.namespace(KEY_A, 3, age_days=3)
+        b_new = self.namespace(KEY_B, 4, age_days=50)
+        b_mid = self.namespace(KEY_B, 5, age_days=60)
+        b_old = self.namespace(KEY_B, 6, age_days=70)
+
+        code, _, _ = self.prune_cache("--apply")
 
         self.assertEqual(code, 0)
         self.assertEqual(
-            [path.exists() for path in (a_new, a_mid, a_old, b_new, b_old)],
-            [True, False, False, True, False],
+            [path.exists() for path in (a_new, a_mid, a_old, b_new, b_mid, b_old)],
+            [True, True, False, True, True, False],
+            "the older key's namespaces are not crowded out by the newer key's",
         )
-        self.assertIn("Reclaimed", out)
 
     def test_removal_happens_while_holding_the_namespace_lock(self):
         stale = self.namespace(KEY_A, 1, age_days=9)
@@ -305,7 +325,7 @@ class ApplyTests(PruneTestCase):
         with mock.patch.object(
             self.prune.shutil, "rmtree", side_effect=rmtree_that_checks_the_lock
         ):
-            code, _, _ = self.prune_cache("--apply")
+            code, _, _ = self.prune_cache(*KEEP_ONE, "--apply")
 
         self.assertEqual(code, 0)
         # Exactly the validated namespace, never a parent directory.
@@ -318,7 +338,7 @@ class ApplyTests(PruneTestCase):
         (stale / LOCK).unlink()  # a prepared namespace no build has locked yet
         stamp(stale, directory=NOW - 9 * DAY, marker=NOW - 9 * DAY, lock=0)
 
-        code, _, err = self.prune_cache("--apply")
+        code, _, err = self.prune_cache(*KEEP_ONE, "--apply")
 
         self.assertEqual((code, err), (0, ""))
         self.assertFalse(stale.exists())
@@ -342,7 +362,7 @@ class ApplyTests(PruneTestCase):
             with mock.patch.object(
                 self.prune, "remove_namespace", remove_after_a_build_starts_on_the_middle_one
             ):
-                code, out, err = self.prune_cache("--apply")
+                code, out, err = self.prune_cache(*KEEP_ONE, "--apply")
         finally:
             for descriptor in builds:
                 os.close(descriptor)
@@ -360,7 +380,7 @@ class ApplyTests(PruneTestCase):
         denied = PermissionError(13, "Permission denied", str(stale))
 
         with mock.patch.object(self.prune.shutil, "rmtree", side_effect=denied):
-            code, out, err = self.prune_cache("--apply")
+            code, out, err = self.prune_cache(*KEEP_ONE, "--apply")
 
         self.assertEqual(code, 1)
         self.assertIn(f"could not remove {stale}", err)
@@ -377,7 +397,7 @@ class RefusalTests(PruneTestCase):
         for label, busy in (("a removal candidate", stale), ("a kept namespace", fresh)):
             for flags in ((), ("--apply",)):
                 with self.subTest(busy=label, flags=flags), held_lock(busy):
-                    code, out, err = self.prune_cache(*flags)
+                    code, out, err = self.prune_cache(*KEEP_ONE, *flags)
                     self.assertEqual(code, 75)
                     self.assertIn(f"busy: {busy}", err)
                     self.assertIn("Nothing was removed", err)
@@ -385,7 +405,7 @@ class RefusalTests(PruneTestCase):
                     self.assertTrue(stale.is_dir() and fresh.is_dir())
 
         # The probes left nothing locked: once the build is gone the run succeeds.
-        code, _, _ = self.prune_cache("--apply")
+        code, _, _ = self.prune_cache(*KEEP_ONE, "--apply")
         self.assertEqual(code, 0)
         self.assertFalse(stale.exists())
 
@@ -430,7 +450,7 @@ class RefusalTests(PruneTestCase):
         shortcut = repository / "latest"
         shortcut.symlink_to(fresh, target_is_directory=True)
 
-        code, out, err = self.prune_cache("--apply")
+        code, out, err = self.prune_cache(*KEEP_ONE, "--apply")
 
         self.assertEqual((code, err), (0, ""))
         self.assertFalse(stale.exists())
@@ -568,7 +588,7 @@ class RefusalTests(PruneTestCase):
             return sizes
 
         with mock.patch.object(self.prune, "print_listing", swap_in_a_symlink_after_scanning):
-            code, _, err = self.prune_cache("--apply")
+            code, _, err = self.prune_cache(*KEEP_ONE, "--apply")
 
         self.assertEqual(code, 64)
         self.assertIn("changed since it was scanned", err)
@@ -626,6 +646,65 @@ class UsageTests(PruneTestCase):
         self.assertIn("LUNGFISH_RELEASE_CACHE_ROOT", err)
 
 
+class DefaultKeepTests(PruneTestCase):
+    """--keep defaults to 2. Preview and Stable build in different namespaces, so
+    the default leaves one release of each channel warm."""
+
+    def test_the_default_is_two_and_an_explicit_count_overrides_it(self):
+        self.assertEqual(self.prune.parse_args([]).keep, 2)
+        self.assertEqual(self.prune.parse_args(["--keep", "1"]).keep, 1)
+        self.assertEqual(self.prune.parse_args(["--keep", "5"]).keep, 5)
+
+    def test_the_two_most_recently_used_namespaces_survive_without_a_flag(self):
+        newest = self.namespace(KEY_A, 1, age_days=1)
+        second = self.namespace(KEY_A, 2, age_days=5)
+        oldest = self.namespace(KEY_A, 3, age_days=9)
+
+        code, out, err = self.prune_cache("--apply")
+
+        self.assertEqual((code, err), (0, ""))
+        self.assertTrue(newest.is_dir() and second.is_dir())
+        self.assertFalse(oldest.exists())
+        self.assertIn("Reclaimed", out)
+
+    def test_two_or_fewer_namespaces_are_all_kept_by_default(self):
+        for count in (1, 2):
+            with self.subTest(namespaces=count):
+                self.root = self.base / f"cache-{count}"
+                kept = [self.namespace(KEY_A, number, age_days=number * 20) for number in range(1, count + 1)]
+
+                code, out, err = self.prune_cache("--apply")
+
+                self.assertEqual((code, err), (0, ""))
+                self.assertIn("Nothing to remove", out)
+                self.assertTrue(all(path.is_dir() for path in kept))
+
+    def test_namespaces_the_builder_prepared_for_both_channels_survive_by_default(self):
+        preview = release_cache_fingerprint.prepare_cache_namespace(self.root, KEY_A, {"fixture": "preview"})
+        stable = release_cache_fingerprint.prepare_cache_namespace(self.root, KEY_A, {"fixture": "stable"})
+        for paths, age in ((preview, 40), (stable, 9)):
+            stamp(
+                paths.namespace,
+                directory=NOW - age * DAY,
+                marker=NOW - age * DAY,
+                lock=NOW - age * DAY,
+            )
+
+        code, out, err = self.prune_cache("--apply")
+
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("Nothing to remove", out)
+        self.assertTrue(preview.namespace.is_dir() and stable.namespace.is_dir())
+
+    def test_help_says_the_default_is_two_everywhere_it_states_one(self):
+        code, out, _ = self.main("--help")
+
+        stated = re.findall(r"\(default (\d+)", " ".join(out.split()))
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(len(stated), 2, "the description and the --keep option both state it")
+        self.assertEqual(set(stated), {"2"})
+
+
 class SizeTests(PruneTestCase):
     def test_size_counts_allocated_bytes_and_never_follows_symlinks(self):
         tree = self.base / "tree"
@@ -680,7 +759,7 @@ class CommandLineTests(PruneTestCase):
         stale = self.namespace(KEY_A, 1, age_days=9)
         fresh = self.namespace(KEY_A, 2, age_days=1)
 
-        dry = self.run_script("--cache-root", str(self.root))
+        dry = self.run_script("--cache-root", str(self.root), *KEEP_ONE)
         self.assertEqual(dry.returncode, 0, dry.stderr)
         self.assertEqual(
             self.actions(dry.stdout),
@@ -691,11 +770,32 @@ class CommandLineTests(PruneTestCase):
         )
         self.assertTrue(stale.is_dir())
 
-        applied = self.run_script("--cache-root", str(self.root), "--apply")
+        applied = self.run_script("--cache-root", str(self.root), *KEEP_ONE, "--apply")
         self.assertEqual(applied.returncode, 0, applied.stderr)
         self.assertIn("Reclaimed", applied.stdout)
         self.assertFalse(stale.exists())
         self.assertTrue(fresh.is_dir())
+
+    def test_the_default_keeps_two_as_a_real_process(self):
+        newest = self.namespace(KEY_A, 1, age_days=1)
+        second = self.namespace(KEY_A, 2, age_days=5)
+        oldest = self.namespace(KEY_A, 3, age_days=9)
+
+        dry = self.run_script("--cache-root", str(self.root))
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        self.assertEqual(
+            self.actions(dry.stdout),
+            {
+                f"{KEY_A[:12]}/{fingerprint(1)[:12]}": "KEEP",
+                f"{KEY_A[:12]}/{fingerprint(2)[:12]}": "KEEP",
+                f"{KEY_A[:12]}/{fingerprint(3)[:12]}": "REMOVE",
+            },
+        )
+        applied = self.run_script("--cache-root", str(self.root), "--apply")
+
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertTrue(newest.is_dir() and second.is_dir())
+        self.assertFalse(oldest.exists())
 
     def test_help_states_the_safety_rules_and_exit_codes(self):
         result = self.run_script("--help")
@@ -741,7 +841,7 @@ class BuilderCompatibilityTests(PruneTestCase):
                 lock=NOW - age * DAY,
             )
 
-        _, out, err = self.prune_cache()
+        _, out, err = self.prune_cache(*KEEP_ONE)
         self.assertEqual(err, "")
         self.assertEqual(
             self.actions(out),
@@ -772,7 +872,7 @@ class BuilderCompatibilityTests(PruneTestCase):
         )
         try:
             self.assertTrue(self.wait_for_token(ready, token), "builder lock never became ready")
-            code, _, err = self.prune_cache("--apply")
+            code, _, err = self.prune_cache(*KEEP_ONE, "--apply")
             self.assertEqual(code, 75, err)
             self.assertIn(f"busy: {older.namespace}", err)
             self.assertTrue(older.namespace.is_dir() and newer.namespace.is_dir())
@@ -787,7 +887,7 @@ class BuilderCompatibilityTests(PruneTestCase):
             marker=NOW - 9 * DAY,
             lock=NOW - 9 * DAY,
         )
-        code, _, err = self.prune_cache("--apply")
+        code, _, err = self.prune_cache(*KEEP_ONE, "--apply")
         self.assertEqual((code, err), (0, ""))
         self.assertFalse(older.namespace.exists())
         # What remains is still a namespace the builder accepts.

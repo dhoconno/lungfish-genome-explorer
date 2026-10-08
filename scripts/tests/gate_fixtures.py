@@ -121,6 +121,10 @@ def make_unit_gate_pointer(root, source, *, tier="unit", authorized=True,
     options default to the canonical selection for `tier`, which is what
     gate_evidence.find_unit_evidence requires of unit evidence; pass
     `options` to override them (for example to test a stale skip list).
+    `authorized=False` leaves a failed canonical run, which
+    find_unit_evidence reports as "red" for its commit. The pointer is
+    written because full-suite-gate.sh still writes it for people and older
+    tools. Nothing in release.py reads it any more.
 
     `root` is the release front door's repo root (request.root /
     self.root), matching where full-suite-gate.sh would write the real

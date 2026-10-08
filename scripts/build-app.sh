@@ -327,6 +327,7 @@ HELP_BOOK_DEST="$RESOURCES_DIR/Lungfish.help"
 if [ -d "$HELP_BOOK_SRC" ]; then
     echo -e "${GREEN}Copying Help Book resources...${NC}"
     cp -R "$HELP_BOOK_SRC" "$HELP_BOOK_DEST"
+    /usr/bin/plutil -replace CFBundleShortVersionString -string "$VERSION" "$HELP_BOOK_DEST/Contents/Info.plist"
 
     HELP_LOCALE_DIR="$HELP_BOOK_DEST/Contents/Resources/en.lproj"
     HELP_INDEX_PATH="$HELP_LOCALE_DIR/search.helpindex"

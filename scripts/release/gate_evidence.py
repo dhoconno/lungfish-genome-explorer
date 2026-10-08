@@ -774,59 +774,97 @@ def evidence_log_roots(root):
     return roots
 
 
+def unit_result_status(result, expected):
+    """Classify one retained result: "green", "red", or None when it is not a
+    canonical, clean unit-tier run or when its failure says nothing about the
+    code (a watchdog intervention, or the checkout changing during the run).
+    Inheritance and the red rule use this one predicate."""
+    options = result.get("options", {})
+    if result.get("kind") != "swift" or not isinstance(options, dict) or options.get("tier") != "unit":
+        return None
+    if any(options.get(key) != value for key, value in expected.items()):
+        return None
+    source = result.get("source", {})
+    if (not isinstance(source, dict) or source.get("clean") is not True
+            or not re.fullmatch(r"[0-9a-f]{40}", str(source.get("commit", "")))):
+        return None
+    if result.get("authorized") is True:
+        try:
+            validate_result(result, source)
+        except EvidenceError:
+            return None
+        return "green"
+    commands = [result.get("identityCommand"), result.get("sdkCommand"),
+                *result.get("discovery", []), *result.get("attempts", [])]
+    if any(isinstance(command, dict) and command.get("intervention") is not None for command in commands):
+        return None
+    if any("source changed" in str(error) for error in result.get("errors", [])):
+        return None
+    return "red"
+
+
 def find_unit_evidence(root, commit, patterns, logs=None):
-    """Return a record of the authorized unit-tier result that covers commit,
-    or None. A result on commit itself wins; otherwise the newest result on an
-    ancestor reached through release-neutral paths only. Every candidate must
-    pass validate_result against its own clean source and match the canonical
-    unit selection of this checkout, so a run with an older skip list never
-    counts. Without logs, every worktree's gate logs are searched."""
+    """Return the unit-tier record for commit, or None when nothing covers it.
+
+    Only canonical, clean unit-tier runs count (unit_result_status), and the
+    newest such run on a commit decides that commit. kind "exact" means the
+    newest run on commit passed. Without a run on commit, the nearest
+    ancestor that has one and differs from commit only in release-neutral
+    paths decides: kind "inherited" when its run passed, kind "red" when it
+    failed. Without logs, every worktree's gate logs are searched."""
     root = Path(root)
     log_roots = [Path(logs)] if logs else evidence_log_roots(root)
     ancestry = _git(root, "rev-list", "--max-count=5000", commit)
     ancestors = ancestry.stdout.decode().split() if ancestry.returncode == 0 else [commit]
-    directories = []
+    expected = None
+    runs = []
     for log_root in log_roots:
         try:
-            directories += [entry for entry in log_root.iterdir() if entry.is_dir() and not entry.is_symlink()]
+            directories = [entry for entry in log_root.iterdir() if entry.is_dir() and not entry.is_symlink()]
         except OSError:
             continue
-    directories.sort(key=lambda entry: entry.stat().st_mtime, reverse=True)
-    expected = None
-    inherited = None
-    for directory in directories:
-        named = GATE_DIRECTORY_NAME.match(directory.name)
-        if named and not any(full.startswith(named.group(1)) for full in ancestors):
-            continue
-        path = directory / "gate.result.json"
-        if path.is_symlink() or not path.is_file():
-            continue
-        try:
-            result = read_json(path)
-            options = result.get("options", {})
-            if options.get("tier") != "unit":
+        for directory in directories:
+            named = GATE_DIRECTORY_NAME.match(directory.name)
+            if named and not any(full.startswith(named.group(1)) for full in ancestors):
                 continue
-            if expected is None:
-                expected = canonical_tier_options("unit", False)
-            if any(options.get(key) != value for key, value in expected.items()):
+            path = directory / "gate.result.json"
+            if path.is_symlink() or not path.is_file():
                 continue
-            gated = result.get("source", {})
-            if not isinstance(gated, dict) or not re.fullmatch(r"[0-9a-f]{40}", str(gated.get("commit", ""))):
+            try:
+                result = read_json(path)
+                if expected is None:
+                    expected = canonical_tier_options("unit", False)
+                status = unit_result_status(result, expected)
+                if status is None:
+                    continue
+                digest = file_record(path, directory)["sha256"]
+                runs.append((path.stat().st_mtime, status, result["source"]["commit"], path, digest))
+            except (EvidenceError, OSError, ValueError, KeyError, TypeError):
                 continue
-            validate_result(result, gated)
-            digest = file_record(path, directory)["sha256"]
-        except (EvidenceError, OSError, ValueError):
+    newest = {}
+    for modified, status, gated, path, digest in sorted(runs, key=lambda run: run[0], reverse=True):
+        newest.setdefault(gated, (status, path, digest))
+
+    def record(kind, gated, path, digest, changed):
+        return {"schemaVersion": 1, "kind": kind, "candidateCommit": commit, "gatedCommit": gated,
+                "resultPath": str(path), "resultSha256": digest, "changedPaths": changed,
+                "releaseNeutralPaths": list(patterns)}
+
+    if commit in newest:
+        status, path, digest = newest[commit]
+        return record("exact" if status == "green" else "red", commit, path, digest, [])
+    # Otherwise the nearest ancestor with a verdict whose code the candidate
+    # shares (every change since it is release-neutral) decides, green or red.
+    # An ancestor whose code differs has nothing to say about the candidate.
+    for ancestor in ancestors[1:]:
+        if ancestor not in newest:
             continue
-        record = {"schemaVersion": 1, "candidateCommit": commit, "gatedCommit": gated["commit"],
-                  "resultPath": str(path), "resultSha256": digest,
-                  "releaseNeutralPaths": list(patterns)}
-        if gated["commit"] == commit:
-            return {**record, "kind": "exact", "changedPaths": []}
-        if inherited is None:
-            changed = neutral_delta(root, gated["commit"], commit, patterns)
-            if changed is not None:
-                inherited = {**record, "kind": "inherited", "changedPaths": changed}
-    return inherited
+        changed = neutral_delta(root, ancestor, commit, patterns)
+        if changed is None:
+            continue
+        status, path, digest = newest[ancestor]
+        return record("inherited" if status == "green" else "red", ancestor, path, digest, changed)
+    return None
 
 
 def release_neutral_patterns(root):
@@ -838,6 +876,7 @@ def run_unit_evidence(args):
     root = Path(args.root).resolve()
     patterns = release_neutral_patterns(root)
     covered = True
+    red = False
     for commit in args.commit:
         resolved = _git(root, "rev-parse", "--verify", "--quiet", commit + "^{commit}")
         full = resolved.stdout.decode().strip() if resolved.returncode == 0 else ""
@@ -845,12 +884,17 @@ def run_unit_evidence(args):
         if record is None:
             covered = False
             print(f"none {commit}")
+        elif record["kind"] == "red":
+            covered = False
+            red = True
+            print(f"red {full} failed on {record['gatedCommit']} {record['resultPath']}")
         elif record["kind"] == "exact":
             print(f"exact {full} {record['resultPath']}")
         else:
             print(f"inherited {full} from {record['gatedCommit']} "
                   f"({len(record['changedPaths'])} release-neutral paths) {record['resultPath']}")
-    return 0 if covered else 1
+    # 0 covered, 1 not covered, 3 the code already failed the unit tier.
+    return 0 if covered else (3 if red else 1)
 
 
 def result_files(result):
@@ -1116,7 +1160,7 @@ def main():
              "through release-neutral paths; print one line per commit.")
     coverage.add_argument("--root", required=True)
     coverage.add_argument("--commit", action="append", required=True)
-    coverage.add_argument("--logs", help="Gate log folder; defaults to <root>/.build/gate-logs.")
+    coverage.add_argument("--logs", help="One gate log folder to search instead of every worktree's .build/gate-logs.")
     args = parser.parse_args()
     try:
         if args.command == "unit-evidence":
