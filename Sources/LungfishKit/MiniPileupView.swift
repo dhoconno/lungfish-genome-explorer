@@ -47,6 +47,7 @@ final class MiniPileupView: NSView {
     private let topMargin: CGFloat = 4
     private let referenceTrackHeight: CGFloat = 14
     private let referenceTrackGap: CGFloat = 4
+    private let letterFace = DrawingFont.KeptMonospacedFace(weight: .medium)
 
     /// Per-position inferred reference bases from aligned reads and MD tags.
     private var inferredReferenceBases: [Int: Character] = [:]
@@ -299,7 +300,7 @@ final class MiniPileupView: NSView {
         guard endRef >= startRef else { return }
 
         if basePxWidth >= 5 {
-            let font = DrawingFont.monospaced(ofSize: min(10, max(7, basePxWidth * 0.7)), weight: .medium)
+            let font = letterFace.font(ofSize: min(10, max(7, basePxWidth * 0.7)))
             for refPos in startRef...endRef {
                 let base = inferredReferenceBases[refPos] ?? "N"
                 let x = leftMargin + CGFloat(Double(refPos) / bpPerPixel)
@@ -447,8 +448,7 @@ final class MiniPileupView: NSView {
         let basePxWidth = CGFloat(1.0 / bpPerPixel)
         guard basePxWidth >= 4 else { return }  // Too small to render letters
 
-        let fontSize = min(10, max(6, basePxWidth * 0.8))
-        let font = DrawingFont.monospaced(ofSize: fontSize, weight: .medium)
+        let font = letterFace.font(ofSize: min(10, max(6, basePxWidth * 0.8)))
         let readBases = Array(read.sequence)
 
         var refPos = read.position

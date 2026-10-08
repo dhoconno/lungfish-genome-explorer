@@ -644,7 +644,7 @@ extension SequenceViewerView {
                 frame: frame,
                 context: context,
                 rowRect: rect,
-                font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+                font: fonts.bundleLetter
             )
         } else {
             context.setStrokeColor(NSColor.systemGray.withAlphaComponent(0.55).cgColor)
@@ -1170,7 +1170,7 @@ extension SequenceViewerView {
                 frame: frame,
                 context: context,
                 rowRect: sequenceRect,
-                font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+                font: fonts.bundleLetter
             )
         } else if scale < showLineThreshold {
             // Medium zoom: draw colored blocks

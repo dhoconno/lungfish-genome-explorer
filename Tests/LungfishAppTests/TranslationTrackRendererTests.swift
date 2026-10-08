@@ -4,6 +4,7 @@
 
 import AppKit
 import XCTest
+import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishCore
 
@@ -96,5 +97,52 @@ final class TranslationTrackRendererTests: XCTestCase {
             context: ctx,
             yOffset: 0
         )
+    }
+
+    /// Amino acid letters are SF Mono Medium sized to the track. Looking that font up per draw
+    /// could return nil under load, and CoreText raised on the nil font, so the renderer keeps
+    /// the face instead.
+    func testAminoAcidLettersDrawWithoutLookingSFMonoMediumUp() throws {
+        let frame = makeFrame(start: 0, end: 60, pixelWidth: 600)
+        let result = TranslationResult(
+            protein: "MK",
+            codingSequence: "ATGAAA",
+            aminoAcidPositions: [
+                AminoAcidPosition(
+                    index: 0, aminoAcid: "M", codon: "ATG",
+                    genomicRanges: [GenomicRange(start: 9, end: 12)], isStart: true, isStop: false
+                ),
+                AminoAcidPosition(
+                    index: 1, aminoAcid: "K", codon: "AAA",
+                    genomicRanges: [GenomicRange(start: 12, end: 15)], isStart: false, isStop: false
+                ),
+            ],
+            codonTable: .standard,
+            phaseOffset: 0
+        )
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 600, pixelsHigh: 100, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        let graphics = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: rep))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphics
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        let lookups = monospacedSystemFontLookups(weight: .medium) {
+            TranslationTrackRenderer.drawCDSTranslation(
+                result: result, frame: frame, context: graphics.cgContext, yOffset: 0
+            )
+            TranslationTrackRenderer.drawFrameTranslations(
+                frames: [.plus1, .minus1],
+                sequence: String(repeating: "ATGAAACCC", count: 6) + "TAA",
+                sequenceStart: 0,
+                frame: frame,
+                context: graphics.cgContext,
+                yOffset: 20
+            )
+        }
+        XCTAssertEqual(lookups, [], "amino acid letters looked SF Mono Medium up while drawing")
     }
 }

@@ -4086,8 +4086,6 @@ private final class MSAAlignmentMatrixView: NSView {
         return Int(rawDisplayColumn)
     }
 
-
-
     private func navigationDirection(for event: NSEvent) -> MultipleSequenceAlignmentNavigationDirection? {
         switch event.keyCode {
         case 126:
@@ -4112,6 +4110,7 @@ private final class MSAAlignmentMatrixView: NSView {
     }
 }
 
+@MainActor
 private func drawResidue(
     _ residue: Character,
     rect: NSRect,
@@ -4134,7 +4133,7 @@ private func drawResidue(
         String(residue),
         in: rect.insetBy(dx: 0, dy: 1),
         color: textColor,
-        font: DrawingFont.monospaced(ofSize: 11, weight: isConsensus ? .semibold : .regular),
+        font: MultipleSequenceAlignmentViewController.residueFont(consensus: isConsensus),
         alignment: .center
     )
 }

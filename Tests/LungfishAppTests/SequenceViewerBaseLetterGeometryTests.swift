@@ -10,6 +10,7 @@
 import AppKit
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishApp
 
 @MainActor
@@ -62,5 +63,66 @@ final class SequenceViewerBaseLetterGeometryTests: XCTestCase {
             view.drawBaseLevelSequence(sequence, frame: frame, context: graphics.cgContext)
             NSGraphicsContext.restoreGraphicsState()
         }
+    }
+
+    /// Bundle and consensus base letters are SF Mono Medium. Looking that font up per draw
+    /// could return nil under load, and CoreText raised on the nil font, so the view keeps it.
+    func testBundleAndConsensusLettersDrawWithoutLookingSFMonoMediumUp() throws {
+        let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        let bases = "ACGTACGTACGTACGT"
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 16)
+        let frame = ReferenceFrame(chromosome: "chr1", start: 0, end: 16, pixelWidth: 320, sequenceLength: 16)
+        XCTAssertLessThan(frame.scale, view.showLettersThreshold, "the frame must be zoomed in far enough for letters")
+
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 320, pixelsHigh: 120, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        let graphics = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: rep))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphics
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        let lookups = monospacedSystemFontLookups(weight: .medium) {
+            view.drawBundleSequence(bases, region: region, frame: frame, context: graphics.cgContext)
+            view.drawConsensusTrack(
+                sequenceString: bases,
+                region: region,
+                frame: frame,
+                context: graphics.cgContext,
+                rect: CGRect(x: 0, y: 80, width: 320, height: 20)
+            )
+        }
+        XCTAssertEqual(lookups, [], "base letters looked SF Mono Medium up while drawing")
+    }
+
+    /// Base letters on loaded sequences, in the single track and in stacked tracks, are SF Mono
+    /// Bold sized to the cell. Looking that font up per draw could return nil under load, and
+    /// CoreText raised on the nil font, so the view keeps the face instead.
+    func testSequenceLettersDrawWithoutLookingSFMonoBoldUp() throws {
+        let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        let sequence = try Sequence(name: "chr1", alphabet: .dna, bases: "ACGTACGTACGTACGT")
+        let frame = ReferenceFrame(chromosome: "chr1", start: 0, end: 16, pixelWidth: 320, sequenceLength: 16)
+        let stacked = StackedSequenceInfo(
+            sequence: sequence, trackIndex: 0, yOffset: 0, sequenceHeight: 40,
+            isReference: true, isActive: true
+        )
+
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 320, pixelsHigh: 120, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        let graphics = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: rep))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphics
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        let lookups = monospacedSystemFontLookups(weight: .bold) {
+            view.drawBaseLevelSequence(sequence, frame: frame, context: graphics.cgContext)
+            view.drawStackedSequences([stacked], frame: frame, context: graphics.cgContext)
+        }
+        XCTAssertEqual(lookups, [], "sequence letters looked SF Mono Bold up while drawing")
     }
 }

@@ -227,6 +227,9 @@ private final class NucleotideStripView: NSView {
         }
     }
 
+    // Looked up once per view, see `DrawingFont.keptMonospaced(ofSize:weight:)`.
+    private let letterFont = DrawingFont.keptMonospaced(ofSize: 9, weight: .medium)
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setAccessibilityIdentifier("knownAlleleNucleotideStrip")
@@ -260,7 +263,7 @@ private final class NucleotideStripView: NSView {
             if baseWidth >= 11 {
                 let text = String(base) as NSString
                 let attributes: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
+                    .font: letterFont,
                     .foregroundColor: NSColor.textColor,
                 ]
                 let size = text.size(withAttributes: attributes)

@@ -1,4 +1,6 @@
+import AppKit
 import XCTest
+import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishKit
@@ -108,6 +110,32 @@ final class MiniBAMViewportTests: XCTestCase {
             ),
             5_000
         )
+    }
+
+    /// Reference and read base letters are SF Mono Medium sized to the zoom. Looking that font
+    /// up per draw could return nil under load, and CoreText raised on the nil font, so the
+    /// view keeps the face instead.
+    func testMiniPileupDrawsBaseLettersWithoutLookingSFMonoMediumUp() throws {
+        let pileupView = MiniPileupView(frame: .zero)
+        let reference = String(repeating: "ACGTTGCA", count: 8)
+        let read = AlignedRead(
+            name: "read-1", flag: 0, chromosome: "contig", position: 4, mapq: 60,
+            cigar: [CIGAROperation(op: .match, length: 40)],
+            sequence: String(reference.dropFirst(4).prefix(40)),
+            qualities: Array(repeating: 40, count: 40)
+        )
+        // 64 bp across a 600 pt viewport is about 9 pt per base, wide enough for letters on
+        // both the reference track and the read.
+        pileupView.configure(
+            reads: [read], contigName: "contig", contigLength: 64,
+            viewportWidth: 600, viewportHeight: 220, rebuildReference: true, referenceSequence: reference
+        )
+        let rep = try XCTUnwrap(pileupView.bitmapImageRepForCachingDisplay(in: pileupView.bounds))
+
+        let lookups = monospacedSystemFontLookups(weight: .medium) {
+            pileupView.cacheDisplay(in: pileupView.bounds, to: rep)
+        }
+        XCTAssertEqual(lookups, [], "the pileup looked SF Mono Medium up while drawing")
     }
 
     private func makeReads(count: Int) -> [AlignedRead] {

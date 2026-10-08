@@ -22,6 +22,10 @@ enum TranslationTrackRenderer {
     /// Vertical padding between sub-tracks.
     static let subTrackSpacing: CGFloat = 1
 
+    /// Amino acid letters, sized to the track. The renderer has no instances, so it keeps the
+    /// face for the life of the app, see `DrawingFont.KeptMonospacedFace`.
+    static let aminoAcidLetter = DrawingFont.KeptMonospacedFace(weight: .medium)
+
     // MARK: - CDS Translation
 
     /// Draws a CDS translation result aligned to the genomic coordinate system.
@@ -53,7 +57,7 @@ enum TranslationTrackRenderer {
 
         // Font for amino acid letters (only used when zoomed in enough)
         let showLetters = pixelsPerBase >= 8
-        let font = DrawingFont.monospaced(ofSize: min(11, trackHeight * 0.75), weight: .medium)
+        let font = aminoAcidLetter.font(ofSize: min(11, trackHeight * 0.75))
 
         // Draw track background
         let trackRect = CGRect(
@@ -172,7 +176,7 @@ enum TranslationTrackRenderer {
     ) {
         let pixelsPerBase = CGFloat(frame.pixelWidth) / CGFloat(max(1, frame.end - frame.start))
         let showLetters = pixelsPerBase >= 8
-        let font = DrawingFont.monospaced(ofSize: min(10, subTrackHeight * 0.7), weight: .medium)
+        let font = aminoAcidLetter.font(ofSize: min(10, subTrackHeight * 0.7))
 
         let translations = TranslationEngine.translateFrames(frames, sequence: sequence, table: table)
 

@@ -2053,7 +2053,7 @@ public enum ReadTrackRenderer {
             if let labelText = insertionLabel(for: ins.bases, pixelsPerBase: pixelsPerBase) {
                 let label = labelText as NSString
                 let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedSystemFont(ofSize: 7, weight: .semibold),
+                    .font: insertionLabelFont,
                     .foregroundColor: labelColor
                 ]
                 label.draw(at: CGPoint(x: x + 2, y: y + 0.5), withAttributes: attrs)

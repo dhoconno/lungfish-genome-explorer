@@ -1454,11 +1454,11 @@ extension SequenceViewerView {
         let visibleBases = frame.end - frame.start
         let pixelsPerBase = frame.dataPixelWidth / CGFloat(max(1, visibleBases))
 
-        // Font sizing based on available space. The font comes from DrawingFont so a nil from
-        // AppKit can never reach the attribute dictionary (CoreText aborts on that).
+        // Font sizing based on available space. The font comes from the face the view keeps, so
+        // a nil from AppKit can never reach the attribute dictionary (CoreText aborts on that).
         let letterFontSize = Self.baseLetterFontSize(pixelsPerBase: pixelsPerBase, trackHeight: trackHeight)
         let showLetters = letterFontSize != nil
-        let font = DrawingFont.monospaced(ofSize: letterFontSize ?? 6, weight: .bold)
+        let font = fonts.sequenceLetter.font(ofSize: letterFontSize ?? 6)
 
         // Draw quality overlay BEFORE the base colors so it appears behind
         let trackRect = CGRect(x: frame.leadingInset, y: trackY, width: frame.dataPixelWidth, height: trackHeight)

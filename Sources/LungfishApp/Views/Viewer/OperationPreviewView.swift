@@ -271,8 +271,8 @@ final class OperationPreviewView: NSView {
     private let readHeight: CGFloat = 20
     private let readCornerRadius: CGFloat = 3
     private let readSpacing: CGFloat = 8
-    private let qualityBarHeight: CGFloat = 4
     private let drawPadding: CGFloat = 16
+    private let fonts = Fonts()
 
     private var drawableRect: CGRect {
         bounds.insetBy(dx: drawPadding, dy: drawPadding)
@@ -894,7 +894,7 @@ final class OperationPreviewView: NSView {
             if cellWidth >= 10 {
                 let base = isError ? errors[errorPositions.firstIndex(of: i)! % errors.count] : bases[i % 4]
                 let baseAttrs: [NSAttributedString.Key: Any] = [
-                    .font: DrawingFont.monospaced(ofSize: min(11, cellWidth - 2), weight: isError ? .bold : .regular),
+                    .font: (isError ? fonts.errorBaseLetter : fonts.baseLetter).font(ofSize: min(11, cellWidth - 2)),
                     .foregroundColor: isError ? FASTQPalette.trimmed : FASTQPalette.summaryText,
                 ]
                 let baseStr = NSAttributedString(string: base.uppercased(), attributes: baseAttrs)
@@ -1339,7 +1339,7 @@ final class OperationPreviewView: NSView {
         // Show pattern being searched
         if !pattern.isEmpty {
             let patternAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold),
+                .font: fonts.emphasizedLabel,
                 .foregroundColor: FASTQPalette.readFill,
             ]
             let label = isMotif ? "Motif: \(pattern.uppercased())" : "Pattern: \"\(pattern)\""
@@ -1557,7 +1557,7 @@ final class OperationPreviewView: NSView {
 
             // ID
             let idAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+                .font: fonts.readID,
                 .foregroundColor: matched ? FASTQPalette.summaryText : FASTQPalette.dimText,
             ]
             NSAttributedString(string: read.id, attributes: idAttrs)
@@ -1580,7 +1580,6 @@ final class OperationPreviewView: NSView {
             y += readHeight + readSpacing
         }
     }
-
 
     // MARK: - Quality Report Preview
 
@@ -1754,7 +1753,7 @@ final class OperationPreviewView: NSView {
 
             // Barcode label
             let bcAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 7, weight: .medium),
+                .font: fonts.barcodeLabel,
                 .foregroundColor: isUnassigned ? FASTQPalette.dimText : color,
             ]
             NSAttributedString(string: bc, attributes: bcAttrs)
@@ -1802,7 +1801,7 @@ final class OperationPreviewView: NSView {
 
             // Bundle label
             let bundleAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold),
+                .font: fonts.emphasizedLabel,
                 .foregroundColor: color,
             ]
             NSAttributedString(string: "\(bc).lungfishfastq", attributes: bundleAttrs)

@@ -104,7 +104,7 @@ public final class MSADistanceMatrixGridView: NSView, NSMenuItemValidation, NSVi
         let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         let base = typography.font(for: .monospaced)
         valueFont = increaseContrast
-            ? NSFont.monospacedSystemFont(ofSize: base.pointSize, weight: .semibold)
+            ? DrawingFont.keptMonospaced(ofSize: base.pointSize, weight: .semibold)
             : base
         if showsValues {
             let sample = ("0.0000" as NSString).size(withAttributes: [.font: valueFont]).width

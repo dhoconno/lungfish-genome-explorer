@@ -19,10 +19,17 @@
 // a nil result is actually observable, fall back to a font that cannot be nil, and replace
 // non-finite sizes with the system font size. For any finite size and a non-nil AppKit
 // result they return exactly the font AppKit returns, so normal rendering is unchanged.
+//
+// The cause of the nil was found on 2026-10-07 and is explained at
+// `keptMonospaced(ofSize:weight:)`, the factory for SF Mono fonts a view looks up once and keeps.
 
 import AppKit
 import CoreText
+import LungfishCore
 import ObjectiveC
+import os.log
+
+private let drawingFontLogger = Logger(subsystem: LogSubsystem.app, category: "DrawingFont")
 
 public enum DrawingFont {
     /// Whether `size` is usable as a text point size for drawing (finite and positive).
@@ -64,6 +71,57 @@ public enum DrawingFont {
             primary: { callSizeFactory("systemFontOfSize:", $0) },
             monospacedFallback: false
         )
+    }
+
+    /// SF Mono at `size` and `weight`, for a font a view looks up once, keeps in a stored
+    /// property and reuses on every draw.
+    ///
+    /// NSFont caches each typeface with only a weak reference to its font descriptor. Views
+    /// that made SF Mono Medium on every draw and dropped it let that descriptor go away, and
+    /// on macOS 26 under heavy load the cached typeface outlived it for up to 220 ms. Every
+    /// `NSFont.monospacedSystemFont(ofSize:weight:)` call in that window returned nil, so
+    /// `monospaced(ofSize:weight:)` would draw in its fallback font. In those windows the
+    /// failable `NSFont(descriptor:size:)`, given a descriptor made here, still returned SF
+    /// Mono with the same metrics, and a view that keeps the font keeps its descriptor alive.
+    /// If the lookup fails, an error is logged and the user's fixed-pitch font stands in.
+    public static func keptMonospaced(ofSize size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        resolve(
+            size: size,
+            primary: { resolvedSize in
+                if let descriptor = system(ofSize: resolvedSize, weight: weight).fontDescriptor.withDesign(.monospaced),
+                   let font = NSFont(descriptor: descriptor, size: resolvedSize) {
+                    return font
+                }
+                drawingFontLogger.error(
+                    "SF Mono lookup failed for \(Double(resolvedSize)) pt weight \(Double(weight.rawValue)), using the fixed-pitch user font"
+                )
+                return nil
+            },
+            monospacedFallback: true
+        )
+    }
+
+    /// SF Mono at one weight, for drawing code whose point size follows the geometry.
+    ///
+    /// A view or renderer keeps one, which keeps a font of the face alive, and so its font
+    /// descriptor (see `keptMonospaced(ofSize:weight:)`). Each size comes from that descriptor
+    /// through the failable `NSFont(descriptor:size:)`, never from
+    /// `NSFont.monospacedSystemFont(ofSize:weight:)`, and has the same name and metrics.
+    public struct KeptMonospacedFace {
+        private let base: NSFont
+
+        public init(weight: NSFont.Weight) {
+            base = DrawingFont.keptMonospaced(ofSize: NSFont.systemFontSize, weight: weight)
+        }
+
+        /// The face at `size`. A non-finite size resolves to the system font size.
+        public func font(ofSize size: CGFloat) -> NSFont {
+            DrawingFont.resolve(
+                size: size,
+                primary: { NSFont(descriptor: base.fontDescriptor, size: $0) },
+                monospacedFallback: true
+            )
+        }
     }
 
     // MARK: - Resolution (internal for tests)
