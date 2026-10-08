@@ -136,7 +136,7 @@ final class ProcessOutputStreamingTests: XCTestCase {
     }
 
     func testFreshMegahitPublishesLiveSiblingLogOnCancellation() async throws {
-        let fixture = try StreamingProcessFixture(script: "echo diagnostic; exec sleep 10")
+        let fixture = try StreamingProcessFixture(script: "echo diagnostic; exec sleep 120")
         defer { fixture.remove() }
         let output = fixture.root.appendingPathComponent("fresh-output")
         let received = expectation(description: "diagnostic received")
@@ -148,7 +148,10 @@ final class ProcessOutputStreamingTests: XCTestCase {
                 if line == "diagnostic" { received.fulfill() }
             }
         }
-        await fulfillment(of: [received], timeout: 5)
+        // Generous: the child only has to start and print, which takes milliseconds,
+        // but under a fully loaded unit tier a launch has taken over 5 s. The child
+        // sleeps longer than the wait, so it is still running when the test cancels it.
+        await fulfillment(of: [received], timeout: 60)
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "Logging cannot precreate MEGAHIT's destination")
         let siblings = try FileManager.default.contentsOfDirectory(at: fixture.root, includingPropertiesForKeys: nil)
             .filter { $0.lastPathComponent.hasPrefix(".fresh-output.assembly-") }
@@ -165,7 +168,7 @@ final class ProcessOutputStreamingTests: XCTestCase {
     }
 
     func testAssemblyLogSurvivesCancellationAtFinalOutputPath() async throws {
-        let fixture = try StreamingProcessFixture(script: "echo diagnostic; exec sleep 10")
+        let fixture = try StreamingProcessFixture(script: "echo diagnostic; exec sleep 120")
         defer { fixture.remove() }
         let output = fixture.root.appendingPathComponent("final output")
         let received = expectation(description: "diagnostic received")
@@ -177,7 +180,7 @@ final class ProcessOutputStreamingTests: XCTestCase {
                 if line == "diagnostic" { received.fulfill() }
             }
         }
-        await fulfillment(of: [received], timeout: 5)
+        await fulfillment(of: [received], timeout: 60)
         task.cancel()
         do { _ = try await task.value; XCTFail("Expected cancellation") }
         catch is CancellationError { }
