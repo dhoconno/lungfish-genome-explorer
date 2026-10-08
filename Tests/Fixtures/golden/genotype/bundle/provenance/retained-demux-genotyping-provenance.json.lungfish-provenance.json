@@ -87,12 +87,12 @@
       "sizeBytes" : 4898
     },
     {
-      "checksumSHA256" : "0b56be319140670e2e0157eee55246a082847e6d7028475c54be22dee9eb0e83",
-      "fileSize" : 31581,
+      "checksumSHA256" : "c34b272d73258cbb24c41583b8d74e8b25a3503e00579329ed662d42e76b1ce7",
+      "fileSize" : 31828,
       "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/filter-demux-retained-bam.py",
       "role" : "input",
-      "sha256" : "0b56be319140670e2e0157eee55246a082847e6d7028475c54be22dee9eb0e83",
-      "sizeBytes" : 31581
+      "sha256" : "c34b272d73258cbb24c41583b8d74e8b25a3503e00579329ed662d42e76b1ce7",
+      "sizeBytes" : 31828
     },
     {
       "checksumSHA256" : "7fa24d96d85742f5f59f9db1659e5e38791123ca1fa46394d45d23459ff06312",
@@ -1295,12 +1295,12 @@
           "sizeBytes" : 4898
         },
         {
-          "checksumSHA256" : "0b56be319140670e2e0157eee55246a082847e6d7028475c54be22dee9eb0e83",
-          "fileSize" : 31581,
+          "checksumSHA256" : "c34b272d73258cbb24c41583b8d74e8b25a3503e00579329ed662d42e76b1ce7",
+          "fileSize" : 31828,
           "path" : "<RUN_ROOT>\/genotype\/out\/SIMULATED-MHC-haplotypes.lungfishgenotype\/.amplicon-genotyping\/filter-demux-retained-bam.py",
           "role" : "input",
-          "sha256" : "0b56be319140670e2e0157eee55246a082847e6d7028475c54be22dee9eb0e83",
-          "sizeBytes" : 31581
+          "sha256" : "c34b272d73258cbb24c41583b8d74e8b25a3503e00579329ed662d42e76b1ce7",
+          "sizeBytes" : 31828
         }
       ],
       "outputs" : [
