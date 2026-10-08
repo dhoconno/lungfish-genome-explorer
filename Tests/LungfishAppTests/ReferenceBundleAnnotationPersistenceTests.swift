@@ -362,12 +362,11 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
         // when other test files in the same process leave windows behind.
         let windowController = delegate.createAndShowMainWindow()
         _ = windowController.window
-        // Nothing here reads the screen: the notification handlers find the
-        // window by its state scope. Keeping the window off screen keeps the
-        // display link from redrawing the viewer while a test waits, which
-        // under a loaded parallel gate once hit a CoreText font failure
-        // (a nil font attribute in the ruler's text layout) that no code of
-        // this test exercises.
+        // The notification handlers find the window by its state scope and
+        // nothing here reads the screen, so the window stays off screen.
+        // Ordering it out does not stop its views from drawing. Core Animation
+        // still displays every layer marked as needing display, so the viewer
+        // and its ruler draw while a test waits.
         windowController.window?.orderOut(nil)
 
         // `handleAnnotationDeleted`/`handleAnnotationUpdated` are private `@objc` methods

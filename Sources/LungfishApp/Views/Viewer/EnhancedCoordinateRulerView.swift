@@ -146,6 +146,12 @@ public class EnhancedCoordinateRulerView: NSView {
         NSColor.labelColor
     }
 
+    // Fonts are looked up once per view, see `monospacedFont(ofSize:weight:)`.
+    private let rangeFont = EnhancedCoordinateRulerView.monospacedFont(ofSize: 11, weight: .medium)
+    private let totalLengthFont = NSFont.systemFont(ofSize: 10, weight: .regular)
+    private let positionLabelFont = EnhancedCoordinateRulerView.monospacedFont(ofSize: 10, weight: .medium)
+    private let placeholderFont = NSFont.systemFont(ofSize: 11, weight: .regular)
+
 
     // MARK: - State
 
@@ -435,17 +441,13 @@ public class EnhancedCoordinateRulerView: NSView {
             totalText = "of \(formatNumber(totalLength)) bp total"
         }
 
-        // Primary font for range
-        let primaryFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
         let primaryAttributes: [NSAttributedString.Key: Any] = [
-            .font: primaryFont,
+            .font: rangeFont,
             .foregroundColor: primaryTextColor
         ]
 
-        // Secondary font for total
-        let secondaryFont = NSFont.systemFont(ofSize: 10, weight: .regular)
         let secondaryAttributes: [NSAttributedString.Key: Any] = [
-            .font: secondaryFont,
+            .font: totalLengthFont,
             .foregroundColor: secondaryTextColor
         ]
 
@@ -491,9 +493,8 @@ public class EnhancedCoordinateRulerView: NSView {
 
     private func drawPlaceholderInfoBar(context: CGContext) {
         let placeholderText = "No sequence loaded"
-        let font = NSFont.systemFont(ofSize: 11, weight: .regular)
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
+            .font: placeholderFont,
             .foregroundColor: secondaryTextColor
         ]
 
@@ -617,10 +618,8 @@ public class EnhancedCoordinateRulerView: NSView {
         let tickInterval = calculateTickInterval(visibleRange: visibleRange, pixelWidth: frame.dataPixelWidth)
         let minorTickInterval = tickInterval / 5
 
-        // Font for position labels - use a slightly larger, bolder font for visibility
-        let labelFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
         let labelAttributes: [NSAttributedString.Key: Any] = [
-            .font: labelFont,
+            .font: positionLabelFont,
             .foregroundColor: rulerLabelColor
         ]
 
