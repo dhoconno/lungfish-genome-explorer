@@ -101,6 +101,29 @@ public enum DrawingFont {
         )
     }
 
+    /// SF Mono at one weight, for drawing code whose point size follows the geometry.
+    ///
+    /// A view or renderer keeps one, which keeps a font of the face alive, and so its font
+    /// descriptor (see `keptMonospaced(ofSize:weight:)`). Each size comes from that descriptor
+    /// through the failable `NSFont(descriptor:size:)`, never from
+    /// `NSFont.monospacedSystemFont(ofSize:weight:)`, and has the same name and metrics.
+    public struct KeptMonospacedFace {
+        private let base: NSFont
+
+        public init(weight: NSFont.Weight) {
+            base = DrawingFont.keptMonospaced(ofSize: NSFont.systemFontSize, weight: weight)
+        }
+
+        /// The face at `size`. A non-finite size resolves to the system font size.
+        public func font(ofSize size: CGFloat) -> NSFont {
+            DrawingFont.resolve(
+                size: size,
+                primary: { NSFont(descriptor: base.fontDescriptor, size: $0) },
+                monospacedFallback: true
+            )
+        }
+    }
+
     // MARK: - Resolution (internal for tests)
 
     /// Sanitizes `size`, asks `primary` for the font, and falls back to a font that can

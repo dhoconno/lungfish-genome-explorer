@@ -70,6 +70,8 @@ final class DrawingFontTests: XCTestCase {
 
     /// The kept font replaces `NSFont.monospacedSystemFont(ofSize:weight:)` in drawing code, so
     /// it must be the same SF Mono face with the same metrics. The two fonts are not `==`.
+    /// Each kept font is made before AppKit's, so it keeps the face's descriptor alive while
+    /// AppKit's lookup runs, and that lookup cannot return nil here.
     func testKeptMonospacedIsTheSFMonoFontAppKitReturnsWithTheSameMetrics() {
         let sample = "ACGTN 0123" as NSString
         for size: CGFloat in [7, 9, 10, 11, 12] {
@@ -104,6 +106,47 @@ final class DrawingFontTests: XCTestCase {
     func testKeptMonospacedResolvesANonFiniteSizeToTheSystemSize() {
         for size: CGFloat in [.nan, .infinity] {
             let font = DrawingFont.keptMonospaced(ofSize: size, weight: .medium)
+            XCTAssertEqual(font.pointSize, NSFont.systemFontSize, "size \(size)")
+            XCTAssertTrue(font.isFixedPitch, "size \(size)")
+        }
+    }
+
+    /// Drawing code sizes some letters to the geometry, so the kept face must give AppKit's SF
+    /// Mono at any size, fractional ones included. The face is made first, so it keeps the
+    /// descriptor alive while AppKit's lookup runs.
+    func testKeptMonospacedFaceIsTheSFMonoFontAppKitReturnsAtEverySize() {
+        let sample = "ACGTN MKVL* +ACGT 0123" as NSString
+        for weight: NSFont.Weight in [.regular, .medium, .semibold, .bold] {
+            let face = DrawingFont.KeptMonospacedFace(weight: weight)
+            for size: CGFloat in [6, 7, 7.7, 9, 10, 10.27, 11, 12, 15, 24] {
+                let kept = face.font(ofSize: size)
+                let appKit = NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+                let label = "\(size) pt weight \(weight.rawValue)"
+                XCTAssertEqual(kept.fontName, appKit.fontName, label)
+                XCTAssertEqual(kept.pointSize, appKit.pointSize, label)
+                XCTAssertTrue(kept.isFixedPitch, label)
+                XCTAssertEqual(kept.ascender, appKit.ascender, label)
+                XCTAssertEqual(kept.descender, appKit.descender, label)
+                XCTAssertEqual(kept.leading, appKit.leading, label)
+                XCTAssertEqual(sample.size(withAttributes: [.font: kept]),
+                               sample.size(withAttributes: [.font: appKit]), label)
+            }
+        }
+    }
+
+    func testKeptMonospacedFaceDoesNotUseTheLookupThatReturnedNil() {
+        let face = DrawingFont.KeptMonospacedFace(weight: .bold)
+        XCTAssertEqual(monospacedSystemFontLookups(weight: .bold) {
+            for size: CGFloat in [6, 8.5, 11, 16] {
+                _ = face.font(ofSize: size)
+            }
+        }, [])
+    }
+
+    func testKeptMonospacedFaceResolvesANonFiniteSizeToTheSystemSize() {
+        let face = DrawingFont.KeptMonospacedFace(weight: .semibold)
+        for size: CGFloat in [.nan, .infinity] {
+            let font = face.font(ofSize: size)
             XCTAssertEqual(font.pointSize, NSFont.systemFontSize, "size \(size)")
             XCTAssertTrue(font.isFixedPitch, "size \(size)")
         }

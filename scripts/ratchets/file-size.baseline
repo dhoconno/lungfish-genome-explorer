@@ -67,7 +67,7 @@ Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift 1159
 Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift 1293
 Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2653
 Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift 2260
-Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4218
+Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4217
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1827
 Sources/LungfishApp/Views/Viewer/ReadTrackRenderer.swift 2432
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Alignment.swift 1412

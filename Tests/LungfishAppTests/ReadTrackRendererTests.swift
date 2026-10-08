@@ -2,7 +2,9 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import XCTest
+import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishCore
 
@@ -412,6 +414,44 @@ final class ReadTrackRendererTests: XCTestCase {
         XCTAssertEqual(read.insertions.count, 1)
         XCTAssertEqual(read.insertions[0].position, 150) // refPos after 50M
         XCTAssertEqual(read.insertions[0].bases.count, 3)
+    }
+
+    /// Base-mode insertion labels are SF Mono Semibold, one per insertion. Looking that font up
+    /// per draw could return nil under load, and CoreText raised on the nil font, so the
+    /// renderer keeps it.
+    func testInsertionLabelsDrawWithoutLookingSFMonoSemiboldUp() throws {
+        let frame = makeFrame(start: 0, end: 200, pixelWidth: 1000)
+        let read = AlignedRead(
+            name: "r1", flag: 99, chromosome: "chr1", position: 50, mapq: 60,
+            cigar: [
+                CIGAROperation(op: .match, length: 20),
+                CIGAROperation(op: .insertion, length: 3),
+                CIGAROperation(op: .match, length: 27),
+            ],
+            sequence: String(repeating: "ACGTA", count: 10),
+            qualities: Array(repeating: 30, count: 50)
+        )
+        XCTAssertEqual(read.insertions.count, 1)
+        let (packed, overflow) = ReadTrackRenderer.packReads([read], frame: frame)
+
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 1000, pixelsHigh: 60, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        let graphics = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: rep))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphics
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        let lookups = monospacedSystemFontLookups(weight: .semibold) {
+            ReadTrackRenderer.drawBaseReads(
+                packedReads: packed, overflow: overflow, frame: frame,
+                referenceSequence: nil, referenceStart: 0,
+                context: graphics.cgContext, rect: CGRect(x: 0, y: 0, width: 1000, height: 60)
+            )
+        }
+        XCTAssertEqual(lookups, [], "insertion labels looked SF Mono Semibold up while drawing")
     }
 
     // MARK: - Drawing Smoke Tests (verifies no crash, not visual output)

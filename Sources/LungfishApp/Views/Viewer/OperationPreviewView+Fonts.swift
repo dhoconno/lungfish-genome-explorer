@@ -15,5 +15,9 @@ extension OperationPreviewView {
         let barcodeLabel = DrawingFont.keptMonospaced(ofSize: 7, weight: .medium)
         /// The search pattern and the demultiplex preview's output bundle names.
         let emphasizedLabel = DrawingFont.keptMonospaced(ofSize: 10, weight: .semibold)
+        /// Error bases in the error correction preview, sized to the cell.
+        let errorBaseLetter = DrawingFont.KeptMonospacedFace(weight: .bold)
+        /// The other bases in the error correction preview, sized to the cell.
+        let baseLetter = DrawingFont.KeptMonospacedFace(weight: .regular)
     }
 }

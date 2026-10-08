@@ -20,17 +20,23 @@ final class ViewerRegressionTests: XCTestCase {
     }
 
     /// The text search and demultiplex previews draw read IDs and barcode labels in SF Mono
-    /// Medium, and the search pattern and output bundle names in SF Mono Semibold. Looking
-    /// those fonts up per draw could return nil under load, and CoreText raised on the nil
-    /// font, so the view keeps its fonts instead.
+    /// Medium, and the search pattern and output bundle names in SF Mono Semibold. The error
+    /// correction preview draws error bases in SF Mono Bold and the others in SF Mono Regular.
+    /// Looking those fonts up per draw could return nil under load, and CoreText raised on the
+    /// nil font, so the view keeps its fonts instead.
     func testOperationPreviewDrawsSFMonoTextWithoutLookingTheFontsUp() throws {
         let view = OperationPreviewView(frame: NSRect(x: 0, y: 0, width: 400, height: 240))
         let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.parameters.searchPattern = "SRR1770413.3"
+        let checks: [(OperationPreviewView.OperationKind, [(NSFont.Weight, String)])] = [
+            (.searchText, [(.medium, "Medium"), (.semibold, "Semibold")]),
+            (.demultiplex, [(.medium, "Medium"), (.semibold, "Semibold")]),
+            (.errorCorrection, [(.bold, "Bold"), (.regular, "Regular")]),
+        ]
 
-        for operation: OperationPreviewView.OperationKind in [.searchText, .demultiplex] {
+        for (operation, weights) in checks {
             view.update(operation: operation, statistics: nil)
-            for (weight, name): (NSFont.Weight, String) in [(.medium, "Medium"), (.semibold, "Semibold")] {
+            for (weight, name) in weights {
                 let lookups = monospacedSystemFontLookups(weight: weight) {
                     view.cacheDisplay(in: view.bounds, to: rep)
                 }

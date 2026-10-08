@@ -758,7 +758,7 @@ extension SequenceViewerView {
 
         let letterFontSize = Self.baseLetterFontSize(pixelsPerBase: pixelsPerBase, trackHeight: rect.height)
         let showLetters = letterFontSize != nil
-        let font = DrawingFont.monospaced(ofSize: letterFontSize ?? 6, weight: .bold)
+        let font = fonts.sequenceLetter.font(ofSize: letterFontSize ?? 6)
 
         // Inset drawing area slightly for visual clarity
         let drawRect = rect.insetBy(dx: 0, dy: 2)

@@ -894,7 +894,7 @@ final class OperationPreviewView: NSView {
             if cellWidth >= 10 {
                 let base = isError ? errors[errorPositions.firstIndex(of: i)! % errors.count] : bases[i % 4]
                 let baseAttrs: [NSAttributedString.Key: Any] = [
-                    .font: DrawingFont.monospaced(ofSize: min(11, cellWidth - 2), weight: isError ? .bold : .regular),
+                    .font: (isError ? fonts.errorBaseLetter : fonts.baseLetter).font(ofSize: min(11, cellWidth - 2)),
                     .foregroundColor: isError ? FASTQPalette.trimmed : FASTQPalette.summaryText,
                 ]
                 let baseStr = NSAttributedString(string: base.uppercased(), attributes: baseAttrs)

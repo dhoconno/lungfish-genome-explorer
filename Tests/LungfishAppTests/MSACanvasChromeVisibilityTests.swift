@@ -6,6 +6,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 import LungfishIO
+import LungfishTestSupport
 
 /// Preview 2026.9.12 shipped with the sequence-name gutter, the corner title
 /// and the column header blank on screen even though layout and accessibility
@@ -141,6 +142,25 @@ final class MSACanvasChromeVisibilityTests: XCTestCase {
         XCTAssertGreaterThan(ink["label"] ?? 0, 0.01, "the comparison label is not painted\n\(evidence)")
         XCTAssertGreaterThan(ink["pinned"] ?? 0, 0.01, "the pinned comparison row is not painted\n\(evidence)")
         XCTAssertGreaterThan(ink["scroll"] ?? 0, 0.1, "the alignment matrix is not painted\n\(evidence)")
+    }
+
+    /// Residue letters are SF Mono, Semibold on the pinned consensus row and Regular on the
+    /// rows, one per visible residue. Looking those fonts up per draw could return nil under
+    /// load, and CoreText raised on the nil font, so the canvas keeps them.
+    func testMatrixDrawsResidueLettersWithoutLookingSFMonoUp() async throws {
+        let controller = try await controller()
+        let checks: [(identifier: String, weight: NSFont.Weight, name: String)] = [
+            ("msaComparisonHeader", .semibold, "Semibold"),
+            ("multiple-sequence-alignment-matrix-view", .regular, "Regular"),
+        ]
+        for check in checks {
+            let matrix = try descendant(controller.view, check.identifier)
+            let rep = try XCTUnwrap(matrix.bitmapImageRepForCachingDisplay(in: matrix.bounds))
+            let lookups = monospacedSystemFontLookups(weight: check.weight) {
+                matrix.cacheDisplay(in: matrix.bounds, to: rep)
+            }
+            XCTAssertEqual(lookups, [], "\(check.identifier) looked SF Mono \(check.name) up while drawing")
+        }
     }
 
     func testEveryCanvasChromeViewClipsItsDrawingToItsBounds() async throws {
