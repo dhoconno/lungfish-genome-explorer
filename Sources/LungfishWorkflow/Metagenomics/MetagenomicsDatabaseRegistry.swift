@@ -159,7 +159,7 @@ public actor MetagenomicsDatabaseRegistry {
     private(set) var databasesBaseURL: URL
 
     /// Storage configuration source for shared managed storage resolution.
-    private let storageConfigStore: ManagedStorageConfigStore?
+    let storageConfigStore: ManagedStorageConfigStore?
 
     /// In-memory database entries, keyed by name.
     private var databases: [String: MetagenomicsDatabaseInfo] = [:]
@@ -1069,11 +1069,8 @@ public actor MetagenomicsDatabaseRegistry {
 
     // MARK: - Download Support
 
-    /// Downloads a database from the built-in catalog.
-    ///
-    /// The download uses `URLSessionDownloadTask` which supports automatic
-    /// resume. The database tarball is downloaded to a temporary location,
-    /// then extracted to `<databasesBaseURL>/kraken2/<collection>/`.
+    /// Downloads a database from the built-in catalog, or clones it from another
+    /// channel's root. A test process stops here when the root is real managed storage.
     ///
     /// - Parameters:
     ///   - name: Name of the database to download (must be a catalog entry).
@@ -1084,6 +1081,7 @@ public actor MetagenomicsDatabaseRegistry {
         name: String,
         progress: @Sendable @escaping (Double, String) -> Void
     ) async throws -> URL {
+        checkTestProcessWrite(operation: "Downloading \(name)")
         try loadIfNeeded()
 
         guard let prior = databases[name] else {
@@ -1233,6 +1231,7 @@ public actor MetagenomicsDatabaseRegistry {
         catalogID: String,
         progress: @Sendable @escaping (Double, String) -> Void
     ) async throws {
+        checkTestProcessWrite(operation: "Updating \(catalogID)")
         try loadIfNeeded()
 
         guard let (name, installed, catalogEntry) = resolveUpdateTarget(identifier: catalogID) else {

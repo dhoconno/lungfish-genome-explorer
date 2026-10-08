@@ -182,7 +182,7 @@ Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 181
 Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2635
 Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline.swift 855
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift 1148
-Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2268
+Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2267
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsImportService.swift 2644
 Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift 1787
 Sources/LungfishWorkflow/Native/NativeToolRunner.swift 1208

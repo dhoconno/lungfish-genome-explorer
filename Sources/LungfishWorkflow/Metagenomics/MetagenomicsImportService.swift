@@ -643,7 +643,7 @@ public enum MetagenomicsImportService {
 
     /// Imports NAO-MGS results into a canonical result directory:
     /// - `manifest.json`
-    /// - `hits.sqlite` (SQLite database with all hits and taxon summaries)
+    /// - `hits.sqlite` (all hits, with taxa named from the NCBI Taxonomy that `taxonomyRegistry` installs)
     /// - `references/*.fasta` (best-effort fetch from NCBI)
     public static func importNaoMgs(
         inputURL: URL,
@@ -653,6 +653,7 @@ public enum MetagenomicsImportService {
         fetchReferences: Bool = true,
         preferredName: String? = nil,
         provenanceCommand: [String]? = nil,
+        taxonomyRegistry: MetagenomicsDatabaseRegistry = .shared,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> NaoMgsImportResult {
         let runClock = ProvenanceRunClock()
@@ -783,17 +784,16 @@ public enum MetagenomicsImportService {
         do {
             let unresolvedIds = try rwDB.taxonIdsNeedingNames()
             if !unresolvedIds.isEmpty {
-                let registry = MetagenomicsDatabaseRegistry.shared
                 var taxonomyPath: URL?
 
-                if let installed = try await registry.installedDatabase(tool: .ncbiTaxonomy),
+                if let installed = try await taxonomyRegistry.installedDatabase(tool: .ncbiTaxonomy),
                    let path = installed.path {
                     taxonomyPath = path
                 } else {
                     logger.info("NCBI Taxonomy database not installed \u{2014} downloading automatically")
                     progress?(0.70, "Downloading NCBI Taxonomy database\u{2026}")
                     do {
-                        let installedURL = try await registry.downloadDatabase(
+                        let installedURL = try await taxonomyRegistry.downloadDatabase(
                             name: "NCBI Taxonomy"
                         ) { dlProgress, dlMessage in
                             progress?(0.70 + dlProgress * 0.05, dlMessage)

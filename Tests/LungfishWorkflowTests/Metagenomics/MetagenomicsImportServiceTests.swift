@@ -6,6 +6,7 @@ import Foundation
 import Darwin
 import Testing
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 @Suite(.serialized)
@@ -293,6 +294,12 @@ struct MetagenomicsImportServiceTests {
         #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("hits.sqlite").path))
         #expect(result.sampleName == "SAMPLE_A")
         #expect(result.taxonCount == 2)
+        // Names come from the fixture taxonomy installed under the workspace.
+        let hits = try NaoMgsDatabase(at: bundle.appendingPathComponent("hits.sqlite"))
+        #expect(Set(try hits.fetchTaxonSummaryRows(samples: nil).map(\.name)) == ["Fixture virus alpha", "Fixture virus beta"])
+        #expect(FileManager.default.fileExists(
+            atPath: workspace.appendingPathComponent("managed-databases/kraken2/ncbi-taxonomy/names.dmp").path
+        ))
         let provenance = try expectImportProvenance(
             in: result.resultDirectory,
             workflowName: "lungfish import nao-mgs",
@@ -674,7 +681,13 @@ private func importNaoMgsForTesting(
     preferredName: String? = nil,
     progress: (@Sendable (Double, String) -> Void)? = nil
 ) async throws -> NaoMgsImportResult {
-    try await withNaoMgsImportLock {
+    // The import installs NCBI Taxonomy when its registry lacks it. A registry
+    // beside the output directory with a fixture taxdump keeps that install off
+    // the network and out of the user's managed storage.
+    let taxonomyRegistry = makeFixtureTaxonomyRegistry(
+        root: outputDirectory.deletingLastPathComponent().appendingPathComponent("managed-databases", isDirectory: true)
+    )
+    return try await withNaoMgsImportLock {
         try await MetagenomicsImportService.importNaoMgs(
             inputURL: inputURL,
             outputDirectory: outputDirectory,
@@ -682,9 +695,21 @@ private func importNaoMgsForTesting(
             minIdentity: minIdentity,
             fetchReferences: fetchReferences,
             preferredName: preferredName,
+            taxonomyRegistry: taxonomyRegistry,
             progress: progress
         )
     }
+}
+
+private func makeFixtureTaxonomyRegistry(root: URL) -> MetagenomicsDatabaseRegistry {
+    MetagenomicsDatabaseRegistry(
+        baseDirectory: root,
+        catalog: MetagenomicsDatabaseInfo.builtInCatalog.filter { $0.tool == MetagenomicsTool.ncbiTaxonomy.rawValue },
+        databaseInstaller: NCBITaxonomyFixture.installer(
+            archive: root.appendingPathComponent("taxdump.tar.gz"),
+            scientificNames: [111: "Fixture virus alpha", 222: "Fixture virus beta"]
+        )
+    )
 }
 
 private func withNaoMgsImportLock<T>(_ body: () async throws -> T) async throws -> T {

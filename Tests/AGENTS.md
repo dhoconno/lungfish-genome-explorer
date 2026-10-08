@@ -35,6 +35,7 @@ scripts/tests/test_full_suite_gate_tiers.py pins these regexes, so change them t
 - Do not add assertions that read Swift source text with `.contains("...")`. 94 files already hold 658 of them and a ratchet will freeze the count (REVIEW.md R11).
 - Put a test in the target of the module it tests. Tests/LungfishAppTests holds 515 files, many for other modules (R11).
 - Inject URL openers and presenters, or a test can open the real browser or block on a modal (memory file project_test_suite_review.md).
+- Give code that installs into managed storage a root under the temporary directory, such as `MetagenomicsDatabaseRegistry(baseDirectory:)` in-process or `LUNGFISH_STORAGE_ROOT` for a CLI subprocess. A SwiftPM test otherwise resolves the Stable root `~/.lungfish-stable`. A test process that installs a database under any channel root or `~/.lungfish-shared` stops in `ManagedStorageTestWriteGuard` (Sources/LungfishCore/Storage/ManagedStorageTestWriteGuard.swift) and names the path. `NCBITaxonomyFixture` in LungfishTestSupport stands in for the NCBI taxdump download that a NAO-MGS import makes when its registry has no taxonomy.
 
 ## Known traps
 

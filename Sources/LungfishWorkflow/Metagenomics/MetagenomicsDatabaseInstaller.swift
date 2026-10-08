@@ -420,6 +420,7 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
         let runClock = ProvenanceRunClock(startedAt: now())
         let started = runClock.startedAt
         let finalURL = Self.installationURL(for: database, databasesBaseURL: databasesBaseURL)
+        ManagedStorageTestWriteGuard.checkWrite(to: finalURL, operation: "Installing \(database.name)")
         let staging = finalURL.deletingLastPathComponent().appendingPathComponent(".install-\(uuid().uuidString)", isDirectory: true)
         var steps: [MetagenomicsDatabaseInstallStepEvidence] = []
         var didPromoteStaging = false

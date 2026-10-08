@@ -6,6 +6,7 @@ import Foundation
 import Darwin
 import Testing
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 @Suite(.serialized)
@@ -1063,7 +1064,20 @@ private func importNaoMgsForTesting(
     preferredName: String? = nil,
     progress: (@Sendable (Double, String) -> Void)? = nil
 ) async throws -> NaoMgsImportResult {
-    try await withNaoMgsImportLock {
+    // The import installs NCBI Taxonomy when its registry lacks it. A registry
+    // beside the output directory with a fixture taxdump keeps that install off
+    // the network and out of the user's managed storage.
+    let taxonomyRoot = outputDirectory.deletingLastPathComponent()
+        .appendingPathComponent("managed-databases", isDirectory: true)
+    let taxonomyRegistry = MetagenomicsDatabaseRegistry(
+        baseDirectory: taxonomyRoot,
+        catalog: MetagenomicsDatabaseInfo.builtInCatalog.filter { $0.tool == MetagenomicsTool.ncbiTaxonomy.rawValue },
+        databaseInstaller: NCBITaxonomyFixture.installer(
+            archive: taxonomyRoot.appendingPathComponent("taxdump.tar.gz"),
+            scientificNames: [:]
+        )
+    )
+    return try await withNaoMgsImportLock {
         try await MetagenomicsImportService.importNaoMgs(
             inputURL: inputURL,
             outputDirectory: outputDirectory,
@@ -1071,6 +1085,7 @@ private func importNaoMgsForTesting(
             minIdentity: minIdentity,
             fetchReferences: fetchReferences,
             preferredName: preferredName,
+            taxonomyRegistry: taxonomyRegistry,
             progress: progress
         )
     }
