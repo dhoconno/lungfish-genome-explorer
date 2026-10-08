@@ -81,7 +81,8 @@ public actor DependencyReconciler {
             metagenomicsDatabaseVersions: await services.metagenomicsDatabaseVersions(),
             installedMicromambaVersion: await services.installedMicromambaVersion(),
             knownEnvironmentNames: Self.builtInPackEnvironmentNames(),
-            environmentExecutableExists: services.environmentExecutableExists
+            environmentExecutableExists: services.environmentExecutableExists,
+            explicitLockPackages: manifest.explicitLockPackages()
         )
         return DependencyPlanner.plan(inputs)
     }

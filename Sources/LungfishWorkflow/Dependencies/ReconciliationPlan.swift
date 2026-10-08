@@ -19,6 +19,10 @@ public struct ReconciliationPlan: Codable, Sendable, Equatable {
         case specChanged
         /// Only the conda build string changed; the version is unchanged.
         case buildChanged
+        /// The pinned package is right, but the environment's other packages differ from the
+        /// tool's explicit lock. A fresh solve of the pin alone pulls in whatever dependency
+        /// versions are newest, which once installed polars 2.0 under EsViritu 1.3.3 and broke it.
+        case lockMismatch
         /// Disk metadata disagrees with what the receipt claims (tampering, partial install,
         /// unreadable `conda-meta`, or a receipt entry that never reached `.installed`).
         case metadataMismatch
