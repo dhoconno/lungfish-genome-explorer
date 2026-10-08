@@ -12,7 +12,6 @@ from pathlib import Path
 import re
 import secrets
 import shlex
-import shutil
 import signal
 import stat
 import subprocess
@@ -44,8 +43,9 @@ from sparkle_yank import (  # noqa: E402
     parse_appcast_items,
     plan_yank,
 )
-from gate_evidence import (EvidenceError, create_manifest, evidence_log_roots,  # noqa: E402
-                           find_unit_evidence, source_identity, verify_manifest)
+from gate_evidence import (EvidenceError, _descendant_pids, create_manifest,  # noqa: E402
+                           evidence_log_roots, find_unit_evidence, source_identity,
+                           verify_manifest)
 from release_cache_fingerprint import (  # noqa: E402
     CacheFingerprintError,
     CachePaths,
@@ -87,21 +87,39 @@ def _record_timing(phase: str, seconds: float, exit_status: int | None) -> None:
 
 
 def _stop_process_group(process: Any, grace: float = 30.0) -> None:
-    """SIGTERM a child's whole process group, then SIGKILL after grace."""
+    """Stop a child and everything it started: its process group, and every
+    descendant in another session too (full-suite-gate.sh runs `swift test`
+    in its own session). SIGTERM first, then SIGKILL after grace."""
     if process.poll() is not None:
         return
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass  # Already gone, or an exited leader macOS answers with EPERM.
+    descendants = _descendant_pids(process.pid)
+
+    def signal_all(sig: int) -> None:
+        try:
+            os.killpg(process.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass  # Already gone, or an exited leader macOS answers with EPERM.
+        for pid in descendants:
+            try:
+                os.kill(pid, sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    signal_all(signal.SIGTERM)
     try:
         process.wait(timeout=grace)
     except subprocess.TimeoutExpired:
+        signal_all(signal.SIGKILL)
+        process.wait()
+    for pid in descendants:  # A descendant in its own session outlives its parent.
         try:
-            os.killpg(process.pid, signal.SIGKILL)
+            os.kill(pid, 0)
+        except (ProcessLookupError, PermissionError):
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
-        process.wait()
 
 
 class ReleaseError(RuntimeError):
@@ -624,7 +642,9 @@ def run_package(root: Path, channel: str) -> int:
         def stop(signum: int, _frame: Any) -> None:
             raise SystemExit(128 + signum)
 
-        previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGHUP)}
+        # A signal the caller ignores (nohup ignores SIGHUP) stays ignored.
+        previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGHUP)
+                    if signal.getsignal(sig) is not signal.SIG_IGN}
         try:
             identity = ReleaseCoordinator(operations).package(request)
         finally:
@@ -1921,10 +1941,10 @@ class LocalReleaseOperations:
             json.dumps(unit_evidence, sort_keys=True, indent=2) + "\n", encoding="utf-8"
         )
         try:
-            covering = Path(unit_evidence["resultPath"])
-            if hashlib.sha256(covering.read_bytes()).hexdigest() != unit_evidence["resultSha256"]:
+            covering = Path(unit_evidence["resultPath"]).read_bytes()
+            if hashlib.sha256(covering).hexdigest() != unit_evidence["resultSha256"]:
                 raise ReleaseError("unit-tier evidence changed after it was checked")
-            shutil.copyfile(covering, directory / "unit-precondition.result.json")
+            (directory / "unit-precondition.result.json").write_bytes(covering)
         except OSError as error:
             raise ReleaseError(f"unit-tier evidence could not be retained ({error})") from error
         source = pinned
@@ -1992,6 +2012,8 @@ class LocalReleaseOperations:
         pinned = source_identity(self.root)
         if pinned.get("clean") is not True or not pinned.get("commit"):
             raise ReleaseError("package requires a clean checkout")
+        if HEX_COMMIT.fullmatch(request.release_dir.name) and pinned["commit"] != request.release_dir.name:
+            raise ReleaseError("HEAD moved after package started; start it again")
         read_end, write_end = os.pipe()
         try:
             command = self._package_command(request, ["--gate-handoff-fd", str(read_end)])
@@ -2009,10 +2031,14 @@ class LocalReleaseOperations:
             raise
         finally:
             os.close(read_end)
-        print(f"Building the candidate while the gates run (builder pid {process.pid}).")
         build = PackageBuild(process=process, handoff=write_end, started=time.monotonic(), source=pinned)
-        self._package_source = pinned
-        self._active_build = build
+        try:
+            print(f"Building the candidate while the gates run (builder pid {process.pid}).")
+            self._package_source = pinned
+            self._active_build = build
+        except BaseException:
+            self.abort_package_build(build)
+            raise
         return build
 
     def _close_handoff(self, build: PackageBuild) -> None:

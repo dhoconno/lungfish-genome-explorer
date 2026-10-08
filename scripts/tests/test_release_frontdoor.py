@@ -1312,6 +1312,36 @@ class StopProcessGroupTests(GateOperationsMixin, unittest.TestCase):
         process.poll.return_value = None if running else 0
         return process
 
+    def test_a_descendant_in_its_own_session_is_stopped_with_its_parent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            pid_file = Path(temporary) / "child.pid"
+            parent = subprocess.Popen(
+                [sys.executable, "-c",
+                 "import subprocess, sys, time\n"
+                 "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'],"
+                 " start_new_session=True)\n"
+                 f"open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
+                 "time.sleep(120)\n"],
+                start_new_session=True,
+            )
+            deadline = time.monotonic() + 10
+            while not pid_file.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            child = int(pid_file.read_text())
+
+            self.release._stop_process_group(parent, grace=5)
+
+            deadline = time.monotonic() + 5
+            alive = True
+            while alive and time.monotonic() < deadline:
+                try:
+                    os.kill(child, 0)
+                    time.sleep(0.05)
+                except ProcessLookupError:
+                    alive = False
+            self.assertFalse(alive, "the child in its own session must not outlive the stop")
+            self.assertIsNotNone(parent.poll())
+
     def test_a_finished_process_is_left_alone(self):
         process = self.process(running=False)
 
@@ -1850,6 +1880,13 @@ class PackageBuildHandoffTests(GateOperationsMixin, unittest.TestCase):
         self.wait_for(lambda: (self.work / "assembled").exists(), "the builder to assemble the candidate")
         return build
 
+    def handed_over(self):
+        """What the stand-in builder read from the pipe ("" when it read nothing).
+        Stopping the builder races its read of end of file, so a refused
+        handoff may leave an empty file; what matters is that no PASS came."""
+        path = self.work / "handoff.txt"
+        return path.read_text() if path.exists() else ""
+
     def retained_evidence(self, channel="preview", source=None):
         contract = self.release.load_contract(ROOT / "config/release-contract.json")
         manifest = make_gate_fixture(self.root / "retained", source or self.SOURCE, channel,
@@ -1948,7 +1985,7 @@ class PackageBuildHandoffTests(GateOperationsMixin, unittest.TestCase):
         self.assertIsNotNone(build.process.poll(), "the builder was stopped, not left compiling")
         self.assertIsNone(build.handoff)
         self.assertFalse(self.receipt.exists())
-        self.assertFalse((self.work / "handoff.txt").exists())
+        self.assertNotIn("PASS", self.handed_over())
         child = int((self.work / "child.pid").read_text())
         self.wait_for(lambda: not self.process_exists(child), "the builder's own child to stop")
 
@@ -1986,7 +2023,7 @@ class PackageBuildHandoffTests(GateOperationsMixin, unittest.TestCase):
         self.assertIsNone(build.process.poll(), "the builder keeps waiting; no gate result has arrived")
         time.sleep(0.2)
         self.assertFalse(self.receipt.exists(), "no receipt before the gates hand over their evidence")
-        self.assertFalse((self.work / "handoff.txt").exists())
+        self.assertNotIn("PASS", self.handed_over())
         self.assertIsInstance(build.handoff, int)
 
     def test_the_environment_carries_the_identity_plist_and_the_runner_environment(self):
@@ -2142,7 +2179,7 @@ class PackageBuildHandoffTests(GateOperationsMixin, unittest.TestCase):
         self.assertIsNone(build.handoff, "package aborted the build and closed the pipe")
         self.assertIsNone(operations._active_build)
         self.assertFalse(self.receipt.exists())
-        self.assertFalse((self.work / "handoff.txt").exists(), "nothing was ever handed over as passing")
+        self.assertNotIn("PASS", self.handed_over(), "nothing was ever handed over as passing")
 
     def test_start_pins_the_clean_commit_before_anything_else_starts(self):
         operations = self.operations()
@@ -2175,6 +2212,16 @@ class PackageBuildHandoffTests(GateOperationsMixin, unittest.TestCase):
         self.assertEqual(build.source, self.SOURCE)
         self.assertEqual(operations._package_source, self.SOURCE)
         self.assertIs(operations._active_build, build)
+
+    def test_a_head_that_moved_after_package_named_its_folder_is_refused(self):
+        operations = self.operations()
+        operations._package_command = mock.Mock(side_effect=AssertionError("no command is built"))
+
+        with mock.patch.object(self.release.subprocess, "Popen", side_effect=AssertionError("no builder starts")):
+            with self.assertRaisesRegex(self.release.ReleaseError, "HEAD moved after package started"):
+                self.start(operations, source={"commit": "b" * 40, "clean": True, "worktreeSha256": "1" * 64})
+
+        self.assertIsNone(operations._active_build)
 
     def test_a_dirty_or_unidentified_checkout_is_refused_before_anything_starts(self):
         cases = (
@@ -2215,7 +2262,7 @@ class PackageBuildHandoffTests(GateOperationsMixin, unittest.TestCase):
                 self.assertIsNotNone(build.process.poll(), "the builder was stopped")
                 self.assertIsNone(build.handoff)
                 self.assertFalse(self.receipt.exists())
-                self.assertFalse((self.work / "handoff.txt").exists(), "PASS was never written")
+                self.assertNotIn("PASS", self.handed_over(), "PASS was never written")
                 self.assertIsNone(operations._active_build)
                 (self.work / "assembled").unlink(missing_ok=True)  # so the next builder is awaited afresh
 
@@ -2411,6 +2458,20 @@ class RunPackageSignalTests(unittest.TestCase):
             self.assertTrue(callable(during[number]))
             self.assertNotEqual(during[number], self.sentinel, f"{signal.Signals(number).name} is handled while packaging")
             self.assertEqual(signal.getsignal(number), self.sentinel, "and the previous handler is back afterwards")
+
+    def test_a_signal_the_caller_ignores_stays_ignored(self):
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        during = {}
+
+        def package(_request):
+            during["hup"] = signal.getsignal(signal.SIGHUP)
+            during["term"] = signal.getsignal(signal.SIGTERM)
+
+        self.run_package(package)
+
+        self.assertIs(during["hup"], signal.SIG_IGN, "nohup must keep protecting the package")
+        self.assertIsNot(during["term"], signal.SIG_IGN)
+        self.assertIs(signal.getsignal(signal.SIGHUP), signal.SIG_IGN)
 
     def test_a_termination_signal_becomes_system_exit_with_the_conventional_status(self):
         for number in self.SIGNALS:

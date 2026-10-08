@@ -503,6 +503,26 @@ class RedEvidenceTests(InheritanceTestCase):
     release-neutral paths, for the descendants a green ancestor would otherwise
     cover. Only failures that describe the code count."""
 
+    def test_a_watchdog_on_a_diagnostic_retry_never_hides_a_real_failure(self):
+        # The authoritative attempt failed; only the isolated retry of the
+        # failing class needed the watchdog. The failure still describes the code.
+        self.repo.evidence(self.a, "unit-a-green")
+        self.repo.evidence(self.a, "unit-a-red", authorized=False)
+        self.repo.edit("unit-a-red", lambda r: r["attempts"].append(
+            {**r["attempts"][0], "role": "diagnostic-retry", "intervention": "timeout"}))
+        self.repo.age("unit-a-green", 3600)
+        self.repo.age("unit-a-red", 60)
+
+        self.assertEqual(self.find(self.a)["kind"], "red")
+
+    def test_a_failure_wins_a_tie_on_result_time(self):
+        self.repo.evidence(self.a, "unit-a-green")
+        self.repo.evidence(self.a, "unit-a-red", authorized=False)
+        self.repo.age("unit-a-green", 600)
+        self.repo.age("unit-a-red", 600)
+
+        self.assertEqual(self.find(self.a)["kind"], "red")
+
     def assert_red(self, record, *, candidate, gated, name):
         self.assertIsNotNone(record, "a failed run is reported, never silently ignored")
         self.assertEqual(record["kind"], "red")

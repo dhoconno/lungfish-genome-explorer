@@ -21,7 +21,7 @@ Unit-tier evidence lives under `.build/gate-logs` in the checkout that ran it, a
 python3 scripts/release/gate_evidence.py unit-evidence --root . --commit HEAD
 ```
 
-It prints `exact`, `inherited` (with the commit that was tested), `red` (the newest run on this code failed) or `none`. It exits 0 only when evidence covers every commit named, and 3 when any of them already failed. The pre-push hook then refuses the push rather than running the unit tier again on that code.
+It prints `exact`, `inherited` (with the commit that was tested), `red` (the run that decides this code failed) or `none`. The newest canonical run on a commit decides that commit, and without one the nearest ancestor with a run whose changes since are all release-neutral decides. It exits 0 only when evidence covers every commit named, and 3 when any of them already failed. The pre-push hook then refuses the push rather than running the unit tier again on that code.
 
 ## Release-neutral paths
 

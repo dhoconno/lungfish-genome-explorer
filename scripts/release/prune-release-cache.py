@@ -10,7 +10,7 @@ explicit maintenance action that removes them.
 
 The default is a dry run: it lists every namespace with its size and last-used
 time as KEEP or REMOVE and deletes nothing. --apply removes the REMOVE ones.
---keep N (default 2, minimum 1; Preview and Stable use different namespaces) keeps the N most recently used namespaces per
+--keep N (default 2, minimum 1; enough for one Preview and one Stable namespace) keeps the N most recently used namespaces per
 repository key. Last used is the newest mtime of the namespace directory, its
 marker and its .build.lock. The default cache root is
 $LUNGFISH_RELEASE_CACHE_ROOT, else /private/var/tmp/lungfish-release-cache,
@@ -519,7 +519,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         type=keep_count,
         default=2,
         metavar="N",
-        help="keep the N most recently used namespaces per repository key (default 2, one per channel)",
+        help="keep the N most recently used namespaces per repository key (default 2, enough for one per channel)",
     )
     parser.add_argument(
         "--apply",

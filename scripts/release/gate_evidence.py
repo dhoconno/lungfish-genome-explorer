@@ -794,8 +794,12 @@ def unit_result_status(result, expected):
         except EvidenceError:
             return None
         return "green"
+    # A diagnostic retry never changes the verdict, so only the commands that
+    # produced it can make a failure uninformative.
+    authoritative = [attempt for attempt in result.get("attempts", [])
+                     if isinstance(attempt, dict) and attempt.get("role") == "authoritative"]
     commands = [result.get("identityCommand"), result.get("sdkCommand"),
-                *result.get("discovery", []), *result.get("attempts", [])]
+                *result.get("discovery", []), *authoritative]
     if any(isinstance(command, dict) and command.get("intervention") is not None for command in commands):
         return None
     if any("source changed" in str(error) for error in result.get("errors", [])):
@@ -842,7 +846,8 @@ def find_unit_evidence(root, commit, patterns, logs=None):
             except (EvidenceError, OSError, ValueError, KeyError, TypeError):
                 continue
     newest = {}
-    for modified, status, gated, path, digest in sorted(runs, key=lambda run: run[0], reverse=True):
+    # Newest first; at equal times a failure wins, so a tie never hides one.
+    for modified, status, gated, path, digest in sorted(runs, key=lambda run: (run[0], run[1] == "red"), reverse=True):
         newest.setdefault(gated, (status, path, digest))
 
     def record(kind, gated, path, digest, changed):
