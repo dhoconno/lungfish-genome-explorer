@@ -113,7 +113,7 @@ extension TaxonomyExtractionPipeline {
         tree: TaxonTree,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> URL {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: scratch, withIntermediateDirectories: true)
         let baseName = config.outputFile.deletingPathExtension().lastPathComponent
@@ -163,7 +163,7 @@ extension TaxonomyExtractionPipeline {
             resolvedTaxIds: extraction.taxIds,
             outputURLs: [output],
             extractedCount: records,
-            runtime: Date().timeIntervalSince(startTime),
+            runtime: runClock.elapsed,
             commandPrefix: ["LungfishWorkflow", "extract-taxon-reads"]
         )
         return output

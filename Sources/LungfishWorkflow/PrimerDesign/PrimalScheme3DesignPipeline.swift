@@ -249,7 +249,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         let runtimeLease = request.executableURL == nil ? try await runtimePreparer?(progress) : nil
         defer { runtimeLease?.release() }
         progress?(0.05, "Validating sequence or alignment inputs")
-        let workflowStartedAt = Date()
+        let workflowClock = ProvenanceRunClock()
         let scratch = destination.deletingLastPathComponent().appendingPathComponent(
             ".primalscheme3-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: false)
@@ -620,7 +620,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             artifacts.append(.init(sourceURL: provenance, relativePath: provenancePath, role: "toolProvenance", format: "json"))
             resultPaths.append(provenancePath)
             // LGE derives the ordering worksheet; it is not an engine-native output.
-            let orderStarted = Date()
+            let orderClock = ProvenanceRunClock()
             let bedURL = output.appendingPathComponent("primer.bed")
             let orderURL = request.options.selectionAlgorithm == .alleleCoverage
                 ? scratch.appendingPathComponent("derived/\(resultID.uuidString)/\(PrimalSchemeOrderSheet.filename)")
@@ -646,7 +646,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 path: destination.appendingPathComponent(bedPath).path, role: .input, origin: bedURL.path))
             orderBuilder = try orderBuilder.relocatedOutput(Self.descriptor(orderURL,
                 path: destination.appendingPathComponent(orderPath).path, role: .output, origin: orderURL.path))
-            let orderEnvelope = try orderBuilder.complete(exitStatus: 0, stderr: "", startedAt: orderStarted, endedAt: Date())
+            let orderEnvelope = try orderBuilder.complete(exitStatus: 0, stderr: "", startedAt: orderClock.startedAt, endedAt: orderClock.now)
             let orderProvenanceURL = logs.appendingPathComponent("order-sheet.json")
             try encoder.encode(orderEnvelope).write(to: orderProvenanceURL, options: .withoutOverwriting)
             let orderProvenancePath = Self.relative(orderProvenanceURL, to: scratch)
@@ -665,7 +665,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         } catch {
             do {
                 try Self.retainFailureArtifact(scratch: scratch, destination: destination,
-                    request: request, startedAt: workflowStartedAt, error: error)
+                    request: request, runClock: workflowClock, error: error)
                 try? FileManager.default.removeItem(at: scratch)
             } catch let retentionError {
                 throw PrimalScheme3DesignError.invalidRequest(
@@ -864,9 +864,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         ], options: [.prettyPrinted, .sortedKeys])
         if let capabilitiesJSON { runtimeEvidence["capabilities.json"] = capabilitiesJSON }
         try Task.checkCancellation()
-        let start = Date()
+        let executionClock = ProvenanceRunClock()
         try persist("03-design-started.json", ["status": "started", "argv": [executable.path] + command.arguments,
-            "workingDirectory": command.workingDirectory.path, "startedAt": ISO8601DateFormatter().string(from: start)])
+            "workingDirectory": command.workingDirectory.path, "startedAt": ISO8601DateFormatter().string(from: executionClock.startedAt)])
         let result: NativeToolResult
         do {
             result = try await native.runProcess(executableURL: executable, arguments: command.arguments,
@@ -925,7 +925,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         }
         return .init(argv: result.arguments, stdout: result.stdout, stderr: result.stderr, exitStatus: result.exitCode,
                      version: executedVersion, runtime: runtimeIdentity,
-                     startedAt: start, endedAt: Date(), executableSHA256: executableHash,
+                     startedAt: executionClock.startedAt, endedAt: executionClock.now, executableSHA256: executableHash,
                      runtimeEvidence: runtimeEvidence, capabilitiesJSON: capabilitiesJSON,
                      auditValidationJSON: auditValidationJSON, auditProvenanceJSON: auditProvenanceJSON,
                      auditArgv: auditArgv, auditExitStatus: auditExitStatus)
@@ -995,7 +995,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
 
     private static func retainFailureArtifact(scratch: URL, destination: URL,
                                               request: PrimalScheme3DesignRequest,
-                                              startedAt: Date, error: Error) throws {
+                                              runClock: ProvenanceRunClock, error: Error) throws {
         guard FileManager.default.fileExists(atPath: scratch.path) else { return }
         let parent = destination.deletingLastPathComponent()
         var failure = parent.appendingPathComponent(destination.lastPathComponent + ".failure", isDirectory: true)
@@ -1007,7 +1007,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                                                    isDirectory: true)
         try FileManager.default.copyItem(at: scratch, to: staging)
         do {
-            let finishedAt = Date()
+            let finishedAt = runClock.now
             let files = try regularFiles(in: staging).map { file -> [String: Any] in
                 ["path": relative(file, to: staging), "sha256": try ProvenanceFileHasher.sha256(of: file),
                  "size": try ProvenanceFileHasher.fileSize(of: file)]
@@ -1021,9 +1021,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 "workflowVersion": "1", "status": error is CancellationError ? "cancelled" : "failed",
                 "exitStatus": NSNull(), "argv": request.invocation.argv,
                 "reproducibleCommand": request.invocation.argv.map(shellEscape).joined(separator: " "),
-                "startedAt": ISO8601DateFormatter().string(from: startedAt),
+                "startedAt": ISO8601DateFormatter().string(from: runClock.startedAt),
                 "endedAt": ISO8601DateFormatter().string(from: finishedAt),
-                "wallTimeSeconds": finishedAt.timeIntervalSince(startedAt),
+                "wallTimeSeconds": finishedAt.timeIntervalSince(runClock.startedAt),
                 "stderr": error.localizedDescription, "runtime": runtime, "resolvedOptions": options,
                 "requestedDestination": destination.path, "failureArtifact": failure.path,
                 "retainedFiles": files

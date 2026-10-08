@@ -54,6 +54,11 @@ public actor ProvenanceRecorder {
     /// Active and recently completed workflow runs, keyed by run ID.
     private var runs: [UUID: WorkflowRun] = [:]
 
+    /// Clocks timing the runs this recorder began, keyed by run ID. A step's
+    /// end and the run's end are read from them, so a wall-clock step cannot
+    /// make a run end before it began. Imported runs have none.
+    private var runClocks: [UUID: ProvenanceRunClock] = [:]
+
     /// Maps output file paths to the run ID that produced them.
     private var outputIndex: [String: UUID] = [:]
 
@@ -81,8 +86,10 @@ public actor ProvenanceRecorder {
         name: String,
         parameters: [String: ParameterValue] = [:]
     ) -> UUID {
-        let run = WorkflowRun(name: name, parameters: parameters)
+        let runClock = ProvenanceRunClock()
+        let run = WorkflowRun(name: name, startTime: runClock.startedAt, parameters: parameters)
         runs[run.id] = run
+        runClocks[run.id] = runClock
         logger.info("Provenance: began run '\(name)' [\(run.id)]")
         return run.id
     }
@@ -134,6 +141,7 @@ public actor ProvenanceRecorder {
         }
 
         let truncatedStderr = ProvenanceStderr.truncated(stderr)
+        let recordedAt = runClocks[runID]?.now ?? Date()
 
         let step = StepExecution(
             toolName: toolName,
@@ -152,7 +160,8 @@ public actor ProvenanceRecorder {
             peakMemoryBytes: peakMemoryBytes,
             stderr: truncatedStderr,
             dependsOn: dependsOn,
-            endTime: Date()
+            startTime: recordedAt,
+            endTime: recordedAt
         )
 
         runs[runID]?.steps.append(step)
@@ -170,7 +179,7 @@ public actor ProvenanceRecorder {
     public func completeRun(_ runID: UUID, status: RunStatus) {
         guard runs[runID] != nil else { return }
         runs[runID]?.status = status
-        runs[runID]?.endTime = Date()
+        runs[runID]?.endTime = runClocks[runID]?.now ?? Date()
         logger.info("Provenance: run \(runID) → \(status.rawValue)")
     }
 

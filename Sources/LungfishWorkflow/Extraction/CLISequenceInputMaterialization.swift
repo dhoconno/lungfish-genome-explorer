@@ -131,7 +131,7 @@ public enum CLISequenceInputMaterialization {
 
         var resolvedURLs: [URL] = []
         var materializedPairs: [CLISequenceInputMaterializationPair] = []
-        var materializationStartedAt: Date?
+        var materializationClock: ProvenanceRunClock?
         var materializationEndedAt: Date?
         let fileManager = FileManager.default
         var tempDirectoryWasDirectory = ObjCBool(false)
@@ -147,8 +147,8 @@ public enum CLISequenceInputMaterialization {
             for input in preflightInputs {
                 switch input {
                 case .materialized(let bundleURL):
-                    if materializationStartedAt == nil {
-                        materializationStartedAt = Date()
+                    if materializationClock == nil {
+                        materializationClock = ProvenanceRunClock()
                     }
                     try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
                     let materializedURL = try await materializer.materialize(
@@ -156,7 +156,7 @@ public enum CLISequenceInputMaterialization {
                         tempDirectory: tempDirectory,
                         progress: progress
                     ).standardizedFileURL
-                    materializationEndedAt = Date()
+                    materializationEndedAt = materializationClock?.now
                     resolvedURLs.append(materializedURL)
                     materializedPairs.append(
                         CLISequenceInputMaterializationPair(originalURL: bundleURL, executionURL: materializedURL)
@@ -179,7 +179,7 @@ public enum CLISequenceInputMaterialization {
             inputURLs: resolvedURLs,
             originalInputURLs: inputURLs,
             materializedPairs: materializedPairs,
-            materializationStartedAt: materializationStartedAt,
+            materializationStartedAt: materializationClock?.startedAt,
             materializationEndedAt: materializationEndedAt
         )
     }

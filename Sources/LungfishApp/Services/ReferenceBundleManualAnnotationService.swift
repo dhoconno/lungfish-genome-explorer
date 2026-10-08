@@ -128,7 +128,7 @@ public final class ReferenceBundleManualAnnotationService {
         _ annotation: SequenceAnnotation,
         toBundleAt bundleURL: URL
     ) async throws -> ReferenceBundleManualAnnotationResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let standardizedBundleURL = bundleURL.standardizedFileURL
         var manifest = try BundleManifest.load(from: standardizedBundleURL)
         guard manifest.genome != nil else {
@@ -181,7 +181,7 @@ public final class ReferenceBundleManualAnnotationService {
             bundleURL: standardizedBundleURL,
             manifestURL: standardizedBundleURL.appendingPathComponent(BundleManifest.filename),
             databaseURL: databaseURL,
-            startedAt: startedAt
+            runClock: runClock
         )
 
         return ReferenceBundleManualAnnotationResult(
@@ -377,10 +377,10 @@ public final class ReferenceBundleManualAnnotationService {
         bundleURL: URL,
         manifestURL: URL,
         databaseURL: URL,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) throws {
         let provenanceURL = bundleURL.appendingPathComponent(provenancePath)
-        let completedAt = Date()
+        let completedAt = runClock.now
         var log = try loadProvenanceLog(from: provenanceURL)
         let region = annotation.boundingRegion
         let command = [
@@ -429,7 +429,7 @@ public final class ReferenceBundleManualAnnotationService {
                 containerRuntime: nil
             ),
             exitStatus: 0,
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
             stderr: nil,
             recordedAt: completedAt
         )

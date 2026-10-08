@@ -8,6 +8,7 @@
 // loaded once via Bundle.module.
 
 import Foundation
+import LungfishCore
 
 public struct ProcessONTGenotypingPysamFilterRunner: ONTGenotypingPysamFiltering {
     private let condaManager: CondaManager
@@ -28,7 +29,7 @@ public struct ProcessONTGenotypingPysamFilterRunner: ONTGenotypingPysamFiltering
             withIntermediateDirectories: true
         )
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await condaManager.runTool(
             name: "python",
             arguments: request.pythonArguments,
@@ -36,7 +37,7 @@ public struct ProcessONTGenotypingPysamFilterRunner: ONTGenotypingPysamFiltering
             workingDirectory: request.outputBAMURL.deletingLastPathComponent(),
             timeout: timeout
         )
-        let completedAt = Date()
+        let completedAt = runClock.now
 
         if result.exitCode != 0 {
             return ONTGenotypingFilterResult(
@@ -49,7 +50,7 @@ public struct ProcessONTGenotypingPysamFilterRunner: ONTGenotypingPysamFiltering
                 stdout: result.stdout,
                 stderr: result.stderr,
                 exitCode: result.exitCode,
-                wallClockSeconds: completedAt.timeIntervalSince(startedAt)
+                wallClockSeconds: completedAt.timeIntervalSince(runClock.startedAt)
             )
         }
 
@@ -69,7 +70,7 @@ public struct ProcessONTGenotypingPysamFilterRunner: ONTGenotypingPysamFiltering
             stdout: result.stdout,
             stderr: result.stderr,
             exitCode: result.exitCode,
-            wallClockSeconds: completedAt.timeIntervalSince(startedAt)
+            wallClockSeconds: completedAt.timeIntervalSince(runClock.startedAt)
         )
     }
 

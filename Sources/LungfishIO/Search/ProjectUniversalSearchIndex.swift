@@ -93,7 +93,7 @@ public final class ProjectUniversalSearchIndex {
     /// Performs a full rebuild of the project search catalog.
     @discardableResult
     public func rebuild() throws -> ProjectUniversalSearchBuildStats {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
 
         var entityCount = 0
         var attributeCount = 0
@@ -204,7 +204,7 @@ public final class ProjectUniversalSearchIndex {
             throw error
         }
 
-        let duration = Date().timeIntervalSince(startedAt)
+        let duration = runClock.elapsed
         Self.logger.info("Rebuilt universal search index: \(entityCount) entities, \(attributeCount) attributes in \(String(format: "%.2f", duration))s")
 
         return ProjectUniversalSearchBuildStats(

@@ -66,7 +66,7 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
         }
 
         let materializer = FASTQCLIMaterializer(runner: NativeToolRunner.shared)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         // A multi-file root bundle (an ONT import) is every file it holds, in
         // order, as the app's one-file resolution of a bundle reads it, not
         // its first chunk. Any other bundle is the materializer's (R3).
@@ -194,7 +194,7 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
             inputs: inputRecords,
             outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: outputFileFormat, role: .output)],
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: outputURL.deletingLastPathComponent()

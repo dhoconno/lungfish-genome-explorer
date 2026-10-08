@@ -360,7 +360,7 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            let provenanceStartedAt = Date()
+            let runClock = ProvenanceRunClock()
             let resultURL = URL(fileURLWithPath: resultDir)
             let dbURL = resultURL.appendingPathComponent("taxtriage.sqlite")
 
@@ -440,7 +440,7 @@ extension BuildDbCommand {
                     force: force,
                     noCleanup: noCleanup,
                     globalOptions: globalOptions,
-                    startedAt: provenanceStartedAt,
+                    runClock: runClock,
                     inputRecords: provenanceInputs,
                     additionalSteps: samtoolsProvenance.steps
                 )
@@ -460,7 +460,7 @@ extension BuildDbCommand {
                     force: force,
                     noCleanup: noCleanup,
                     globalOptions: globalOptions,
-                    startedAt: provenanceStartedAt,
+                    runClock: runClock,
                     inputRecords: provenanceInputs,
                     error: error,
                     additionalSteps: samtoolsProvenance.steps,
@@ -1232,7 +1232,7 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            let provenanceStartedAt = Date()
+            let runClock = ProvenanceRunClock()
             let resultURL = URL(fileURLWithPath: resultDir)
             let dbURL = resultURL.appendingPathComponent("esviritu.sqlite")
 
@@ -1340,7 +1340,7 @@ extension BuildDbCommand {
                     force: force,
                     noCleanup: noCleanup,
                     globalOptions: globalOptions,
-                    startedAt: provenanceStartedAt,
+                    runClock: runClock,
                     inputRecords: provenanceInputs,
                     additionalSteps: samtoolsProvenance.steps
                 )
@@ -1360,7 +1360,7 @@ extension BuildDbCommand {
                     force: force,
                     noCleanup: noCleanup,
                     globalOptions: globalOptions,
-                    startedAt: provenanceStartedAt,
+                    runClock: runClock,
                     inputRecords: provenanceInputs,
                     error: error,
                     additionalSteps: samtoolsProvenance.steps,
@@ -1718,7 +1718,7 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            let provenanceStartedAt = Date()
+            let runClock = ProvenanceRunClock()
             let resultURL = URL(fileURLWithPath: resultDir)
             let dbURL = resultURL.appendingPathComponent("kraken2.sqlite")
             let requestedSampleDirectories = sampleDirs.map { URL(fileURLWithPath: $0).standardizedFileURL }
@@ -1786,7 +1786,7 @@ extension BuildDbCommand {
                     force: force,
                     noCleanup: noCleanup,
                     globalOptions: globalOptions,
-                    startedAt: provenanceStartedAt,
+                    runClock: runClock,
                     inputRecords: provenanceInputs,
                     sampleDirectories: explicitSampleDirectories
                 )
@@ -1806,7 +1806,7 @@ extension BuildDbCommand {
                     force: force,
                     noCleanup: noCleanup,
                     globalOptions: globalOptions,
-                    startedAt: provenanceStartedAt,
+                    runClock: runClock,
                     inputRecords: provenanceInputs,
                     error: error,
                     sampleDirectories: explicitSampleDirectories,

@@ -243,7 +243,7 @@ public actor BundleVariantTrackAttachmentService {
         finalProvenanceURL: URL,
         stagedInputRecords: [FileRecord]
     ) throws {
-        let completedAt = dateProvider()
+        let completedAt = request.workflowClock?.now ?? dateProvider()
         let provenance = request.workflowProvenance ?? VariantCallingWorkflowProvenance(
             workflowName: "lungfish variants call",
             workflowVersion: WorkflowRun.currentAppVersion,

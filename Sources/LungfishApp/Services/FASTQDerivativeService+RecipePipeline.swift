@@ -52,7 +52,7 @@ extension FASTQDerivativeService {
             let inputCount = measureReadCounts
                 ? await countFASTQReads(at: currentURL, isInterleaved: currentIsInterleaved)
                 : nil
-            let stepStart = Date()
+            let stepClock = ProvenanceRunClock()
             var commandLine: String?
 
             switch step.kind {
@@ -217,7 +217,7 @@ extension FASTQDerivativeService {
                 let outputCount = measureReadCounts
                     ? await countFASTQReads(at: currentURL, isInterleaved: currentIsInterleaved)
                     : nil
-                let duration = Date().timeIntervalSince(stepStart)
+                let duration = stepClock.elapsed
                 stepResults.append(RecipeStepResult(
                     stepName: step.displaySummary,
                     tool: "deacon",
@@ -237,7 +237,7 @@ extension FASTQDerivativeService {
             let outputCount = measureReadCounts
                 ? await countFASTQReads(at: currentURL, isInterleaved: currentIsInterleaved)
                 : nil
-            let duration = Date().timeIntervalSince(stepStart)
+            let duration = stepClock.elapsed
             stepResults.append(RecipeStepResult(
                 stepName: step.displaySummary,
                 tool: step.toolUsed ?? step.kind.rawValue,

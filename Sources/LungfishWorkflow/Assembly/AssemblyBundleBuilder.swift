@@ -242,8 +242,8 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
         let command = provenance.commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
         let argv = command.isEmpty ? [result.tool.rawValue] : ["/bin/sh", "-lc", command]
         let outputs = try assemblyBundleOutputDescriptors(bundleURL: bundleURL)
-        let startedAt = provenance.assemblyDate <= Date() ? provenance.assemblyDate : Date()
         let endedAt = Date()
+        let startedAt = provenance.assemblyDate <= endedAt ? provenance.assemblyDate : endedAt
 
         var builder = ProvenanceRunBuilder(
             workflowName: "Assembly Bundle Wrapping",

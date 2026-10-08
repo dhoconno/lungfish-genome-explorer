@@ -73,7 +73,7 @@ struct TreeCommand: AsyncParsableCommand {
             }
 
             private func execute(emit: @escaping (String) -> Void) throws {
-                let startedAt = Date()
+                let runClock = ProvenanceRunClock()
                 let emitter = CLIEventEmitter(
                     enabled: globalOptions.outputFormat == .json,
                     emit: emit
@@ -133,7 +133,7 @@ struct TreeCommand: AsyncParsableCommand {
                         argv: argv,
                         selectionMode: selectionMode,
                         subtree: subtree,
-                        wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
+                        wallTimeSeconds: runClock.elapsed
                     )
                     try writeJSONObject(provenance, to: provenanceURL)
 
@@ -375,7 +375,7 @@ func runProcess(
     arguments: [String],
     workingDirectory: URL?
 ) throws -> TreeProcessResult {
-    let startedAt = Date()
+    let processClock = ProvenanceRunClock()
     let process = Process()
     process.executableURL = executableURL
     process.arguments = arguments
@@ -438,7 +438,7 @@ func runProcess(
         exitStatus: process.terminationStatus,
         stdout: stdout,
         stderr: stderr,
-        wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
+        wallTimeSeconds: processClock.elapsed
     )
 }
 

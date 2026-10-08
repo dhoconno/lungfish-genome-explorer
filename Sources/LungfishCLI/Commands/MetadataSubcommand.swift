@@ -37,7 +37,7 @@ import LungfishWorkflow
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let fm = FileManager.default
 
@@ -99,7 +99,7 @@ import LungfishWorkflow
                     sampleColumnName: bestColumn.name,
                     knownSampleCount: knownSampleIds.count,
                     totalMetadataRows: scanResult.totalRows,
-                    startedAt: startedAt
+                    runClock: runClock
                 )
             } catch {
                 try snapshot.restore()
@@ -140,7 +140,7 @@ import LungfishWorkflow
             sampleColumnName: String,
             knownSampleCount: Int,
             totalMetadataRows: Int,
-            startedAt: Date
+            runClock: ProvenanceRunClock
         ) throws {
             var builder = ProvenanceRunBuilder(
                 workflowName: "Sample metadata import",
@@ -186,7 +186,7 @@ import LungfishWorkflow
             }
             builder = try builder.output(metadataURL, format: .text, role: .output)
 
-            let envelope = try builder.complete(exitStatus: 0, startedAt: startedAt, endedAt: Date())
+            let envelope = try builder.complete(exitStatus: 0, startedAt: runClock.startedAt, endedAt: runClock.now)
             _ = try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
         }
 

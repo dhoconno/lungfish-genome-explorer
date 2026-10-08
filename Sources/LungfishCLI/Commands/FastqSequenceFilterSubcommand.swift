@@ -93,7 +93,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
 
         let runner = NativeToolRunner.shared
         let env = await bbToolsEnvironment(runner: runner)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
 
         if !result.isSuccess {
@@ -178,7 +178,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
             ],
             inputRecords: inputRecords,
             extraSteps: try resolvedInput.materializationSteps(),
-            startedAt: startedAt
+            runClock: runClock
         )
     }
 }

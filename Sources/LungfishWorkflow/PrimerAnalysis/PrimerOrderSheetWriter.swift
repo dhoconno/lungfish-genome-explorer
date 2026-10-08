@@ -5,6 +5,7 @@ import Foundation
 #if canImport(FoundationXML)
 import FoundationXML
 #endif
+import LungfishCore
 
 /// Writes ordering derivatives from frozen, verified saved oligos. No design runtime is used.
 public enum PrimerOrderSheetWriter {
@@ -137,11 +138,11 @@ public enum PrimerOrderSheetWriter {
   }
 
   private static func run(_ executable: String, version: String, arguments: [String], directory: URL) async throws -> Command {
-    let startedAt = Date()
+    let commandClock = ProvenanceRunClock()
     let result = try await NativeToolRunner.shared.runProcess(executableURL: URL(fileURLWithPath: executable),
       arguments: arguments, workingDirectory: directory, timeout: 120, maxStderrBytes: nil)
     let command = Command(argv: [executable] + arguments, toolVersion: version, workingDirectory: directory.path,
-      stderr: result.stderr, exitStatus: result.exitCode, startedAt: startedAt, completedAt: Date())
+      stderr: result.stderr, exitStatus: result.exitCode, startedAt: commandClock.startedAt, completedAt: commandClock.now)
     guard result.isSuccess else { throw invalid("\(URL(fileURLWithPath: executable).lastPathComponent) failed (\(result.exitCode)): \(result.stderr)") }
     return command
   }

@@ -59,7 +59,7 @@ enum PrimalScheme3AlleleLabelBridge {
     auditValidation: Data?,
     auditValidationURL: URL?
   ) throws -> Publication? {
-    let startedAt = Date()
+    let runClock = ProvenanceRunClock()
     let optimizerURL = nativeOutputURL.appendingPathComponent("panel-optimizer.json")
     let optimizer = try decode(NativeOptimizer.self, from: optimizerURL)
     guard let reference = optimizer.publication?.alleleLabelMap else { return nil }
@@ -158,7 +158,7 @@ enum PrimalScheme3AlleleLabelBridge {
       try descriptor(
         source: mapURL, published: publishedRootURL.appendingPathComponent(mapPath), role: .output))
     let envelope = try builder.complete(
-      exitStatus: 0, stderr: "", startedAt: startedAt, endedAt: Date())
+      exitStatus: 0, stderr: "", startedAt: runClock.startedAt, endedAt: runClock.now)
     let provenancePath = "logs/\(resultID.uuidString)/allele-label-map.json"
     let provenanceURL = scratchRootURL.appendingPathComponent(provenancePath)
     try FileManager.default.createDirectory(

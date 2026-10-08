@@ -44,17 +44,17 @@ private actor BuildDbTrackingSamtoolsRunner: AlignmentSamtoolsRunning {
     }
 
     func runSamtools(arguments: [String], timeout: TimeInterval) async throws -> NativeToolResult {
-        let startedAt = Date()
+        let samtoolsClock = ProvenanceRunClock()
         let result = try await NativeToolRunner.shared.runProcess(
             executableURL: samtoolsURL,
             arguments: arguments,
             timeout: timeout,
             toolName: "samtools"
         )
-        let completedAt = Date()
+        let completedAt = samtoolsClock.now
         invocations.append(
             BuildDbSamtoolsInvocation(
-                startedAt: startedAt,
+                startedAt: samtoolsClock.startedAt,
                 completedAt: completedAt,
                 result: result
             )
@@ -85,7 +85,7 @@ final class BuildDbSamtoolsProvenanceTracker {
         threads: Int = 4,
         force: Bool = false
     ) async throws -> MarkdupResult {
-        let startedAt = Date()
+        let markdupClock = ProvenanceRunClock()
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: bamURL.path) else {
@@ -101,7 +101,7 @@ final class BuildDbSamtoolsProvenanceTracker {
                 wasAlreadyMarkduped: true,
                 totalReads: total,
                 duplicateReads: max(0, total - nonDuplicate),
-                durationSeconds: Date().timeIntervalSince(startedAt)
+                durationSeconds: markdupClock.elapsed
             )
         }
 
@@ -162,7 +162,7 @@ final class BuildDbSamtoolsProvenanceTracker {
                 wasAlreadyMarkduped: false,
                 totalReads: total,
                 duplicateReads: max(0, total - nonDuplicate),
-                durationSeconds: Date().timeIntervalSince(startedAt)
+                durationSeconds: markdupClock.elapsed
             )
         } catch {
             try? fm.removeItem(at: tempBamURL)
@@ -286,7 +286,7 @@ final class BuildDbSamtoolsProvenanceTracker {
     }
 
     private func executeSamtools(arguments: [String]) async throws -> BuildDbSamtoolsInvocation {
-        let startedAt = Date()
+        let samtoolsClock = ProvenanceRunClock()
         let result = try await NativeToolRunner.shared.runProcess(
             executableURL: samtoolsURL,
             arguments: arguments,
@@ -294,8 +294,8 @@ final class BuildDbSamtoolsProvenanceTracker {
             toolName: "samtools"
         )
         return BuildDbSamtoolsInvocation(
-            startedAt: startedAt,
-            completedAt: Date(),
+            startedAt: samtoolsClock.startedAt,
+            completedAt: samtoolsClock.now,
             result: result
         )
     }

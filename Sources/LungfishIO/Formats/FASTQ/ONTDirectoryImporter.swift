@@ -4,6 +4,7 @@
 
 import Compression
 import Foundation
+import LungfishCore
 import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.io", category: "ONTDirectoryImporter")
@@ -153,7 +154,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         config: ONTImportConfig,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> ONTImportResult {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
         progress(0.0, "Detecting ONT directory layout...")
 
         let layout = try detectLayout(at: config.sourceDirectory)
@@ -260,7 +261,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
             ),
             parameters: DemultiplexParameters(
                 tool: "ont-directory-import",
-                wallClockSeconds: Date().timeIntervalSince(startTime)
+                wallClockSeconds: runClock.elapsed
             ),
             barcodes: barcodeResults,
             unassigned: UnassignedReadsSummary(readCount: 0, baseCount: 0, disposition: .discard),
@@ -275,7 +276,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
             bundleURLs: bundleURLs
         )
 
-        let elapsed = Date().timeIntervalSince(startTime)
+        let elapsed = runClock.elapsed
         progress(1.0, "Import complete (\(totalReadCount) reads, \(String(format: "%.1f", elapsed))s)")
 
         logger.info("ONT import: \(barcodesToImport.count) barcodes, \(totalReadCount) reads in \(String(format: "%.1f", elapsed))s")

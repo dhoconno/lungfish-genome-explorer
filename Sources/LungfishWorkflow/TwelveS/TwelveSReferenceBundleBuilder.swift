@@ -65,7 +65,7 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
         _ config: TwelveSReferenceBundleBuildConfiguration,
         progressHandler: ProgressHandler? = nil
     ) async throws -> TwelveSReferenceBundleBuildResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         progressHandler?(0.02, "Validating 12S reference bundle inputs.")
         try validate(config)
 
@@ -141,8 +141,8 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
             let provenanceURL = try writeProvenance(
                 config: config,
                 bundleURL: config.outputURL,
-                startedAt: startedAt,
-                completedAt: Date()
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now
             )
             progressHandler?(1.0, "12S reference bundle creation complete.")
             return TwelveSReferenceBundleBuildResult(

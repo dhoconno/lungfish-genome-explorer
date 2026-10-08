@@ -138,7 +138,7 @@ public actor GATKBundleVariantAttachmentService {
             artifactBasename: artifactBasename
         )
 
-        let importStartedAt = dateProvider()
+        let importClock = ProvenanceRunClock(startedAt: dateProvider())
         do {
             let importResult = try await importCoordinator.importNormalizedVCF(
                 request: VariantSQLiteImportRequest(
@@ -186,7 +186,7 @@ public actor GATKBundleVariantAttachmentService {
 
             let updatedManifest = manifest.addingVariantTrack(trackInfo)
             try updatedManifest.save(to: request.bundleURL)
-            let importCompletedAt = dateProvider()
+            let importCompletedAt = importClock.now
             try writeAttachmentProvenance(
                 request: request,
                 manifest: updatedManifest,
@@ -195,7 +195,7 @@ public actor GATKBundleVariantAttachmentService {
                 indexURL: indexURL,
                 databaseURL: databaseURL,
                 provenanceURL: provenanceURL,
-                importStartedAt: importStartedAt,
+                importStartedAt: importClock.startedAt,
                 importCompletedAt: importCompletedAt,
                 variantCount: trackInfo.variantCount ?? importResult.variantCount
             )

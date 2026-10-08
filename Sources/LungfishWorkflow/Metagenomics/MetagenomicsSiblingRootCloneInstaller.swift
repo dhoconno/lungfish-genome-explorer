@@ -105,7 +105,7 @@ struct MetagenomicsSiblingRootCloneInstaller: Sendable {
         progress: @Sendable @escaping (Double, String) -> Void
     ) throws -> PreparedMetagenomicsDatabaseInstallation? {
         guard let source = findSource(for: database, databasesBaseURL: databasesBaseURL) else { return nil }
-        let started = now()
+        let cloneClock = ProvenanceRunClock(startedAt: now())
         let fileManager = FileManager.default
         let finalURL = MetagenomicsDatabaseInstaller.installationURL(for: database, databasesBaseURL: databasesBaseURL)
         let parent = finalURL.deletingLastPathComponent()
@@ -146,13 +146,13 @@ struct MetagenomicsSiblingRootCloneInstaller: Sendable {
                 "clonedFromPayloadDigest": .string(expected),
                 "invocationKind": .string("swift-api"),
             ]
-            let completed = now()
+            let completed = cloneClock.now
             let step = MetagenomicsDatabaseInstallStepEvidence(
                 toolName: "Lungfish sibling-root clone", toolVersion: WorkflowRun.currentAppVersion,
                 argv: ["clonefile", source.path.path, finalURL.path], durableReplayArgv: [],
                 resolvedOptions: resolved, runtimeIdentity: ProvenanceRuntimeIdentity(),
                 inputs: inputs, outputs: snapshot.files, exitStatus: 0,
-                startedAt: started, completedAt: completed, stderr: ""
+                startedAt: cloneClock.startedAt, completedAt: completed, stderr: ""
             )
             let recipeSource = database.installationRecipe.map { recipe -> String in
                 switch recipe {
@@ -164,7 +164,7 @@ struct MetagenomicsSiblingRootCloneInstaller: Sendable {
                 database: database, finalURL: finalURL, recipeSource: recipeSource,
                 explicitOptions: ["catalogID": .string(database.catalogID ?? "unknown")],
                 defaultOptions: [:], resolvedOptions: resolved, steps: [step],
-                startedAt: started, completedAt: completed
+                startedAt: cloneClock.startedAt, completedAt: completed
             )
 
             progress(0.9, "Installing \(database.name)…")

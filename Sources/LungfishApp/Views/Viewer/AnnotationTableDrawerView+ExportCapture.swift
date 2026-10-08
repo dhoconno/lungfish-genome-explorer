@@ -4,7 +4,7 @@ import LungfishIO
 import LungfishWorkflow
 
 struct AnnotationTablePendingExport: @unchecked Sendable {
-    let startedAt: Date
+    let runClock: ProvenanceRunClock
     let tab: String
     let scope: AnnotationTableExportScope
     let collect: @Sendable (@escaping @Sendable () -> Bool) throws -> AnnotationTableExportSnapshot
@@ -30,7 +30,7 @@ func validatedScientificTableExportSourceURLs(
 
 extension AnnotationTableDrawerView {
     func captureScientificTableExport(scope: AnnotationTableExportScope) throws -> AnnotationTablePendingExport {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let columns = tableView.tableColumns.map {
             ScientificTableColumn(id: $0.identifier.rawValue, title: $0.title)
         }
@@ -58,7 +58,7 @@ extension AnnotationTableDrawerView {
                 queryDescription: annotationExportQueryDescription(sortKey: sortKey, ascending: sortAscending),
                 resolvedText: resolved
             )
-            return pending(snapshot, startedAt: startedAt)
+            return pending(snapshot, runClock: runClock)
 
         case (.annotations, _, .allMatching):
             guard let index = searchIndex else { throw AnnotationTableExportServiceError.noScientificSources }
@@ -85,7 +85,7 @@ extension AnnotationTableDrawerView {
                 sortAscending: sortAscending
             )
             let description = annotationExportQueryDescription(sortKey: sortKey, ascending: sortAscending)
-            return AnnotationTablePendingExport(startedAt: startedAt, tab: "annotations", scope: scope) { shouldCancel in
+            return AnnotationTablePendingExport(runClock: runClock, tab: "annotations", scope: scope) { shouldCancel in
                 let rows = try request.run(shouldCancel: shouldCancel)
                 return AnnotationTableExportSnapshot.captureAnnotations(
                     rows, columns: columns, scope: scope, sourceURLs: sources,
@@ -101,7 +101,7 @@ extension AnnotationTableDrawerView {
                 rows, columns: columns, scope: scope, sourceURLs: sources,
                 queryDescription: sampleExportQueryDescription(sortKey: sortKey, ascending: sortAscending)
             )
-            return pending(snapshot, startedAt: startedAt)
+            return pending(snapshot, runClock: runClock)
 
         case (.variants, .calls, .selected):
             let rows = selected.compactMap { displayedAnnotations.indices.contains($0) ? displayedAnnotations[$0] : nil }
@@ -112,7 +112,7 @@ extension AnnotationTableDrawerView {
                 queryDescription: variantExportQueryDescription(sortKey: sortKey, ascending: sortAscending),
                 resolvedText: resolvedVariantExportText(rows: rows, columns: columns)
             )
-            return pending(snapshot, startedAt: startedAt)
+            return pending(snapshot, runClock: runClock)
 
         case (.variants, .calls, .allMatching):
             let request = try captureVariantAllMatchingRequest(sortKey: sortKey, ascending: sortAscending)
@@ -122,7 +122,7 @@ extension AnnotationTableDrawerView {
             description["derivedVariantResolutionScope"] = "captured cached bundle CDS annotations with off-main reference preparation"
             description["derivedVariantFeatureCount"] = String(request.resolverSnapshot.features.count)
             let capturedDescription = description
-            return AnnotationTablePendingExport(startedAt: startedAt, tab: "variants", scope: scope) { shouldCancel in
+            return AnnotationTablePendingExport(runClock: runClock, tab: "variants", scope: scope) { shouldCancel in
                 let resolver = try request.resolverSnapshot.preparingForBackgroundExport(
                     shouldCancel: shouldCancel
                 )
@@ -150,7 +150,7 @@ extension AnnotationTableDrawerView {
                 sourceURLs: sources,
                 queryDescription: genotypeExportQueryDescription(sortKey: sortKey, ascending: sortAscending)
             )
-            return pending(snapshot, startedAt: startedAt)
+            return pending(snapshot, runClock: runClock)
 
         case (.variants, .genotypes, .allMatching):
             let request = try captureVariantAllMatchingRequest(sortKey: nil, ascending: true)
@@ -165,7 +165,7 @@ extension AnnotationTableDrawerView {
             description["resolvedRegion"] = request.region.map { "\($0.chromosome):\($0.start)-\($0.end)" } ?? "genome"
             description["resolvedGeneList"] = request.geneList?.joined(separator: ",") ?? "none"
             let capturedDescription = description
-            return AnnotationTablePendingExport(startedAt: startedAt, tab: "genotypes", scope: scope) { shouldCancel in
+            return AnnotationTablePendingExport(runClock: runClock, tab: "genotypes", scope: scope) { shouldCancel in
                 let variants = try request.run(shouldCancel: shouldCancel)
                 var genotypeRows: [GenotypeDisplayRow] = []
                 for (trackID, trackVariants) in Dictionary(grouping: variants, by: \.trackId) {
@@ -215,8 +215,8 @@ extension AnnotationTableDrawerView {
         }
     }
 
-    private func pending(_ snapshot: AnnotationTableExportSnapshot, startedAt: Date) -> AnnotationTablePendingExport {
-        AnnotationTablePendingExport(startedAt: startedAt, tab: snapshot.tab, scope: snapshot.scope) { shouldCancel in
+    private func pending(_ snapshot: AnnotationTableExportSnapshot, runClock: ProvenanceRunClock) -> AnnotationTablePendingExport {
+        AnnotationTablePendingExport(runClock: runClock, tab: snapshot.tab, scope: snapshot.scope) { shouldCancel in
             if shouldCancel() { throw AnnotationTableExportQueryError.cancelled }
             return snapshot
         }

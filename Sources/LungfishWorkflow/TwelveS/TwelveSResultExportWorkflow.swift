@@ -158,7 +158,7 @@ public struct TwelveSResultExportWorkflow: Sendable {
     public init() {}
 
     public func export(_ config: TwelveSResultExportConfiguration) async throws -> TwelveSResultExportResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         try validate(bundleURL: config.bundleURL, outputURL: config.outputURL, force: config.forceOverwrite)
         let result = try TwelveSAmpliconResultBundle.loadResult(from: config.bundleURL)
         let rows = filteredRows(from: result, config: config)
@@ -185,8 +185,8 @@ public struct TwelveSResultExportWorkflow: Sendable {
             let provenanceURL = try writeExportProvenance(
                 config: config,
                 visibleRowCount: rows.count,
-                startedAt: startedAt,
-                completedAt: Date()
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now
             )
             return TwelveSResultExportResult(
                 outputURL: config.outputURL.standardizedFileURL,
@@ -279,7 +279,7 @@ public struct TwelveSUnresolvedFastaExportWorkflow: Sendable {
     public func export(
         _ config: TwelveSUnresolvedFastaExportConfiguration
     ) async throws -> TwelveSUnresolvedFastaExportResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let metadataURL = config.metadataURL ?? config.outputURL.appendingPathExtension("metadata.tsv")
         try validate(bundleURL: config.bundleURL, outputURL: config.outputURL, force: config.forceOverwrite)
         if FileManager.default.fileExists(atPath: metadataURL.path) {
@@ -313,8 +313,8 @@ public struct TwelveSUnresolvedFastaExportWorkflow: Sendable {
                 config: config,
                 metadataURL: metadataURL,
                 exportedSequenceCount: sequences.count,
-                startedAt: startedAt,
-                completedAt: Date()
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now
             )
             return TwelveSUnresolvedFastaExportResult(
                 outputURL: config.outputURL.standardizedFileURL,

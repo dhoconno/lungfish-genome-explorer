@@ -14,7 +14,7 @@ enum FastqDemultiplexSequenceFormat {
     static func prepareFASTA(inputURL: URL, outputDirectory: URL) async throws -> PreparedInput {
         let directory = outputDirectory.appendingPathComponent("execution-inputs-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let started = Date()
+        let materializationClock = ProvenanceRunClock()
         let resolved = try await CLISequenceInputMaterialization.resolveExecutionInputs(
             for: [inputURL], tempDirectory: directory,
             materializer: FASTQCLIMaterializer(runner: .shared), operationName: "demultiplex"
@@ -22,7 +22,7 @@ enum FastqDemultiplexSequenceFormat {
         guard let fasta = resolved.inputURLs.first else { throw CLIError.formatDetectionFailed(path: inputURL.path) }
         let materializationSteps = try CLISequenceInputMaterialization.materializationProvenanceSteps(
             workflowVersion: WorkflowRun.currentAppVersion, originalInputURLs: [inputURL],
-            executionInputURLs: [fasta], startedAt: started, endedAt: Date()
+            executionInputURLs: [fasta], startedAt: materializationClock.startedAt, endedAt: materializationClock.now
         )
         let bridge = directory.appendingPathComponent("input.fastq")
         try await SequenceProcessingOutputNormalizer.prepareFASTQInput(inputURL: fasta, outputURL: bridge)

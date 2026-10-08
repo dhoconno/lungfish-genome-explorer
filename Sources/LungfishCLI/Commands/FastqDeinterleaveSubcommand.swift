@@ -78,7 +78,7 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
                 "interleaved=t",
             ]
             let env = await bbToolsEnvironment(runner: runner)
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
             guard result.isSuccess else {
                 throw CLIError.conversionFailed(reason: "reformat.sh deinterleave failed: \(result.stderr)")
@@ -99,7 +99,7 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
                 parameters: parameters,
                 inputRecords: try resolvedInput.inputRecords(),
                 extraSteps: try resolvedInput.materializationSteps(),
-                startedAt: startedAt
+                runClock: runClock
             )
             FileHandle.standardError.write(Data("Deinterleaved: R1 → \(out1), R2 → \(out2)\n".utf8))
 
@@ -107,7 +107,7 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
             guard let unpairedURL else {
                 throw ValidationError(Self.mixedInputRequiresUnpairedMessage(reason: resolution.reason))
             }
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let counts = try await Self.partitionMixedInput(
                 inputURL: inputURL,
                 out1: out1URL,
@@ -128,7 +128,7 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
                 inputs: try resolvedInput.inputRecords(),
                 outputs: outputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) },
                 exitCode: 0,
-                wallTime: Date().timeIntervalSince(startedAt),
+                wallTime: runClock.elapsed,
                 stderr: nil,
                 status: .completed,
                 outputDirectory: out1URL.deletingLastPathComponent()

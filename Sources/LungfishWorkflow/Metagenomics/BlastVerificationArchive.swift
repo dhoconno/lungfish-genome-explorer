@@ -24,7 +24,7 @@ private let archiveLogger = Logger(subsystem: LogSubsystem.workflow, category: "
 ///
 /// ## Adopting it in another viewport
 ///
-/// A viewport that knows its result folder calls ``save(_:in:sourceURLs:argv:startedAt:)``
+/// A viewport that knows its result folder calls ``save(_:request:in:sourceURLs:argv:runClock:)``
 /// after `BlastService.verify` returns, and ``latest(forTaxId:in:)`` (or
 /// ``entries(in:taxId:)`` to offer a list) when a row is selected. Viewports
 /// keyed by something other than an NCBI taxid (a contig or accession) can
@@ -142,7 +142,8 @@ public enum BlastVerificationArchive {
     ///     such as the classification report. Pass large read files through
     ///     `argv` only, because every source is hashed.
     ///   - argv: The equivalent `lungfish blast verify` command line.
-    ///   - startedAt: When the verification started.
+    ///   - runClock: Started when the verification started. Without one the
+    ///     sidecar records the BLAST result's own submission and completion times.
     @discardableResult
     public static func save(
         _ result: BlastVerificationResult,
@@ -150,7 +151,7 @@ public enum BlastVerificationArchive {
         in resultDirectory: URL,
         sourceURLs: [URL] = [],
         argv: [String] = [],
-        startedAt: Date? = nil
+        runClock: ProvenanceRunClock? = nil
     ) throws -> URL {
         // The provenance transaction compares paths, so a relative URL (a
         // CLI `--result-dir kraken2-...`) must become absolute first.
@@ -191,22 +192,40 @@ public enum BlastVerificationArchive {
             if !request.extraArgs.isEmpty { explicit["extraArgs"] = .string(request.extraArgs) }
         }
 
-        try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "lungfish blast verify",
-            sourceURLs: existingSources,
-            outputURL: outputURL,
-            outputFormat: .json,
-            argv: argv.isEmpty ? [CLICommandIdentity.executableName, "blast", "verify", "--taxid", "\(result.taxId)"] : argv,
-            explicitOptions: explicit,
-            resolved: [
-                "supportingCount": .integer(result.supportingCount),
-                "contradictingCount": .integer(result.contradictingCount),
-                "errorCount": .integer(result.errorCount),
-                "totalReads": .integer(result.totalReads),
-            ],
-            startedAt: startedAt ?? result.submittedAt,
-            completedAt: completedAt
-        )) { staged in
+        let recordedArgv = argv.isEmpty
+            ? [CLICommandIdentity.executableName, "blast", "verify", "--taxid", "\(result.taxId)"]
+            : argv
+        let resolved: [String: ParameterValue] = [
+            "supportingCount": .integer(result.supportingCount),
+            "contradictingCount": .integer(result.contradictingCount),
+            "errorCount": .integer(result.errorCount),
+            "totalReads": .integer(result.totalReads),
+        ]
+        let provenance: ScientificFileExportProvenance.Request = if let runClock {
+            .init(
+                workflowName: "lungfish blast verify",
+                sourceURLs: existingSources,
+                outputURL: outputURL,
+                outputFormat: .json,
+                argv: recordedArgv,
+                explicitOptions: explicit,
+                resolved: resolved,
+                runClock: runClock
+            )
+        } else {
+            .init(
+                workflowName: "lungfish blast verify",
+                sourceURLs: existingSources,
+                outputURL: outputURL,
+                outputFormat: .json,
+                argv: recordedArgv,
+                explicitOptions: explicit,
+                resolved: resolved,
+                startedAt: result.submittedAt,
+                completedAt: result.completedAt ?? result.submittedAt
+            )
+        }
+        try ScientificFileExportProvenance.writeAtomically(provenance) { staged in
             try data.write(to: staged, options: .atomic)
         }
         archiveLogger.info("Saved BLAST verification for txid\(result.taxId, privacy: .public) to \(outputURL.path, privacy: .public)")

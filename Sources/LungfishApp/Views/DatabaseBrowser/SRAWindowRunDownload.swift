@@ -315,7 +315,7 @@ struct SRAWindowRunDownload {
 
                 logger.info("startENADownloadTask: Downloading \(fastqURL.absoluteString, privacy: .public)")
 
-                let downloadStartedAt = Date()
+                let downloadClock = ProvenanceRunClock()
                 let data = try await mirrorFile(fastqURL, fileExpectedBytes, priorBytesDownloaded)
 
                 try data.write(to: localPath)
@@ -327,7 +327,7 @@ struct SRAWindowRunDownload {
                     expectedBytes: fileExpectedBytes,
                     expectedMD5: fileExpectedMD5
                 )
-                let downloadCompletedAt = Date()
+                let downloadCompletedAt = downloadClock.now
                 enaSteps.append(
                     StepExecution(
                         toolName: "https-download",
@@ -351,9 +351,9 @@ struct SRAWindowRunDownload {
                             ProvenanceRecorder.fileRecord(url: localPath, format: .fastq, role: .output)
                         ],
                         exitCode: 0,
-                        wallTime: downloadCompletedAt.timeIntervalSince(downloadStartedAt),
+                        wallTime: downloadCompletedAt.timeIntervalSince(downloadClock.startedAt),
                         stderr: nil,
-                        startTime: downloadStartedAt,
+                        startTime: downloadClock.startedAt,
                         endTime: downloadCompletedAt
                     )
                 )

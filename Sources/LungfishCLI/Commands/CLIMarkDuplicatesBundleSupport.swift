@@ -26,7 +26,7 @@ enum CLIMarkDuplicatesBundleSupport {
             throw CLIError.validationFailed(errors: ["Bundle must be a .lungfishref bundle directory: \(bundleURL.path)"])
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await AlignmentDuplicateService.markDuplicatesInBundle(bundleURL: bundleURL)
 
         let parameters: [String: ParameterValue] = [
@@ -49,7 +49,7 @@ enum CLIMarkDuplicatesBundleSupport {
                 role: .output
             ),
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: result.bundleURL,

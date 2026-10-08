@@ -4,6 +4,7 @@
 
 import CryptoKit
 import Foundation
+import LungfishCore
 
 public enum ScientificFileExportProvenance {
     public struct Request {
@@ -19,7 +20,42 @@ public enum ScientificFileExportProvenance {
         public let resolved: [String: ParameterValue]
         public let startedAt: Date
         public let completedAt: Date
+        /// Times an export this process runs. The sidecar takes its end from
+        /// the clock when it is written. `nil` for times recorded elsewhere.
+        let runClock: ProvenanceRunClock?
 
+        /// An export this process runs, timed by `runClock`.
+        public init(
+            workflowName: String,
+            toolName: String = "Lungfish.app",
+            sourceURLs: [URL],
+            outputURL: URL,
+            outputFormat: FileFormat,
+            argv: [String],
+            durableReplayArgv: [String]? = nil,
+            explicitOptions: [String: ParameterValue] = [:],
+            defaults: [String: ParameterValue] = [:],
+            resolved: [String: ParameterValue] = [:],
+            runClock: ProvenanceRunClock
+        ) {
+            self.init(
+                workflowName: workflowName,
+                toolName: toolName,
+                sourceURLs: sourceURLs,
+                outputURL: outputURL,
+                outputFormat: outputFormat,
+                argv: argv,
+                durableReplayArgv: durableReplayArgv,
+                explicitOptions: explicitOptions,
+                defaults: defaults,
+                resolved: resolved,
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now,
+                runClock: runClock
+            )
+        }
+
+        /// An export whose start and end were recorded elsewhere.
         public init(
             workflowName: String,
             toolName: String = "Lungfish.app",
@@ -32,7 +68,39 @@ public enum ScientificFileExportProvenance {
             defaults: [String: ParameterValue] = [:],
             resolved: [String: ParameterValue] = [:],
             startedAt: Date,
-            completedAt: Date = Date()
+            completedAt: Date
+        ) {
+            self.init(
+                workflowName: workflowName,
+                toolName: toolName,
+                sourceURLs: sourceURLs,
+                outputURL: outputURL,
+                outputFormat: outputFormat,
+                argv: argv,
+                durableReplayArgv: durableReplayArgv,
+                explicitOptions: explicitOptions,
+                defaults: defaults,
+                resolved: resolved,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                runClock: nil
+            )
+        }
+
+        private init(
+            workflowName: String,
+            toolName: String,
+            sourceURLs: [URL],
+            outputURL: URL,
+            outputFormat: FileFormat,
+            argv: [String],
+            durableReplayArgv: [String]?,
+            explicitOptions: [String: ParameterValue],
+            defaults: [String: ParameterValue],
+            resolved: [String: ParameterValue],
+            startedAt: Date,
+            completedAt: Date,
+            runClock: ProvenanceRunClock?
         ) {
             self.workflowName = workflowName
             self.toolName = toolName
@@ -46,6 +114,52 @@ public enum ScientificFileExportProvenance {
             self.resolved = resolved
             self.startedAt = startedAt
             self.completedAt = completedAt
+            self.runClock = runClock
+        }
+
+        /// This request publishing other sources, replay argv and resolved
+        /// options. It keeps the request's times and its clock.
+        public func replacing(
+            sourceURLs: [URL],
+            durableReplayArgv: [String]?,
+            resolved: [String: ParameterValue]
+        ) -> Request {
+            Request(
+                workflowName: workflowName,
+                toolName: toolName,
+                sourceURLs: sourceURLs,
+                outputURL: outputURL,
+                outputFormat: outputFormat,
+                argv: argv,
+                durableReplayArgv: durableReplayArgv,
+                explicitOptions: explicitOptions,
+                defaults: defaults,
+                resolved: resolved,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                runClock: runClock
+            )
+        }
+
+        /// This request with its end read from its clock now. A request of
+        /// recorded times keeps them.
+        fileprivate func completedNow() -> Request {
+            guard let runClock else { return self }
+            return Request(
+                workflowName: workflowName,
+                toolName: toolName,
+                sourceURLs: sourceURLs,
+                outputURL: outputURL,
+                outputFormat: outputFormat,
+                argv: argv,
+                durableReplayArgv: durableReplayArgv,
+                explicitOptions: explicitOptions,
+                defaults: defaults,
+                resolved: resolved,
+                startedAt: startedAt,
+                completedAt: runClock.now,
+                runClock: runClock
+            )
         }
     }
 
@@ -56,7 +170,7 @@ public enum ScientificFileExportProvenance {
             format: request.outputFormat,
             role: .output
         )
-        let envelope = try envelope(for: request, outputDescriptor: outputDescriptor)
+        let envelope = try envelope(for: request.completedNow(), outputDescriptor: outputDescriptor)
 
         do {
             return try ProvenanceWriter(signingProvider: nil).write(
@@ -104,7 +218,7 @@ public enum ScientificFileExportProvenance {
             let outputDescriptor = ProvenanceFileDescriptor(fileRecord: FileRecord(
                 path: outputURL.standardizedFileURL.path, sha256: tempRecord.sha256,
                 sizeBytes: tempRecord.sizeBytes, format: tempRecord.format, role: tempRecord.role))
-            let completedRequest = requestWithCompletedAt(Date(), basedOn: request)
+            let completedRequest = request.completedNow()
             let envelope = envelope(for: completedRequest, inputDescriptors: inputDescriptors, outputDescriptor: outputDescriptor)
             try publication.publish(stagedURL: tempOutputURL, to: outputURL)
             try ProvenanceWriter(publicationMutationDidOccur: { try publication.observe($0) }, signingProvider: nil)
@@ -173,23 +287,6 @@ public enum ScientificFileExportProvenance {
             stderr: nil
         )
         return envelope
-    }
-
-    private static func requestWithCompletedAt(_ completedAt: Date, basedOn request: Request) -> Request {
-        Request(
-            workflowName: request.workflowName,
-            toolName: request.toolName,
-            sourceURLs: request.sourceURLs,
-            outputURL: request.outputURL,
-            outputFormat: request.outputFormat,
-            argv: request.argv,
-            durableReplayArgv: request.durableReplayArgv,
-            explicitOptions: request.explicitOptions,
-            defaults: request.defaults,
-            resolved: request.resolved,
-            startedAt: request.startedAt,
-            completedAt: completedAt
-        )
     }
 
     private static func inputDescriptor(

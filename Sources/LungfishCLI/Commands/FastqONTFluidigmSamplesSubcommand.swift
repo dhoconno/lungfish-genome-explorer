@@ -67,7 +67,7 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
         let inputURL = URL(fileURLWithPath: input)
         let barcodeURL = URL(fileURLWithPath: barcodes)
         let outputURL = URL(fileURLWithPath: output, isDirectory: true)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let request = ONTFluidigmAmpliconMaterializationRequest(
             inputURL: inputURL,
             barcodeDefinitionsURL: barcodeURL,
@@ -148,7 +148,7 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
             inputs: inputRecords,
             outputs: outputs,
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: result.outputDirectory

@@ -6,6 +6,34 @@ import LungfishWorkflow
 enum MSAExtractionAnnotationProvenance {
     static let sidecarFilename = "msa-extraction-annotations-provenance.json"
 
+    /// Writes the sidecar for an extraction this process ran, timed by `runClock`.
+    @discardableResult
+    static func write(
+        bundleURL: URL,
+        sourceAlignmentBundleURL: URL?,
+        sourceFASTAURL: URL,
+        sourceAnnotationURL: URL,
+        durableSourceURLs: [URL] = [],
+        selectedSequenceIDs: [String] = [],
+        selectedAnnotationsByRecord: [String: [SequenceAnnotation]] = [:],
+        annotationResult: ReferenceBundleAnnotationImportResult,
+        runClock: ProvenanceRunClock
+    ) throws -> URL {
+        try write(
+            bundleURL: bundleURL,
+            sourceAlignmentBundleURL: sourceAlignmentBundleURL,
+            sourceFASTAURL: sourceFASTAURL,
+            sourceAnnotationURL: sourceAnnotationURL,
+            durableSourceURLs: durableSourceURLs,
+            selectedSequenceIDs: selectedSequenceIDs,
+            selectedAnnotationsByRecord: selectedAnnotationsByRecord,
+            annotationResult: annotationResult,
+            startedAt: runClock.startedAt,
+            completedAt: runClock.now
+        )
+    }
+
+    /// Writes the sidecar for an extraction whose start and end were recorded elsewhere.
     @discardableResult
     static func write(
         bundleURL: URL,
@@ -17,7 +45,7 @@ enum MSAExtractionAnnotationProvenance {
         selectedAnnotationsByRecord: [String: [SequenceAnnotation]] = [:],
         annotationResult: ReferenceBundleAnnotationImportResult,
         startedAt: Date,
-        completedAt: Date = Date()
+        completedAt: Date
     ) throws -> URL {
         let sidecarURL = bundleURL
             .appendingPathComponent("annotations", isDirectory: true)

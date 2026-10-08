@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 extension ClassifyCommand {
@@ -36,7 +37,7 @@ extension ClassifyCommand {
         context: ClassifyFailureProvenanceContext,
         argv: [String],
         profileState: String,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         provenanceRecordAtStart: Data?
     ) throws {
         if context.pipelineStarted,
@@ -44,7 +45,7 @@ extension ClassifyCommand {
            provenanceRecordBytes(in: context.outputDirectory) == provenanceRecordAtStart {
             return
         }
-        let endedAt = Date()
+        let endedAt = runClock.now
         let failureMessage: String
         if let recordedMessage = context.failureMessage {
             failureMessage = recordedMessage
@@ -62,7 +63,7 @@ extension ClassifyCommand {
                 exitStatus: failureExitStatus(for: error),
                 profileState: profileState,
                 stderr: failureMessage,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 endedAt: endedAt
             )
         } catch let provenanceError {

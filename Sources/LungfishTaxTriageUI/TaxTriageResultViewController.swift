@@ -4395,7 +4395,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     func writeBatchMatrixCSV(to url: URL) throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let negativeControlIds = negativeControlSampleIds()
         let matrixMetrics = exportMetrics
         let csv = TaxTriageBatchExporter.generateOrganismMatrixCSV(
@@ -4426,7 +4426,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 "negativeControlSampleIds": .array(negativeControlIds.sorted().map { .string($0) }),
                 "tableMode": .string(exportTableModeName),
             ],
-            startedAt: startedAt
+            runClock: runClock
         )) { outputURL in
             try csv.write(to: outputURL, atomically: true, encoding: .utf8)
         }
@@ -4459,7 +4459,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     func writeBatchReport(to url: URL, result: TaxTriageResult, config: TaxTriageConfig) throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let negativeControlIds = negativeControlSampleIds()
         let reportMetrics = exportMetrics
         let report = TaxTriageBatchExporter.generateSummaryReport(
@@ -4492,7 +4492,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 "classifierCount": .integer(config.classifiers.count),
                 "tableMode": .string(exportTableModeName),
             ],
-            startedAt: startedAt
+            runClock: runClock
         )) { outputURL in
             try report.write(to: outputURL, atomically: true, encoding: .utf8)
         }
@@ -4544,7 +4544,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         to url: URL,
         content: String? = nil
     ) throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let exportContent = content ?? buildDelimitedExport(separator: separator)
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app taxtriage results export",
@@ -4570,7 +4570,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 "sortDescriptors": .array(exportSortDescriptorParameters(delimitedExportSortDescriptors)),
                 "metadataColumns": .array(delimitedExportMetadataHeaders.map { .string($0) }),
             ],
-            startedAt: startedAt
+            runClock: runClock
         )) { outputURL in
             try exportContent.write(to: outputURL, atomically: true, encoding: .utf8)
         }

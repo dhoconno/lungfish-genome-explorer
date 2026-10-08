@@ -85,7 +85,7 @@ extension TaxTriagePipeline {
                 usedNames: &usedNames
             )
             let directory = splitRoot.appendingPathComponent(directoryName, isDirectory: true)
-            let start = Date()
+            let splitClock = ProvenanceRunClock()
             let split: (r1: URL, r2: URL, counts: FASTQPairInterleaver.Counts)
             do {
                 split = try await ClassificationPipeline.splitInterleavedInput(sample.fastq1, into: directory)
@@ -106,7 +106,7 @@ extension TaxTriagePipeline {
                 r1: split.r1,
                 r2: split.r2,
                 pairCount: split.counts.r1Records,
-                wallTime: Date().timeIntervalSince(start)
+                wallTime: splitClock.elapsed
             ))
         }
 

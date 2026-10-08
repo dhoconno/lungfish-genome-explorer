@@ -476,7 +476,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
 
         XCTAssertTrue(source.contains("} catch let sidecarError {\n            await provenanceRecorder.recordStep("))
         XCTAssertTrue(source.contains(#"toolName: "Lungfish Classification Result Sidecar""#))
-        XCTAssertTrue(source.contains("exitCode: 1,\n                wallTime: Date().timeIntervalSince(sidecarSaveStart),\n                stderr: sidecarError.localizedDescription"))
+        XCTAssertTrue(source.contains("exitCode: 1,\n                wallTime: sidecarSaveClock.elapsed,\n                stderr: sidecarError.localizedDescription"))
     }
 
     func testAutomaticSilvaProfileUsesGenusAndBrackenVFlag() async throws {

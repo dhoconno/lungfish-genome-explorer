@@ -134,7 +134,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         _ request: FullLengthONTMHCGenotypingRunRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> FullLengthONTMHCGenotypingResult {
-        let runStartedAt = Date()
+        let runClock = ProvenanceRunClock()
         let lifecycleRunID = UUID()
         let lifecycleProcessIdentity = try OwnedProcessIdentity.current()
         let runLock = try DarwinFullLengthONTMHCRunLock.acquire(
@@ -195,7 +195,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             )
             let stagedRun = try await runStaged(
                 stagedRequest,
-                logicalFinalOutputURL: finalOutputURL,
+                logicalFinalOutputURL: finalOutputURL, runClock: runClock,
                 progressHandler: progressHandler
             )
             let stagedResult = stagedRun.result
@@ -213,7 +213,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 stagedOutputURL: stagedOutputURL,
                 finalOutputURL: finalOutputURL,
                 replacingExisting: finalExisted,
-                payloadMappings: publicationMappings
+                payloadMappings: publicationMappings, runClock: runClock
             )
             successfulPublicationRecordSnapshot = publicationRecord
             do {
@@ -261,7 +261,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                         "full-length-ont-mhc-genotyping-provenance.json"
                     )
                 )
-                let rollbackStartedAt = Date()
+                let rollbackClock = ProvenanceRunClock()
                 do {
                     try rollbackPublishedResultBundle(
                         stagedOutputURL: stagedOutputURL,
@@ -270,8 +270,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     )
                     rollbackStepSnapshot = rollbackProvenanceStep(
                         for: publicationRecord,
-                        startedAt: rollbackStartedAt,
-                        completedAt: Date(),
+                        startedAt: rollbackClock.startedAt,
+                        completedAt: rollbackClock.now,
                         exitStatus: 0,
                         errorMessage: nil
                     )
@@ -286,8 +286,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     ].compactMap { $0 }.joined(separator: "; ")
                     rollbackStepSnapshot = rollbackProvenanceStep(
                         for: publicationRecord,
-                        startedAt: rollbackStartedAt,
-                        completedAt: Date(),
+                        startedAt: rollbackClock.startedAt,
+                        completedAt: rollbackClock.now,
                         exitStatus: 1,
                         errorMessage: rollbackErrorText,
                         recovery: recovery
@@ -386,7 +386,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 try writeFailureProvenance(
                     request: request,
                     stagedOutputURL: stagedOutputURL,
-                    startedAt: runStartedAt,
+                    runClock: runClock,
                     error: reportedError,
                     partialEnvelope: partialEnvelope,
                     failedPublicationRecord: failedPublicationRecord,
@@ -414,7 +414,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     let receiptData = try failureProvenancePreparationReceiptData(
                         request: request,
                         runID: lifecycleRunID,
-                        startedAt: runStartedAt,
+                        runClock: runClock,
                         originalError: originalFailure,
                         preparationError: preparationError,
                         rollbackFailureRecovery: rollbackFailureRecovery
@@ -499,10 +499,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     internal func runStaged(
         _ request: FullLengthONTMHCGenotypingRunRequest,
         logicalFinalOutputURL: URL,
+        runClock: ProvenanceRunClock = ProvenanceRunClock(),
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> FullLengthONTMHCStagedRunResult {
         let progress = FullLengthONTMHCProgressRelay(progressHandler)
-        let startedAt = Date()
         progress.emit(0.01, "Validating full-length ONT MHC genotyping inputs.")
         try validateInputs(request)
         let referenceFASTAURL = try resolveMHCReferenceFASTA(request.referenceSourceURL)
@@ -664,6 +664,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             temporaryWorkDirectoryURL: cohortAlignmentResult.temporaryWorkDirectoryURL,
             samtoolsVersion: samtoolsVersion
         )
+        let parserClock = ProvenanceRunClock(startedAt: bamView.commandRecord.completedAt)
         let candidateReferenceRecords = referenceCatalog.records
         let summariesBySample = try genotypeSummariesFromFinalCohortBAM(
             orderedResults: orderedResults,
@@ -673,7 +674,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             referenceRecords: candidateReferenceRecords,
             request: request
         )
-        let hitSummaryDerivationStartedAt = Date()
+        let hitSummaryDerivationClock = ProvenanceRunClock()
         let referenceLengths = try FullLengthONTMHCClusterGenotyper
             .readFASTARecords(from: referenceFASTAURL)
             .reduce(into: [String: Int]()) { lengths, record in
@@ -689,7 +690,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 result.clusterRecords.map { ("\(result.sample)|\($0.name)", $0.sequence.count) }
             })
         )
-        let hitSummaryDerivationCompletedAt = Date()
+        let hitSummaryDerivationCompletedAt = hitSummaryDerivationClock.now
         let authoritativeResults = try orderedResults.map { result in
             guard let summary = summariesBySample[result.sample] else {
                 throw FullLengthONTMHCGenotypingError.reportFailed(
@@ -754,7 +755,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             try append(records: result.unmatchedClusters, sample: result.sample, to: request.unmatchedClustersFASTAURL)
             try append(records: result.cdnaMatchedClusters, sample: result.sample, to: request.cdnaClustersFASTAURL)
         }
-        let rawDecisionSerializationStartedAt = Date()
+        let rawDecisionSerializationClock = ProvenanceRunClock()
         try FileManager.default.createDirectory(
             at: request.rawUnmatchedConsensusesFASTAURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -768,7 +769,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             to: request.rawUnmatchedConsensusDecisionsJSONURL,
             options: .atomic
         )
-        let rawDecisionSerializationCompletedAt = Date()
+        let rawDecisionSerializationCompletedAt = rawDecisionSerializationClock.now
         let orderedClusterFASTAURLs = authoritativeResults
             .map(\.clustersFASTAURL)
             .sorted { $0.standardizedFileURL.path < $1.standardizedFileURL.path }
@@ -834,11 +835,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             outputs: [request.rawUnmatchedConsensusDecisionsJSONURL],
             exitStatus: 0,
             stderr: nil,
-            startedAt: rawDecisionSerializationStartedAt,
+            startedAt: rawDecisionSerializationClock.startedAt,
             completedAt: rawDecisionSerializationCompletedAt
         ))
 
-        let rawUnmatchedMaterializationStartedAt = Date()
+        let rawUnmatchedMaterializationClock = ProvenanceRunClock()
         let rawDecisionDecoder = JSONDecoder()
         let persistedRawDecisionDocument = try rawDecisionDecoder.decode(
             FullLengthONTMHCRawUnmatchedDecisionDocument.self,
@@ -850,7 +851,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             rawUnmatchedRecords,
             to: request.rawUnmatchedConsensusesFASTAURL
         )
-        let rawUnmatchedMaterializationCompletedAt = Date()
+        let rawUnmatchedMaterializationCompletedAt = rawUnmatchedMaterializationClock.now
         let rawUnmatchedMaterializationArgv = [
             "lungfish-in-process", "materialize-raw-unmatched-consensus-fasta",
             "--decisions", request.rawUnmatchedConsensusDecisionsJSONURL.path,
@@ -875,7 +876,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             outputs: [request.rawUnmatchedConsensusesFASTAURL],
             exitStatus: 0,
             stderr: nil,
-            startedAt: rawUnmatchedMaterializationStartedAt,
+            startedAt: rawUnmatchedMaterializationClock.startedAt,
             completedAt: rawUnmatchedMaterializationCompletedAt
         ))
 
@@ -1005,7 +1006,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             outputs: [candidateArtifactResult.candidateJSONURL],
             exitStatus: 0,
             stderr: nil,
-            startedAt: hitSummaryDerivationStartedAt,
+            startedAt: hitSummaryDerivationClock.startedAt,
             completedAt: hitSummaryDerivationCompletedAt
         ))
         try metadataPublicationObserver(.candidateArtifactsStaged(
@@ -1095,8 +1096,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             outputs: [request.reportCSVURL, request.sampleSummaryCSVURL, request.statsJSONURL],
             exitStatus: 0,
             stderr: nil,
-            startedAt: bamView.commandRecord.completedAt,
-            completedAt: Date()
+            startedAt: parserClock.startedAt, completedAt: parserClock.now
         ))
         let candidateDocument = try JSONDecoder().decode(
             ONTMHCCandidateAllelesDocument.self,
@@ -1158,7 +1158,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let orderedAlleles = try FullLengthONTMHCClusterGenotyper
             .readFASTARecords(from: referenceFASTAURL)
             .map(\.name)
-        let workbookAssemblyStartedAt = Date()
+        let workbookAssemblyClock = ProvenanceRunClock()
         let workbookProjection = try FullLengthONTMHCWorkbookProjection(
             candidateDocument: candidateDocument,
             unnameableDocument: unnameableDocument,
@@ -1218,7 +1218,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             to: workbookProjectionInputURL,
             options: .atomic
         )
-        let workbookAssemblyCompletedAt = Date()
+        let workbookAssemblyCompletedAt = workbookAssemblyClock.now
         var workbookAssemblyInputs = [
             candidateArtifactResult.candidateJSONURL,
             candidateArtifactResult.candidateFASTAURL,
@@ -1288,7 +1288,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             outputs: [workbookProjectionInputURL],
             exitStatus: 0,
             stderr: nil,
-            startedAt: workbookAssemblyStartedAt,
+            startedAt: workbookAssemblyClock.startedAt,
             completedAt: workbookAssemblyCompletedAt
         ))
         let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
@@ -1308,7 +1308,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 completedAt: snapshot.completedAt
             ))
         }
-        let workbookProjectionStartedAt = Date()
+        let workbookProjectionClock = ProvenanceRunClock()
         let reportManifest = ONTGenotypeResultBundleManifest(
             kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             workflowKind: .fullLengthONTMHCGenotype,
@@ -1341,7 +1341,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             outputs: [report.outputURL, report.receiptURL] + (try FileManager.default.contentsOfDirectory(
                 at: report.snapshotURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)),
             exitStatus: 0, stderr: report.execution.stderr,
-            startedAt: workbookProjectionStartedAt, completedAt: Date()
+            startedAt: workbookProjectionClock.startedAt, completedAt: workbookProjectionClock.now
         ))
         try rewriteCheckpointPaths(
             in: request.outputDirectory,
@@ -1361,7 +1361,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 createdAt: manifestCreatedAt
             )
             manifestPublicationPlan = plan
-            let provenanceCompletedAt = Date()
+            let provenanceCompletedAt = runClock.now
             try writeProvenance(
                 request: request,
                 referenceFASTAURL: referenceFASTAURL,
@@ -1374,7 +1374,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 candidateArtifactResult: candidateArtifactResult,
                 referenceVisualizationPublication: referenceVisualizationPublication,
                 manifestPublicationPlan: plan,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: provenanceCompletedAt
             )
             try metadataPublicationObserver(.provenanceWrittenBeforeManifestPublication(

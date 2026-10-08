@@ -1063,7 +1063,7 @@ public final class GenotypeAnnotationStore {
     ) throws {
         guard !isReadOnly else { return }
         let author = editAuthor ?? self.author
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let timestamp = now()
         var latestForRollback = sidecar
         var publishedSidecar: GenotypeAnnotationSidecar?
@@ -1098,8 +1098,8 @@ public final class GenotypeAnnotationStore {
                     action: "updateMHCCandidateDisplaySettings",
                     editContext: mhcCandidateDisplayEditContext(display),
                     snapshot: snapshot,
-                    startedAt: startedAt,
-                    endedAt: Date()
+                    startedAt: runClock.startedAt,
+                    endedAt: runClock.now
                 )
                 publishedSidecar = latest
                 return payload
@@ -1241,7 +1241,7 @@ public final class GenotypeAnnotationStore {
             removed: []
         )
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var publishedSidecar: GenotypeAnnotationSidecar?
         var replacementResult = unchangedResult
         do {
@@ -1492,8 +1492,8 @@ public final class GenotypeAnnotationStore {
                     action: "replaceManualHaplotypeAssignments",
                     editContext: editContext,
                     snapshot: snapshot,
-                    startedAt: startedAt,
-                    endedAt: Date()
+                    startedAt: runClock.startedAt,
+                    endedAt: runClock.now
                 )
                 publishedSidecar = latest
                 replacementResult = ManualHaplotypeReplacementResult(
@@ -1571,7 +1571,7 @@ public final class GenotypeAnnotationStore {
             didChange: false,
             changedKeys: []
         )
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var publishedSidecar: GenotypeAnnotationSidecar?
         var mutationResult = unchanged
         _ = try transactAnnotationPublication { snapshot in
@@ -1759,8 +1759,8 @@ public final class GenotypeAnnotationStore {
                 action: "mutateCallOverrides",
                 editContext: editContext,
                 snapshot: snapshot,
-                startedAt: startedAt,
-                endedAt: Date()
+                startedAt: runClock.startedAt,
+                endedAt: runClock.now
             )
             publishedSidecar = latest
             mutationResult = CallOverrideMutationResult(
@@ -2075,7 +2075,7 @@ public final class GenotypeAnnotationStore {
             throw GenotypeMatrixReviewMutationError.readOnly
         }
         let previousSidecar = sidecar
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var latestForRollback = lastPersistedSidecar
         var publishedSidecar: GenotypeAnnotationSidecar?
         do {
@@ -2093,8 +2093,8 @@ public final class GenotypeAnnotationStore {
                     action: action,
                     editContext: editContext,
                     snapshot: snapshot,
-                    startedAt: startedAt,
-                    endedAt: Date()
+                    startedAt: runClock.startedAt,
+                    endedAt: runClock.now
                 )
                 publishedSidecar = latest
                 return payload
@@ -2232,7 +2232,7 @@ public final class GenotypeAnnotationStore {
 
     private func persist(action: String, editContext: ProvenanceEditContext? = nil) throws {
         guard !isReadOnly else { return }
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var desiredSidecar = sidecar
         do {
             try desiredSidecar.promoteToCurrentSchema()
@@ -2254,8 +2254,8 @@ public final class GenotypeAnnotationStore {
                     action: action,
                     editContext: editContext,
                     snapshot: snapshot,
-                    startedAt: startedAt,
-                    endedAt: Date()
+                    startedAt: runClock.startedAt,
+                    endedAt: runClock.now
                 )
             }
             sidecar = desiredSidecar

@@ -18,7 +18,7 @@ private let logger = Logger(subsystem: "com.lungfish.workflow", category: "ReadE
 /// - **BAM region** — extracts reads from a BAM file by genomic region via `samtools`.
 /// - **Database** — extracts reads stored in an NAO-MGS SQLite database.
 ///
-/// After extraction, ``createBundle(from:sourceName:selectionDescription:metadata:in:)`` packages the output
+/// After extraction, ``createBundle(from:sourceName:selectionDescription:metadata:in:runClock:)`` packages the output
 /// into a `.lungfishfastq` bundle with provenance metadata.
 ///
 /// ## Thread Safety
@@ -786,7 +786,7 @@ public actor ReadExtractionService {
         sourceName: String,
         selectionDescription: String,
         metadata: ExtractionMetadata,
-        in outputDirectory: URL
+        in outputDirectory: URL, runClock: ProvenanceRunClock? = nil
     ) throws -> URL {
         let fm = FileManager.default
 
@@ -875,7 +875,7 @@ public actor ReadExtractionService {
                 payloadURLs: result.fastqURLs.map { finalBundleURL.appendingPathComponent($0.lastPathComponent) },
                 metadataURL: metadataURL,
                 metadata: metadata,
-                readCount: result.readCount
+                readCount: result.readCount, runClock: runClock
             )
         } catch {
             throw ExtractionError.bundleCreationFailed(
@@ -943,7 +943,7 @@ public actor ReadExtractionService {
         payloadURLs: [URL],
         metadataURL: URL,
         metadata: ExtractionMetadata,
-        readCount: Int
+        readCount: Int, runClock: ProvenanceRunClock?
     ) throws {
         let commandString = metadata.parameters["reproducibleCommand"]
         let command = commandString.map { ["sh", "-lc", $0] }
@@ -966,10 +966,10 @@ public actor ReadExtractionService {
         let parameters = metadata.parameters.reduce(into: [String: ParameterValue]()) { partialResult, entry in
             partialResult[entry.key] = .string(entry.value)
         }
-        let completedAt = Date()
+        let startedAt = runClock?.startedAt ?? metadata.extractionDate, completedAt = runClock?.now ?? Date()
         let inputs = inputRecords.map { ProvenanceFileDescriptor(fileRecord: $0) }
         let outputs = outputRecords.map { ProvenanceFileDescriptor(fileRecord: $0) }
-        let wallTime = completedAt.timeIntervalSince(metadata.extractionDate)
+        let wallTime = completedAt.timeIntervalSince(startedAt)
         let step = ProvenanceStep(
             toolName: metadata.toolName,
             toolVersion: WorkflowRun.currentAppVersion,
@@ -979,12 +979,12 @@ public actor ReadExtractionService {
             outputs: outputs,
             exitStatus: 0,
             wallTimeSeconds: wallTime,
-            startedAt: metadata.extractionDate,
+            startedAt: startedAt,
             completedAt: completedAt
         )
         let outputFormat = payloadURLs.first.map { extractionFormat(for: $0).rawValue } ?? FileFormat.unknown.rawValue
         let envelope = ProvenanceEnvelope(
-            createdAt: metadata.extractionDate,
+            createdAt: startedAt,
             workflowName: "Classifier Read Extraction",
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: metadata.toolName,

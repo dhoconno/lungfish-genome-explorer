@@ -111,7 +111,7 @@ struct AssembleCommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         warnIfDeprecatedAdvancedOptionsUsed()
 
@@ -320,8 +320,8 @@ struct AssembleCommand: AsyncParsableCommand {
                 originalInputURLs: executionOriginalInputURLs,
                 executionInputURLs: executionInputURLs,
                 argv: CommandLine.arguments,
-                startedAt: startedAt,
-                endedAt: Date(),
+                startedAt: runClock.startedAt,
+                endedAt: runClock.now,
                 materializationStartedAt: resolvedInputs.materializationStartedAt,
                 materializationEndedAt: resolvedInputs.materializationEndedAt,
                 layoutResolution: layoutResolution,

@@ -54,7 +54,7 @@ struct ConvertCommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Validate input file exists
@@ -213,7 +213,7 @@ struct ConvertCommand: AsyncParsableCommand {
             // Unreachable: normalizedToFormat was already validated above.
             throw CLIError.unsupportedFormat(format: toFormat)
         }
-        let completedAt = Date()
+        let completedAt = runClock.now
         try Task.checkCancellation()
         try publication.publish(stagedURL: stagedOutputURL, to: outputURL, replacingExisting: force)
 
@@ -253,7 +253,7 @@ struct ConvertCommand: AsyncParsableCommand {
             ],
             consumedInputSnapshotPaths: Set(provenanceInputs.map { URL(fileURLWithPath: $0.path).canonicalFilePath }),
             exitCode: 0,
-            wallTime: completedAt.timeIntervalSince(startedAt),
+            wallTime: completedAt.timeIntervalSince(runClock.startedAt),
             stderr: nil,
             status: .completed,
             outputDirectory: outputDirectory,

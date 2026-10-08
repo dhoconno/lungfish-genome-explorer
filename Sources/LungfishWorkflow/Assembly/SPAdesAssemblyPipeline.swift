@@ -299,7 +299,7 @@ public final class SPAdesAssemblyPipeline: @unchecked Sendable {
         runtime: any ContainerRuntimeProtocol,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> SPAdesAssemblyResult {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
         progress(0.0, "Preparing assembly workspace...")
 
         // Validate input files before expensive operations
@@ -381,7 +381,7 @@ public final class SPAdesAssemblyPipeline: @unchecked Sendable {
         await cleanupContainer()
         try Task.checkCancellation()
 
-        let wallTime = Date().timeIntervalSince(startTime)
+        let wallTime = runClock.elapsed
         progress(0.95, "Computing assembly statistics...")
 
         // 6. Collect outputs

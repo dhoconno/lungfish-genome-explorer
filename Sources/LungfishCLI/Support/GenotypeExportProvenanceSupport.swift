@@ -20,7 +20,7 @@ enum GenotypeExportProvenanceSupport {
         additionalInputRecords: [FileRecord] = [],
         excludedInputURLs: [URL] = [],
         extraSteps: [ProvenanceStep] = [],
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         publicationArtifactDidWrite:
             (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) async throws {
@@ -61,7 +61,7 @@ enum GenotypeExportProvenanceSupport {
             },
             consumedInputSnapshotPaths: consumedInputSnapshotPaths,
             exitCode: 0,
-            wallTime: max(0, Date().timeIntervalSince(startedAt)),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: outputDirectory,

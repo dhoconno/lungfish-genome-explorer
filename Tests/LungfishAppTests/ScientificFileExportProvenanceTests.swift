@@ -31,7 +31,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         try Data("old artifact".utf8).write(to: marker)
         XCTAssertThrowsError(try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "fixture", sourceURLs: [], outputURL: output, outputFormat: .text,
-            argv: ["fixture"], startedAt: Date()
+            argv: ["fixture"], runClock: ProvenanceRunClock()
         )) { staged in try Data("replacement".utf8).write(to: staged) })
         XCTAssertEqual(try Data(contentsOf: output), original)
         XCTAssertEqual(try Data(contentsOf: marker), Data("old artifact".utf8))
@@ -87,7 +87,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             resolved: [
                 "recordCount": .integer(1),
             ],
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         ))
 
         XCTAssertEqual(sidecarURL, ProvenanceRecorder.fileSidecarURL(for: outputURL))
@@ -119,7 +119,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             outputURL: outputURL,
             outputFormat: .text,
             argv: ["Lungfish.app", "export-directory", "--output", outputURL.path],
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         ))
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
@@ -146,7 +146,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             outputURL: outputURL,
             outputFormat: .text,
             argv: ["Lungfish.app", "atomic-export", "--output", outputURL.path],
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         )) { tempURL in
             try "name\tcount\nalpha\t1\n".write(to: tempURL, atomically: true, encoding: .utf8)
         }
@@ -175,7 +175,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             outputURL: outputURL,
             outputFormat: .text,
             argv: ["Lungfish.app", "atomic-directory-export", "--output", outputURL.path],
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         )) { tempURL in
             try "auxiliary\n".write(to: auxiliaryWriteURL, atomically: true, encoding: .utf8)
             try "export\n".write(to: tempURL, atomically: true, encoding: .utf8)
@@ -204,7 +204,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             outputURL: outputURL,
             outputFormat: .text,
             argv: ["Lungfish.app", "atomic-directory-export", "--output", outputURL.path],
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         )) { tempURL in
             try "new export\n".write(to: tempURL, atomically: true, encoding: .utf8)
         }
@@ -228,7 +228,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             outputURL: outputURL,
             outputFormat: .text,
             argv: ["Lungfish.app", "atomic-export", "--output", outputURL.path],
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         )) { tempURL in
             try "export\n".write(to: tempURL, atomically: true, encoding: .utf8)
             Thread.sleep(forTimeInterval: 0.02)
@@ -254,7 +254,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
                 outputURL: outputURL,
                 outputFormat: .text,
                 argv: ["Lungfish.app", "atomic-export", "--output", outputURL.path],
-                startedAt: Date()
+                runClock: ProvenanceRunClock()
             )) { tempURL in
                 try "new\n".write(to: tempURL, atomically: true, encoding: .utf8)
                 throw CocoaError(.fileWriteUnknown)
@@ -281,7 +281,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             outputURL: outputURL,
             outputFormat: .text,
             argv: ["Lungfish.app", "export-annotation-table"],
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         ), preserveOriginalSources: true)
 
         let sidecar = ProvenanceRecorder.fileSidecarURL(for: outputURL)
@@ -309,7 +309,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
                 outputURL: outputURL,
                 outputFormat: .text,
                 argv: ["Lungfish.app", "atomic-export", "--output", outputURL.path],
-                startedAt: Date()
+                runClock: ProvenanceRunClock()
             )) { tempURL in
                 try "new\n".write(to: tempURL, atomically: true, encoding: .utf8)
             }
@@ -346,7 +346,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             sequence,
             sourceURLs: [sourceURL],
             to: outputURL,
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         )
 
         XCTAssertEqual(sidecarURL, ProvenanceRecorder.fileSidecarURL(for: outputURL))
@@ -381,7 +381,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
                 sequence,
                 sourceURLs: [],
                 to: outputURL,
-                startedAt: Date()
+                runClock: ProvenanceRunClock()
             )
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))

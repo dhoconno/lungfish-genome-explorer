@@ -428,7 +428,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         config: Minimap2Config,
         progress: @Sendable (Double, String) -> Void = { _, _ in }
     ) async throws -> Minimap2Result {
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
         let fm = FileManager.default
 
         // -- Validate inputs --------------------------------------------------
@@ -516,7 +516,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         let alignTimeout = max(7200, TimeInterval(totalInputBytes / 10_000_000))
 
         let mappingInputs = mappingInputRecords(for: config, replayInputRecords: replayInputs.fileRecords)
-        let minimap2Start = Date()
+        let minimap2Clock = ProvenanceRunClock()
         let minimap2Result: (stdout: String, stderr: String, exitCode: Int32)
         do {
             minimap2Result = try await condaManager.runTool(
@@ -527,7 +527,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 timeout: alignTimeout
             )
         } catch {
-            let minimap2End = Date()
+            let minimap2End = minimap2Clock.now
             let failureMessage = toolFailureMessage(error)
             let minimap2Step = StepExecution(
                 toolName: "minimap2",
@@ -541,9 +541,9 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 inputs: mappingInputs,
                 outputs: [],
                 exitCode: -1,
-                wallTime: minimap2End.timeIntervalSince(minimap2Start),
+                wallTime: minimap2End.timeIntervalSince(minimap2Clock.startedAt),
                 stderr: failureMessage,
-                startTime: minimap2Start,
+                startTime: minimap2Clock.startedAt,
                 endTime: minimap2End
             )
             try writeMappingProvenance(
@@ -551,7 +551,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 result: failureResult(
                     bamURL: sortedBAM,
                     baiURL: baiFile,
-                    startedAt: startTime
+                    runClock: runClock
                 ),
                 minimap2Environment: minimap2Env,
                 minimap2Arguments: minimap2Args,
@@ -566,7 +566,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             try? fm.removeItem(at: unsortedSAM)
             throw Minimap2PipelineError.alignmentFailed(failureMessage)
         }
-        let minimap2End = Date()
+        let minimap2End = minimap2Clock.now
         let rawSAMRecord = outputRecordIfPresent(url: unsortedSAM, format: .sam, role: .output)
             ?? ProvenanceRecorder.fileRecord(url: unsortedSAM, format: .sam, role: .output)
         var minimap2Step = StepExecution(
@@ -581,9 +581,9 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             inputs: mappingInputs,
             outputs: outputRecordsIfPresent(url: unsortedSAM, format: .sam, role: .output),
             exitCode: minimap2Result.exitCode,
-            wallTime: minimap2End.timeIntervalSince(minimap2Start),
+            wallTime: minimap2End.timeIntervalSince(minimap2Clock.startedAt),
             stderr: nonEmpty(minimap2Result.stderr),
-            startTime: minimap2Start,
+            startTime: minimap2Clock.startedAt,
             endTime: minimap2End
         )
 
@@ -594,7 +594,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 result: failureResult(
                     bamURL: sortedBAM,
                     baiURL: baiFile,
-                    startedAt: startTime
+                    runClock: runClock
                 ),
                 minimap2Environment: minimap2Env,
                 minimap2Arguments: minimap2Args,
@@ -625,7 +625,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             "-o", sortedBAM.path,
             unsortedSAM.path,
         ]
-        let sortStart = Date()
+        let sortClock = ProvenanceRunClock()
         let sortResult: NativeToolResult
         do {
             sortResult = try await runner.run(
@@ -635,7 +635,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 timeout: max(3600, TimeInterval(totalInputBytes / 5_000_000))
             )
         } catch {
-            let sortEnd = Date()
+            let sortEnd = sortClock.now
             let failureMessage = toolFailureMessage(error)
             let sortStep = StepExecution(
                 toolName: NativeTool.samtools.executableName,
@@ -644,9 +644,9 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 inputs: [rawSAMRecord],
                 outputs: outputRecordsIfPresent(url: sortedBAM, format: .bam, role: .output),
                 exitCode: -1,
-                wallTime: sortEnd.timeIntervalSince(sortStart),
+                wallTime: sortEnd.timeIntervalSince(sortClock.startedAt),
                 stderr: failureMessage,
-                startTime: sortStart,
+                startTime: sortClock.startedAt,
                 endTime: sortEnd
             )
             try writeMappingProvenance(
@@ -654,7 +654,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 result: failureResult(
                     bamURL: sortedBAM,
                     baiURL: baiFile,
-                    startedAt: startTime
+                    runClock: runClock
                 ),
                 minimap2Environment: minimap2Env,
                 minimap2Arguments: minimap2Args,
@@ -668,7 +668,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             )
             throw Minimap2PipelineError.sortFailed(failureMessage)
         }
-        let sortEnd = Date()
+        let sortEnd = sortClock.now
         let sortStep = StepExecution(
             toolName: NativeTool.samtools.executableName,
             toolVersion: nativeToolVersionString(samtoolsVersion, tool: .samtools),
@@ -676,9 +676,9 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             inputs: [rawSAMRecord],
             outputs: outputRecordsIfPresent(url: sortedBAM, format: .bam, role: .output),
             exitCode: sortResult.exitCode,
-            wallTime: sortEnd.timeIntervalSince(sortStart),
+            wallTime: sortEnd.timeIntervalSince(sortClock.startedAt),
             stderr: nonEmpty(sortResult.stderr),
-            startTime: sortStart,
+            startTime: sortClock.startedAt,
             endTime: sortEnd
         )
 
@@ -688,7 +688,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 result: failureResult(
                     bamURL: sortedBAM,
                     baiURL: baiFile,
-                    startedAt: startTime
+                    runClock: runClock
                 ),
                 minimap2Environment: minimap2Env,
                 minimap2Arguments: minimap2Args,
@@ -712,7 +712,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         logger.info("Building BAM index")
 
         let indexArguments = ["index", sortedBAM.path]
-        let indexStart = Date()
+        let indexClock = ProvenanceRunClock()
         let indexResult: NativeToolResult
         do {
             indexResult = try await runner.run(
@@ -722,7 +722,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 timeout: 600
             )
         } catch {
-            let indexEnd = Date()
+            let indexEnd = indexClock.now
             let failureMessage = toolFailureMessage(error)
             let indexStep = StepExecution(
                 toolName: NativeTool.samtools.executableName,
@@ -731,9 +731,9 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 inputs: [ProvenanceRecorder.fileRecord(url: sortedBAM, format: .bam, role: .input)],
                 outputs: outputRecordsIfPresent(url: baiFile, role: .index),
                 exitCode: -1,
-                wallTime: indexEnd.timeIntervalSince(indexStart),
+                wallTime: indexEnd.timeIntervalSince(indexClock.startedAt),
                 stderr: failureMessage,
-                startTime: indexStart,
+                startTime: indexClock.startedAt,
                 endTime: indexEnd
             )
             try writeMappingProvenance(
@@ -741,7 +741,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 result: failureResult(
                     bamURL: sortedBAM,
                     baiURL: baiFile,
-                    startedAt: startTime
+                    runClock: runClock
                 ),
                 minimap2Environment: minimap2Env,
                 minimap2Arguments: minimap2Args,
@@ -755,7 +755,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             )
             throw Minimap2PipelineError.indexFailed(failureMessage)
         }
-        let indexEnd = Date()
+        let indexEnd = indexClock.now
         let indexStep = StepExecution(
             toolName: NativeTool.samtools.executableName,
             toolVersion: nativeToolVersionString(samtoolsVersion, tool: .samtools),
@@ -763,9 +763,9 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             inputs: [ProvenanceRecorder.fileRecord(url: sortedBAM, format: .bam, role: .input)],
             outputs: outputRecordsIfPresent(url: baiFile, role: .index),
             exitCode: indexResult.exitCode,
-            wallTime: indexEnd.timeIntervalSince(indexStart),
+            wallTime: indexEnd.timeIntervalSince(indexClock.startedAt),
             stderr: nonEmpty(indexResult.stderr),
-            startTime: indexStart,
+            startTime: indexClock.startedAt,
             endTime: indexEnd
         )
 
@@ -775,7 +775,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 result: failureResult(
                     bamURL: sortedBAM,
                     baiURL: baiFile,
-                    startedAt: startTime
+                    runClock: runClock
                 ),
                 minimap2Environment: minimap2Env,
                 minimap2Arguments: minimap2Args,
@@ -795,7 +795,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         progress(0.90, "Collecting alignment statistics...")
 
         let statsArguments = ["flagstat", sortedBAM.path]
-        let statsStart = Date()
+        let statsClock = ProvenanceRunClock()
         let statsResult: NativeToolResult
         do {
             statsResult = try await runner.run(
@@ -805,7 +805,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 timeout: 300
             )
         } catch {
-            let statsEnd = Date()
+            let statsEnd = statsClock.now
             let failureMessage = toolFailureMessage(error)
             let statsStep = StepExecution(
                 toolName: NativeTool.samtools.executableName,
@@ -814,9 +814,9 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 inputs: [ProvenanceRecorder.fileRecord(url: sortedBAM, format: .bam, role: .input)],
                 outputs: [],
                 exitCode: -1,
-                wallTime: statsEnd.timeIntervalSince(statsStart),
+                wallTime: statsEnd.timeIntervalSince(statsClock.startedAt),
                 stderr: failureMessage,
-                startTime: statsStart,
+                startTime: statsClock.startedAt,
                 endTime: statsEnd
             )
             try writeMappingProvenance(
@@ -824,7 +824,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 result: failureResult(
                     bamURL: sortedBAM,
                     baiURL: baiFile,
-                    startedAt: startTime
+                    runClock: runClock
                 ),
                 minimap2Environment: minimap2Env,
                 minimap2Arguments: minimap2Args,
@@ -838,7 +838,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             )
             throw Minimap2PipelineError.statsFailed(failureMessage)
         }
-        let statsEnd = Date()
+        let statsEnd = statsClock.now
         let statsStep = StepExecution(
             toolName: NativeTool.samtools.executableName,
             toolVersion: nativeToolVersionString(samtoolsVersion, tool: .samtools),
@@ -846,9 +846,9 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             inputs: [ProvenanceRecorder.fileRecord(url: sortedBAM, format: .bam, role: .input)],
             outputs: [],
             exitCode: statsResult.exitCode,
-            wallTime: statsEnd.timeIntervalSince(statsStart),
+            wallTime: statsEnd.timeIntervalSince(statsClock.startedAt),
             stderr: nonEmpty(statsResult.stderr),
-            startTime: statsStart,
+            startTime: statsClock.startedAt,
             endTime: statsEnd
         )
 
@@ -858,7 +858,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 result: failureResult(
                     bamURL: sortedBAM,
                     baiURL: baiFile,
-                    startedAt: startTime
+                    runClock: runClock
                 ),
                 minimap2Environment: minimap2Env,
                 minimap2Arguments: minimap2Args,
@@ -877,7 +877,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
 
         // -- Done -------------------------------------------------------------
 
-        let elapsed = Date().timeIntervalSince(startTime)
+        let elapsed = runClock.elapsed
         let mappingPct = totalReads > 0
             ? String(format: "%.1f%%", Double(mappedReads) / Double(totalReads) * 100)
             : "N/A"
@@ -1026,7 +1026,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
     private func failureResult(
         bamURL: URL,
         baiURL: URL,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) -> Minimap2Result {
         Minimap2Result(
             bamURL: bamURL,
@@ -1034,7 +1034,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             totalReads: 0,
             mappedReads: 0,
             unmappedReads: 0,
-            wallClockSeconds: Date().timeIntervalSince(startedAt)
+            wallClockSeconds: runClock.elapsed
         )
     }
 

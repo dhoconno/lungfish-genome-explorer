@@ -70,7 +70,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         let shouldCompressOutput = output.compress || outputURL.pathExtension.lowercased() == "gz"
         let workspace = outputURL.deletingLastPathComponent()
         let threads = ProcessInfo.processInfo.activeProcessorCount
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var invocations: [ScrubHumanInvocationRecord] = []
 
         var decompressedInput: URL? = nil
@@ -78,7 +78,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         if inputURL.pathExtension.lowercased() == "gz" {
             let tmp = workspace.appendingPathComponent("scrub-human-input-\(UUID().uuidString).fastq")
             let pigzArguments = ["-d", "-c", inputURL.path]
-            let stepStartedAt = Date()
+            let stepClock = ProvenanceRunClock()
             let pigzResult = try await runner.runWithFileOutput(
                 .pigz,
                 arguments: pigzArguments,
@@ -87,7 +87,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             invocations.append(Self.invocationRecord(
                 tool: .pigz,
                 result: pigzResult,
-                startedAt: stepStartedAt,
+                runClock: stepClock,
                 inputs: [.init(url: inputURL, format: .fastq, role: .input)],
                 outputs: [.init(url: tmp, format: .fastq, role: .output)]
             ))
@@ -159,7 +159,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
 
         if shouldCompressOutput {
             let pigzArguments = ["-p", "\(threads)", "-c", plainOutputURL.path]
-            let stepStartedAt = Date()
+            let stepClock = ProvenanceRunClock()
             let compressionResult = try await runner.runWithFileOutput(
                 .pigz,
                 arguments: pigzArguments,
@@ -168,7 +168,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             invocations.append(Self.invocationRecord(
                 tool: .pigz,
                 result: compressionResult,
-                startedAt: stepStartedAt,
+                runClock: stepClock,
                 inputs: [.init(url: plainOutputURL, format: .fastq, role: .input)],
                 outputs: [.init(url: outputURL, format: .fastq, role: .output)]
             ))
@@ -213,8 +213,8 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             materializationSteps: try resolvedInput.materializationSteps(),
             outputURL: outputURL,
             dbPath: dbPath,
-            startedAt: startedAt,
-            endedAt: Date(),
+            startedAt: runClock.startedAt,
+            endedAt: runClock.now,
             invocations: invocations
         )
     }
@@ -382,7 +382,7 @@ private extension FastqScrubHumanSubcommand {
             "out2=\(outputR2.path)",
             "interleaved=t",
         ]
-        let startedAt = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .reformat,
             arguments: arguments,
@@ -392,7 +392,7 @@ private extension FastqScrubHumanSubcommand {
         let record = invocationRecord(
             tool: .reformat,
             result: result,
-            startedAt: startedAt,
+            runClock: stepClock,
             inputs: [.init(url: inputFASTQ, format: .fastq, role: .input)],
             outputs: [
                 .init(url: outputR1, format: .fastq, role: .output),
@@ -418,7 +418,7 @@ private extension FastqScrubHumanSubcommand {
             "out=\(outputFASTQ.path)",
             "interleaved=t",
         ]
-        let startedAt = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .reformat,
             arguments: arguments,
@@ -428,7 +428,7 @@ private extension FastqScrubHumanSubcommand {
         let record = invocationRecord(
             tool: .reformat,
             result: result,
-            startedAt: startedAt,
+            runClock: stepClock,
             inputs: [
                 .init(url: inputR1, format: .fastq, role: .input),
                 .init(url: inputR2, format: .fastq, role: .input),
@@ -455,7 +455,7 @@ private extension FastqScrubHumanSubcommand {
             "-o", outputFASTQ.path,
             "-t", "\(threads)",
         ]
-        let startedAt = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .deacon,
             arguments: arguments,
@@ -464,7 +464,7 @@ private extension FastqScrubHumanSubcommand {
         let record = invocationRecord(
             tool: .deacon,
             result: result,
-            startedAt: startedAt,
+            runClock: stepClock,
             inputs: [
                 .init(url: inputFASTQ, format: .fastq, role: .input),
                 .init(url: databasePath, format: nil, role: .reference),
@@ -495,7 +495,7 @@ private extension FastqScrubHumanSubcommand {
             "-O", outputR2.path,
             "-t", "\(threads)",
         ]
-        let startedAt = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .deacon,
             arguments: arguments,
@@ -504,7 +504,7 @@ private extension FastqScrubHumanSubcommand {
         let record = invocationRecord(
             tool: .deacon,
             result: result,
-            startedAt: startedAt,
+            runClock: stepClock,
             inputs: [
                 .init(url: inputR1, format: .fastq, role: .input),
                 .init(url: inputR2, format: .fastq, role: .input),
@@ -524,7 +524,7 @@ private extension FastqScrubHumanSubcommand {
     static func invocationRecord(
         tool: NativeTool,
         result: NativeToolResult,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         inputs: [ScrubHumanProvenanceFile],
         outputs: [ScrubHumanProvenanceFile]
     ) -> ScrubHumanInvocationRecord {
@@ -534,10 +534,10 @@ private extension FastqScrubHumanSubcommand {
             inputs: inputs,
             outputs: outputs,
             exitCode: result.exitCode,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: result.stderr,
-            startedAt: startedAt,
-            completedAt: Date()
+            startedAt: runClock.startedAt,
+            completedAt: runClock.now
         )
     }
 

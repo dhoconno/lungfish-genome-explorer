@@ -170,9 +170,9 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
             arguments: arguments
         )
         let toolVersion = await Self.toolRunner.detectVersion()
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await Self.toolRunner.run(arguments: arguments, workingDirectory: outputDirectoryURL)
-        var wallTime = Date().timeIntervalSince(startedAt)
+        var wallTime = runClock.elapsed
         guard result.exitCode == 0 else {
             try? await recordProvenance(
                 inputURLs: inputURLs,
@@ -209,7 +209,7 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
                     )
                 }
             }
-            wallTime = Date().timeIntervalSince(startedAt)
+            wallTime = runClock.elapsed
         } catch {
             for join in joins { try? FileManager.default.removeItem(at: join.output) }
             try? await recordProvenance(
@@ -229,7 +229,7 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
                 toolVersion: toolVersion,
                 outputs: [],
                 exitCode: result.exitCode,
-                wallTime: Date().timeIntervalSince(startedAt),
+                wallTime: runClock.elapsed,
                 stderr: error.localizedDescription,
                 status: .failed
             )

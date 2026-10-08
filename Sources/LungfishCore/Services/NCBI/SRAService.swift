@@ -339,9 +339,9 @@ public actor SRAService {
 
         // Step 1: Prefetch the SRA file
         progress?(0.1)
-        let prefetchStartedAt = Date()
+        let prefetchClock = ProvenanceRunClock()
         let prefetchResult = try await toolkit.run(toolkit.prefetch, [accession, "-O", outputDirectory.path])
-        let prefetchCompletedAt = Date()
+        let prefetchCompletedAt = prefetchClock.now
         trace?(
             FASTQDownloadStepTrace(
                 toolName: "prefetch",
@@ -350,9 +350,9 @@ public actor SRAService {
                 inputs: [accession],
                 outputs: [sraFile],
                 exitCode: prefetchResult.exitCode,
-                wallTime: prefetchCompletedAt.timeIntervalSince(prefetchStartedAt),
+                wallTime: prefetchCompletedAt.timeIntervalSince(prefetchClock.startedAt),
                 stderr: prefetchResult.stderr,
-                startedAt: prefetchStartedAt,
+                startedAt: prefetchClock.startedAt,
                 completedAt: prefetchCompletedAt
             )
         )
@@ -377,7 +377,7 @@ public actor SRAService {
             "--split-3",
             "--threads", "4"
         ]
-        let fasterqStartedAt = Date()
+        let fasterqClock = ProvenanceRunClock()
         let fasterqResult: SRAToolkitRunner.Result
         do {
             fasterqResult = try await toolkit.run(toolkit.fasterqDump, fasterqArguments)
@@ -386,7 +386,7 @@ public actor SRAService {
             runFiles.removeWrittenFASTQFiles()
             throw error
         }
-        let fasterqCompletedAt = Date()
+        let fasterqCompletedAt = fasterqClock.now
 
         // Shared trace fields for both the failure and success paths; only `outputs` differs.
         let makeFasterqTrace: ([URL]) -> FASTQDownloadStepTrace = { outputs in
@@ -397,9 +397,9 @@ public actor SRAService {
                 inputs: [sraFile.path],
                 outputs: outputs,
                 exitCode: fasterqResult.exitCode,
-                wallTime: fasterqCompletedAt.timeIntervalSince(fasterqStartedAt),
+                wallTime: fasterqCompletedAt.timeIntervalSince(fasterqClock.startedAt),
                 stderr: fasterqResult.stderr,
-                startedAt: fasterqStartedAt,
+                startedAt: fasterqClock.startedAt,
                 completedAt: fasterqCompletedAt
             )
         }

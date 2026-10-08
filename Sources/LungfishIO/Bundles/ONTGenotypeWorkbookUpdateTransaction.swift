@@ -2195,7 +2195,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        let completedAt = Date()
+        let completedAt = max(Date(), transaction.createdAt) // began in an earlier process
         let exitStatus = suppliedExitStatus
             ?? (action == "ambiguous-preserved" ? 1 : 0)
         let receipt = Receipt(
@@ -2204,7 +2204,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             action: action,
             startedAt: transaction.createdAt,
             completedAt: completedAt,
-            wallTimeSeconds: max(0, completedAt.timeIntervalSince(transaction.createdAt)),
+            wallTimeSeconds: completedAt.timeIntervalSince(transaction.createdAt),
             exitStatus: exitStatus,
             stderr: exitStatus == 0 ? "" : detail,
             inputs: [

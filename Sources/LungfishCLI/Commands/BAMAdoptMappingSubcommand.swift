@@ -31,7 +31,7 @@ extension BAMCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let bundleURL = URL(fileURLWithPath: bundlePath)
             let mappingURL = URL(fileURLWithPath: mappingResultPath)
             let artifacts = try resolveMappingArtifacts(from: mappingURL)
@@ -69,8 +69,8 @@ extension BAMCommand {
                     attachment: attachment,
                     commandArgv: commandArgv,
                     inputRecords: inputRecords,
-                    startedAt: startedAt,
-                    completedAt: Date()
+                    startedAt: runClock.startedAt,
+                    completedAt: runClock.now
                 )
                 try PreparedAlignmentAttachmentService.atomicManifestSave(
                     manifest: manifest.addingAlignmentTrack(attachment.trackInfo),

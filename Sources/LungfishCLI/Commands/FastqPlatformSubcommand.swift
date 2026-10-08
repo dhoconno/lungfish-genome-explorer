@@ -149,7 +149,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
     }
 
     private func runChange(bundleURLs: [URL], formatter: TerminalFormatter) async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let platform = setPlatform.flatMap(Self.parsePlatform)
         let explicitReadType = readType.flatMap(Self.parseReadType)
         let clearReadType = readType?.lowercased() == Self.clearReadTypeValue
@@ -189,7 +189,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
                 ))
             }
             for change in changes {
-                try await recordProvenance(change: change, inputs: inputRecords, startedAt: startedAt)
+                try await recordProvenance(change: change, inputs: inputRecords, runClock: runClock)
             }
         } catch {
             // When the first change fails nothing was written, since each
@@ -239,7 +239,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
     private func recordProvenance(
         change: FASTQPlatformLabelService.Change,
         inputs: [FileRecord],
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         let command = replayCommand(bundleURL: change.bundleURL)
         // The record goes beside the metadata file only. Writing the bundle
@@ -265,7 +265,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
             inputs: inputs,
             outputs: [ProvenanceRecorder.fileRecord(url: change.sidecarURL, format: .json, role: .output)],
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: scratch

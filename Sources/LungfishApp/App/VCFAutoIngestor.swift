@@ -61,7 +61,7 @@ public enum VCFAutoIngestor {
             throw CocoaError(.fileNoSuchFile)
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         logger.info("ingest: Starting auto-ingestion of \(vcfURLs.count) VCF file(s)")
 
         // Phase 1: Probe files to gather reference hints and skip unusable empties.
@@ -302,8 +302,8 @@ public enum VCFAutoIngestor {
             inferredReference: inferredRef,
             ncbiAccessions: accessions,
             variantCount: totalVariantCount,
-            startedAt: startedAt,
-            completedAt: Date()
+            startedAt: runClock.startedAt,
+            completedAt: runClock.now
         )
 
         progressHandler?(1.0, "Complete")

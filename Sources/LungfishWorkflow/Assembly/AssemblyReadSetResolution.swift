@@ -213,7 +213,7 @@ public enum AssemblyReadSetResolution {
            !pairedEnd,
            sampleURLs.count == 1,
            let sampleURL = sampleURLs.first {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let plan = try await ReadSetResolver(
                 materializationDirectory: materializationDirectory,
                 materializer: materializer
@@ -225,7 +225,7 @@ public enum AssemblyReadSetResolution {
             // sample resolves as it always did.
             do {
                 if plan.sampleHoldsPairsAndSingleReads, !plan.matePairs.isEmpty, !plan.singleReads.isEmpty,
-                   let resolved = try resolved(plan, sampleURL: sampleURL, explicitLayout: explicitLayout, startedAt: startedAt) {
+                   let resolved = try resolved(plan, sampleURL: sampleURL, explicitLayout: explicitLayout, runClock: runClock) {
                     return resolved
                 }
             } catch {
@@ -259,7 +259,7 @@ public enum AssemblyReadSetResolution {
         _ plan: ReadSetPlan,
         sampleURL: URL,
         explicitLayout: FASTQInputLayout?,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) throws -> AssemblyResolvedInputs? {
         if let explicitLayout {
             // The roles of a merge or repair derivative are separate files.
@@ -276,7 +276,7 @@ public enum AssemblyReadSetResolution {
         }
         let singleReads = run.singleReads
         let wroteFiles = plan.wasMaterialized || !plan.steps.isEmpty
-        let endedAt = Date()
+        let endedAt = runClock.now
         return AssemblyResolvedInputs(
             inputs: ResolvedSequenceInputs(
                 inputs: [
@@ -286,7 +286,7 @@ public enum AssemblyReadSetResolution {
                         wasMaterialized: wroteFiles
                     ),
                 ],
-                materializationStartedAt: wroteFiles ? startedAt : nil,
+                materializationStartedAt: wroteFiles ? runClock.startedAt : nil,
                 materializationEndedAt: wroteFiles ? endedAt : nil
             ),
             inputRoles: [.mateR1, .mateR2] + singleReads.map { $0.role == .merged ? .merged : .single },

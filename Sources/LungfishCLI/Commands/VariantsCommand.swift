@@ -397,7 +397,7 @@ extension VariantsCommand {
             runtime: VariantsCommand.PhaseRuntime = .live(),
             emit: @escaping (String) -> Void
         ) async throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let outputVCFURL = URL(fileURLWithPath: outputVCF)
             let outputDirURL = URL(fileURLWithPath: outputDirectory ?? outputVCFURL.deletingLastPathComponent().path)
             try FileManager.default.createDirectory(at: outputDirURL, withIntermediateDirectories: true)
@@ -419,7 +419,7 @@ extension VariantsCommand {
                 emit("Command plan: \(planURL.path)")
             }
 
-            let completedAt = Date()
+            let completedAt = runClock.now
             try VariantsCommand.writeCommandPlanProvenance(
                 workflowName: plan.workflowName,
                 workflowVersion: plan.workflowVersion,
@@ -437,7 +437,7 @@ extension VariantsCommand {
                     "resolvedDefaults": .dictionary(plan.resolvedDefaults.mapValues { .string($0) }),
                 ],
                 outputDirectory: outputDirURL,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt,
                 additionalSteps: toolSteps.map { $0.stepExecution() }
             )
@@ -474,15 +474,15 @@ extension VariantsCommand {
         ) async throws -> [VariantCallingProvenanceStep] {
             var steps: [VariantCallingProvenanceStep] = []
             for command in plan.commands {
-                let startedAt = Date()
+                let stepClock = ProvenanceRunClock()
                 let result = try await runtime.runTool(command)
-                let completedAt = Date()
+                let completedAt = stepClock.now
                 steps.append(
                     phaseToolStep(
                         for: command,
                         plan: plan,
                         result: result,
-                        startedAt: startedAt,
+                        startedAt: stepClock.startedAt,
                         completedAt: completedAt
                     )
                 )
@@ -638,7 +638,7 @@ extension VariantsCommand {
         }
 
         func executeForTesting() async throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
             let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
             try FileManager.default.createDirectory(
@@ -657,7 +657,7 @@ extension VariantsCommand {
                     try opened.db.writeVCF(records: records, sampleNames: [sampleName], to: stagedOutputURL)
                 },
                 writeProvenanceForOutput: { outputRecord in
-                    let completedAt = Date()
+                    let completedAt = runClock.now
                     try VariantsCommand.writeProvenance(
                         workflowName: "lungfish variants extract-sample",
                         command: commandArgv(bundlePath: bundlePath, sampleName: sampleName, outputPath: outputPath),
@@ -676,7 +676,7 @@ extension VariantsCommand {
                             "containerRuntime": .string("none"),
                             "condaEnvironment": .string("none"),
                         ],
-                        startedAt: startedAt,
+                        startedAt: runClock.startedAt,
                         completedAt: completedAt
                     )
                 }
@@ -734,7 +734,7 @@ extension VariantsCommand {
         }
 
         func executeForTesting() async throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
             let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
             try FileManager.default.createDirectory(
@@ -750,7 +750,7 @@ extension VariantsCommand {
                     try opened.db.writeVCF(records: records, sampleNames: [], to: stagedOutputURL)
                 },
                 writeProvenanceForOutput: { outputRecord in
-                    let completedAt = Date()
+                    let completedAt = runClock.now
                     try VariantsCommand.writeProvenance(
                         workflowName: "lungfish variants query",
                         command: commandArgv(bundlePath: bundlePath, filterText: filterText, outputPath: outputPath),
@@ -770,7 +770,7 @@ extension VariantsCommand {
                             "containerRuntime": .string("none"),
                             "condaEnvironment": .string("none"),
                         ],
-                        startedAt: startedAt,
+                        startedAt: runClock.startedAt,
                         completedAt: completedAt
                     )
                 }
@@ -945,7 +945,7 @@ extension VariantsCommand {
             runtime: VariantsCommand.Runtime,
             emitEvent: @escaping (VariantsCommand.VariantCallingEvent) -> Void
         ) async throws -> BundleVariantTrackAttachmentResult {
-            let workflowStartedAt = Date()
+            let workflowClock = ProvenanceRunClock()
             let bundleURL = URL(fileURLWithPath: bundlePath)
             let resolvedCaller = try parseCaller()
             let advancedArguments = try parseAdvancedOptions()
@@ -1045,7 +1045,7 @@ extension VariantsCommand {
                 emitSimpleEvent(event: "stageComplete", progress: 0.70, message: "Caller workflow completed", caller: resolvedCaller.rawValue, emit: emitEvent)
 
                 emitSimpleEvent(event: "importStart", progress: 0.74, message: "Importing normalized variants into SQLite", caller: resolvedCaller.rawValue, emit: emitEvent)
-                let importStartedAt = Date()
+                let importClock = ProvenanceRunClock()
                 let importRequest = VariantSQLiteImportRequest(
                     normalizedVCFURL: pipelineResult.normalizedVCFURL,
                     outputDatabaseURL: stagingRoot.appendingPathComponent("variants.sqlite.db"),
@@ -1055,7 +1055,7 @@ extension VariantsCommand {
                     materializeVariantInfo: true
                 )
                 let importResult = try await runtime.importSQLite(importRequest, context)
-                let importCompletedAt = Date()
+                let importCompletedAt = importClock.now
                 emitEvent(
                     VariantsCommand.VariantCallingEvent(
                         event: "importComplete",
@@ -1073,7 +1073,7 @@ extension VariantsCommand {
                 )
 
                 emitSimpleEvent(event: "attachStart", progress: 0.90, message: "Attaching variant track to bundle", caller: resolvedCaller.rawValue, emit: emitEvent)
-                let workflowCompletedAt = Date()
+                let workflowCompletedAt = workflowClock.now
                 let workflowCommand = variantCallCommand(
                     finalTrackName: finalTrackName,
                     ivarPrimerTrimConfirmed: effectiveIvarPrimerTrimConfirmed
@@ -1082,7 +1082,7 @@ extension VariantsCommand {
                     workflowName: "lungfish variants call",
                     workflowVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
                     command: workflowCommand,
-                    startedAt: workflowStartedAt,
+                    startedAt: workflowClock.startedAt,
                     completedAt: workflowCompletedAt,
                     parameters: variantCallParameters(
                         caller: resolvedCaller,
@@ -1107,9 +1107,9 @@ extension VariantsCommand {
                             inputs: [ProvenanceRecorder.fileRecord(url: importRequest.normalizedVCFURL, format: .vcf, role: .input)],
                             outputs: [ProvenanceRecorder.fileRecord(url: importResult.databaseURL, role: .output)],
                             exitCode: 0,
-                            wallTime: importCompletedAt.timeIntervalSince(importStartedAt),
+                            wallTime: importCompletedAt.timeIntervalSince(importClock.startedAt),
                             stderr: nil,
-                            startedAt: importStartedAt,
+                            startedAt: importClock.startedAt,
                             completedAt: importCompletedAt
                         )
                     ]
@@ -1128,7 +1128,7 @@ extension VariantsCommand {
                     variantCallerParametersJSON: pipelineResult.callerParametersJSON,
                     variantCallerCommandLine: pipelineResult.commandLine,
                     referenceStagedFASTASHA256: pipelineResult.referenceFASTASHA256,
-                    workflowProvenance: workflowProvenance
+                    workflowProvenance: workflowProvenance, workflowClock: workflowClock
                 )
                 let attachmentResult = try await runtime.attachTrack(attachmentRequest)
                 emitEvent(

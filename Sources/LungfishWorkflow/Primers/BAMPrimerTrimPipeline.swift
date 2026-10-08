@@ -102,7 +102,7 @@ extension BAMPrimerTrimPipeline {
         runner: NativeToolRunner,
         progress: @Sendable @escaping (Double, String) -> Void = { _, _ in }
     ) async throws -> BAMPrimerTrimResult {
-        let workflowStart = Date()
+        let workflowClock = ProvenanceRunClock()
         progress(0.0, "Resolving primer scheme")
         let resolved = try PrimerSchemeResolver.resolve(
             bundle: request.primerSchemeBundle,
@@ -233,7 +233,7 @@ extension BAMPrimerTrimPipeline {
             ProvenanceRecorder.fileRecord(url: request.outputBAMURL, format: .bam, role: .output),
             ProvenanceRecorder.fileRecord(url: bamIndexURL, role: .index)
         ]
-        let workflowEnd = Date()
+        let workflowEnd = workflowClock.now
         let provenance = BAMPrimerTrimProvenance(
             operation: "primer-trim",
             primerScheme: .init(
@@ -258,7 +258,7 @@ extension BAMPrimerTrimPipeline {
                 "samtools": runtimeIdentity(for: .samtools)
             ],
             steps: [ivarStep, sortStep, indexStep],
-            wallTimeSeconds: workflowEnd.timeIntervalSince(workflowStart),
+            wallTimeSeconds: workflowEnd.timeIntervalSince(workflowClock.startedAt),
             exitStatus: 0,
             stderr: combinedStderr([ivarResult.stderr, sortResult.stderr, indexResult.stderr])
         )
@@ -294,19 +294,19 @@ extension BAMPrimerTrimPipeline {
         timeout: TimeInterval,
         runner: NativeToolRunner
     ) async throws -> TimedNativeToolResult {
-        let start = Date()
+        let toolClock = ProvenanceRunClock()
         let result = try await runner.run(
             tool,
             arguments: arguments,
             workingDirectory: workingDirectory,
             timeout: timeout
         )
-        let end = Date()
+        let end = toolClock.now
         return TimedNativeToolResult(
             result: result,
-            startTime: start,
+            startTime: toolClock.startedAt,
             endTime: end,
-            wallTime: end.timeIntervalSince(start)
+            wallTime: end.timeIntervalSince(toolClock.startedAt)
         )
     }
 

@@ -80,7 +80,7 @@ final class BAMRegionExtractionTests: XCTestCase {
                     completedAt: Date(timeIntervalSince1970: 11)
                 ),
             ],
-            startedAt: Date(timeIntervalSince1970: 10)
+            runClock: ProvenanceRunClock(startedAt: Date(timeIntervalSince1970: 10))
         )
 
         let result = try AlignmentReadExtractionPublisher().publish(

@@ -100,7 +100,7 @@ struct VariantDeletionMutationService {
             )
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let publication = try VariantMutationPublication(databaseURLs: targets.map(\.databaseURL),
             bundleURL: bundleURL, fileManager: fileManager)
         do {
@@ -130,7 +130,7 @@ struct VariantDeletionMutationService {
             let databaseOutputs = try updatedTargets.map {
                 try ProvenanceFileDescriptor.file(url: $0.databaseURL, format: .unknown, role: .output)
             }
-            let completedAt = Date()
+            let completedAt = runClock.now
             let envelope = try provenanceEnvelope(
                 kind: kind,
                 bundleURL: bundleURL,
@@ -140,7 +140,7 @@ struct VariantDeletionMutationService {
                 databaseOutputs: databaseOutputs,
                 deletedCountsByTrack: deletedCountsByTrack,
                 deletedCountsByDatabase: deletedCountsByDatabase,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
             let provenanceURL = try writeProvenance(envelope, bundleURL, publication)

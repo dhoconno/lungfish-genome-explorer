@@ -147,7 +147,7 @@ public final class NativeBundleBuilder: ObservableObject {
         let stagingBundleURL = try makeStagingBundleURL(for: publishedBundleURL)
         var didCreateStagingBundle = false
         var didPublishBundle = false
-        let buildStart = Date()
+        let buildClock = ProvenanceRunClock()
         let provenanceRunID = await ProvenanceRecorder.shared.beginRun(
             name: provenanceWorkflowName(for: configuration),
             parameters: provenanceParameters(for: configuration, bundleURL: publishedBundleURL)
@@ -255,7 +255,7 @@ public final class NativeBundleBuilder: ObservableObject {
                 stagingBundleURL: stagingBundleURL,
                 publishedBundleURL: publishedBundleURL,
                 runID: provenanceRunID,
-                wallTime: Date().timeIntervalSince(buildStart),
+                wallTime: buildClock.elapsed,
                 nativeToolSteps: fastaProcessingResult.provenanceSteps
             )
 
@@ -877,12 +877,12 @@ public final class NativeBundleBuilder: ObservableObject {
             )
 
             // Use bgzip to compress
-            let bgzipStartedAt = Date()
+            let bgzipClock = ProvenanceRunClock()
             let result = try await toolRunner.bgzipCompress(
                 inputPath: destinationFASTA,
                 keepOriginal: false
             )
-            let bgzipWallTime = Date().timeIntervalSince(bgzipStartedAt)
+            let bgzipWallTime = bgzipClock.elapsed
 
             if result.isSuccess {
                 finalFASTAPath = URL(fileURLWithPath: destinationFASTA.path + ".gz")
@@ -943,9 +943,9 @@ public final class NativeBundleBuilder: ObservableObject {
             progressHandler
         )
 
-        let indexStartedAt = Date()
+        let indexClock = ProvenanceRunClock()
         let indexResult = try await toolRunner.indexFASTA(fastaPath: finalFASTAPath)
-        let indexWallTime = Date().timeIntervalSince(indexStartedAt)
+        let indexWallTime = indexClock.elapsed
         let indexURL = URL(fileURLWithPath: finalFASTAPath.path + ".fai")
         let gzipIndexURL = URL(fileURLWithPath: finalFASTAPath.path + ".gzi")
 

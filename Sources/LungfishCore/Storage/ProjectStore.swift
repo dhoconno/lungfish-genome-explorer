@@ -217,7 +217,7 @@ public final class ProjectStore: @unchecked Sendable {
             throw ProjectStoreError.databaseError(message: "Project changed before migration")
         }
         try validateBeforeWrite?()
-        let started = Date()
+        let runClock = ProvenanceRunClock()
         let recovery = url.appendingPathComponent(".lungfish/migrations/\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
         for suffix in snapshot.fingerprint.keys {
@@ -256,7 +256,7 @@ public final class ProjectStore: @unchecked Sendable {
             "options": ["access": "writable", "sourceSchema": version, "targetSchema": schemaVersion, "retainRecovery": true],
             "runtime": ["os": ProcessInfo.processInfo.operatingSystemVersionString, "sqlite": String(cString: sqlite3_libversion())],
             "inputs": inputFiles, "outputPath": destination.path,
-            "startedAt": ISO8601DateFormatter().string(from: started),
+            "startedAt": ISO8601DateFormatter().string(from: runClock.startedAt),
             "status": "prepared", "stderr": ""
         ]
         try JSONSerialization.data(withJSONObject: provenance, options: [.prettyPrinted, .sortedKeys])
@@ -295,7 +295,7 @@ public final class ProjectStore: @unchecked Sendable {
             }
             provenance["status"] = "completed"
             provenance["exitStatus"] = 0
-            provenance["wallTimeSeconds"] = Date().timeIntervalSince(started)
+            provenance["wallTimeSeconds"] = runClock.elapsed
             try JSONSerialization.data(withJSONObject: provenance, options: [.prettyPrinted, .sortedKeys])
                 .write(to: provenanceURL, options: .atomic)
         } catch {

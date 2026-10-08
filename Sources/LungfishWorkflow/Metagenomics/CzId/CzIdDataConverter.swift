@@ -87,7 +87,7 @@ public enum CzIdDataConverter {
         provenanceToolName: String = "lungfish cz-id import",
         provenanceParameters: [String: ParameterValue] = [:]
     ) throws -> CzIdConversion {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let parsed = try parseTaxonReport(at: url)
         let sampleName = sampleNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             ?? parsed.metadata.sampleName
@@ -138,7 +138,7 @@ public enum CzIdDataConverter {
             reportURL: reportURL,
             outputURL: outputURL,
             brackenURL: nil,
-            runtime: Date().timeIntervalSince(startedAt),
+            runtime: runClock.elapsed,
             toolVersion: parsed.metadata.pipelineVersion ?? "unknown",
             provenanceId: nil
         )
@@ -151,7 +151,7 @@ public enum CzIdDataConverter {
             outputDirectory: outputDirectory,
             command: command ?? [CLICommandIdentity.executableName, "cz-id", "import", url.path, "--output-dir", outputDirectory.path],
             toolVersion: parsed.metadata.pipelineVersion ?? "unknown",
-            startedAt: startedAt,
+            runClock: runClock,
             additionalInputs: additionalInputURLs,
             toolName: provenanceToolName,
             parameters: provenanceParameters.merging(defaultProvenanceParameters(
@@ -257,7 +257,7 @@ public enum CzIdDataConverter {
         outputDirectory: URL,
         command: [String],
         toolVersion: String,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         additionalInputs: [URL] = [],
         toolName: String = "lungfish cz-id import",
         parameters: [String: ParameterValue] = [:]
@@ -282,7 +282,8 @@ public enum CzIdDataConverter {
         for (key, value) in parameters {
             resolved[key] = value
         }
-        let endedAt = Date()
+        let startedAt = runClock.startedAt
+        let endedAt = runClock.now
         let step = StepExecution(
             toolName: toolName,
             toolVersion: toolVersion,

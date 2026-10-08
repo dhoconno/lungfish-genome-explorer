@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 private struct GATKExecutedCommand {
     let command: GATKCommand
@@ -29,13 +30,13 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
     public func run(_ request: GATKPipelineExecutionRequest) async throws -> GATKPipelineExecutionResult {
         try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         let preexistingOutputPaths = preexistingOutputPaths(for: request)
-        let startedAt = dateProvider()
+        let runClock = ProvenanceRunClock(startedAt: dateProvider())
         var executedCommands: [GATKExecutedCommand] = []
         for command in request.commands {
             let commandResult = try await runner.run(command)
             executedCommands.append(GATKExecutedCommand(command: command, result: commandResult))
             guard commandResult.isSuccess else {
-                let completedAt = dateProvider()
+                let completedAt = runClock.now
                 let outputArtifacts = outputArtifactsForProvenance(request)
                 removeNewOutputs(for: request, preexistingOutputPaths: preexistingOutputPaths)
                 let provenanceURL: URL
@@ -44,7 +45,7 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
                         request: request,
                         executedCommands: executedCommands,
                         outputArtifacts: outputArtifacts,
-                        startedAt: startedAt,
+                        startedAt: runClock.startedAt,
                         completedAt: completedAt,
                         status: .failed
                     )
@@ -68,7 +69,7 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
                 throw error
             }
         }
-        let completedAt = dateProvider()
+        let completedAt = runClock.now
         let outputArtifacts = outputArtifactsForProvenance(request)
         let provenanceURL: URL
         do {
@@ -76,7 +77,7 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
                 request: request,
                 executedCommands: executedCommands,
                 outputArtifacts: outputArtifacts,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt,
                 status: .completed
             )

@@ -177,9 +177,9 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         if previewPrompt {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let preview = try buildPromptPreview()
-            try await writePromptPreview(preview, startedAt: startedAt)
+            try await writePromptPreview(preview, runClock: runClock)
             return
         }
         if debugOutput != nil {
@@ -200,7 +200,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     }
 
     func runReturningSummary() async throws -> AIHaplotypingCLISummary {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         guard let bundle else {
             throw ValidationError("--bundle is required unless --preview-prompt is supplied.")
         }
@@ -264,7 +264,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
                 promptSelection: promptSelection
             ),
             runtimeIdentity: ProvenanceRuntimeIdentity(),
-            startedAt: startedAt
+            runClock: runClock
         )
         let published = try AIHaplotypingRevisionPublisher().publish(
             AIHaplotypingRevisionPublishRequest(
@@ -292,7 +292,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     }
 
     func runReturningDebugSummary() async throws -> AIHaplotypingCLIDebugSummary {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         guard let bundle else {
             throw ValidationError("--bundle is required for --debug-output.")
         }
@@ -342,7 +342,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             modelID: providerInstance.modelId,
             credentialSource: credential.source.rawValue,
             promptSelection: promptSelection,
-            startedAt: startedAt
+            runClock: runClock
         )
     }
 
@@ -447,7 +447,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
 
     private func writePromptPreview(
         _ preview: AIHaplotypingCLIPromptPreview,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -459,7 +459,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
                 withIntermediateDirectories: true
             )
             try data.write(to: outputURL, options: .atomic)
-            try await recordPromptPreviewProvenance(outputURL: outputURL, preview: preview, startedAt: startedAt)
+            try await recordPromptPreviewProvenance(outputURL: outputURL, preview: preview, runClock: runClock)
             return
         }
         FileHandle.standardOutput.write(data)
@@ -469,7 +469,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     private func recordPromptPreviewProvenance(
         outputURL: URL,
         preview: AIHaplotypingCLIPromptPreview,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         let inputURL = inputTable.map { URL(fileURLWithPath: $0).standardizedFileURL }
         var parameters: [String: ParameterValue] = [
@@ -535,7 +535,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
-            wallTime: max(0, Date().timeIntervalSince(startedAt)),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: outputURL.deletingLastPathComponent(),
@@ -549,7 +549,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         modelID: String,
         credentialSource: String,
         promptSelection: AIHaplotypingPromptSelection,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws -> AIHaplotypingCLIDebugSummary {
         guard let debugOutput else {
             throw ValidationError("--debug-output is required.")
@@ -586,7 +586,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
             modelID: modelID,
             credentialSource: credentialSource,
             promptSelection: promptSelection,
-            startedAt: startedAt
+            runClock: runClock
         )
         return summary
     }
@@ -598,7 +598,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         modelID: String,
         credentialSource: String,
         promptSelection: AIHaplotypingPromptSelection,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         var explicit = explicitOptions(
             bundleURL: bundleURL,
@@ -638,7 +638,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
                 ProvenanceRecorder.fileRecord(url: outputURL, format: .json, role: .output),
             ],
             exitCode: 0,
-            wallTime: max(0, Date().timeIntervalSince(startedAt)),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: outputURL.deletingLastPathComponent(),

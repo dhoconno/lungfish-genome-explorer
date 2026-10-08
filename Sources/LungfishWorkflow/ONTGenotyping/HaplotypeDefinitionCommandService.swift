@@ -183,7 +183,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         from sourceURL: URL,
         argv: [String]
     ) throws -> URL {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         guard let projectRoot else {
             throw HaplotypeDefinitionCommandServiceError.missingProjectRoot
         }
@@ -220,7 +220,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
                 destinationURL: destinationURL,
                 destinationDirectory: destinationDirectory,
                 argv: argv,
-                startedAt: startedAt
+                runClock: runClock
             )
         } catch {
             try? FileManager.default.removeItem(at: destinationURL)
@@ -291,7 +291,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         changeNote: String? = nil,
         argv: [String]
     ) throws -> HaplotypeDefinitionCommandResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let bundleURL = bundleURL.standardizedFileURL
         guard MHCAmpliconReferenceBundle.isBundleURL(bundleURL) else {
             throw HaplotypeDefinitionCommandServiceError.invalidMHCReferenceBundle(bundleURL.path)
@@ -371,8 +371,8 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             workflowName: "Haplotype definition edit in MHC reference bundle",
             bundleURL: bundleURL,
             argv: argv,
-            startedAt: startedAt,
-            completedAt: Date(),
+            startedAt: runClock.startedAt,
+            completedAt: runClock.now,
             explicit: [
                 "bundle": .file(bundleURL),
                 "definitionID": .string(versioned.id),
@@ -399,7 +399,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         with replacementFASTAURL: URL,
         argv: [String]
     ) throws -> URL {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let bundleURL = bundleURL.standardizedFileURL
         let replacementFASTAURL = replacementFASTAURL.standardizedFileURL
         guard MHCAmpliconReferenceBundle.isBundleURL(bundleURL) else {
@@ -458,8 +458,8 @@ public struct HaplotypeDefinitionCommandService: Sendable {
                 workflowName: "MHC reference bundle FASTA replacement",
                 bundleURL: bundleURL,
                 argv: argv,
-                startedAt: startedAt,
-                completedAt: Date(),
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now,
                 explicit: [
                     "bundle": .file(bundleURL),
                     "replacementFASTA": .file(replacementFASTAURL),
@@ -958,17 +958,17 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         destinationURL: URL,
         destinationDirectory: URL,
         argv: [String],
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) throws {
         let destination = destinationURL.standardizedFileURL
-        let completedAt = Date()
+        let completedAt = runClock.now
         let sourceDescriptor = try directoryDescriptor(url: sourceURL.standardizedFileURL, role: .input)
         let destinationDescriptor = try directoryDescriptor(url: destination, role: .output)
         try writeMHCReferenceBundleProvenance(
             workflowName: "MHC reference bundle install",
             bundleURL: destination,
             argv: argv,
-            startedAt: startedAt,
+            startedAt: runClock.startedAt,
             completedAt: completedAt,
             explicit: [
                 "sourceBundle": .file(sourceURL.standardizedFileURL),
@@ -1027,14 +1027,14 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         outputURL: URL,
         argv: [String]
     ) throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let inputFiles: [HaplotypeDefinitionEditProvenance.FileRecord]
         if let fileURL = record.fileURL {
             inputFiles = [try HaplotypeDefinitionStore.fileRecord(url: fileURL, role: "input")]
         } else {
             inputFiles = []
         }
-        let endedAt = Date()
+        let endedAt = runClock.now
         let provenance = HaplotypeDefinitionEditProvenance(
             workflowName: "Haplotype definition export",
             workflowVersion: HaplotypeDefinitionStore.currentToolVersion,
@@ -1059,9 +1059,9 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             inputs: inputFiles,
             outputs: [try HaplotypeDefinitionStore.fileRecord(url: outputURL, role: "output")],
             exitStatus: 0,
-            startedAt: HaplotypeDefinitionStore.isoString(startedAt),
+            startedAt: HaplotypeDefinitionStore.isoString(runClock.startedAt),
             endedAt: HaplotypeDefinitionStore.isoString(endedAt),
-            wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: endedAt.timeIntervalSince(runClock.startedAt),
             stderr: nil
         )
         let encoder = JSONEncoder()

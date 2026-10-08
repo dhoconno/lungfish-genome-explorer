@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 public struct ManagedGATKCommandRunner: GATKCommandRunning {
     public let condaManager: CondaManager
@@ -17,7 +18,7 @@ public struct ManagedGATKCommandRunner: GATKCommandRunning {
     }
 
     public func run(_ command: GATKCommand) async throws -> GATKCommandExecutionResult {
-        let startedAt = Date()
+        let commandClock = ProvenanceRunClock()
         let result = try await condaManager.runTool(
             name: command.executable,
             arguments: command.arguments,
@@ -29,7 +30,7 @@ public struct ManagedGATKCommandRunner: GATKCommandRunning {
             exitCode: result.exitCode,
             stdout: result.stdout,
             stderr: result.stderr,
-            wallTime: Date().timeIntervalSince(startedAt)
+            wallTime: commandClock.elapsed
         )
     }
 }

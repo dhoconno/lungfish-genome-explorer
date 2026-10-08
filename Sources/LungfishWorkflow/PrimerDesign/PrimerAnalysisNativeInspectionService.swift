@@ -84,14 +84,14 @@ public struct PrimerAnalysisNativeInspectionService: Sendable {
               !FileManager.default.fileExists(atPath: outputURL.path) else {
             throw PrimerAnalysisNativeInspectionError.invalid("The inspection output must be a new absolute directory.")
         }
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let workingDirectory = outputURL.deletingLastPathComponent()
         let attemptDirectory = workingDirectory.appendingPathComponent(
             ".\(outputURL.lastPathComponent).\(UUID().uuidString).inspection-attempt", isDirectory: true)
         try FileManager.default.createDirectory(at: attemptDirectory, withIntermediateDirectories: false)
         let attemptURL = attemptDirectory.appendingPathComponent("inspection-attempt.json")
         try Self.writeJSONObject([
-            "status": "started", "startedAt": ISO8601DateFormatter().string(from: startedAt),
+            "status": "started", "startedAt": ISO8601DateFormatter().string(from: runClock.startedAt),
             "wrapperArgv": invocationArgv, "analysis": analysisURL.path,
             "resultID": resultID.uuidString, "nativeExecutable": executableURL.path,
             "nativeSubcommand": subcommandArguments, "output": outputURL.path,
@@ -133,7 +133,7 @@ public struct PrimerAnalysisNativeInspectionService: Sendable {
             try Self.writeWrapperProvenance(outputURL: outputURL, analysisURL: analysisURL,
                 resultID: resultID, executableURL: executableURL, invocationArgv: invocationArgv,
                 explicit: explicit, audit: audit, evidence: evidence, status: "success",
-                exitStatus: 0, stderr: result.stderr, startedAt: startedAt)
+                exitStatus: 0, stderr: result.stderr, runClock: runClock)
             try? FileManager.default.removeItem(at: attemptDirectory)
             return outputURL
         } catch {
@@ -152,7 +152,7 @@ public struct PrimerAnalysisNativeInspectionService: Sendable {
                     resultID: resultID, executableURL: executableURL, invocationArgv: invocationArgv,
                     explicit: explicit, audit: audit, evidence: evidence,
                     status: cancelled ? "cancelled" : "failed", exitStatus: cancelled ? 130 : 1,
-                    stderr: detail, startedAt: startedAt)
+                    stderr: detail, runClock: runClock)
                 try? FileManager.default.removeItem(at: attemptDirectory)
             } catch let provenanceError {
                 throw PrimerAnalysisNativeInspectionError.invalid(
@@ -166,7 +166,7 @@ public struct PrimerAnalysisNativeInspectionService: Sendable {
                                                 executableURL: URL, invocationArgv: [String],
                                                 explicit: [String: ParameterValue], audit: Bool,
                                                 evidence: RunEvidence, status: String, exitStatus: Int,
-                                                stderr: String, startedAt: Date) throws {
+                                                stderr: String, runClock: ProvenanceRunClock) throws {
         var resolved: [String: ParameterValue] = [
             "status": .string(status), "resultID": .string(resultID.uuidString),
             "analysisPath": .string(analysisURL.path), "outputPath": .string(outputURL.path),
@@ -217,7 +217,7 @@ public struct PrimerAnalysisNativeInspectionService: Sendable {
             }
         }
         let envelope = try builder.complete(exitStatus: exitStatus, stderr: stderr,
-                                            startedAt: startedAt, endedAt: Date())
+                                            startedAt: runClock.startedAt, endedAt: runClock.now)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(envelope).write(to: provenanceURL, options: .withoutOverwriting)

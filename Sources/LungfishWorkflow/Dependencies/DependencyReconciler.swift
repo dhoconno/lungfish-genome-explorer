@@ -121,7 +121,7 @@ public actor DependencyReconciler {
         isApplying = true
         defer { isApplying = false }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var receipt = try await loadOrSynthesizeReceipt()
         var succeeded: [String] = []
         var failed: [String: String] = [:]
@@ -352,8 +352,8 @@ public actor DependencyReconciler {
             manifest: manifest,
             storageRoot: storageRoot,
             appVersion: appVersion,
-            startedAt: startedAt,
-            endedAt: Date()
+            startedAt: runClock.startedAt,
+            endedAt: runClock.now
         )
 
         return ReconciliationResult(succeeded: succeeded, failed: failed, receipt: receipt)
@@ -433,7 +433,7 @@ public actor DependencyReconciler {
     ) async -> String? {
         let operation = operationCenter?.start(title: title, detail: id)
         let sink = operationCenter
-        let startedAt = Date()
+        let itemClock = ProvenanceRunClock()
         // Progress updates replace the row's detail line; the log is what the expanded row
         // keeps. Without a log call an item leaves no history behind at all, so each item
         // records its start, its outcome, and (on failure) the error.
@@ -448,7 +448,7 @@ public actor DependencyReconciler {
             succeeded.append(id)
             records.append(.init(
                 id: id, kind: kind, title: title, targetVersion: targetVersion, failure: nil,
-                startedAt: startedAt, endedAt: Date()
+                startedAt: itemClock.startedAt, endedAt: itemClock.now
             ))
             if let operation {
                 sink?.log(id: operation, message: "\(id) ready")
@@ -461,7 +461,7 @@ public actor DependencyReconciler {
             if isRequired { requiredFailed = true }
             records.append(.init(
                 id: id, kind: kind, title: title, targetVersion: targetVersion, failure: message,
-                startedAt: startedAt, endedAt: Date()
+                startedAt: itemClock.startedAt, endedAt: itemClock.now
             ))
             logger.error("Reconcile item '\(id, privacy: .public)' failed: \(message, privacy: .public)")
             if let operation {

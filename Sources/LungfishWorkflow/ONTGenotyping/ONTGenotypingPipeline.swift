@@ -40,7 +40,7 @@ public struct ONTGenotypingPipeline: Sendable {
         }
 
         try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let reference = try await resolveReference(for: request)
         let referenceLengths = try await Self.loadReferenceLengths(from: reference.referenceFASTAURL)
         let scriptURL = request.outputDirectory
@@ -167,7 +167,7 @@ public struct ONTGenotypingPipeline: Sendable {
             throw ONTGenotypingError.reportWriteFailed(error.localizedDescription)
         }
 
-        let completedAt = Date()
+        let completedAt = runClock.now
         let result = ONTGenotypingResult(
             reportCSVURL: request.reportCSVURL,
             outputDirectory: request.outputDirectory,
@@ -179,7 +179,7 @@ public struct ONTGenotypingPipeline: Sendable {
             request: request,
             result: result,
             scriptURL: scriptURL,
-            startedAt: startedAt,
+            startedAt: runClock.startedAt,
             completedAt: completedAt
         )
         return result

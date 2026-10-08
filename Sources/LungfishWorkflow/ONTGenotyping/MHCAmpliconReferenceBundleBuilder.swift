@@ -113,7 +113,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
         _ config: MHCAmpliconReferenceBundleBuildConfiguration,
         progressHandler: ProgressHandler? = nil
     ) async throws -> MHCAmpliconReferenceBundleBuildResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let fileManager = FileManager.default
         let publishedBundleURL = config.outputURL
         progressHandler?(0.02, "Validating MHC reference bundle inputs.")
@@ -247,8 +247,8 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
                 warnings: warnings,
                 bundleURL: stagingBundleURL,
                 publishedBundleURL: publishedBundleURL,
-                startedAt: startedAt,
-                completedAt: Date()
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now
             )
             progressHandler?(0.98, "Publishing MHC reference bundle.")
             try promoteStagedBundle(

@@ -44,10 +44,11 @@ public enum SequenceProcessingOutputNormalizer {
                 try? FileManager.default.removeItem(at: sidecar)
             }
         }
-        let started = Date()
+        let runClock = ProvenanceRunClock()
+        let started = runClock.startedAt
         try await SyntheticFASTQBridge.convertFASTAToFASTQ(inputURL: input, outputURL: output)
         try Task.checkCancellation()
-        let ended = Date()
+        let ended = runClock.now
         let outputFile = try descriptor(output, format: .fastq, role: .output)
         let runtime = ProvenanceRuntimeIdentity()
         let argv = [inputPreparationToolName, "--input", input.path, "--output", output.path]
@@ -101,12 +102,12 @@ public enum SequenceProcessingOutputNormalizer {
         let snapshot = folder.appendingPathComponent("source-provenance.json")
         try FileManager.default.copyItem(at: source.sidecarURL, to: snapshot)
         let snapshotDescriptor = try descriptor(snapshot, format: .json, role: .input)
-        let started = Date()
+        let normalizationClock = ProvenanceRunClock()
         try await SyntheticFASTQBridge.convertFASTQToFASTA(inputURL: input, outputURL: output)
         // The bridge appends records and therefore leaves no file for an empty dataset.
         if !FileManager.default.fileExists(atPath: output.path) { try Data().write(to: output) }
         try Task.checkCancellation()
-        let ended = Date()
+        let ended = normalizationClock.now
         let outputDescriptor = try descriptor(output, format: .fasta, role: .output)
         let step = ProvenanceStep(
             toolName: normalizationToolName,
@@ -125,8 +126,8 @@ public enum SequenceProcessingOutputNormalizer {
             ],
             runtimeIdentity: ProvenanceRuntimeIdentity(),
             inputs: [inputDescriptor, snapshotDescriptor], outputs: [outputDescriptor],
-            exitStatus: 0, wallTimeSeconds: ended.timeIntervalSince(started),
-            dependsOn: source.envelope.steps.map(\.id), startedAt: started, completedAt: ended
+            exitStatus: 0, wallTimeSeconds: ended.timeIntervalSince(normalizationClock.startedAt),
+            dependsOn: source.envelope.steps.map(\.id), startedAt: normalizationClock.startedAt, completedAt: ended
         )
         let withInputLineage = try includingPreparedInputLineage(in: source.envelope)
         let original = try retainingMaterializedInputs(withInputLineage, in: folder)

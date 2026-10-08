@@ -106,7 +106,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         readSetPlan: ReadSetPlan? = nil,
         progress: ProgressHandler? = nil
     ) async throws -> MappingResult {
-        let start = Date()
+        let runClock = ProvenanceRunClock()
         let prepared = try await prepareExecution(for: request, inputLayoutReason: inputLayoutReason)
         defer {
             for url in prepared.cleanupURLs {
@@ -160,7 +160,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             totalReads: normalized.totalReads,
             mappedReads: normalized.mappedReads,
             unmappedReads: normalized.unmappedReads,
-            wallClockSeconds: Date().timeIntervalSince(start),
+            wallClockSeconds: runClock.elapsed,
             contigs: contigs
         )
         try result.save(to: prepared.request.outputDirectory)
@@ -609,7 +609,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
 
         if command.executable == "bwa-mem2" {
             progress?(0.15, "Streaming bwa-mem2 SAM output...")
-            let stepStart = Date()
+            let stepClock = ProvenanceRunClock()
             let result = try await runCondaToolStreamingStdout(
                 executable: command.executable,
                 arguments: command.arguments,
@@ -618,7 +618,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 stdoutURL: outputURL,
                 timeout: 24 * 3_600
             )
-            let stepEnd = Date()
+            let stepEnd = stepClock.now
             let step = StepExecution(
                 toolName: command.executable,
                 toolVersion: condaToolVersionString(
@@ -630,9 +630,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 inputs: inputRecords,
                 outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: fileFormat(for: outputURL), role: .output)],
                 exitCode: result.exitCode,
-                wallTime: stepEnd.timeIntervalSince(stepStart),
+                wallTime: stepEnd.timeIntervalSince(stepClock.startedAt),
                 stderr: nonEmpty(result.stderr),
-                startTime: stepStart,
+                startTime: stepClock.startedAt,
                 endTime: stepEnd
             )
             guard result.exitCode == 0 else {
@@ -676,7 +676,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         inputs: [(URL, FileFormat?, FileRole)],
         outputs: () -> [(URL, FileFormat?, FileRole)]
     ) async throws -> MappingTimedCondaToolResult {
-        let start = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await condaManager.runTool(
             name: name,
             arguments: arguments,
@@ -684,7 +684,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             workingDirectory: workingDirectory,
             timeout: timeout
         )
-        let end = Date()
+        let end = stepClock.now
         let step = StepExecution(
             toolName: name,
             toolVersion: condaToolVersionString(toolVersion, environment: environment, executableName: name),
@@ -692,9 +692,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             inputs: inputs.map { ProvenanceRecorder.fileRecord(url: $0.0, format: $0.1, role: $0.2) },
             outputs: outputs().map { ProvenanceRecorder.fileRecord(url: $0.0, format: $0.1, role: $0.2) },
             exitCode: result.exitCode,
-            wallTime: end.timeIntervalSince(start),
+            wallTime: end.timeIntervalSince(stepClock.startedAt),
             stderr: nonEmpty(result.stderr),
-            startTime: start,
+            startTime: stepClock.startedAt,
             endTime: end
         )
         return MappingTimedCondaToolResult(result: result, step: step)
@@ -898,7 +898,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     /// and scratch directories. Runs before indexing; returns the provenance
     /// step, or nil when the header needed no change.
     private func portableBAMHeader(bamURL: URL) async throws -> StepExecution? {
-        let start = Date()
+        let stepClock = ProvenanceRunClock()
         let changed: Bool
         do {
             changed = try await BAMHeaderPathSanitizer.sanitizeInPlace(bamURL: bamURL, runner: nativeToolRunner)
@@ -906,7 +906,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             throw ManagedMappingPipelineError.normalizationFailed(error.localizedDescription)
         }
         guard changed else { return nil }
-        let end = Date()
+        let end = stepClock.now
         return StepExecution(
             toolName: "lungfish portable-bam-header",
             toolVersion: WorkflowRun.currentAppVersion,
@@ -914,9 +914,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             inputs: [],
             outputs: [ProvenanceRecorder.fileRecord(url: bamURL, format: .bam, role: .output)],
             exitCode: 0,
-            wallTime: end.timeIntervalSince(start),
+            wallTime: end.timeIntervalSince(stepClock.startedAt),
             stderr: nil,
-            startTime: start,
+            startTime: stepClock.startedAt,
             endTime: end
         )
     }
@@ -972,14 +972,14 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         outputs: [(URL, FileFormat?, FileRole)]
     ) async throws -> MappingTimedNativeToolResult {
         let command = await nativeCommand(for: tool, arguments: arguments)
-        let start = Date()
+        let stepClock = ProvenanceRunClock()
         let result = try await nativeToolRunner.run(
             tool,
             arguments: arguments,
             workingDirectory: workingDirectory,
             timeout: timeout
         )
-        let end = Date()
+        let end = stepClock.now
         let step = StepExecution(
             toolName: tool.executableName,
             toolVersion: toolVersionString(toolVersion, tool: tool),
@@ -987,9 +987,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             inputs: inputs.map { ProvenanceRecorder.fileRecord(url: $0.0, format: $0.1, role: $0.2) },
             outputs: outputs.map { ProvenanceRecorder.fileRecord(url: $0.0, format: $0.1, role: $0.2) },
             exitCode: result.exitCode,
-            wallTime: end.timeIntervalSince(start),
+            wallTime: end.timeIntervalSince(stepClock.startedAt),
             stderr: nonEmpty(result.stderr),
-            startTime: start,
+            startTime: stepClock.startedAt,
             endTime: end
         )
         return MappingTimedNativeToolResult(result: result, step: step)

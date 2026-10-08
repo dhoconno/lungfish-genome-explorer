@@ -788,7 +788,7 @@ public enum MappingViewerBundlePublicationService {
         beforePlannedPayloadHash: ((String) throws -> Void)?,
         writer: ProvenanceWriter
     ) throws {
-        let publicationStartedAt = Date()
+        let publicationClock = ProvenanceRunClock()
         let canonicalURL = resultDirectoryURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         guard let envelope = try ProvenanceEnvelopeReader.load(from: resultDirectoryURL) else {
             throw MappingViewerBundlePublicationError.missingCanonicalProvenance(canonicalURL)
@@ -896,7 +896,7 @@ public enum MappingViewerBundlePublicationService {
         let publicationOutputs = deduplicated(
             [mappingResultDescriptor] + [mappingProvenanceDescriptor].compactMap { $0 } + viewerDescriptors
         )
-        let publicationCompletedAt = Date()
+        let publicationCompletedAt = publicationClock.now
         let publicationStep = ProvenanceStep(
             toolName: "Lungfish.app",
             toolVersion: WorkflowRun.currentAppVersion,
@@ -911,9 +911,9 @@ public enum MappingViewerBundlePublicationService {
             inputs: inputs,
             outputs: publicationOutputs,
             exitStatus: 0,
-            wallTimeSeconds: publicationCompletedAt.timeIntervalSince(publicationStartedAt),
+            wallTimeSeconds: publicationCompletedAt.timeIntervalSince(publicationClock.startedAt),
             dependsOn: refreshedSteps.last.map { [$0.id] } ?? [],
-            startedAt: publicationStartedAt,
+            startedAt: publicationClock.startedAt,
             completedAt: publicationCompletedAt
         )
         let updatedOptions = ProvenanceOptions(

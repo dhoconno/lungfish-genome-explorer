@@ -865,7 +865,7 @@ final class WorkflowOperationExecutionService {
         viewerBundleURL: URL,
         request: ONTBarcodeDemuxGenotypingRunRequest
     ) throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let outputDescriptor = ProvenanceFileDescriptor(
             path: viewerBundleURL.path,
             role: .output
@@ -895,7 +895,7 @@ final class WorkflowOperationExecutionService {
             "viewerBundle": .file(viewerBundleURL),
         ]
         let envelope = ProvenanceEnvelope(
-            createdAt: startedAt,
+            createdAt: runClock.startedAt,
             workflowName: workflowName,
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: "Lungfish.app",
@@ -907,7 +907,7 @@ final class WorkflowOperationExecutionService {
             files: [referenceDescriptor, bamDescriptor, outputDescriptor],
             output: outputDescriptor,
             outputs: [outputDescriptor],
-            wallTimeSeconds: Date().timeIntervalSince(startedAt),
+            wallTimeSeconds: runClock.elapsed,
             exitStatus: 0
         )
         try ProvenanceWriter(signingProvider: nil).write(envelope, to: viewerBundleURL)

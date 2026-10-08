@@ -45,7 +45,7 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         let inputURL = resolvedInput.executionURL
         let options = try fastpOptions()
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true, metadataFrom: resolvedInput.pairingMetadataURL)
         let plan = try await Task.detached(priority: .utility) {
             try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
@@ -121,7 +121,7 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
             stepInputs: outcome.stepInputs,
             stepOutputs: outcome.stepOutputs,
             extraSteps: outcome.extraSteps + (try resolvedInput.materializationSteps()),
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
     }
@@ -191,6 +191,7 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
             "extraArgs": .string(extraArgs),
             "output": .file(outputURL),
         ]
+        let recordedAt = Date()
         let step = StepExecution(
             toolName: "fastp",
             toolVersion: "bundled",
@@ -200,11 +201,13 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
             exitCode: exitCode,
             wallTime: wallTime,
             stderr: stderr,
-            endTime: Date()
+            startTime: recordedAt,
+            endTime: recordedAt
         )
         return WorkflowRun(
             name: "lungfish fastq quality-trim",
-            endTime: Date(),
+            startTime: recordedAt,
+            endTime: recordedAt,
             status: exitCode == 0 ? .completed : .failed,
             steps: [step],
             parameters: parameters.merging([

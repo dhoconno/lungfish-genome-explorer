@@ -32,7 +32,7 @@ extension ClassificationPipeline {
     ) async throws -> UUID? {
         let copies = config.stagedInputCopies
         guard !copies.isEmpty else { return nil }
-        let startedAt = Date()
+        let copyClock = ProvenanceRunClock()
         do {
             for item in copies {
                 try FileManager.default.createDirectory(
@@ -63,7 +63,7 @@ extension ClassificationPipeline {
                 ProvenanceRecorder.fileRecord(url: $0.copy, format: config.provenanceInputFileFormat, role: .output)
             },
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: copyClock.elapsed,
             dependsOn: dependsOn
         )
     }

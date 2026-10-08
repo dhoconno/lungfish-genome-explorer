@@ -395,9 +395,9 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
     }
 
     private func runSamtoolsOrThrow(_ arguments: [String], timeout: TimeInterval) async throws -> AlignmentNativeCommandExecution {
-        let startedAt = Date()
+        let samtoolsClock = ProvenanceRunClock()
         let result = try await samtoolsRunner.runSamtools(arguments: arguments, timeout: timeout)
-        let completedAt = Date()
+        let completedAt = samtoolsClock.now
         guard result.isSuccess else {
             throw AlignmentMarkdupPipelineError.samtoolsFailed(
                 result.stderr.isEmpty ? "samtools exited with \(result.exitCode)" : result.stderr
@@ -405,7 +405,7 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
         }
         return AlignmentNativeCommandExecution(
             result: result,
-            startedAt: startedAt,
+            startedAt: samtoolsClock.startedAt,
             completedAt: completedAt
         )
     }

@@ -33,13 +33,13 @@ struct ManagedDatabaseToolResult: Sendable {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey:
                 "Managed database runtime provenance is unavailable; no measured tool version or resolved invocation was supplied."])
         }
-        let durableCommand = Array(command.dropLast(arguments.count)) + durableArguments
+        let durableCommand = Array(command.dropLast(arguments.count)) + durableArguments, recordedAt = Date()
         return StepExecution(toolName: "deacon", toolVersion: toolVersion,
             command: command,
             durableReplayArgv: ["/usr/bin/env", "MAMBA_ROOT_PREFIX=\(root)"] + durableCommand,
             resolvedOptions: resolvedOptions, runtimeIdentity: runtimeIdentity,
             inputs: inputs, outputs: outputs, exitCode: exitCode,
-            wallTime: wallTime, stderr: stderr, endTime: Date())
+            wallTime: wallTime, stderr: stderr, startTime: recordedAt, endTime: recordedAt)
     }
 }
 
@@ -588,7 +588,7 @@ public actor DatabaseRegistry {
         }
 
         progress?(0.02, "Preparing \(manifest.displayName)…")
-        let totalStart = Date()
+        let runClock = ProvenanceRunClock()
         var databaseDownloadWallTime: TimeInterval = 0
         var checksumDownloadWallTime: TimeInterval = 0
 
@@ -648,7 +648,7 @@ public actor DatabaseRegistry {
                     databaseDownloadWallTime: databaseDownloadWallTime,
                     checksumDownloadWallTime: checksumDownloadWallTime
                 ),
-                totalWallTime: Date().timeIntervalSince(totalStart),
+                totalWallTime: runClock.elapsed,
                 extraParameters: [
                     "downloadUrl": .string(downloadURL.absoluteString),
                     "md5Url": .string(md5URL.absoluteString),
@@ -724,7 +724,7 @@ public actor DatabaseRegistry {
         }
 
         progress?(0.02, "Preparing \(manifest.displayName)…")
-        let totalStart = Date()
+        let runClock = ProvenanceRunClock()
         let fetchArgs = ["index", "fetch", manifest.version, "-o", tempOutputURL.path]
         let durableFetchArgs = ["index", "fetch", manifest.version, "-o", destinationURL.path]
         let infoArgs = ["index", "info", tempOutputURL.path]
@@ -793,7 +793,7 @@ public actor DatabaseRegistry {
                     durableInfoArgs: durableInfoArgs,
                     outputURL: destinationURL
                 ),
-                totalWallTime: Date().timeIntervalSince(totalStart),
+                totalWallTime: runClock.elapsed,
                 extraParameters: [
                     "condaEnvironment": .string("deacon"),
                 ]
@@ -874,7 +874,7 @@ public actor DatabaseRegistry {
         }
 
         progress?(0.02, "Preparing \(manifest.displayName)…")
-        let totalStart = Date()
+        let runClock = ProvenanceRunClock()
         var downloadWallTime: TimeInterval = 0
         let downloadExitCode: Int32 = 0
         let buildArgs = [
@@ -888,7 +888,7 @@ public actor DatabaseRegistry {
 
         do {
             progress?(0.08, "Downloading \(manifest.displayName)…")
-            let downloadStarted = Date()
+            let downloadClock = ProvenanceRunClock()
             let downloaded = try await downloadManagedDatabaseFile(from: sourceURL) { fraction, bytesWritten, totalBytes in
                 let scaled = 0.08 + (fraction * 0.52)
                 progress?(
@@ -896,7 +896,7 @@ public actor DatabaseRegistry {
                     "Downloading \(manifest.displayName)… \(Self.formatByteCount(bytesWritten)) of \(Self.formatByteCount(totalBytes))"
                 )
             }
-            downloadWallTime = downloaded.wallTime > 0 ? downloaded.wallTime : Date().timeIntervalSince(downloadStarted)
+            downloadWallTime = downloaded.wallTime > 0 ? downloaded.wallTime : downloadClock.elapsed
 
             if fileManager.fileExists(atPath: referenceURL.path) {
                 try fileManager.removeItem(at: referenceURL)
@@ -962,7 +962,7 @@ public actor DatabaseRegistry {
                     downloadExitCode: downloadExitCode,
                     downloadWallTime: downloadWallTime
                 ),
-                totalWallTime: Date().timeIntervalSince(totalStart),
+                totalWallTime: runClock.elapsed,
                 extraParameters: [
                     "kmerLength": .integer(31),
                     "windowSize": .integer(15),
@@ -1057,7 +1057,7 @@ public actor DatabaseRegistry {
             let siblingStorageRoot = siblingDirectory.deletingLastPathComponent().deletingLastPathComponent()
             guard let recorded = recordedSHA256(inSiblingInstallDirectory: siblingDirectory, filename: manifest.filename) else { continue }
             progress?(0.05, "Checking \(manifest.displayName) in \(siblingStorageRoot.lastPathComponent)…")
-            let started = Date()
+            let cloneClock = ProvenanceRunClock()
             guard (try? FileDigest.sha256(of: candidate)) == recorded else { continue }
             if let expectedMD5 {
                 guard let actual = try? md5Hex(of: candidate), actual.lowercased() == expectedMD5.lowercased() else { continue }
@@ -1081,7 +1081,7 @@ public actor DatabaseRegistry {
                 try fileManager.moveItem(at: tempCloneURL, to: destinationURL)
                 didPromote = true
                 removeSupersededDatabaseFiles(in: installDirectory, keeping: manifest.filename, databaseID: databaseID)
-                let now = Date()
+                let now = cloneClock.now
                 let step = StepExecution(
                     toolName: "clonefile",
                     toolVersion: "APFS",
@@ -1089,9 +1089,9 @@ public actor DatabaseRegistry {
                     inputs: [FileRecord(path: candidate.path, sha256: recorded, sizeBytes: size, format: .unknown, role: .input)],
                     outputs: [FileRecord(path: destinationURL.path, sha256: recorded, sizeBytes: size, format: .unknown, role: .index)],
                     exitCode: 0,
-                    wallTime: now.timeIntervalSince(started),
+                    wallTime: now.timeIntervalSince(cloneClock.startedAt),
                     stderr: nil,
-                    endTime: now
+                    startTime: cloneClock.startedAt, endTime: now
                 )
                 var extra: [String: ParameterValue] = [
                     "installSource": .string("sibling-root-clone"),
@@ -1107,7 +1107,7 @@ public actor DatabaseRegistry {
                     installDirectory: installDirectory,
                     manifest: manifest,
                     steps: [step],
-                    totalWallTime: now.timeIntervalSince(started),
+                    totalWallTime: now.timeIntervalSince(cloneClock.startedAt),
                     extraParameters: extra
                 )
                 preferences.set(manifest.filename, forKey: overrideFilenameKey(for: databaseID))
@@ -1284,7 +1284,7 @@ public actor DatabaseRegistry {
                 exitCode: 0,
                 wallTime: databaseDownloadWallTime,
                 stderr: nil,
-                endTime: now
+                startTime: now, endTime: now
             ),
             StepExecution(
                 toolName: "URLSession",
@@ -1297,7 +1297,7 @@ public actor DatabaseRegistry {
                 exitCode: 0,
                 wallTime: checksumDownloadWallTime,
                 stderr: nil,
-                endTime: now
+                startTime: now, endTime: now
             ),
             StepExecution(
                 toolName: "CryptoKit",
@@ -1308,7 +1308,7 @@ public actor DatabaseRegistry {
                 exitCode: 0,
                 wallTime: nil,
                 stderr: nil,
-                endTime: now
+                startTime: now, endTime: now
             ),
         ]
     }
@@ -1361,7 +1361,7 @@ public actor DatabaseRegistry {
                 exitCode: downloadExitCode,
                 wallTime: downloadWallTime,
                 stderr: nil,
-                endTime: now
+                startTime: now, endTime: now
             ),
         ]
 
@@ -1404,7 +1404,7 @@ public actor DatabaseRegistry {
 
         let run = WorkflowRun(
             name: "\(manifest.displayName) managed database install",
-            endTime: now,
+            startTime: now, endTime: now,
             status: status,
             steps: steps,
             parameters: parameters
@@ -1515,11 +1515,11 @@ public actor DatabaseRegistry {
             return try await managedDatabaseDownloader(url, progress)
         }
 
-        let started = Date()
+        let downloadClock = ProvenanceRunClock()
         let fileURL = try await downloadFile(from: url, progress: progress)
         return ManagedDatabaseDownloadResult(
             fileURL: fileURL,
-            wallTime: Date().timeIntervalSince(started)
+            wallTime: downloadClock.elapsed
         )
     }
 
@@ -1561,14 +1561,14 @@ public actor DatabaseRegistry {
             }
         }
         try await validateRuntime()
-        let probeStarted = Date()
+        let probeClock = ProvenanceRunClock()
         let versionResult = try await manager.runTool(name: name, arguments: ["--version"],
             environment: environment, timeout: 30)
-        let probeWallTime = Date().timeIntervalSince(probeStarted)
+        let probeWallTime = probeClock.elapsed
         let version = try Self.observedManagedToolVersion(name: name, stdout: versionResult.stdout,
             stderr: versionResult.stderr, exitCode: versionResult.exitCode)
         try await validateRuntime()
-        let started = Date()
+        let toolClock = ProvenanceRunClock()
         let result = try await manager.runTool(
             name: name,
             arguments: arguments,
@@ -1576,7 +1576,7 @@ public actor DatabaseRegistry {
             timeout: timeout,
             stderrHandler: stderrHandler
         )
-        let wallTime = Date().timeIntervalSince(started)
+        let wallTime = toolClock.elapsed
         try await validateRuntime()
         return ManagedDatabaseToolResult(
             stdout: result.stdout,

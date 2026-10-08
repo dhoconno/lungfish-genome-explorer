@@ -4,6 +4,7 @@
 
 import Foundation
 import CryptoKit
+import LungfishCore
 import os
 
 private let logger = Logger(subsystem: LogSubsystem.io, category: "AnalysesMigration")
@@ -74,7 +75,7 @@ public enum AnalysesMigration {
                 }
 
                 let tool = toolForPrefix(matchedPrefix)
-                let migrationStartedAt = Date()
+                let migrationClock = ProvenanceRunClock()
                 let sourceFiles = try migrationFileDescriptors(
                     in: candidateURL,
                     role: "input",
@@ -134,7 +135,7 @@ public enum AnalysesMigration {
                         tool: tool,
                         sourceDirectory: sourceDirectory,
                         sourceFiles: sourceFiles,
-                        startedAt: migrationStartedAt
+                        runClock: migrationClock
                     )
                 } catch {
                     do {
@@ -353,9 +354,10 @@ private extension AnalysesMigration {
         tool: String,
         sourceDirectory: MigrationProvenanceFileDescriptor,
         sourceFiles: [MigrationProvenanceFileDescriptor],
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) throws {
-        let completedAt = Date()
+        let startedAt = runClock.startedAt
+        let completedAt = runClock.now
         let outputFiles = try migrationFileDescriptors(
             in: destinationURL,
             role: "output",

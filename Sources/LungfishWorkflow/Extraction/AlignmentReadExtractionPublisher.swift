@@ -45,11 +45,12 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
                 return try publishFile(request)
             }
         } catch is CancellationError {
+            let now = request.transaction.runClock.now
             let record = publicationRecord(
                 request: request,
                 finalOutputs: [],
-                startedAt: Date(),
-                completedAt: Date(),
+                startedAt: now,
+                completedAt: now,
                 exitStatus: nil,
                 stderr: "Cancelled before publication completed."
             )
@@ -65,7 +66,7 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
             request.transaction.cleanup()
             throw failure
         } catch {
-            let now = Date()
+            let now = request.transaction.runClock.now
             let record = publicationRecord(
                 request: request,
                 finalOutputs: [],
@@ -90,7 +91,7 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
     ) throws -> AlignmentReadExtractionPublicationResult {
         let fileManager = FileManager.default
         let finalBundleURL = request.destination.finalURL
-        let startedAt = Date()
+        let publicationStartedAt = request.transaction.runClock.now
         let publicationStagingURL = siblingStagingDirectory(for: finalBundleURL)
         do {
             guard finalBundleURL.pathExtension.lowercased() == FASTQBundle.directoryExtension else {
@@ -139,11 +140,11 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
                 originURL: metadataURL
             )
             let finalOutputs = payloadDescriptors + [metadataDescriptor]
-            let completedAt = Date()
+            let completedAt = request.transaction.runClock.now
             let record = publicationRecord(
                 request: request,
                 finalOutputs: finalOutputs,
-                startedAt: startedAt,
+                startedAt: publicationStartedAt,
                 completedAt: completedAt,
                 exitStatus: 0,
                 stderr: nil
@@ -185,11 +186,11 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
             throw failure
         } catch {
             try? fileManager.removeItem(at: publicationStagingURL)
-            let completedAt = Date()
+            let completedAt = request.transaction.runClock.now
             let record = publicationRecord(
                 request: request,
                 finalOutputs: [],
-                startedAt: startedAt,
+                startedAt: publicationStartedAt,
                 completedAt: completedAt,
                 exitStatus: 1,
                 stderr: error.localizedDescription
@@ -208,7 +209,7 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
     ) throws -> AlignmentReadExtractionPublicationResult {
         let fileManager = FileManager.default
         let finalURL = request.destination.finalURL
-        let startedAt = Date()
+        let publicationStartedAt = request.transaction.runClock.now
         let stagedPayloadURL = siblingStagingFile(for: finalURL)
         let stagedSidecarURL = ProvenanceRecorder.fileSidecarURL(for: stagedPayloadURL)
         do {
@@ -229,11 +230,11 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
                 format: request.transaction.stagedFiles[0].format,
                 originURL: request.transaction.stagedFiles[0].stagedURL
             )
-            let completedAt = Date()
+            let completedAt = request.transaction.runClock.now
             let record = publicationRecord(
                 request: request,
                 finalOutputs: [finalDescriptor],
-                startedAt: startedAt,
+                startedAt: publicationStartedAt,
                 completedAt: completedAt,
                 exitStatus: 0,
                 stderr: nil
@@ -278,11 +279,11 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
         } catch {
             try? fileManager.removeItem(at: stagedPayloadURL)
             try? fileManager.removeItem(at: stagedSidecarURL)
-            let completedAt = Date()
+            let completedAt = request.transaction.runClock.now
             let record = publicationRecord(
                 request: request,
                 finalOutputs: [],
-                startedAt: startedAt,
+                startedAt: publicationStartedAt,
                 completedAt: completedAt,
                 exitStatus: 1,
                 stderr: error.localizedDescription

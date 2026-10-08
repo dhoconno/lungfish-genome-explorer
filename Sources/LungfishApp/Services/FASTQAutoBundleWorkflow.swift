@@ -71,7 +71,7 @@ enum FASTQAutoBundleWorkflow {
         let stagingBundleURL = stagingBundleURL(for: bundleURL)
         let stagingPayloadURL = stagingBundleURL.appendingPathComponent(sourceURL.lastPathComponent)
         let stagingMetadataURL = stagingBundleURL.appendingPathComponent(sourceMetadataURL.lastPathComponent)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let sourceDescriptor = try ProvenanceFileDescriptor.file(url: sourceURL, format: .fastq, role: .input)
         let sourceEnvelope = try loadSourceProvenanceEnvelope(for: sourceURL)
         let sourceHadMetadata = fileManager.fileExists(atPath: sourceMetadataURL.path)
@@ -84,7 +84,7 @@ enum FASTQAutoBundleWorkflow {
             }
             try fileManager.moveItem(at: stagingBundleURL, to: bundleURL)
 
-            let completedAt = Date()
+            let completedAt = runClock.now
             let envelope = try provenanceEnvelope(
                 sourceEnvelope: sourceEnvelope,
                 sourceDescriptor: sourceDescriptor,
@@ -92,7 +92,7 @@ enum FASTQAutoBundleWorkflow {
                 bundleURL: bundleURL,
                 payloadURL: finalPayloadURL,
                 metadataURL: sourceHadMetadata ? finalMetadataURL : nil,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt,
                 runtimeIdentity: runtimeIdentity
             )

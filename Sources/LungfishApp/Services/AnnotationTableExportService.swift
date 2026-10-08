@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 enum AnnotationTableExportService {
@@ -6,7 +7,7 @@ enum AnnotationTableExportService {
         snapshot: AnnotationTableExportSnapshot,
         format: ScientificTableFormat,
         outputURL: URL,
-        startedAt: Date = Date(),
+        runClock: ProvenanceRunClock = ProvenanceRunClock(),
         shouldCancel: @Sendable () -> Bool
     ) throws {
         if shouldCancel() { throw ScientificTableWriterError.cancelled }
@@ -81,7 +82,7 @@ enum AnnotationTableExportService {
                     "xlsxArchiveArgv": .array((writerReport.archiveArgv ?? []).map(ParameterValue.string)),
                     "xlsxArchiveToolVersion": .string(writerReport.archiveToolVersion ?? "not applicable"),
                 ],
-                startedAt: startedAt
+                runClock: runClock
             ), preserveOriginalSources: true)
         } catch {
             retained.discardAfterFailure(error)

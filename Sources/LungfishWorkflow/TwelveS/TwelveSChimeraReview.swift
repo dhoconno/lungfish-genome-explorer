@@ -111,9 +111,9 @@ public struct TwelveSVSearchChimeraReviewer: TwelveSChimeraReviewing {
             "--nonchimeras", nonChimerasURL.path,
             "--threads", String(max(1, threads)),
         ]
-        let started = Date()
+        let vsearchClock = ProvenanceRunClock()
         let result = try await runVSearch(arguments)
-        let completed = Date()
+        let completed = vsearchClock.now
         guard result.exitCode == 0 else {
             throw TwelveSChimeraReviewError.vsearchFailed(
                 exitCode: result.exitCode,
@@ -134,7 +134,7 @@ public struct TwelveSVSearchChimeraReviewer: TwelveSChimeraReviewing {
             stderr: result.stderr,
             exitStatus: result.exitCode,
             argv: result.arguments.isEmpty ? [NativeTool.vsearch.executableName] + arguments : result.arguments,
-            startedAt: started,
+            startedAt: vsearchClock.startedAt,
             completedAt: completed,
             inputs: [inputURL],
             outputs: [uchimeURL, chimerasURL, nonChimerasURL].filter {

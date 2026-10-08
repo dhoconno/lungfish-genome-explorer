@@ -11,7 +11,7 @@ import sys
 import time
 import warnings
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pysam
 
@@ -47,10 +47,6 @@ def parse_args():
     # ambiguous_with column listing the whole group.
     parser.add_argument("--reference-ambiguity-groups", default=None)
     return parser.parse_args()
-
-
-def utc_now():
-    return datetime.now(timezone.utc).isoformat()
 
 
 def sha256(path, chunk_size=1024 * 1024):
@@ -487,8 +483,11 @@ def write_csv(path, rows, fieldnames):
 
 def main():
     args = parse_args()
-    start_time = time.time()
-    started_at = utc_now()
+    # Time the run on the monotonic clock so a wall-clock step cannot end it
+    # before it started. The end is the start plus the elapsed time.
+    start_time = time.monotonic()
+    started = datetime.now(timezone.utc)
+    started_at = started.isoformat()
     os.makedirs(args.output_dir, exist_ok=True)
     min_sample_fraction = fraction_from_percent(args.haplotype_min_sample_percent)
     min_locus_fraction = fraction_from_percent(args.haplotype_min_locus_percent)
@@ -659,13 +658,14 @@ def main():
         })
     write_csv(sample_csv, sample_rows, ["sample", "passed_alignments", "passed_unique_reads", "sample_total_reads", "sample_unique_retained_percent", "overall_input_reads", "overall_unique_retained_percent"])
 
-    completed_at = utc_now()
+    wall_clock_seconds = time.monotonic() - start_time
+    completed_at = (started + timedelta(seconds=wall_clock_seconds)).isoformat()
     stats = {
         "tool": "lungfish fastq ont-barcode-genotype retained-read filter",
         "version": "1",
         "startedAt": started_at,
         "completedAt": completed_at,
-        "wallClockSeconds": time.time() - start_time,
+        "wallClockSeconds": wall_clock_seconds,
         "inputBAM": args.input_bam,
         "referenceFasta": args.reference_fasta,
         "referenceAmbiguityGroups": reference_ambiguity_groups,

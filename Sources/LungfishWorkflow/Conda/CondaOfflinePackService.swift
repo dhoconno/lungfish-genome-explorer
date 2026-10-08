@@ -110,7 +110,7 @@ public struct CondaOfflinePackService {
         output: URL,
         commandLine: [String]
     ) async throws -> CondaOfflinePackExportResult {
-        let start = Date()
+        let runClock = ProvenanceRunClock()
         let sourceCondaRoot = condaRoot.standardizedFileURL
         let mutationLock = try CondaRootMutationLock.acquire(root: sourceCondaRoot)
         defer { mutationLock.release() }
@@ -193,7 +193,7 @@ public struct CondaOfflinePackService {
                 "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
             ],
             outputDirectory: packDirectory,
-            start: start,
+            runClock: runClock,
             exitCode: 0,
             stderr: nil
         )
@@ -216,7 +216,7 @@ public struct CondaOfflinePackService {
         overwrite: Bool,
         commandLine: [String]
     ) async throws -> CondaOfflinePackInstallResult {
-        let start = Date()
+        let runClock = ProvenanceRunClock()
         let destinationCondaRoot = condaRoot.standardizedFileURL
         let prepared = try preparePackDirectory(from: packDirectory)
         defer { prepared.cleanup?() }
@@ -266,7 +266,7 @@ public struct CondaOfflinePackService {
                     attemptedProbe: nil,
                     failure: error,
                     rollbackFailures: [],
-                    start: start
+                    runClock: runClock
                 )
             } catch let provenanceError {
                 throw CondaOfflinePackError.failureProvenanceWriteFailed(
@@ -367,7 +367,7 @@ public struct CondaOfflinePackService {
                     portableLauncherImports: portableLauncherImports
                 ),
                 outputDirectory: destinationCondaRoot,
-                start: start,
+                runClock: runClock,
                 exitCode: 0,
                 stderr: nil
             )
@@ -401,7 +401,7 @@ public struct CondaOfflinePackService {
                     attemptedProbe: attemptedProbe,
                     failure: error,
                     rollbackFailures: rollbackFailures,
-                    start: start
+                    runClock: runClock
                 )
             } catch let provenanceError {
                 throw CondaOfflinePackError.failureProvenanceWriteFailed(
@@ -531,7 +531,7 @@ public struct CondaOfflinePackService {
         attemptedProbe: ManagedToolSourceRuntimeProbe?,
         failure: Error,
         rollbackFailures: [String],
-        start: Date
+        runClock: ProvenanceRunClock
     ) throws {
         // No environment locks have been acquired for a preflight validation
         // failure, so taking only the root receipt lock cannot invert the
@@ -551,7 +551,7 @@ public struct CondaOfflinePackService {
             attemptedProbe: attemptedProbe,
             failure: failure,
             rollbackFailures: rollbackFailures,
-            start: start
+            runClock: runClock
         )
     }
 
@@ -568,7 +568,7 @@ public struct CondaOfflinePackService {
         attemptedProbe: ManagedToolSourceRuntimeProbe?,
         failure: Error,
         rollbackFailures: [String],
-        start: Date
+        runClock: ProvenanceRunClock
     ) throws -> URL {
         var parameters = installProvenanceParameters(
             manifest: manifest,
@@ -594,7 +594,7 @@ public struct CondaOfflinePackService {
             outputs: outputs,
             parameters: parameters,
             outputDirectory: destinationCondaRoot,
-            start: start,
+            runClock: runClock,
             exitCode: attemptedProbe?.exitStatus ?? 1,
             stderr: stderrParts.joined(separator: "\n"),
             filename: Self.installFailureProvenanceFilename
@@ -854,12 +854,12 @@ public struct CondaOfflinePackService {
         outputs: [FileRecord],
         parameters: [String: ParameterValue],
         outputDirectory: URL,
-        start: Date,
+        runClock: ProvenanceRunClock,
         exitCode: Int32,
         stderr: String?,
         filename: String = ProvenanceRecorder.provenanceFilename
     ) throws -> URL {
-        let end = Date()
+        let end = runClock.now
         let step = StepExecution(
             toolName: toolName,
             toolVersion: WorkflowRun.currentAppVersion,
@@ -867,14 +867,14 @@ public struct CondaOfflinePackService {
             inputs: inputs,
             outputs: outputs,
             exitCode: exitCode,
-            wallTime: end.timeIntervalSince(start),
+            wallTime: end.timeIntervalSince(runClock.startedAt),
             stderr: stderr,
-            startTime: start,
+            startTime: runClock.startedAt,
             endTime: end
         )
         let run = WorkflowRun(
             name: name,
-            startTime: start,
+            startTime: runClock.startedAt,
             endTime: end,
             status: exitCode == 0 ? .completed : .failed,
             steps: [step],

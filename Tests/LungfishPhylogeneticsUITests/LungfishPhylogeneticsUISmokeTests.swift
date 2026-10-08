@@ -317,7 +317,7 @@ final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
             export,
             sourceBundleURL: sourceBundleURL,
             to: outputURL,
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         )
 
         XCTAssertEqual(sidecarURL, ProvenanceRecorder.fileSidecarURL(for: outputURL))
@@ -362,7 +362,7 @@ final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
                 export,
                 sourceBundleURL: nil,
                 to: outputURL,
-                startedAt: Date()
+                runClock: ProvenanceRunClock()
             )
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))

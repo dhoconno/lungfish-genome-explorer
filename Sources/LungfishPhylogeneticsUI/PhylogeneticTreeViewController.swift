@@ -1098,7 +1098,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
                         export,
                         sourceBundleURL: bundle.url,
                         to: url,
-                        startedAt: Date()
+                        runClock: ProvenanceRunClock()
                     )
                 } catch {
                     self?.presentSubtreeExportFailure(error)
@@ -1126,7 +1126,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         _ export: PhylogeneticTreeSubtreeExport,
         sourceBundleURL: URL?,
         to outputURL: URL,
-        startedAt: Date = Date()
+        runClock: ProvenanceRunClock = ProvenanceRunClock()
     ) throws -> URL {
         let sourceURLs = sourceBundleURL.map { [$0] } ?? []
         var argv = ["Lungfish Genome Explorer", "export-tree-subtree"]
@@ -1155,8 +1155,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
                     "descendantTipCount": .integer(export.descendantTipCount),
                     "outputByteCount": .integer(export.newick.utf8.count),
                 ],
-                startedAt: startedAt,
-                completedAt: Date()
+                runClock: runClock
             )) { staged in
                 try Data(export.newick.utf8).write(to: staged, options: .atomic)
             }

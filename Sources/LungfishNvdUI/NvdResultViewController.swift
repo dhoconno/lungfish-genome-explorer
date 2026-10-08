@@ -2385,7 +2385,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     func writeContigsTSV(to url: URL) throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let content = contigsTSVContent()
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app nvd contigs export",
@@ -2410,7 +2410,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
                 "taxonGroupCount": .integer(taxonGroups.count),
                 "metadataColumns": .array(metadataColumnController.exportHeaders.map { .string($0) }),
             ],
-            startedAt: startedAt
+            runClock: runClock
         )) { outputURL in
             try content.write(to: outputURL, atomically: true, encoding: .utf8)
         }

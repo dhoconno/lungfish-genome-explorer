@@ -1424,7 +1424,7 @@ final class WorkflowOperationDialogState {
         }
 
         let importDirectory = projectURL.appendingPathComponent("Barcode Definitions", isDirectory: true)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         try FileManager.default.createDirectory(at: importDirectory, withIntermediateDirectories: true)
         let destinationURL = try Self.uniqueBarcodeDefinitionImportURL(
             for: sourceURL,
@@ -1437,8 +1437,8 @@ final class WorkflowOperationDialogState {
         try writeBarcodeDefinitionImportProvenance(
             sourceURL: sourceURL,
             destinationURL: destinationURL,
-            startedAt: startedAt,
-            completedAt: Date()
+            startedAt: runClock.startedAt,
+            completedAt: runClock.now
         )
 
         projectBarcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: projectURL)

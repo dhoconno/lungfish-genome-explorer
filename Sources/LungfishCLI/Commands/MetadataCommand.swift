@@ -71,7 +71,7 @@ struct MetadataSetSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let bundleURL = URL(fileURLWithPath: bundlePath)
         guard FileManager.default.fileExists(atPath: bundlePath) else {
             throw CLIError.inputFileNotFound(path: bundlePath)
@@ -111,7 +111,7 @@ struct MetadataSetSubcommand: AsyncParsableCommand {
                 globalOptions: globalOptions,
                 inputs: inputRecords,
                 outputURL: metadataURL,
-                startedAt: startedAt
+                runClock: runClock
             )
         } catch {
             try snapshot.restore()
@@ -166,7 +166,7 @@ struct MetadataImportSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let folderURL = URL(fileURLWithPath: folderPath)
         let csvURL = URL(fileURLWithPath: csvPath)
 
@@ -206,7 +206,7 @@ struct MetadataImportSubcommand: AsyncParsableCommand {
                 folderMeta: folderMeta,
                 syncBundles: syncBundles,
                 globalOptions: globalOptions,
-                startedAt: startedAt
+                runClock: runClock
             )
         } catch {
             try snapshot.restore()
@@ -278,7 +278,7 @@ private enum MetadataProvenanceSupport {
         globalOptions: GlobalOptions,
         inputs: [FileRecord],
         outputURL: URL,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         let command = [
             CLICommandIdentity.executableName, "metadata", "set",
@@ -305,7 +305,7 @@ private enum MetadataProvenanceSupport {
                 ProvenanceRecorder.fileRecord(url: outputURL, format: .text, role: .output)
             ],
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: bundleURL
@@ -318,7 +318,7 @@ private enum MetadataProvenanceSupport {
         folderMeta: FASTQFolderMetadata,
         syncBundles: Bool,
         globalOptions: GlobalOptions,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) async throws {
         let command = [
             CLICommandIdentity.executableName, "metadata", "import",
@@ -351,7 +351,7 @@ private enum MetadataProvenanceSupport {
             ],
             outputs: outputs,
             exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
+            wallTime: runClock.elapsed,
             stderr: nil,
             status: .completed,
             outputDirectory: folderURL

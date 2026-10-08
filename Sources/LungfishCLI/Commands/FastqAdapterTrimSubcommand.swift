@@ -42,7 +42,7 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true, metadataFrom: resolvedInput.pairingMetadataURL)
         let plan = try await Task.detached(priority: .utility) {
             try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
@@ -103,7 +103,7 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
             stepInputs: outcome.stepInputs,
             stepOutputs: outcome.stepOutputs,
             extraSteps: outcome.extraSteps + (try resolvedInput.materializationSteps()),
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Adapter-trimmed reads written to \(output.output)\n".utf8))
     }

@@ -253,7 +253,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             let mergedBAMURL = temporaryWorkDirectoryURL.appendingPathComponent("cohort.merged.bam")
             if mappings.isEmpty {
                 let emptySAMURL = temporaryWorkDirectoryURL.appendingPathComponent("empty-cohort.sam")
-                let transformationStartedAt = Date()
+                let transformationClock = ProvenanceRunClock()
                 try "@HD\tVN:1.6\tSO:unsorted\n".write(
                     to: emptySAMURL,
                     atomically: true,
@@ -264,7 +264,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                     role: .commandInput,
                     phase: .temporary
                 )
-                let transformationCompletedAt = Date()
+                let transformationCompletedAt = transformationClock.now
                 transformationRecords.append(FullLengthONTMHCInProcessTransformationRecord(
                     workflowName: "lungfish-in-process:create-empty-mhc-cohort-sam",
                     workflowVersion: WorkflowRun.currentAppVersion,
@@ -281,9 +281,9 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                     inputs: [],
                     outputs: [emptySAMDescriptor],
                     exitStatus: 0,
-                    startedAt: transformationStartedAt,
+                    startedAt: transformationClock.startedAt,
                     completedAt: transformationCompletedAt,
-                    wallTime: transformationCompletedAt.timeIntervalSince(transformationStartedAt)
+                    wallTime: transformationCompletedAt.timeIntervalSince(transformationClock.startedAt)
                 ))
                 artifactDescriptors.append(emptySAMDescriptor)
                 try await run(
@@ -489,7 +489,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             try Task.checkCancellation()
             try publicationPathIdentityValidator()
             try Task.checkCancellation()
-            let publicationStartedAt = Date()
+            let publicationClock = ProvenanceRunClock()
             let publicationMode: FullLengthONTMHCAlignmentDirectoryPublicationMode = fileManager
                 .fileExists(atPath: alignmentDirectoryURL.path) ? .replace : .create
             let publication: FullLengthONTMHCAlignmentDirectoryPublication
@@ -510,8 +510,8 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                     exitStatus: -1,
                     errorMessage: (error as? LocalizedError)?.errorDescription
                         ?? error.localizedDescription,
-                    startedAt: publicationStartedAt,
-                    completedAt: Date()
+                    startedAt: publicationClock.startedAt,
+                    completedAt: publicationClock.now
                 )
                 publicationRecord = record
                 throw FullLengthONTMHCAlignmentDirectoryPublicationError(record: record)
@@ -658,7 +658,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         mappings: [FullLengthONTMHCTargetNamespaceMapping],
         transformation: FullLengthONTMHCInProcessTransformationRecord
     ) {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         guard fileManager.createFile(atPath: url.path, contents: Data()) else {
             throw BuildFailure("Could not create namespaced cluster FASTA at \(url.path).")
         }
@@ -727,7 +727,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             role: .namespacedClusterFASTA,
             phase: .temporary
         )
-        let completedAt = Date()
+        let completedAt = runClock.now
         let transformation = FullLengthONTMHCInProcessTransformationRecord(
             workflowName: "lungfish-in-process:namespace-mhc-cluster-fasta",
             workflowVersion: WorkflowRun.currentAppVersion,
@@ -749,9 +749,9 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             inputs: [snapshot.descriptor],
             outputs: [outputDescriptor],
             exitStatus: 0,
-            startedAt: startedAt,
+            startedAt: runClock.startedAt,
             completedAt: completedAt,
-            wallTime: completedAt.timeIntervalSince(startedAt)
+            wallTime: completedAt.timeIntervalSince(runClock.startedAt)
         )
         return (mappings, transformation)
     }

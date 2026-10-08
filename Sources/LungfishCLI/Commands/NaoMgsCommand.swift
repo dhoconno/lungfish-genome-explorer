@@ -76,7 +76,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
         var minBitScore: Double = 0
 
         func run() async throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let parser = NaoMgsResultParser()
 
@@ -168,7 +168,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
                     result: result,
                     filteredHitCount: filteredHits.count,
                     filteredTaxonCount: filteredSummaries.count,
-                    startedAt: startedAt
+                    runClock: runClock
                 )
             } catch {
                 try? FileManager.default.removeItem(at: jsonURL)
@@ -192,10 +192,10 @@ struct NaoMgsCommand: AsyncParsableCommand {
             result: NaoMgsResult,
             filteredHitCount: Int,
             filteredTaxonCount: Int,
-            startedAt: Date
+            runClock: ProvenanceRunClock
         ) async throws {
-            let completedAt = Date()
-            let wallTime = max(0, completedAt.timeIntervalSince(startedAt))
+            let completedAt = runClock.now
+            let wallTime = max(0, completedAt.timeIntervalSince(runClock.startedAt))
             let command = standaloneImportReplayArgv(outputDirectory: outputDirectory)
             let inputs = standaloneImportInputRecords(
                 inputURL: inputURL,

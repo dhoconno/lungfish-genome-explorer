@@ -54,9 +54,9 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
         let fileFormat: FileFormat = orientation.sequenceFormat == .fasta ? .fasta : .fastq
 
         let runner = NativeToolRunner.shared
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await runner.run(.vsearch, arguments: args, environment: [:], timeout: 1800)
-        let wallTime = Date().timeIntervalSince(startedAt)
+        let wallTime = runClock.elapsed
 
         if !result.isSuccess {
             throw CLIError.conversionFailed(reason: result.stderr)

@@ -301,11 +301,11 @@ struct RunSubcommand: AsyncParsableCommand {
             try FileManager.default.createDirectory(at: runBundleURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Self.localWorkflowDirectoryReserver(runBundleURL)
         }
-        let bundleCreatedAt = Date()
-        let preparedEvent = LocalWorkflowRunStatusEvent(status: .prepared, timestamp: bundleCreatedAt)
+        let bundleClock = ProvenanceRunClock()
+        let preparedEvent = LocalWorkflowRunStatusEvent(status: .prepared, timestamp: bundleClock.startedAt)
         try LocalWorkflowRunBundleStore.write(
             request.manifest(
-                createdAt: bundleCreatedAt,
+                createdAt: bundleClock.startedAt,
                 replayIdentity: replayIdentity,
                 inputBindings: inputBindings,
                 executionStatus: .prepared,
@@ -326,15 +326,15 @@ struct RunSubcommand: AsyncParsableCommand {
                 prepareOnly: true,
                 status: .completed,
                 exitCode: 0,
-                wallTime: Date().timeIntervalSince(bundleCreatedAt),
+                wallTime: bundleClock.elapsed,
                 stderr: nil
             )
             print(runBundleURL.path)
             return
         }
 
-        let processStartedAt = Date()
-        let runningEvent = LocalWorkflowRunStatusEvent(status: .running, timestamp: processStartedAt)
+        let processClock = ProvenanceRunClock()
+        let runningEvent = LocalWorkflowRunStatusEvent(status: .running, timestamp: processClock.startedAt)
         var statusHistory = [preparedEvent]
         var ownsOutputDirectory = request.replaySourceBundleURL == nil
         let launch = request.processLaunch
@@ -345,9 +345,9 @@ struct RunSubcommand: AsyncParsableCommand {
                 ownsOutputDirectory = true
             }
             statusHistory.append(runningEvent)
-            try LocalWorkflowRunBundleStore.write(request.manifest(createdAt: bundleCreatedAt,
+            try LocalWorkflowRunBundleStore.write(request.manifest(createdAt: bundleClock.startedAt,
                 replayIdentity: replayIdentity, inputBindings: inputBindings, executionStatus: .running,
-                statusHistory: statusHistory, startedAt: processStartedAt), to: runBundleURL)
+                statusHistory: statusHistory, startedAt: processClock.startedAt), to: runBundleURL)
             processResult = try await Self.localWorkflowProcessRunner.runWorkflow(
                 executableName: launch.executableName,
                 arguments: launch.arguments,
@@ -355,32 +355,32 @@ struct RunSubcommand: AsyncParsableCommand {
             )
         } catch {
             let cancelled = error is CancellationError
-            let endedAt = Date()
+            let endedAt = processClock.now
             let terminalStatus: NFCoreRunExecutionStatus = cancelled ? .cancelled : .failed
             let message = cancelled ? "Workflow launch was cancelled before an exit status was returned." : error.localizedDescription
             let stderrLogURL = runBundleURL.appendingPathComponent("logs/stderr.log")
             try PortablePath.sanitize(text: message, forFileAt: stderrLogURL).write(to: stderrLogURL, atomically: true, encoding: .utf8)
-            try LocalWorkflowRunBundleStore.write(request.manifest(createdAt: bundleCreatedAt,
+            try LocalWorkflowRunBundleStore.write(request.manifest(createdAt: bundleClock.startedAt,
                 replayIdentity: replayIdentity, inputBindings: inputBindings, executionStatus: terminalStatus,
                 statusHistory: statusHistory + [.init(status: terminalStatus, timestamp: endedAt)],
-                startedAt: processStartedAt, completedAt: endedAt, exitCode: nil), to: runBundleURL)
+                startedAt: processClock.startedAt, completedAt: endedAt, exitCode: nil), to: runBundleURL)
             try writeLocalRunBundleProvenance(request: request, capturedInputs: capturedInputs,
                 includeResultOutputs: ownsOutputDirectory, bundleURL: runBundleURL, prepareOnly: false, status: cancelled ? .cancelled : .failed,
-                exitCode: nil, wallTime: endedAt.timeIntervalSince(processStartedAt), stderr: message)
+                exitCode: nil, wallTime: endedAt.timeIntervalSince(processClock.startedAt), stderr: message)
             throw error
         }
         try writeLocalProcessLogs(processResult, to: runBundleURL.appendingPathComponent("logs", isDirectory: true))
-        let processCompletedAt = Date()
+        let processCompletedAt = processClock.now
         let executionStatus: NFCoreRunExecutionStatus = processResult.exitCode == 0 ? .completed : .failed
         let completedEvent = LocalWorkflowRunStatusEvent(status: executionStatus, timestamp: processCompletedAt)
         try LocalWorkflowRunBundleStore.write(
             request.manifest(
-                createdAt: bundleCreatedAt,
+                createdAt: bundleClock.startedAt,
                 replayIdentity: replayIdentity,
                 inputBindings: inputBindings,
                 executionStatus: executionStatus,
                 statusHistory: [preparedEvent, runningEvent, completedEvent],
-                startedAt: processStartedAt,
+                startedAt: processClock.startedAt,
                 completedAt: processCompletedAt,
                 exitCode: processResult.exitCode,
                 stdoutLogPath: "logs/stdout.log",
@@ -396,7 +396,7 @@ struct RunSubcommand: AsyncParsableCommand {
             prepareOnly: false,
             status: processResult.exitCode == 0 ? .completed : .failed,
             exitCode: processResult.exitCode,
-            wallTime: processCompletedAt.timeIntervalSince(processStartedAt),
+            wallTime: processCompletedAt.timeIntervalSince(processClock.startedAt),
             stderr: processResult.standardError
         )
         if processResult.exitCode != 0 {
@@ -482,9 +482,9 @@ struct RunSubcommand: AsyncParsableCommand {
         try Self.requireSupportedExecutor(request)
         let stagedAnnotation = try NFCoreLaunchStaging.stageAnnotation(for: request, runBundleURL: runBundleURL)
         if let stagedAnnotation, !globalOptions.quiet { print(formatter.info(stagedAnnotation.summary)) }
-        let bundleCreatedAt = Date()
+        let bundleClock = ProvenanceRunClock()
         try NFCoreRunBundleStore.write(
-            request.manifest(createdAt: bundleCreatedAt, executionStatus: .prepared),
+            request.manifest(createdAt: bundleClock.startedAt, executionStatus: .prepared),
             to: runBundleURL
         )
 
@@ -499,7 +499,7 @@ struct RunSubcommand: AsyncParsableCommand {
                 prepareOnly: true,
                 status: .completed,
                 exitCode: 0,
-                wallTime: Date().timeIntervalSince(bundleCreatedAt),
+                wallTime: bundleClock.elapsed,
                 stderr: nil,
                 readPairing: pairingDecisions,
                 effectiveSamplesheetURL: nil,
@@ -513,19 +513,19 @@ struct RunSubcommand: AsyncParsableCommand {
         // running: a missing engine is reported as such (exit 126, naming
         // Required Setup) with the bundle recorded as failed, instead of
         // launching whatever `nextflow` is on PATH and failing inside it.
-        let processStartedAt = Date()
+        let processClock = ProvenanceRunClock()
         do {
             try Self.nfCoreWorkflowProcessRunner.preflightEngine()
         } catch {
-            let endedAt = Date()
+            let endedAt = processClock.now
             let stderrLogURL = runBundleURL.appendingPathComponent("logs/stderr.log")
             try PortablePath.sanitize(text: error.localizedDescription, forFileAt: stderrLogURL)
                 .write(to: stderrLogURL, atomically: true, encoding: .utf8)
             try NFCoreRunBundleStore.write(
                 request.manifest(
-                    createdAt: bundleCreatedAt,
+                    createdAt: bundleClock.startedAt,
                     executionStatus: .failed,
-                    startedAt: processStartedAt,
+                    startedAt: processClock.startedAt,
                     completedAt: endedAt,
                     exitCode: CLIExitCode.dependency.rawValue,
                     stderrLogPath: "logs/stderr.log"
@@ -538,7 +538,7 @@ struct RunSubcommand: AsyncParsableCommand {
                 prepareOnly: false,
                 status: .failed,
                 exitCode: CLIExitCode.dependency.rawValue,
-                wallTime: endedAt.timeIntervalSince(processStartedAt),
+                wallTime: endedAt.timeIntervalSince(processClock.startedAt),
                 stderr: error.localizedDescription,
                 readPairing: pairingDecisions,
                 effectiveSamplesheetURL: nil,
@@ -548,9 +548,9 @@ struct RunSubcommand: AsyncParsableCommand {
         }
         try NFCoreRunBundleStore.write(
             request.manifest(
-                createdAt: bundleCreatedAt,
+                createdAt: bundleClock.startedAt,
                 executionStatus: .running,
-                startedAt: processStartedAt
+                startedAt: processClock.startedAt
             ),
             to: runBundleURL
         )
@@ -614,10 +614,10 @@ struct RunSubcommand: AsyncParsableCommand {
             } catch let error as ViralReconReadPairing.PairingError {
                 try NFCoreRunBundleStore.write(
                     request.manifest(
-                        createdAt: bundleCreatedAt,
+                        createdAt: bundleClock.startedAt,
                         executionStatus: .failed,
-                        startedAt: processStartedAt,
-                        completedAt: Date(),
+                        startedAt: processClock.startedAt,
+                        completedAt: processClock.now,
                         exitCode: 1
                     ),
                     to: runBundleURL
@@ -628,7 +628,7 @@ struct RunSubcommand: AsyncParsableCommand {
                     prepareOnly: false,
                     status: .failed,
                     exitCode: 1,
-                    wallTime: Date().timeIntervalSince(processStartedAt),
+                    wallTime: processClock.elapsed,
                     stderr: error.localizedDescription,
                     readPairing: pairingDecisions,
                     effectiveSamplesheetURL: nil,
@@ -663,13 +663,13 @@ struct RunSubcommand: AsyncParsableCommand {
             environment: plannedRequest.launchEnvironment
         )
         try writeProcessLogs(processResult, to: runBundleURL.appendingPathComponent("logs", isDirectory: true))
-        let processCompletedAt = Date()
+        let processCompletedAt = processClock.now
         let executionStatus: NFCoreRunExecutionStatus = processResult.exitCode == 0 ? .completed : .failed
         try NFCoreRunBundleStore.write(
             request.manifest(
-                createdAt: bundleCreatedAt,
+                createdAt: bundleClock.startedAt,
                 executionStatus: executionStatus,
-                startedAt: processStartedAt,
+                startedAt: processClock.startedAt,
                 completedAt: processCompletedAt,
                 exitCode: processResult.exitCode,
                 stdoutLogPath: "logs/stdout.log",
@@ -683,7 +683,7 @@ struct RunSubcommand: AsyncParsableCommand {
             prepareOnly: false,
             status: processResult.exitCode == 0 ? .completed : .failed,
             exitCode: processResult.exitCode,
-            wallTime: processCompletedAt.timeIntervalSince(processStartedAt),
+            wallTime: processCompletedAt.timeIntervalSince(processClock.startedAt),
             stderr: processResult.standardError,
             readPairing: pairingDecisions,
             effectiveSamplesheetURL: effectiveSamplesheetURL,
@@ -860,7 +860,7 @@ struct RunSubcommand: AsyncParsableCommand {
             parameters[ViralReconAnnotationStaging.provenanceKey] = stagedAnnotation.provenanceValue
         }
 
-        let step = StepExecution(
+        let recordedAt = Date(), step = StepExecution(
             toolName: "\(CLICommandIdentity.executableName) workflow run",
             toolVersion: LungfishCLI.configuration.version,
             githubReleaseVersion: request.version,
@@ -870,11 +870,11 @@ struct RunSubcommand: AsyncParsableCommand {
             exitCode: exitCode,
             wallTime: wallTime,
             stderr: stderr,
-            endTime: Date()
+            startTime: recordedAt, endTime: recordedAt
         )
         let run = WorkflowRun(
             name: request.displayTitle,
-            endTime: Date(),
+            startTime: recordedAt, endTime: recordedAt,
             status: status,
             steps: [step],
             parameters: parameters
@@ -933,7 +933,7 @@ struct RunSubcommand: AsyncParsableCommand {
             if let size = runtimeEvidence.executable.sizeBytes { runtimeDefaults["runtimeExecutableSizeBytes"] = .string(String(size)) }
             runtimeDefaults["runtimeEnvironment"] = .dictionary(runtimeEvidence.environment.mapValues(ParameterValue.string))
         }
-        let step = StepExecution(
+        let recordedAt = Date(), step = StepExecution(
             toolName: "\(CLICommandIdentity.executableName) workflow run",
             toolVersion: LungfishCLI.configuration.version,
             command: command,
@@ -943,11 +943,11 @@ struct RunSubcommand: AsyncParsableCommand {
             exitCode: exitCode,
             wallTime: wallTime,
             stderr: stderr,
-            endTime: Date()
+            startTime: recordedAt, endTime: recordedAt
         )
         let run = WorkflowRun(
             name: "Run \(request.workflowDisplayName)",
-            endTime: Date(),
+            startTime: recordedAt, endTime: recordedAt,
             status: status,
             steps: [step],
             parameters: parameters

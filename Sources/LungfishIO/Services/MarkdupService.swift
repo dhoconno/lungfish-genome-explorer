@@ -39,7 +39,7 @@ public enum MarkdupService {
         threads: Int = 4,
         force: Bool = false
     ) throws -> MarkdupResult {
-        let start = Date()
+        let runClock = ProvenanceRunClock()
 
         guard FileManager.default.fileExists(atPath: bamURL.path) else {
             throw MarkdupError.fileNotFound(bamURL)
@@ -59,7 +59,7 @@ public enum MarkdupService {
                 wasAlreadyMarkduped: true,
                 totalReads: total,
                 duplicateReads: max(0, total - nonDup),
-                durationSeconds: Date().timeIntervalSince(start)
+                durationSeconds: runClock.elapsed
             )
         }
 
@@ -117,7 +117,7 @@ public enum MarkdupService {
             wasAlreadyMarkduped: false,
             totalReads: total,
             duplicateReads: max(0, total - nonDup),
-            durationSeconds: Date().timeIntervalSince(start)
+            durationSeconds: runClock.elapsed
         )
     }
 

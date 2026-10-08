@@ -23,7 +23,7 @@ public struct DarwinAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignment
     ) throws -> FullLengthONTMHCAlignmentDirectoryPublication {
         let sourceURL = stagedDirectoryURL.standardizedFileURL
         let destinationURL = finalDirectoryURL.standardizedFileURL
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let finalExists = FileManager.default.fileExists(atPath: destinationURL.path)
         let mode: FullLengthONTMHCAlignmentDirectoryPublicationMode = finalExists ? .replace : .create
         let flags = UInt32(finalExists ? RENAME_SWAP : RENAME_EXCL)
@@ -42,8 +42,8 @@ public struct DarwinAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignment
             finalDirectoryURL: destinationURL,
             exitStatus: outcome.status,
             errorMessage: code.map { POSIXError($0).localizedDescription },
-            startedAt: startedAt,
-            completedAt: Date(),
+            startedAt: runClock.startedAt,
+            completedAt: runClock.now,
             atomicMechanism: Self.recordedMechanism(outcome.mechanism)
         )
         guard outcome.status == 0 else {

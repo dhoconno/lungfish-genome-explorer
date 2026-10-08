@@ -530,12 +530,13 @@ public enum AssemblyRunner {
             originalInputURLs: originalInputURLs,
             executionInputURLs: executionInputURLs
         ).filter { CLISequenceInputMaterialization.concatenation(forExecutionURL: $0.executionURL) != nil }
+        let recordedAt = Date()
         let concatenationSteps = try CLISequenceInputMaterialization.materializationProvenanceSteps(
             workflowVersion: WorkflowRun.currentAppVersion,
             originalInputURLs: concatenatedPairs.map(\.originalURL),
             executionInputURLs: concatenatedPairs.map(\.executionURL),
-            startedAt: startedAt ?? Date(),
-            endedAt: endedAt ?? startedAt ?? Date()
+            startedAt: startedAt ?? recordedAt,
+            endedAt: endedAt ?? startedAt ?? recordedAt
         )
         let materializationStep = try managedAssemblyMaterializationStep(
             originalInputURLs: originalInputURLs,

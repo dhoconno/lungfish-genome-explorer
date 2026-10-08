@@ -61,7 +61,7 @@ extension MSACommand {
         }
 
         private func execute(emit: @escaping (String) -> Void) throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let actionID = "msa.phylogenetics.distance-matrix"
             let emitter = MSAActionCLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: emit)
             let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
@@ -161,7 +161,7 @@ extension MSACommand {
                                 retainedColumnCount: matrix.retainedColumnCount
                             ),
                             exitStatus: 0,
-                            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
+                            wallTimeSeconds: runClock.elapsed,
                             warnings: warnings
                         ),
                         to: outputURL.appendingPathExtension("lungfish-provenance.json")

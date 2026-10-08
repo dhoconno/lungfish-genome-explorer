@@ -108,7 +108,7 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
         filterRequest: AlignmentFilterRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> BundleAlignmentFilterResult {
-        let workflowStartedAt = Date()
+        let workflowClock = ProvenanceRunClock()
         let resolvedTarget = try AlignmentFilterTargetResolver.resolve(target)
         let bundle = try await ReferenceBundle(url: resolvedTarget.bundleURL)
         guard let sourceTrack = bundle.alignmentTrack(id: sourceTrackID) else {
@@ -257,8 +257,8 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
                 filterRequest: filterRequest,
                 attachment: attachment,
                 commandHistory: commandHistory,
-                startedAt: workflowStartedAt,
-                completedAt: Date()
+                startedAt: workflowClock.startedAt,
+                completedAt: workflowClock.now
             ))
 
             progressHandler?(1.0, "Filtered alignment attached.")
@@ -351,9 +351,9 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
         arguments: [String],
         timeout: TimeInterval
     ) async throws -> AlignmentNativeCommandExecution {
-        let startedAt = Date()
+        let samtoolsClock = ProvenanceRunClock()
         let result = try await samtoolsRunner.runSamtools(arguments: arguments, timeout: timeout)
-        let completedAt = Date()
+        let completedAt = samtoolsClock.now
         guard result.isSuccess else {
             throw BundleAlignmentFilterServiceError.samtoolsFailed(
                 result.stderr.isEmpty ? "samtools exited with \(result.exitCode)" : result.stderr
@@ -361,7 +361,7 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
         }
         return AlignmentNativeCommandExecution(
             result: result,
-            startedAt: startedAt,
+            startedAt: samtoolsClock.startedAt,
             completedAt: completedAt
         )
     }

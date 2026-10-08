@@ -252,7 +252,8 @@ extension ONTBarcodeDemuxGenotypingPipeline {
         materializer: any CLISequenceInputMaterializing & Sendable = FASTQCLIMaterializer(runner: .shared)
     ) async throws -> GenotypingInputReads {
         let standardized = inputURL.standardizedFileURL
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
+        let startedAt = runClock.startedAt
         guard plansThroughResolver(standardized) else {
             if joinsChunks, let joined = try ResolvedSequenceInputs.concatenateMultiFileBundle(standardized, into: workDirectory) {
                 return GenotypingInputReads(
@@ -262,7 +263,7 @@ extension ONTBarcodeDemuxGenotypingPipeline {
                     streamStep: nil,
                     concatenation: joined,
                     planStartedAt: startedAt,
-                    planEndedAt: Date()
+                    planEndedAt: runClock.now
                 )
             }
             return GenotypingInputReads(
@@ -276,7 +277,7 @@ extension ONTBarcodeDemuxGenotypingPipeline {
         }
         let plan = try await ReadSetResolver(materializationDirectory: workDirectory, materializer: materializer)
             .plan(for: standardized, capability: readPairingCapability(for: readType))
-        let endedAt = Date()
+        let endedAt = runClock.now
         let stream = try oneStream(for: plan, workDirectory: workDirectory)
         return GenotypingInputReads(
             inputURL: standardized,
@@ -343,7 +344,7 @@ extension ONTBarcodeDemuxGenotypingPipeline {
         guard fileManager.createFile(atPath: output.path, contents: nil) else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: output.path])
         }
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var pairs = 0
         var singles = 0
         do {
@@ -384,8 +385,8 @@ extension ONTBarcodeDemuxGenotypingPipeline {
             outputURLs: [output],
             pairCount: pairs,
             singleReadCount: singles,
-            startedAt: startedAt,
-            endedAt: Date()
+            startedAt: runClock.startedAt,
+            endedAt: runClock.now
         )
         return (output, step)
     }

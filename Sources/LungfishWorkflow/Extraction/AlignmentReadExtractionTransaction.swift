@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// Owns one isolated alignment-read extraction staging directory and the
 /// scientific evidence accumulated there. The lock makes the deliberately
@@ -18,6 +19,9 @@ public final class AlignmentReadExtractionTransaction: @unchecked Sendable {
     /// Human-readable explanation shown alongside ``recordsWithoutSequence``.
     public let missingSequenceMessage: String?
     public let startedAt: Date
+    /// Times the extraction from staging through publication, so its
+    /// published provenance cannot end before the extraction began.
+    public let runClock: ProvenanceRunClock
 
     private let lock = NSLock()
     private var records: [AlignmentReadExtractionExecutionRecord]
@@ -31,7 +35,7 @@ public final class AlignmentReadExtractionTransaction: @unchecked Sendable {
         recordsWithoutSequence: Int = 0,
         missingSequenceMessage: String? = nil,
         executionRecords: [AlignmentReadExtractionExecutionRecord] = [],
-        startedAt: Date = Date()
+        runClock: ProvenanceRunClock = ProvenanceRunClock()
     ) throws {
         let directory = stagingDirectoryURL.standardizedFileURL
         var isDirectory: ObjCBool = false
@@ -85,7 +89,8 @@ public final class AlignmentReadExtractionTransaction: @unchecked Sendable {
         self.recordsWithoutSequence = recordsWithoutSequence
         self.missingSequenceMessage = missingSequenceMessage
         self.records = executionRecords
-        self.startedAt = startedAt
+        self.startedAt = runClock.startedAt
+        self.runClock = runClock
     }
 
     public var executionRecords: [AlignmentReadExtractionExecutionRecord] {

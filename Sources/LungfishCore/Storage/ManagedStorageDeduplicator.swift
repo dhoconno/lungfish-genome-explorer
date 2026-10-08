@@ -271,7 +271,8 @@ public struct ManagedStorageDeduplicator: Sendable {
     private func run(_ options: ManagedStorageDedupeOptions, apply: Bool, progress: ProgressHandler?) throws -> ManagedStorageDedupeReport {
         let roots = options.roots.filter { isDirectory($0) }
         guard !roots.isEmpty else { throw ManagedStorageDedupeError.noRoots }
-        var report = ManagedStorageDedupeReport(mode: apply ? .apply : .dryRun, startedAt: now())
+        let runClock = ProvenanceRunClock(startedAt: now())
+        var report = ManagedStorageDedupeReport(mode: apply ? .apply : .dryRun, startedAt: runClock.startedAt)
         report.blockers = installBlockers(in: roots)
         if apply, !report.blockers.isEmpty {
             throw ManagedStorageDedupeError.installInProgress(report.blockers)
@@ -383,7 +384,7 @@ public struct ManagedStorageDeduplicator: Sendable {
         }
         reporter.tick(phase: apply ? "Replaced" : "Compared", force: true)
         report.roots = rootSummaries
-        report.finishedAt = now()
+        report.finishedAt = runClock.now
         if apply {
             for root in roots { writeLogRecord(report, under: root) }
         }

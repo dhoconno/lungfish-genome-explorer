@@ -40,7 +40,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             return try await runPipeline(config, progress)
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let total = config.samples.count
         let root = config.outputDirectory
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -72,7 +72,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             let samplePrefix = "Sample \(index + 1)/\(total) (\(sample.sampleId))"
             progress?(Double(index) / Double(total), "\(samplePrefix): Starting TaxTriage")
 
-            let sampleStart = Date()
+            let sampleClock = ProvenanceRunClock()
             do {
                 let result = try await runPipeline(sampleConfig) { sampleProgress, message in
                     let bounded = max(0, min(1, sampleProgress))
@@ -85,7 +85,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
                     sample: sample,
                     result: result,
                     exitCode: 0,
-                    wallTime: Date().timeIntervalSince(sampleStart),
+                    wallTime: sampleClock.elapsed,
                     stderr: nil
                 )
             } catch {
@@ -100,7 +100,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
                     sample: sample,
                     config: sampleConfig,
                     outputDirectory: sampleOutputDirectory,
-                    wallTime: Date().timeIntervalSince(sampleStart),
+                    wallTime: sampleClock.elapsed,
                     error: error
                 )
                 progress?(
@@ -127,7 +127,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             .sorted { $0.path < $1.path }
         let aggregate = TaxTriageResult(
             config: config,
-            runtime: Date().timeIntervalSince(startedAt),
+            runtime: runClock.elapsed,
             exitCode: 0,
             outputDirectory: root,
             reportFiles: sampleResults.flatMap(\.reportFiles).uniquedByPath().sorted { $0.path < $1.path },
@@ -146,7 +146,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             runID: runID,
             config: config,
             result: aggregate,
-            wallTime: Date().timeIntervalSince(startedAt)
+            wallTime: runClock.elapsed
         )
         await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
         try await ProvenanceRecorder.shared.save(runID: runID, to: root)

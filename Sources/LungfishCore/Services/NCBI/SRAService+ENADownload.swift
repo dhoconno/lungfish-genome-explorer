@@ -93,9 +93,9 @@ extension SRAService {
                 request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
                 request.timeoutInterval = 600
 
-                let downloadStartedAt = Date()
+                let downloadClock = ProvenanceRunClock()
                 let (temporaryURL, response) = try await httpClient.download(for: request)
-                let downloadCompletedAt = Date()
+                let downloadCompletedAt = downloadClock.now
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
                     try? FileManager.default.removeItem(at: temporaryURL)
@@ -133,9 +133,9 @@ extension SRAService {
                         inputs: [fileURL.absoluteString],
                         outputs: [publishedPath],
                         exitCode: 0,
-                        wallTime: downloadCompletedAt.timeIntervalSince(downloadStartedAt),
+                        wallTime: downloadCompletedAt.timeIntervalSince(downloadClock.startedAt),
                         stderr: nil,
-                        startedAt: downloadStartedAt,
+                        startedAt: downloadClock.startedAt,
                         completedAt: downloadCompletedAt
                     )
                 )

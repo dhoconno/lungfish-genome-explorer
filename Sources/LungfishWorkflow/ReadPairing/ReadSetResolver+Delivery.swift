@@ -107,7 +107,7 @@ extension ReadSetResolver {
         let r1 = try newFile("\(stem).R1.fastq", written: written)
         let r2 = try newFile("\(stem).R2.fastq", written: written)
         let singles = try newFile("\(stem).single.fastq", written: written)
-        let startedAt = Date()
+        let splitClock = ProvenanceRunClock()
         let counts: FASTQPairInterleaver.MixedCounts
         do {
             let handle1 = try FileHandle(forWritingTo: r1)
@@ -144,8 +144,8 @@ extension ReadSetResolver {
             outputURLs: outputs,
             pairCount: counts.pairs,
             singleReadCount: counts.unpaired,
-            startedAt: startedAt,
-            endedAt: Date()
+            startedAt: splitClock.startedAt,
+            endedAt: splitClock.now
         )
         return (parts, step)
     }
@@ -158,7 +158,7 @@ extension ReadSetResolver {
         written: WrittenFiles
     ) throws -> (stream: ReadSetMixedStream, step: ReadSetStep) {
         let output = try newFile("\(Self.outputStem(for: inputURL)).interleaved.fastq", written: written)
-        let startedAt = Date()
+        let interleaveClock = ProvenanceRunClock()
         var pairs = 0
         var singles = 0
         do {
@@ -198,8 +198,8 @@ extension ReadSetResolver {
             outputURLs: [output],
             pairCount: pairs,
             singleReadCount: singles,
-            startedAt: startedAt,
-            endedAt: Date()
+            startedAt: interleaveClock.startedAt,
+            endedAt: interleaveClock.now
         )
         let stream = ReadSetMixedStream(
             url: output,

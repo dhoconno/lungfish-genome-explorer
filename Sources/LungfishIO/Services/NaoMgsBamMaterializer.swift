@@ -378,7 +378,7 @@ public enum NaoMgsBamMaterializer {
         // Ignore SIGPIPE so broken pipe doesn't kill our process
         signal(SIGPIPE, SIG_IGN)
 
-        let startedAt = Date()
+        let pipelineClock = ProvenanceRunClock()
         try process.run()
 
         // 4. Stream: write header, then iterate rows and write each SAM line.
@@ -582,7 +582,7 @@ public enum NaoMgsBamMaterializer {
         let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
         writeGroup.wait()
         process.waitUntilExit()
-        let completedAt = Date()
+        let completedAt = pipelineClock.now
         let stderr = String(data: errData, encoding: .utf8) ?? ""
 
         let step = NaoMgsBamMaterializationStep(
@@ -601,9 +601,9 @@ public enum NaoMgsBamMaterializer {
             inputURLs: [databaseURL],
             outputURLs: [bamURL],
             exitStatus: Int(process.terminationStatus),
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: completedAt.timeIntervalSince(pipelineClock.startedAt),
             stderr: stderr.isEmpty ? nil : stderr,
-            startedAt: startedAt,
+            startedAt: pipelineClock.startedAt,
             completedAt: completedAt
         )
 
@@ -643,12 +643,13 @@ public enum NaoMgsBamMaterializer {
         indexProc.standardOutput = FileHandle.nullDevice
         let errPipe = Pipe()
         indexProc.standardError = errPipe
-        let startedAt = Date()
+        let indexClock = ProvenanceRunClock()
+        let startedAt = indexClock.startedAt
         do {
             try indexProc.run()
             let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
             indexProc.waitUntilExit()
-            let completedAt = Date()
+            let completedAt = indexClock.now
             let stderr = String(data: errData, encoding: .utf8) ?? ""
             let step = NaoMgsBamMaterializationStep(
                 sample: sample,
@@ -669,7 +670,7 @@ public enum NaoMgsBamMaterializer {
             return step
         } catch {
             logger.warning("samtools index could not run for \(bamURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            let completedAt = Date()
+            let completedAt = indexClock.now
             return NaoMgsBamMaterializationStep(
                 sample: sample,
                 toolName: "samtools",
@@ -692,10 +693,11 @@ public enum NaoMgsBamMaterializer {
         samtoolsPath: String,
         samtoolsVersion: String
     ) -> NaoMgsBamMaterializationStep? {
-        let startedAt = Date()
+        let markdupClock = ProvenanceRunClock()
+        let startedAt = markdupClock.startedAt
         do {
             let result = try MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
-            let completedAt = Date()
+            let completedAt = markdupClock.now
             let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
             var outputURLs = [bamURL]
             if FileManager.default.fileExists(atPath: baiURL.path) {
@@ -730,7 +732,7 @@ public enum NaoMgsBamMaterializer {
             )
         } catch {
             logger.warning("samtools markdup failed for \(bamURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            let completedAt = Date()
+            let completedAt = markdupClock.now
             return NaoMgsBamMaterializationStep(
                 sample: sample,
                 toolName: "samtools",

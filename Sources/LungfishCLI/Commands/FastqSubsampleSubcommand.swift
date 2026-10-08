@@ -82,7 +82,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         let pairingDecision = pairing.resolvePairing(inputURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         let isInterleaved = pairingDecision.pairAware
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let toolName: String
         let args: [String]
         let result: NativeToolResult
@@ -177,7 +177,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
             ],
             inputRecords: try resolvedInput.inputRecords(),
             extraSteps: try resolvedInput.materializationSteps(),
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Subsampled reads written to \(output.output)\n".utf8))
     }

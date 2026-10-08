@@ -217,7 +217,7 @@ public actor SnakemakeRunner: WorkflowRunner {
 
         let environment = managedExecutionEnvironment(for: execPath)
 
-        let startTime = Date()
+        let runClock = ProvenanceRunClock()
 
         // Spawn the process
         let handle: ProcessHandle
@@ -268,7 +268,7 @@ public actor SnakemakeRunner: WorkflowRunner {
             break
         }
 
-        let endTime = Date()
+        let endTime = runClock.now
 
         // Collect output
         let stdout = await baseRunner.getStdout(executionId: executionId)
@@ -305,7 +305,7 @@ public actor SnakemakeRunner: WorkflowRunner {
             exitCode: exitCode,
             outputFiles: outputFiles,
             outputDirectory: outputDirectory,
-            duration: endTime.timeIntervalSince(startTime),
+            duration: endTime.timeIntervalSince(runClock.startedAt),
             logFile: logFile,
             stdout: String(stdout.suffix(10000)),
             stderr: String(stderr.suffix(10000)),

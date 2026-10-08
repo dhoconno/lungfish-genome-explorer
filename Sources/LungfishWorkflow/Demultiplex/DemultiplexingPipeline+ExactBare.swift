@@ -12,7 +12,7 @@ extension DemultiplexingPipeline {
     func runExactBareBarcodeDemux(
         config: DemultiplexConfig,
         inputFASTQ: URL,
-        startTime: Date,
+        runClock: ProvenanceRunClock,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> DemultiplexResult {
         let fm = FileManager.default
@@ -501,7 +501,7 @@ extension DemultiplexingPipeline {
 
         barcodeResults.sort { $0.barcodeID.localizedStandardCompare($1.barcodeID) == .orderedAscending }
 
-        let elapsed = Date().timeIntervalSince(startTime)
+        let elapsed = runClock.elapsed
         let barcodeType: BarcodeType = {
             switch config.symmetryMode {
             case .symmetric: return .symmetric

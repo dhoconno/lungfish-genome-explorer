@@ -41,7 +41,7 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let fileManager = FileManager.default
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var provenanceSteps: [ProvenanceStep] = []
         var warnings: [String] = []
 
@@ -56,9 +56,9 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         progressHandler?(0.02, "Resolving accession \(accession)...")
         genBankDownloadLogger.info("downloadAndBuild: Fetching raw GenBank for \(accession, privacy: .public)")
 
-        let fetchStartedAt = Date()
+        let fetchClock = ProvenanceRunClock()
         let (genBankContent, resolvedAccession) = try await ncbiService.fetchRawGenBank(accession: accession)
-        let fetchCompletedAt = Date()
+        let fetchCompletedAt = fetchClock.now
         let genBankURL = tempDir.appendingPathComponent("\(resolvedAccession).gb")
         try genBankContent.write(to: genBankURL, atomically: true, encoding: .utf8)
 
@@ -82,7 +82,7 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         try fileManager.copyItem(at: genBankURL, to: durableGenBankURL)
         provenanceSteps.append(try Self.fetchProvenanceStep(
             accession: resolvedAccession, format: "gb", output: durableGenBankURL,
-            startedAt: fetchStartedAt, completedAt: fetchCompletedAt))
+            runClock: fetchClock, completedAt: fetchCompletedAt))
         let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
         let annotationsDir = bundleURL.appendingPathComponent("annotations", isDirectory: true)
         try fileManager.createDirectory(at: genomeDir, withIntermediateDirectories: true)
@@ -91,18 +91,18 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         progressHandler?(0.25, "Writing FASTA...")
 
         let plainFASTA = genomeDir.appendingPathComponent("sequence.fa")
-        let fastaStartedAt = Date()
+        let fastaClock = ProvenanceRunClock()
         try FASTAWriter(url: plainFASTA).write([record.sequence])
         provenanceSteps.append(try Self.conversionProvenanceStep(
             entryPoint: "GenBankReader.readAll (first record) + FASTAWriter.write",
             inputs: [durableGenBankURL], outputs: [plainFASTA],
-            options: ["sequenceName": .string(record.sequence.name)], startedAt: fastaStartedAt))
+            options: ["sequenceName": .string(record.sequence.name)], runClock: fastaClock))
 
         progressHandler?(0.35, "Compressing FASTA (bgzip)...")
 
         let fastaInput = try ProvenanceFileDescriptor.file(url: plainFASTA, format: .fasta, role: .input)
         let bgzipVersion = await toolRunner.getToolVersion(.bgzip) ?? "unknown"
-        let bgzipStartedAt = Date()
+        let bgzipClock = ProvenanceRunClock()
         let bgzipResult = try await toolRunner.bgzipCompress(inputPath: plainFASTA, keepOriginal: true)
         guard bgzipResult.isSuccess else {
             throw BundleBuildError.compressionFailed(bgzipResult.combinedOutput)
@@ -112,11 +112,11 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
 
         provenanceSteps.append(try Self.nativeProvenanceStep(
             tool: .bgzip, version: bgzipVersion, result: bgzipResult,
-            inputs: [fastaInput], outputs: [compressedFASTA], startedAt: bgzipStartedAt))
+            inputs: [fastaInput], outputs: [compressedFASTA], runClock: bgzipClock))
         progressHandler?(0.45, "Indexing FASTA (samtools faidx)...")
 
         let samtoolsVersion = await toolRunner.getToolVersion(.samtools) ?? "unknown"
-        let faidxStartedAt = Date()
+        let faidxClock = ProvenanceRunClock()
         let faiResult = try await toolRunner.indexFASTA(fastaPath: compressedFASTA)
         guard faiResult.isSuccess else {
             throw BundleBuildError.indexingFailed(faiResult.combinedOutput)
@@ -129,7 +129,7 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
             tool: .samtools, version: samtoolsVersion, result: faiResult,
             inputs: [try .file(url: compressedFASTA, format: .fasta, role: .input)],
             outputs: [faiURL, gziURL].filter { fileManager.fileExists(atPath: $0.path) },
-            startedAt: faidxStartedAt))
+            runClock: faidxClock))
         try Task.checkCancellation()
         let chromosomes = BundleBuildHelpers.addSingleSequenceAccessionAliases(
             to: try BundleBuildHelpers.parseFai(at: faiURL),
@@ -151,7 +151,7 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         if includeGFF3Annotations {
             progressHandler?(0.52, "Fetching GFF3 annotations...")
             let gffURL = sourcesDir.appendingPathComponent("record.gff3")
-            let gffStartedAt = Date()
+            let gffClock = ProvenanceRunClock()
             var gffFetchCompleted = false
             do {
                 let data = try await ncbiService.efetch(database: .nucleotide, ids: [resolvedAccession], format: .gff3)
@@ -165,8 +165,8 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
             if gffFetchCompleted {
                 // Provenance errors must abort publication, not trigger annotation fallback.
                 provenanceSteps.append(try Self.fetchProvenanceStep(
-                    accession: resolvedAccession, format: "gff3", output: gffURL, startedAt: gffStartedAt))
-                let conversionStartedAt = Date()
+                    accession: resolvedAccession, format: "gff3", output: gffURL, runClock: gffClock))
+                let conversionClock = ProvenanceRunClock()
                 var conversionError: String?
                 do {
                     if let track = try await buildGFF3AnnotationTrack(
@@ -187,14 +187,14 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
                     entryPoint: "AnnotationDatabase.createFromGFF3", inputs: [gffURL],
                     outputs: fileManager.fileExists(atPath: database.path) ? [database] : [],
                     options: ["clipToChromosomeBounds": .boolean(true)],
-                    startedAt: conversionStartedAt, error: conversionError))
+                    runClock: conversionClock, error: conversionError))
             }
         }
 
         // If GFF3 is unavailable or empty, fallback to GenBank FEATURES.
         if annotationTracks.isEmpty && !record.annotations.isEmpty {
             progressHandler?(0.55, "Converting annotations...")
-            let annotationStartedAt = Date()
+            let annotationClock = ProvenanceRunClock()
 
             do {
                 // Write BED12+ directly from parsed GenBank annotations,
@@ -222,7 +222,7 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
                     inputs: [durableGenBankURL], outputs: [dbURL],
                     options: ["chromosome": .string(record.locus.name), "clipToChromosomeBounds": .boolean(true),
                               "preserveQualifiers": .boolean(true), "bedFormat": .string("BED12+")],
-                    startedAt: annotationStartedAt))
+                    runClock: annotationClock))
 
                 annotationTracks.append(
                     AnnotationTrackInfo(
@@ -294,7 +294,7 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         try Self.writeDownloadProvenance(
             bundleURL: bundleURL, requestedAccession: accession, resolvedAccession: resolvedAccession,
             includeGFF3Annotations: includeGFF3Annotations, steps: provenanceSteps,
-            startedAt: startedAt, stderr: warnings.joined(separator: "\n"))
+            runClock: runClock, stderr: warnings.joined(separator: "\n"))
         completed = true
         progressHandler?(1.0, "Bundle ready: \(bundleURL.lastPathComponent)")
         genBankDownloadLogger.info("downloadAndBuild: Bundle complete at \(bundleURL.path, privacy: .public)")
@@ -302,8 +302,9 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
     }
 
     static func fetchProvenanceStep(
-        accession: String, format: String, output: URL, startedAt: Date, completedAt: Date = Date()
+        accession: String, format: String, output: URL, runClock: ProvenanceRunClock, completedAt: Date? = nil
     ) throws -> ProvenanceStep {
+        let completedAt = completedAt ?? runClock.now
         var components = URLComponents(string: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi")!
         components.queryItems = [
             URLQueryItem(name: "db", value: "nuccore"),
@@ -324,13 +325,13 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
             runtimeIdentity: ProvenanceRuntimeIdentity(),
             inputs: [ProvenanceFileDescriptor(path: remoteURL,
                 checksumSHA256: payload.checksumSHA256, fileSize: payload.fileSize, role: .input)],
-            outputs: [payload], exitStatus: 0, wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
-            startedAt: startedAt, completedAt: completedAt)
+            outputs: [payload], exitStatus: 0, wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
+            startedAt: runClock.startedAt, completedAt: completedAt)
     }
 
     static func conversionProvenanceStep(
         entryPoint: String, inputs: [URL], outputs: [URL],
-        options: [String: ParameterValue], startedAt: Date, error: String? = nil
+        options: [String: ParameterValue], runClock: ProvenanceRunClock, error: String? = nil
     ) throws -> ProvenanceStep {
         // These are in-process GUI transformations, so record the actual host argv
         // together with the versioned entry point and all resolved parameters.
@@ -339,13 +340,13 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
             runtimeIdentity: ProvenanceRuntimeIdentity(),
             inputs: try inputs.map { try .file(url: $0, role: .input) },
             outputs: try outputs.map { try .file(url: $0, role: .output) },
-            exitStatus: error == nil ? 0 : 1, wallTimeSeconds: Date().timeIntervalSince(startedAt),
-            stderr: error, startedAt: startedAt, completedAt: Date())
+            exitStatus: error == nil ? 0 : 1, wallTimeSeconds: runClock.elapsed,
+            stderr: error, startedAt: runClock.startedAt, completedAt: runClock.now)
     }
 
     private static func nativeProvenanceStep(
         tool: NativeTool, version: String, result: NativeToolResult,
-        inputs: [ProvenanceFileDescriptor], outputs: [URL], startedAt: Date
+        inputs: [ProvenanceFileDescriptor], outputs: [URL], runClock: ProvenanceRunClock
     ) throws -> ProvenanceStep {
         let executable = result.arguments.first ?? tool.rawValue
         let environment: String?
@@ -362,15 +363,15 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
             runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: executable,
                 condaEnvironment: environment, condaPrefix: prefix), inputs: inputs,
             outputs: try outputs.map { try .file(url: $0, role: .output) },
-            exitStatus: Int(result.exitCode), wallTimeSeconds: Date().timeIntervalSince(startedAt),
-            stderr: ProvenanceStderr.normalized(result.stderr), startedAt: startedAt, completedAt: Date())
+            exitStatus: Int(result.exitCode), wallTimeSeconds: runClock.elapsed,
+            stderr: ProvenanceStderr.normalized(result.stderr), startedAt: runClock.startedAt, completedAt: runClock.now)
     }
 
     /// Called only after all payloads and the manifest are finalized. The normal
     /// project-copy importer rehydrates these paths when it relocates the bundle.
     static func writeDownloadProvenance(
         bundleURL: URL, requestedAccession: String, resolvedAccession: String,
-        includeGFF3Annotations: Bool, steps: [ProvenanceStep], startedAt: Date, stderr: String
+        includeGFF3Annotations: Bool, steps: [ProvenanceStep], runClock: ProvenanceRunClock, stderr: String
     ) throws {
         let options: [String: ParameterValue] = [
             "requestedAccession": .string(requestedAccession),
@@ -400,7 +401,7 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
             builder = try builder.output(url)
         }
         let envelope = try builder.complete(exitStatus: 0, stderr: stderr,
-            startedAt: startedAt, endedAt: Date())
+            startedAt: runClock.startedAt, endedAt: runClock.now)
         try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
     }
 

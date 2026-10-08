@@ -1010,18 +1010,18 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         defaults: [String: String],
         records: inout [AlignmentConsensusExecutionRecord]
     ) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
-        let startedAt = Date()
+        let stageClock = ProvenanceRunClock()
         do {
             let result = try await runSamtools(arguments: arguments, timeout: timeout)
             if let capturedStdoutURL {
                 try Data(result.stdout.utf8).write(to: capturedStdoutURL, options: .atomic)
             }
-            let endedAt = Date()
+            let endedAt = stageClock.now
             let record = consensusExecutionRecord(
                 stage: stage, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion, arguments: arguments,
                 inputs: inputs, outputs: outputs, readGroupFile: readGroupFile,
                 defaults: defaults, exitStatus: result.exitCode,
-                startedAt: startedAt, endedAt: endedAt, stderr: result.stderr
+                startedAt: stageClock.startedAt, endedAt: endedAt, stderr: result.stderr
             )
             records.append(record)
             guard result.exitCode == 0 else {
@@ -1030,22 +1030,22 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             return result
         } catch let error as AlignmentFetchError {
             if case .consensusExecutionFailed = error { throw error }
-            let endedAt = Date()
+            let endedAt = stageClock.now
             records.append(consensusExecutionRecord(
                 stage: stage, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion, arguments: arguments,
                 inputs: inputs, outputs: outputs, readGroupFile: readGroupFile,
                 defaults: defaults, exitStatus: nil,
-                startedAt: startedAt, endedAt: endedAt,
+                startedAt: stageClock.startedAt, endedAt: endedAt,
                 stderr: error.localizedDescription
             ))
             throw AlignmentFetchError.consensusExecutionFailed(records)
         } catch {
-            let endedAt = Date()
+            let endedAt = stageClock.now
             records.append(consensusExecutionRecord(
                 stage: stage, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion, arguments: arguments,
                 inputs: inputs, outputs: outputs, readGroupFile: readGroupFile,
                 defaults: defaults, exitStatus: nil,
-                startedAt: startedAt, endedAt: endedAt,
+                startedAt: stageClock.startedAt, endedAt: endedAt,
                 stderr: error.localizedDescription
             ))
             throw AlignmentFetchError.consensusExecutionFailed(records)

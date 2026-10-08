@@ -103,7 +103,7 @@ struct VariantSampleMetadataMutationService {
             return VariantSampleMetadataMutationResult(updatedCountsByDatabase: [:], provenanceURL: nil)
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         // Route through the same recovery path as variant deletion
         // (`VariantMutationPublication`) instead of a bespoke backup/restore
         // that used `try?` to swallow restore failures and deleted its only
@@ -138,7 +138,7 @@ struct VariantSampleMetadataMutationService {
             let databaseOutputs = try updatedTargets.map {
                 try ProvenanceFileDescriptor.file(url: $0.databaseURL, format: .unknown, role: .output)
             }
-            let completedAt = Date()
+            let completedAt = runClock.now
             let envelope = try provenanceEnvelope(
                 kind: kind,
                 bundleURL: bundleURL,
@@ -149,7 +149,7 @@ struct VariantSampleMetadataMutationService {
                 },
                 databaseOutputs: databaseOutputs,
                 updatedCounts: updatedCounts,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
             let provenanceURL = try writeProvenance(envelope, bundleURL, publication)

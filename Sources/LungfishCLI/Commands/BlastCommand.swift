@@ -259,7 +259,7 @@ extension BlastCommand {
             }
 
             let service = BlastService.shared
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let built: BlastVerificationRequest
             do {
                 built = try await verificationRequest(tree: tree, readFiles: readFiles, service: service)
@@ -311,7 +311,7 @@ extension BlastCommand {
                         in: resultURL,
                         sourceURLs: [kreportURL],
                         argv: CommandLine.arguments,
-                        startedAt: startedAt
+                        runClock: runClock
                     )
                     if chatty {
                         print("")

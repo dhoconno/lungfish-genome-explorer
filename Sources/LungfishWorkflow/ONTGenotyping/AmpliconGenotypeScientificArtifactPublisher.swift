@@ -69,7 +69,7 @@ public struct AmpliconGenotypeScientificArtifactPublisher: Sendable {
         retainedBAIURL: URL,
         outputDirectoryURL: URL
     ) throws -> AmpliconGenotypeScientificArtifactPublication {
-        let startedAt = dateProvider()
+        let runClock = ProvenanceRunClock(startedAt: dateProvider())
         let calls = try loadCalls(from: reportCSVURL)
             .filter { isAssignedSample($0.sample) }
         let provisionalCalls = calls.filter {
@@ -118,8 +118,8 @@ public struct AmpliconGenotypeScientificArtifactPublisher: Sendable {
                 catalogJSONURL: nil,
                 sequencesFASTAURL: nil,
                 argv: argv,
-                startedAt: startedAt,
-                completedAt: dateProvider()
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now
             )
         }
 
@@ -207,8 +207,8 @@ public struct AmpliconGenotypeScientificArtifactPublisher: Sendable {
             catalogJSONURL: catalogURL.standardizedFileURL,
             sequencesFASTAURL: fastaURL.standardizedFileURL,
             argv: argv,
-            startedAt: startedAt,
-            completedAt: dateProvider()
+            startedAt: runClock.startedAt,
+            completedAt: runClock.now
         )
     }
 

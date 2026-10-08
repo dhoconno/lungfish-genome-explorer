@@ -1978,7 +1978,7 @@ public class ViewerViewController: NSViewController {
             ) else {
                 return
             }
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let normalized = records.joined(separator: "")
             let sourceURLs = self.fastaExportSourceURLs()
             do {
@@ -1997,7 +1997,7 @@ public class ViewerViewController: NSViewController {
                         "recordCount": .integer(records.count),
                         "outputByteCount": .integer(normalized.utf8.count),
                     ],
-                    startedAt: startedAt
+                    runClock: runClock
                 )) { staged in
                     try normalized.write(to: staged, atomically: true, encoding: .utf8)
                 }
@@ -2478,7 +2478,7 @@ public class ViewerViewController: NSViewController {
         let stem = Self.sanitizedFilesystemStem(suggestedName)
         let sourceURL = stagingRoot.appendingPathComponent("selection.fasta")
         let annotationURL = stagingRoot.appendingPathComponent("selected-annotations.bed")
-        let provenanceStartedAt = Date()
+        let provenanceClock = ProvenanceRunClock()
         do {
             try records.joined(separator: "").write(to: sourceURL, atomically: true, encoding: .utf8)
             try Self.writeAnnotationBED(annotationsByRecord, to: annotationURL)
@@ -2535,7 +2535,7 @@ public class ViewerViewController: NSViewController {
                         selectedSequenceIDs: FASTAOperationCatalog.selectedIdentifiers(in: records.joined(separator: "")),
                         selectedAnnotationsByRecord: annotationsByRecord,
                         annotationResult: annotationResult,
-                        startedAt: provenanceStartedAt
+                        runClock: provenanceClock
                     )
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {

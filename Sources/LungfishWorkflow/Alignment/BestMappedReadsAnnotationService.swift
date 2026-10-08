@@ -52,7 +52,7 @@ public final class BestMappedReadsAnnotationService: @unchecked Sendable {
         request: BestMappedReadsAnnotationRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> BestMappedReadsAnnotationResult {
-        let workflowStartedAt = Date()
+        let workflowClock = ProvenanceRunClock()
         let sourceBundleURL = request.sourceBundleURL.standardizedFileURL
         let outputBundleURL = request.outputBundleURL.standardizedFileURL
         // Physical paths, so the source named through a symlink is still the source.
@@ -110,12 +110,12 @@ public final class BestMappedReadsAnnotationService: @unchecked Sendable {
 
         progressHandler?(0.1, "Reading mapped alignments...")
         let viewArguments = ["view", "-h", mappingResult.bamURL.path]
-        let samtoolsStartedAt = Date()
+        let samtoolsClock = ProvenanceRunClock()
         let samtoolsResult = try await samtoolsRunner.runSamtools(
             arguments: viewArguments,
             timeout: samtoolsTimeout(for: mappingResult.bamURL.path)
         )
-        let samtoolsCompletedAt = Date()
+        let samtoolsCompletedAt = samtoolsClock.now
         guard samtoolsResult.isSuccess else {
             throw BestMappedReadsAnnotationServiceError.samtoolsFailed(
                 samtoolsResult.stderr.isEmpty ? "samtools exited with \(samtoolsResult.exitCode)" : samtoolsResult.stderr
@@ -197,11 +197,11 @@ public final class BestMappedReadsAnnotationService: @unchecked Sendable {
                 samtoolsExecution: MappedReadsAnnotationProvenanceWriter.SamtoolsExecution(
                     version: samtoolsVersion,
                     result: samtoolsResult,
-                    startedAt: samtoolsStartedAt,
+                    startedAt: samtoolsClock.startedAt,
                     completedAt: samtoolsCompletedAt
                 ),
-                startedAt: workflowStartedAt,
-                completedAt: Date()
+                startedAt: workflowClock.startedAt,
+                completedAt: workflowClock.now
             ))
 
             progressHandler?(1.0, "Best mapped-read annotation track created.")

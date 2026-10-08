@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 public struct MetagenomicsDatabaseToolResult: Sendable, Equatable {
     public let stdout: String
@@ -96,15 +97,15 @@ public struct ManagedMetagenomicsDatabaseToolRunner: MetagenomicsDatabaseToolRun
     public func run(name: String, arguments: [String], environment: String, workingDirectory: URL, timeout: TimeInterval) async throws -> MetagenomicsDatabaseToolResult {
         let executableDirectory = try await executableDirectory(environment: environment, executable: name)
         let executable = executableDirectory.appendingPathComponent(name)
-        let started = now()
+        let toolClock = ProvenanceRunClock(startedAt: now())
         let version = try await versionResolver(condaManager, name, environment, workingDirectory)
         let result = try await condaManager.runTool(name: name, arguments: arguments, environment: environment, workingDirectory: workingDirectory, timeout: timeout)
-        let completed = now()
+        let completed = toolClock.now
         let argv = [await condaManager.micromambaPath.path, "run", "-n", environment, name] + arguments
         return MetagenomicsDatabaseToolResult(
             stdout: result.stdout, stderr: result.stderr, exitStatus: result.exitCode, argv: argv,
             runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: executable.path, condaEnvironment: environment, condaPrefix: await condaManager.environmentURL(named: environment).path, pluginPack: "Metagenomics"),
-            toolVersion: version, startedAt: started, completedAt: completed
+            toolVersion: version, startedAt: toolClock.startedAt, completedAt: completed
         )
     }
 
@@ -225,7 +226,7 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
 
     public func extract(archive: URL, destination: URL) async throws -> MetagenomicsDatabaseToolResult {
         try Task.checkCancellation()
-        let started = Date()
+        let extractClock = ProvenanceRunClock()
         let resolvedTarVersion = try await extractionToolVersion()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
@@ -239,7 +240,7 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
                 process.terminationHandler = { terminated in
                     state.waitForDrains {
                         guard state.finishOnce() else { return }
-                        continuation.resume(returning: MetagenomicsDatabaseToolResult(stdout: state.stdout, stderr: state.stderr, exitStatus: terminated.terminationStatus, argv: ["/usr/bin/tar", "xzf", archive.path, "-C", destination.path], runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar"), toolVersion: resolvedTarVersion, startedAt: started, completedAt: Date()))
+                        continuation.resume(returning: MetagenomicsDatabaseToolResult(stdout: state.stdout, stderr: state.stderr, exitStatus: terminated.terminationStatus, argv: ["/usr/bin/tar", "xzf", archive.path, "-C", destination.path], runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar"), toolVersion: resolvedTarVersion, startedAt: extractClock.startedAt, completedAt: extractClock.now))
                     }
                 }
                 state.drain(stdout.fileHandleForReading, into: .stdout)
@@ -416,7 +417,8 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
     }
 
     public func prepareInstallation(database: MetagenomicsDatabaseInfo, databasesBaseURL: URL, threads: Int, progress: @Sendable @escaping (Double, String) -> Void) async throws -> PreparedMetagenomicsDatabaseInstallation {
-        let started = now()
+        let runClock = ProvenanceRunClock(startedAt: now())
+        let started = runClock.startedAt
         let finalURL = Self.installationURL(for: database, databasesBaseURL: databasesBaseURL)
         let staging = finalURL.deletingLastPathComponent().appendingPathComponent(".install-\(uuid().uuidString)", isDirectory: true)
         var steps: [MetagenomicsDatabaseInstallStepEvidence] = []
@@ -501,7 +503,7 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
             }
             try fileSystem.moveItem(at: staging, to: finalURL)
             didPromoteStaging = true
-            let attempt = MetagenomicsDatabaseInstallAttempt(database: database, finalURL: finalURL, recipeSource: recipeSource, explicitOptions: ["threads": .integer(threads)], defaultOptions: defaults, resolvedOptions: resolved, steps: steps, startedAt: started, completedAt: now())
+            let attempt = MetagenomicsDatabaseInstallAttempt(database: database, finalURL: finalURL, recipeSource: recipeSource, explicitOptions: ["threads": .integer(threads)], defaultOptions: defaults, resolvedOptions: resolved, steps: steps, startedAt: started, completedAt: runClock.now)
             let finalSnapshot = MetagenomicsDatabasePayloadSnapshot(rootURL: staging, files: snapshot.files, aggregateSHA256: snapshot.aggregateSHA256, totalSizeBytes: snapshot.totalSizeBytes)
             try provenanceWriter.writeSuccess(attempt, snapshot: finalSnapshot)
             try verifySuccessProvenance(at: finalURL, payloadDigest: snapshot.aggregateSHA256)
@@ -519,7 +521,7 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
             }
             let failure = failureRecord(for: originalError)
             if didResolveRecipe {
-                let attempt = MetagenomicsDatabaseInstallAttempt(database: database, finalURL: finalURL, recipeSource: database.installationRecipe.map(Self.recipeSource) ?? "unknown", explicitOptions: ["threads": .integer(threads)], defaultOptions: defaults, resolvedOptions: resolved, steps: steps, startedAt: started, completedAt: now())
+                let attempt = MetagenomicsDatabaseInstallAttempt(database: database, finalURL: finalURL, recipeSource: database.installationRecipe.map(Self.recipeSource) ?? "unknown", explicitOptions: ["threads": .integer(threads)], defaultOptions: defaults, resolvedOptions: resolved, steps: steps, startedAt: started, completedAt: runClock.now)
                 do { try provenanceWriter.writeFailure(attempt, error: failure, historyDirectory: databasesBaseURL.appendingPathComponent("installation-history", isDirectory: true)) }
                 catch let receiptError { throw MetagenomicsDatabaseInstallerError.failureReceiptDiagnostic(original: originalError.localizedDescription, receipt: receiptError.localizedDescription) }
             }

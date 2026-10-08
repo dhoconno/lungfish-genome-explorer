@@ -274,7 +274,7 @@ enum ReferenceBundleMergeService {
         try validateNoUnsupportedPayloads(in: sources)
         try validateNoSequenceNameCollisions(in: sources)
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let tempDirectory = try ProjectTempDirectory.createFromContext(
             prefix: "reference-merge-",
             contextURL: outputDirectory
@@ -380,8 +380,8 @@ enum ReferenceBundleMergeService {
                 resolvedBundleName: resolvedBundleName,
                 nestedProvenance: builderProvenance,
                 mergedAnnotationTrackCount: annotationInputs.count,
-                startedAt: startedAt,
-                completedAt: Date(),
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now,
                 provenanceWriter: provenanceWriter
             )
             await reporter.report(1.0, "Merge complete", nil)

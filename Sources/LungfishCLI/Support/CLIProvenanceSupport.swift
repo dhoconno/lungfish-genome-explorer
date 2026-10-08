@@ -125,8 +125,8 @@ enum CLIProvenanceSupport {
         publicationArtifactDidWrite:
             (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) async throws -> ProvenanceEnvelope {
-        let startedAt = Date().addingTimeInterval(-wallTime)
         let completedAt = Date()
+        let startedAt = completedAt.addingTimeInterval(-wallTime)
         let runtimeIdentity = ProvenanceRuntimeIdentity()
         let stepInputDescriptors = (stepInputs ?? inputs).map { ProvenanceFileDescriptor(fileRecord: $0) }
         let stepOutputDescriptors = (stepOutputs ?? outputs).map { ProvenanceFileDescriptor(fileRecord: $0) }

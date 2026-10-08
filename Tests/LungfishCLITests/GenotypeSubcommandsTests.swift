@@ -399,7 +399,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
                 compactKnowledgePack: command.compactKnowledgePack,
                 usesSpecialistPrompt: false
             ),
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         )
 
         XCTAssertEqual(summary.debugOutput, outputURL.path)
@@ -475,7 +475,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
                 compactKnowledgePack: command.compactKnowledgePack,
                 usesSpecialistPrompt: false
             ),
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         )
 
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
@@ -539,7 +539,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
                 compactKnowledgePack: command.compactKnowledgePack,
                 usesSpecialistPrompt: false
             ),
-            startedAt: Date()
+            runClock: ProvenanceRunClock()
         )
 
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)

@@ -6972,7 +6972,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { response in
             guard response == .OK, let url = panel.url else { return }
             do {
-                let startedAt = Date()
+                let runClock = ProvenanceRunClock()
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 let data = try encoder.encode(assignments)
@@ -6980,7 +6980,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                     data: data,
                     outputURL: url,
                     assignmentCount: assignments.count,
-                    startedAt: startedAt
+                    runClock: runClock
                 )
             } catch {
                 if let window = self.view.window ?? NSApp.keyWindow {
@@ -7009,7 +7009,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         data: Data,
         outputURL: URL,
         assignmentCount: Int,
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) throws {
         guard let store = annotationStore else { return }
         let annotationURL = store.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
@@ -7036,8 +7036,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             resolved: [
                 "assignmentCount": .integer(assignmentCount),
             ],
-            startedAt: startedAt,
-            completedAt: Date()
+            runClock: runClock
         )) { staged in
             try data.write(to: staged, options: .atomic)
         }
@@ -7050,13 +7049,13 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         data: Data,
         outputURL: URL,
         assignmentCount: Int,
-        startedAt: Date = Date()
+        runClock: ProvenanceRunClock = ProvenanceRunClock()
     ) throws {
         try writeManualDefinitionsExport(
             data: data,
             outputURL: outputURL,
             assignmentCount: assignmentCount,
-            startedAt: startedAt
+            runClock: runClock
         )
     }
 

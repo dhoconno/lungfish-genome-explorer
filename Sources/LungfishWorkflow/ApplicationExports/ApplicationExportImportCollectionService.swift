@@ -64,7 +64,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
         options: ApplicationExportImportOptions = .default,
         progress: ApplicationExportImportProgress? = nil
     ) async throws -> ApplicationExportImportResult {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let tempRunURL = try createProjectTempRunDirectory(projectURL: projectURL)
         defer { try? FileManager.default.removeItem(at: tempRunURL) }
 
@@ -248,7 +248,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
             sourceKind: scannedInventory.sourceKind,
             tempRunURL: tempRunURL,
             importFailures: nativeImportFailures,
-            startedAt: startedAt
+            runClock: runClock
         )
         try writeProvenance(provenance, to: provenanceURL)
 
@@ -425,12 +425,12 @@ public struct ApplicationExportImportCollectionService: Sendable {
         sourceKind: ApplicationExportImportSourceKind,
         tempRunURL: URL,
         importFailures: [String] = [],
-        startedAt: Date
+        runClock: ProvenanceRunClock
     ) -> WorkflowRun {
-        let scanStarted = startedAt
-        let preserveStarted = Date()
-        let referenceStarted = Date()
-        let completedAt = Date()
+        let scanStarted = runClock.startedAt
+        let preserveStarted = runClock.now
+        let referenceStarted = runClock.now
+        let completedAt = runClock.now
         let sourceRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: sourceURL, format: .unknown, role: .input)
         let inventoryRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: inventoryURL, format: .json, role: .output)
         let reportRecord = ProvenanceRecorder.fileOrDirectoryRecord(url: reportURL, format: .text, role: .report)
@@ -510,7 +510,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
 
         return WorkflowRun(
             name: "Application Export Import",
-            startTime: startedAt,
+            startTime: runClock.startedAt,
             endTime: completedAt,
             status: didFail ? .failed : .completed,
             steps: [scanStep, preserveStep, referenceStep],

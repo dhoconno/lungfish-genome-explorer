@@ -42,7 +42,7 @@ extension BuildDbCommand {
         force: Bool,
         noCleanup: Bool,
         globalOptions: GlobalOptions,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         inputRecords: [FileRecord],
         exitStatus: Int = 0,
         stderr: String? = nil,
@@ -50,7 +50,8 @@ extension BuildDbCommand {
         additionalSteps: [ProvenanceStep] = [],
         includeOutputRecords: Bool = true
     ) async throws {
-        let completedAt = Date()
+        let startedAt = runClock.startedAt
+        let completedAt = runClock.now
         let outputRecords = includeOutputRecords
             ? buildDbOutputRecords(
                 tool: tool,
@@ -197,7 +198,7 @@ extension BuildDbCommand {
         force: Bool,
         noCleanup: Bool,
         globalOptions: GlobalOptions,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         inputRecords: [FileRecord],
         error: Error,
         sampleDirectories: [URL] = [],
@@ -212,7 +213,7 @@ extension BuildDbCommand {
                 force: force,
                 noCleanup: noCleanup,
                 globalOptions: globalOptions,
-                startedAt: startedAt,
+                runClock: runClock,
                 inputRecords: inputRecords,
                 exitStatus: 1,
                 stderr: error.localizedDescription,

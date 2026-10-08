@@ -257,7 +257,7 @@ public struct PrimerAnalysisSelectionExportService: Sendable {
     destinationURL: URL, invocationArgv: [String], progress: (@Sendable (Double, String) -> Void)?,
     publish: (@Sendable (URL, URL) async throws -> Void)?
   ) async throws -> URL {
-    let startedAt = Date(), fm = FileManager.default
+    let runClock = ProvenanceRunClock(), fm = FileManager.default
     guard !invocationArgv.isEmpty, invocationArgv.allSatisfy({ !$0.contains("\0") }),
       destinationURL.isFileURL, destinationURL.pathExtension == "lungfishref" else {
       throw PrimerAnalysisSelectionExportError.unavailable("A new Lungfish reference destination and exact invocation are required.")
@@ -321,7 +321,7 @@ public struct PrimerAnalysisSelectionExportService: Sendable {
       .write(to: built.appendingPathComponent("selection.json"), options: .atomic)
     try writeProvenance(snapshot: snapshot, prepared: prepared, nativeEnvelope: nativeEnvelope,
       built: built, staging: staging, final: destinationURL, workflowName: workflowName,
-      argv: invocationArgv, options: options, startedAt: startedAt)
+      argv: invocationArgv, options: options, runClock: runClock)
     progress?(0.95, "Publishing selected primer analysis data…")
     try Task.checkCancellation()
     if let publish { try await publish(built, destinationURL) }
@@ -344,7 +344,7 @@ public struct PrimerAnalysisSelectionExportService: Sendable {
 
   private static func writeProvenance(snapshot: PrimerAnalysisViewerSnapshot, prepared: Prepared,
     nativeEnvelope: ProvenanceEnvelope?, built: URL, staging: URL, final: URL, workflowName: String,
-    argv: [String], options: [String: ParameterValue], startedAt: Date) throws {
+    argv: [String], options: [String: ParameterValue], runClock: ProvenanceRunClock) throws {
     let fm = FileManager.default
     // Replace only this unpublished derivative's builder provenance. Parent scientific
     // provenance is retained byte-for-byte under source-analysis.
@@ -366,7 +366,8 @@ public struct PrimerAnalysisSelectionExportService: Sendable {
         origin: snapshot.bundle.url.appendingPathComponent(path).path)
     }
     let runtime = ProvenanceRuntimeIdentity()
-    let completedAt = Date()
+    let startedAt = runClock.startedAt
+    let completedAt = runClock.now
     var builder = ProvenanceRunBuilder(workflowName: workflowName, workflowVersion: WorkflowRun.currentAppVersion,
       toolName: workflowName, toolVersion: WorkflowRun.currentAppVersion).argv(argv)
       .options(explicit: prepared.options, defaults: ["compressFASTA": .boolean(false),

@@ -128,7 +128,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             throw FASTQBundleCopyImportError.cannotCreateDestinationParent(parentURL.path)
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let stagingBundleURL = stagingBundleURL(for: destinationBundleURL)
         let publication = try ScientificFilePublicationTransaction(protectedURLs: [destinationBundleURL], fileDestinations: [])
         do {
@@ -138,7 +138,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             try materializeSymlinkFiles(in: stagingBundleURL)
             let sourceFiles = try concreteFiles(in: sourceBundleURL)
             let copiedFiles = try concreteFiles(in: stagingBundleURL)
-            let completedAt = Date()
+            let completedAt = runClock.now
             let sourceToStagingPathMap = sourceToTargetPathMap(
                 sourceBundleURL: sourceBundleURL,
                 targetBundleURL: stagingBundleURL,
@@ -177,7 +177,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
                 sourceFiles: sourceFiles,
                 copiedFiles: copiedFiles,
                 sourceProvenancePath: sourceProvenanceURL.path,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
             let envelope = mergedCopyImportEnvelope(
@@ -197,7 +197,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
                 copiedFileCount: copiedFiles.count,
                 totalCopiedBytes: totalCopiedBytes,
                 provenanceURL: destinationBundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename),
-                wallClockSeconds: completedAt.timeIntervalSince(startedAt)
+                wallClockSeconds: completedAt.timeIntervalSince(runClock.startedAt)
             )
         } catch {
             try? fileManager.removeItem(at: stagingBundleURL)

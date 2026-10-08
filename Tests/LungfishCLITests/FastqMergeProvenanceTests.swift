@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
@@ -56,7 +57,7 @@ final class FastqMergeProvenanceTests: XCTestCase {
                 "compress": .boolean(true),
             ],
             defaults: ["compress": .boolean(false)],
-            startedAt: Date().addingTimeInterval(-1)
+            runClock: ProvenanceRunClock()
         )
 
         XCTAssertEqual(envelope.workflowName, "lungfish fastq merge")
@@ -164,7 +165,7 @@ final class FastqMergeProvenanceTests: XCTestCase {
                 "countDuplicatesAfterMerge": .boolean(false),
                 "compress": .boolean(false),
             ],
-            startedAt: Date().addingTimeInterval(-1)
+            runClock: ProvenanceRunClock()
         )
 
         XCTAssertEqual(envelope.workflowName, "lungfish fastq merge")

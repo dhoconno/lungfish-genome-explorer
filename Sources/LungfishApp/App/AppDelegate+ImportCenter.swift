@@ -1076,7 +1076,7 @@ extension AppDelegate {
             routeContext: routeContext,
             onCancel: { cancelFlag.withLock { $0 = true } }
         ) { opID in
-            let importStartedAt = Date()
+            let importClock = ProvenanceRunClock()
 
             DispatchQueue.global(qos: .userInitiated).async {
                 // All file I/O on background thread — no UI references captured
@@ -1197,7 +1197,7 @@ extension AppDelegate {
                             recordInvocation: recordInvocation,
                             progressHandler: { progress, message in
                                 let clampedProgress = max(0.0, min(1.0, progress))
-                                let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
+                                let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importClock.startedAt)
                                 let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                 scheduleOnMainRunLoop {
                                     _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
@@ -1207,7 +1207,7 @@ extension AppDelegate {
                     } else if detectedImportState == "inserting" {
                         // Partial row ingest cannot be resumed safely without replaying the VCF.
                         debugLog("performVCFImport: Found interrupted inserting phase, restarting full import from source VCF")
-                        variantCount = try runFreshImport(startedAt: importStartedAt)
+                        variantCount = try runFreshImport(startedAt: importClock.startedAt)
                     } else if VariantDatabase.metadataValue(at: dbURL, key: "materialize_state") == "materializing" {
                         // Import is complete but materialization was interrupted — resume it.
                         debugLog("performVCFImport: Found incomplete materialization, resuming via helper")
@@ -1235,9 +1235,9 @@ extension AppDelegate {
                         // (likely corrupted metadata from a crash). We cannot prove inserts
                         // completed, so rebuild from source VCF.
                         debugLog("performVCFImport: DB has variants table but missing import_state, restarting full import from source VCF")
-                        variantCount = try runFreshImport(startedAt: importStartedAt)
+                        variantCount = try runFreshImport(startedAt: importClock.startedAt)
                     } else {
-                        variantCount = try runFreshImport(startedAt: importStartedAt)
+                        variantCount = try runFreshImport(startedAt: importClock.startedAt)
                     }
 
                     debugLog("performVCFImport: Created database with \(variantCount) variants")
@@ -1335,8 +1335,8 @@ extension AppDelegate {
                             importProfile: selectedImportProfile,
                             variantCount: variantCount,
                             helperInvocations: helperInvocations.withLock { $0 },
-                            startedAt: importStartedAt,
-                            completedAt: Date(),
+                            startedAt: importClock.startedAt,
+                            completedAt: importClock.now,
                             provenanceWriter: writer
                         )
                     }
@@ -1640,7 +1640,7 @@ extension AppDelegate {
         }
 
         let databaseInput = try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .input)
-        let startedAt = Date()
+        let helperClock = ProvenanceRunClock()
         defer {
             stdoutHandle.readabilityHandler = nil
             stderrHandle.readabilityHandler = nil
@@ -1649,7 +1649,7 @@ extension AppDelegate {
         try process.run()
 
         _ = waitForHelperProcessExit(process, shouldCancel: shouldCancel)
-        let completedAt = Date()
+        let completedAt = helperClock.now
         debugLog(
             "runVCFImportViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
         )
@@ -1678,7 +1678,7 @@ extension AppDelegate {
             argv: fullArgv,
             exitStatus: process.terminationStatus,
             stderr: stderrMessage,
-            startedAt: startedAt,
+            startedAt: helperClock.startedAt,
             completedAt: completedAt,
             databaseInput: databaseInput,
             databaseOutput: try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .output)
@@ -1821,7 +1821,7 @@ extension AppDelegate {
         }
 
         let databaseInput = try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .input)
-        let startedAt = Date()
+        let helperClock = ProvenanceRunClock()
         defer {
             stdoutHandle.readabilityHandler = nil
             stderrHandle.readabilityHandler = nil
@@ -1830,7 +1830,7 @@ extension AppDelegate {
         try process.run()
 
         _ = waitForHelperProcessExit(process, shouldCancel: shouldCancel)
-        let completedAt = Date()
+        let completedAt = helperClock.now
         debugLog(
             "runVCFResumeViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
         )
@@ -1860,7 +1860,7 @@ extension AppDelegate {
             argv: fullArgv,
             exitStatus: process.terminationStatus,
             stderr: stderrMessage,
-            startedAt: startedAt,
+            startedAt: helperClock.startedAt,
             completedAt: completedAt,
             databaseInput: databaseInput,
             databaseOutput: try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .output)
@@ -1998,7 +1998,7 @@ extension AppDelegate {
         }
 
         let databaseInput = try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .input)
-        let startedAt = Date()
+        let helperClock = ProvenanceRunClock()
         defer {
             stdoutHandle.readabilityHandler = nil
             stderrHandle.readabilityHandler = nil
@@ -2007,7 +2007,7 @@ extension AppDelegate {
         try process.run()
 
         _ = waitForHelperProcessExit(process, shouldCancel: shouldCancel)
-        let completedAt = Date()
+        let completedAt = helperClock.now
         debugLog(
             "runVCFMaterializeViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
         )
@@ -2037,7 +2037,7 @@ extension AppDelegate {
             argv: fullArgv,
             exitStatus: process.terminationStatus,
             stderr: stderrMessage,
-            startedAt: startedAt,
+            startedAt: helperClock.startedAt,
             completedAt: completedAt,
             databaseInput: databaseInput,
             databaseOutput: try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .output)
@@ -2567,7 +2567,7 @@ extension AppDelegate {
         format: SequenceExportFormat,
         compression: SequenceExportCompression
     ) async throws -> Int {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let sidebarURLs = sources.filter { $0.document == nil }.map { $0.metadata.url }
         let containsCapturedDocuments = sources.contains { $0.document != nil }
         if !containsCapturedDocuments, sidebarURLs.count == 1,
@@ -2658,7 +2658,7 @@ extension AppDelegate {
             compression: compression,
             sequenceCount: allSequences.count,
             annotationCount: allAnnotations.count,
-            startedAt: startedAt,
+            runClock: runClock,
             selectionMetadata: selectionMetadata
         ) { staged in
             try Task.checkCancellation()
@@ -2781,7 +2781,7 @@ extension AppDelegate {
         format: SequenceExportFormat,
         compression: SequenceExportCompression
     ) async throws -> Int {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let manifest = try BundleManifest.load(from: bundleURL)
         try Task.checkCancellation()
         guard let genome = manifest.genome, !genome.chromosomes.isEmpty else {
@@ -2855,7 +2855,7 @@ extension AppDelegate {
             compression: compression,
             sequenceCount: genome.chromosomes.count,
             annotationCount: annotations.count,
-            startedAt: startedAt
+            runClock: runClock
         ) { staged in
             try Task.checkCancellation()
             try compressExportFile(writeURL, to: staged, compression: compression)
@@ -2873,7 +2873,7 @@ extension AppDelegate {
         compression: SequenceExportCompression,
         sequenceCount: Int,
         annotationCount: Int,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         selectionMetadata: Data? = nil,
         writeOutput: (URL) throws -> Void
     ) throws -> URL {
@@ -2903,7 +2903,7 @@ extension AppDelegate {
                 "format": .string(format.cliFormat),
                 "compression": .string(compression.provenanceValue),
             ],
-            startedAt: startedAt
+            runClock: runClock
         )
         if let selectionMetadata {
             let snapshot = try RetainedSelectionExportSnapshot(outputURL: outputURL, selectionMetadata: selectionMetadata)

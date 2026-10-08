@@ -25,7 +25,7 @@ enum AnnotationExportService {
     }
 
     static func export(_ request: Request) async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let snapshot = try RetainedSelectionExportSnapshot(outputURL: request.outputURL,
@@ -43,7 +43,7 @@ enum AnnotationExportService {
                     "sourcePaths": .array(request.source.urls.map { .file($0) }),
                     "outputPath": .file(request.outputURL)],
                 defaults: ["outputFormat": .string("gff3"), "featureSource": .string("Lungfish")],
-                resolved: ["annotationCount": .integer(request.annotations.count)], startedAt: startedAt))
+                resolved: ["annotationCount": .integer(request.annotations.count)], runClock: runClock))
         } catch {
             snapshot.discardAfterFailure(error)
             throw error

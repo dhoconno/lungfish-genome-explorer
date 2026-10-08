@@ -123,15 +123,15 @@ public enum FASTQSplitByNameRunner {
             failureLabel: failureLabel,
             stepNamePrefix: stepNamePrefix,
             runPartSteps: { input, output, paired in
-                let startedAt = Date()
+                let partClock = ProvenanceRunClock()
                 let run = try await runPart(input, output, paired)
                 return [PartRun(
                     result: run.result,
                     arguments: run.arguments,
                     inputURL: input,
                     outputURL: output,
-                    startedAt: startedAt,
-                    completedAt: Date()
+                    startedAt: partClock.startedAt,
+                    completedAt: partClock.now
                 )]
             }
         )
@@ -224,7 +224,7 @@ public enum FASTQSplitByNameRunner {
         // output or into a scratch file that gzip then writes.
         let compress = outputPath.lowercased().hasSuffix(".gz")
         let plainTarget = compress ? scratch.appendingPathComponent("joined.fastq") : outputURL
-        let joinStarted = Date()
+        let joinClock = ProvenanceRunClock()
         let expected = try await Task.detached(priority: .utility) {
             try join([pairsOut, singlesOut], into: plainTarget)
         }.value
@@ -236,7 +236,7 @@ public enum FASTQSplitByNameRunner {
                 "\(failureLabel) wrote \(written) reads where \(expected) were expected after joining the pairs and the single reads"
             )
         }
-        let joinCompleted = Date()
+        let joinCompleted = joinClock.now
         let joinStep = ProvenanceStep(
             toolName: "\(stepNamePrefix) join",
             toolVersion: WorkflowRun.currentAppVersion,
@@ -244,9 +244,9 @@ public enum FASTQSplitByNameRunner {
             inputs: [descriptor(pairsOut, role: .input), descriptor(singlesOut, role: .input)],
             outputs: [descriptor(plainTarget, role: .output)],
             exitStatus: 0,
-            wallTimeSeconds: joinCompleted.timeIntervalSince(joinStarted),
+            wallTimeSeconds: joinCompleted.timeIntervalSince(joinClock.startedAt),
             dependsOn: [lastPairedStep] + (lastSingleStep.map { [$0] } ?? []),
-            startedAt: joinStarted,
+            startedAt: joinClock.startedAt,
             completedAt: joinCompleted
         )
         var extraSteps = partSteps + [joinStep]

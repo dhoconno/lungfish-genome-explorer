@@ -69,7 +69,7 @@ struct VariantSampleMetadataImportService {
             )
         }
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let publication = try VariantMutationPublication(databaseURLs: targets.map(\.databaseURL),
             bundleURL: bundleURL, fileManager: fileManager)
 
@@ -92,7 +92,7 @@ struct VariantSampleMetadataImportService {
             let databaseOutputs = try targets.map {
                 try ProvenanceFileDescriptor.file(url: $0.databaseURL, format: .unknown, role: .output)
             }
-            let completedAt = Date()
+            let completedAt = runClock.now
             let envelope = try provenanceEnvelope(
                 metadataURL: metadataURL,
                 format: format,
@@ -103,7 +103,7 @@ struct VariantSampleMetadataImportService {
                 databaseInputs: databaseInputs,
                 databaseOutputs: databaseOutputs,
                 updatedCounts: updatedCounts,
-                startedAt: startedAt,
+                startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
             let provenanceURL = try writeProvenance(envelope, bundleURL, publication)

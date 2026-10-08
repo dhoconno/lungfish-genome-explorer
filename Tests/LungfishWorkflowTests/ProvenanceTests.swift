@@ -4,6 +4,7 @@
 
 import Testing
 import Foundation
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 @Suite("Provenance Recording")
@@ -24,6 +25,34 @@ struct ProvenanceRecordingTests {
         run = await recorder.getRun(runID)
         #expect(run?.status == .completed)
         #expect(run?.endTime != nil)
+    }
+
+    @Test("A backward wall-clock step cannot end a recorded run before it starts")
+    func backwardWallClockStepDuringRun() async throws {
+        let start = Date(timeIntervalSince1970: 1_791_331_200)
+        let time = SteppedTimeSource(startingAt: start)
+        let recorder = ProvenanceRecorder(signingProvider: nil)
+        let runID = await time.override { await recorder.beginRun(name: "Delete Annotation") }
+
+        time.advance(by: 0.010)
+        time.stepWallClock(by: -0.063)
+        await recorder.recordStep(
+            runID: runID,
+            toolName: "lungfish",
+            toolVersion: "test",
+            command: ["lungfish", "sequence", "delete-annotations"],
+            inputs: [],
+            outputs: [],
+            exitCode: 0,
+            wallTime: 0.010
+        )
+        await recorder.completeRun(runID, status: .completed)
+
+        let run = try #require(await recorder.getRun(runID))
+        #expect(run.startTime == start)
+        #expect(abs((run.wallTime ?? -1) - 0.010) < 1e-6)
+        let stepEnd = try #require(run.steps.first?.endTime)
+        #expect(abs(stepEnd.timeIntervalSince(start) - 0.010) < 1e-6)
     }
 
     @Test("Record a step in a run")

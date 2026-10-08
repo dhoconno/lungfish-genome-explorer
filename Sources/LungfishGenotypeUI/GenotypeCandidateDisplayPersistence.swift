@@ -54,8 +54,8 @@ enum GenotypeCandidateDisplayPersistence {
             provenanceFilename: provenanceURL.lastPathComponent,
             faultInjector: nil
         )
-        let startedAt = Date()
-        let timestamp = ISO8601DateFormatter().string(from: startedAt)
+        let runClock = ProvenanceRunClock()
+        let timestamp = ISO8601DateFormatter().string(from: runClock.startedAt)
         var published: GenotypeAnnotationSidecar?
         _ = try coordinator.transact { snapshot in
             let latest = try snapshot.annotationData.map(GenotypeAnnotationSidecar.decode)
@@ -96,8 +96,8 @@ enum GenotypeCandidateDisplayPersistence {
                 author: author,
                 priorInput: priorInput,
                 output: output,
-                startedAt: startedAt,
-                endedAt: Date()
+                startedAt: runClock.startedAt,
+                endedAt: runClock.now
             )
             published = next
             return try GenotypeAnnotationPublicationPayload(

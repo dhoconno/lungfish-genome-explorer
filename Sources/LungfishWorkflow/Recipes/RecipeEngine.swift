@@ -249,7 +249,7 @@ public final class RecipeEngine: Sendable {
             // Capture input files for cleanup after step completes
             let previousFiles = [stepInput.r1, stepInput.r2, stepInput.r3].compactMap { $0 }
 
-            let stepStart = Date()
+            let stepClock = ProvenanceRunClock()
             var stepLabel: String
             var logicalComponents: [RecipeLogicalComponent] = []
 
@@ -291,12 +291,12 @@ public final class RecipeEngine: Sendable {
                 )
             }
 
-            let stepCompletedAt = Date()
+            let stepCompletedAt = stepClock.now
             let stepDuration: TimeInterval
             if let startedAt = currentOutput.startedAt, let completedAt = currentOutput.completedAt {
                 stepDuration = completedAt.timeIntervalSince(startedAt)
             } else {
-                stepDuration = stepCompletedAt.timeIntervalSince(stepStart)
+                stepDuration = stepCompletedAt.timeIntervalSince(stepClock.startedAt)
             }
 
             // Build provenance record (skip format-conversion steps — internal bookkeeping)
@@ -503,18 +503,18 @@ public final class RecipeEngine: Sendable {
             "-h", "/dev/null",
         ]
 
-        let startedAt = Date()
+        let fastpClock = ProvenanceRunClock()
         let result = try await context.runner.run(
             .fastp,
             arguments: args,
             timeout: context.recipeToolTimeout(for: .fastp, input: input)
         )
-        let completedAt = Date()
+        let completedAt = fastpClock.now
         let evidence = RecipeProcessEvidence(
             arguments: result.arguments,
             exitStatus: Int(result.exitCode),
             stderr: result.stderr,
-            startedAt: startedAt,
+            startedAt: fastpClock.startedAt,
             completedAt: completedAt
         )
         if result.exitCode != 0 {
@@ -537,7 +537,7 @@ public final class RecipeEngine: Sendable {
             auxiliaryOutputs: [report],
             exitStatus: Int(result.exitCode),
             stderr: result.stderr,
-            startedAt: startedAt,
+            startedAt: fastpClock.startedAt,
             completedAt: completedAt
         )
     }

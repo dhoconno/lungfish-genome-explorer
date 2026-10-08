@@ -64,6 +64,7 @@ enum AppUITestPrimerTrimBackend {
         try fileManager.copyItem(at: sourceBAMURL, to: outputBAMURL)
         try fileManager.copyItem(at: sourceIndexURL, to: outputIndexURL)
 
+        let recordedAt = Date()
         let provenance = BAMPrimerTrimProvenance(
             operation: "primer-trim",
             primerScheme: BAMPrimerTrimProvenance.PrimerSchemeRef(
@@ -130,7 +131,8 @@ enum AppUITestPrimerTrimBackend {
                     exitCode: 0,
                     wallTime: 0.1,
                     stderr: "",
-                    endTime: Date()
+                    startTime: recordedAt,
+                    endTime: recordedAt
                 )
             ],
             wallTimeSeconds: 0.1,

@@ -60,14 +60,14 @@ public actor UniversalProjectSearchService {
     public func rebuild(projectURL: URL) async throws -> ProjectUniversalSearchBuildStats {
         let canonical = projectURL.standardizedFileURL
         let index = try index(for: canonical)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let stats = try index.rebuild()
         try writeIndexProvenance(
             projectURL: canonical,
             index: index,
             operation: "rebuild",
             stats: stats,
-            startedAt: startedAt
+            runClock: runClock
         )
         hasIndexedOnce.insert(canonical)
         return stats
@@ -88,14 +88,14 @@ public actor UniversalProjectSearchService {
         if ensureIndexed {
             let stats = try index.indexStats()
             if stats.entityCount == 0 && !hasIndexedOnce.contains(canonical) {
-                let startedAt = Date()
+                let runClock = ProvenanceRunClock()
                 let buildStats = try index.rebuild()
                 try writeIndexProvenance(
                     projectURL: canonical,
                     index: index,
                     operation: "build-on-demand",
                     stats: buildStats,
-                    startedAt: startedAt,
+                    runClock: runClock,
                     explicitOptions: [
                         "query": .string(query),
                         "limit": .integer(max(1, limit)),
@@ -121,14 +121,14 @@ public actor UniversalProjectSearchService {
 
         do {
             let idx = try index(for: canonical)
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             try idx.update(changedPaths: changedPaths)
             try writeIndexProvenance(
                 projectURL: canonical,
                 index: idx,
                 operation: "update",
                 stats: nil,
-                startedAt: startedAt,
+                runClock: runClock,
                 explicitOptions: [
                     "changedPathCount": .integer(changedPaths.count),
                     "changedPaths": .array(changedPaths.map { .string($0.standardizedFileURL.path) }),
@@ -207,7 +207,7 @@ public actor UniversalProjectSearchService {
         index: ProjectUniversalSearchIndex,
         operation: String,
         stats: ProjectUniversalSearchBuildStats?,
-        startedAt: Date,
+        runClock: ProvenanceRunClock,
         explicitOptions: [String: ParameterValue] = [:]
     ) throws {
         try UniversalSearchIndexProvenanceWriter.write(
@@ -224,8 +224,8 @@ public actor UniversalProjectSearchService {
                 resolvedDefaults: ["operation": .string(operation)],
                 buildStats: stats,
                 captureProjectInputSnapshot: false,
-                startedAt: startedAt,
-                completedAt: Date()
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now
             )
         )
     }

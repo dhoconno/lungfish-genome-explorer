@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 enum BookmarkedVariantExportService {
@@ -28,7 +29,7 @@ enum BookmarkedVariantExportService {
     }
 
     static func export(_ request: Request) throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         var lines = [["ID", "Type", "Chrom", "Pos", "Ref", "Alt", "Quality", "Filter"].joined(separator: "\t")]
         for row in request.rows {
             let quality = row.quality.map { $0 < 0 ? "." : String(format: "%.1f", $0) } ?? "."
@@ -50,7 +51,7 @@ enum BookmarkedVariantExportService {
                 explicitOptions: ["sourceVariantDatabasePaths": .array(request.sourceURLs.map { .file($0) }),
                     "outputPath": .file(request.outputURL)],
                 defaults: ["outputFormat": .string("tsv")],
-                resolved: ["variantCount": .integer(request.rows.count)], startedAt: startedAt
+                resolved: ["variantCount": .integer(request.rows.count)], runClock: runClock
             ))
         } catch {
             snapshot.discardAfterFailure(error)

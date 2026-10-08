@@ -15,7 +15,9 @@ public struct SequenceExtractionBundleCommandContext: Sendable {
     public let defaultOptions: [String: ParameterValue]
     public let resolvedOptions: [String: ParameterValue]
     public let inputURLs: [URL]
-    public let startedAt: Date?
+    /// The caller's clock, when the caller timed the run. The bundle's
+    /// provenance takes both its start and its end from it.
+    public let runClock: ProvenanceRunClock?
 
     public init(
         workflowName: String,
@@ -26,7 +28,7 @@ public struct SequenceExtractionBundleCommandContext: Sendable {
         defaultOptions: [String: ParameterValue],
         resolvedOptions: [String: ParameterValue],
         inputURLs: [URL],
-        startedAt: Date? = nil
+        runClock: ProvenanceRunClock? = nil
     ) {
         self.workflowName = workflowName
         self.toolName = toolName
@@ -36,7 +38,7 @@ public struct SequenceExtractionBundleCommandContext: Sendable {
         self.defaultOptions = defaultOptions
         self.resolvedOptions = resolvedOptions
         self.inputURLs = inputURLs
-        self.startedAt = startedAt
+        self.runClock = runClock
     }
 }
 
@@ -75,7 +77,8 @@ public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
         request: SequenceExtractionBundleBuildRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
-        let startedAt = request.commandContext.startedAt ?? Date()
+        let runClock = request.commandContext.runClock ?? ProvenanceRunClock()
+        let startedAt = runClock.startedAt
         let tempDirectory = try ProjectTempDirectory.createFromContext(
             prefix: "extract-bundle-",
             contextURL: request.outputDirectory
@@ -118,7 +121,7 @@ public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
                 request: request,
                 bundleURL: bundleURL,
                 startedAt: startedAt,
-                completedAt: Date()
+                completedAt: runClock.now
             )
         } catch {
             try? FileManager.default.removeItem(at: bundleURL)

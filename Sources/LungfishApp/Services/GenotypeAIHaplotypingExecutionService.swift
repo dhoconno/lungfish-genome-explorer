@@ -28,7 +28,7 @@ final class GenotypeAIHaplotypingExecutionService {
         parentOperationID: UUID? = nil
     ) async throws -> AIHaplotypingRevisionPublishResult {
         let bundle = bundleURL.standardizedFileURL
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let ownsOperation = parentOperationID == nil
         let operationID: UUID
         if let parentOperationID {
@@ -181,7 +181,7 @@ final class GenotypeAIHaplotypingExecutionService {
                 defaultOptions: defaultOptions,
                 resolvedOptions: resolvedOptions,
                 runtimeIdentity: ProvenanceRuntimeIdentity(),
-                startedAt: startedAt
+                runClock: runClock
             )
             let published = try AIHaplotypingRevisionPublisher().publish(
                 AIHaplotypingRevisionPublishRequest(

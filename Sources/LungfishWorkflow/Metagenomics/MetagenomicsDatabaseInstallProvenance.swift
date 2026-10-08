@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 
 public struct MetagenomicsDatabasePayloadSnapshot: Sendable, Equatable {
     public let rootURL: URL
@@ -675,9 +676,10 @@ extension CanonicalMetagenomicsDatabaseInstallProvenanceWriter {
     /// relocation actually performed by the registry.
     static func appendingRelocation(
         to envelope: ProvenanceEnvelope, databaseName: String, from source: URL, to destination: URL,
-        previousReceipt: ProvenanceFileDescriptor, startedAt: Date
+        previousReceipt: ProvenanceFileDescriptor, runClock: ProvenanceRunClock
     ) -> ProvenanceEnvelope {
-        let completedAt = Date()
+        let startedAt = runClock.startedAt
+        let completedAt = runClock.now
         let step = ProvenanceStep(
             toolName: "Lungfish database relocation", toolVersion: WorkflowRun.currentAppVersion,
             argv: ["MetagenomicsDatabaseRegistry.relocateDatabase(name:to:)", databaseName, destination.path],

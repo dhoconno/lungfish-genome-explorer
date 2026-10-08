@@ -52,7 +52,7 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
         ]
 
         let env = await bbToolsEnvironment(runner: runner)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await runner.run(.tadpole, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "tadpole error correction failed: \(result.stderr)")
@@ -91,7 +91,7 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
             ],
             inputRecords: try resolvedInput.inputRecords(),
             extraSteps: try resolvedInput.materializationSteps(),
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Error-corrected reads written to \(output.output)\n".utf8))
     }

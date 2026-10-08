@@ -1074,10 +1074,10 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
             process.standardOutput = outputHandle
             process.standardError = stderrPipe
 
-            let start = Date()
+            let runClock = ProvenanceRunClock()
             try process.run()
             process.waitUntilExit()
-            let wallTime = Date().timeIntervalSince(start)
+            let wallTime = runClock.elapsed
             let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
             let stderr = String(data: stderrData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

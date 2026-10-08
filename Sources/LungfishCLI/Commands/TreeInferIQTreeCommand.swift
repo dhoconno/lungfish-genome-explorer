@@ -96,7 +96,7 @@ extension TreeCommand {
         }
 
         private func execute(emit: @escaping (String) -> Void) async throws {
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let emitter = CLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: emit)
             let workflowName = "phylogenetic-tree-infer-iqtree"
             let wrapperToolName = "lungfish tree infer iqtree"
@@ -349,7 +349,7 @@ extension TreeCommand {
                     stdout: runResult.stdout,
                     stderr: runResult.stderr,
                     externalWallTimeSeconds: runResult.wallTimeSeconds,
-                    wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
+                    wallTimeSeconds: runClock.elapsed
                 )
 
                 if outputExisted {

@@ -51,7 +51,7 @@ struct GenotypeExportLabKeySubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let outputDirURL = URL(fileURLWithPath: outputDir, isDirectory: true)
         try FileManager.default.createDirectory(at: outputDirURL, withIntermediateDirectories: true)
@@ -95,7 +95,7 @@ struct GenotypeExportLabKeySubcommand: AsyncParsableCommand {
                     sidecar: sidecar
                 )
             }.map { [$0] } ?? [],
-            startedAt: startedAt
+            runClock: runClock
         )
 
         let summary: [String: Any] = [

@@ -186,7 +186,7 @@ extension ViewerViewController {
                 let classificationOutput = capturedOutputURL
                 let tree = capturedTree
                 let resultDirectory = capturedResultDirectory
-                let startedAt = Date()
+                let runClock = ProvenanceRunClock()
 
 
                 let task = Task.detached {
@@ -244,7 +244,7 @@ extension ViewerViewController {
                             classResult: result,
                             sourceInputs: sourceInputs,
                             readCount: readCount,
-                            startedAt: startedAt
+                            runClock: runClock
                         )
 
                         let capturedResult = blastResult
@@ -352,7 +352,7 @@ extension ViewerViewController {
                 taxonomyLogger.warning("BLAST: failed to resolve a Kraken2 classification sidecar for \(resultURL.path, privacy: .public)")
                 return
             }
-            let startedAt = Date()
+            let runClock = ProvenanceRunClock()
             let sourceInputs = (try? KrakenResultReadSources.recordedInputs(of: sampleResult)) ?? []
 
             ViewerViewController.beginKraken2BlastVerificationOperation(
@@ -428,7 +428,7 @@ extension ViewerViewController {
                             classResult: sampleResult,
                             sourceInputs: sourceInputs,
                             readCount: readCount,
-                            startedAt: startedAt
+                            runClock: runClock
                         )
 
                         scheduleTaxonomyOnMainRunLoop {
@@ -723,7 +723,7 @@ func saveBlastVerification(
     classResult: ClassificationResult,
     sourceInputs: [URL],
     readCount: Int,
-    startedAt: Date
+    runClock: ProvenanceRunClock
 ) {
     let argv = [CLICommandIdentity.executableName, "blast", "verify"]
         + blastVerifyCLIArguments(
@@ -740,7 +740,7 @@ func saveBlastVerification(
             in: resultDirectory,
             sourceURLs: [classResult.reportURL],
             argv: argv,
-            startedAt: startedAt
+            runClock: runClock
         )
     } catch {
         taxonomyLogger.warning("BLAST: could not save the verification to \(resultDirectory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")

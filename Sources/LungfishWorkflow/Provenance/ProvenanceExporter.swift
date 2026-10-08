@@ -114,7 +114,7 @@ public struct ProvenanceExporter: Sendable {
         sourceRootURL: URL? = nil,
         exportArgv: [String] = []
     ) throws -> ProvenanceExportBundle {
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
@@ -194,8 +194,8 @@ public struct ProvenanceExporter: Sendable {
             sourceArtifacts: copiedSourceArtifacts,
             generatedArtifactURLs: generatedArtifactURLs + signedReportArtifactURLs,
             argv: exportArgv,
-            startedAt: startedAt,
-            endedAt: Date()
+            startedAt: runClock.startedAt,
+            endedAt: runClock.now
         )
         return ProvenanceExportBundle(
             rootURL: outputDirectory,

@@ -43,7 +43,7 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
         ]
 
         let env = await bbToolsEnvironment(runner: runner)
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let result = try await runner.run(.repair, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "repair.sh failed: \(result.stderr)")
@@ -91,7 +91,7 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
             ],
             inputRecords: try resolvedInput.inputRecords(),
             extraSteps: try resolvedInput.materializationSteps(),
-            startedAt: startedAt
+            runClock: runClock
         )
 
         FileHandle.standardError.write(Data("Repaired reads written to \(output.output)\n".utf8))

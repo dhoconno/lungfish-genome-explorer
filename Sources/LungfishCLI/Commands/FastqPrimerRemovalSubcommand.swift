@@ -107,7 +107,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         }
         let runner = NativeToolRunner.shared
 
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let referenceURL = reference.map { URL(fileURLWithPath: $0) }
         // Holds the linked primers the cutadapt engine writes.
         let stagingDirectory = FileManager.default.temporaryDirectory
@@ -267,7 +267,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
             stepInputs: splitOutcome?.stepInputs,
             stepOutputs: splitOutcome?.stepOutputs ?? fivePrimeStepOutputs,
             extraSteps: (splitOutcome?.extraSteps ?? readThroughSteps) + (try resolvedInput.materializationSteps()),
-            startedAt: startedAt
+            runClock: runClock
         )
         FileHandle.standardError.write(Data("Primer-trimmed reads written to \(output.output)\n".utf8))
     }

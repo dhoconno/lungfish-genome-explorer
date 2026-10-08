@@ -66,7 +66,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         config: BAMRegionExtractionConfig
     ) async throws -> AlignmentReadExtractionTransaction {
         var records: [AlignmentReadExtractionExecutionRecord] = []
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         let fileManager = FileManager.default
 
         guard fileManager.fileExists(atPath: config.bamURL.path) else {
@@ -206,7 +206,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
                 to: outputFASTQ
             )
         } catch {
-            let completedAt = Date()
+            let completedAt = runClock.now
             records.append(
                 internalRecord(
                     stage: .payloadStaging,
@@ -233,7 +233,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
                 records: records
             )
         }
-        let completedAt = Date()
+        let completedAt = runClock.now
         records.append(
             internalRecord(
                 stage: .payloadStaging,
@@ -260,7 +260,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
                 readCount: readCount,
                 pairedEnd: false,
                 executionRecords: records,
-                startedAt: startedAt
+                runClock: runClock
             )
             shouldCleanUp = false
             return transaction
@@ -285,7 +285,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
     ) async throws -> AlignmentReadExtractionTransaction {
         let fileManager = FileManager.default
         var records: [AlignmentReadExtractionExecutionRecord] = []
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         guard !config.sourceFASTQs.isEmpty, !config.readIDs.isEmpty else {
             throw failure(.missingInput, "Source FASTQs and selected read names are required.", records: records)
         }
@@ -389,7 +389,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
             recordsWithoutSequence: recordsWithoutSequence,
             missingSequenceMessage: missingSequenceMessage,
             executionRecords: records,
-            startedAt: startedAt
+            runClock: runClock
         )
         shouldCleanUp = false
         return transaction
@@ -405,7 +405,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
     ) async throws -> AlignmentReadExtractionTransaction {
         let fileManager = FileManager.default
         var records: [AlignmentReadExtractionExecutionRecord] = []
-        let startedAt = Date()
+        let runClock = ProvenanceRunClock()
         guard fileManager.fileExists(atPath: config.bamURL.path) else {
             throw failure(.missingInput, "Alignment evidence is missing: \(config.bamURL.path)", records: records)
         }
@@ -542,7 +542,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
             throw failure(.emptyExtraction, "Selected read names produced no sequence-bearing records.", records: records)
         }
 
-        let completedAt = Date()
+        let completedAt = runClock.now
         records.append(internalRecord(
             stage: .payloadStaging,
             toolName: "lungfish alignment extraction payload finalizer",
@@ -562,7 +562,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
             recordsWithoutSequence: recordsWithoutSequence,
             missingSequenceMessage: missingSequenceMessage,
             executionRecords: records,
-            startedAt: startedAt
+            runClock: runClock
         )
         shouldCleanUp = false
         return transaction
@@ -576,12 +576,12 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         visibleOptions: [String: ParameterValue],
         resolvedDefaults: [String: ParameterValue]
     ) async throws -> (result: NativeToolResult, record: AlignmentReadExtractionExecutionRecord) {
-        let startedAt = Date()
+        let toolClock = ProvenanceRunClock()
         let identity = await toolIdentityResolver(tool)
         do {
             try Task.checkCancellation()
             let result = try await processRunner(tool, arguments, 7200)
-            let completedAt = Date()
+            let completedAt = toolClock.now
             let argv = result.arguments.isEmpty
                 ? ([identity.executablePath ?? tool.executableName] + arguments)
                 : result.arguments
@@ -597,13 +597,13 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
                 inputs: descriptors(forExisting: inputURLs, role: .input),
                 outputs: descriptors(forExisting: outputURLs, role: .output),
                 exitStatus: Int(result.exitCode),
-                startedAt: startedAt,
+                startedAt: toolClock.startedAt,
                 completedAt: completedAt,
                 stderr: result.stderr
             )
             return (result, record)
         } catch is CancellationError {
-            let completedAt = Date()
+            let completedAt = toolClock.now
             let record = AlignmentReadExtractionExecutionRecord(
                 stage: .payloadStaging,
                 toolName: tool.rawValue,
@@ -616,7 +616,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
                 inputs: descriptors(forExisting: inputURLs, role: .input),
                 outputs: descriptors(forExisting: outputURLs, role: .output),
                 exitStatus: nil,
-                startedAt: startedAt,
+                startedAt: toolClock.startedAt,
                 completedAt: completedAt,
                 stderr: "Cancelled."
             )
@@ -626,7 +626,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
                 executionRecords: [record]
             )
         } catch {
-            let completedAt = Date()
+            let completedAt = toolClock.now
             let record = AlignmentReadExtractionExecutionRecord(
                 stage: .payloadStaging,
                 toolName: tool.rawValue,
@@ -639,7 +639,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
                 inputs: descriptors(forExisting: inputURLs, role: .input),
                 outputs: descriptors(forExisting: outputURLs, role: .output),
                 exitStatus: nil,
-                startedAt: startedAt,
+                startedAt: toolClock.startedAt,
                 completedAt: completedAt,
                 stderr: error.localizedDescription
             )

@@ -1674,7 +1674,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// alignment exports, so a crash mid-write cannot leave a payload with no
     /// (or a stale) sidecar.
     @discardableResult
-    func writeDelimitedExport(tree: TaxonTree, separator: String, to url: URL, startedAt: Date = Date()) throws -> URL {
+    func writeDelimitedExport(tree: TaxonTree, separator: String, to url: URL, runClock: ProvenanceRunClock = ProvenanceRunClock()) throws -> URL {
         let content = buildDelimitedExport(tree: tree, separator: separator)
         let sourceURLs = classificationResult?.config.inputFiles ?? []
         let fileExtension = url.pathExtension.isEmpty ? "csv" : url.pathExtension
@@ -1702,8 +1702,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
                 "nodeCount": .integer(tree.allNodes().count),
                 "outputByteCount": .integer(content.utf8.count),
             ],
-            startedAt: startedAt,
-            completedAt: Date()
+            runClock: runClock
         )) { staged in
             try content.write(to: staged, atomically: true, encoding: .utf8)
         }
