@@ -144,6 +144,40 @@ def test_app_version_is_masked_only_under_version_keys():
     )
 
 
+# Host rule -------------------------------------------------------------------
+
+
+def test_host_os_version_and_build_are_masked_in_every_written_shape():
+    text = (
+        '{"hostOS" : "macOS 26.6.2 (arm64)", "operatingSystemVersion" : "macOS 26.7.1 (arm64)", '
+        '"platform" : "Version 26.6.2 (Build 25G83)", "python" : {"platform": "macOS-26.7.1-arm64-arm-64bit"}}'
+    )
+    assert normalizer().text(text) == (
+        '{"hostOS" : "macOS <HOST-OS-VERSION> (arm64)", "operatingSystemVersion" : "macOS <HOST-OS-VERSION> (arm64)", '
+        '"platform" : "Version <HOST-OS-VERSION> (Build <HOST-OS-BUILD>)", '
+        '"python" : {"platform": "macOS-<HOST-OS-VERSION>-arm64-arm-64bit"}}'
+    )
+
+
+def test_two_macos_builds_normalize_alike_and_the_architecture_stays_compared():
+    laptop = '{"hostOS" : "macOS 26.6.2 (arm64)", "platform" : "Version 26.6.2 (Build 25G83)"}'
+    desktop = '{"hostOS" : "macOS 26.7.1 (arm64)", "platform" : "Version 26.7.1 (Build 25G241)"}'
+    assert normalizer().text(laptop) == normalizer().text(desktop)
+    intel = '{"hostOS" : "macOS 26.6.2 (x86_64)", "platform" : "Version 26.6.2 (Build 25G83)"}'
+    assert normalizer().text(intel) != normalizer().text(laptop)
+
+
+def test_host_os_is_masked_only_under_its_keys():
+    text = '{"note" : "macOS 26.6.2 (arm64)", "platform" : "linux-x86_64", "os" : "Version 26.6.2 (Build 25G83)"}'
+    assert normalizer().text(text) == text
+
+
+def test_a_file_that_records_the_host_os_has_a_host_dependent_digest():
+    # The export stdout.json holds Python's platform string, so its digest is
+    # masked wherever recorded (R10) rather than binding the goldens to a build.
+    assert normalizer().holds_run_dependent_field('{"platform": "macOS-26.6.2-arm64-arm-64bit"}')
+
+
 def record(path: str, digest: str, size: int) -> dict:
     return {"checksumSHA256": digest, "fileSize": size, "path": path, "sha256": digest, "sizeBytes": size}
 

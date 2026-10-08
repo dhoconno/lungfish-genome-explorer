@@ -96,9 +96,9 @@ Each capture writes `normalization.tsv`, the list of every masked file, input an
 |---|---|
 | mapping | `lungfish-provenance.json`, `mapping-provenance.json`, `mapping-result.json` |
 | classifiers | `kraken2/classification-result.json`, `kraken2/lungfish-provenance.json`, `esviritu/esviritu-result.json`, `esviritu/lungfish-provenance.json`, `esviritu/materialize-provenance.json`, `esviritu/materialize-folder-provenance.json` |
-| genotype, bundle | `genotype-result.json`, `lungfish-provenance.json`, `retained-demux-genotyping-provenance.json`, the haplotype analysis, the hyphen and underscore stats files, the underscore provenance file, both minimap2 stderr logs, the workbook, its receipt and its export folder's `replay.sh`, `request.json` and `snapshot.json` |
+| genotype, bundle | `genotype-result.json`, `lungfish-provenance.json`, `retained-demux-genotyping-provenance.json`, the haplotype analysis, the hyphen and underscore stats files, the underscore provenance file, both minimap2 stderr logs, the workbook, its receipt and its export folder's `replay.sh`, `request.json`, `snapshot.json` and `stdout.json` |
 | genotype, provenance | All 26 per-file provenance records under `bundle/provenance/` |
-| genotype, exports | `lungfish-provenance.json`, both matrix provenance files, both workbooks, both receipts, and the `replay.sh`, `request.json` and `snapshot.json` of both export folders |
+| genotype, exports | `lungfish-provenance.json`, both matrix provenance files, both workbooks, both receipts, and the `replay.sh`, `request.json`, `snapshot.json` and `stdout.json` of both export folders |
 | genotype, run | `run/illumina-sample-manifest.json`, digest only, because its size never changes (see N3) |
 
 R16 masks the digests of the `analysis.json`, `annotations.json`, `capture-context.json` and `result.json` inputs of the bundle's own workbook, and of the `annotations.json` and `result.json` inputs of both exports. The other inputs keep their digests because they hold no run-dependent field.
@@ -115,9 +115,19 @@ The program manager ruled on these on 2026-10-02 as well. N1 and N2 cover nondet
 
 N2 keeps a records hash and index statistics of both BAMs as goldens, so their content is compared, and the size of each index stays compared. No header golden is kept for these two BAMs, because the suffix would need a mask of its own. For N3 the capture keeps the copy of the deleted manifest as a golden, where the run ID rule masks the staging folder, and R10 masks the digest the provenance records for it.
 
+### Host rule
+
+The owner ruled on this on 2026-10-08, when a second Mac became a release Mac. Without it the goldens pass only on the macOS build they were captured on.
+
+| Rule | What it masks | Why it varies |
+|---|---|---|
+| H1 | The macOS version as `<HOST-OS-VERSION>` and the build as `<HOST-OS-BUILD>`, only under `hostOS` and `operatingSystemVersion` (`macOS 26.6.2 (arm64)`) and `platform` (`Version 26.6.2 (Build 25G83)` from LGE, `macOS-26.6.2-arm64-arm-64bit` from Python) | Each release Mac runs its own macOS build, and macOS updates change it |
+
+The architecture and the rest of each value stay compared. An export folder's `stdout.json` holds Python's `platform`, so R10 masks its digest and size where they are recorded.
+
 ### What stays unmasked
 
-Some fields are the same in every run on one Mac but differ on another Mac or after an update. They stay unmasked, so the goldens are bound to the machine and channel they were captured on. They are the macOS version and build in `hostOS`, `operatingSystemVersion` and `platform`, the conda and database paths under `/Users/dho/.lungfish-stable`, the tool versions, the `dependencySet`, the database fingerprints in `classifiers/environment.json`, and the `(dev)` build label of a SwiftPM build. The point where the app truncates a long stderr also depends on the length of the home folder path. A CLI inside a Preview or Stable app runs in place, resolves another channel's storage and records another version label, so its goldens differ from these.
+Some fields are the same in every run on one Mac but differ on another Mac or after an update. They stay unmasked, so the goldens are bound to the channel storage they were captured with, which each release Mac copies whole. They are the conda and database paths under `/Users/dho/.lungfish-stable`, the tool versions, the `dependencySet`, the database fingerprints in `classifiers/environment.json`, and the `(dev)` build label of a SwiftPM build. The point where the app truncates a long stderr also depends on the length of the home folder path. A CLI inside a Preview or Stable app runs in place, resolves another channel's storage and records another version label, so its goldens differ from these.
 
 ## Updating a golden deliberately
 
