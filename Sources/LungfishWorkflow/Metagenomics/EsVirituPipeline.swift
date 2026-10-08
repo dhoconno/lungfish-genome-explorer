@@ -406,7 +406,14 @@ public actor EsVirituPipeline {
         progress?(0.05, "Detecting EsViritu version...")
 
         // Phase 2: Version detection (0.05 -- 0.15)
-        let toolVersion = try await detectToolVersion(toolName: "EsViritu", environment: Self.esVirituEnvironment, condaManager: condaManager)
+        // `EsViritu --version` prints its site-packages path, which names the
+        // Python version, so read the installed package from conda-meta.
+        let toolVersion = try await detectToolVersion(
+            toolName: "EsViritu",
+            environment: Self.esVirituEnvironment,
+            condaManager: condaManager,
+            condaPackage: "esviritu"
+        )
         logger.info("Detected EsViritu version: \(toolVersion)")
 
         progress?(0.15, "Running EsViritu...")

@@ -33,6 +33,6 @@
   "runtime" : "<DURATION>",
   "savedAt" : "<TIMESTAMP>",
   "taxProfilePath" : "sarscov2-R1-len150.tax_profile.tsv",
-  "toolVersion" : "3.14",
+  "toolVersion" : "1.3.3",
   "virusCount" : 1
 }

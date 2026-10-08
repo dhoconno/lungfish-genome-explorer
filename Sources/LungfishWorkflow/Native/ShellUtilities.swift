@@ -116,13 +116,18 @@ public enum AdvancedCommandLineOptions {
 
 /// Detects a tool's version by running it with version flags in a conda environment.
 ///
-/// Tries `--version` first, then `-v` as a fallback. Extracts the first
-/// semver-like pattern (e.g. `2.1.3`) from the combined stdout+stderr output.
+/// When `condaPackage` names the package that ships the tool, the installed
+/// version is read from the environment's `conda-meta` record and no probe
+/// runs. Otherwise, or when that record is missing, tries `--version` first,
+/// then `-v` as a fallback, and parses the output with `parseToolVersion(from:)`.
 ///
 /// - Parameters:
 ///   - toolName: The tool executable name (e.g. `"kraken2"`, `"EsViritu"`).
 ///   - environment: The conda environment name where the tool is installed.
 ///   - condaManager: The conda manager to use for execution.
+///   - condaPackage: The conda package whose installed version is the tool's
+///     version (e.g. `"esviritu"`). Pass it for a tool whose own version
+///     output is unreliable to parse.
 ///   - flags: Version flags to try in order (default: `["--version", "-v"]`).
 ///   - timeout: Timeout per attempt in seconds (default: 30).
 /// - Returns: The version string, or `"unknown"` if detection fails.
@@ -144,9 +149,16 @@ func detectToolVersion(
     toolName: String,
     environment: String,
     condaManager: CondaManager,
+    condaPackage: String? = nil,
     flags: [String] = ["--version", "-v"],
     timeout: TimeInterval = 30
 ) async throws -> String {
+    if let condaPackage {
+        let environmentURL = await condaManager.environmentURL(named: environment)
+        if let package = CondaMetaReader.primaryPackage(named: condaPackage, inEnvironment: environmentURL) {
+            return package.version
+        }
+    }
     for flag in flags {
         do {
             let result = try await condaManager.runTool(
@@ -155,16 +167,8 @@ func detectToolVersion(
                 environment: environment,
                 timeout: timeout
             )
-            let combined = result.stdout + result.stderr
-            let trimmed = combined.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let range = trimmed.range(
-                of: #"\d+\.\d+(\.\d+)?"#,
-                options: .regularExpression
-            ) {
-                return String(trimmed[range])
-            }
-            if !trimmed.isEmpty {
-                return trimmed.components(separatedBy: .newlines).first ?? trimmed
+            if let version = parseToolVersion(from: result.stdout + result.stderr) {
+                return version
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -175,4 +179,24 @@ func detectToolVersion(
     }
     if Task.isCancelled { throw CancellationError() }
     return "unknown"
+}
+
+/// Extracts a version from a tool's `--version` style output.
+///
+/// Returns the first semver-like pattern (e.g. `2.1.3`) outside any file
+/// path, else the first output line, else `nil` for empty output. Paths are
+/// skipped because several tools print their own location before the
+/// version. EsViritu prints `.../lib/python3.14/site-packages/EsViritu`
+/// then `1.3.3`, and a match inside that path recorded Python's `3.14` as
+/// EsViritu's version. Bowtie2 and SKESA print their executable path too.
+func parseToolVersion(from output: String) -> String? {
+    let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    let tokens = trimmed.components(separatedBy: .whitespacesAndNewlines)
+    for token in tokens where !token.contains("/") {
+        if let range = token.range(of: #"\d+\.\d+(\.\d+)?"#, options: .regularExpression) {
+            return String(token[range])
+        }
+    }
+    return trimmed.components(separatedBy: .newlines).first ?? trimmed
 }
