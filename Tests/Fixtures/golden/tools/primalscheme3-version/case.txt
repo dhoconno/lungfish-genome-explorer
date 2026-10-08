@@ -1,0 +1,6 @@
+id: primalscheme3-version
+tool: primalscheme3
+tier: heavy
+runner: nativeProcess
+call: NativeToolRunner.runProcess(envs/primalscheme3/bin/primalscheme3)
+compares: argv, exit, stdout, stderr

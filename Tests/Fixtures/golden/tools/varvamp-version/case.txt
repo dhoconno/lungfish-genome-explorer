@@ -1,0 +1,6 @@
+id: varvamp-version
+tool: varvamp
+tier: heavy
+runner: nativeProcess
+call: NativeToolRunner.runProcess(envs/varvamp/bin/varvamp)
+compares: argv, exit, stdout, stderr

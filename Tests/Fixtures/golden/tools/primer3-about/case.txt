@@ -1,0 +1,6 @@
+id: primer3-about
+tool: primer3
+tier: heavy
+runner: nativeProcess
+call: NativeToolRunner.runProcess(envs/primer3/bin/primer3_core)
+compares: argv, exit, stdout, stderr

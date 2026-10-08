@@ -1,0 +1,6 @@
+id: olivar-version
+tool: olivar
+tier: heavy
+runner: nativeProcess
+call: NativeToolRunner.runProcess(envs/olivar/bin/olivar)
+compares: argv, exit, stdout, stderr

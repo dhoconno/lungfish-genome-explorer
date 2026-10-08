@@ -1,0 +1,2 @@
+<STORAGE_ROOT>/conda/envs/varvamp/bin/varvamp
+--version

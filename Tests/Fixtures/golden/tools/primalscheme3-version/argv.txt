@@ -1,0 +1,2 @@
+<STORAGE_ROOT>/conda/envs/primalscheme3/bin/primalscheme3
+--version

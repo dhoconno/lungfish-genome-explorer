@@ -1,0 +1,2 @@
+<STORAGE_ROOT>/conda/envs/primer3/bin/primer3_core
+--about
