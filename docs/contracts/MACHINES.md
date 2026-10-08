@@ -60,17 +60,32 @@ A golden environment changes only through a reviewed commit that updates the loc
 
 The `Golden` workflow in `.github/workflows/golden.yml` runs on a runner with the labels `self-hosted`, `macOS`, `ARM64` and `lge-golden`. It runs on pushes to `main` and on demand, never on pull requests, because a self-hosted runner executes whatever it checks out. Its permissions are read-only and it reads no secrets. `ci.yml` stays dispatch-only, as its header explains, and no job runs on a hosted runner because of this contract.
 
-The owner registers the runner once on the Mac Studio. First the account and the runner service.
+The owner registers the runner once on the Mac Studio. It was set up this way on 2026-10-08.
 
-1. Create a standard macOS account for the runner, for example `lge-runner`. The runner must not use the account that holds the signing identity and notary profile, because workflow code runs with that account's keychain.
+### Account and runner
+
+
+1. Create a standard macOS account for the runner, `lge-runner`. The runner must not use the account that holds the signing identity and notary profile, because workflow code runs with that account's keychain. A standard account is in the `staff` group, which the golden folder is shared with.
 2. Check that full Xcode 27 is installed in `/Applications`, that its license is accepted and that its first launch is complete.
-3. In the repository's Settings, open Actions, then Runners, then New self-hosted runner, and pick macOS and ARM64. As `lge-runner`, follow the download steps it shows, then run `./config.sh` with the URL and token it gives and `--labels lge-golden --name mac-studio-golden`.
-4. Install the runner as a service with `./svc.sh install` and `./svc.sh start`. The service is a launch agent, so `lge-runner` must stay logged in. Fast user switching keeps it running beside a person's session.
+3. In the repository's Settings, open Actions, then Runners, then New self-hosted runner, and pick macOS and ARM64. As `lge-runner`, download the runner into `/Users/lge-runner/actions-runner` as the page shows, then run `./config.sh` with the URL and token it gives and `--labels lge-golden --name mac-studio-golden`.
 
-Then the environment and a first run.
+### Launch daemon
 
-1. As `lge-runner`, clone the repository and run `python3 scripts/golden/environment.py provision` once, so the first workflow run does not wait for downloads.
+The runner runs as a launch daemon, so it starts at boot and needs nobody logged in. Do not use `./svc.sh install`, which makes a launch agent that loads only into a logged-in session of `lge-runner`. Run these from an administrator account.
+
+1. Copy `scripts/golden/runner/actions.runner.dhoconno-lungfish-genome-explorer.mac-studio-golden.plist` to `/Library/LaunchDaemons/` with `sudo cp`. It runs `runsvc.sh` from `/Users/lge-runner/actions-runner` as `lge-runner` and logs to `/Users/lge-runner/Library/Logs`.
+2. Give it to root with `sudo chown root:wheel` and `sudo chmod 644` on the copy.
+3. Load it with `sudo launchctl bootstrap system /Library/LaunchDaemons/actions.runner.dhoconno-lungfish-genome-explorer.mac-studio-golden.plist`.
+4. Check it with `sudo launchctl print system/actions.runner.dhoconno-lungfish-genome-explorer.mac-studio-golden`, which shows `state = running`, and in Settings, where the runner shows as Idle.
+
+To run a command as `lge-runner` from another account, use `sudo -H -u lge-runner`. Without `-H` the command keeps the caller's home folder.
+
+### Environment and first run
+
+1. The golden folder is shared, so a folder another account already provisioned on the same Mac needs nothing more. Otherwise, as `lge-runner`, clone the repository and run `python3 scripts/golden/environment.py provision` once, so the first workflow run does not wait for downloads.
 2. Run the workflow by hand with `gh workflow run golden.yml --ref main` and check that it passes.
+
+Every golden run and every provision leaves what it wrote group writable (`share_tree` in `scripts/golden/environment.py`), because the next run may belong to the other account and empties `run/` first.
 
 ## Where the rules live in code
 

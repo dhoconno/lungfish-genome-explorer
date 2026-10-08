@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>actions.runner.dhoconno-lungfish-genome-explorer.mac-studio-golden</string>
+  <key>UserName</key><string>lge-runner</string>
+  <key>ProgramArguments</key><array><string>/Users/lge-runner/actions-runner/runsvc.sh</string></array>
+  <key>WorkingDirectory</key><string>/Users/lge-runner/actions-runner</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>ACTIONS_RUNNER_SVC</key><string>1</string>
+    <key>HOME</key><string>/Users/lge-runner</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/lge-runner/Library/Logs/actions.runner.dhoconno-lungfish-genome-explorer.mac-studio-golden.log</string>
+  <key>StandardErrorPath</key><string>/Users/lge-runner/Library/Logs/actions.runner.dhoconno-lungfish-genome-explorer.mac-studio-golden.log</string>
+</dict>
+</plist>

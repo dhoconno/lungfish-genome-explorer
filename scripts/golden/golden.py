@@ -176,6 +176,16 @@ def portability_problems(name: str, outputs: dict[str, bytes], run_root: Path) -
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return run(argv)
+    finally:
+        # The next run may belong to another account on this Mac (the runner
+        # or a person), and it empties run/ and rewrites cache/ files.
+        for folder in (RUN_ROOT, CACHE_ROOT):
+            environment.share_tree(folder)
+
+
+def run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("mode", choices=("compare", "capture"))
     parser.add_argument("--only", action="append", choices=sorted(captures.CAPTURES), metavar="CAPTURE",

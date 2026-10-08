@@ -242,3 +242,17 @@ def test_derived_database_files_are_made_with_a_locked_environment(tmp_path):
     entry["derivedFiles"] = [{"file": "hash.k2d.idx", "environment": "tool", "command": ["index", "hash.k2d"]}]
     environment.derive_files(storage, entry, environment.database_path(storage, entry))
     assert (environment.database_path(storage, entry) / "hash.k2d.idx").read_bytes() == b"DATABASE BYTES"
+
+
+def test_share_tree_lets_the_group_replace_what_this_account_wrote(tmp_path):
+    history = tmp_path / "run" / ".lungfish-operation-history" / "a"
+    history.mkdir(parents=True)
+    (history / "row.json").write_text("{}")
+    (history / "row.json").chmod(0o644)
+    history.chmod(0o755)
+    history.parent.chmod(0o755)
+    (tmp_path / "run" / "link").symlink_to("/nonexistent")
+    environment.share_tree(tmp_path / "run")
+    assert history.stat().st_mode & 0o7777 == 0o2775
+    assert history.parent.stat().st_mode & 0o2070 == 0o2070
+    assert (history / "row.json").stat().st_mode & 0o777 == 0o664

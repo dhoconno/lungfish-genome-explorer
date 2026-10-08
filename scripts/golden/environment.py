@@ -269,6 +269,32 @@ def prepare_golden_home(home: Path = GOLDEN_HOME) -> None:
         home.chmod(SHARED_FOLDER_MODE)
 
 
+def share_tree(root: Path) -> None:
+    """Make what this account wrote under root writable by its group.
+
+    Tools ignore the umask for some folders (lungfish-cli creates
+    .lungfish-operation-history as 0755, conda packages keep their own
+    modes), and another account can delete or replace an entry only when its
+    folder is group writable. Entries other accounts own are left as they are.
+    """
+    if not root.exists():
+        return
+    uid = os.getuid()
+    for path in [root, *root.rglob("*")]:
+        try:
+            status = path.lstat()
+        except FileNotFoundError:
+            continue
+        if status.st_uid != uid or path.is_symlink():
+            continue
+        mode = status.st_mode & 0o7777
+        wanted = mode | 0o020
+        if path.is_dir():
+            wanted |= 0o2010
+        if wanted != mode:
+            path.chmod(wanted)
+
+
 def _package_matches_spec(package: Package, spec: str) -> bool:
     """bioconda::minimap2=2.31=h6bd33b9_0 names minimap2-2.31-h6bd33b9_0.conda."""
     _, _, pin = spec.partition("::")
@@ -495,6 +521,8 @@ def provision(storage: Path = STORAGE_ROOT, lock_dir: Path = LOCK_DIR) -> None:
     for entry in lock["databases"]:
         install_database(storage, entry, downloads)
     write_registry(lock, storage)
+    if storage == STORAGE_ROOT:
+        share_tree(GOLDEN_HOME)
     problems = verify(storage, lock, lock_dir)
     if problems:
         raise LockError("\n".join(problems))
