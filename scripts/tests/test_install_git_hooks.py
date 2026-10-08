@@ -317,6 +317,15 @@ class InstallGitHooksUnitEvidenceTests(unittest.TestCase):
         self.assertEqual(self.unit_arguments.read_text().split(), ["--tier", "unit"])
         self.assertEqual(self.asked_about(self.evidence_calls()[0]), [pushed])
 
+    def test_code_that_already_failed_the_unit_tier_is_refused_without_a_rerun(self):
+        self.commit("second")
+
+        result = self.git("push", "origin", "main", check=False, evidence_exit=3)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("unit tier already failed on this code", result.stdout)
+        self.assertFalse(self.unit_marker.exists(), "a red commit is diagnosed, never retried by the hook")
+
     def test_a_failing_unit_gate_still_blocks_the_push(self):
         self.commit("second")
         self.write_stub("scripts/full-suite-gate.sh", "#!/bin/bash\nexit 1\n")

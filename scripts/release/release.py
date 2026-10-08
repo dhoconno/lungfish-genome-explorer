@@ -43,8 +43,9 @@ from sparkle_yank import (  # noqa: E402
     parse_appcast_items,
     plan_yank,
 )
-from gate_evidence import (EvidenceError, create_manifest, evidence_log_roots,  # noqa: E402
-                           find_unit_evidence, source_identity, verify_manifest)
+from gate_evidence import (EvidenceError, _descendant_pids, create_manifest,  # noqa: E402
+                           evidence_log_roots, find_unit_evidence, source_identity,
+                           verify_manifest)
 from release_cache_fingerprint import (  # noqa: E402
     CacheFingerprintError,
     CachePaths,
@@ -85,8 +86,48 @@ def _record_timing(phase: str, seconds: float, exit_status: int | None) -> None:
         stream.write(json.dumps(record, sort_keys=True) + "\n")
 
 
+def _stop_process_group(process: Any, grace: float = 30.0) -> None:
+    """Stop a child and everything it started: its process group, and every
+    descendant in another session too (full-suite-gate.sh runs `swift test`
+    in its own session). SIGTERM first, then SIGKILL after grace."""
+    if process.poll() is not None:
+        return
+    descendants = _descendant_pids(process.pid)
+
+    def signal_all(sig: int) -> None:
+        try:
+            os.killpg(process.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass  # Already gone, or an exited leader macOS answers with EPERM.
+        for pid in descendants:
+            try:
+                os.kill(pid, sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    signal_all(signal.SIGTERM)
+    try:
+        process.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        signal_all(signal.SIGKILL)
+        process.wait()
+    for pid in descendants:  # A descendant in its own session outlives its parent.
+        try:
+            os.kill(pid, 0)
+        except (ProcessLookupError, PermissionError):
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
 class ReleaseError(RuntimeError):
     pass
+
+
+class UnitTierRed(ReleaseError):
+    """The newest canonical unit-tier run on the candidate's code failed."""
 
 
 def load_release_profile(path: Path) -> ReleaseProfile:
@@ -110,6 +151,7 @@ class PackageBuild:
     process: Any
     handoff: int | None
     started: float
+    source: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -278,7 +320,6 @@ def _sha256_file(path: Path) -> str:
 # ancestor covers the commit when every path changed since then is
 # release-neutral (gates.releaseNeutralPaths), so committing release notes
 # never forces a second unit-tier run (docs/contracts/VERIFICATION-ORDER.md).
-UNIT_GATE_POINTER_RELATIVE_PATH = ".build/gate-logs/latest-unit.json"
 # The unit tier's own budget is 45 minutes (gate_evidence.DEFAULT_TIER_TIMEOUT_SECONDS).
 UNIT_GATE_WAIT_SECONDS = 60 * 60
 
@@ -301,6 +342,13 @@ def verify_unit_gate_precondition(
             "no unit-tier gate evidence covers this exact commit or a "
             "release-neutral ancestor; run `scripts/full-suite-gate.sh --tier unit` "
             "at HEAD on a clean tree and retry"
+        )
+    if record["kind"] == "red":
+        # docs/contracts/VERIFICATION-ORDER.md: a red unit tier is diagnosed
+        # and fixed in a new commit, never retried on the same code.
+        raise UnitTierRed(
+            f"the unit tier failed on {record['gatedCommit'][:12]} ({record['resultPath']}); "
+            "diagnose the failure, fix it in a new commit and package that one"
         )
     return record
 
@@ -591,7 +639,17 @@ def run_package(root: Path, channel: str) -> int:
         identity = operations.verify_candidate_receipt(request)
         print(f"Reused verified exact candidate: {identity.receipt}")
     else:
-        identity = ReleaseCoordinator(operations).package(request)
+        def stop(signum: int, _frame: Any) -> None:
+            raise SystemExit(128 + signum)
+
+        # A signal the caller ignores (nohup ignores SIGHUP) stays ignored.
+        previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGHUP)
+                    if signal.getsignal(sig) is not signal.SIG_IGN}
+        try:
+            identity = ReleaseCoordinator(operations).package(request)
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
     print(f"Package candidate: {identity.receipt}")
     return 0
 
@@ -1454,6 +1512,10 @@ def _verify_mutable_release_identity(
 
 
 class LocalReleaseOperations:
+    # The clean commit and the build of the package run in progress, if any.
+    _package_source: dict[str, Any] | None = None
+    _active_build: PackageBuild | None = None
+
     def __init__(
         self,
         root: Path,
@@ -1734,52 +1796,99 @@ class LocalReleaseOperations:
             if (match is None or not commit.startswith(match.group(1))
                     or (entry / "gate.result.json").exists()):
                 continue
+            # A run writes its logs continuously. A folder untouched for longer
+            # than the unit tier's whole budget belongs to a crashed run, even
+            # if its pid now names an unrelated process.
+            touched = 0.0
+            for item in [entry, *entry.rglob("*")]:
+                try:
+                    touched = max(touched, item.lstat().st_mtime)
+                except OSError:
+                    continue
+            if time.time() - touched > UNIT_GATE_WAIT_SECONDS:
+                continue
             try:
                 os.kill(int(match.group(2)), 0)
-            except (ProcessLookupError, ValueError):
-                continue
+                return True
             except PermissionError:
+                return True
+            except (ProcessLookupError, ValueError):
                 pass
-            return True
+            if str(entry) in self._process_command_lines():
+                return True
         return False
 
-    def _red_unit_result(self, commit: str) -> Path | None:
-        """The newest unit-tier result recorded on exactly this commit, when it
-        failed. A newer passing run on the commit would already cover it."""
-        newest: tuple[float, Path, dict[str, Any]] | None = None
-        for parent in evidence_log_roots(self.root):
-            try:
-                folders = list(parent.iterdir())
-            except OSError:
-                continue
-            for folder in folders:
-                result_path = folder / "gate.result.json"
+    @staticmethod
+    def _process_command_lines() -> str:
+        listing = subprocess.run(["/bin/ps", "-axo", "command="], capture_output=True, text=True, check=False)
+        return listing.stdout if listing.returncode == 0 else ""
+
+    def _pinned_source(self) -> dict[str, Any]:
+        """The clean commit this package run started compiling, or the
+        checkout's current identity when no build is running."""
+        return self._package_source or source_identity(self.root)
+
+    def _require_pinned_source(self, pinned: dict[str, Any]) -> None:
+        if source_identity(self.root) != pinned:
+            raise ReleaseError(
+                "the checkout changed while packaging; package compiled and gated "
+                f"{str(pinned.get('commit', ''))[:12]}, so start again on the new commit"
+            )
+
+    def _run_gate(self, command: list[str], environment: dict[str, str]) -> int:
+        """Run one gate command. While a candidate build runs, poll it and
+        stop the gate as soon as the build stops, so a compile failure
+        surfaces in seconds rather than after the whole unit tier."""
+        build = self._active_build
+        if build is None:
+            return self.runner.run(command, env=environment, check=False).returncode
+        started = time.monotonic()
+        process = subprocess.Popen(
+            command, cwd=self.root, env={**self.runner.environment, **environment},
+            stdin=subprocess.DEVNULL, start_new_session=True,
+        )
+        try:
+            while True:
                 try:
-                    if folder.is_symlink() or result_path.is_symlink() or not result_path.is_file():
-                        continue
-                    result = json.loads(result_path.read_text(encoding="utf-8"))
-                    modified = result_path.stat().st_mtime
-                except (OSError, ValueError, UnicodeError):
-                    continue
-                if (not isinstance(result, dict) or result.get("options", {}).get("tier") != "unit"
-                        or result.get("source", {}).get("commit") != commit):
-                    continue
-                if newest is None or modified > newest[0]:
-                    newest = (modified, result_path, result)
-        if newest is not None and newest[2].get("authorized") is not True:
-            return newest[1]
-        return None
+                    status = process.wait(timeout=5)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                if build.process.poll() is not None:
+                    raise ReleaseError(
+                        f"the candidate build stopped early (exit {build.process.returncode}); "
+                        "its gates were stopped"
+                    )
+        except BaseException:
+            _stop_process_group(process)
+            raise
+        phase = Path(command[0]).name
+        for argument in command[1:3]:
+            if Path(argument).suffix in {".py", ".sh"}:
+                phase = Path(argument).name
+                break
+        _record_timing(phase, time.monotonic() - started, status)
+        return status
 
     def _ensure_unit_evidence(self, gate_environment: dict[str, str]) -> dict[str, Any]:
-        """Reuse unit-tier evidence that covers HEAD, wait for a unit-tier
-        run on HEAD that is already going, or run the unit tier now while the
-        candidate compiles. Never two unit-tier runs on one tree."""
-        source = source_identity(self.root)
+        """Reuse unit-tier evidence that covers the pinned commit, wait for a
+        unit-tier run on it that is already going, or run the unit tier now
+        while the candidate compiles. Never two unit-tier runs on one tree,
+        and never a second run on code whose newest run failed."""
+        source = self._pinned_source()
         neutral = self.contract.gates.releaseNeutralPaths
-        try:
-            return verify_unit_gate_precondition(self.root, source, neutral)
-        except ReleaseError:
-            pass
+
+        def covering() -> dict[str, Any] | None:
+            try:
+                return verify_unit_gate_precondition(self.root, source, neutral)
+            except UnitTierRed:
+                raise
+            except ReleaseError:
+                return None
+
+        record = covering()
+        if record is not None:
+            return record
         if self._running_unit_gate(source["commit"]):
             print("A unit-tier run on this commit is in progress; waiting for its evidence.")
             deadline = time.monotonic() + UNIT_GATE_WAIT_SECONDS
@@ -1789,26 +1898,21 @@ class LocalReleaseOperations:
                         "a unit-tier run on this commit has not finished after "
                         f"{UNIT_GATE_WAIT_SECONDS // 60} minutes; check its gate-logs folder"
                     )
+                if self._active_build is not None and self._active_build.process.poll() is not None:
+                    raise ReleaseError(
+                        f"the candidate build stopped early (exit {self._active_build.process.returncode})"
+                    )
                 time.sleep(30)
-            try:
-                return verify_unit_gate_precondition(self.root, source, neutral)
-            except ReleaseError:
-                pass
-        red = self._red_unit_result(source["commit"])
-        if red is not None:
-            # docs/contracts/VERIFICATION-ORDER.md: a red unit tier is
-            # diagnosed and fixed, never retried on the same commit.
-            raise ReleaseError(
-                f"the unit tier failed on this commit ({red}); diagnose the failure, "
-                "fix it in a new commit and package that one"
-            )
+            record = covering()
+            if record is not None:
+                return record
         print("No unit-tier evidence covers this commit; running the unit tier now "
               "while the candidate compiles (about 25 minutes).")
-        self.runner.run(
+        self._run_gate(
             ["/bin/bash", str(self.root / "scripts/full-suite-gate.sh"), "--tier", "unit", "--quiet"],
-            env=gate_environment, check=False,
+            gate_environment,
         )
-        return verify_unit_gate_precondition(self.root, source_identity(self.root), neutral)
+        return verify_unit_gate_precondition(self.root, source, neutral)
 
     def run_local_gates(self, request: ReleaseRequest) -> GateEvidence:
         if self.contract.gates.dependencyPolicy == "installed":
@@ -1820,18 +1924,30 @@ class LocalReleaseOperations:
             "PATH": f"{gate_python.parent}:{self.runner.environment.get('PATH', '')}",
             "LUNGFISH_RELEASE_PYTHON": str(gate_python),
         }
+        pinned = self._pinned_source()
         unit_evidence = self._ensure_unit_evidence(gate_environment)
         print(f"Unit-tier evidence ({unit_evidence['kind']}): {unit_evidence['resultPath']}")
+        if unit_evidence.get("candidateCommit") != pinned.get("commit"):
+            raise ReleaseError("unit-tier evidence names a different commit than the one packaged")
         # The builder replaces release_dir. Keep immutable staging outside it;
         # receipt creation retains and revalidates the exact bytes below it.
         parent = self.root / ".build/gate-logs"
         parent.mkdir(parents=True, exist_ok=True)
         directory = Path(tempfile.mkdtemp(prefix="release-", dir=parent))
-        # Bound into the manifest (and so the receipt) with every other file here.
+        # Bound into the manifest (and so the receipt) with every other file
+        # here, including a copy of the covering result, so the receipt's
+        # trail survives the removal of the worktree that ran it.
         (directory / "unit-precondition.json").write_text(
             json.dumps(unit_evidence, sort_keys=True, indent=2) + "\n", encoding="utf-8"
         )
-        source = source_identity(self.root)
+        try:
+            covering = Path(unit_evidence["resultPath"]).read_bytes()
+            if hashlib.sha256(covering).hexdigest() != unit_evidence["resultSha256"]:
+                raise ReleaseError("unit-tier evidence changed after it was checked")
+            (directory / "unit-precondition.result.json").write_bytes(covering)
+        except OSError as error:
+            raise ReleaseError(f"unit-tier evidence could not be retained ({error})") from error
+        source = pinned
         dependency_digest = hashlib.sha256(request.dependency_receipt.read_bytes()).hexdigest()
         result_paths = []
         commands = [([
@@ -1851,10 +1967,10 @@ class LocalReleaseOperations:
                 environment["LUNGFISH_STORAGE_ROOT"] = str(request.dependency_receipt.parent)
             commands.append((command, environment, output / "gate.result.json"))
         for command, environment, result_path in commands:
-            result = self.runner.run(command, env=environment, check=False)
-            if result.returncode != 0:
+            if self._run_gate(command, environment) != 0:
                 raise ReleaseError(f"local release gate failed; retained evidence: {directory}")
             result_paths.append(result_path)
+        self._require_pinned_source(pinned)
         try:
             if hashlib.sha256(request.dependency_receipt.read_bytes()).hexdigest() != dependency_digest:
                 raise EvidenceError("dependency receipt changed during gates")
@@ -1891,6 +2007,13 @@ class LocalReleaseOperations:
         ]
 
     def start_package_build(self, request: ReleaseRequest) -> PackageBuild:
+        # Pin the clean commit before anything compiles. The gates, the
+        # handoff and the builder all check that the checkout still holds it.
+        pinned = source_identity(self.root)
+        if pinned.get("clean") is not True or not pinned.get("commit"):
+            raise ReleaseError("package requires a clean checkout")
+        if HEX_COMMIT.fullmatch(request.release_dir.name) and pinned["commit"] != request.release_dir.name:
+            raise ReleaseError("HEAD moved after package started; start it again")
         read_end, write_end = os.pipe()
         try:
             command = self._package_command(request, ["--gate-handoff-fd", str(read_end)])
@@ -1908,8 +2031,15 @@ class LocalReleaseOperations:
             raise
         finally:
             os.close(read_end)
-        print(f"Building the candidate while the gates run (builder pid {process.pid}).")
-        return PackageBuild(process=process, handoff=write_end, started=time.monotonic())
+        build = PackageBuild(process=process, handoff=write_end, started=time.monotonic(), source=pinned)
+        try:
+            print(f"Building the candidate while the gates run (builder pid {process.pid}).")
+            self._package_source = pinned
+            self._active_build = build
+        except BaseException:
+            self.abort_package_build(build)
+            raise
+        return build
 
     def _close_handoff(self, build: PackageBuild) -> None:
         if build.handoff is not None:
@@ -1921,11 +2051,16 @@ class LocalReleaseOperations:
             self.abort_package_build(build)
             raise ReleaseError("package requires immutable gate evidence")
         try:
+            if build.source is not None:
+                self._require_pinned_source(build.source)
             verify_manifest(request.gate_evidence.manifest, request.gate_evidence.sha256,
-                            source_identity(self.root), request.channel, self.contract)
+                            build.source or source_identity(self.root), request.channel, self.contract)
         except (EvidenceError, OSError, ValueError) as error:
             self.abort_package_build(build)
             raise ReleaseError(f"package gate evidence is invalid: {error}") from error
+        except BaseException:
+            self.abort_package_build(build)
+            raise
         handoff = f"PASS\n{request.gate_evidence.sha256}\n{request.gate_evidence.manifest}\n"
         try:
             os.write(build.handoff, handoff.encode("utf-8"))
@@ -1933,7 +2068,14 @@ class LocalReleaseOperations:
             pass  # The builder already exited; its status below says why.
         finally:
             self._close_handoff(build)
-        status = build.process.wait()
+        try:
+            status = build.process.wait()
+        except BaseException:
+            # An interrupt here must not leave the builder holding the
+            # compiler-cache lock.
+            self.abort_package_build(build)
+            raise
+        self._active_build = None
         _record_timing("build-notarized-dmg.sh", time.monotonic() - build.started, status)
         if status != 0:
             raise ReleaseError(f"command failed with exit {status}: build-notarized-dmg.sh")
@@ -1945,19 +2087,8 @@ class LocalReleaseOperations:
 
     def abort_package_build(self, build: PackageBuild) -> None:
         self._close_handoff(build)
-        if build.process.poll() is None:
-            try:
-                os.killpg(build.process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                build.process.wait(timeout=60)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(build.process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                build.process.wait()
+        _stop_process_group(build.process, grace=60)
+        self._active_build = None
         _record_timing("build-notarized-dmg.sh", time.monotonic() - build.started, build.process.returncode)
 
     def validate_sparkle_build_number(

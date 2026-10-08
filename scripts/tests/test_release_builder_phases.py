@@ -38,6 +38,7 @@ class ReleaseBuilderFixture:
         self.bin = self.root / "bin"
         self.events = self.root / "events.log"
         self.gh_state = self.root / "gh-state.json"
+        self.notices_log = self.root / "notices-calls.log"
         self.scratch_root = self.root / "scratch-root"
         self.release = self.root / "release"
         self.archive = self.root / "archive" / "Lungfish.xcarchive"
@@ -170,18 +171,29 @@ class ReleaseBuilderFixture:
 
     def _install_internal_phase_wrappers(self):
         release_dir = self.repo / "scripts" / "release"
-        # Commit a9f982c67 made the builder check/regenerate
-        # THIRD-PARTY-NOTICES from real manifests. Notice generation has its
-        # own tests (test_generate_notices); this fixture commits a notices
-        # file and a double that reports it current, so the builder phases
-        # under test never rewrite a tracked file from fixture manifests.
+        # The builder only checks THIRD-PARTY-NOTICES against its manifests and
+        # fails when it is stale. It never rewrites the tracked file, because the
+        # gates test that same checkout while it builds. Notice generation has its
+        # own tests (test_generate_notices); this fixture commits a notices file
+        # and a double that reports it current. The double records every call in
+        # BUILDER_NOTICES_LOG, reports it stale when BUILDER_NOTICES_STALE is 1, and
+        # fails any call that is not --check, as a rewrite would be.
         self._write(self.repo / "THIRD-PARTY-NOTICES", "Fixture third-party notices\n")
         self._write_executable(
             release_dir / "generate-notices.py",
             r"""
             #!/usr/bin/python3
+            import os
             import sys
-            raise SystemExit(0 if sys.argv[1:] == ["--check"] else 70)
+            from pathlib import Path
+
+            log = os.environ.get("BUILDER_NOTICES_LOG")
+            if log:
+                with Path(log).open("a", encoding="utf-8") as handle:
+                    handle.write(" ".join(sys.argv[1:]) + "\n")
+            if sys.argv[1:] != ["--check"]:
+                raise SystemExit(70)
+            raise SystemExit(1 if os.environ.get("BUILDER_NOTICES_STALE") == "1" else 0)
             """,
         )
         self._write_executable(
@@ -298,6 +310,9 @@ class ReleaseBuilderFixture:
                 shift
             done
             printf 'smoke:%s:%s\n' "$phase" "$scratch" >>"$BUILDER_EVENTS"
+            if [ "${BUILDER_MOVE_HEAD:-}" = late ] && [ "$phase" = complete ]; then
+                git -c commit.gpgsign=false commit -q --allow-empty -m "moved after the candidate was assembled"
+            fi
             echo 'PASS fixture smoke'
             """,
         )
@@ -332,6 +347,9 @@ class ReleaseBuilderFixture:
                 exit 91
             fi
             printf 'xcodebuild:%s\n' "$*" >>"$BUILDER_EVENTS"
+            if [ "${BUILDER_MOVE_HEAD:-}" = compile ]; then
+                git -c commit.gpgsign=false commit -q --allow-empty -m "moved while the candidate compiled"
+            fi
             products=
             build=1
             while [ "$#" -gt 0 ]; do
@@ -780,6 +798,7 @@ class ReleaseBuilderFixture:
                 "BUILDER_DOCTOR_FAIL": "1" if doctor_fail else "0",
                 "BUILDER_CODESIGN_COUNT": str(self.root / "codesign-count"),
                 "BUILDER_GH_STATE": str(self.gh_state),
+                "BUILDER_NOTICES_LOG": str(self.notices_log),
                 "PYTHONDONTWRITEBYTECODE": "1",
             }
         )
@@ -826,6 +845,10 @@ class ReleaseBuilderFixture:
 
     def event_lines(self):
         return self.events.read_text().splitlines() if self.events.exists() else []
+
+    def notices_calls(self):
+        """The arguments of every generate-notices.py call the builder made."""
+        return self.notices_log.read_text().splitlines() if self.notices_log.exists() else []
 
     def verify_receipt(self, *, channel="stable"):
         return subprocess.run(
@@ -2366,7 +2389,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             with self.subTest(tool=tool):
                 self.assertIn(f"/usr/bin/{tool}", source)
 
-    def run_with_handoff(self, handoff, *arguments, high_descriptor=False):
+    def run_with_handoff(self, handoff, *arguments, high_descriptor=False, **run_options):
         """Run the builder as the coordinator does: no gate manifest on the
         command line, and an inherited pipe that carries the gate result once
         the candidate is assembled. ``handoff`` is what the coordinator wrote
@@ -2384,7 +2407,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             os.close(write_end)
             write_end = None
             return self.fixture.run("--package-only", *arguments, "--gate-handoff-fd", str(read_end),
-                                    with_gate_manifest=False, pass_fds=(read_end,))
+                                    with_gate_manifest=False, pass_fds=(read_end,), **run_options)
         finally:
             os.close(read_end)
             if write_end is not None:
@@ -2461,6 +2484,62 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         result = self.run_with_handoff(f"PASS\n{'0' * 64}\n{manifest}\n", "--channel", "stable")
 
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.fixture.release / "unsigned-candidate-receipt.json").exists())
+        self.assertNotIn("Unsigned package complete", result.stdout)
+
+    def test_stale_third_party_notices_fail_the_package_and_are_never_rewritten(self):
+        notices = self.fixture.repo / "THIRD-PARTY-NOTICES"
+        tracked = notices.read_bytes()
+
+        stale = self.fixture.run("--package-only", "--channel", "stable",
+                                 extra_env={"BUILDER_NOTICES_STALE": "1"})
+
+        self.assertEqual(stale.returncode, 65, stale.stdout + stale.stderr)
+        self.assertIn("run scripts/release/generate-notices.py and commit the result", stale.stderr)
+        self.assertEqual(self.fixture.notices_calls(), ["--check"],
+                         "the builder checked and never asked for a rewrite")
+        self.assertEqual(notices.read_bytes(), tracked)
+        self.assertEqual(self.fixture._git("status", "--porcelain").stdout, "",
+                         "no tracked file changed under the gates")
+        self.assertFalse((self.fixture.release / "unsigned-candidate-receipt.json").exists())
+        self.assertFalse((self.fixture.release / "package-metadata.txt").exists())
+        self.assertNotIn("Unsigned package complete", stale.stdout)
+
+        current = self.fixture.run("--package-only", "--channel", "stable")
+
+        self.assertEqual(current.returncode, 0, current.stdout + current.stderr)
+        shipped = self.fixture.release / "Lungfish.app/Contents/Resources/THIRD-PARTY-NOTICES"
+        self.assertEqual(shipped.read_bytes(), tracked, "the notices that ship are the tracked file")
+        self.assertEqual(self.fixture.notices_calls(), ["--check", "--check"])
+        self.assertEqual(self.fixture._git("status", "--porcelain").stdout, "")
+
+    def test_the_receipt_is_refused_when_head_moved_while_the_candidate_compiled(self):
+        head = self.fixture._git("rev-parse", "HEAD").stdout.strip()
+
+        result = self.fixture.run("--package-only", "--channel", "stable",
+                                  extra_env={"BUILDER_MOVE_HEAD": "compile"})
+
+        self.assertNotEqual(self.fixture._git("rev-parse", "HEAD").stdout.strip(), head,
+                            "control: the compile double really moved HEAD")
+        self.assertEqual(result.returncode, 65, result.stdout + result.stderr)
+        self.assertIn("HEAD moved while the candidate compiled", result.stderr)
+        self.assertFalse((self.fixture.release / "unsigned-candidate-receipt.json").exists())
+        self.assertFalse((self.fixture.release / "package-metadata.txt").exists())
+        self.assertNotIn("Unsigned package complete", result.stdout)
+
+    def test_head_moving_while_the_gates_run_refuses_the_receipt_even_after_a_pass(self):
+        manifest, digest = self.fixture.gate_manifest("stable")
+        head = self.fixture._git("rev-parse", "HEAD").stdout.strip()
+
+        result = self.run_with_handoff(f"PASS\n{digest}\n{manifest}\n", "--channel", "stable",
+                                       extra_env={"BUILDER_MOVE_HEAD": "late"})
+
+        self.assertNotEqual(self.fixture._git("rev-parse", "HEAD").stdout.strip(), head,
+                            "control: HEAD moved after the candidate was assembled")
+        self.assertIn("waiting for the release gates", result.stderr)
+        self.assertEqual(result.returncode, 65, result.stdout + result.stderr)
+        self.assertIn("HEAD moved while the candidate compiled", result.stderr)
+        self.assertNotIn("handoff is malformed", result.stderr, "the PASS itself was accepted")
         self.assertFalse((self.fixture.release / "unsigned-candidate-receipt.json").exists())
         self.assertNotIn("Unsigned package complete", result.stdout)
 

@@ -21,13 +21,13 @@ Unit-tier evidence lives under `.build/gate-logs` in the checkout that ran it, a
 python3 scripts/release/gate_evidence.py unit-evidence --root . --commit HEAD
 ```
 
-It prints `exact`, `inherited` (with the commit that was tested) or `none`, and exits 0 only when evidence covers every commit named.
+It prints `exact`, `inherited` (with the commit that was tested), `red` (the run that decides this code failed) or `none`. The newest canonical run on a commit decides that commit, and without one the nearest ancestor with a run whose changes since are all release-neutral decides. It exits 0 only when evidence covers every commit named, and 3 when any of them already failed. The pre-push hook then refuses the push rather than running the unit tier again on that code.
 
 ## Release-neutral paths
 
 A release-neutral path is documentation that no test reads, so a change there cannot change a test result. `gates.releaseNeutralPaths` in `config/release-contract.json` lists them. The parser accepts only a `docs/` file or a `docs/` folder ending in `/**`.
 
-The list starts with `docs/release-notes/**`. To add a path, show in the same change that no Swift test, no Python release test and no gate script reads it, and update this paragraph.
+The list holds release notes, plans, reports, contracts, the architecture docs and the release handoff. To add a path, show in the same change that no Swift test, no unit-tier input and no Python release test reads it, and update this paragraph. The pre-push hook's quick documentation checks still run on every push, so a neutral path is never unchecked.
 
 ## Order of a session
 
@@ -52,7 +52,7 @@ When a session adds only one small fix, the integration, review and final-candid
 | One unit-tier run at a time on the Mac | The unit tier keeps all 14 cores busy for about 23 minutes. Two runs at once both slow down. |
 | Push after evidence exists | Push a commit only after unit-tier evidence covers it, so the pre-push hook skips the unit tier. Never push with `--no-verify` to skip a unit tier that has not run. |
 | A red unit tier is diagnosed, not retried | Read the failure in the evidence folder, rerun only the failing class to tell a product fault from a test fault, fix the cause in a new commit, and run the unit tier once on that commit. `package` refuses a commit whose newest unit-tier result failed. |
-| The notes file is the version | `scripts/release/release_version.py` reads the newest `docs/release-notes/<YYYY.M.PATCH>.md`, and packaging stamps it into the app after compiling. Never edit a version in Swift, the Xcode project, the help book or the managed-tools lock. |
+| The notes file is the version | `scripts/release/release_version.py` reads the newest `docs/release-notes/<YYYY.M.PATCH>.md`, and packaging stamps it into the app after compiling. A release never edits a version in Swift, the Xcode project, the help book or the managed-tools lock. |
 | Package compiles while the gates run | `package` starts the Release build at once and writes the candidate receipt only after every gate has passed. A failed gate stops the build and leaves no receipt. |
 | Stable keeps the full tier | A Stable release still runs `bash scripts/full-suite-gate.sh --tier full` before packaging, as AGENTS.md requires. Evidence reuse shortens Preview work only. |
 

@@ -21,7 +21,9 @@ public enum LungfishAppVersion {
     /// The version unstamped builds report. Releases never change it. Raise it
     /// only when a test or a bundled resource needs a newer floor, such as a
     /// demo project's `minimumAppVersion`, and change `MARKETING_VERSION` in
-    /// Lungfish.xcodeproj and the managed-tools lock `version` with it.
+    /// Lungfish.xcodeproj and the managed-tools lock `version` with it. That
+    /// is a deliberate code change, not a release step, and it changes the
+    /// managed-tools manifest hash, so installed apps re-check their tools once.
     public static let developmentBaseline = "2026.10.10"
 
     /// `YYYY.M.PATCH` without leading zeros, the only shape a release carries.
